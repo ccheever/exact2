@@ -93,6 +93,9 @@ test('price rows: mapping drops the own price, a self mapping is refused, cleari
   expect(parseUsagePriceForm({ ...usagePriceForm('m'), inputCostPerMillionTokens: '1.5', outputCostPerMillionTokens: '3', cacheReadCostPerMillionTokens: '0' }))
     .toEqual({ model: 'm', price: { inputCostPerMillionTokens: 1.5, outputCostPerMillionTokens: 3, cacheReadCostPerMillionTokens: 0 } });
   expect(parseUsagePriceForm({ ...usagePriceForm('m'), inputCostPerMillionTokens: '-1', outputCostPerMillionTokens: '3' })).toBeNull();
+  expect(parseUsagePriceForm({ ...usagePriceForm('m'), inputCostPerMillionTokens: '2,5', outputCostPerMillionTokens: '0,075' }))
+    .toEqual({ model: 'm', price: { inputCostPerMillionTokens: 2.5, outputCostPerMillionTokens: 0.075 } });
+  for (const bad of ['1,2,3', '1.2,3', '1,2.3']) expect(parseUsagePriceForm({ ...usagePriceForm('m'), inputCostPerMillionTokens: bad, outputCostPerMillionTokens: '3' })).toBeNull();
   const priced = target({ prices: { x: price } });
   expect(tableChanges(priced, [draft({ alias: 'gpt-6' })]).changes).toEqual([{ model: 'x', alias: 'gpt-6' }, { model: 'x', price: null }]);
   expect(tableChanges(priced, [draft({ alias: 'x' })]).errors.get('model:x')).toBe('Map to a different model.');
@@ -102,6 +105,16 @@ test('price rows: mapping drops the own price, a self mapping is refused, cleari
   expect(tableChanges(mapped, [draft({ removed: true })]).changes).toEqual([{ model: 'x', alias: null }]);
   expect(tableChanges(target({ prices: { x: price }, aliases: { x: 'y' } }), [draft({ removed: true })]).changes).toEqual([{ model: 'x', price: null }, { model: 'x', alias: null }]);
   expect(tableChanges(target(), [draft({ id: 'new:2', model: 'z', isNew: true, values: { inputCostPerMillionTokens: '2' } })]).errors.get('new:2')).toBe('Output is required on Mac.');
+  // usagePriceTable.test.ts: price edits on a row an environment maps are refused, and the saved batch may not loop.
+  expect(tableChanges(mapped, [draft({ values: { inputCostPerMillionTokens: '2' } })]).errors.get('model:x'))
+    .toBe('Mac maps this model. Remove it from "Apply to" or clear its mapping first.');
+  expect(tableChanges(mapped, [draft({ alias: 'gpt-6', values: { inputCostPerMillionTokens: '2' } })]).errors.size).toBe(0);
+  const chain = target({ aliases: { a: 'b' } });
+  expect(tableChanges(chain, [draft({ id: 'model:b', model: 'b', alias: 'a' })]).errors.get('model:b')).toBe('Model mappings cannot form a cycle on Mac.');
+  expect(tableChanges(target({ aliases: { a: 'b', b: 'c' } }), [draft({ id: 'new:3', model: 'c', isNew: true, alias: 'a' })]).errors.get('new:3')).toBe('Model mappings cannot form a cycle on Mac.');
+  // Clearing a mapping and reversing it in one save is no cycle.
+  expect(tableChanges(chain, [draft({ id: 'model:a', model: 'a', alias: '' }), draft({ id: 'model:b', model: 'b', alias: 'a' })]))
+    .toEqual({ changes: [{ model: 'a', alias: null }, { model: 'b', alias: 'a' }], errors: new Map() });
   expect(settingsPatch(target({ aliases: null }), [{ model: 'x', alias: 'y' }])).toEqual({ error: 'Update server to map models' });
   expect(settingsPatch(target(), [{ model: 'x', alias: 'y' }, { model: 'x', price: null }])).toEqual({ patch: { usagePriceOverrides: { x: null }, usageModelAliases: { x: 'y' } } });
   expect(aliasCell([target({ aliases: null })], 'x')).toEqual({ value: '', placeholder: 'Unavailable' });
@@ -199,7 +212,11 @@ const { usagePriceEdit } = contractFns('pages-usage-prices.contract', [], { rang
 test.each([['TypeScript', isUsagePriceEdit], ['Contract', usagePriceEdit as (previous: string, next: string) => boolean]] as const)('%s: price cells take only numbers while typing', (_name, edit) => {
   for (const price of ['0.075', '.5', '15', '1e-7', ' 2.5 '])
     for (let end = 1; end <= price.length; end++) expect(edit(price.slice(0, end - 1), price.slice(0, end))).toBe(true);
-  for (const next of ['a', '3a', '$3', '-1', '1.2.3', 'e', '1,000']) expect(edit('', next)).toBe(false);
+  for (const next of ['a', '3a', '$3', '-1', '1.2.3', 'e', '1,2,3', '1.2,3', ',e5']) expect(edit('', next)).toBe(false);
+  // A comma reads as the decimal point (usagePriceForm.test.ts "reads a comma as the decimal point").
+  for (const price of ['2,5', ',5', '0,075', '1,5e-7'])
+    for (let end = 1; end <= price.length; end++) expect(edit(price.slice(0, end - 1), price.slice(0, end))).toBe(true);
+  expect(edit('1,2', '1,2.3')).toBe(false);
   // Deleting part of a price is never blocked; replacing it with a non-number is.
   expect(edit('1e-7', 'e-7')).toBe(true);
   expect(edit('1e-7', '1-7')).toBe(true);

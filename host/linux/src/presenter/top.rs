@@ -705,7 +705,7 @@ impl<D: DataSource> Presenter<D> {
     /// and Space choose the focused row. Whether a surface took the key.
     /// Whether a surface is open to take the keys ([`Self::surface_key`]).
     pub(crate) fn surface_takes_keys(&self) -> bool {
-        self.alert.is_some() || self.top.open.is_some()
+        self.alert_takes_back() || self.top.open.is_some()
     }
 
     #[cfg(windows)]
@@ -1168,7 +1168,7 @@ impl<D: DataSource> Presenter<D> {
     /// finger is, and the touch presses nothing when it lifts. Whether a
     /// node took it. Nothing on a host with no top layer.
     pub fn long_press(&mut self, x: f32, y: f32, now_ms: f64) -> bool {
-        if (!self.has_windows() && !self.neutral_alerts()) || self.top_open() {
+        if (!self.has_windows() && !self.neutral_alerts()) || self.page_inert() {
             return false;
         }
         let Some(hit) = self.hit(x, y) else {
@@ -1315,9 +1315,12 @@ impl<D: DataSource> Presenter<D> {
     /// Report the shell's frame in viewport points and whether it opened
     /// modally. A popover leaves the document reachable to structural reads.
     /// Native alerts, as on Apple, report no authored geometry.
-    fn report_top_layer(&mut self) {
+    pub(super) fn report_top_layer(&mut self) {
         let Some(open) = &self.top.open else {
-            self.host.runner_mut().top_layer_frames(&[], None);
+            // An open authored popover is the page's own subtree, drawn at its
+            // box (alert.rs): reads see it, as the web's do.
+            let frames: Vec<_> = self.alert_popover_frame().into_iter().collect();
+            self.host.runner_mut().top_layer_frames(&frames, None);
             return;
         };
         let rect = match open.kind {

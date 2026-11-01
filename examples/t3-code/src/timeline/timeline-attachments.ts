@@ -1,5 +1,6 @@
 import { toolImageAction, toolImagePreview, toolImageUrls } from './tool-images';
 import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
+import { contextLink } from '../composer/composer-editor-menu';
 // Sent attachments in user messages, adapted from T3 Code (MIT, see
 // LICENSE-T3): MessagesTimeline.tsx UserTimelineRow (a two-column image grid
 // at most 210pt wide, a SnapShot spanning both columns in a 208×112 frame with
@@ -11,18 +12,36 @@ import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { fileIconToken } from '../shared/timeline-files';
 import { assetUrl } from '../settings/settings-b-icons';
-import { imageChipInks } from './message-chips';
-import { videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
+import { GENERIC_MIME_TYPES, videoMimeType } from '../composer/composer-video'; // sent videos (UserVideoAttachment)
 import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from '../media/media-views'; // the transcript's host-path media
 import { letGo } from '../client/let-go';
-import { imageAccent } from '../media/image-accent';
 import { encodeMediaSource, mediaTooltip } from '../media/media-actions';
 import { syncInlineDocuments } from './inline-documents';
 import { draftThreadId } from '../composer/draft-thread-id';
 import { MEDIA_CACHE } from '../media/media-frame';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
-export interface MessageFile { id: string; name: string; icon: string }
+/** A sent file: `label` its name ("Pasted text" for a paste), `detail` its card's line ("TXT · 1.20 KB", a paste's size
+ *  alone), `note` its list row's line (a paste's size), and `sending` while the server has not stored it ("Sending…"). */
+export interface MessageFile { id: string; name: string; icon: string; label: string; detail: string; note: string; sending: boolean }
+
+/** lib/formatBytes.ts (v0.1.6): the unit picked after rounding, so 1023.6 KB reads "1.00 MB". */
+export function formatBytes(value: number): string {
+  const scaled = (next: number) => next.toFixed(next >= 100 ? 0 : next >= 10 ? 1 : 2);
+  if (Math.round(value) < 1_024) return `${Math.round(value)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let next = value / 1_024, unit = 0;
+  while (Number(scaled(next)) >= 1_024 && unit < units.length - 1) { next /= 1_024; unit += 1; }
+  return `${scaled(next)} ${units[unit]}`;
+}
+/** userMessageFileLabel: a paste reads "Pasted text", any other file its name. */
+export const userMessageFileLabel = (attachment: Obj): string => obj(attachment.source)._tag === 'pasted-text' ? 'Pasted text' : str(attachment.name);
+function messageFile(attachment: Obj): MessageFile {
+  const name = str(attachment.name), pasted = obj(attachment.source)._tag === 'pasted-text', sending = attachment.downloadable === false;
+  const size = formatBytes(Number(attachment.sizeBytes) || 0), extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toUpperCase() ?? 'File';
+  return { id: str(attachment.id), name, icon: fileIconToken(name), label: userMessageFileLabel(attachment),
+    detail: sending ? 'Sending…' : pasted ? size : `${extension} · ${size}`, note: sending ? 'Sending…' : pasted ? size : '', sending };
+}
 
 /** A user message's images (annotation previews stay out, as the reference filters them), audio and files.
  *  A sent video is a grid tile after the images (UserVideoAttachment), a downloadable sound an audio chip
@@ -39,23 +58,57 @@ export function messageAttachments(item: Obj): { images: MessageImage[]; attachF
       images.push({ id, name, snapshot, appName, appInitial: appName.slice(0, 1).toUpperCase(), windowTitle: snapshot ? str(source.windowTitle) || 'Captured window' : '',
         accessible: snapshot && (!!source.accessibility || !!str(source.accessibleText).trim()), video: false });
     } else if (attachment.type === 'file' && isSentVideo(attachment)) videos.push({ id, name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: false, video: true });
-    else if (attachment.type === 'file' && isSentAudio(attachment)) audio.push({ id, name, icon: fileIconToken(name) });
-    else if (attachment.type === 'file') attachFiles.push({ id, name, icon: fileIconToken(name) });
+    else if (attachment.type === 'file' && isSentAudio(attachment)) audio.push(messageFile(attachment));
+    else if (attachment.type === 'file') attachFiles.push(messageFile(attachment));
   }
   return { images: [...images, ...videos], attachFiles, audio };
+}
+
+/**
+ * How TimelineUserMessageRow shapes a sent message that is not folded (v0.1.6): images or videos sent without words show
+ * as media with no bubble (`media`), and sent with words sit above the bubble (`mediaAbove`); files or a voice note sent
+ * without words show as file cards (`files`) or a bubble-shaped audio chip (`audio`). `layout` is the standalone media's:
+ * a lone image keeps its own shape (`lone`), several share one rounded collage (`collage`), and videos or SnapShots
+ * among them sit in a 20rem stack (`stack`). `files` is the files to draw: every file for cards, else those the prose
+ * has no chip for. `copy` is what Copy takes from a wordless media message: its media's references.
+ */
+export function userMessageShape(item: Obj, text: string, attached: ReturnType<typeof messageAttachments>, chipped: ReadonlySet<string>, folded: boolean) {
+  const images = attached.images.filter(image => !image.video), videos = attached.images.filter(image => image.video);
+  const unchipped = attached.attachFiles.filter(file => !chipped.has(file.id));
+  const unknown = arr(item.attachments).filter(attachment => attachment.type !== 'image' && attachment.type !== 'file').length;
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
+  // The prose with the references to `ids` dropped and every other reference read as its label.
+  const wordsBesides = (ids: ReadonlySet<string>) => replaceLinks(text, contextLinks(text), link => {
+    const target = contextTarget(link.href), record = target ? records.get(target.id) : undefined;
+    return record && (str(record.kind) === 'file' || str(record.kind) === 'image') && ids.has(str(record.attachmentId)) ? '' : link.label;
+  }).trim();
+  const media = images.length + videos.length;
+  const mediaOnly = !folded && text.trim() === '' && attached.audio.length === 0 && unchipped.length === 0 && unknown === 0 && media > 0;
+  const mediaAbove = !folded && !mediaOnly && media > 0;
+  const fileCards = !folded && attached.attachFiles.length > 0 && media + attached.audio.length + unknown === 0
+    && wordsBesides(new Set(attached.attachFiles.map(file => file.id))) === '';
+  const audioOnly = !folded && attached.audio.length > 0 && media + attached.attachFiles.length + unknown === 0
+    && wordsBesides(new Set(attached.audio.map(file => file.id))) === '';
+  const standalone = mediaOnly || mediaAbove;
+  const layout = !standalone ? '' : videos.length === 0 && images.length === 1 ? 'lone'
+    : videos.length === 0 && images.length > 1 && images.every(image => !image.snapshot) ? 'collage' : 'stack';
+  const mediaIds = new Set(attached.images.map(image => image.id));
+  const copy = mediaOnly ? arr(obj(item.context).records)
+    .filter(record => (str(record.kind) === 'image' || str(record.kind) === 'file') && mediaIds.has(str(record.attachmentId)))
+    .map(record => contextLink(str(record.kind), str(record.contextId), str(record.label))).join('\n') : '';
+  return { shape: mediaOnly ? 'media' : fileCards ? 'files' : audioOnly ? 'audio' : '', mediaAbove, layout, files: fileCards ? attached.attachFiles : unchipped, copy };
 }
 
 const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) !== null;
 /**
  * filePreviewKind "audio" (shared/filePreview.ts): an audio MIME type, or a sound's extension under a generic one (none,
- * application/octet-stream or text/plain), the MIME type read without its parameters.
+ * GENERIC_MIME_TYPES or text/plain), the MIME type read without its parameters.
  */
 export function isSentAudio(attachment: Obj): boolean {
   const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
-  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
+  const generic = !mime || GENERIC_MIME_TYPES.has(mime) || mime === 'text/plain';
   return attachment.downloadable !== false && (mime.startsWith('audio/') || generic && /\.(mp3|wav|ogg|oga|flac|aac|m4a|opus|aiff|weba)$/i.test(str(attachment.name)));
 }
-const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
 /** shared/image.ts isSvgAttachment: an SVG MIME type, or a `.svg` name under a generic one. */
 export function isSvgAttachment(attachment: Obj): boolean {
   const mime = str(attachment.mimeType).split(';', 1)[0]!.trim().toLowerCase();
@@ -95,7 +148,7 @@ export function withoutSoundReferences(text: string, item: Obj): string {
 }
 const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
-type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
+type AttachmentUrl = { id: string; url: string };
 export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number, systemScheme?: string): Promise<{ items: AttachmentUrl[] }> {
   if (!native?.available || client.connection !== 'connected') return { items: [] };
   await syncInlineDocuments(client, native, now, systemScheme);
@@ -115,7 +168,7 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // Queued messages' images (the queued rows' thumbnails and the edit's kept attachments).
   const queuedMessages = new Set(arr(client.projection.runs).filter(run => run.status === 'queued').map(run => str(run.userMessageId)));
   for (const message of arr(client.projection.messages)) if (queuedMessages.has(str(message.id))) for (const attachment of arr(message.attachments)) if (attachment.type === 'image' && str(attachment.id)) wanted.push(attachment);
-  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [], videoIds = new Set(wanted.filter(entry => entry.type === 'file' && !isSvgAttachment(entry)).map(entry => str(entry.id)));
+  const items: { id: string; url: string }[] = [], failed: { id: string; url: string }[] = [];
   for (const attachment of wanted.slice(-64)) {
     const id = str(attachment.id), key = JSON.stringify([client.generation, client.environmentId, id]);
     const cached = urls.get(key);
@@ -133,22 +186,22 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // The visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
-  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  const media: AttachmentUrl[] = await markdownMediaUrls(client, native, root, now);
   // The linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
   const preview = activeMediaPreview(client);
   if (preview && !preview.url) {
     try { preview.url = await signMediaFile(client, native, preview.path); } catch (error) { if (letGo(error)) throw error; }
   }
-  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
+  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url } : { id: `failed:${preview.key}`, url: '' });
   media.push(...await galleryUrls(client, native, now, new Set(media.map(item => item.id))));
-  return { items: [...await withAccents(client, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media, ...await toolImageUrls(client, native, now)] };
+  return { items: [...items, ...failed, ...media, ...await toolImageUrls(client, native, now)] };
 }
 /** The open Markdown gallery's URLs the transcript's do not hold: a web image as written, a host path signed through the
  *  thread (a draft's own in Files) with the document's folder and workspace, as its view signed it. */
 async function galleryUrls(client: T3Client, native: Native, now: number, known: Set<string>): Promise<AttachmentUrl[]> {
   const gallery = activeGallery(client), out: AttachmentUrl[] = [];
   if (!gallery) return out;
-  const add = (entry: { id: string; url: string }) => { if (!known.has(entry.id)) { known.add(entry.id); out.push({ ...entry, ...NO_INKS }); } };
+  const add = (entry: { id: string; url: string }) => { if (!known.has(entry.id)) { known.add(entry.id); out.push(entry); } };
   for (const item of gallery.items) if (item.access === 'direct') add({ id: item.key, url: item.key });
   if (gallery.signThread) for (const entry of await markdownMediaUrls(client, native, gallery.root, now, [gallery.text], { ...gallery.scope, threadId: gallery.signThread })) add(entry);
   return out;
@@ -290,22 +343,3 @@ export function imagePreviewView(client: T3Client) {
     imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 
-// ImageChipButton tints its chip with the picture's average colour (image-accent.ts).
-const accents = new Map<string, { fill: string; hover: string; border: string; ink: string }>();
-const NO_INKS = { fill: '', hover: '', border: '', ink: '' };
-async function withAccents(client: T3Client, items: { id: string; url: string }[], videoIds = new Set<string>()): Promise<AttachmentUrl[]> {
-  const out: AttachmentUrl[] = [];
-  for (const item of items) {
-    if (videoIds.has(item.id)) { out.push({ ...item, ...NO_INKS }); continue; } // a video or a sound has no image chip to tint
-    const key = JSON.stringify([client.environmentId, item.id]);
-    if (!accents.has(key)) {
-      // A passing failure (null) is not kept: the next answer reads the image again.
-      const accent = await imageAccent(item.url, letGo);
-      if (accent === null) { out.push({ ...item, ...NO_INKS }); continue; }
-      accents.set(key, imageChipInks(accent) ?? NO_INKS);
-      if (accents.size > 256) accents.delete(accents.keys().next().value!);
-    }
-    out.push({ ...item, ...accents.get(key)! });
-  }
-  return out;
-}

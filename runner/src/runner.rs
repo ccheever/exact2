@@ -102,6 +102,7 @@ mod queue;
 mod resource_inspection;
 mod world_origin;
 pub use queue::QUEUE_BOUND;
+mod history;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
@@ -1262,8 +1263,10 @@ impl<D: DataSource> Runner<D> {
         std::mem::take(&mut self.surfaces)
     }
 
-    /// The commands actions emitted since the last take.
+    /// The commands actions emitted since the last take, and the runner's
+    /// own scroll to a fragment once its route's content has arrived.
     pub fn take_commands(&mut self) -> Vec<Command> {
+        self.fragment_command();
         std::mem::take(&mut self.commands)
     }
 

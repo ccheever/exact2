@@ -97,6 +97,15 @@ describe('the diff panel\'s tool-call source (DiffPanel)', () => {
     client.diffText = adoptDiff(client, diffRequest(client), { item: { id: 'item-1', type: 'file_change', fileName: 'src/a.ts', oldStr: 'old', newStr: '' } });
     expect(diffSnapshot(client, 0).diffToolCallContent).toEqual([{ label: 'Recorded content before', text: 'old' }, { label: 'Recorded content after', text: 'Empty content.' }]);
   });
+  // DiffPanel hasNoNetChanges: only a patch that resolved blank has no net changes; a call that recorded none has no patch.
+  it('a change with no recorded patch reads "No patch available"; a blank patch reads "No net changes"', () => {
+    const client = fixture();
+    selectToolCall(client, 'item-1');
+    client.diffText = adoptDiff(client, diffRequest(client), { item: { id: 'item-1', type: 'file_change', fileName: 'src/a.ts', changes: [{ operation: 'update', path: 'src/a.ts' }] } });
+    expect(diffSnapshot(client, 0)).toMatchObject({ diffEmpty: true, diffToolCallContent: [], diffEmptyLabel: 'No patch available for this selection.' });
+    client.diffText = adoptDiff(client, diffRequest(client), { item: { id: 'item-1', type: 'file_change', fileName: 'src/a.ts', diffStr: '', changes: [{ operation: 'update', path: 'src/a.ts' }] } });
+    expect(diffSnapshot(client, 0)).toMatchObject({ diffEmpty: true, diffEmptyLabel: 'No net changes in this selection.' });
+  });
   it('a row that is not a file change opens nothing', () => {
     expect(() => selectToolCall(fixture(), 'missing')).toThrow('That file change is no longer available.');
   });

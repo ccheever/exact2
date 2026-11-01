@@ -5,7 +5,8 @@
 
 use super::Presenter;
 use crate::host::HostError;
-use exact_runner::DataSource;
+use exact_plan::EventKind;
+use exact_runner::{DataSource, Event};
 
 impl<D: DataSource> Presenter<D> {
     /// Run the last commits' commands (LLP 1005 §3): delivery belongs to the
@@ -59,6 +60,7 @@ impl<D: DataSource> Presenter<D> {
     /// [`Presenter::run_commands`] but for activating a staged update, which
     /// waits for the next full run: it needs a data source.
     pub(super) fn run_queued_commands(&mut self) {
+        let mut floats = Vec::new();
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {
                 "deliveryCheck" => {
@@ -108,6 +110,8 @@ impl<D: DataSource> Presenter<D> {
                 "setRangeText" => self.set_range_text(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
+                // The runner's own, once a fragment's route has its content (LLP 1153 D5).
+                "scrollToFragment" => self.scroll_to_fragment(&c.args),
                 // `Element.scrollBy(x, y)`, by its id.
                 "scrollBy" => self.scroll_element_by(&c.args),
                 // The inverse of `message=`: text into the named surface's
@@ -158,10 +162,15 @@ impl<D: DataSource> Presenter<D> {
                 "openURL" if self.has_shell() || self.url_opener.is_some() => self.open_url(&c.args),
                 // With no shell there is no clipboard or browser; and no
                 // editor, dev menu or window to close on any Linux host, and
-                // no media player (LLP 1042 §8): known, and named so.
+                // no media player (LLP 1042 §8) or floating window (§9): known, and named so.
                 name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
-                | "load") => {
+                | "load" | "exitPictureInPicture") => {
                     eprintln!("exact: {name} unsupported on the headless/DRM host")
+                }
+                // The image hears the refusal too, once the commands have run (LLP 1042 §9).
+                "requestPictureInPicture" => {
+                    eprintln!("exact: requestPictureInPicture unsupported on the headless/DRM host");
+                    floats.extend(c.args.first().and_then(exact_plan::Value::as_str).map(str::to_owned));
                 }
                 // Recording a trace is the Apple hosts'
                 name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
@@ -170,9 +179,40 @@ impl<D: DataSource> Presenter<D> {
                 other => eprintln!("exact: unknown command {other}"),
             }
         }
+        for id in floats {
+            self.refuse_picture_in_picture(&id);
+        }
         // Selection events are queued tasks: the input's commands run first.
         self.drain_field_select_tasks();
         self.dispatch_toggles();
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// `requestPictureInPicture(id)` refused: the image's `pictureinpictureerror`, with the reason.
+    fn refuse_picture_in_picture(&mut self, id: &str) {
+        const WHY: &str = "picture in picture is unsupported on the headless/DRM host";
+        let kernel = self.host.kernel();
+        let Some(view) = kernel
+            .find_by_id(id)
+            .into_iter()
+            .find_map(|key| kernel.node_by_key(key).map(|n| n.id))
+        else {
+            return;
+        };
+        if !self
+            .host
+            .runner()
+            .handlers_of(view)
+            .contains(&EventKind::Pictureinpictureerror)
+        {
+            return;
+        }
+        let event = Event::Media(EventKind::Pictureinpictureerror, WHY.into());
+        let sent = self.host.dispatch_now(view, event);
+        if let Some(error) = sent.or(self.after_commit()) {
+            self.host.log(error);
+        }
     }
 }
 

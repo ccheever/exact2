@@ -39,7 +39,7 @@ const DRIVE = [
   ['--process <target>=<file>|script:<file.json>|real · --login-env NAME=value · --home <dir>', 'macOS, Linux: what a child process is (none runs unnamed; `all=real` runs every one), the login shell\'s variables, home:/ for the data code (LLP 1133.007 §7)'],
   ['--url <url> · --browser chrome|firefox|webkit', 'web: drive a page already served (the dev loop\'s) instead of building · web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
-  ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
+  ['--device · --phone <udid|name> · --reader · --headless', 'a connected iPhone (built with ios --device), and which · Android: the APK (an `exact new` app\'s default) · the Linux host under adb shell'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
   ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json> · --placement <name> · --state <json>', 'gallery: widget variant/props or activity placement/state; --size large|xxxl is widget text size'],
@@ -107,19 +107,39 @@ export const HELP = {
   },
   'web-build': {
     line: 'build the web app once (the page test web and agent web drive)',
-    usage: 'bun exact.mjs web-build [--render rust|js|none]',
+    usage: 'bun exact.mjs web-build [--out <dir>] [--render rust|js|none]',
     flags: [
-      ['--render rust|js|none', 'pre-rendered pages: rust (default, the app\'s <app>-render entry), js (Bun), none'],
+      ['--out <dir>', 'a release build there (inside the app: dist), as deploy publishes, and how a static host serves it'],
+      ['--render rust|js|none', 'pre-rendered pages: rust (the app\'s <app>-render entry; the default where it has one), js (Bun; the default otherwise), none'],
     ],
     internal: ['--js', '--wasm', '--bake'],
     body: `Builds the JS target (a game: wasm) into the app's target/web-dist; about a second when
-nothing changed. A capability the JS runtime lacks fails the build, named.
+nothing changed. A capability the JS runtime lacks fails the build, named. Beside the pages
+are shell.html and routes.json, the route table a static host serves them by (serve).
 Ports    none. Runs to completion: exit 0 when it built. test web and agent web run it first.`,
-    example: 'bun exact.mjs web-build',
+    example: 'bun exact.mjs web-build --out dist && bun exact.mjs serve dist',
+  },
+  serve: {
+    line: 'serve a built site, as a static host would (npm start)',
+    usage: 'bun exact.mjs serve [<dir>] [--port <n>] [--lan]',
+    flags: [
+      ['--port <n>', 'listen on <n> (default: PORT from the environment, else 8765)'],
+      ['--lan', 'bind every interface, so another device on this network opens it'],
+      ['--origin <dir>', 'a directory deploy published to, in place of a build'],
+    ],
+    internal: ['--loopback'],
+    body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
+file at its path; else, for a browser's navigation to a path a route in routes.json matches,
+shell.html with 200, or for a render=request or cached route its page rendered under Bun;
+else 404.html with 404. A static host serves the directory so, with those routes' shell.
+Beside the app's sources, a navigation after a source changed builds the site again first
+(no restart); a build that fails is the answer, with its errors.
+Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
+    example: 'bun exact.mjs serve dist --port 3000',
   },
   test: {
     line: 'run *.test.contract (or the files named) on a host: web by default',
-    usage: 'bun exact.mjs test [web|ios|macos|linux|android] [<file.test.contract>|<glob>]… [flags]',
+    usage: 'bun exact.mjs test [web|ios|macos|linux|windows|android] [<file.test.contract>|<glob>]… [flags]',
     common: ['test [web|ios] [<file>…] [--size <w>x<h>] [--sim <name>]'],
     flags: DRIVE.filter(naming(['--size', '--sim'], true)),
     more: [
@@ -129,8 +149,8 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     ],
     internal: [...TEST_IGNORES, ...DRIVE_INTERNAL],
     body: `Compiles first, a compile error said as contract build says it, so no contract build before
-it: web builds the app (web-build); ios and macos build when the build is missing or
-older than its sources, saying so on stderr. Each test launches the app fresh with its own
+it: web builds the app (web-build); ios, macos and windows build when the build is missing or
+older than its sources, saying so on stderr; windows drives at app.json's window size. Each test launches the app fresh with its own
 store, after its first data has landed; its leading lines (size, epoch, fail fetch …)
 override flags.
 Server   runs server.ts on DB=.exact/test/db.sqlite; refuses a live server or an entry ignoring DB.
@@ -148,7 +168,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
   },
   agent: {
     line: 'drive an app: tree, tap, type, state, screenshot, clock …',
-    usage: 'bun exact.mjs agent [web|ios|macos|linux|android] [flags] <op> [<op> …]',
+    usage: 'bun exact.mjs agent [web|ios|macos|linux|windows|android] [flags] <op> [<op> …]',
     common: ['agent [web|ios] [--storage <name>] [--size <w>x<h>] [--sim <name>] <op> …',
       '  each op one quoted argument: "tap <target>" "type <target> <text>" "clock data|settle|+<ms>" "state [<name>]" tree "check [both]" "screenshot <png>" "resize <w>x<h>" "prefer <feature> <value>" back'],
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
@@ -169,7 +189,7 @@ Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else
   },
   verify: {
     line: 'build if stale, run *.test.contract, check each screen it reaches light and dark, relaunch once',
-    usage: 'bun exact.mjs verify [web|ios] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
+    usage: 'bun exact.mjs verify [web|ios|windows|android] [--sim <udid|name>] [--shots <dir>] [--rescroll] [--json]',
     common: ['verify [ios] [--shots <dir>] [--sim <name>]    done when it says "verify: clean"'],
     flags: [
       ['--sim <udid|name>', 'iOS: which simulator (else EXACT_SIM, a booted iPhone, or the newest Pro)'],
@@ -195,6 +215,7 @@ Large    each of those screens again at the largest text size (ios: the simulato
          smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
          on a text of several words (a UILabel hyphenates only a word longer than its line; a
          grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
+Native   windows: headless at app.json's window size, then the desktop's window (windows-window.png); android: the APK, light and dark. Neither checks, reads the largest text or scrolls yet.
 Scroll   ios: ~15 s of real touches on a long first-screen list, once per build (host/apple/feel): "like UIKit", or
          a counted finding per metric the app can fix; Exact's own one uncounted line; load > cores: physics only.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
@@ -262,21 +283,27 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs linux && bun exact.mjs test linux',
   },
   android: {
-    line: 'build the Linux host for Android (test and agent android drive it over adb)',
-    usage: 'bun exact.mjs android',
-    flags: [],
-    // The app on the Canvas reader, as an APK (host/android/README.md): for an app with an `android/` crate,
-    // which `exact new` does not write yet, or a game (its shell generates one). --release builds the
-    // release profile, for measuring.
-    // --write-locks writes the Gradle lock and verification files of an app whose modules name Maven libraries.
-    internal: ['--apk', '--release', '--write-locks'],
-    body: `Builds for aarch64-linux-android and prints the binary's path; the drive runs it under
-adb shell on the first device or emulator (ANDROID_SERIAL picks one). Needs the NDK
-(ANDROID_NDK_HOME, else the newest under the SDK's ndk/) and, once in this directory,
-rustup target add aarch64-linux-android. A TypeScript data module also needs the
-Android Hermes bundle (bun <exact2>/scripts/hermes-android.mjs build, once).
+    line: 'build the APK and install it (test, agent and verify android drive it)',
+    usage: 'bun exact.mjs android [--run] [--headless]',
+    flags: [
+      ['--run', 'launch it once installed'],
+      ['--headless', 'build the Linux host for Android instead (agent android --headless runs it under adb shell)'],
+    ],
+    // `--apk --install` are the verb's own; --release builds the release profile, for measuring; --write-locks writes
+    // the Gradle lock and verification files of an app whose modules name Maven libraries.
+    internal: ['--apk', '--install', '--release', '--write-locks'],
+    body: `Builds android/ for aarch64-linux-android, packages it with exact2's Canvas reader
+(host/android) into an APK under target/android/, prints its path and installs it on the
+device: ANDROID_SERIAL, else the one adb lists (with several and none named, it refuses).
+With no device it builds and says so. test android and agent android drive the installed
+APK and refuse one older than its sources, naming this command.
+Needs    the SDK (ANDROID_HOME) with platform 37.2 and an NDK, a JDK 17+ (JAVA_HOME), once in
+         this directory rustup target add aarch64-linux-android, and the Android Hermes
+         bundle (~/.cache/exact/hermes-android; bun <exact2>/scripts/hermes-android.mjs).
+Device   an emulator elsewhere: adb connect 127.0.0.1:<port> through an ssh tunnel to its
+         adb port, then ANDROID_SERIAL=127.0.0.1:<port>.
 Ports    none. Runs to completion.`,
-    example: 'bun exact.mjs android && bun exact.mjs agent android tree',
+    example: 'ANDROID_SERIAL=emulator-5554 bun exact.mjs android && bun exact.mjs test android',
   },
   game: {
     line: 'game vocab: fields, defaults and recipes',
@@ -322,21 +349,21 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs docs tabular numbers',
   },
   pattern: {
-    line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest',
+    line: 'start from a working, tested app: one-screen, list-detail, tabs, dashboard, rest, site',
     usage: 'bun exact.mjs pattern [<name>] [--force]',
     common: ['pattern [<name>]    a working, tested starter'],
     flags: [['--force', 'replace a file you edited (without it, it is refused, named)']],
     body: `With no name, lists the patterns. With one, writes its app.contract, app.ts and
-app.test.contract here (and what else it needs: rest's server.ts) with this
-app's id and name, then the types app.ts imports. A file still as exact new or a pattern
-wrote it is replaced; one you edited is refused unless --force. Each pattern passes its own
-tests and no-tells; rest's run with test or verify, which run its server.
+app.test.contract here (and what else it needs: rest's and site's server.ts, site's .env and
+app.json keys) with this app's id and name, then the types app.ts imports. A file still as exact
+new or a pattern wrote it is replaced; one you edited is refused unless --force. Each pattern
+passes its own tests and no-tells; rest's and site's run with test or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|pen|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import css <stylesheet> [--app <app>] | import shadcn|tailwind|dtcg|pen|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],
@@ -362,9 +389,10 @@ bindings from the IR, generated and never committed (LLP 1121 D12): ts, tamber.t
 ColorToken union, each token's CSS per mode) and tamber.css; rust, tamber.rs, a
 Token<Color> constant a token (SURFACE_CARD), which session.tamber().get resolves; swift,
 tamber.swift, ExactTamberToken.surfaceCard for a native view's ExactTamber(view). op takes
-that token and sends one request, or prints the change stream (subscribe). import reads
-another system's theme and holds it on the server as proposals to accept: the tokens as
-one, each role override apart; every source value is mapped or reported, counted.
+that token and sends one request, or prints the change stream (subscribe). import css
+writes a stylesheet's :root custom properties into the design, between markers a later
+import of it rewrites, naming each it refuses (LLP 1153 D6). import <kind> holds another
+system's theme on the server as proposals: the tokens as one, each role override apart.
 tool is the design tool (LLP 1122), built if stale, served by the design server at
 http://127.0.0.1:7740/__tamber/tool/ and opened. docs/recipes/tamber.md.
 Ports    serve: a loopback port (printed), until ctrl-c; tool: 127.0.0.1:7740, the one its
@@ -398,14 +426,16 @@ Ports    none. Runs to completion.`,
   },
   update: {
     line: 'after exact2 moves: rewrite exact.mjs, patches, toolchain and exact2 paths',
-    usage: 'bun exact.mjs update [--without linux]',
+    usage: 'bun exact.mjs update [--with <platforms>] [--without <platform>]',
     flags: [
-      ['--without <platform>', 'stop building and shipping linux (which Android builds too) or android: removes its crate, workspace member and app.json keys, and re-resolves Cargo.lock'],
+      ['--with <platforms>', 'name native platforms in app.json (ios, mac, linux, android, windows), as their verbs do on first use'],
+      ['--without <platform>', 'stop shipping a platform: its app.json keys go; in an app that authored its crates, linux or android also lose their crate, workspace member and lock entries'],
     ],
     internal: ['--update'],
     body: `Also rewrites AGENTS.md's generated block and adds the use lines the app's files lack;
 app.json commands and your files are kept. EXACT2=<path> names another exact2 checkout.
-An app without app.json deploy.store.linux gets no linux/ crate back.
+An app that authored no Cargo workspace has none to rewrite: its native workspace is
+generated under .exact/ by the verb that builds it.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs update',
   },
@@ -452,10 +482,10 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs lock',
   },
   windows: {
-    line: 'build the Windows game into dist-windows/ (on Windows)',
+    line: 'build for Windows into dist-windows/ (--run opens it)',
     usage: 'bun exact.mjs windows [--run] [--release] [--out <dir>]',
-    flags: [['--run', 'launch it when built'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
-    body: 'Needs Windows and the MSVC Rust target.\nPorts    none. Runs to completion; with --run, until the game quits.',
+    flags: [['--run', 'open it when built: here, until it quits; from SSH, on the signed-in desktop, returning once its window is up'], ['--release', 'the release profile (default gpu-dev)'], ['--out <dir>', 'package into <dir> instead of dist-windows/, e.g. beside a copy still running']],
+    body: 'Needs Windows and the MSVC Rust target; test windows and agent windows build first when the build is stale, and\ndrive it headless. A build closes the copy the last --run opened from the same directory.\nPorts    none. Runs to completion; with --run here, until the app quits.',
     example: 'bun exact.mjs windows --run',
   },
   prove: {
@@ -478,22 +508,25 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   // exact2's own verb that makes an app (scripts/exact.mjs new), not one of an app's.
   new: {
     line: 'a new app outside this repo, using this checkout',
-    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--game [--assets]]',
+    usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows] [--game [--assets]]',
     flags: [
       ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
       ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
+      ['--with <platforms>', 'name native platforms in app.json now (a native verb names its own the first time it runs)'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
       ['--port <n>', 'the Snapback origin’s port with --snapback (default 4400)'],
       ['--game', 'a game (game/README.md): a Rust world under Contract\'s menus'],
       ['--assets', 'with --game: declare game.assets'],
       ['--update', 'rewrite an existing app\'s generated files (its exact.mjs update runs this)'],
-      ['--without <platform>', 'with --update: stop building and shipping linux or android'],
+      ['--without <platform>', 'with --update: stop shipping a platform'],
     ],
-    body: `The path's last part names the app's crates. Give --name and --bundle-id here, before the
-first build: a later change to the id makes the next build cold and leaves the old app installed.
-Then cd there: its exact.mjs runs everything, and bun exact.mjs help lists its verbs. Read
-docs/start-here.md first.
+    body: `The app is eight files and no Rust: app.contract, app.ts, app.test.contract, app.json, exact.mjs,
+AGENTS.md, package.json and .gitignore. A native verb (ios, mac, linux, android, windows) names its platform
+in app.json the first time it runs and builds in a workspace generated under .exact/ (LLP 1153 D1). Give
+--name and --bundle-id here, before the first build: a later change to the id makes the next build cold
+and leaves the old app installed. Then cd there: its exact.mjs runs everything, and bun exact.mjs help
+lists its verbs. Read docs/start-here.md first.
 Ports    none. Runs to completion.`,
     example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },

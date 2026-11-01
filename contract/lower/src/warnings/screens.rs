@@ -1,19 +1,23 @@
 //! `lower-screen-by-state` (LLP 1116.005 D1.1): an `if`/`else`, complementary
-//! sibling `if`s or a `match` that swaps the page between screens, in an app that declares no
-//! `routes`. recipe-finder and event-rsvp (round 7) did: a list and its
-//! detail, or a detail and a create form, chosen by a state, each holding a
-//! heading as a screen does, so the browser's Back left the app, a reload
-//! lost the place and nothing could be linked.
+//! sibling `if`s or a `match` that swaps the page between screens by state,
+//! at the top of the view or inside a route. On the web such a screen has no
+//! URL: the browser's Back leaves the app, a reload loses the place and
+//! nothing can be linked (rounds 7 and 34 of LLP 1116).
+//!
+//! A screen is an arm with a heading and two controls or more. A state
+//! compared with three string literals or more across one choice, in an
+//! `else if` chain or in sibling `if`s (`page == "detail"`), names pages:
+//! their arms need no heading, and the state may persist.
 //!
 //! Ordinary state stays quiet: tabs (a state a `tab` or `radio` reads), a
 //! loading, error or empty view (a condition on a resource or a mutation,
 //! or an arm of one control or none), a kept setting (a `persist` state),
 //! disclosure and an arm with no heading, anything inside a row, a button,
-//! a tab panel, a dialog or a popover. A viewport read that two sibling `if`s
-//! share as the same `or` term is the split's, not a loading view's: it is
-//! set aside and the state parts are judged. A swap counts only when a press in
-//! one of its arms moves it: the detail's Back, the list's row, a form's
-//! Cancel. The outermost swap is named once.
+//! a tab panel (other than a route's), a dialog or a popover. A viewport read
+//! that two sibling `if`s share as the same `or` term is the split's, not a
+//! loading view's: it is set aside and the state parts are judged. A swap
+//! counts only when a press in one of its arms moves it: the detail's Back,
+//! the list's row, a form's Cancel. The outermost swap is named once.
 
 use super::{computed, has, literal};
 use crate::LowerError;
@@ -27,13 +31,13 @@ const CONTROLS: &[&str] = &["button", "link", "input", "select", "textarea"];
 /// Every warning: at most one a swap, and none inside one that warned.
 pub(super) fn screen_by_state(checked: &Checked<'_>) -> Vec<LowerError> {
     let root = &checked.expanded.root;
-    // A game's screens are its art; a router's are its routes.
-    if checked.file.routes.is_some() || root.resources.iter().any(|r| r.source == "exactSurface") {
+    // A game's screens are its art.
+    if root.resources.iter().any(|r| r.source == "exactSurface") {
         return Vec::new();
     }
     let app = App::new(root);
     let mut out = Vec::new();
-    app.walk(&root.view, &mut out);
+    app.walk(&root.view, false, &mut out);
     out
 }
 
@@ -120,8 +124,9 @@ impl<'a> App<'a> {
     }
 
     /// Looks for swaps in `nodes`, outside every row, control, tab panel,
-    /// dialog and popover.
-    fn walk(&self, nodes: &[Node], out: &mut Vec<LowerError>) {
+    /// dialog and popover, and inside a route's screens: `routed` is inside
+    /// a loop over the router's stacks, whose tab panels are routes'.
+    fn walk(&self, nodes: &[Node], routed: bool, out: &mut Vec<LowerError>) {
         let mut paired = BTreeSet::new();
         for (i, node) in nodes.iter().enumerate() {
             if paired.contains(&i) {
@@ -133,16 +138,43 @@ impl<'a> App<'a> {
                         || has(attrs, "press")
                         || tag == "dialog"
                         || has(attrs, "popover")
-                        || literal(attrs, "role") == Some("tabpanel")
+                        || (!routed && literal(attrs, "role") == Some("tabpanel"))
                         || literal(attrs, "display") == Some("none")
                         || computed(attrs, "role");
                     if !closed {
-                        lists(node).into_iter().for_each(|l| self.walk(l, out));
+                        lists(node)
+                            .into_iter()
+                            .for_each(|l| self.walk(l, routed, out));
                     }
                 }
                 Node::When { .. } | Node::Match { .. } => {
                     let mut arms = choice(node);
-                    if let Some((cond, then)) = single_when(node) {
+                    let named = single_when(node).and_then(|(cond, then)| {
+                        let (state, page, test) = self.page_test(cond)?;
+                        let mut group = vec![(Some(test), then)];
+                        let mut pages = BTreeSet::from([page]);
+                        let mut members = Vec::new();
+                        for (j, sibling) in nodes.iter().enumerate().skip(i + 1) {
+                            let Some((other, body)) = single_when(sibling) else {
+                                continue;
+                            };
+                            if paired.contains(&j) {
+                                continue;
+                            }
+                            match self.page_test(other) {
+                                Some((s, p, t)) if s == state && pages.insert(p) => {
+                                    group.push((Some(t), body));
+                                    members.push(j);
+                                }
+                                _ => {}
+                            }
+                        }
+                        (group.len() >= 2 && self.swaps(&group)).then_some((group, members))
+                    });
+                    if let Some((group, members)) = named {
+                        arms = group;
+                        paired.extend(members);
+                    } else if let Some((cond, then)) = single_when(node) {
                         for (j, sibling) in nodes.iter().enumerate().skip(i + 1) {
                             if paired.contains(&j) {
                                 continue;
@@ -167,20 +199,52 @@ impl<'a> App<'a> {
                         };
                         out.push(LowerError {
                             id: "lower-screen-by-state",
-                            message: format!("this `{what}` swaps the page between screens by state, in an app with no `routes`: on the web the browser's Back leaves the app, a reload loses the place and no screen can be linked, and on iOS no screen gets a Back button or the edge swipe. Make each screen a route: `routes` with a path for each, `push` to open one (a list's row pushes its detail) and `back` to return; a wide window then shows the list beside its detail (`contract vocab screen`, docs/recipes/navigation-stack.md)"),
+                            message: format!("this `{what}` swaps the page between screens by state: on the web the browser's Back leaves the app, a reload loses the place and no screen can be linked, and on iOS no screen gets a Back button or the edge swipe. Make each screen a route: `routes` with a path for each, `push` to open one (a list's row pushes its detail) and `back` to return; a wide window then shows the list beside its detail (`contract vocab screen`, docs/recipes/navigation-stack.md). Top-level sections are tabs, each a route (docs/recipes/tabs.md)"),
                             span: node.span(),
                         });
                         continue;
                     }
                     for (_, arm) in arms {
-                        self.walk(arm, out);
+                        self.walk(arm, routed, out);
                     }
                 }
-                // A row's swap is the row's.
+                // A route's screens are walked; a row's swap is the row's.
+                Node::Each { list, body, .. } if route_stack(list) => self.walk(body, true, out),
                 Node::Each { .. } | Node::Children { .. } => {}
-                Node::Use { children, .. } => self.walk(children, out),
+                Node::Use { children, .. } => self.walk(children, routed, out),
             }
         }
+    }
+
+    /// The page a condition names, `page == "detail"` on a state of the
+    /// root, alone or among `and`/`or` terms: the state, the page and the
+    /// comparison.
+    fn page_test<'e>(&self, e: &'e Expr) -> Option<(&'e str, &'e str, &'e Expr)> {
+        match e {
+            Expr::Binary(BinOp::Eq, a, b, _) => match (&**a, &**b) {
+                (Expr::Ident(state, _), Expr::Str(page, _))
+                | (Expr::Str(page, _), Expr::Ident(state, _))
+                    if self.root.states.iter().any(|s| &s.name == state) =>
+                {
+                    Some((state, page, e))
+                }
+                _ => None,
+            },
+            Expr::Binary(BinOp::And | BinOp::Or, a, b, _) => {
+                self.page_test(a).or_else(|| self.page_test(b))
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a choice's arms compare one state with three pages or more.
+    fn names_pages(&self, arms: &[(Option<&Expr>, &[Node])]) -> bool {
+        let mut pages: std::collections::HashMap<&str, BTreeSet<&str>> =
+            std::collections::HashMap::new();
+        for (state, page, _) in arms.iter().filter_map(|(c, _)| self.page_test((*c)?)) {
+            pages.entry(state).or_default().insert(page);
+        }
+        pages.values().any(|p| p.len() >= 3)
     }
 
     fn viewport_only(&self, cond: &Expr) -> bool {
@@ -209,6 +273,7 @@ impl<'a> App<'a> {
     /// Whether a choice between `arms` swaps the page's screens: two arms
     /// or more are screens, keyed on states a press inside one moves.
     fn swaps(&self, arms: &[(Option<&Expr>, &[Node])]) -> bool {
+        let named = self.names_pages(arms);
         // An arm keyed on a resource or a mutation, and a last `else` after
         // one, is a loading, error or empty view. Viewport reads count here too:
         // only a sibling split has its shared viewport predicate removed first.
@@ -228,7 +293,7 @@ impl<'a> App<'a> {
             };
             let mut seen = Seen::default();
             look(arm, &mut seen);
-            if !keyed && seen.heading && seen.controls >= 2 {
+            if !keyed && (seen.heading || named) && seen.controls >= 2 {
                 screens.push(arm);
             }
         }
@@ -236,7 +301,7 @@ impl<'a> App<'a> {
             || states.is_empty()
             || states
                 .iter()
-                .any(|s| self.root.persists(s) || self.picked.contains(s))
+                .any(|s| (!named && self.root.persists(s)) || self.picked.contains(s))
         {
             return false;
         }
@@ -306,6 +371,16 @@ fn pressed<'n>(nodes: &'n [Node], out: &mut Vec<&'n Expr>) {
             );
         }
         lists(node).into_iter().for_each(|l| pressed(l, out));
+    }
+}
+
+/// Whether a `for` walks the router's screens: `stack(nav)`, a tab's
+/// `t.stack` or the tabs, `nav.tabs`.
+fn route_stack(list: &Expr) -> bool {
+    match list {
+        Expr::Call(name, _, _) => name == "stack",
+        Expr::Member(_, field, _) => field == "stack" || field == "tabs",
+        _ => false,
     }
 }
 

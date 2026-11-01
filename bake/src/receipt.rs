@@ -619,7 +619,8 @@ fn artifact_graph(
     // tier), deferred templates and branches included, each by the rule its
     // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
     // island module where `svg_islands` holds or a bundled SVG image can
-    // show an island, the video arm for a `Video`, the web arm for a
+    // show an island, the video arm for a `Video` or an image's picture in
+    // picture (LLP 1042 §9), the web arm for a
     // `WebView`, and the sound arm for a declared sound (LLP 1096 D8: a
     // `sound` declaration is not a node). A build whose plan is fixed
     // leaves out the rest.
@@ -631,7 +632,11 @@ fn artifact_graph(
     let loads: Vec<&str> = [
         ("canvas", makes(exact_kernel::NodeType::Canvas)),
         ("svg", pictures || exact_runner::svg_islands(plan)),
-        ("video", makes(exact_kernel::NodeType::Video)),
+        (
+            "video",
+            makes(exact_kernel::NodeType::Video)
+                || exact_runner::uses::uses_picture_in_picture(plan),
+        ),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),
         // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
@@ -677,8 +682,9 @@ fn listens(inputs: &Value) -> bool {
 
 /// LLP 1116.011 D2.3: the ground the app's first route stands on, which the
 /// iOS launch screen shows until its first frame: `"grouped"` where the first
-/// route's `background-color` is the role the compiler gives a route that
-/// scrolls a grouped list (`-exact-grouped-background`, LLP 1116.007 D5),
+/// route's `background-color` is the metric the compiler gives a route that
+/// scrolls a grouped list (`-exact-grouped-page-ground`, LLP 1116.007 D5),
+/// iOS's grouped grey, or that role written (`-exact-grouped-background`),
 /// `"system"` for any other (the platform's page, `systemBackground`). A route
 /// is a node with a `navigationKey` and no `navigationBack` (the navigation
 /// root has both); the first in the plan's order, past the page the compiler
@@ -703,7 +709,10 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     let ground = route.and_then(|node| {
         literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
     });
-    if ground == Some("-exact-grouped-background") {
+    if matches!(
+        ground,
+        Some("-exact-grouped-page-ground" | "-exact-grouped-background")
+    ) {
         "grouped"
     } else {
         "system"
@@ -856,6 +865,18 @@ mod tests {
                 artifact_graph(&plan, &json!({}), &[], false, "aarch64-apple-darwin").unwrap();
             assert_eq!(graph["loads"], loads);
         }
+    }
+
+    /// LLP 1042 §9: an image's picture in picture is the video arm's, so a
+    /// plan that asks for it loads the arm with no `video` node.
+    #[test]
+    fn a_plan_that_floats_an_image_loads_the_video_arm() {
+        let plan = contract::compile(
+            "component App\n  action float\n    requestPictureInPicture(\"page\")\n  view\n    column\n      button press=float\n        text \"Float\"\n      image \"assets/a.png\" id=\"page\" width=1 height=1\n",
+        )
+        .unwrap();
+        let graph = artifact_graph(&plan, &json!({}), &[], false, "aarch64-apple-darwin").unwrap();
+        assert_eq!(graph["loads"], json!(["video"]));
     }
 
     /// LLP 1075.003.000.001 §4.3: the plan requires the hatch words it marks

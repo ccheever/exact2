@@ -1,5 +1,5 @@
 import { can, requirePermission } from '../connections/command-permissions';
-// The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 2359643cff:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
 // apps/web/src/components/RightPanelTabs.tsx `surfaceTitle`/`SurfaceIcon`, apps/web/src/browser/ElectronBrowserHost.tsx;
@@ -34,7 +34,7 @@ import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { browserKey, focusUrlTaken, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserKey, focusUrlTaken, reportAddressError, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { recordVisit } from './browser-history-record';
 import { preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
@@ -42,6 +42,7 @@ import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { primaryEnvironmentId } from '../connections/local-primary';
+import { closeServerPictureInPicture, serverPipOf, settleServerPictureInPicture } from './server-browser-pip';
 import { drainServerNotices, prepareServerStream, retainServerStreams, serverStreamUrl, serverStreamFrame, sendServerCommand } from './server-browser-runtime';
 import { adoptAutomationTabs, automationOverlay, automationPrepare, toggleFrameMute } from './browser-automation';
 import { openExternal } from '../client/external-open';
@@ -387,6 +388,9 @@ export type BrowserView = {
   /** The viewer page that shows it (server-pdf-viewer.ts; panel-surfaces.ts sets it). */
   pdfViewer: ViewerFrameView;
   url: string; loading: boolean; canGoBack: boolean; canGoForward: boolean; refreshDisabled: boolean; hasWebContents: boolean;
+  /** The More menu's Open DevTools: a desktop tab in the macOS app, whose page is a web view here (PreviewView offers it
+   *  through the desktop bridge only; a server tab here is the server's headless page). */
+  devTools: boolean;
   empty: boolean; failed: boolean; failHost: string; failMessage: string; failLabel: string; live: boolean;
   /** The "+" menu's profile submenu (RightPanelTabs MenuSubPopup). */
   profiles: BrowserProfileChoice[];
@@ -398,7 +402,7 @@ export type BrowserView = {
 /** Part 4: the profile lists are the client's (Default, Incognito and the named ones); without a client, the built-ins. */
 export const emptyBrowserView = (client?: T3Client): BrowserView => ({
   tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', pdfViewer: emptyViewerFrame(), environment: '', profileId: DEFAULT_BROWSER_PROFILE_ID, profileName: 'Default', showProfile: false, url: '', loading: false, canGoBack: false, canGoForward: false,
-  refreshDisabled: true, hasWebContents: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
+  refreshDisabled: true, hasWebContents: false, devTools: false, empty: true, failed: false, failHost: '', failMessage: '', failLabel: '', live: false,
   profiles: browserProfileChoices(client), capture: emptyCaptureView(), moveTarget: '', moveLabel: '', ...emptyNavigationView(),
 });
 
@@ -413,6 +417,7 @@ export function browserView(client: T3Client, surface: Surface | null, now = 0):
     pdfUrl: snapshot?.runtime === 'server' && nav._tag === 'Success' ? previewPdfAssetUrl(nav.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), ...tabProfile(client, snapshot?.profileId), // the badge shows a profile other than the configured default
     url: nav._tag === 'Idle' ? '' : nav.url, loading: nav._tag === 'Loading', canGoBack: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoBack ?? snapshot?.canGoBack ?? false,
     canGoForward: snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled ? false : tab?.canGoForward ?? snapshot?.canGoForward ?? false, refreshDisabled: nav._tag === 'Idle' || (snapshot?.runtime === 'server' && !serverStreamFrame(client, runtimeId).controlled), hasWebContents: !!tab || snapshot?.runtime === 'server',
+    devTools: client.available === true && snapshot?.runtime !== 'server',
     empty, failed, failHost: failed ? previewHost(nav.url) : '', failMessage: failed ? describePreviewError(nav.description).replace(/\.+$/, '') : '',
     failLabel: failed ? previewErrorLabel(nav.code, nav.description) : '', live: !!snapshot && !empty && !failed,
     profiles: browserProfileChoices(client), ...previewMove(client, ref, snapshot), ...navigationView(client, ref, runtimeId, tab, snapshot, empty, now),
@@ -465,7 +470,12 @@ export async function browserPrepare(client: T3Client, native: Native | null | u
     const shown = active?.browser && ref ? effectiveNav(client, ref, active.browser.tabId) : null;
     const floatingId = floatingTabOf(client), floating = ref && floatingId && floatingId !== shown?.snapshot?.tabId ? effectiveNav(client, ref, floatingId) : null;
     const slots = (read ? [shown, floating] : []).filter((slot): slot is NonNullable<typeof shown> => !!slot && slot.snapshot?.runtime === 'server');
-    await retainServerStreams(client, slots.map(slot => slot.runtimeId));
+    // The picture-in-picture window's stream lives while it floats, whichever thread shows (server-browser-pip.ts).
+    const pipTab = serverPipOf(client), pipNav = pipTab ? effectiveNav(client, { environmentId: pipTab.environmentId, threadId: pipTab.threadId }, pipTab.tabId).nav : null;
+    settleServerPictureInPicture(client, pipNav && { pdf: pipNav._tag === 'Success' && previewPdfAssetUrl(pipNav.url, pipNav.url) !== null });
+    const pip = read ? serverPipOf(client) : null;
+    await retainServerStreams(client, [...slots.map(slot => slot.runtimeId), ...(pip ? [pip.runtimeId] : [])]);
+    if (pip) await prepareServerStream(client, native, pip.runtimeId, pip.threadId, pip.tabId, true);
     for (const slot of slots) {
       await drainServerNotices(client, native, slot.runtimeId, tabId => {
         if (!ref) return; host.listed.delete(scopedThreadKey(ref));
@@ -505,7 +515,14 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (op === 'open') return addBrowserSurface(client, native, state, value || undefined);
   // Part 3: a toast's artifact buttons (id = the file) and the floating player's pill (id = its runtime tab).
   if (op.startsWith('artifact-')) return artifactLocal(client, native, op.slice(9), id, value);
-  if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, tabId => reopenBrowserTab(client, state, tabId));
+  if (op.startsWith('mini-')) return browserMiniLocal(client, native, op.slice(5), id, value, tabId => reopenBrowserTab(client, state, tabId));
+  if (op === 'pip-left') { closeServerPictureInPicture(client); return ''; } // the picture-in-picture window's close
+  // toggleNativePictureInPicture's catch: the platform could not float the tab (`value`, its reason).
+  if (op === 'pip-failed') {
+    closeServerPictureInPicture(client);
+    pushToast(client, { kind: 'error', title: 'Unable to pop out preview', description: value || 'An error occurred.' });
+    return '';
+  }
   if (op === 'annotation-held') return annotationAttachedToDraft(client); // an annotation's ⌘Return the window could not send
   if (op === 'show') return showPreview(client, native, state); // ⇧⌘J (browser-navigation.ts)
   const surface = state.surfaces.find(entry => entry.id === browserSurfaceId(id) && entry.kind === 'browser');
@@ -516,7 +533,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (snapshot?.runtime === 'server') {
     if (op === 'float') { toggleFloat(client, state, { ref, tabId: snapshot.tabId, runtimeId }); return ''; }
     if (op === 'navigate' || op === 'open-url') {
-      let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
+      let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch (error) { return value.trim() ? reportAddressError(client, error) : ''; }
       if (sendServerCommand(client, runtimeId, { type: 'navigate', url })) {
         host.store.rememberUrl(ref, url); recordVisit(client, ref, url, navigationNow(client));
       }
@@ -531,10 +548,10 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   } else if (await captureLocal(client, native, state, op, { ref, tabId: surface.browser.tabId, runtimeId }, value)) return '';
   switch (op) {
     case 'navigate': {
-      // handleSubmitUrl: text that is not an address searches the chosen engine for it; only empty input or an unsupported
-      // scheme does nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
+      // handleSubmitUrl: text that is not an address searches the chosen engine for it; empty input does nothing and an
+      // unsupported scheme says so (the field keeps the text). The URL loads in this tab's web view and is remembered.
       let url: string;
-      try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
+      try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch (error) { return value.trim() ? reportAddressError(client, error) : ''; }
       frameOp(client); navigateFrame(client, runtimeId, url);
       host.store.rememberUrl(ref, url);
       recordVisit(client, ref, url, navigationNow(client));
@@ -545,7 +562,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
       if (overlay) await toggleFrameMute(client, native, runtimeId, !overlay.audioMuted);
       return '';
     }
-    case 'back': case 'forward': case 'refresh': case 'hard-reload':
+    case 'back': case 'forward': case 'refresh': case 'hard-reload': case 'devtools':
       frameOp(client); commandFrame(client, runtimeId, op);
       return '';
     case 'external': {

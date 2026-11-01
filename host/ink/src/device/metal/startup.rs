@@ -77,6 +77,7 @@ impl Startup {
         wake: Arc<dyn Fn() + Send + Sync>,
         gate: Option<mpsc::Receiver<()>>,
     ) -> Result<Self> {
+        crate::counters::initialize();
         let _trace = Trace::new(c"boot Metal constructor");
         let started = Instant::now();
         let device = {
@@ -146,6 +147,7 @@ impl Startup {
 
     pub fn attach(&mut self, layer: Layer) {
         let _trace = Trace::new(c"boot CPU attach layer");
+        crate::counters::presentation_support(true, true);
         let raw = layer.render_layer();
         raw.raw.setDevice(Some(&self.context.device));
         // A fallback uses a blit, which framebuffer-only drawables forbid.
@@ -377,7 +379,7 @@ struct CpuFrame {
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     layer: RenderLayer,
     pixels: Arc<tiny_skia::Pixmap>,
-    benchmark: (bool, f32),
+    benchmark: crate::device::apple::Scene,
     shown: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
     transaction: bool,
@@ -396,11 +398,17 @@ impl CpuFrame {
                     .presentDrawable(ProtocolObject::from_ref(&*drawable.0));
             }
         }
+        if crate::counters::enabled() && matches!(&result, Ok(Some(_))) {
+            crate::counters::submitted();
+        }
         self.command.commit();
         if self.transaction {
             self.command.waitUntilScheduled();
         } else {
             self.command.waitUntilCompleted();
+        }
+        if result.is_err() || self.command.status() == MTLCommandBufferStatus::Error {
+            self.layer.cancel_repeat(self.benchmark);
         }
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(

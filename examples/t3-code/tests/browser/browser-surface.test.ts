@@ -263,7 +263,7 @@ describe('the chrome row and the native host', () => {
     expect(browserTab(client, surface!).title).toBe('example.com');
   });
 
-  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse says so', async () => {
     const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
@@ -282,20 +282,23 @@ describe('the chrome row and the native host', () => {
     expect(frameCommandView(client).url).toBe('http://localhost:16651/');
     frameCommandDone(client, frameCommandView(client).serial);
     expect(frameCommandView(client).url).toBe(search);
+    // PreviewView's catch: the unsupported scheme toasts; empty input never submitted.
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not open this address', 'Enter an http or https URL.']]);
   });
 
-  it('Back, Forward, Refresh and Hard reload go to the tab\'s frame; Open in system browser opens its URL', async () => {
+  it('Back, Forward, Refresh, Hard reload and Open DevTools go to the tab\'s frame; Open in system browser opens its URL', async () => {
     const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     resetExternalOpensForTests();
     opened(client, state, { ...idle('tab-1'), navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example Domain' } });
     syncNativeSessions(client);
     record(client, 'tab-1', 'event=navigatesuccess&id=1&url=https%3A%2F%2Fexample.com%2F&back=true&forward=true');
-    for (const op of ['back', 'forward', 'refresh', 'hard-reload', 'external']) await browserLocal(client, module, state, op, 'tab-1', '');
+    for (const op of ['back', 'forward', 'refresh', 'hard-reload', 'devtools', 'external']) await browserLocal(client, module, state, op, 'tab-1', '');
     const id = frameIdOf(previewRuntimeTabId(threadRef, 'epoch-1', 'tab-1'));
     expect(queued(client)).toEqual([
       { kind: 'traverse', id, url: '', delta: -1, flag: false }, { kind: 'traverse', id, url: '', delta: 1, flag: false },
       { kind: 'reload', id, url: '', delta: 0, flag: false }, { kind: 'reload', id, url: '', delta: 0, flag: true },
+      { kind: 'devtools', id, url: '', delta: 0, flag: false },
     ]);
     expect(externalOpensForTests()).toEqual(['https://example.com/']);
   });
@@ -526,5 +529,52 @@ describe('PreviewView handleMoveTab (the More menu\'s move row)', () => {
     expect(calls.map(call => call.method)).toEqual(['preview.open']);
     expect(state.surfaces.map(surface => surface.id)).toEqual(['browser:tab-1']);
     expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Unable to move the browser tab', 'Browser unavailable.']]);
+  });
+});
+
+// PreviewMoreMenu: Open DevTools under Hard reload, enabled with the tab's web contents. PreviewView offers it through
+// the desktop bridge only, and on a server tab only one Electron renders natively; here a server tab is the server's
+// headless page, so the row is a desktop tab's in the macOS app (`devTools`). The root runs the frame command as
+// `openDevTools`, the platform's inspector for that frame (LLP 1020.002 D11).
+describe('Open DevTools', () => {
+  it('is the More menu\'s second row where the view offers it, and opens the frame\'s inspector', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { appPath } = await import('../support/app-files');
+    const menu = readFileSync(appPath('browser-surface.contract'), 'utf8'), root = readFileSync(appPath('shell-members.contract'), 'utf8');
+    const rows = [...menu.matchAll(/BsMenuItem\(keysId="browser-more-keys", id="([\w-]+)"/g)].map(match => match[1]);
+    expect(rows.slice(0, 3)).toEqual(['browser-more-hard-reload', 'browser-more-devtools', 'browser-more-window']);
+    expect(menu).toContain('id="browser-more-devtools", label="Open DevTools", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-devtools", view.tabId, ""))');
+    expect(menu).toMatch(/if view\.devTools\n\s+BsMenuItem\(keysId="browser-more-keys", id="browser-more-devtools"/);
+    expect(menu).toContain('(view.devTools or item.id != "browser-more-devtools")');
+    expect(root).toContain('else if c.kind == "devtools"\n      openDevTools(c.id)');
+  });
+
+  it('is offered on a desktop tab in the macOS app, not on a server tab or the web', () => {
+    const view = (available: boolean, runtime: 'desktop' | 'server') => {
+      const { client } = fakeClient(() => ({}));
+      client.available = available;
+      const state = emptyPanel();
+      browserHost(client).store.reconcileServerSessions(threadRef, { sessions: [{ ...idle('tab-1'), runtime }], serverEpoch: 'epoch-1', revision: 1 });
+      return browserView(client, openBrowserIn(state, 'tab-1', 'local:thread-1')).devTools;
+    };
+    expect([view(true, 'desktop'), view(true, 'server'), view(false, 'desktop')]).toEqual([true, false, false]);
+  });
+});
+
+// The app's runtime freezes the intrinsics, so Error.prototype.name is read-only there and assigning a subclass's own
+// `name` throws; the Browser's errors define it instead (an invalid address's toast says "Enter an http or https URL.").
+describe('Browser errors under frozen intrinsics', () => {
+  it('construct with their names', async () => {
+    const { PreviewUrlNormalizationError } = await import('../../src/browser/browser-url');
+    const { PreviewCaptureFailure, BrowserRecordingError } = await import('../../src/browser/browser-recording');
+    const { TerminalLinkPreviewOpenError } = await import('../../src/browser/browser-links');
+    const original = Object.getOwnPropertyDescriptor(Error.prototype, 'name')!;
+    Object.defineProperty(Error.prototype, 'name', { ...original, writable: false });
+    try {
+      expect(new PreviewUrlNormalizationError({ inputLength: 3, reason: 'unsupported-protocol', protocol: 'ftp:' }).name).toBe('PreviewUrlNormalizationError');
+      expect(new PreviewCaptureFailure('unavailable' as never, 'capture' as never).name).toBe('PreviewCaptureFailure');
+      expect(new BrowserRecordingError('RecordingFailed', 'x').name).toBe('RecordingFailed');
+      expect(new TerminalLinkPreviewOpenError(threadRef, 'http://localhost:1', null).name).toBe('TerminalLinkPreviewOpenError');
+    } finally { Object.defineProperty(Error.prototype, 'name', original); }
   });
 });

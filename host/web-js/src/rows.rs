@@ -450,6 +450,7 @@ impl Em<'_> {
                 writes
             }
             StyleId::FontVariantNumeric => one("font-variant-numeric", None),
+            StyleId::FontVariantLigatures => one("font-variant-ligatures", None),
             // SVG's transform grammar, restated as CSS's (kernel TransformList).
             StyleId::Transform => {
                 let t = self.uses.rt("svgTransform");
@@ -560,6 +561,21 @@ impl Em<'_> {
                 writes.push(("--exact-padding-bottom".into(), unit, Some(px)));
             }
         }
+        if id == StyleId::Appearance && b.written {
+            self.said_appearance(e, f, parts.props.get("data-exact-said"));
+        }
+        // Right to left, the sides of a pair different hands say (sides.rs).
+        let other = style::other_side(id).and_then(binding);
+        self.side_writes(
+            i,
+            e,
+            scope,
+            b,
+            other.as_ref(),
+            &parts.css,
+            timeline,
+            &mut writes,
+        )?;
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
@@ -977,6 +993,16 @@ pub(super) fn attributes(
     }
     // Off the page's thread, so an arrival does not hold a frame (LLP 1145 D3).
     attrs.extend((element == "img").then(|| ("decoding".into(), "async".into())));
+    // A role the element has natively is not restated, as the live host leaves it off.
+    let implicit = exact_web::host::implicit_role(element, |name| {
+        attrs
+            .iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.as_str())
+    });
+    if implicit.is_some() {
+        attrs.retain(|(k, v)| !(k == "role" && Some(v.as_str()) == implicit));
+    }
     (attrs, content, css)
 }
 
@@ -1130,6 +1156,8 @@ mod tests {
         assert!(js.contains(",\"src\",()=>\"data:text/html,a\")"), "{js}");
         assert!(!js.contains("()=>\"data:text/html,b\""), "{js}");
         assert!(!js.contains("()=>\"https://e.dev/c\""), "{js}");
+        // Each frame grants its guest fullscreen (LLP 1020.002 D5).
+        assert_eq!(js.matches(r#""allow":"fullscreen *""#).count(), 3, "{js}");
     }
 
     #[test]

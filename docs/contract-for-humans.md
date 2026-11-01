@@ -1053,10 +1053,24 @@ this one) and `aria-description` are its description. `aria-invalid`,
 `"page"`, a wizard's `"step"`) take their ARIA words or a bool; UIKit has no
 property for those four, so iOS exposes the first three not at all and a
 pressable's (a button's, a link's) `aria-current` other than `false` as its
-selected trait, as `aria-selected` is. A data table is ARIA's roles on
-boxes (`role="table"`, `"row"`, `"columnheader"`, `"rowheader"`, `"cell"`), and
-a sortable column's header takes `aria-sort` (`"ascending"`, `"descending"`,
-`"none"` or `"other"`; no bool), which only the web exposes. A drawn range —
+selected trait, as `aria-selected` is. A data table is HTML's `table`: an
+optional `caption`, then `thead`, `tbody` and `tfoot` row groups of `tr`s (or
+`tr`s alone, which are a `tbody` of their own, as HTML's parser makes them),
+each `tr` holding `th` header cells (`scope="col"` or `"row"`) and `td`
+cells, any cell with `colspan` and `rowspan` (`rowspan=0` reaches the end of
+its row group). Rows and cells may come from a `for`. A sortable
+column's `th` takes `aria-sort` (`"ascending"`, `"descending"`, `"none"` or
+`"other"`; no bool), which only the web exposes. Terms and their descriptions
+are a `dl` of `dt` terms each followed by its `dd` descriptions. On the web
+these are the elements, laid out by the browser; on the native hosts the
+kernel lays a table out as a grid of `auto` columns as wide as its content.
+Where columns share width (a span wider than the columns it covers, a table
+narrower than its content), the grid shares it equally and the browser in
+proportion to the columns' widths, so unequal columns can differ by a few
+points (LLP 1153 D7.3). macOS, Linux and Windows expose a table's, a row's
+and a cell's roles, and a description list's; iOS announces a table as a
+data table and a `dl` as a list, its rows and cells with no role of their
+own. A drawn range —
 `role="progressbar"`, `"slider"`, `"meter"`, `"scrollbar"` or `"spinbutton"` —
 takes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` (numbers; ARIA's 0
 and 100 where a bound is unsaid) and `aria-valuetext`: it is one element, its
@@ -1091,6 +1105,13 @@ it names wins over `font-weight` and `font-stretch` for that axis; prefer those
 two where they say it. Text fields and Canvas 2D's `font` take the width too.
 A file's `opsz` axis follows the font size; `font-optical-sizing="none"` keeps
 the face's own.
+
+`font-variant-ligatures` turns the face's ligatures on or off, as CSS does:
+`none` keeps a ligating font such as Fira Code from joining `://` or `->` in an
+address or code, and the other keywords (`no-contextual`,
+`discretionary-ligatures`, …) name one kind each. Text fields take it too. A
+terminal draws no ligatures; Android's native text fields, UIKit's grouped list
+cells and content regions keep the font's own; widgets and the watch refuse it.
 
 ## Input, events, and commands
 
@@ -1389,7 +1410,10 @@ A `head` element declares document metadata: `title`, `description`, `canonical`
 declaration wins field by field. Use `scroll document` for document scrolling and
 ordinary `scroll` for an inner scrollport; both need a bound. Route rows can
 declare `render`, `activate`, `paint` and `pages` policies; these interact with
-the site's build/render pipeline, not just its client-side view. Follow
+the site's build/render pipeline, not just its client-side view. Leave `activate`
+unsaid unless a page needs otherwise: a rendered page then loads no script until
+the reader acts, when nothing on it needs the runtime sooner
+([LLP 1048.007](../llp/1048.007-pages-that-wait-for-the-reader.rfc.md)). Follow
 [the document corpus](../contract/corpus/document.contract),
 [the document tests](../contract/cli/tests/it/document.rs) and
 [LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md) for accepted policy

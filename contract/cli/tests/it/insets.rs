@@ -163,8 +163,7 @@ fn a_comparison_outside_the_kernel_grammar_is_refused_at_compile_time() {
             "clamp(15px, env(safe-area-inset-bottom))",
             "exactly three arguments",
         ),
-        ("max(15px, 1rem)", "rem and em"),
-        ("max(15px, var(--gutter))", "the functions are"),
+        ("max(15px, 1em)", "em is not supported"),
         ("max(15, env(safe-area-inset-bottom))", "takes a unit"),
         (
             "max(15px, env(safe-area-inset-bottom)) + 44px",
@@ -176,4 +175,10 @@ fn a_comparison_outside_the_kernel_grammar_is_refused_at_compile_time() {
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
         assert!(e.message.contains(says), "{value}: {e}");
     }
+    // A `var()` names a design token (LLP 1153 D6), and this app declares none.
+    let src = "component A\n  view\n    column padding-bottom=\"max(15px, var(--gutter))\"\n";
+    assert_eq!(
+        contract::compile(src).unwrap_err().id,
+        "tamber-unknown-token"
+    );
 }

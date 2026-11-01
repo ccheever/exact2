@@ -20,13 +20,13 @@ const physicalKey = e => {
 };
 /** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
 const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
-/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id, the viewport point (LLP 1094 D11) and modifiers. */
+/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the button and the buttons, pressure, device, id, the viewport point (LLP 1094 D11) and modifiers. */
 function pointerLine(el, e, lifted = false) {
   const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
   const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
   const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
   const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
-  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${e.clientX},${e.clientY},${modifiers(e)}`;
+  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${e.button ?? -1},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${e.clientX},${e.clientY},${modifiers(e)}`;
 }
 /** @ref LLP 1116.004 D5.2 — a `radiogroup` of `radio`s, a value chosen from a few (the segmented
  * control the shell draws), keyed as WAI-ARIA's radio group and a native one: one Tab stop, its
@@ -107,7 +107,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // D4.3), as Back is its own `back`: a link to a route never reloads the page.
   // A modified or other-button click, a `target` or `download`, is the
   // browser's alone — a pressing link's press does not also run — and so are
-  // other origins, fragments of this page and undeclared paths (a file).
+  // other origins and undeclared paths (a file). A link to a fragment is a
+  // location too (LLP 1153 D5): `href="#moves"` is the visit shown, read from
+  // the attribute, since the shell's `<base href="/">` resolves it to `/`.
   // The page's own `exact` names the route table and the root's handler.
   document.addEventListener("click", event => {
     const a = event.target.closest?.("a[href]");
@@ -115,14 +117,16 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     const press = a.exactHandlers?.includes("press");
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
       || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
-    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === globalThis.history?.state?.url;
+    const shown = globalThis.history?.state?.url ?? location.pathname + location.search, href = a.getAttribute("href") ?? "";
+    const url = new URL(href[0] === "#" ? shown.split("#")[0] + href : a.href, location.href), to = url.pathname + url.search, here = to === location.pathname + location.search || to === shown.split("#")[0];
     // (A JS-target page with no GPU surface writes nothing in: its route table is its own.)
     const { wasm, writeIn = () => 0, navigate, go } = globalThis.exact;
-    if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
+    if (url.origin !== location.origin || wasm.exact_route_match(writeIn(to)) !== 1) return;
     const nav = root.firstElementChild, heard = nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate");
     event.preventDefault();
-    if (press || here) return;
-    if (!(heard ? navigate(to) : go(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+    if (press || (here && !url.hash && !shown.includes("#"))) return;
+    // The fragment shown, linked again, moves no router and scrolls again: the runner's `scrollToFragment`.
+    if (!(heard ? navigate(to + url.hash) : go(to + url.hash))?.ops?.some(op => op.op === "router" || op.name === "scrollToFragment")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to + url.hash)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
     touched = true; // any key, Tab included: a route's focus shows the ring to a keyboard's user (`arrive`, below)
@@ -1022,7 +1026,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // click there, a press the platforms do not make. LLP 1056 §3 stage 3 —
     // `pointermove`: a free pointer over the node (no button down), or the
     // held one anywhere, at most once a frame, the latest. Each carries the
-    // `PointerEvent` record (`offsetX,offsetY,buttons,pressure,pointerType,
+    // `PointerEvent` record (`offsetX,offsetY,button,buttons,pressure,pointerType,
     // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {

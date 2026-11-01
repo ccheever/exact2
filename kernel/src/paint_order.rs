@@ -24,8 +24,9 @@ use crate::generated::{Display, Isolation, MixBlendMode, NodeType, PositionType,
 use crate::id::ViewId;
 use crate::kernel::Kernel;
 
-/// Authored `z-index` is clamped to this, and the two values above it are
-/// the exit ghost's and the Arrange lift's on every host (§3.7).
+/// Authored `z-index` is clamped to this. The values above it are reserved
+/// for the host: the Arrange lift on every host and, on the web, the
+/// development tools (§3.7).
 pub const Z_MAX: i32 = i32::MAX - 2;
 
 /// A node's paint facts of its own (§2.1).

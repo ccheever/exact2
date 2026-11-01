@@ -1,4 +1,4 @@
-// T3 Code 6d450a4284 (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
+// T3 Code 2359643cff (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
 // Client guards provide immediate feedback; the server authorizes every request.
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
@@ -32,6 +32,8 @@ const RPC_SCOPES: Record<string, Permission> = {
   'mcpApps.toolInfo': 'orchestration:read',
   'mcpApps.updateModelContext': 'orchestration:operate',
   'orchestration.dispatchCommand': 'orchestration:operate',
+  // Force stop kills agent processes, as Stop on a terminal does.
+  'orchestration.forceStopThread': 'orchestration:operate',
   'orchestration.getArchivedShellSnapshot': 'orchestration:read',
   'orchestration.getFullThreadDiff': 'orchestration:read',
   'orchestration.getThreadProjection': 'orchestration:read',

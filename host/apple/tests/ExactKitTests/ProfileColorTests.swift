@@ -231,7 +231,7 @@ final class ProfileColorTests: XCTestCase {
             ]))
             let node = try XCTUnwrap(session.presenter.views[1])
             let key = TextRasterKey(spec: node.paragraphSpec(), size: box.size, box: box, scale: 2)
-            node.textRasterKey = key; node.textMore.accepted = nil
+            node.textRasterKey = key; node.textRasterReady = false
             node.showTextRaster(image, for: key)
             let ink = try XCTUnwrap(node.textRasterLayer)
             if #available(iOS 26, tvOS 26, *) {

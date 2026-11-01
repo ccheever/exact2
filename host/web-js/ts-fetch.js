@@ -160,7 +160,7 @@ let NextTimer = 1;
 function arm(api, run, ms, args) {
   if (overlaying.on) throw inOverlay(api);
   const call = answering.call;
-  if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go)`);
+  if (answering.mapper || !call || !answers(call)) throw new Error(`${api} is unavailable here: a timer belongs to the answer that arms it, and none is running (module initialization, a stream's mapper, background work, or an answer that has given its value or was let go). A cache needs no timer to expire: fetch keeps each answer as long as its HTTP headers allow`);
   const { clock, drive } = answering.page, id = NextTimer++;
   // The action answers true, as every clock entry's does (rt.js `advance`: anything else stops the advance).
   // `live`: its answer has not answered nor been let go (the agent's `clock settle` goes only to those).

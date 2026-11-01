@@ -195,10 +195,10 @@ pub struct Place {
     /// seed, supplied). Zero until the host says.
     pub seed: f64,
     /// BCP 47, the regional format the platform's own date and number
-    /// formatters use (macOS and iOS's `Locale.current`, Electron's
-    /// `app.getSystemLocale()`, Java's `Locale.Category.FORMAT`). Empty where
-    /// the host keeps none apart from `locale`, which `formatLocale` answers
-    /// then.
+    /// formatters use (macOS and iOS's `Locale.current` with the hour cycle
+    /// the user forces as `-u-hc-`, Electron's `app.getSystemLocale()`,
+    /// Java's `Locale.Category.FORMAT`). Empty where the host keeps none
+    /// apart from `locale`, which `formatLocale` answers then.
     pub format_locale: String,
 }
 

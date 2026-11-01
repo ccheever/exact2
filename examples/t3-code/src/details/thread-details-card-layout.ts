@@ -48,8 +48,8 @@ export const DETAILS_FRAMES = {
   content: 'details-content',
   /** Only `full` shows these: the Run on and workspace rows, Automations and Lineage, the Git action group at rest. */
   fullTop: 'details-full-top', fullTail: 'details-full-tail', fullGit: 'details-full-git',
-  /** The Lineage section (inside `fullTail`), which the density does not count. */
-  lineage: 'details-lineage',
+  /** The Lineage and Side chats sections (inside `fullTail`), which the density does not count. */
+  lineage: 'details-lineage', sideChats: 'details-side-chats',
   /** The expanded list of the thread's other pull requests (ThreadDetailsPrRows), which the density does not count either. */
   prList: 'details-pr-list',
   /** The Version Control section, whose hairline only `full` draws. */
@@ -58,7 +58,7 @@ export const DETAILS_FRAMES = {
   compact: 'details-density-compact',
 } as const;
 
-/** The heights the density fits (`full` without Lineage), and `content`: the full layout's whole height. */
+/** The heights the density fits (`full` without Lineage and Side chats), and `content`: the full layout's whole height. */
 export type ThreadDetailsCardHeights = { full: number; compact: number; content: number };
 
 const frameHeight = (value: unknown): number | null =>
@@ -66,7 +66,7 @@ const frameHeight = (value: unknown): number | null =>
 
 /**
  * ThreadDetailsCard's measure (`element.offsetHeight` plus the card's 1 pt borders) for the density the frames were
- * laid out in. Lineage and the expanded pull request list scroll as they expand, so the height a density must fit
+ * laid out in. Lineage, Side chats and the expanded pull request list scroll as they expand, so the height a density must fit
  * leaves them out: counting them would fold away the section and workspace rows when the user asks to see more of
  * them. A full layout gives both fitting heights
  * (the compact one is the content without the parts only `full` shows, where the reference lays the compact rows out
@@ -83,7 +83,8 @@ export function measureThreadDetailsCard(frames: Record<string, unknown>): Parti
   if (top !== null) {
     const folded = top + (frameHeight(frames[DETAILS_FRAMES.fullTail]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.fullGit]) ?? 0)
       + (frameHeight(frames[DETAILS_FRAMES.vcs]) === null ? 0 : 1);
-    return { full: full - (frameHeight(frames[DETAILS_FRAMES.lineage]) ?? 0) - prList, compact: Math.max(0, full - folded - prList), content: full };
+    const scrolling = (frameHeight(frames[DETAILS_FRAMES.lineage]) ?? 0) + (frameHeight(frames[DETAILS_FRAMES.sideChats]) ?? 0);
+    return { full: full - scrolling - prList, compact: Math.max(0, full - folded - prList), content: full };
   }
   return frameHeight(frames[DETAILS_FRAMES.compact]) === null ? {} : { compact: full - prList };
 }

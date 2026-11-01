@@ -1209,17 +1209,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         // The presenter's clock: the runner's frame tasks and timers, and
         // the hatches' tickets and `after`s.
-        if p.wants_frames() && agent::clock(p).is_none() {
-            if let Some(e) = p.animation_frame(now) {
-                eprintln!("exact: {e}");
-            }
-        } else if p.timer_due_ms().is_some_and(|due| due <= now) {
-            if let Some(e) = p.advance(now) {
-                eprintln!("exact: {e}");
-            }
-        }
-        if p.needs_animation_frame() {
-            p.tick(now);
+        if let Some(e) = p.reader_clock(now, agent::clock(p).is_none()) {
+            eprintln!("exact: {e}");
         }
         if quick {
             // A picture a timer's source change took from the cache sends its
@@ -1445,7 +1436,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
     }
 
-    /// Milliseconds until the next timer, if any.
+    /// Milliseconds until the next timer or sampled motion edge, if any.
     pub fn next_due(&self) -> Option<f64> {
         // The windows' lead is owed a turn as soon as the first frame is out,
         // and the GPU canvases a booting thread left.

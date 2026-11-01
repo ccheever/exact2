@@ -311,6 +311,12 @@ impl Heavy {
 }
 
 impl DataSource for Heavy {
+    fn bind(&mut self, _plan: &exact_plan::Plan) {
+        // This source uses baked values and has no binding work.
+        #[cfg(target_os = "macos")]
+        exact_ink::device::apple::trace_mark(c"boot data bound", || 0.);
+    }
+
     fn app_id(&self) -> &str {
         "dev.exact.heavybench.exact"
     }

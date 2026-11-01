@@ -20,6 +20,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var paintGhost = false
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it (`applyBoxLayer`).
     var boxDrawn = false
+    /// The key is set and paints the whole paragraph (not a band of it).
+    private(set) var textRasterWhole = false
+    var textRasterReady = false
     var textRasterFailed = false
     var textLayoutValid = false
     /// The last frame showed it: Core Animation committed it in a window, not hidden (`Presenter.unshown`).
@@ -78,6 +81,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         get { specs?.rasterKey }
         set {
             if newValue != nil || specs != nil { textMore.rasterKey = newValue }
+            textRasterWhole = newValue.map { $0.clip == nil } ?? false
         }
     }
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
@@ -360,10 +364,10 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         set { super.isAccessibilityElement = newValue }
     }
     /// A native module's box whose view has elements of its own, named by
-    /// the Contract (`aria-label`): VoiceOver says the name entering them.
+    /// the Contract (`aria-label`): VoiceOver says the name entering them. A table and a `dl` are `tableContainerType`.
     package override var accessibilityContainerType: UIAccessibilityContainerType {
         get {
-            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return super.accessibilityContainerType }
+            guard kind == "native", authoredLabel != nil, presenter?.session?.natives.speaksForItself(self) == true else { return tableContainerType ?? super.accessibilityContainerType }
             return .semanticGroup
         }
         set { super.accessibilityContainerType = newValue }
@@ -519,7 +523,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         loadGeneration += 1
         clearSymbol(); image = nil
-        if previousSource?.hasPrefix("symbol:") == true { presenter?.queueIntrinsicSize(self, generation: loadGeneration, nil) }
+        if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
         guard let session = presenter?.session else { return }
         if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
             imageSource = previousSource; loadGeneration = previousGeneration
@@ -1380,7 +1384,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
             up = v.superview
         }
-        sv.alwaysBounceVertical = sv.scrollsY && !nested && (handlers.contains("refresh") || !fits || !carousel)
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
     }
 
     /// Its parts move with its frame: in an animation UIKit has open only if the last frame showed it (`Presenter.moveOrPlace`).

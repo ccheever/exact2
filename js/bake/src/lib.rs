@@ -4,13 +4,20 @@
 
 #![deny(missing_docs)]
 
+mod android;
+mod beside;
+mod library;
 mod linked;
 #[path = "../../package_tool.rs"]
 mod package_tool;
 mod resident;
+mod seed;
 #[cfg(test)]
 mod sources_tests;
+pub use android::build_android;
 pub use resident::Producer;
+pub use seed::Seed;
+use seed::Seeded;
 
 use contract::DataSource;
 use exact_js::Module;
@@ -53,8 +60,13 @@ impl std::error::Error for BakeError {}
 /// script takes the files Rust compiles from it and watches only those, so
 /// an edit that changes the plan alone leaves the archive as it was, and the
 /// link carries the plan (`exact_apple::baked`).
+///
+/// Either way it links the library a package the app depends on declares
+/// (`library`), which the native build fetched before Cargo ran, as the
+/// mixed entries below do.
 pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
     println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    library::link(app, platform).map_err(BakeError)?;
     match std::env::var_os("EXACT_BAKED") {
         Some(baked) => std::env::var_os("OUT_DIR")
             .ok_or_else(|| "build requires OUT_DIR".to_string())
@@ -87,6 +99,7 @@ pub const APP_BYTECODE: &[u8] = {
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
 pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    library::link(app, platform).map_err(BakeError)?;
     build_sources(app, platform, Some(rust), None, false).map_err(BakeError)
 }
 
@@ -102,6 +115,7 @@ pub fn build_mixed_with(
     rust_sources: &[&str],
     compose: impl Fn(Module) -> Box<dyn DataSource>,
 ) -> Result<(), BakeError> {
+    library::link(app, platform).map_err(BakeError)?;
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
@@ -172,152 +186,6 @@ impl DataSource for Composed {
     }
 }
 
-/// What the development producer knows about the Rust half it cannot run:
-/// the previous generation's plan and the sources Rust owns (from the last
-/// Cargo bake's receipt). A Rust-owned resource keeps its previous
-/// first-frame value until the next Cargo bake; one that has none refuses
-/// by name.
-pub struct Seed {
-    values: BTreeMap<String, Result<exact_plan::Value, String>>,
-}
-
-impl Seed {
-    /// From the previous plan's bytes and the receipt's `rustSources`.
-    pub fn new(plan: &[u8], rust_sources: &[String]) -> Result<Seed, String> {
-        let plan = exact_plan::Plan::decode(plan).map_err(|e| format!("previous plan: {e:?}"))?;
-        let mut values: BTreeMap<String, Result<exact_plan::Value, String>> = BTreeMap::new();
-        for row in plan.resources.iter() {
-            let source = plan.str(row.source).to_string();
-            if !rust_sources.contains(&source) {
-                continue;
-            }
-            let name = plan.str(row.name).to_string();
-            let value = if row.initial.len > 0 {
-                exact_plan::Value::from_bytes(plan.bytes(row.initial))
-                    .map_err(|e| format!("`{name}`: previous value: {e:?}"))
-            } else {
-                Err(format!(
-                    "`{name}` has no baked value; a Cargo bake supplies it"
-                ))
-            };
-            values
-                .entry(source)
-                .and_modify(|v| {
-                    *v = Err(format!(
-                        "`{name}` shares its Rust source with another resource; a Cargo bake resolves it"
-                    ))
-                })
-                .or_insert(value);
-        }
-        for source in rust_sources {
-            values.entry(source.clone()).or_insert_with(|| {
-                Err(format!(
-                    "`{source}` has no seeded resource; checked by its source declaration"
-                ))
-            });
-        }
-        Ok(Seed { values })
-    }
-
-    /// From the files on disk, when both exist; `None` otherwise.
-    pub fn read(plan: Option<&Path>, receipt: Option<&Path>) -> Result<Option<Seed>, String> {
-        let (Some(plan), Some(receipt)) = (plan, receipt) else {
-            return Ok(None);
-        };
-        let (Ok(plan), Ok(receipt)) = (std::fs::read(plan), std::fs::read(receipt)) else {
-            return Ok(None);
-        };
-        let receipt: serde_json::Value =
-            serde_json::from_slice(&receipt).map_err(|e| format!("previous receipt: {e}"))?;
-        let rust_sources: Vec<String> = receipt["rustSources"]
-            .as_array()
-            .map(|list| {
-                list.iter()
-                    .filter_map(|s| s.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if rust_sources.is_empty() {
-            return Ok(None);
-        }
-        Seed::new(&plan, &rust_sources).map(Some)
-    }
-}
-
-/// The bake's module beside the seed: Rust-owned sources answer from the
-/// previous plan; everything else is the module's.
-struct Seeded<'a> {
-    module: Module,
-    seed: &'a Seed,
-}
-
-impl DataSource for Seeded<'_> {
-    fn query(
-        &mut self,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_plan::Value, exact_runner::DataError> {
-        match self.seed.values.get(source) {
-            Some(Ok(value)) => Ok(value.clone()),
-            Some(Err(message)) => Err(exact_runner::DataError::Unavailable(message.clone())),
-            None => self.module.query(source, args),
-        }
-    }
-    fn answer(
-        &mut self,
-        store: &mut exact_runner::Store,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
-        if self.seed.values.contains_key(source) {
-            return self.query(source, args).map(exact_runner::Answer::Now);
-        }
-        self.module.answer(store, source, args)
-    }
-    fn answer_for(
-        &mut self,
-        target: exact_runner::Target,
-        store: &mut exact_runner::Store,
-        source: &str,
-        args: &[exact_plan::Value],
-    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
-        if self.seed.values.contains_key(source) {
-            return self.query(source, args).map(exact_runner::Answer::Now);
-        }
-        self.module.answer_for(target, store, source, args)
-    }
-    fn overlay(
-        &mut self,
-        source: &str,
-        args: &[exact_plan::Value],
-        answer: &exact_plan::Value,
-        writes: &[exact_runner::Write<'_>],
-    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
-        if self.seed.values.contains_key(source) {
-            return Ok(None);
-        }
-        self.module.overlay(source, args, answer, writes)
-    }
-    fn app_id(&self) -> &str {
-        self.module.app_id()
-    }
-    fn grants(&self) -> &str {
-        self.module.grants()
-    }
-    fn revision(&self) -> Option<&str> {
-        self.module.revision()
-    }
-    fn bind(&mut self, plan: &exact_plan::Plan) {
-        self.module.bind(plan)
-    }
-    fn ready(&self) -> bool {
-        self.module.ready()
-    }
-    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
-        self.module.canvas_surfaces()
-    }
-}
-
 fn mixed_grants<'a>(
     javascript: &serde_json::Value,
     rust: Option<&'a dyn DataSource>,
@@ -335,12 +203,14 @@ fn mixed_grants<'a>(
 /// bake, the module's hash (`REVISION`, which the web's entry passes on); on
 /// a native platform the bytecode, embedded, or in a linked bake the
 /// section the link adds, so that an edit to the module's code leaves the
-/// file as it was.
+/// file as it was; and there, when a package fills the native slot, its
+/// shim and the factory `embedded_data` attaches (LLP 1154 D3).
 fn module_constants(
     meta: &serde_json::Value,
     rust_updates: bool,
     platform: &str,
     linked: bool,
+    native: Option<&contract::native::NativeSlot>,
 ) -> Result<String, String> {
     let mut metadata = format!(
         "pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\n",
@@ -360,6 +230,14 @@ fn module_constants(
         } else {
             APP_BYTECODE
         });
+        if let Some(slot) = native {
+            metadata.push_str(&format!(
+                "// {package}'s native module, from its exact.json `native` (LLP 1154 D3).\n#[path = {root:?}]\n#[allow(dead_code, missing_docs, unused_imports, clippy::all)]\nmod exact_native_shim;\n/// The app's native module, for `embedded_data`'s `.with_native(exact_native)`.\npub fn exact_native(_grants: &str) -> Box<dyn exact_js::NativeModule> {{\n    Box::new(exact_native_shim::{class}::new(APP))\n}}\n",
+                package = slot.package,
+                root = slot.root.display().to_string(),
+                class = slot.class,
+            ));
+        }
     }
     Ok(metadata)
 }
@@ -448,7 +326,12 @@ fn build_sources(
         && compat.inputs["rustModule"]
             .as_str()
             .is_some_and(|module| !module.is_empty());
-    let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
+    let native = contract::native::native_slot(app)?;
+    for file in &native.watched {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    let mut metadata =
+        module_constants(&meta, rust_updates, platform, outside, native.slot.as_ref())?;
     if platform == "windows" {
         metadata.push_str(&format!(
             "/// The window the app opens in (`host.windows.window`).\npub fn window() -> exact_windows::Window {{ {} }}\n",
@@ -564,6 +447,24 @@ fn build_sources(
     let selection = root.join(".exact/backend-origin");
     if selection.exists() || std::env::var_os("EXACT_BACKEND_SELECTION").is_none() {
         println!("cargo:rerun-if-changed={}", selection.display());
+    }
+    // The settings app.ts read: each name in the environment, and the files
+    // beside app.json, watched as the selection is (EXACT_ENV_FILES names the
+    // ones that exist).
+    // And the names Bun loaded (`noteBunLoaded`): a variable whose value stays
+    // may come from the environment once and from Bun's files the next time.
+    if let Some(settings) = meta["env"].as_object() {
+        println!("cargo:rerun-if-env-changed=EXACT_ENV_FILES");
+        println!("cargo:rerun-if-env-changed=EXACT_BUN_LOADED");
+        for name in settings.keys() {
+            println!("cargo:rerun-if-env-changed={name}");
+        }
+        for file in [".env.local", ".env"] {
+            let path = root.join(file);
+            if path.exists() || std::env::var_os("EXACT_ENV_FILES").is_none() {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
     }
     // And the Contract libraries the app uses, wherever they are installed.
     contract::rerun_if_changed(&root.join("app.contract"));
@@ -884,9 +785,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 return Err("__exact_build.tsbuildinfo is reserved for the producer".into());
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
-                // The Windows package (`host/windows/build.mjs`) is the bake's
-                // output: captured, its compat.json made every build stale.
-                || (at == root && name == "dist-windows")
+                // Outputs: the Windows package (`host/windows/build.mjs`), whose captured
+                // compat.json made every build stale, and what a web build keeps beside `dist`.
+                || (at == root && (name == "dist-windows" || beside::beside_dist(&name)))
                 || name.starts_with(".exact-js-bake-")
                 // The app's dot directories hold what no build reads: `.exact/`
                 // keeps an agent's diary, evidence, logs and runtime files
@@ -1079,6 +980,8 @@ fn bake_in(
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_binding.mjs",
+        "__exact_env.mjs",
+        "__exact_env.json",
         "__exact_paths.json",
         "__exact_declarations.json",
         "__exact_packages.json",
@@ -1295,6 +1198,15 @@ fn bake_in(
     // The package code bundled in, by name and version (absent with none).
     if !packages.is_empty() {
         receipt["packages"] = packages.into();
+    }
+    // The settings app.ts read (`import.meta.env`, LLP 1153 D4), each with the
+    // value inlined and its source (`typescript.mjs` `configure`; absent with none).
+    if let Ok(bytes) = std::fs::read(stage.join("__exact_env.json")) {
+        let settings: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if settings.as_object().is_some_and(|s| !s.is_empty()) {
+            receipt["env"] = settings;
+        }
     }
     let receipt = receipt.to_string();
     Ok(Baked {

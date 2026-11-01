@@ -796,8 +796,12 @@ reading. Nothing that isn't HTML is added by it.
   1020's `top` topology, for a partitioned frame only); its new windows, external
   schemes, dialogs, files, downloads and fullscreen get the platform's answers,
   and its permission requests are denied (navigation policy, with no veto);
-  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading` and
-  `captureScreenshot` of an `iframe` join `HOST_COMMANDS`, with the Navigation
+  `navigate`, `traverseHistory`, `reload(id)`, `stopLoading`,
+  `captureScreenshot` and (2026-10-31) `openDevTools` of an `iframe` join
+  `HOST_COMMANDS` (`openDevTools` added because the T3 Code oracle's Browser
+  tab opens its page's developer tools, and nothing else in this expansion
+  reaches them. Nothing comes off the list for it; Daehyeon Mun's ruling of
+  2026-10-31, LLP 1020.002 D11, stands in place of the waiver), with the Navigation
   API's events (the controller ops); `clearSiteData`, `zoom`, and
   WebDriver BiDi automation under the `browser.automation` grant in production
   builds. macOS and iOS first; the web a detectable subset; Android and Windows
@@ -887,6 +891,17 @@ reading. Nothing that isn't HTML is added by it.
   in data code; HDR output; `ExternalTexture` as a tier 2 word; a third
   party's decoder; tracks from other producers; WebRTC; Rust data code's
   binding.
+- **Expanded (Daehyeon Mun, 2026-10-31: "the app isn't shipped through the
+  App Store, so build it"; take waived, none offered; LLP 1042 §9):**
+  picture in picture for an `image`'s pictures, in the framework:
+  `requestPictureInPicture(id)`, `exitPictureInPicture()` and the image's
+  `enterpictureinpicture`, `leavepictureinpicture` and
+  `pictureinpictureerror`, on macOS (AVKit's sample-buffer source in the
+  video arm) and the web's JS target; iOS, tvOS, the wasm target, Linux and
+  Windows refuse it. Consumer: the T3 Code clone's server-rendered Browser
+  tab, which T3 Code floats from its JPEG stream. Still out: picture in
+  picture for a `video` by command (AVKit's controls reach it, LLP 1042
+  §3), a capability read for it, and iOS.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP
@@ -1613,6 +1628,17 @@ no inspect mode, no build channel. Charlie's waiver; no take is named. Still ref
 editing in release builds, a production inspect tier, layout and structure editing,
 captures of running apps, and a hosted relay.
 
+**Admitted (Charlie, 2026-10-30, "when you're happy with it, have astra implement it";
+LLP 1155 r2), development builds only, for a two-day experiment:** a Chrome DevTools
+inspection adapter in the Bun dev tooling, over the agent carrier (Stage 0) and the Tamber
+build channel (Stage 1), with one bounded read command on that channel and a one-instance
+outline; it shows the mounted tree, observed layout, style provenance and Contract
+locations through the stock frontend at a recorded version. Read-only, loopback,
+capability-attached; nothing in a release build. Still refused: source editing,
+JavaScript debugging, network capture, performance timelines, other hosts and production
+attachment. If Stage 0's fidelity gate fails (LLP 1155 §6), the admission lapses with the
+finding. Charlie's waiver; no take is named.
+
 **Agent API** — 10 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
@@ -1679,8 +1705,11 @@ one selected node's provenance; a general provenance explorer stays refused.
 **Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** admit bounded local
 frame-health counters, native menus and cards, and human/agent readouts. The menu and
 card follow platform presentation and accessibility. The request "Let’s target 4KB"
-admits recent-hitch capture in fixed memory and explicit Share/Copy or agent reports
-capped at 4000 bytes, without automatic persistence or uploads. "Let’s do it all"
+admits recent-hitch capture in fixed memory and explicit Share or agent reports
+capped at 4000 bytes, without automatic persistence or uploads; the card's Share may
+also give a text summary within that size and an image of the card outside that cap
+(user, 2026-10-30), and the card holds Details and Share itself, so the menus offer
+only Show and Hide (user, 2026-10-31). "Let’s do it all"
 also admits live-clock scheduling, cursor reads, the development-only passive
 native-scroll experiment and macOS card/inspector controls. Production default-on
 requires measured adapter qualification. No production inspection endpoint or

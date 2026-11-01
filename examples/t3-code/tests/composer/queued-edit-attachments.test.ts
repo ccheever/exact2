@@ -10,6 +10,7 @@ import { opened, running } from '../support/composer-controls-fixture';
 import { snapshot } from '../../src/client/presentation';
 import { toasts } from '../../src/shell/toast';
 import { ATTACHMENT_ONLY_PROMPT, mergedEditContext, prepareQueuedEditAttachments, recoverQueuedMessageEdit } from '../../src/composer/queued-edit-attachments';
+import { restoreAttachmentOnlyPrompt, stripAttachmentOnlyPrompt } from '../../src/composer/attachment-only-prompt';
 import { queuedTurnRows } from '../../src/composer/thread-end';
 import type { T3Client } from '../../src/client/client';
 
@@ -49,12 +50,12 @@ describe('queued message file edits (queuedMessageEdit.test.ts)', () => {
   });
 });
 
-async function queuedWithAttachments() {
+async function queuedWithAttachments(text = 'Queued with a screenshot') {
   const context = await opened();
   const { client } = context;
   running(client, { activeAttemptId: 'a1' });
   client.thread!.projection.runs = [...arr(client.thread!.projection.runs), { id: 'q1', ordinal: 2, status: 'queued', queuePosition: 1, userMessageId: 'm1' }];
-  client.thread!.projection.messages = [{ id: 'm1', text: 'Queued with a screenshot', attachments: [
+  client.thread!.projection.messages = [{ id: 'm1', text, attachments: [
     { type: 'image', id: 'attachment-1', name: 'kept.png', mimeType: 'image/png', sizeBytes: 64 },
     { type: 'file', id: 'attachment-2', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 12 }],
     context: { version: 1, records: [{ version: 1, kind: 'file', contextId: 'ctx-2', attachmentId: 'attachment-2' }] } }];
@@ -101,6 +102,28 @@ describe('editing a queued message with its attachments (G12a)', () => {
     await command('send', '', '');
     expect(native.committed.length).toBe(before);
     expect(client.error).toBe('');
+  });
+  test('an attachment-only message edits as an empty field (an Ultrathink prefix kept) and saves its prompt back', async () => {
+    expect(['', 'Ultrathink:', 'Ultrathink:  ', 'Look'].map(text => restoreAttachmentOnlyPrompt(text, true)))
+      .toEqual([ATTACHMENT_ONLY_PROMPT, `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}`, `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}`, 'Look']);
+    expect(restoreAttachmentOnlyPrompt('', false)).toBe('');
+    expect([ATTACHMENT_ONLY_PROMPT, `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}`, 'Look'].map(stripAttachmentOnlyPrompt)).toEqual(['', 'Ultrathink:', 'Look']);
+    const { client, native, command } = await queuedWithAttachments(`Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}`);
+    await command('cclocal:queued-edit', 'q1');
+    expect(client.draft).toBe('Ultrathink:');
+    // Its kept attachments alone make it sendable.
+    expect(snapshot(client).composer.queueEditAttachments).toHaveLength(2);
+    await command('send', '', 'Ultrathink:');
+    expect(edits(native.committed).at(-1)).toMatchObject({ text: `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}` });
+  });
+  test('an attachment-only edit, whose field is empty, still reaches send from the root', async () => {
+    const { client, native, command } = await queuedWithAttachments(ATTACHMENT_ONLY_PROMPT);
+    await command('cclocal:queued-edit', 'q1');
+    expect(client.draft).toBe('');
+    await command('send', '', '');
+    expect(edits(native.committed).at(-1)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT });
+    const root = await Bun.file(new URL('../../app.contract', import.meta.url)).text();
+    expect(root).toContain('(data.canSend and (composerText != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0))');
   });
   test('more than 100 attachments are refused with the reference wording', async () => {
     const { client, native, command } = await queuedWithAttachments();

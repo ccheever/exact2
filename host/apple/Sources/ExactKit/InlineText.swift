@@ -31,6 +31,7 @@ extension InlineText {
                       family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
+                      ligatures: Int(number("font_variant_ligatures")),
                       stretch: CGFloat(Float(number("font_stretch", 100))),
                       variations: FontAxis.of(style),
                       color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),

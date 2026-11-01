@@ -13,6 +13,26 @@ static AT_MOUNT: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURES_AT_MOUNT").is_ok_and(|v| v != "0"));
 
 impl<D: DataSource> Presenter<D> {
+    /// Restore the ordinary image policy after the painted carrier retires boot.
+    #[cfg(target_os = "macos")]
+    pub fn finish_boot_images(&mut self) {
+        if !self.images.boot_visible_only {
+            return;
+        }
+        self.images.finish_boot();
+        // An ordinary first sync asks mounted first loads before boxes exist.
+        // Painted boot defers that pass until its visible frame has displayed.
+        if let Some(error) = self.sync_images_policy(&BTreeMap::new(), true) {
+            self.host.log(error);
+        }
+    }
+
+    /// A landed picture needs the next display tick, without waiting for a
+    /// window-system redraw. Painting consumes this demand.
+    pub fn pictures_need_paint(&self) -> bool {
+        self.image_paint_pending
+    }
+
     /// Loads that arrived since the last call: their sizes reach the kernel.
     /// Whether anything changed.
     pub fn poll_images(&mut self) -> bool {
@@ -96,6 +116,7 @@ impl<D: DataSource> Presenter<D> {
         }
         if any {
             self.dirty = true;
+            self.image_paint_pending = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {
@@ -117,6 +138,14 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn sync_images_moved(
         &mut self,
         moved: &BTreeMap<ViewId, (f32, f32)>,
+    ) -> Option<String> {
+        self.sync_images_policy(moved, false)
+    }
+
+    fn sync_images_policy(
+        &mut self,
+        moved: &BTreeMap<ViewId, (f32, f32)>,
+        initial_mounts: bool,
     ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
         // A tree whose only images are symbols (a list's icons) has nothing
@@ -177,11 +206,22 @@ impl<D: DataSource> Presenter<D> {
         self.images.paint_with(self.brush.text.clone());
         // Where its painted box is in the viewport: None for a picture with no
         // painted box (not painted yet, or under `display: none`).
+        let boot_visible_only = self.images.boot_visible_only;
         let placed = |id: ViewId| -> Option<bool> {
             if host.route_visibility(id).0 {
                 return Some(false);
             }
-            let (i, b) = boxes(&id)?;
+            let Some((i, b)) = boxes(&id) else {
+                return boot_visible_only.then(|| {
+                    host.kernel().node(id).is_some_and(|n| {
+                        let f = n.frame;
+                        f.x < viewport.0
+                            && f.y < viewport.1
+                            && f.x + f.width.max(1.) > 0.
+                            && f.y + f.height.max(1.) > 0.
+                    })
+                });
+            };
             let (mut x, mut y, mut w, mut h) = b.rect;
             let mut clip = b.clip;
             if let Some((_, _, d, port)) = shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
@@ -209,7 +249,7 @@ impl<D: DataSource> Presenter<D> {
         // Asked for: in the viewport or with no box yet (a first load), or
         // mounted where pictures are asked at mount.
         let visible = |id: ViewId| {
-            if *AT_MOUNT {
+            if initial_mounts || *AT_MOUNT {
                 return !host.route_visibility(id).0;
             }
             placed(id).unwrap_or(true)
@@ -223,6 +263,7 @@ impl<D: DataSource> Presenter<D> {
         let mut reports = reports;
         reports.extend(self.pictures_out());
         self.dirty |= !reports.is_empty();
+        self.image_paint_pending |= !reports.is_empty();
         self.images.settled = self.images.settled_at(epoch, reports.is_empty());
         if reports.is_empty() {
             return None;

@@ -284,4 +284,13 @@ describe('BrowserStage slot and the frame in it (clone)', () => {
     expect(iframe).toContain('scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0"');
     expect(iframe).toContain('partition=f.partition zoom=f.zoom');
   });
+  // A hidden tab's box sits over the window (at the left edge while the panel is closed): unless it is not displayed, it is
+  // hit before the timeline under it, and a hover, a press or a double-click there reaches nothing.
+  it('a tab neither shown nor held is not displayed, its box included', async () => {
+    const lines = (await Bun.file(appPath('browser-frames.contract')).text()).split('\n');
+    const start = lines.findIndex(line => line.startsWith('component BrowserFrame'));
+    const box = lines.slice(start).find(line => line.trim().startsWith('box position="absolute" left=left top=top'))!;
+    expect(box).toContain('display=(shown or behind ? "block" : "none")');
+    expect(box).toContain('pointer-events=(behind ? "none" : "auto")');
+  });
 });

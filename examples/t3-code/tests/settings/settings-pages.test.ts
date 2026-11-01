@@ -187,7 +187,7 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   projects: ['settings-projects.contract', 'ProjectsPanel', { ...host, data: { ready: true, selected: true } }],
   keybindings: ['settings-keybindings.contract', 'KeybindingsPanel', { busy: false, error: '', adding: false, data: { available: true, error: '', writable: true, groups: [{ rows: [{}] }] } }],
   archived: ['settings-archive.contract', 'ArchivedPanel', { busy: false, error: '', data: { available: true, groups: [{ id: 'g1', first: true, threads: [{}] }, { id: 'g2', first: false, threads: [{}] }] } }],
-  'scheduled-tasks': ['settings-scheduled.contract', 'ScheduledPanel', { busy: false, error: '', data: { available: true, writable: true, items: [{}] } }],
+  'scheduled-tasks': ['settings-scheduled.contract', 'ScheduledPanel', { busy: false, error: '', data: { available: true, creatable: true, writable: true, items: [{}] } }],
   'open-source-licenses': ['settings-licenses.contract', 'NoticesPanel', { query: '', data: { entries: [{ id: 'react', sourceUrl: 'https://github.com/facebook/react' }] } }],
   diagnostics: ['settings-diagnostics.contract', 'DiagnosticsPanel', { busy: false, data: { available: true } }],
   connections: ['connections.contract', 'ConnectionsPanel', { view: 'connections', busy: false, error: '', still: true, menu: '', width: 640,
@@ -198,7 +198,7 @@ const pages: Record<string, [file: string, component: string, props: Env]> = {
   // Appearance's library over its sections as settings-appearance.ts builds them (Separate fonts on draws every font row).
   appearance: ['settings-core-body.contract', 'SettingsCoreBody', { route: 'appearance', busy: false, menu: '', core: { notice: '', message: '', showScope: false,
     tiles: [any], themes: [some({ id: 'custom-1', collection: false, custom: true, orbs: [any] }), some({ id: 'collection-1', collection: true, custom: true })],
-    sections: appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true, []) } }],
+    sections: appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), []) } }],
   // SnapShots with capture on and a new shortcut waiting: every row, and the shortcut's Save and Cancel.
   'snap-shot': ['snapshot.contract', 'SnapshotPanel', { busy: false, setupOpen: false, data: some({ error: '', setupLabel: 'Open System Settings', enabled: true, captureAvailable: true,
     recording: false, changed: true, canSave: true }) }],
@@ -271,7 +271,7 @@ describe('every result lands on an element its own page draws, in that page stat
     general: core('general'), chat: core('chat'), diffs: core('diffs'), threads: core('threads'), labs: core('labs'),
     about: [...core('about'), cliCommandRow({ supported: true, installedPath: null, onPath: false })!.id],
     // Typography's separate font rows show with Separate fonts on, which a jump to one turns on first.
-    appearance: [...[false, true].flatMap(typographyAdvanced => sectionIds(appearanceSections(decodeClientPrefs({ typographyAdvanced }), true, []))),
+    appearance: [...[false, true].flatMap(typographyAdvanced => sectionIds(appearanceSections(decodeClientPrefs({ typographyAdvanced }), []))),
       ...walkPage('settings-core-body.contract', 'SettingsCoreBody', { route: 'appearance', busy: false, core: { notice: '', message: '', showScope: false, sections: [] } }).ids],
     maintenance: [...core('maintenance'), ...walked('maintenance'), diagnosticsRow(false).id],
     worktrees: [...core('worktrees'), ...walked('worktrees'), ...targets(branchNamingRows({}, '', 'Local', true))],

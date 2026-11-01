@@ -86,7 +86,7 @@ component App
     let said = bridge.text("said");
     assert!(
         said.starts_with("a refused: setTimeout() is unavailable here")
-            && said.ends_with("or was let go); b armed"),
+            && said.ends_with("as long as its HTTP headers allow; b armed"),
         "{said}"
     );
 }

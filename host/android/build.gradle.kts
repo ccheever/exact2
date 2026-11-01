@@ -10,3 +10,5 @@ plugins {
     id("com.android.application") version "9.4.1" apply false
     id("com.android.library") version "9.4.1" apply false
 }
+// An app's build keeps the root project's outputs (its problems report) in its own directory too (agent-android.mjs).
+providers.gradleProperty("appBuildDir").orNull?.let { layout.buildDirectory = file("$it/root") }

@@ -247,14 +247,14 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
       · simp [VTy]
       · simp only [VTy]
         exact VTyAll.get (by simpa [VTy] using hts.1) hw
-  case h_30 =>
+  case h_31 =>
     split at h
     · obtain rfl := Except.ok.inj h; simp [VTy]
     · obtain ⟨s, rfl⟩ := bind_str_ok h; simp [VTy]
   case h_12 =>
     unfold includesOf at h
     split at h <;> simp at h <;> subst h <;> simp [VTy]
-  case h_31 _ _ w _ _ =>
+  case h_32 _ _ w _ _ =>
     rcases ts with _ | ⟨t0, ts⟩
     · simp [VTys] at hts
     · simp only [VTys] at hts
@@ -265,14 +265,14 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
         cases t0 <;> simp [VTy] at hts ⊢
         exact VTyAll.of_mem fun x hx =>
           hts.1.mem x (List.mem_of_mem_drop (List.mem_of_mem_take hx))
-  case h_34 =>
+  case h_35 =>
     unfold indexOfOf at h
     split at h <;> simp at h <;> subst h <;> simp [VTy]
-  case h_35 =>
+  case h_36 =>
     exact VTyAll.of_mem fun x hx => by
       obtain ⟨s, _, rfl⟩ := List.mem_map.mp hx
       simp [VTy]
-  case h_33 _ _ xs ys =>
+  case h_34 _ _ xs ys =>
     rcases ts with _ | ⟨t0, _ | ⟨t1, ts⟩⟩
     · simp [VTys] at hts
     · simp [VTys] at hts
@@ -280,21 +280,21 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
       cases t0 <;> cases t1 <;> simp [VTy] at hts ⊢
       exact VTyAll.append (VTyAll.imp (fun hv => vty_join_left hv) hts.1)
         (VTyAll.imp (fun hv => vty_join_right hv) hts.2.1)
-  case h_43 =>
-    split <;> simp [VTy]
   case h_44 =>
+    split <;> simp [VTy]
+  case h_45 =>
     split at h <;> simp at h; subst h
     split <;> simp [VTy]
-  case h_49 =>
+  case h_50 =>
     split at h <;> simp at h; subst h; simp [VTy]
-  case h_51 =>
+  case h_52 =>
     split at h
     · split at h <;> simp at h; subst h
       exact VTyAll.of_mem fun x hx => by
         obtain ⟨i, _, rfl⟩ := List.mem_map.mp hx
         simp [VTy]
     · simp at h
-  case h_52 _ _ xss =>
+  case h_53 _ _ xss =>
     split at h <;> simp at h; subst h
     rcases ts with _ | ⟨t0, ts⟩
     · simp [VTys] at hts

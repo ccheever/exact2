@@ -477,6 +477,7 @@ mod storage {
             line_height: heights[variant],
             letter_spacing: -0.125,
             font_variant_numeric: 0,
+            font_variant_ligatures: 0,
             bold_text: false,
         };
         let strut = TextStyle {
@@ -490,6 +491,7 @@ mod storage {
             line_height: Some(30.25),
             letter_spacing: -0.0,
             font_variant_numeric: 0,
+            font_variant_ligatures: 0,
             bold_text: false,
         };
         let runs = [
@@ -516,6 +518,7 @@ mod storage {
                 line_height: heights[variant].unwrap_or(0.0),
                 letter_spacing: -0.125,
                 font_variant_numeric: 0,
+                font_variant_ligatures: 0,
                 font_stretch: 87.5,
                 variation_count: 1,
                 variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
@@ -538,6 +541,7 @@ mod storage {
                 line_height: 30.25,
                 letter_spacing: -0.0,
                 font_variant_numeric: 0,
+                font_variant_ligatures: 0,
                 font_stretch: 100.0,
                 variation_count: 0,
                 variation_tags: [0; 8],

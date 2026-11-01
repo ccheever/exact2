@@ -54,20 +54,21 @@ describe('F6 between workspace areas', () => {
   const root = contractComponent('app.contract', 'T3Code');
   /** The root's workspace state over a window whose shown areas have the frames `shown` gives. */
   function window(shown: string[], over: Env = {}) {
-    const state: Env = { workspaceArea: '', workspaceTargets: [] };
+    const state: Env = { workspaceArea: '', workspaceTargets: [], terminalWorkspaceMove: 0, terminalWorkspaceFrom: '', terminalWorkspaceSerial: 0 };
     const focused: string[] = [], sent: unknown[][] = [];
     const container = (area: string) => area === 'composer' ? 'frame-overlay' : `workspace-${area}`;
     const scope: Env = {
-      settingsOpen: false, settingsRoute: 'general', data: { threadId: 't1' }, details: { inline: true, cwd: '/repo', editorId: 'vscode', editorUnavailable: '' }, canvas: { cardShown: shown.includes('details') }, terminalDrawer: { open: shown.includes('terminal') },
+      settingsOpen: false, settingsRoute: 'general', data: { threadId: 't1', sidebar: { treeCurrent: 'thread-t1' } }, details: { inline: true, cwd: '/repo', editorId: 'vscode', editorUnavailable: '' }, canvas: { cardShown: shown.includes('details') }, terminalDrawer: { open: shown.includes('terminal') },
       frame: (id: string) => {
-        const visible = shown.some(area => container(area) === id) || ['row-t1', 'held-button', ...(over.controls as string[] ?? [])].includes(id) || (id === 'settings-navigation' && shown.includes('settings-nav'));
+        const visible = shown.some(area => container(area) === id) || ['thread-t1', 'held-button', ...(over.controls as string[] ?? [])].includes(id) || (id === 'settings-navigation' && shown.includes('settings-nav'));
         return { width: visible ? 100 : 0, height: visible ? 100 : 0, x: 0, y: 0, unavailable: !visible };
       },
       focus: (id: string) => focused.push(id), command: (...args: unknown[]) => sent.push(args), navActiveRoute: (route: string) => route,
       WorkspaceTarget: (entry: Env) => entry, ...contractFns('src/shell/shell-shapes.contract'), ...over,
     };
     for (const name of ['workspaceFocusArea']) scope[name] = (...args: unknown[]) => root.call(name, state, scope, args);
-    return { state, focused, sent, move: (direction: number, from = '') => root.call('workspaceMove', state, scope, [direction, from]),
+    for (const name of ['workspaceMove', 'terminalWorkspaceQueue']) scope[name] = (...args: unknown[]) => root.call(name, state, scope, args);
+    return { state, focused, sent, scopeOf: () => scope, move: (direction: number, from = '') => root.call('workspaceMove', state, scope, [direction, from]),
       enter: (area: string, target: string) => root.call('workspaceEntered', state, scope, [area, { target }]) };
   }
 
@@ -80,13 +81,41 @@ describe('F6 between workspace areas', () => {
     expect(w.state.workspaceArea).toBe('terminal');
     expect(w.sent.at(-1)).toEqual(['terminallocal:focus', '', '', 0]); // the drawer focuses its page
     w.move(1);
-    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'row-t1']); // the open thread's row
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'thread-t1']); // the open thread's row
     w.move(-1);
     w.move(-1);
     expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['panel', 'workspace-panel']);
     // A move from inside the terminal names it, as its page holds the key.
     w.move(-1, 'terminal');
     expect(w.state.workspaceArea).toBe('panel');
+  });
+
+  test('a sidebar control that has closed (a rename field after Escape) gives F6 the open thread\'s row, which takes the focus', () => {
+    const w = window(['sidebar', 'conversation', 'composer', 'panel', 'terminal']);
+    // F2 on the row, then Escape: the sidebar last held the rename field, which is gone.
+    w.enter('sidebar', 'sidebar-rename-t1');
+    w.enter('composer', 'composer');
+    w.move(1); w.move(1); w.move(1);
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'thread-t1']);
+    // The row a focus id names is a treeitem button; the row's outer column takes no focus.
+    expect(w.focused).not.toContain('row-t1');
+  });
+
+  test('F6 and ⇧F6 typed in a terminal page move on from its area: the drawer\'s is the terminal, the right panel\'s the panel', () => {
+    const w = window(['sidebar', 'conversation', 'composer', 'panel', 'terminal']);
+    // The answer queues the move (it cannot send the terminal's own mutation); the task runs it on the next turn.
+    const completed = (message: string) => {
+      root.call('terminalCompleted', w.state, { ...w.scopeOf(), terminalChanged: { message } }, []);
+      if (w.state.terminalWorkspaceMove !== 0) root.call('terminalWorkspaceRun', w.state, w.scopeOf(), []);
+    };
+    completed('terminal:workspace-focus:next:terminal');
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['sidebar', 'thread-t1']);
+    completed('terminal:workspace-focus:previous:terminal');
+    expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['panel', 'workspace-panel']);
+    completed('terminal:workspace-focus:next:panel');
+    expect(w.state.workspaceArea).toBe('terminal');
+    completed('terminal:focus-composer');
+    expect(w.focused.at(-1)).toBe('composer');
   });
 
   test('an area takes back the control it last held while that control is still shown, and only shown areas count', () => {

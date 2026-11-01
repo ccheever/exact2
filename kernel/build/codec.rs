@@ -465,26 +465,47 @@ impl Codec {
 }
 
 /// A keyword row's vocabulary as bits (`schema.json` `keywords`), emitted into
-/// its enum's `impl`: the first value alone is the empty set, each later value
-/// `i` is bit `i - 1`; repeats, unknown words and the empty list are `None`.
-const KEYWORD_BITS: &str = r#"    /// A space-separated keyword list as a row's bits: the first value alone
-    /// is 0, each other value `i` sets bit `i - 1`; repeats and unknown words are `None`.
-    pub fn bits(text: &str) -> Option<u8> {
-        let mut bits = 0u8;
-        let mut words = 0;
-        for word in text.split_ascii_whitespace() {
-            words += 1;
-            let i = Self::from_name(word)? as u8;
-            if i == 0 { if words > 1 || text.split_ascii_whitespace().count() > 1 { return None; } continue; }
-            let bit = 1u8 << (i - 1);
-            if bits & bit != 0 { return None; }
-            bits |= bit;
+/// its enum's `impl`: the first value alone is the empty set, a `none` alone is
+/// every `no-` value (CSS `font-variant-ligatures`), and each other value is
+/// one bit in vocabulary order; repeats, a value with its `no-` form, unknown
+/// words and the empty list are `None`.
+const KEYWORD_BITS: &str = r#"    /// This value's bits: 0 for the first, every `no-` value's for `none`,
+    /// else its own bit. Bits are numbered in vocabulary order, skipping the
+    /// first value and `none`.
+    pub fn keyword_bits(self) -> u8 {
+        if self as u8 == 0 { return 0; }
+        let (mut bit, mut no) = (0u32, 0u8);
+        for v in &Self::ALL[1..] {
+            if v.name() == "none" { continue; }
+            let own = 1u8 << bit;
+            bit += 1;
+            if *v == self { return own; }
+            if v.name().starts_with("no-") { no |= own; }
         }
+        no
+    }
+    /// A space-separated keyword list as a row's bits: the first value and
+    /// `none` stand alone; a repeat, a value with its `no-` form and an
+    /// unknown word are `None`.
+    pub fn bits(text: &str) -> Option<u8> {
+        let words = text.split_ascii_whitespace().count();
+        let mut bits = 0u8;
+        for word in text.split_ascii_whitespace() {
+            let v = Self::from_name(word)?;
+            if (v as u8 == 0 || word == "none") && words > 1 { return None; }
+            let b = v.keyword_bits();
+            if bits & b != 0 { return None; }
+            bits |= b;
+        }
+        let paired = |v: &Self| v.name().strip_prefix("no-").and_then(Self::from_name).is_some_and(|on| bits & on.keyword_bits() != 0 && bits & v.keyword_bits() != 0);
+        if words > 1 && Self::ALL.iter().any(paired) { return None; }
         (words > 0).then_some(bits)
     }
-    /// A row's bits as CSS: the set values in vocabulary order, or the first.
+    /// A row's bits as CSS: `none` when they are its bits, else the set
+    /// values in vocabulary order, or the first.
     pub fn css(bits: u8) -> String {
-        let words: Vec<&str> = Self::ALL[1..].iter().filter(|v| bits & (1u8 << (**v as u8 - 1)) != 0).map(|v| v.name()).collect();
+        if bits != 0 && Self::from_name("none").is_some_and(|none| none.keyword_bits() == bits) { return "none".to_string(); }
+        let words: Vec<&str> = Self::ALL[1..].iter().filter(|v| v.name() != "none" && bits & v.keyword_bits() != 0).map(|v| v.name()).collect();
         if words.is_empty() { Self::ALL[0].name().to_string() } else { words.join(" ") }
     }
 "#;
@@ -760,7 +781,7 @@ fn write_metrics(w: &mut String, metrics: &[MetricRow], taken: &[&str]) {
 /// Whether a `style` row's name says a property that takes no length, as
 /// the grouped sheet writes it (`style::metrics`' row test): a colour, a
 /// line's style, a position, a font, a weight, a control size, an
-/// alignment, an appearance, a box model, a flex factor, a flex wrap. Every other `style`
+/// alignment, an appearance, a box model, a flex factor, a flex wrap, a corner's shape. Every other `style`
 /// row is written on a length property (a gap, an inset, a corner, a width or
 /// height, a padding, a margin, an offset).
 fn names_no_length(name: &str) -> bool {
@@ -769,7 +790,7 @@ fn names_no_length(name: &str) -> bool {
         || name == "grouped-separator"
         || [
             "-style", "-color", "-position", "-tint", "-font", "-weight", "-align", "-appearance",
-            "-box-sizing", "-grow", "-wrap",
+            "-box-sizing", "-grow", "-wrap", "-shape",
         ]
         .iter()
         .any(|e| name.ends_with(e))

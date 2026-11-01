@@ -28,6 +28,7 @@ mod links;
 pub use links::EngineLinks;
 mod path;
 mod played;
+mod schedule;
 mod slots;
 pub use played::{PlayedCurve, PlayedTransition, TransitionEnds};
 mod timeline;

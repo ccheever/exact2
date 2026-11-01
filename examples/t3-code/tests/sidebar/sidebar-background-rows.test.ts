@@ -169,4 +169,34 @@ describe('dragging a background environment\'s row', () => {
     expect(allowed.steps.map(step => step.threadId)).toEqual(['x', 'p']);
     expect(planDrop({ ...base, pinnedKeys, pinReorderable: new Set(['x', 'p', 'q']) }).verb).toBe('pin');
   });
+
+  // Sidebar.logic.test.ts at 2359643cff, "reordering with cached offline configuration".
+  test('a disconnected environment keeps its cached config but its rows are not reorderable', async () => {
+    // A background environment's rows leave the list while it is away; the focused one's stay, from its cached shell.
+    fleet.entries.set(KEY, background([row('tb', 'pb', { activeOrderKey: 'u', updatedAt: iso(-30_000) })]));
+    const { client, native, here, there } = focused([row('a', 'p1', { activeOrderKey: 'n', updatedAt: iso(-10_000) })]);
+    Object.assign(client, { connection: 'reconnecting' });
+    expect(sidebarSnapshot(client, NOW, helpers).threads.map(thread => thread.id)).toEqual(['a', 'fleet:env-b:tb']);
+    await sidebarCommand(client, native, {} as Files, 'drop', 'a', drop('active', 1000));
+    expect([here, there]).toEqual([[], []]);
+    // The connected row still moves above the offline row, whose key stays a bound.
+    await sidebarCommand(client, native, {} as Files, 'drop', 'fleet:env-b:tb', drop('active', 10));
+    expect(strip(there)).toEqual([{ type: 'thread.active.reorder', orderKey: expect.any(String), threadId: 'tb' }]);
+    expect(str(strip(there)[0]!.orderKey) < 'n').toBe(true);
+    expect(here).toEqual([]);
+  });
+
+  const frozen = (target: 'active' | 'pinned', ids: string[], centerY: number) => planDrop({ id: 'online', from: target, target, geometry: parseDrop(`${target}|${centerY}|0|0|false`),
+    pinnedIds: target === 'pinned' ? ids : [], activeIds: target === 'active' ? ids : [], pinnedKeys: new Map(ids.map(id => [id, null])), activeKeys: new Map(ids.map(id => [id, null])),
+    supportsSettlement: true, pinReorder: true, activeReorder: true, pinReorderable: new Set(ids.filter(id => id !== 'offline')), activeReorderable: new Set(ids.filter(id => id !== 'offline')) });
+  test('rejects crossing the frozen keyless boundary', () => {
+    // Keyless Active rows sort before keyed ones: a key for the row lifted above the offline keyless row lands below it.
+    expect(frozen('active', ['offline', 'online'], 0).steps).toEqual([]);
+    // Keyless Pinned rows sort after keyed ones: a key for the row dropped below the offline keyless row lands above it.
+    expect(frozen('pinned', ['online', 'offline'], 1000).steps).toEqual([]);
+  });
+  test('allows realizable moves beside a frozen keyless row', () => {
+    expect(frozen('active', ['online', 'offline', 'neighbor'], 1000).steps.map(step => step.threadId)).toEqual(['neighbor', 'online']);
+    expect(frozen('pinned', ['neighbor', 'online', 'offline'], 0).steps.map(step => step.threadId)).toEqual(['online', 'neighbor']);
+  });
 });

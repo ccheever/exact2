@@ -1,5 +1,5 @@
 // The thread's queued messages and the queued-message edit,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef, and chat/QueuedRunsControl.tsx at v0.1.5,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef, and chat/QueuedRunsControl.tsx at 2359643cff,
 // packages/client-runtime/src/state/threadWorkflows.ts (deriveThreadQueueWorkflowState,
 // getUserQueuedThreadRuns), packages/client-runtime/src/queuedRunEdit.ts (makeQueuedRunEditStore,
 // queuedRunEditBlockedReason) and chat/useQueuedRunEdit.ts (beginEdit, cancelEdit, saveEdit).
@@ -10,10 +10,12 @@ import { editView, endLostEdit, removeExisting, restoreThreadDraft, saveEdit, st
 import { citationsToPlainText, replaceContextReferences } from './composer-editor-menu';
 import { pendingRequests } from './requests';
 import { wakeShell } from '../client/command-waits';
+import { isAttachmentOnlyPrompt } from './attachment-only-prompt';
 
 /** A queued message in full, as a sent turn reads: each context chip as its label, an image chip nothing when the row
- *  shows thumbnails, and each quote as its text. */
+ *  shows thumbnails, and each quote as its text. An attachment-only message shows its attachments alone. */
 export function queuedPreviewText(text: string, thumbnails: boolean): string {
+  if (isAttachmentOnlyPrompt(text)) return '';
   return citationsToPlainText(replaceContextReferences(text, reference => reference.kind === 'image' && thumbnails ? '' : reference.label)).trim();
 }
 

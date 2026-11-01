@@ -152,18 +152,15 @@ export function ultrathinkTraits(descriptors: Obj[], prompt: string) {
 export const ULTRATHINK_LOCKED_MESSAGE = 'Your prompt contains "ultrathink" in the text. Remove it to change this option.';
 
 /**
- * TraitsMenuContent handleSelectChange: an injected value rewrites the prompt
- * to start with "Ultrathink:" and stores no option; with "ultrathink" in the
- * body the primary effort does not change; choosing another effort while the
- * prompt controls it strips the prefix and stores the choice.
+ * getTraitSelectChange: an injected value is not a pick; with "ultrathink" in
+ * the body the primary effort does not change; choosing another effort while
+ * the prompt controls it strips the prefix and stores the choice.
  */
 export function traitChoice(descriptors: Obj[], prompt: string, id: string, value: string): { prompt: string | null; store: boolean } {
   const descriptor = descriptors.find(entry => entry.id === id);
   const flags = ultrathinkTraits(descriptors, prompt);
-  if (!value) return { prompt: null, store: false };
-  if (descriptor?.type === 'select' && injectedValues(descriptor).includes(value)) {
-    return { prompt: prompt.trim().length === 0 ? ULTRATHINK_PROMPT_PREFIX : applyClaudePromptEffortPrefix(prompt, 'ultrathink'), store: false };
-  }
+  // A prompt-injected level (Ultrathink) is typed, never picked (getTraitSelectChange at 2359643cff).
+  if (!value || (descriptor?.type === 'select' && injectedValues(descriptor).includes(value))) return { prompt: null, store: false };
   if (flags.inBody && id === flags.primaryId) return { prompt: null, store: false };
   if (flags.controlled && id === flags.primaryId) return { prompt: prompt.replace(/^Ultrathink:\s*/i, ''), store: true };
   return { prompt: null, store: true };

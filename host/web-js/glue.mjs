@@ -18,6 +18,8 @@ export const HOST_WEB_GLUE = [
   'frame-navigation.js', 'frame-messages.js',
   // Sign-in, storage, request bodies, injected faults and the local network's spaces (ts-data.js, auth.js, admission.js, agent.js, modules.js).
   'auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js', 'address-space.js',
+  // The scroll to a location's fragment, at its first (router.js; LLP 1153 D5).
+  'fragment.js',
 ];
 
 /** Copy the host/web glue from the repository at `root` into `dir`. */

@@ -120,8 +120,12 @@ export function setupEnvironment(paths, name, { label = ENVIRONMENTS[name]?.labe
  * With `githubApi` its proxy is the GitHub API stand-in's (`startGithubApi`), which answers api.github.com
  * and refuses the rest, and it trusts the stand-in's certificate.
  */
-export function serverEnv(paths, name, base = process.env, { githubApi = false } = {}) {
+export function serverEnv(paths, name, base = process.env, { githubApi = false, scratch = false } = {}) {
   const dir = envDir(paths, name);
+  // The server offers a folder for threads without a project only when its base directory is outside every Git
+  // work tree (reference apps/server/src/project/ManagedProjectFolders.ts); the fixture root is inside this
+  // checkout, so `scratch` stops Git's search for a repository at the environment's directory.
+  const ceiling = scratch ? { GIT_CEILING_DIRECTORIES: dir } : {};
   const proxy = githubApi ? { ...offlineEnv(base), ...proxyEnv(githubPort(base)), NODE_EXTRA_CA_CERTS: join(githubDir(paths), "ca.crt") } : offlineEnv(base);
   return {
     PATH: [join(dir, "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
@@ -130,18 +134,23 @@ export function serverEnv(paths, name, base = process.env, { githubApi = false }
     CODEX_HOME: join(dir, "codex"), CLAUDE_CONFIG_DIR: join(dir, "claude"),
     XDG_CONFIG_HOME: join(dir, "xdg/config"), XDG_DATA_HOME: join(dir, "xdg/data"), XDG_CACHE_HOME: join(dir, "xdg/cache"), XDG_STATE_HOME: join(dir, "xdg/state"),
     T3CODE_HOME: join(dir, "t3home"), T3CODE_TELEMETRY_ENABLED: "false", ...proxy,
-    GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GH_CONFIG_DIR: join(dir, "xdg/config/gh"), GH_PROMPT_DISABLED: "1",
+    GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0", GH_CONFIG_DIR: join(dir, "xdg/config/gh"), GH_PROMPT_DISABLED: "1", ...ceiling,
   };
 }
 
-/** The staged release (`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs`), unpacked once under the fixture root. */
-export function serverExecutable(paths) {
-  if (process.env.T3_FIXTURE_SERVER) return process.env.T3_FIXTURE_SERVER;
+/**
+ * The staged release (`bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs`), unpacked once under the fixture
+ * root. Another `version` is a release archive in `examples/t3-code/.runtime-cache/` (stage-runtime's download cache),
+ * such as an older server for the update dialog.
+ */
+export function serverExecutable(paths, version = null) {
+  if (process.env.T3_FIXTURE_SERVER && !version) return process.env.T3_FIXTURE_SERVER;
   const pin = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
-  const tree = join(paths.runtime, pin.version), t3 = join(tree, "t3");
+  const other = version && version !== pin.version;
+  const tree = join(paths.runtime, version ?? pin.version), t3 = join(tree, "t3");
   if (!existsSync(t3)) {
-    const archive = join(example, "server-runtime", pin.asset);
-    if (!existsSync(archive)) throw new Error("no staged server: run `bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs` first (or set T3_FIXTURE_SERVER)");
+    const archive = other ? join(example, ".runtime-cache", `t3-${version}-darwin-arm64.tar.gz`) : join(example, "server-runtime", pin.asset);
+    if (!existsSync(archive)) throw new Error(other ? `no ${archive}: copy the release archive there` : "no staged server: run `bun examples/t3-code/tools/stage-runtime/stage-runtime.mjs` first (or set T3_FIXTURE_SERVER)");
     mkdirSync(tree, { recursive: true });
     run("/usr/bin/tar", ["-xzf", archive, "-C", tree, "--strip-components=1"]);
   }
@@ -178,24 +187,26 @@ export async function waitReady(port, ms = 60_000) {
 }
 
 /**
- * Starts the lane server for `name` (offline, detached); returns { pid, port, environmentId, label, githubApi }.
- * `githubApi` routes its HTTPS through the GitHub API stand-in, which must run.
+ * Starts the lane server for `name` (offline, detached); returns { pid, port, environmentId, label, githubApi, runtime,
+ * scratch }. `githubApi` routes its HTTPS through the GitHub API stand-in, which must run; `runtime` names another
+ * release than the pin (serverExecutable); `scratch` lets it offer a folder for threads without a project (serverEnv).
  */
-export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port, label, githubApi = false } = {}) {
+export async function startServer(paths, name, { port = ENVIRONMENTS[name]?.port, label, githubApi = false, runtime = null, scratch = false } = {}) {
   checkPort(port);
   const running = recorded(paths, name);
   if (running) return running;
   await assertOfflinePortClosed();
   const dir = setupEnvironment(paths, name, label ? { label } : {});
   const log = openSync(join(dir, "server.log"), "a");
-  const t3 = serverExecutable(paths);
+  const t3 = serverExecutable(paths, runtime);
   const child = spawn(t3, ["serve", "--base-dir", join(dir, "t3home"), "--port", String(port), "--host", "127.0.0.1", join(dir, "repos")],
-    { env: serverEnv(paths, name, process.env, { githubApi }), cwd: join(dir, "repos"), stdio: ["ignore", log, log], detached: true });
+    { env: serverEnv(paths, name, process.env, { githubApi, scratch }), cwd: join(dir, "repos"), stdio: ["ignore", log, log], detached: true });
   child.unref();
   writeFileSync(pidFile(paths, name), JSON.stringify({ pid: child.pid, port, startedAt: new Date().toISOString() }));
   try {
     const environment = await waitReady(port);
-    const entry = { pid: child.pid, port, startedAt: new Date().toISOString(), environmentId: environment.environmentId, label: environment.label, githubApi };
+    const entry = { pid: child.pid, port, startedAt: new Date().toISOString(), environmentId: environment.environmentId, label: environment.label, githubApi,
+      ...(runtime ? { runtime, serverVersion: environment.serverVersion } : {}), ...(scratch ? { scratch } : {}) };
     writeFileSync(pidFile(paths, name), JSON.stringify(entry));
     // Kept after a stop: `forget` needs the origin and id a normal launch saved its token under.
     writeFileSync(join(dir, "environment.json"), JSON.stringify({ origin: `http://127.0.0.1:${port}`, environmentId: entry.environmentId, label: entry.label }));
@@ -234,7 +245,8 @@ export async function stopServer(paths, name) {
 /** A single-use pairing token for a running environment (never printed). */
 export function pairingToken(paths, name, label = "Fixture drive") {
   const dir = envDir(paths, name);
-  const text = run(serverExecutable(paths), ["pair", "--base-dir", join(dir, "t3home"), "--ttl", "15m", "--label", label], { env: serverEnv(paths, name), cwd: join(dir, "repos") }).stdout;
+  // The running server's own release writes the token: another release may not read its database.
+  const text = run(serverExecutable(paths, recorded(paths, name)?.runtime ?? null), ["pair", "--base-dir", join(dir, "t3home"), "--ttl", "15m", "--label", label], { env: serverEnv(paths, name), cwd: join(dir, "repos") }).stdout;
   const token = /Token: (\S+)/.exec(text)?.[1];
   if (!token) throw new Error("t3 pair printed no token");
   return token;
@@ -258,11 +270,15 @@ export const SEEDS = {
     { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"],
       scripts: [{ id: "echo-test", name: "Echo test", command: "echo test", icon: "test", runOnWorktreeCreate: false }],
       turns: [{ title: "Background thread (completed turn)", prompt: "Say hello from the stand-in" }] },
-    // A project with no thread: the legacy sidebar's Remove project needs one.
+    // A project with no thread.
     { repo: "empty-project", origin: "https://github.com/t3-fixture/empty-project.git", threads: [] },
     // The stand-in edits files in a turn (its checkpoint has a diff) and asks before an edit (an approval).
     { repo: "agent-edits", origin: "https://github.com/t3-fixture/agent-edits.git", threads: [],
-      turns: [{ title: "Turn with file edits", prompt: "Edit the notes" }, { title: "Edit awaiting approval", prompt: "Ask before editing the notes", approval: true }] },
+      turns: [{ title: "Turn with file edits", prompt: "Edit the notes" }, { title: "Edit awaiting approval", prompt: "Ask before editing the notes", approval: true }],
+      // `seed --more-turns`: a second approval (one to approve, one to decline), an answer in italics, and a turn the
+      // stand-in holds running until `install.mjs release` (or a steer or Stop cancels it).
+      moreTurns: [{ title: "Second edit awaiting approval", prompt: "Ask before editing the notes", approval: true },
+        { title: "Italic answer", prompt: "Show the italic sample" }, { title: "Turn held open", prompt: "Hold the turn", hold: true }] },
   ],
   third: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on third"] },
@@ -322,7 +338,8 @@ export const turnCompleted = (thread) => !!thread?.latestRunId && !!thread?.late
  * An approval turn is seeded while its thread waits on the runtime request, or once a drive has answered
  * it and the turn completed; a server restart cancels the waiting turn, and the seed asks again.
  */
-export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRuntimeRequest || (turnCompleted(thread) && thread.status === "completed") : turnCompleted(thread));
+export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRuntimeRequest || (turnCompleted(thread) && thread.status === "completed")
+  : turn.hold ? !!thread?.activeRunId || turnCompleted(thread) : turnCompleted(thread));
 
 /**
  * One completed turn: a thread on the stand-in's instance (`existing`, else a new one) is sent
@@ -331,7 +348,7 @@ export const turnSeeded = (turn, thread) => (turn.approval ? !!thread?.pendingRu
  * only way to its "Completed" status. An `approval` turn runs in the runtime mode
  * "approval-required" and is waited for until the stand-in's permission request is pending.
  */
-async function seedTurn(conn, projectId, { title, prompt, approval = false }, existing, { timeoutMs = 30_000 } = {}) {
+async function seedTurn(conn, projectId, { title, prompt, approval = false, hold = false }, existing, { timeoutMs = 30_000 } = {}) {
   const threadId = existing ?? crypto.randomUUID();
   if (!existing) await conn.request("orchestration.dispatchCommand", {
     type: "thread.create", commandId: crypto.randomUUID(), createdBy: "user", creationSource: "web", threadId, projectId, title,
@@ -345,6 +362,7 @@ async function seedTurn(conn, projectId, { title, prompt, approval = false }, ex
   for (;;) {
     const thread = ((await shellSnapshot(conn)).threads ?? []).find((entry) => entry.id === threadId);
     if (approval && thread?.pendingRuntimeRequest) return threadId;
+    if (hold && thread?.activeRunId && thread.latestRunId === thread.activeRunId) return threadId;
     if (turnCompleted(thread)) {
       await conn.request("orchestration.dispatchCommand", { type: "thread.visit", commandId: crypto.randomUUID(), threadId, visitedAt: thread.latestRunCompletedAt });
       return threadId;
@@ -383,7 +401,8 @@ async function seedPullRequestThread(paths, name, conn, projectId, live, { timeo
 }
 
 /** Projects and threads for `name`, through the running server's API. Idempotent by title. */
-export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, limits = false, pullRequest = false } = {}) {
+export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: [`Shared notes on ${name}`] }], { turns = false, moreTurns = false, limits = false, pullRequest = false } = {}) {
+  turns ||= moreTurns;
   let running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
   // The server reads pull requests from GitHub's API over HTTPS: it starts again behind the API stand-in.
@@ -391,7 +410,7 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-
   if (github && (!running.githubApi || github.renewed)) {
     await stopServer(paths, name);
     await startGithubApi(paths);
-    running = await startServer(paths, name, { port: running.port, githubApi: true });
+    running = await startServer(paths, name, { port: running.port, githubApi: true, runtime: running.runtime ?? null, scratch: running.scratch ?? false });
   }
   // Project scripts, the stand-in's provider pin and usage accounts are settings and provider writes.
   const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"), `${LANE_SCOPES} settings:write providers:manage`);
@@ -415,7 +434,7 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? [{ repo: "shared-
         });
       }
       // A turn thread is done once it holds a completed turn; one an interrupted seed left without it gets its turn now.
-      const turnThreads = turns ? entry.turns ?? [] : [], pending = turnThreads.filter((turn) => !live.some((t) => t.title === turn.title && turnSeeded(turn, t)));
+      const turnThreads = turns ? [...(entry.turns ?? []), ...(moreTurns ? entry.moreTurns ?? [] : [])] : [], pending = turnThreads.filter((turn) => !live.some((t) => t.title === turn.title && turnSeeded(turn, t)));
       if (pending.length) await addStandin(paths, name, conn);
       for (const turn of pending) await seedTurn(conn, projectId, turn, live.find((t) => t.title === turn.title)?.id);
       const prThread = pullRequest && entry.repo === PR_THREAD.repo ? await seedPullRequestThread(paths, name, conn, projectId, live) : [];
@@ -602,4 +621,38 @@ export function localHome(paths) {
   const t3home = join(paths.local, "t3home");
   seedSettings(t3home);
   return t3home;
+}
+
+/**
+ * Makes a T3 home's base directory a Git repository, so its server offers no folder for threads without a project
+ * (reference apps/server/src/project/ManagedProjectFolders.ts: scratch inside a checkout is refused). For This
+ * machine's home (T3_LOCAL_HOME, outside the checkout), so the palette's New thread without a project goes to another
+ * machine's (a lane started with --scratch). Takes effect at the server's next start.
+ */
+export function withoutScratch(t3home) {
+  mkdirSync(t3home, { recursive: true });
+  if (!existsSync(join(t3home, ".git"))) run("/usr/bin/git", ["init", "-q", t3home]);
+  return t3home;
+}
+
+/** A file of each kind the composer's chips draw: Python, a PDF of one page, and a short video (from apps/video-player). */
+export function writeSamples(dir) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "sample.py"), "def greet(name: str) -> str:\n    return f\"Hello, {name}\"\n\n\nprint(greet(\"notes\"))\n");
+  writeFileSync(join(dir, "doc.pdf"), onePagePdf("A fixture document."));
+  writeFileSync(join(dir, "clip.mp4"), readFileSync(join(checkout, "apps/video-player/assets/motion.mp4")));
+  return ["sample.py", "doc.pdf", "clip.mp4"].map((file) => join(dir, file));
+}
+
+/** A valid one-page PDF with one line of text, its cross-reference offsets counted. */
+export function onePagePdf(text) {
+  const stream = `BT /F1 18 Tf 72 720 Td (${text.replace(/[()\\]/g, "\\$&")}) Tj ET`;
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => { const at = body.length; body += `${index + 1} 0 obj\n${object}\nendobj\n`; return at; });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((at) => `${String(at).padStart(10, "0")} 00000 n \n`).join("")}`;
+  return `${body}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }

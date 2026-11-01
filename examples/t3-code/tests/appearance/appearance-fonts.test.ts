@@ -42,9 +42,9 @@ describe("root font size in the JS layout", () => {
   });
 
   it("scales the composer's measured menus and leaves them alone at 16", () => {
-    const row = { effortMenuWidth: 200, runtimeMenuHeight: 102, sendTipWidth: 80, other: 7 };
+    const row = { effortHeight: 200, runtimeMenuHeight: 102, sendTipWidth: 80, other: 7 };
     expect(atRootFontSize(row, 16)).toBe(row);
-    expect(atRootFontSize(row, 20)).toEqual({ effortMenuWidth: 250, runtimeMenuHeight: 127.5, sendTipWidth: 100, other: 7 });
+    expect(atRootFontSize(row, 20)).toEqual({ effortHeight: 250, runtimeMenuHeight: 127.5, sendTipWidth: 100, other: 7 });
   });
 });
 
@@ -99,12 +99,21 @@ describe('installed font selection', () => {
     await applyCoreSetting(client, native, 'code-font:fontFamilyCode|||', 'Menlo');
     expect(look(client).promptFont).toBe('"Arial", system-ui');
     await applyCoreSetting(client, native, 'prompt-font:fontFamilyComposer|||', 'Avenir Next');
-    expect(look(client).promptFont).toBe('"Avenir Next", system-ui');
+    // With separate fonts off the prompt box is the interface font (appearanceFonts.ts at v0.1.6); the family is kept.
+    expect(look(client).promptFont).toBe('"Arial", system-ui');
     expect(look(client).codeFont).toBe('\"Menlo\", ui-monospace');
     expect(look(client).terminalFont).toBe('Menlo');
     await applyCoreSetting(client, native, 'separate-fonts:typographyAdvanced|||', 'true'); // Typography's Separate fonts row
     expect(look(client).promptFont).toBe('\"Avenir Next\", system-ui');
     expect(look(client).terminalFont).toBe('');
+  });
+  it('the prompt box follows Interface size until separate fonts are on (#26559)', () => {
+    const client = new T3Client();
+    const prefs = (client.local as unknown as { clientSettings: Record<string, unknown> }).clientSettings;
+    Object.assign(prefs, { fontSizeInterface: 18, fontSizePrompt: 20 });
+    expect([look(client).fontSize, look(client).promptSize]).toEqual([18, 15.75]);
+    prefs.typographyAdvanced = true;
+    expect(look(client).promptSize).toBe(20);
   });
   it('the terminal page\'s face carries Font smoothing, which the page\'s root follows (terminal-host applySmoothing)', () => {
     const client = new T3Client();

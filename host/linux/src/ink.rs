@@ -5,9 +5,13 @@ use crate::paint::{Backend, FrameTarget, GradientPaint, Rect4, Shape, POINTER};
 use crate::raster::tiny_path as path;
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use exact_ink::atlas::Atlas;
-use exact_ink::device::{Device, Error, Info, Result, Selected};
+#[cfg(any(not(test), windows))]
+use exact_ink::device::Selected;
+use exact_ink::device::{Device, Error, Info, Result};
 use exact_ink::instance::{flags, Bindings, RoundedClip, TextureId};
 use exact_ink::{Brush, Encoder, Instance, Kind};
+#[cfg(all(test, not(windows)))]
+use ordered_tests::Selected;
 use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
@@ -15,9 +19,11 @@ use tiny_skia::{FillRule, Path, PathBuilder, Pixmap, Transform};
 mod clips;
 mod effects;
 mod stats;
-pub use stats::{Statistics, StatisticsReader};
+pub use stats::{counter_state, Statistics, StatisticsReader};
 mod gradient;
 mod images;
+#[cfg(all(test, not(windows)))]
+mod ordered_tests;
 mod rows;
 mod svg;
 #[cfg(test)]
@@ -140,6 +146,7 @@ impl Ink {
         shape: &Shape,
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
+        self.observe_transform(ts);
         if self.error.is_some() || shape.rect.2 <= 0. || shape.rect.3 <= 0. {
             return Ok(None);
         }
@@ -167,6 +174,7 @@ impl Ink {
         clips: &[(&Path, FillRule)],
         ts: Transform,
     ) -> Result<Option<rows::GeometryInstance>> {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if self.error.is_some() {
             return Ok(None);
@@ -238,6 +246,7 @@ impl Ink {
     }
 
     fn border(&mut self, part: &BorderFill, ts: Transform) -> Result<()> {
+        self.observe_transform(ts);
         if let Some(((outer, outer_radii), (inner, inner_radii))) = part.ring {
             if part.clip.is_none()
                 && part.ring_clip.is_none()
@@ -277,6 +286,37 @@ impl Ink {
 }
 
 impl Backend for Ink {
+    #[cfg(windows)]
+    fn windows_field(
+        &mut self,
+        field: &exact_ink::device::d3d11::fields::Field<'_>,
+        scale: f32,
+    ) -> bool {
+        let Selected::D3d11(device) = &mut self.device else {
+            return false;
+        };
+        let Some(window) = device.window() else {
+            return false;
+        };
+        let texture = match exact_ink::device::d3d11::fields::paint(device, window, field) {
+            Ok(Some(texture)) => texture,
+            Ok(None) => return false,
+            Err(error) => {
+                eprintln!("exact-windows: RichEdit unavailable: {error}");
+                return false;
+            }
+        };
+        let [x, y, w, h] = field.rect;
+        self.picture(
+            texture,
+            (x / scale, y / scale, w / scale, h / scale),
+            &[],
+            Transform::identity(),
+            None,
+        );
+        true
+    }
+
     #[cfg(target_os = "macos")]
     fn attach_apple_layer(
         &mut self,
@@ -284,6 +324,15 @@ impl Backend for Ink {
     ) -> std::result::Result<Info, String> {
         self.device.attach_layer(layer).map_err(|e| e.to_string())?;
         Ok(self.info().clone())
+    }
+    #[cfg(target_os = "macos")]
+    fn repeat_apple_frame(&mut self) -> std::result::Result<(), String> {
+        let target = self.target.ok_or("no retained compose target")?;
+        let result = self.device.present(target);
+        self.last_ms.1 = self
+            .accept(result)
+            .ok_or_else(|| self.error.clone().unwrap())?;
+        Ok(())
     }
     #[cfg(windows)]
     fn displayed_process_ms(&self) -> std::result::Result<Option<f64>, String> {
@@ -365,6 +414,8 @@ impl Backend for Ink {
     }
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
+        #[cfg(windows)]
+        exact_ink::device::d3d11::fields::begin();
         self.layer_ms = 0.;
         self.text_sigma = 0.;
         self.error = None;
@@ -401,6 +452,7 @@ impl Backend for Ink {
     }
 
     fn fill(&mut self, shape: &Shape, c: [u8; 4], ts: Transform) {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if c[3] == 255
             && self.rows.capture.is_empty()
@@ -447,6 +499,7 @@ impl Backend for Ink {
         outer: &Shape,
         ts: Transform,
     ) -> bool {
+        self.observe_transform(ts);
         let dev = self.device_transform(ts);
         if dev.kx != 0.
             || dev.ky != 0.
@@ -500,6 +553,7 @@ impl Backend for Ink {
         ts: Transform,
         tint: Option<[u8; 4]>,
     ) {
+        self.observe_transform(ts);
         let size = images::sampling_size(
             [image.width(), image.height()],
             dst,
@@ -515,10 +569,12 @@ impl Backend for Ink {
         self.canvas(&pixels, dst, &[], Transform::identity());
     }
     fn island_image(&mut self, pixels: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
+        self.observe_transform(ts);
         let result = self.blended_image(&pixels, dst, ts, mode);
         self.accept(result);
     }
     fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        self.observe_transform(ts);
         let result = self.images.pixmap(&mut self.device, pixels);
         if let Some(texture) = self.accept(result) {
             self.picture(texture, dst, clips, ts, None);
@@ -542,18 +598,22 @@ impl Backend for Ink {
     }
 
     fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        self.observe_transform(ts);
         let result = self.svg(s, ts);
         self.accept(result);
     }
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        self.observe_transform(ts);
         let result = self.css_clip(path, ts);
         self.accept(result).unwrap_or(false)
     }
     fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        self.observe_transform(ts);
         let result = self.svg_clip(clip, ts);
         self.accept(result).unwrap_or(0)
     }
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {
+        self.observe_transform(ts);
         let result = self.clip(shape, ts);
         self.accept(result);
     }
@@ -591,6 +651,7 @@ impl Backend for Ink {
         mask: &std::result::Result<GradientPaint, [u8; 4]>,
         ts: Transform,
     ) {
+        self.observe_transform(ts);
         let ts = self.record_transform(ts);
         if self.record(rows::Marker::Mask(*shape, mask.clone(), ts)) {
             return;
@@ -604,6 +665,7 @@ impl Backend for Ink {
         filter: &exact_kernel::style::BackdropFilter,
         ts: Transform,
     ) {
+        self.observe_transform(ts);
         let ts = self.record_transform(ts);
         if self.record(rows::Marker::Backdrop(*shape, filter.clone(), ts)) {
             return;
@@ -655,6 +717,7 @@ impl Backend for Ink {
     }
 
     fn finish(&mut self) -> std::result::Result<Pixmap, String> {
+        exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
         if let Some(e) = &self.error {
             return Err(e.clone());
         }
@@ -681,6 +744,10 @@ impl Backend for Ink {
         Ok(pixels)
     }
     fn finish_for(&mut self, target: FrameTarget) -> std::result::Result<Option<Pixmap>, String> {
+        #[cfg(windows)]
+        if let Selected::D3d11(device) = &mut self.device {
+            exact_ink::device::d3d11::fields::end(device).map_err(|e| e.to_string())?;
+        }
         #[cfg(target_os = "macos")]
         let _trace = exact_ink::device::apple::Trace::new(c"ink finish");
         if target == FrameTarget::Geometry {
@@ -688,6 +755,7 @@ impl Backend for Ink {
         } else {
             #[cfg(target_os = "macos")]
             if target == FrameTarget::Window && self.device.has_layer() {
+                exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
                 if let Some(e) = &self.error {
                     return Err(e.clone());
                 }
@@ -709,6 +777,7 @@ impl Backend for Ink {
             if target == FrameTarget::Window
                 && matches!(&self.device, Selected::D3d11(d) if d.has_window())
             {
+                exact_ink::counters::add(exact_ink::counters::Counter::PaintAttempts, 1);
                 if let Some(e) = &self.error {
                     return Err(e.clone());
                 }
@@ -744,6 +813,16 @@ impl Backend for Ink {
     fn row_reusable(&self, id: u32, origin: (f32, f32)) -> bool {
         self.reusable(id, origin)
     }
+    fn group_begin(&mut self, _id: u32, scroll: (f32, f32)) {
+        if exact_ink::counters::enabled() {
+            self.rows.scrolls.push(scroll);
+        }
+    }
+    fn group_end(&mut self) {
+        if exact_ink::counters::enabled() {
+            self.rows.scrolls.pop();
+        }
+    }
     fn row_begin(&mut self, id: u32, origin: (f32, f32), _: Option<u32>) {
         self.record_row(id, origin);
     }
@@ -772,6 +851,7 @@ impl Backend for Ink {
         self.replace_slot(row, id)
     }
     fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
+        self.observe_transform(ts);
         // Transforming a rasterized group would move the stationary outer clips.
         // @ref LLP 1149 D4: let the walk apply motion before clipping.
         if base[0] != 0. || base[1] != 0. || base[2] != 1. || base[3] != 0. {

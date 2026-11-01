@@ -83,7 +83,7 @@ describe('threads', () => {
     const c = client([{ id: 'old', title: 'Old', updatedAt: at(48), latestUserMessageAt: at(48) }, { id: 'new', title: 'New', updatedAt: at(1), latestUserMessageAt: at(1) },
       { id: 'open', title: 'Old open', updatedAt: at(72), latestUserMessageAt: at(72) }], 'unpicked-env');
     c.threadId = 'open';
-    // The query is "" for a submenu's row and a pull request's linked thread (root-palette.contract). Upstream's thread
+    // The query is "" for a submenu's row and a pull request's linked thread (palette-members.contract). Upstream's thread
     // view also records an open for every thread it shows (ChatView.tsx's visit, threadVisits.ts), which counts these
     // too; the clone's visit tracker records no opens yet, so this is today's behaviour.
     for (const [id, query] of [['old', ''], ['old', '  '], ['old', '>old'], ['open', 'old']] as const) expect(await pick(c, id, query)).toMatchObject({ close: true, thread: id });

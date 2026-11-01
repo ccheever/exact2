@@ -24,7 +24,7 @@ test('route header geometry is the schema\'s neutral default', () => {
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics;
   const value = (name) => rows.find(([n]) => n === `header-${name}`).at(-1);
   const px = (name) => value(name) === 0 ? '0' : `${value(name)}px`;
-  const rule = shell.match(/:where\(#exact-root \[navigationkey\] > header\) \{([^}]+)\}/)[1];
+  const rule = shell.match(/:where\(#exact-root \[navigationkey\] > header:not\(\[data-exact-said~="appearance"\]\)\) \{([^}]+)\}/)[1];
   const declarations = Object.fromEntries([...rule.matchAll(/([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]]));
   expect(declarations).toEqual({ position: value('position'), top: px('top'), 'min-height': px('min-height'), padding: `${px('padding-block')} ${px('padding-inline')}` });
 });
@@ -61,7 +61,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
   const WHERE = {
-    'control-height': ['min-height', 'min-width', 'height'], 'control-height-coarse': ['min-height', 'min-width', 'height'],
+    'control-height': ['min-height', 'min-width', 'height', 'padding-inline-end'], 'control-height-coarse': ['min-height', 'min-width', 'height'],
     'control-radius': ['border-radius'], 'surface-radius': ['border-radius'], 'mark-radius': ['border-radius'], 'segment-radius': ['border-radius'],
     'control-line': ['border', 'border-top', 'border-bottom', 'border-inline-end', '--exact-raised', '--exact-modal', 'box-shadow'], // a list row's separator is a line in its box
     'focus-ring-offset': ['outline-offset'],
@@ -81,7 +81,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'], 'popover-padding': ['padding'], 'popover-margin': ['margin', 'margin-left'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
-    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height'], 'sheet-margin': ['width', 'height'], 'sheet-top': ['inset'],
+    'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-height': ['height', 'max-height'], 'sheet-margin': ['width', 'height', 'max-height'], 'sheet-top': ['inset'],
+    'sheet-padding': ['padding', 'margin', 'margin-inline-end', 'padding-inline-end'], 'sheet-gap': ['padding', 'margin'], 'sheet-action-gap': ['margin'],
     'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };
@@ -201,7 +202,7 @@ const fixture = `
     <div data-exact-on="press" id="pressable" style="width:120px;height:40px"></div>
     <button data-exact-said="background-color" id="filled" style="width:120px;height:40px;background-color:#2f6b3f;color:#ffffff">Add</button>
     <div data-exact-text id="paragraph">A <a data-view href="/x" id="inline">link</a> in it.</div>
-    <div data-liststyle="inset-grouped" id="list" style="background-color:light-dark(rgb(242, 242, 247), rgb(0, 0, 0))"><section><div id="card" style="border-radius:26px;background-color:light-dark(rgb(255, 255, 255), rgb(28, 28, 30))"><div>Row</div></div></section></div>
+    <div data-liststyle="inset-grouped" id="list" style="background-color:var(--exact-background)"><section><div id="card" style="border-radius:12px;background-color:var(--exact-background);border:1px solid var(--exact-separator)"><div>Row</div></div><div id="empty-card" style="border:1px solid var(--exact-separator)"><!----></div></section></div>
     <div data-liststyle="inset-grouped" data-exact-said="background-color" id="list-said" style="background-color:rgb(1, 2, 3)"></div>
     <div role="list" data-listrows="true" id="rows" style="width:300px"><div id="row-1" style="height:44px">One</div><div id="row-2" data-exact-on="press" tabindex="0" style="height:44px">Two</div><div id="row-own" data-exact-said="border-bottom" style="height:44px;border-bottom:2px solid red">Its own line</div><div id="row-before" style="height:44px">Before a row with a top edge</div><div id="row-top" data-exact-said="border-top" style="height:44px;border-top:2px solid red">Its own top edge</div><div id="row-last" style="height:44px">Last</div></div>
     <div role="list" data-listrows="true" id="windowed" style="width:300px"><div aria-hidden="true" id="spacer" style="height:10px"></div><div role="listitem" data-listitemkey="a" id="cell-a"><div style="height:44px">A</div></div><div role="listitem" data-listitemkey="b" id="cell-b"><div data-exact-said="border-bottom" style="height:44px;border-bottom:1px solid red">B</div></div><div role="listitem" data-listitemkey="c" id="cell-c"><div style="height:44px">C</div></div></div>
@@ -264,7 +265,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         segments: [box('segments')[2] < 300, Math.abs(box('segments')[2] - box('chosen')[2] - box('segment')[2] - 6) < 1, box('segments')[3], css('chosen', 'boxShadow') !== 'none'],
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
         tabs: [color('tabs', 'backgroundColor'), css('tabs', 'borderTopWidth'), css('tabs', 'boxShadow')],
-        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), css('card', 'cornerTopLeftShape') ?? 'round', color('list-said', 'backgroundColor')],
+        list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), css('card', 'cornerTopLeftShape') ?? 'round', color('list-said', 'backgroundColor'), css('card', 'borderTopStyle'), css('empty-card', 'borderTopStyle')],
         curved: CSS.supports('corner-shape', 'superellipse(2)'),
         sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2], box('sheet')[3]],
       }));
@@ -301,10 +302,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       // A plain bar: opaque, its own ink, a 1 px line, and an unsaid button in it has no outline.
       expect([at('bar'), got.bar]).toEqual([at('bar'), [INK[scheme], GROUND[scheme], 'none', '1px', 0]]);
       expect([at('tabs'), got.tabs]).toEqual([at('tabs'), [GROUND[scheme], '1px', 'none']]);
-      // A grouped list: the neutral ground over the sheet's literal, 12 px cards; a ground the author wrote stays.
+      // A grouped list (the sheet as the neutral column writes it): edged cards on the page's ground, with the
+      // surface's corners; a card with no rows draws no edge; a ground the author wrote stays.
       // Apple's continuous curve where the engine draws `corner-shape`, over the radius scaled to its reach.
       const surface = got.curved ? ['18.24px', 'superellipse(1.6)'] : ['12px', 'round'];
-      expect([at('list'), got.list]).toEqual([at('list'), [scheme === 'light' ? [245, 245, 245, 1] : GROUND[scheme], ...surface, [1, 2, 3, 1]]]);
+      expect([at('list'), got.list]).toEqual([at('list'), [GROUND[scheme], ...surface, [1, 2, 3, 1], 'solid', 'none']]);
       // A sheet in a wide window is a card, 560 wide and a sheet's height whatever it holds: 45rem, less the window's
       // 64 px margin in this 700 px window.
       expect([at('sheet'), got.sheet]).toEqual([at('sheet'), [GROUND[scheme], 'fixed', 560, 636]]);

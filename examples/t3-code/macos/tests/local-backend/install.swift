@@ -305,7 +305,7 @@ final class LocalProcessTests: XCTestCase {
         """.write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let token = T3LocalBackend.shared.currentBootstrapToken
-        let env = T3LocalShellEnvironment.serverEnvironment(base: ["PATH": "/usr/bin:/bin", "FAKE_T3_OUT": directory.path, "T3CODE_PORT": "1"]) { _, _, _ in "" }
+        let env = T3LocalShellEnvironment.serverEnvironment(base: ["PATH": "/usr/bin:/bin", "FAKE_T3_OUT": directory.path, "T3CODE_PORT": "1"]) { _, _, _ in "" }.env
         var config = T3LocalBackend.startConfig(versionDir: directory, port: 16999, home: directory.appendingPathComponent("home"), token: token, env: env, cwd: directory.path)
         config.executablePath = script.path
         let queue = DispatchQueue(label: "test.local")

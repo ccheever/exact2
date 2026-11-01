@@ -146,18 +146,48 @@ pub(crate) fn activate_js(activate: exact_plan::ActivatePolicy) -> &'static str 
     }
 }
 
+/// Whether a page at `location` names the entry's preloads in the head a
+/// server sends before its render: an `interaction` route fetches nothing
+/// before intent, and an undeclared one whose page may wait does not know
+/// yet, so it names them after its head once its render chose to run at
+/// once (`body_open_js`'s `late`, LLP 1048.007 D1).
+pub(crate) fn preloads_early(plan: &exact_plan::Plan, location: &str) -> bool {
+    match exact_web::document::route_at(plan, location).map(|route| route.activate) {
+        Some(exact_plan::ActivatePolicy::Interaction) => false,
+        None | Some(exact_plan::ActivatePolicy::Inferred) => crate::inference(plan).never_waits(),
+        Some(_) => true,
+    }
+}
+
 /// [`page`] over the JavaScript runtime's shell (exact2's JS web target,
 /// LLP 1071): [`head_js`], then [`body_js`] — the page a server streams in
 /// those two parts is these bytes.
 fn page_js(shell: &str, rendered: &Rendered) -> Result<String, String> {
+    Ok(page_with(shell, &Js::of(shell)?, rendered))
+}
+
+/// [`page_js`] over a shell already read, with the build's analyzed sheet
+/// when [`Js::with_rules`] gave it.
+pub(crate) fn page_with(shell: &str, js: &Js, rendered: &Rendered) -> String {
     let preload = activate_js(rendered.activate) != "interaction";
     let document = &rendered.document;
     let scroll = document.scroll_document;
-    let js = Js::of(shell)?;
-    Ok(
-        head_js(shell, &js, &document.lang, &document.dir, preload, scroll)
-            + &body_js(shell, &js, rendered, false, scroll),
-    )
+    head_js(shell, js, &document.lang, &document.dir, preload, scroll)
+        + &body_js(shell, js, rendered, false, scroll)
+}
+
+/// [`page`] with the build's analyzed sheet (`.gen/page-style.json`), so
+/// a JavaScript page carries only the rules its document can match (LLP
+/// 1048.007 D4).
+pub fn page_with_rules(shell: &str, rules: &str, rendered: &Rendered) -> Result<String, String> {
+    if !is_js(shell) {
+        return page(shell, rendered);
+    }
+    Ok(page_with(
+        shell,
+        &Js::of(shell)?.with_rules(rules),
+        rendered,
+    ))
 }
 
 /// What a JavaScript shell's pages are composed from, read once: a server
@@ -167,18 +197,39 @@ pub(crate) struct Js {
     preloads: Vec<(usize, usize)>,
     classes: Classes,
     fonts: bool,
+    /// The shell's `<style>…</style>` line, between the viewport meta and
+    /// the root.
+    sheet: Option<(usize, usize)>,
+    /// The sheet as the build analyzed it ([`Js::with_rules`]): a page then
+    /// carries its own rules after its head ([`body_open_js`]), and the head
+    /// sent before the render carries none.
+    rules: Option<Vec<crate::page_style::Rule>>,
 }
 
 impl Js {
     /// `shell`'s places, or why it lacks them.
     pub(crate) fn of(shell: &str) -> Result<Js, String> {
         let at = places(shell)?;
+        let sheet = shell[at.title.1..at.root].find("<style>").and_then(|s| {
+            let start = at.title.1 + s;
+            let end = shell[start..at.root].find("</style>")? + start + "</style>".len();
+            Some((start, end + usize::from(shell[end..].starts_with('\n'))))
+        });
         Ok(Js {
             preloads: preloads(shell, &at),
             classes: classes(shell),
             fonts: shell.contains("as=\"font\""),
+            sheet,
+            rules: None,
             at,
         })
+    }
+
+    /// With the build's analyzed sheet (`.gen/page-style.json`); unchanged
+    /// when it does not parse or the shell has no sheet.
+    pub(crate) fn with_rules(mut self, json: &str) -> Js {
+        self.rules = self.sheet.and(crate::page_style::parse(json));
+        self
     }
 }
 
@@ -262,14 +313,25 @@ fn lang_attr(shell: &str, lang: &str) -> String {
         .to_string()
 }
 
+/// One of the shell's `modulepreload` lines (`<link …>\n`), marked
+/// `fetchpriority="low"` (LLP 1153.001 D8): a rendered page paints without
+/// the runtime, which only adopts it (LLP 1048.001), so the runtime must not
+/// compete with the page for the link. The shell a `client` route is sent
+/// keeps it at the default priority: that page cannot paint until it runs.
+fn push_low(out: &mut String, line: &str) {
+    let tag = line.trim_end_matches('\n').trim_end_matches('>');
+    out.push_str(tag);
+    out.push_str(" fetchpriority=\"low\">\n");
+}
+
 /// What of a JavaScript page comes before anything its render decides: the
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
-/// the entry's `modulepreload`s when `preload` (an `interaction` page has
-/// none: it fetches nothing before intent) and the stylesheet. A server
-/// sends it as a request arrives (LLP 1071 D6's early flush), while the
-/// page's data is still being asked; the head stays open, so what the
-/// render decides — the title, the metas, a late preload — still lands in
-/// `<head>`.
+/// the entry's `modulepreload`s at low priority when `preload` (an
+/// `interaction` page has none: it fetches nothing before intent) and the
+/// stylesheet. A server sends it as a request arrives (LLP 1071 D6's early
+/// flush), while the page's data is still being asked; the head stays open,
+/// so what the render decides — the title, the metas, a late preload — still
+/// lands in `<head>`.
 pub(crate) fn head_js(
     shell: &str,
     js: &Js,
@@ -297,20 +359,29 @@ pub(crate) fn head_js(
     for &(start, stop) in &js.preloads {
         out.push_str(&shell[from..start]);
         if preload {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
         from = stop;
     }
-    out.push_str(&shell[from..at.root]);
+    match js
+        .sheet
+        .filter(|(start, _)| js.rules.is_some() && *start >= from)
+    {
+        Some((start, stop)) => {
+            out.push_str(&shell[from..start]);
+            out.push_str(&shell[stop..at.root]);
+        }
+        None => out.push_str(&shell[from..at.root]),
+    }
     out
 }
 
 /// The rest of a JavaScript page, once its render is done: the head's
 /// fields, the entry's `modulepreload`s when `late` (a page sent before its
-/// render turned an `interaction` route `eager`), the document in
-/// `#exact-root`, and its checkpoint in the entry's place, which the capture
-/// script finds. The document goes as the runtime adopts it
-/// ([`for_runtime`]).
+/// render turned an `interaction` route `eager`), the page's own sheet, the
+/// document in `#exact-root`, and its checkpoint in the entry's place,
+/// which the capture script finds. The document goes as the runtime adopts
+/// it ([`for_runtime`]).
 pub(crate) fn body_js(
     shell: &str,
     js: &Js,
@@ -319,6 +390,18 @@ pub(crate) fn body_js(
     marked: bool,
 ) -> String {
     let document = &rendered.document;
+    let mut root = String::with_capacity(document.root.len());
+    if rendered.runtime_form {
+        root.push_str(&document.root);
+    } else {
+        for_runtime(&mut root, &document.root, &js.classes);
+    }
+    // The tokens `render.mjs` reads: the document, then the shell from its root.
+    let style = js.rules.as_ref().map(|rules| {
+        let have = crate::page_style::tokens(&(root.clone() + &shell[js.at.root..]));
+        crate::page_style::select(rules, &have)
+    });
+    let hero = hero_image(&mut root);
     let mut out = body_open_js(
         shell,
         js,
@@ -326,26 +409,74 @@ pub(crate) fn body_js(
         document.scroll_document,
         late,
         marked,
+        style.as_deref().map_or(Sheet::Whole, Sheet::Own),
     );
-    out.reserve(document.root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
-    if rendered.runtime_form {
-        out.push_str(&document.root);
-    } else {
-        for_runtime(&mut out, &document.root, &js.classes);
+    // Before the root's open tag, which `body_open_js` ends with.
+    if let Some(link) = hero {
+        out.insert_str(out.len() - (js.at.root_open - js.at.root), &link);
     }
+    out.reserve(root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
+    out.push_str(&root);
     out.push_str(&body_close_js(
         shell,
         js,
         &rendered.digest,
         rendered.activate,
+        &rendered.wake,
         &rendered.checkpoint,
     ));
     out
 }
 
+/// A page's first image, when it loads with the page (no `for` repeats it,
+/// LLP 1048.007 D5), is likely its largest paint: it is fetched at high
+/// priority and preloaded ahead of the document, as `render.mjs`
+/// `heroImage` does. Writes the priority into `root`; returns the preload.
+fn hero_image(root: &mut String) -> Option<String> {
+    let mut from = 0;
+    while let Some(at) = root[from..].find("<img").map(|i| from + i) {
+        let end = at + root[at..].find('>')?;
+        let tag = &root[at + 4..end];
+        from = end;
+        if !tag.starts_with([' ', '\n']) {
+            continue;
+        }
+        let Some(src) = tag
+            .split_once(" src=\"")
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(src, _)| src)
+        else {
+            continue;
+        };
+        if src.starts_with("data:") {
+            continue;
+        }
+        if tag.contains(" loading=\"lazy\"") {
+            return None;
+        }
+        let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
+        root.insert_str(at + 4, " fetchpriority=\"high\"");
+        return Some(link);
+    }
+    None
+}
+
+/// Which sheet a page's rest carries when the build analyzed the shell's
+/// (its head, sent before the render, carries none).
+pub(crate) enum Sheet<'a> {
+    /// The rules its document can match, which the runtime replaces with
+    /// the whole sheet before its first render.
+    Own(&'a str),
+    /// The shell's whole sheet: a page sent before its document is written.
+    Whole,
+    /// None: an earlier part of the page carried it.
+    Sent,
+}
+
 /// [`body_js`] through `<div id="exact-root">`: what goes before the
 /// document, which a streamed page sends before its root is written
-/// (LLP 1048.004 Q3).
+/// (LLP 1048.004 Q3), with the page's sheet when the build analyzed it
+/// ([`Sheet`]).
 pub(crate) fn body_open_js(
     shell: &str,
     js: &Js,
@@ -353,6 +484,7 @@ pub(crate) fn body_open_js(
     scroll: bool,
     late: bool,
     marked: bool,
+    sheet: Sheet,
 ) -> String {
     let mut out = String::with_capacity(head.len() + 1024);
     if js.fonts {
@@ -369,8 +501,17 @@ pub(crate) fn body_open_js(
     }
     if late {
         for &(start, stop) in &js.preloads {
-            out.push_str(&shell[start..stop]);
+            push_low(&mut out, &shell[start..stop]);
         }
+    }
+    match (sheet, js.sheet.filter(|_| js.rules.is_some())) {
+        (Sheet::Own(style), _) => {
+            out.push_str("<style data-exact-page>");
+            out.push_str(style);
+            out.push_str("</style>\n");
+        }
+        (Sheet::Whole, Some((start, stop))) => out.push_str(&shell[start..stop]),
+        _ => {}
     }
     out.push_str(&shell[js.at.root..js.at.root_open]);
     out
@@ -383,18 +524,31 @@ pub(crate) fn body_close_js(
     js: &Js,
     digest: &str,
     activate: exact_plan::ActivatePolicy,
+    wake: &str,
     checkpoint: &str,
 ) -> String {
     let at = &js.at;
     let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
     out.push_str(&shell[at.root_end..at.entry]);
+    let wake = if wake.is_empty() {
+        String::new()
+    } else {
+        // Escaped as `render.mjs` `esc` writes it.
+        let escaped = wake
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;");
+        format!(" data-wake=\"{escaped}\"")
+    };
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
-            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>",
+            "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{}>{}</script>",
             digest,
             activate_js(activate),
+            wake,
             checkpoint
         ),
     );
@@ -728,6 +882,7 @@ mod tests {
             state: Default::default(),
             settled: crate::Settled::Complete,
             activate: exact_plan::ActivatePolicy::Inferred,
+            wake: String::new(),
             runtime_form: false,
         };
         let js = Js::of(shell).unwrap();

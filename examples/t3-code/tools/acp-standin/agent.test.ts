@@ -4,7 +4,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT, forget, install, installPaths, registryIndex, status } from "./install.mjs";
+import { AGENT, forget, install, installPaths, registryIndex, release, status } from "./install.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-acp-standin-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -78,7 +78,50 @@ describe("the agent", () => {
     expect(notes.filter((note) => note.params.sessionId === "s1" && note.params.update.sessionUpdate !== "available_commands_update").map((note) => note.params.update)).toEqual([
       { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: Say hello" } },
       { sessionUpdate: "usage_update", used: 12480, size: 200000 }]);
-    expect(replies.get(4)!.result).toEqual({});
+    expect(replies.get(4)!.result).toEqual({ configOptions: [expect.objectContaining({ id: "reasoning_effort", currentValue: "medium" })] });
+  });
+
+  test("each session advertises a reasoning effort select; set_config_option changes it and 'Which effort?' reads it back", async () => {
+    const { executable } = install(join(root, "home-effort"), { methods: "none" });
+    const prompt = (sessionId: string, text: string) => ({ method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: `<user_request>\n${text}\n</user_request>` }] } });
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "session/new", params: { cwd: root, mcpServers: [] } }, { method: "session/set_config_option", params: { sessionId: "s1", configId: "reasoning_effort", value: "high" } },
+      { method: "session/set_config_option", params: { sessionId: "s1", configId: "reasoning_effort", value: "turbo" } }, prompt("s1", "Which effort?"), prompt("s2", "Which effort?")], notes);
+    // The server lists a `thought_level` select as the model's option (provider-acp sessionConfig.ts).
+    expect(replies.get(1)!.result.configOptions).toEqual([{ id: "reasoning_effort", name: "Reasoning effort", description: "How long the stand-in thinks", category: "thought_level", type: "select", currentValue: "medium",
+      options: ["low", "medium", "high", "max"].map((value) => expect.objectContaining({ value }))}]);
+    expect(replies.get(2)!.result.configOptions[0].currentValue).toBe("high");
+    expect(replies.get(3)!.error.code).toBe(-32602);
+    const said = (sessionId: string) => notes.find((note) => note.params?.sessionId === sessionId && note.params.update.sessionUpdate === "agent_message_chunk")!.params.update.content.text;
+    expect([said("s1"), said("s2")]).toEqual(["Stand-in reply: effort high", "Stand-in reply: effort medium"]);
+  });
+
+  test("'Hold the turn' runs until install.mjs release, or until the server cancels it; 'Show the italic sample' replies with emphasis", async () => {
+    const home = join(root, "home-hold");
+    const { executable } = install(home, { methods: "none" });
+    const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", stderr: "pipe", env: {}, cwd: root });
+    const lines: any[] = [];
+    (async () => { let rest = ""; for await (const chunk of child.stdout) { rest += new TextDecoder().decode(chunk); const parts = rest.split("\n"); rest = parts.pop()!; lines.push(...parts.map((line) => JSON.parse(line))); } })();
+    const send = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
+    const until = async (found: () => any) => { for (let i = 0; i < 100; i++) { const value = found(); if (value) return value; await Bun.sleep(50); } throw new Error("timed out"); };
+    const reply = (id: number) => until(() => lines.find((line) => line.id === id));
+    const prompt = (id: number, text: string) => send({ id, method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: `<user_request>\n${text}\n</user_request>` }] } });
+    prompt(1, "Hold the turn");
+    await until(() => lines.find((line) => line.params?.update?.content?.text === "Holding the turn.\n\n"));
+    await Bun.sleep(300);
+    expect(lines.some((line) => line.id === 1)).toBe(false);
+    release(home);
+    expect((await reply(1)).result).toEqual({ stopReason: "end_turn" });
+    expect(lines.some((line) => line.params?.update?.content?.text === "Stand-in reply: released")).toBe(true);
+    expect(existsSync(installPaths(home).release)).toBe(false);
+    prompt(2, "Hold the turn");
+    await until(() => lines.filter((line) => line.params?.update?.content?.text === "Holding the turn.\n\n").length === 2);
+    send({ method: "session/cancel", params: { sessionId: "s1" } });
+    expect((await reply(2)).result).toEqual({ stopReason: "cancelled" });
+    prompt(3, "Show the italic sample");
+    await reply(3);
+    expect(lines.findLast((line) => line.params?.update?.sessionUpdate === "agent_message_chunk").params.update.content.text).toMatch(/\*the notes stay in one place\*.*_each plan has an owner_/);
+    child.kill();
   });
 
   test("'Edit the notes' edits the session's directory before the turn ends; 'Ask before editing the notes' writes only once allowed", async () => {
@@ -115,7 +158,7 @@ describe("the agent", () => {
     const next = async () => { for (;;) { const at = buffered.indexOf("\n"); if (at >= 0) { const line = buffered.slice(0, at); buffered = buffered.slice(at + 1); return JSON.parse(line); } buffered += (await lines.read()).value ?? ""; } };
     const write = (message: object) => { child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`); child.stdin.flush(); };
     write({ id: 1, method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } });
-    expect((await next()).result).toEqual({});
+    expect((await next()).result.configOptions[0].id).toBe("reasoning_effort");
     expect((await next()).params.update.sessionUpdate).toBe("available_commands_update"); // a loaded session advertises too
     write({ id: 2, method: "session/prompt", params: { sessionId, prompt: first("Ask before editing the notes") } });
     expect((await next()).params.update).toMatchObject({ sessionUpdate: "tool_call", kind: "edit", status: "pending" });

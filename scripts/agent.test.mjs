@@ -266,6 +266,19 @@ test('rendered tree keeps focus; an accessible name is tree --ax\'s (LLP 1080.00
   assert.doesNotMatch(line, /name=/);
 });
 
+// LLP 1153 D8: a route the host does not show reads `[hidden]` to its last node, so a stack's lower screens are
+// not taken for shown beside its top; a screen a sheet covers is shown beneath it and reads `[inactive]`.
+test('rendered tree marks a hidden route hidden and a covered one inactive', async () => {
+  const { render } = await import('./agent.mjs');
+  const lines = render('tree', { epoch: 1, incarnation: 1, clock: 0, nodes: [
+    { id: 2, depth: 0, type: 'View', props: { testId: 'route-home' }, inactive: true, hidden: true },
+    { id: 3, depth: 1, type: 'Text', props: { text: 'Home' }, inactive: true, hidden: true },
+    { id: 4, depth: 0, type: 'View', props: { testId: 'route-list' }, inactive: true },
+    { id: 5, depth: 0, type: 'View', props: { testId: 'route-sheet' } },
+  ] }).split('\n');
+  assert.deepEqual(lines.slice(1), ['View#2 [route-home] [hidden]', '  Text#3 "Home" [hidden]', 'View#4 [route-list] [inactive]', 'View#5 [route-sheet]']);
+});
+
 test('a native hangup names how the app ended, its crash reports, and only its last 20 lines', async () => {
   const { hangup } = await import('./agent.mjs');
   const hostLines = Array.from({ length: 30 }, (_, i) => `app: line ${i}`);

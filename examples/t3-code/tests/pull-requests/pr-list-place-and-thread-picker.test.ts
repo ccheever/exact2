@@ -14,7 +14,8 @@ import { threadPickerView } from '../../src/pull-requests/pages-pr-links';
 import { contractComponent, value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 
-const source = (file: string) => appText(file);
+
+const source = async (file: string) => appText(file);
 
 // ── A return to the app keeps the list ──────────────────────────────────────
 
@@ -218,7 +219,7 @@ describe('"Link to thread" opens its own picker dialog (PullRequestThreadLinks d
   });
 
   test('the picker keeps its first enabled row highlighted on open and after a query edit', async () => {
-    const expression = appText('app.contract').split('  derive paletteHighlight = ')[1]!.split('\n')[0]!;
+    const expression = (await source('app.contract')).split('  derive paletteHighlight = ')[1]!.split('\n')[0]!;
     const highlight = (panel: string, count: number, cursor: number) => value(expression,
       { palette: { panel, count, autoHighlight: true }, paletteCursor: cursor, min: Math.min });
     expect(highlight('picker', 2, -2)).toBe(0);

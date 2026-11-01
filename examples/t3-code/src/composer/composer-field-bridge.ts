@@ -90,6 +90,18 @@ export function composerFieldResource(host: ComposerFieldHost, args: readonly un
   return next;
 }
 
+/**
+ * Whether the field the editing engine does not serve has a command waiting after its parked cursor (args[1]), as its
+ * seq (0: none). The engine serves the focused field; with neither focused, it serves the one with an edit to apply.
+ */
+export function composerFieldWaiting(host: ComposerFieldHost, args: readonly unknown[], owner: string, native?: Native | null): number {
+  if (native?.available) native.watch('t3.notify');
+  if (args[0] !== true) return 0;
+  const entry = fields.get(host), current = entry?.commands.read();
+  if (!entry || !current || current.generation !== host.generation || current.snapshotOwner !== host.snapshotOwner || current.owner !== owner) return 0;
+  return entry.commands.waiting(integer(args[1]) && args[1] >= 0 ? args[1] : 0);
+}
+
 export function composerFieldObserved(host: ComposerFieldHost, args: readonly unknown[], owner: string): ComposerFieldResult {
   const value = composerFieldObservation(args[0]);
   if (!value || typeof args[1] !== 'boolean') return result(field(host, owner), 'field observation invalid');

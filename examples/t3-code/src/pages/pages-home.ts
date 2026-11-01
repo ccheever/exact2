@@ -1,17 +1,19 @@
 // The empty main view: the draft hero and its project menu
-// (DraftHeroHeadline.tsx), the index landings (routes/_chat.index.tsx:
+// (DraftHeroHeadline.tsx, at 2359643cff, with ProjectPinButton.tsx), the index landings (routes/_chat.index.tsx:
 // NoProjectsHero, DraftStartError, HostedStaticOnboardingState) and the
 // project retargeting the hero menu performs. Sources: T3 Code (MIT, see
 // LICENSE-T3) apps/web/src/components/chat/DraftHeroHeadline.tsx,
 // components/NoProjectsHero.tsx, components/Sidebar.logic.ts and
 // packages/client-runtime/src/state/threadSort.ts.
-import { arr, obj, str, applyShell, type Obj, type Shell } from '../client/domain';
+import { arr, obj, str, applyShell, projectGroupOrganization, type Obj, type Shell } from '../client/domain';
 import { ClientError, bridgeReply, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity } from '../client/presentation';
 import { applySticky } from '../composer/composer-controls';
 import type { T3Client } from '../client/client';
 import { welcomeShowing } from './pages-welcome';
-import { cachedDisplayNames, heroGroups } from '../sidebar/project-groups';
+import { cachedDisplayNames, heroGroupMembers, heroGroups } from '../sidebar/project-groups';
+import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pin';
+import { pinChord, shortcutLabel as commandShortcutLabel } from '../sidebar/sidebar-view';
 import { openScratchProject } from '../composer/scratch-project';
 import { primary, withoutPrimaryDuplicates } from '../connections/local-primary'; // "This machine": the primary counts as an environment
 import { homeWaiting } from './home-landing';
@@ -54,9 +56,9 @@ export function projectsByActivity(shell: Shell): Obj[] {
     .map(entry => entry.project);
 }
 
-/** The index landing's target: the most recently active project (IndexDraftLanding). */
+/** The index landing's target: the most recently active project that is not archived (IndexDraftLanding). */
 export function mostRecentProjectId(shell: Shell): string {
-  return str(projectsByActivity(shell)[0]?.id);
+  return str(projectsByActivity(shell).find(project => project.archivedAt == null)?.id);
 }
 
 /** useStartTriage's TRIAGE_CLI_COMMAND: triage from a terminal, which the triage hero and a failed start offer. */
@@ -73,8 +75,12 @@ export function isScratchProject(project: Obj | undefined, root: string): boolea
 }
 
 export type HeroProject = { id: string; name: string; mark: string; ink: string; surface: string; selected: boolean };
+/** A menu row with its ProjectPinButton: offered where the group can be pinned, titled with the thread pin shortcut. */
+export type HeroPickerRow = HeroProject & { canPin: boolean; pinned: boolean; pinTitle: string };
 export type PagesHome = {
-  landing: string; headline: string; projectName: string; projectNames: { id: string }[]; projects: HeroProject[];
+  landing: string; headline: string; projectName: string; projectNames: { id: string }[]; projects: HeroPickerRow[];
+  /** The thread pin binding as a chord ("" without one), which pins the menu's highlighted row (isProjectPinShortcut). */
+  pinChord: string;
   noProjectItem: boolean; scratchLine: boolean; scratchDraft: boolean; noProjectsDescription: string;
   scratchStart: boolean; savedEnvironments: number; firstRunPending: boolean; pullRequests: boolean;
   /** HostedStaticOnboardingState's description: the Local environment is switched off (local-primary.ts). */
@@ -142,7 +148,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const root = client.ready ? scratchRoot(client.config) : '';
   const project = client.shell.projects.find(candidate => candidate.id === client.projectId);
   const scratchDraft = isScratchProject(project, root);
-  const projects = client.ready ? heroGroups(client, heroProjects(client)) : []; // one row per logical project, by its group's name
+  const projects = client.ready ? heroPickerRows(client, heroGroups(client, heroProjects(client))) : []; // one row per logical project, by its group's name
   const resolved = !!project;
   const headline = heroHeadline({ scratchDraft, resolved, canChoose: projects.length > 0 });
   const connected = client.connection === 'connected';
@@ -154,7 +160,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
     landing: firstRunPending ? 'no-projects' : connected && client.ready && homeWaiting(client) ? 'offline' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection) || (local && !connected),
       projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
       missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),
-    headline, projectName, projectNames: [{ id: projectName }], projects,
+    headline, projectName, projectNames: [{ id: projectName }], projects, pinChord: pinChord(client),
     noProjectItem: !!root, scratchDraft,
     // "or start without a project" sits under the heading only while a real project (or choice) shows.
     scratchLine: !!root && !scratchDraft && (resolved || projects.length > 0),
@@ -167,6 +173,19 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
     triageDraft: scratchDraft && !client.threadId && isTriagePrompt(client.draft),
     triageMachine: str(obj(client.config.environment).label, 'This machine'), triageVersion: str(obj(client.config.environment).serverVersion),
   };
+}
+/** Each row's pin: canPinProjectGroup over the group's checkouts, and whether any of them is pinned. */
+function heroPickerRows(client: T3Client, projects: HeroProject[]): HeroPickerRow[] {
+  const shortcut = commandShortcutLabel(client, 'thread.pin');
+  return projects.map(project => {
+    const members = heroGroupMembers(client, project.id), pinned = projectGroupOrganization(members).pinned, action = `${pinned ? 'Unpin' : 'Pin'} ${project.name}`;
+    return { ...project, canPin: canPinProjectGroup(client, members), pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action };
+  });
+}
+/** `pageslocal:hero-pin`: the row's group pinned or unpinned on every checkout; the menu stays open, its rows in place. */
+export async function heroPin(client: T3Client, native: Native, projectId: string): Promise<void> {
+  const members = heroGroupMembers(client, projectId);
+  if (canPinProjectGroup(client, members)) await setProjectGroupPinned(client, native, members, !projectGroupOrganization(members).pinned);
 }
 /** DraftHeroHeadline's noProjectShortcut: shortcutLabelForCommand(keybindings, "chat.newWithoutProject"). */
 function scratchShortcutLabel(config: Obj): string {

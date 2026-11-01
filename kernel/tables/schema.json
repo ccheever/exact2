@@ -1768,6 +1768,24 @@
       "name": "accessibilitySort",
       "kind": "str",
       "_comment": "ARIA `aria-sort` on a `columnheader` or `rowheader`: `ascending`, `descending`, `none` or `other`, the order its table's rows are sorted by that column (WAI-ARIA 1.2 §6.7). The DOM attribute on the web; AppKit and UIKit have no such property on a view, so the Apple hosts expose none."
+    },
+    {
+      "id": 295,
+      "name": "colSpan",
+      "kind": "int",
+      "_comment": "@ref LLP 1153 D7: HTML's `colspan` on a `th` or `td` (`semanticTag`), the columns the cell covers; unset is 1, and the kernel reads a value below 1 as 1 and above 1000 as 1000, as HTML's parser does. The DOM attribute on the web; a native host's kernel places the cell by HTML's table-forming algorithm (`layout/table.rs`)."
+    },
+    {
+      "id": 296,
+      "name": "rowSpan",
+      "kind": "int",
+      "_comment": "@ref LLP 1153 D7: HTML's `rowspan` on a `th` or `td`, the rows the cell covers; unset or negative is 1, 0 is the rest of its row group (HTML §4.9.11) and above 65534 is 65534. As `colSpan`."
+    },
+    {
+      "id": 297,
+      "name": "scope",
+      "kind": "str",
+      "_comment": "@ref LLP 1153 D7: HTML's `scope` on a `th`: `col` makes it its column's header (ARIA `columnheader`), `row` its row's (`rowheader`). The DOM attribute on the web; the native hosts' role."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -2215,6 +2233,22 @@
       ],
       "default": "normal"
     },
+    "FontVariantLigatures": {
+      "_comment": "CSS Fonts 4 `font-variant-ligatures`, the keywords of the font_variant_ligatures row, not a wire enum. normal is 0; each later value is one bit in this order (common-ligatures is bit 0, no-contextual bit 7), and none, which has no bit of its own, is every no- value (CSS: all four kinds disabled). A value and its no- form are refused together, as CSS takes one of each pair. Each kind is OpenType features of the chosen face: common liga and clig, discretionary dlig, historical hlig, contextual calt.",
+      "values": [
+        "normal",
+        "none",
+        "common-ligatures",
+        "no-common-ligatures",
+        "discretionary-ligatures",
+        "no-discretionary-ligatures",
+        "historical-ligatures",
+        "no-historical-ligatures",
+        "contextual",
+        "no-contextual"
+      ],
+      "default": "normal"
+    },
     "TextOverflow": {
       "values": [
         "clip",
@@ -2596,7 +2630,7 @@
       "default": "auto"
     },
     "VerticalAlign": {
-      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords that an inline image takes: `baseline` puts its margin box's bottom on the baseline, `middle` its middle half the parent's x-height above it, `text-top` and `text-bottom` its top and bottom on the parent font's ascent and descent.",
+      "_comment": "@ref LLP 1011.002 D3: CSS `vertical-align`'s keywords that an inline image takes: `baseline` puts its margin box's bottom on the baseline, `middle` its middle half the parent's x-height above it, `text-top` and `text-bottom` its top and bottom on the parent font's ascent and descent. A table cell takes it too: `middle`, or unsaid, centres its content; any other keyword puts it at the baseline, the content box's top (CSS 2.1 §17.5.4).",
       "values": [
         "baseline",
         "middle",
@@ -4489,6 +4523,30 @@
       "codec": "enum:FontSmoothing",
       "inherited": true,
       "_comment": "@ref LLP 1019 D12: `-webkit-font-smoothing`, a property WebKit and Chromium define and no CSS specification does: `auto` or `antialiased`. AppKit draws an `antialiased` paragraph with Core Graphics font smoothing off, as Chrome and Safari do on macOS: grayscale coverage without the stem darkening smoothing adds; UIKit sets the same flag, expected to change nothing on iOS (not measured), as in iOS Safari. The web writes it with Firefox's `-moz-osx-font-smoothing`. Linux, Windows, a terminal and the widget and watch drivers admit it and draw as before. Paint only: a change neither measures nor lays out. Inherited, as in WebKit."
+    },
+    {
+      "bit": 223,
+      "field": "border_spacing",
+      "rare": true,
+      "snapshot": "admit",
+      "watch": "admit",
+      "terminal": "cell",
+      "codec": "f32",
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS 2.1 \u00a717.6.1 `border-spacing` as one length, both axes: the space between a table's neighbouring cells, and between its outer cells and its padding edge. Only a `table` reads it, where the kernel lays tables out (style/table.rs); a table that says none has HTML's UA 2px, which the UA sheet sets on every table, so not inheriting it changes nothing. Two lengths, one per axis, are refused by the compiler; `border-collapse` is not implemented."
+    },
+    {
+      "bit": 224,
+      "field": "font_variant_ligatures",
+      "terminal": "admit",
+      "codec": "u8",
+      "keywords": "FontVariantLigatures",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS Fonts 4 `font-variant-ligatures` as FontVariantLigatures' bits. Apple sets the chosen face's OpenType features through Core Text's feature settings, and Linux, Windows and Android through Parley's HarfRust, in text and text fields alike; Android's native fields, UIKit's grouped list cells and content regions keep the face's own, and widgets and the watch refuse it. The web writes it. A terminal admits it and draws as before: its cells join no letters. Inherited, as in CSS; it changes advances, so it measures."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch, 27 font-variation-settings — LLP 1019 §13 D10; 28 is CSS's `border-color` shorthand; 29 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -4659,6 +4717,16 @@
       "reorder",
       "line.3.horizontal",
       "M4 6h16M4 12h16M4 18h16"
+    ],
+    [
+      "list",
+      "list.bullet",
+      "M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01"
+    ],
+    [
+      "cart",
+      "cart",
+      "M2 3h3l2.7 12.4a1 1 0 0 0 1 .8h9.7a1 1 0 0 0 1-.8L21 7H6M10 20a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM19 20a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"
     ],
     [
       "sort",
@@ -6144,25 +6212,26 @@
     ["header-padding-inline", "style length", 16],
     ["header-position", "style", "sticky"],
     ["header-top", "style length", 0],
-    ["grouped-ground", "style", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background"],
+    ["grouped-ground", "style", "light-dark(#f2f2f7, #000000)", "-exact-grouped-background", "light-dark(#f2f2f7, #000000)", "-exact-background"],
     ["grouped-ground-plain", "style", "light-dark(#ffffff, #000000)", "-exact-background", "light-dark(#ffffff, #000000)", "-exact-background"],
-    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "-exact-platform-color(macos exactGroupedCardColor, light-dark(#f9f9f9, #272727))", "light-dark(#ffffff, #1c1c1e)", "light-dark(#ffffff, #1c1c1e)"],
+    ["grouped-page-ground", "style", "-exact-grouped-background", "-exact-grouped-background", "-exact-grouped-background", "-exact-background"],
+    ["grouped-card-fill", "style", "light-dark(#ffffff, #1c1c1e)", "-exact-platform-color(macos exactGroupedCardColor, light-dark(#f9f9f9, #272727))", "light-dark(#ffffff, #1c1c1e)", "-exact-background"],
     ["grouped-separator", "style", "-exact-separator", "light-dark(#efefef, #333333)", "-exact-separator", "-exact-separator"],
-    ["grouped-header-color", "style", "-exact-secondary-label", "-exact-label", "-exact-secondary-label", "-exact-secondary-label"],
+    ["grouped-header-color", "style", "-exact-secondary-label", "-exact-label", "-exact-secondary-label", "-exact-label"],
     ["grouped-symbol-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-checkmark-tint", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
     ["grouped-destructive-color", "style", "-exact-system-red", "-exact-label", "-exact-system-red", "-exact-system-red"],
     ["grouped-action-color", "style", "AccentColor", "-exact-label", "AccentColor", "AccentColor"],
-    ["grouped-section-width", "style length", "unset", "100%", "unset", "unset"],
-    ["grouped-section-max-width", "style length", "unset", 744, "unset", "unset"],
-    ["grouped-section-margin-inline", "style length", "unset", "auto", "unset", "unset"],
-    ["grouped-section-top", "style length", 35, 10, 35, 35],
-    ["grouped-section-top-first", "style length", 35.33, 20, 35.33, 35.33],
+    ["grouped-section-width", "style length", "unset", "100%", "unset", "100%"],
+    ["grouped-section-max-width", "style length", "unset", 744, "unset", 720],
+    ["grouped-section-margin-inline", "style length", "unset", "auto", "unset", "auto"],
+    ["grouped-section-top", "style length", 35, 10, 35, 24],
+    ["grouped-section-top-first", "style length", 35.33, 20, 35.33, 16],
     ["grouped-section-top-header", "style length", 0, 30, 0, 0],
     ["grouped-section-top-header-first", "style length", 0, 20, 0, 0],
-    ["grouped-section-bottom", "style length", 17.33, 10, 17.33, 17.33],
+    ["grouped-section-bottom", "style length", 17.33, 10, 17.33, 16],
     ["grouped-section-bottom-footer", "style length", 0, 30, 0, 0],
-    ["grouped-label-inset", "style length", 32, 30, 32, 32],
+    ["grouped-label-inset", "style length", 32, 30, 32, 16],
     ["grouped-label-inset-edge", "style length", 16, 30, 16, 16],
     ["grouped-label-inset-plain", "style length", 16, 10, 16, 16],
     ["grouped-header-padding-top", "style length", 10, 0, 10, 10],
@@ -6173,8 +6242,11 @@
     ["grouped-header-weight", "style", 600, 700, 600, 600],
     ["grouped-card-inset", "style length", 16, 20, 16, 16],
     ["grouped-card-radius", "style length", 26, 10, 26, 12],
+    ["grouped-card-edge-width", "style length", "unset", "unset", "unset", 1],
+    ["grouped-card-edge-style", "style", "unset", "unset", "unset", "solid"],
     ["grouped-edge-inset", "style length", "unset", 20, "unset", "unset"],
     ["grouped-edge-radius", "style length", "unset", 10, "unset", "unset"],
+    ["grouped-card-corner-shape", "style", "unset", "-exact-continuous", "unset", "unset"],
     ["grouped-edge-width", "style length", 1, 0, 1, 1],
     ["grouped-separator-gap", "style length", "unset", 1, "unset", "unset"],
     ["grouped-separator-end", "style length", 0, 10, 0, 0],
@@ -6310,6 +6382,9 @@
     ["sheet-height", "length", "45rem"],
     ["sheet-margin", "length", 64],
     ["sheet-top", "length", 12],
+    ["sheet-padding", "length", 24],
+    ["sheet-gap", "length", 12],
+    ["sheet-action-gap", "length", 8],
     ["raised-shadow-y", "length", 4],
     ["raised-shadow-blur", "length", 12],
     ["raised-shadow-alpha", "number", 0.12],

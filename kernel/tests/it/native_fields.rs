@@ -866,8 +866,8 @@ fn root_font_change_relayouts_web_fields_but_preserves_platform_fonts() {
 
 /// LLP 1116.005 D2: a native field in a grouped list's row, at any depth in
 /// it, asks for the field a platform draws in a list's cell; a bare field, a
-/// search field, a field in a section's header and one outside the list ask
-/// for nothing of the kind.
+/// search field, a field in a section's header, one in a section drawn with
+/// no card and one outside the list ask for nothing of the kind.
 #[test]
 fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
     let state = Rc::new(RefCell::new((chrome(), Vec::new())));
@@ -893,8 +893,11 @@ fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
         view(13),
         view(14),
         view(15),
+        view(16),
+        view(17),
+        view(18),
     ];
-    ops.extend((20..=26).map(field));
+    ops.extend((20..=27).map(field));
     ops.extend([
         prop(10, PropId::ListStyle, "inset-grouped"),
         prop(11, PropId::SemanticTag, "section"),
@@ -911,8 +914,22 @@ fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
         size(24, "24"),
         size(25, "25"),
         size(26, "26"),
+        size(27, "27"),
+        prop(16, PropId::SemanticTag, "section"),
+        // A section's rows are on its card, as the compiler fills them.
+        Op::SetStyle {
+            id: 13,
+            patch: rows(&[(StyleId::BackgroundColor, "#ffffff")]),
+        },
+        Op::SetStyle {
+            id: 17,
+            patch: rows(&[(StyleId::BackgroundColor, "transparent")]),
+        },
         children(1, vec![10, 25]),
-        children(10, vec![11]),
+        children(10, vec![11, 16]),
+        children(16, vec![17]),
+        children(17, vec![18]),
+        children(18, vec![27]),
         children(11, vec![12, 13]),
         children(12, vec![24]),
         children(13, vec![14]),
@@ -925,9 +942,9 @@ fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
     layout(&mut k);
     let cell = |id| k.node(id).unwrap().is_cell_field();
     assert_eq!(
-        [20, 21, 22, 23, 24, 25, 26].map(cell),
-        [true, true, false, false, false, false, true],
-        "in a row's column, a textarea there, search, bare, in the header, outside, in the row"
+        [20, 21, 22, 23, 24, 25, 26, 27].map(cell),
+        [true, true, false, false, false, false, true, false],
+        "in a row's column, a textarea there, search, bare, in the header, outside, in the row, in a card-less section's row"
     );
     let asked: Vec<(f32, bool)> = state
         .borrow()
@@ -942,6 +959,7 @@ fn a_native_field_in_a_grouped_row_asks_for_the_cells_field() {
         (24.0, false),
         (25.0, false),
         (26.0, true),
+        (27.0, false),
     ] {
         assert!(asked.contains(&(px, want)), "{px}: {want} in {asked:?}");
         assert!(

@@ -33,6 +33,10 @@ impl windows_core::RuntimeName for TextHost {}
 pub(super) struct State {
     pub rect: Cell<RECT>,
     pub dirty: Cell<bool>,
+    pub origin: Cell<POINT>,
+    pub caret: Cell<[i32; 4]>,
+    pub caret_visible: Cell<bool>,
+    pub properties: Cell<u32>,
     window: Window,
     character: CHARFORMATW,
     paragraph: PARAFORMAT,
@@ -55,6 +59,16 @@ impl State {
                 ..Default::default()
             }),
             dirty: Cell::new(true),
+            origin: Cell::new(POINT::default()),
+            caret: Cell::new([0; 4]),
+            caret_visible: Cell::new(false),
+            properties: Cell::new(
+                TXTBIT_RICHTEXT
+                    | TXTBIT_MULTILINE
+                    | TXTBIT_WORDWRAP
+                    | TXTBIT_D2DDWRITE
+                    | TXTBIT_DISABLEDRAG,
+            ),
             window,
             character,
             paragraph: PARAFORMAT {
@@ -81,10 +95,10 @@ fn put<T>(p: *mut T, value: T) -> windows_core::Result<()> {
 }
 impl ITextHost_Impl for Host_Impl {
     fn TxGetDC(&self) -> HDC {
-        HDC::default()
+        unsafe { GetDC(Some(self.0.window.hwnd)) }
     }
-    fn TxReleaseDC(&self, _: HDC) -> i32 {
-        0
+    fn TxReleaseDC(&self, dc: HDC) -> i32 {
+        unsafe { ReleaseDC(Some(self.0.window.hwnd), dc) }
     }
     fn TxShowScrollBar(&self, _: i32, _: BOOL) -> BOOL {
         false.into()
@@ -104,14 +118,19 @@ impl ITextHost_Impl for Host_Impl {
     fn TxViewChange(&self, _: BOOL) {
         self.0.dirty.set(true);
     }
-    fn TxCreateCaret(&self, _: HBITMAP, _: i32, _: i32) -> BOOL {
+    fn TxCreateCaret(&self, _: HBITMAP, width: i32, height: i32) -> BOOL {
+        let [x, y, ..] = self.0.caret.get();
+        self.0.caret.set([x, y, width.max(1), height]);
         true.into()
     }
-    fn TxShowCaret(&self, _: BOOL) -> BOOL {
+    fn TxShowCaret(&self, show: BOOL) -> BOOL {
+        self.0.caret_visible.set(show.as_bool());
         self.0.dirty.set(true);
         true.into()
     }
-    fn TxSetCaretPos(&self, _: i32, _: i32) -> BOOL {
+    fn TxSetCaretPos(&self, x: i32, y: i32) -> BOOL {
+        let [_, _, w, h] = self.0.caret.get();
+        self.0.caret.set([x, y, w, h]);
         true.into()
     }
     fn TxSetTimer(&self, _: u32, _: u32) -> BOOL {
@@ -130,14 +149,44 @@ impl ITextHost_Impl for Host_Impl {
     ) {
         self.0.dirty.set(true);
     }
-    fn TxSetCapture(&self, _: BOOL) {}
-    fn TxSetFocus(&self) {}
-    fn TxSetCursor(&self, _: HCURSOR, _: BOOL) {}
+    fn TxSetCapture(&self, capture: BOOL) {
+        unsafe {
+            if capture.as_bool() {
+                windows::Win32::UI::Input::KeyboardAndMouse::SetCapture(self.0.window.hwnd);
+            } else {
+                let _ = windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture();
+            }
+        }
+    }
+    fn TxSetFocus(&self) {
+        unsafe {
+            let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetFocus(Some(self.0.window.hwnd));
+        }
+    }
+    fn TxSetCursor(&self, cursor: HCURSOR, _: BOOL) {
+        unsafe {
+            SetCursor(Some(cursor));
+        }
+    }
     fn TxScreenToClient(&self, point: *mut POINT) -> BOOL {
-        unsafe { ScreenToClient(self.0.window.hwnd, point) }
+        unsafe {
+            let result = ScreenToClient(self.0.window.hwnd, point);
+            if result.as_bool() && !point.is_null() {
+                (*point).x -= self.0.origin.get().x;
+                (*point).y -= self.0.origin.get().y;
+            }
+            result
+        }
     }
     fn TxClientToScreen(&self, point: *mut POINT) -> BOOL {
-        unsafe { ClientToScreen(self.0.window.hwnd, point) }
+        unsafe {
+            if point.is_null() {
+                return false.into();
+            }
+            (*point).x += self.0.origin.get().x;
+            (*point).y += self.0.origin.get().y;
+            ClientToScreen(self.0.window.hwnd, point)
+        }
     }
     fn TxActivate(&self, old: *mut i32) -> windows_core::Result<()> {
         put(old, 0)
@@ -192,14 +241,7 @@ impl ITextHost_Impl for Host_Impl {
         Ok(())
     }
     fn TxGetPropertyBits(&self, mask: u32, out: *mut u32) -> windows_core::Result<()> {
-        put(
-            out,
-            mask & (TXTBIT_RICHTEXT
-                | TXTBIT_MULTILINE
-                | TXTBIT_WORDWRAP
-                | TXTBIT_D2DDWRITE
-                | TXTBIT_DISABLEDRAG),
-        )
+        put(out, mask & self.0.properties.get())
     }
     fn TxNotify(&self, _: u32, _: *mut std::ffi::c_void) -> windows_core::Result<()> {
         self.0.dirty.set(true);

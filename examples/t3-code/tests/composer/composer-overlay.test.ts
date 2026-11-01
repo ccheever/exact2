@@ -75,11 +75,11 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
   test('the snapshot reads the transcript\'s viewport only for its own thread', () => {
     const client = { origin: 'o', projectId: 'p', threadId: 't' };
     setLayoutFrames(client, frames(170));
-    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, true, 0]);
+    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', true, 0]);
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182, composerReserved: 170 });
     setLayoutFrames(client, frames(250, 198));
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(182);
-    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, false, 0]);
+    noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, 0]);
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(262);
   });
 });

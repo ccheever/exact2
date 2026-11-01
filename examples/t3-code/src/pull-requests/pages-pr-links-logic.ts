@@ -259,7 +259,7 @@ export function pullRequestCandidateUrlFromReferenceAutolink(targetUrl: string):
   let url: URL;
   try { url = new URL(targetUrl); } catch { return null; }
   const hostname = url.hostname.toLowerCase();
-  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !(hostname === 'github.com' || hostname.endsWith('.github.com') || hostname.split('.').includes('github'))) return null;
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !(hostname === 'github.com' || hostname.endsWith('.ghe.com') || hostname.split('.').includes('github'))) return null;
   const match = /^\/([^/]+\/[^/]+)\/issues\/(\d+)(?:\/|$)/u.exec(url.pathname);
   if (match?.[1] === undefined || match[2] === undefined) return null;
   url.pathname = `/${match[1]}/pull/${match[2]}`;

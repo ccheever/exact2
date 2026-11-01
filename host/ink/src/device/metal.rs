@@ -19,6 +19,7 @@ use std::{
 #[cfg(target_os = "macos")]
 use super::apple::Trace;
 
+mod atlas;
 mod mips;
 #[cfg(target_os = "macos")]
 mod present;
@@ -62,6 +63,8 @@ pub struct Metal {
     repeat_sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     buffers: [Buffer; 3],
     next_buffer: usize,
+    atlas_buffers: [Option<Buffer>; 3],
+    next_atlas_buffer: usize,
     white_alpha: Texture,
     white_color: Texture,
     textures: HashMap<TextureId, Texture>,
@@ -84,6 +87,7 @@ pub struct Metal {
 
 impl Metal {
     pub fn new() -> Result<Self> {
+        crate::counters::initialize();
         autoreleasepool(|_| {
             #[cfg(target_os = "macos")]
             let _boot = Trace::new(c"boot Metal constructor");
@@ -163,6 +167,8 @@ impl Metal {
                 repeat_sampler,
                 buffers,
                 next_buffer: 0,
+                atlas_buffers: Default::default(),
+                next_atlas_buffer: 0,
                 white_alpha,
                 white_color,
                 textures: HashMap::new(),
@@ -441,6 +447,7 @@ impl Device for Metal {
                 },
             );
             self.textures.get_mut(&id).unwrap().last = self.submitted;
+            super::apple::trace_mark(c"texture upload submission", || self.submitted.0 as f64);
             return Ok(self.submitted);
         }
         self.wait(self.last_use(id)?)?;
@@ -448,6 +455,9 @@ impl Device for Metal {
         let s = self.submit(None);
         self.textures.get_mut(&id).unwrap().last = s;
         Ok(s)
+    }
+    fn upload_textures(&mut self, uploads: &[super::TextureUpload]) -> Result<Submission> {
+        self.upload_atlas(uploads)
     }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
         Ok(self.texture(id)?.last)
@@ -759,6 +769,11 @@ impl Device for Metal {
     }
     fn trim(&mut self) -> Result<()> {
         self.completed()?;
+        for buffer in &mut self.atlas_buffers {
+            if let Some(buffer) = buffer.take() {
+                self.retired_buffers.push(buffer);
+            }
+        }
         for i in 0..3 {
             if self.buffers[i].raw.length() > 192 {
                 let new = self.create_buffer(192)?;

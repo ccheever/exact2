@@ -488,8 +488,8 @@ one-deep handoff.
 
 | Resource | Start | Ceiling | Under pressure |
 |---|---|---|---|
-| Glyph atlas (alpha) | 512² | 2048² (4 MB) | evict by frame age, skipping entries kept rows pin (D4); past the ceiling, new entries spill to the per-frame overflow texture |
-| Colour atlas | 256² | 1024² | the same |
+| Glyph atlas (alpha) | 512² | 2048² (4 MB), plus a CPU shadow of each page while batched; 4 MiB at sixteen pages | evict by frame age, skipping entries kept rows pin (D4); past the ceiling, new entries spill to the per-frame overflow texture |
+| Colour atlas | 256² | 1024², plus a CPU shadow of each page while batched; 4 MiB at sixteen pages (8 MiB across both atlases) | the same |
 | Path atlas | 512² | 2048² | the same; a path larger than a page is tiled or given a texture for the frame (D2.3) |
 | Ramp texture | 256 × 64 rows | 256 × 1024 | rows evicted by frame age, pinned by kept rows |
 | Layer pool, and the compose target | none | the apps' measured high-water mark (S0) | freed on memory warning and background (`trim`, as the Canvas module has it); a frame that cannot allocate is drawn by the CPU painter |
@@ -704,6 +704,32 @@ one Astra run and one commit.
 S2 runs before S1 (Charlie, 2026-10-28: the prospect's platform, and the strongest numbers); S3 and S4 after either.
 
 ## 4. Measurement
+
+**M9, Windows text (2026-10-30, Stage 1w): no default admission.** The
+9,540-row unhinted audit on `f3ff290579` reproduces every non-timing
+column from chunk A (`3168305a59`), recovered after the NucBox reboot. It
+compares the shaper's font bytes in both rasterizers. Static
+Inter and Segoe UI advances differ by at most 0.000002 device pixels at
+100/125/150%. Inter's mean coverage difference is **5.295/255**, missing the
+prediction below 4.589; Segoe UI's is **5.473/255**, meeting the prediction
+below 12.335. The earlier hinted/unhinted comparison remains historical.
+
+| Face | Maximum advance difference, device px | Mean raw coverage difference /255 |
+| --- | ---: | ---: |
+| Inter Regular | 0.0000019074 | 5.295 |
+| Segoe UI | 0 | 5.473 |
+| Segoe UI Variable | 1.951172 | 34.506 |
+| Roboto Flex | 1.265625 | 38.079 |
+| Noto Color Emoji (CBDT) | 0 | Not comparable: colour versus mask |
+
+The candidate maps no axes and drops colour. DirectWrite's timing column
+includes cache hits across repeated static-face weight passes. The earlier
+whole-app band (mean 1.43/255, 1.09% beyond 32) measures parity with swash,
+not a Windows app over Mica and D2D's gamma/grayscale contrast at blend
+time. Colour, synthesis, system smoothing and live motion remain unqualified
+under D3.3. Swash stays default. The per-case table, predictions and raw
+files are in `host/ink/MEASUREMENTS.md`, “Native collection”.
+
 
 The program is the same on every platform; the baselines differ. "Has numbers" is not a
 threshold; D15 is.
@@ -1084,6 +1110,83 @@ Eframe exposes no DXGI swap chain, so its readiness is a DWM proxy plus
 next-dispatch delay. These whole-app paths retain unequal scroll work,
 geometry, images and readiness. See [G6e's comparison, trace and qualification](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored).
 
+**G7, Windows, 2026-10-31:** the NucBox now runs 5120×1440 at 120 Hz,
+100% scale, driver 32.0.23033.1002; every earlier Windows row is at 60 Hz.
+PresentMon's egui diagnostic confirms 8.3374 ms median display intervals.
+Ten quiet fresh processes per arm give **161.18 ms DWM / 167.03 ms DXGI**
+for D3D11, **723.48 ms DWM** for Ink/wgpu and **239.05 ms DWM** for egui,
+all within the predicted 10% bands. Five-round cadence, CPU and memory
+remain uncollected: three foreground attempts fail, so the unfocused
+120 Hz diagnostic is excluded. Source and refresh both differ from G6e/G6.
+Both devices pass five allowed desktop journeys; sleep/wake is skipped.
+The native field journeys pass at 100/150%; the single UIA discovery attempt
+fails before its pattern assertions. The final isolated wgpu paint suite
+passes 56 tests with the AMD hook loaded; the prior fault does not recur.
+See [G7's predictions, rows and retained
+evidence](../bench/heavy-list/gpui/RESULTS.md#g7-windows-at-120-hz).
+
+**G7b, Windows, 2026-11-01:** cut 7's before/after comparison at 120 Hz
+uses `5dc29e7bb2` and `5892f92d5a`, ten interleaved fresh processes per arm
+and revision, caches retained. The repeat passes all 109 quiet observations
+(maximum 9.5% CPU); the first cohort is excluded whole for background load.
+The table gives **carrier endpoints only**: startup PresentMon loses events
+and produces no CSV in three capture configurations. G7b starts PresentMon
+before each launch; G7 did not, so their absolute difference is not isolated.
+Paired D3D11 savings are **2.37 ms DWM / 2.28 ms DXGI**, below prediction.
+Five quiet first-paint pairs give **8.13 → 6.81 ms** on D3D11 and
+**36.93 → 16.88 ms** on Ink/wgpu; every after process records two glyph-page
+copies. D3D11's predicted 10–20 ms paint saving misses. Its complete-screen
+DXGI median remains above the 100 ms obligation.
+
+G7c's final column below contains **excluded diagnostics**, ordered
+series-1 / series-2 / series-3; it supplies no qualified cold-control row.
+
+| Windows cold endpoint, median ms | 60 Hz G6e/G6 | 120 Hz G7 | 120 Hz G7b before | 120 Hz G7b after | G7c observer-off, all excluded |
+| --- | ---: | ---: | ---: | ---: | --- |
+| D3D11 DWM proxy | 160.78 | 161.18 | 194.10 | 192.98 | 195.82 / 200.21 / 199.22 |
+| D3D11 DXGI display | 177.66 | 167.03 | 199.96 | 199.15 | 201.95 / 206.18 / 205.68 |
+| Ink/wgpu DWM proxy | 716.21 | 723.48 | 758.66 | 730.36 | 798.11 / 764.10 / 745.64 |
+| egui DWM proxy | 248.76 | 239.05 | 278.20 | 275.75 | 286.04 / 282.77 / 279.80 |
+
+The first fling and its one retry fail foreground acquisition before wheel
+input: both identify **ChatGPT.exe**, title **ChatGPT**, PID 22076. Collection
+stops. Its five-round 120 Hz fling and separate rest/bar/caret rows are
+uncollected; G7c below resumes them. No carrier cadence limit is established
+and no presentation policy changes. See [G7b's predictions, failures and retained
+comparison](../bench/heavy-list/gpui/RESULTS.md#g7b-windows-at-120-hz-with-cut-7).
+
+**G7c, Windows, 2026-11-01:** the after binaries match G7b's receipts and
+are not rebuilt. Directly launching the interactive task with visible
+PowerShell resolves foreground acquisition; the unchanged driver keeps
+focus. The repeat's five-round fling cohort passes **71/71** quiet
+observations (maximum **9.8%** CPU); the first is excluded at **11.2%**.
+D3D11 records **2,405 snapshots / 2,405 successful frames**. D3D11's process
+CPU median and both egui medians miss the predicted ±25% bands low; wgpu's
+medians pass but its ranges include low misses. All peak-memory ranges
+pass ±10%. These CPU rows do not prove parity of displayed cadence.
+
+| Windows fling | 60 Hz process / main CPU, ms/s | 120 Hz process / main CPU, ms/s | 60 → 120 Hz lifetime peak, MiB |
+| --- | ---: | ---: | ---: |
+| D3D11 | 84.08 / 62.31 | 125.36 / 102.32 | 153.18 → 154.52 |
+| Ink/wgpu | 121.41 / 112.02 | 191.82 / 181.37 | 324.75 → 328.51 |
+| egui | 24.91 / 24.91 | 37.18 / 35.63 | 181.74 → 181.53 |
+
+Rest uses **2/1/0 process CPU ticks** on D3D11/Ink-wgpu/egui and passes
+its quiet gate, as does caret. All three bar cohorts fail one of 15 quiet
+observations (maxima 10.9%, 10.9%, 11.0%); no bar CPU row qualifies.
+PresentMon loses events and produces no CSV
+for every arm, so displayed fling/rest/bar/caret cadence is unavailable;
+this does not establish a carrier rate limit. No presentation policy changes.
+
+All three observer-off cold cohorts complete ten launches per arm after six
+quiet idle observations, then fail the complete-cohort gate: **27/34, 18/34
+and 33/34** observations pass, with maxima **12.6%, 15.0% and 10.1%**. Their
+DWM medians miss the predicted 150–170 / 690–730 / 230–250 ms bands, but these
+excluded controls cannot attribute G7b's difference from G7. Session-end
+process files show background service CPU and 15 surviving ChatGPT.exe
+processes in each session; no machine setting or unrelated process changes.
+See [G7c's predictions, qualification and raw evidence](../bench/heavy-list/gpui/RESULTS.md#g7c-the-windows-120-hz-fling-rows-and-the-observer-off-cold-control).
+
 **G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
 visibility, focus, resize and DPI events clear presentation backoff; successful
 presents retry transient Mica refusal, bounded to three attempts. Clean redraws
@@ -1106,14 +1209,34 @@ or UI Automation focus without a client click. See [G6d’s before/after tables
 and retained trials](../bench/heavy-list/gpui/RESULTS.md#g6d-the-windows-reviews-lifecycle-fixes).
 
 **G4m and G5m, measured 2026-10-30**, source `42d5066572`, on the dedicated
-silver M5 Max. G4m's five interleaved fling/rest rounds and ten successful
-launches per arm become LLP 1149.001 §4's Mac baseline. Native/GPUI/Ink/egui
-fling process CPU is **156.91/129.79/110.90/108.28 ms/s**; all four ranges exceed
-G4's. All p95 intervals remain **8.33 ms**. Source, probe and power sampling
-changed, so this does not isolate hardware. [G4m's paired tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
+silver M5 Max. G4m's original five interleaved fling/rest rounds and ten
+successful launches per arm use the GPU hook with power sampling. Their
+native/GPUI/Ink/egui fling process CPU is **156.91/129.79/110.90/108.28 ms/s**;
+all four ranges exceed G4's. All p95 intervals remain **8.33 ms**. Source,
+probe and power sampling changed, so this does not isolate hardware.
+[G4m's original tables and power](../bench/heavy-list/gpui/RESULTS.md#g4m-the-four-arms-on-the-measurement-mac).
 
-**G5:** three quiet rounds each of fling, bar and caret complete, **36/36**
-samples, **114/114** quiet observations, no focus losses. Native bar main-thread
+**G4m, the instrument's share, 2026-10-30:** five interleaved rounds each
+with hook/power off/off, on/off and on/on do not resolve a positive hook cost:
+every arm's paired CPU range crosses zero, with about 10 ms/s still compatible.
+Configuration (c) measured lower app CPU by 5.78–11.02 ms/s at the paired
+medians, missing the predicted positive cost. Most of the difference is on the
+main thread with cadence/input unchanged; the sampler keeping a cluster at a
+higher clock is a hypothesis, and the order is not fully counterbalanced.
+LLP 1149.001 §4 takes CPU from hook-off, power-off runs, GPU from hook-on,
+power-off runs, and power separately. The complete (a) baseline is
+**174.87/156.13/128.00/119.76 ms/s**; it was taken under 5–6 busy cores of
+standing background work and must be re-taken when quiet. The G4→G4m rise is
+unattributed; the queue hook is excluded as its explanation. The driver and
+three control arms' application code are unchanged from original G4m; Ink is
+`c22ef19622` on `f069d37722`, including Stage 0b chunk 4.
+[Original (c), complete (a), background, paired differences and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4m-the-instruments-share).
+
+**G5:** three rounds each of fling, bar and caret complete, **36/36**
+samples, **114/114** observations passing the old load/compiler rule, no focus
+losses, under the same standing background as G4m. Bar/caret CPU is (c) and
+GPU is power-on; both stand until hook-off and power-off static series replace
+them respectively. Native bar main-thread
 CPU is **84.487 ms/s**, missing the below-10 prediction. Ink and GPUI present
 bar at **119.76 frames/s**; egui at **119.59**. GPUI and egui present caret
 exactly twice per second; Ink stays at **119.74 frames/s** and **154.320 process
@@ -1125,6 +1248,298 @@ the compose/present path and do not isolate plain-pipeline savings. Native's
 Core Animation GPU work is outside the process hook. PID/wall-clock power joins
 and all ranges are in [G5m](../bench/heavy-list/gpui/RESULTS.md#g5m-static-workloads-on-the-measurement-mac).
 The spoiled development-Mac G5 series remains retained and excluded.
+
+**G4q, 2026-10-30:** source `d5429830d2`, with hook and power sampling off,
+does not replace any CPU row. Both five-round fling attempts, both
+ten-launch-per-arm cold cohorts and both attempts at each five-round static CPU
+workload fail the whole-series quiet rule. The largest-non-benchmark-process bound
+includes WindowServer, which accounts for most crossings; the monitor does
+not attribute its work to the benchmark or other windows. These retained
+attempts do not resolve G4→G4m. Both hook-on, power-off attempts at each static
+workload also fail; no quiet Ink GPU value replaces G5m or evaluates M8's 15%
+trigger. These are before-M3 cohorts. A qualified silver baseline and, unless
+it meets G4's ranges, the interleaved two-Mac comparison remain owed. The
+separate power rounds and all four boot cohorts also fail the quiet rule. All
+sixty boot launches display complete Ink screens, but provide no quiet D15
+comparison; the 100 ms application obligation is unchanged. Gates consume
+71 min 18 s in total, including the initial wait.
+[Gates, excluded tables, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
+
+**M10 cut 7, 2026-10-31:** atlas batching on main's carrier, without the
+other M10 startup cuts. The silver M5 Max's single interleaved collection
+uses fresh processes with retained caches, hook and power sampling off,
+and per-launch quiet qualification. Cold complete-screen medians, ms:
+
+| Arm | Before | Qualified n / attempts | After | Qualified n / attempts |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 256.146 | 10/10 | 253.071 | 9/10 |
+| GPUI | 211.635 | 10/10 | 218.309 | 9/10 |
+| Ink | 253.124 | 10/10 | 215.080 | 9/10 |
+| egui | 223.185 | 10/11 | 214.707 | 9/11 |
+
+Ink's median row improves 38.044 ms; the nine matched pairs improve
+32.862 ms median, all in the same direction. The candidate remains just
+above egui's median and above the 100 ms budget. Two egui readiness failures
+are retained with successful retries; after round 4 fails quiet qualification.
+Five traces per carrier show first paint **31.183 → 4.953 ms**, with 307
+glyph uploads replaced by one batch and two page copies. Fling CPU is
+**143.501 → 143.245 ms/s** (qualified n=5/3); rest and bar's single-sample
+CPU changes miss the unchanged prediction. No warm glyph upload occurs.
+Before is `b7c52c6d22`, after `75ac7d413b`, on main `4ee50baec5`.
+[Ranges, clocks, misses, raw files and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-7-the-atlas-uploaded-once).
+
+**M10 cut 2, 2026-10-31:** source `8116a09a55` shows the window with the
+root's literal background before runner boot and paints after layout. The
+silver's two four-arm cold-only schedules complete ten attempts per arm,
+hook off, trace off and power off, with ten quiet seconds before each launch.
+Native/GPUI/Ink/egui complete-screen medians are **253.973/194.446/209.576/
+207.425 ms before** and **251.480/200.396/207.710/202.383 ms after**.
+Native, GPUI and Ink each have n=10; egui has n=8 before and n=6 after.
+Its six readiness failures remain without replacement. Native retains its
+snapshot criterion; the painted arms use displayed timestamps, with caches
+retained. During-launch load maxima are reported, not exclusion grounds.
+
+The qualified traced pairing funds no startup saving: Ink's median paired
+difference is −0.262 ms cold and +1.407 ms warm, both ranges crossing zero.
+The cold prediction of 180–195 ms and warm prediction of about 172 ms miss. First-frame parity,
+CPU-first handoff, and live Metal and wgpu display checks pass; the retained
+first-frame loop is removed. D7, D11 and D15, including the dated boot and
+100 ms application obligations, are unchanged.
+[Qualified tables, failures, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-2-show-the-window-before-the-first-paint).
+
+**M10 cut 3, 2026-10-31:** source `a98e9b83f2` repeats the retained first
+frame on each display-link tick after zero until its first positive callback.
+The silver’s four-arm cold-only schedules qualify under cut 2’s per-launch
+rule, with hook, trace and power sampling off. These are complete-screen
+medians from fresh processes with retained caches:
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 250.616 (10) | 248.680 (10) |
+| GPUI | 199.870 (10) | 204.925 (10) |
+| egui | 202.160 (8) | 214.842 (10) |
+| Ink | 209.686 (10) | 244.322 (10) |
+
+The two failed before egui originals remain; every after launch succeeds.
+Each launch passes ten quiet seconds, with launch load maxima report-only.
+Native retains the snapshot criterion and the painted arms use displayed
+timestamps. Ink misses 180–188 ms and the predicted ≥10 ms lead over GPUI
+and egui. The qualified traced median paired difference is +27.319 ms cold
+and +28.148 ms warm, with every Ink pair slower; warm complete screen is
+241.785 ms, missing 170–190 ms. Thirty after traces each have one zero,
+three copies without repainting, then a positive callback. The display
+link’s first tick is late, and holding the incomplete frame delays the
+paint that completes it. Pixel suites, CPU-first handoff and live Metal
+and wgpu pass. This one round ends with a regression; D7, D11 and D15,
+including the dated boot and 100 ms application obligations, are unchanged.
+[Qualified tables, predictions, callbacks and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-3-re-present-the-first-frame-on-each-tick).
+
+**M10 cut 4, 2026-10-31:** source `35eea646e6` requests sized decodes at
+first layout and lets each new paint replace the frame repeated after a
+zero callback. All thirty traced first positive displays are complete,
+with one zero callback and one or two repeats; none occurs after the
+positive callback. Both four-arm cold-only schedules qualify, hook,
+trace and power sampling off, with ten quiet seconds before each launch.
+Fresh processes retain their caches; native keeps its snapshot criterion
+and the painted arms use displayed timestamps. All eighty originals pass.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 269.169 (10) | 253.631 (10) |
+| GPUI | 211.914 (10) | 209.354 (10) |
+| egui | 223.831 (10) | 218.137 (10) |
+| Ink | 222.856 (10) | 224.299 (10) |
+
+Ink misses 190–200 ms and the predicted lead over GPUI and egui. Paired
+warm complete screen is 218.772 ms, missing 185–195 ms; median paired
+changes are −1.123 ms cold and −4.727 ms warm, both ranges crossing zero.
+Last decode is 154.513 ms, final upload 196.685 ms and complete-frame
+commit 197.368 ms. The median per-launch decode-to-upload gap is 43.711 ms,
+against 1.557 ms summed upload CPU work: the next paint remains late.
+
+All 230 requested originals remain, including three traced egui readiness
+failures. Matching-backend first-screen captures have zero changed RGBA
+content pixels. Pixel suites, CPU-first handoff and live Metal and wgpu
+pass. Fling, rest and static costs are not remeasured. This one round
+corrects the incomplete-frame hold but establishes no consistent startup
+saving. D7, D11 and D15, including the dated boot and 100 ms application
+obligations, are unchanged.
+[Tables, picture spans, predictions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-4-request-the-pictures-earlier-and-re-present-the-latest-frame).
+
+**M10 cut 5, 2026-10-31:** source `94638ea2d8` starts the display link
+before painting and consumes image-slot damage directly on a delivered
+tick. One immediate successor uploads pictures that land during the first
+paint. Callbacks begin earlier, but winit still queues delivery until its
+first main-thread dispatch: the next-tick boot goal is unmet.
+Both four-arm cold-only schedules qualify, hook, trace and power off,
+with ten quiet seconds before each launch. All eighty originals succeed.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 255.337 (10) | 254.012 (10) |
+| GPUI | 214.492 (10) | 209.626 (10) |
+| egui | 223.202 (10) | 223.863 (10) |
+| Ink | 221.389 (10) | 219.046 (10) |
+
+Ink misses 190–200 ms. Traced warm complete-frame commit is 209.712 ms
+and complete display 232.957 ms, missing about 165 and 185–195 ms.
+Last decode is 160.629 ms and final upload 209.144 ms; the median
+callback-to-delivery interval is 64.292 ms. Median paired changes are
++1.317 ms cold and +8.486 ms warm, both ranges crossing zero. No consistent
+startup saving is established. All thirty traced after first displays are
+complete, with one zero callback and two or three repeats; the repeat-count
+prediction misses. All 230 originals, including five egui failures, remain.
+Matching-backend first screens have zero changed RGBA pixels. Pixel suites,
+CPU-first handoff and live Metal/wgpu pass. This one implementation round
+leaves the boot dispatch delay unresolved; D7, D11 and D15 are unchanged.
+[Tables, predictions, wake spans and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-5-paint-landed-pictures-on-the-display-tick).
+
+**M10 cut 6, 2026-10-31:** source `54929835ce` consumes pending boot
+ticks in an early main-run-loop observer, before AppKit's display-cycle
+observers and winit's last-priority user-event drain. A positive display
+timestamp for a complete frame retires it. Both four-arm cold schedules
+qualify on the silver, hook, trace and power off, with ten quiet seconds
+before each launch. All forty after originals succeed; the before egui
+readiness failure is retained without replacement.
+
+| Arm | Before, ms (n) | After, ms (n) |
+| --- | ---: | ---: |
+| Native | 255.063 (10) | 257.581 (10) |
+| GPUI | 208.224 (10) | 209.308 (10) |
+| egui | 219.400 (9) | 222.489 (10) |
+| Ink | 221.986 (10) | 200.874 (10) |
+
+Ink meets 195–205 ms and is below both contemporaneous controls. Traced
+warm delivery is 163.213 ms, final upload 162.223 ms, complete-frame commit
+170.573 ms and display 212.754 ms. Upload and commit meet their predictions;
+delivery within one period and warm display at 190–200 ms miss. Per-launch
+callback-to-delivery falls from 61.495 to 20.038 ms. The first paint still
+holds main; complete-commit-to-display grows from 23.389 to 45.991 ms.
+Median paired Ink changes are −14.447 ms cold and −18.499 ms warm, with
+both ranges crossing zero. All thirty candidate traced first displays are
+complete and retire the observer once. Matching-backend first screens have
+zero changed RGBA pixels; CPU-first handoff and live Metal/wgpu pass.
+All 230 originals remain, including three traced egui failures and the
+before cold failure. One implementation round; the 100 ms application obligation and D7, D11 and D15 remain.
+[Predictions, qualification and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-cut-6-the-boot-ticks-reach-the-carrier-when-they-fire).
+
+**M10 confirmation, 2026-10-31:** a second session compares main
+`bc9da74a4b` with the rebased cut 6 tip `c7a9596585`, both release. Native,
+GPUI and egui reuse session 1's binaries. Hook, trace and power are off;
+all 80 original launch slots pass their ten-second quiet gate. Four egui
+readiness timeouts remain without replacement.
+
+| Arm | Session 2 before, ms (n) | Session 2 after, ms (n) |
+| --- | ---: | ---: |
+| Native | 250.780 (10) | 242.379 (10) |
+| GPUI | 201.212 (10) | 197.920 (10) |
+| egui | 207.824 (9) | 203.609 (7) |
+| Ink | 218.343 (10) | 201.766 (10) |
+
+Ink after is 3.847 ms above GPUI and 1.843 ms below egui, missing the
+predicted 5–12 and 15–25 ms leads. Before is 17.131 ms above GPUI, outside
+8–15 ms. The paired Ink change is −19.836 ms [−44.145, +16.012], n=10.
+The cold lead does not hold in both sessions, so cut 6's historical row
+is not promoted as a confirmed win. The 100 ms obligation remains unmet.
+The five paired fling/rest/caret rounds meet the unchanged CPU, cycles,
+cadence and peak predictions, with zero Ink rest frames. Bar's frame rate
+rises by 0.194/s [0.095, 0.306] and peak falls by 3.188 MiB
+[2.703, 5.062], missing the unchanged prediction. Its late-rate range
+barely excludes zero; one pair has equal long-interval counts. Fling
+instructions rise by 24.934 million/s [15.612, 28.720]. Controls share
+each cost round, with failures and load exclusions reported beside n.
+[Both sessions and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-confirmed).
+
+**M10 review fixes, 2026-10-31:** main `15c20224e2` against source
+`c2bbac1010`, release, silver Mac. Instrument: unchanged `measure.m`
+cold-only and the first-complete-drawable probe, hook and power off.
+The ten untraced and five traced originals per arm and label use the
+same signed executables and probe; each executable has a throwaway
+launch. All launched originals pass ten quiet seconds; launch maxima
+are report-only. This is one logical cohort with retained load and
+ownership pauses. Medians in ms, qualified n in parentheses:
+
+| Arm | Untraced before | Untraced after | Traced before | Traced after |
+| --- | ---: | ---: | ---: | ---: |
+| Native | 236.245 (10) | 241.759 (10) | 238.104 (5) | 250.120 (5) |
+| GPUI | 196.795 (10) | 198.280 (10) | 208.096 (5) | 205.837 (5) |
+| egui | 206.389 (8) | 201.296 (7) | 218.649 (4) | 205.812 (5) |
+| Ink | 214.120 (10) | 189.055 (10) | 214.776 (5) | 194.959 (5) |
+
+Five untraced and one traced egui readiness failures remain without
+replacement. Ink's untraced paired change is −21.531 [−43.335, +3.430]
+ms, n=10; omitting the round separated by the ownership pause gives
+−20.814 ms, n=9. The −15 to −25 ms paired prediction is met;
+195–215 ms absolute p50 misses on the faster side. The traced paired
+change is −15.907 [−35.813, −8.328] ms, n=5. Ink is below both controls
+with and without tracing in this cohort, but the historical confirmation
+above puts it above GPUI, as do cut 6's traced cohorts. A repeated lead
+across sessions is not established. Trace-associated paired medians are
+below 10 ms; individual launches miss that bound, and launcher wrapper
+and pre-constructor delays prevent a pure tracing-cost attribution.
+
+The stub, retries, frame generation, refused-picture retirement,
+bounded repeats, nested-loop guard, first-screen picture scope and
+background handling are fixed. All five traced Ink-after launches
+retire boot once after complete display. The final five fling pairs
+still add 26.352 [10.743, 28.312] million instructions/s. Three fix
+attempts miss, so the regression remains queued and the chunk is not
+ready to land. The eight named suites pass; two full-suite timing
+failures remain reported, and the mini owns the six-check gate. The
+100 ms obligation and D7, D11 and D15 are unchanged.
+[Review dispositions, predictions, raw rows and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-the-cuts-reviews-folded).
+
+**M10 combined landing, 2026-10-31:** the six cuts and their review fixes
+on cut 7, before `bc45470708`, after `1502f94f54`. Session `m10-landed`
+on the silver M5 Max uses `measure.m` cold-only, ten originals per arm
+and label, interleaved, with throwaway launches and retained caches.
+Every original passes ten quiet seconds; launch maxima are report-only.
+Hook, trace and power are off. Native retains its snapshot endpoint;
+painted arms use the first complete displayed drawable. Qualified n is
+in Native/GPUI/egui/Ink order. Earlier rows retain their own qualification
+and failures as recorded above; the trace cohorts are marked separately.
+All cells are cold medians in ms.
+
+| Session / instrument | Qualified n | Native | GPUI | egui | Ink |
+| --- | --- | ---: | ---: | ---: | ---: |
+| G4 historical / measure.m, seven monitored per arm | 10/10/10/10 | 354.140 | 313.130 | 337.450 | 352.130 |
+| Cut 7 alone / measure.m cold-only | 9/9/9/9 | 253.071 | 218.309 | 214.707 | 215.080 |
+| Cut 2 / measure.m cold-only | 10/10/6/10 | 251.480 | 200.396 | 202.383 | 207.710 |
+| Cut 3 / measure.m cold-only | 10/10/10/10 | 248.680 | 204.925 | 214.842 | 244.322 |
+| Cut 4 / measure.m cold-only | 10/10/10/10 | 253.631 | 209.354 | 218.137 | 224.299 |
+| Cut 5 / measure.m cold-only | 10/10/10/10 | 254.012 | 209.626 | 223.863 | 219.046 |
+| Cut 6, session 1 / measure.m cold-only | 10/10/10/10 | 257.581 | 209.308 | 222.489 | 200.874 |
+| Cut 6, five-run trace cohort / startup.py | —/5/5/5 | — | 208.944 | 227.444 | 214.282 |
+| Cut 6, ten-pair trace cohort / startup.py | —/10/8/10 | — | 208.293 | 224.601 | 217.607 |
+| Confirmation, session 2 / measure.m cold-only | 10/10/7/10 | 242.379 | 197.920 | 203.609 | 201.766 |
+| Review fixes / measure.m cold-only | 10/10/7/10 | 241.759 | 198.280 | 201.296 | 189.055 |
+| Review fixes, traced / measure.m cold-only | 5/5/5/5 | 250.120 | 205.837 | 205.812 | 194.959 |
+| Combined, before / measure.m cold-only | 10/10/9/10 | 239.284 | 195.449 | 204.924 | 187.214 |
+| Combined, after / measure.m cold-only | 10/10/9/10 | 239.689 | 197.134 | 203.295 | **159.679** |
+
+All 80 combined-session originals remain. Egui-before round 6 and
+egui-after round 8 time out without replacement. Ink's paired change is
+−29.634 ms [−52.353, +17.985], n=10. After is 37.455 ms below GPUI and
+43.616 below egui, meeting the ≥10 ms margins. Before is within 10 ms of
+GPUI but not egui. The 210–215 ms before and 185 ms after predictions
+both miss on the faster side. The observed difference between median
+rows is 27.535 ms; it does not isolate the hypothesized 9 ms of extra
+overlap. Six-cut carrier revisions are below both controls in **3 of 4
+qualified untraced sessions**; this combined revision has **1 of 1**.
+The table preserves the contrary confirmation and traced observations.
+The 100 ms obligation remains unmet, and the mini owns the six-check gate.
+
+The five-launch timeline gives first-paint work 5.285 → 3.721 ms,
+complete commit 173.468 → 150.278 ms and complete display 196.315 →
+166.537 ms; the first wrapper launches' pre-main delays remain in the
+ranges. All five after launches first display complete content, retire the
+boot observer once, and make no later retries. The six cost launches qualify; CPU/cycles
+stay within ±5% in all four phases, but fling instructions rise 32.095
+million/s, missing the ≤30 allowance. Rest displays zero frames; bar and
+caret meet cadence, with zero warm glyph upload in rest/bar/caret. These
+single pairs leave the instruction finding open. All affected suites and
+structural caps pass; the six broad checks remain assigned to the mini.
+[Predictions, ranges, timeline, counters and reproduction](../bench/heavy-list/gpui/RESULTS.md#m10-landed-the-six-cuts-over-cut-7).
 
 **S0 C1, landed 2026-10-28** (`lane/ink` `428ecd96fa`; the crate, the shader, the wgpu device,
 one quad read back; M5 Max, Metal through wgpu, 200×200 at 2×). Instance, adapter and

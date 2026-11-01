@@ -19,7 +19,7 @@ import { EDITOR_DEFINITIONS } from '../shared/editors';
 import { lastEditor } from '../details/shell-details';
 import { linkPullRequest } from './palette-linkpr';
 import { linkFromPicker } from '../pull-requests/pages-pr-links';
-import { openScratchProject } from '../composer/scratch-project';
+import { openPrimaryScratch } from '../composer/scratch-project';
 import { startTriage } from './palette-triage';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { cloneTracking } from '../client/live-streams';
@@ -27,10 +27,12 @@ import { letGo } from '../client/let-go';
 import { composerNow } from '../composer/composer-controls';
 import { claimThreadOpen, pickedQuery } from './palette-search';
 import { addTarget, chooseNewProjectEnvironment, newProjectEnvironments, targetRequest, type AddEnvironment } from './palette-environments';
-import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { fleet, fleetThreadId, focusFleetProject, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { environmentCall } from '../pull-requests/pages-pr-environments';
 import { findWhenShown } from '../sidebar/sidebar-search';
 import { shownMessageMatch } from './palette-view';
+import { projectScopes } from '../sidebar/sidebar-view';
+import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pin';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -45,6 +47,17 @@ function openProject(client: T3Client, projectId: string): PaletteResult {
   const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId))[0];
   return latest && latest.settledOverride !== 'settled' ? done(client, '', str(latest.id)) : done(client, projectId);
 }
+async function unarchive(client: T3Client, native: Native, target: AddEnvironment, projectId: string, source: EnvironmentFleet): Promise<void> {
+  try {
+    const [commandId] = await client.restAccess(native).ids(1);
+    const payload = { type: 'project.update', commandId, projectId, archived: false };
+    if (target.focused) await client.restAccess(native).request('projects.mutate', payload, true);
+    else await targetRequest(client, native, target, 'projects.mutate', payload, true, source);
+  } catch (error) {
+    // Nothing awaits this write, so a cancelled one ends here (reportProjectFailure skips an interrupted command).
+    if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: message(error), stacked: true });
+  }
+}
 /**
  * handleAddProjectForEnvironment: an existing project opens; else the project is created on the target
  * environment. Another environment's project opens by its `fleet:` id, which moves the window there.
@@ -52,7 +65,11 @@ function openProject(client: T3Client, projectId: string): PaletteResult {
 async function createProject(client: T3Client, native: Native, storage: Files, target: AddEnvironment, cwd: string, failureTitle: string, source: EnvironmentFleet): Promise<PaletteResult> {
   const access = client.restAccess(native);
   const existing = target.projects.find(project => str(project.workspaceRoot).replace(/\/+$/, '') === cwd);
-  if (existing) return target.focused ? openProject(client, str(existing.id)) : done(client, fleetThreadId(target.environmentId, str(existing.id)));
+  if (existing) {
+    // Adding an archived project's folder again brings the project back; the project opens either way.
+    if (existing.archivedAt != null) void unarchive(client, native, target, str(existing.id), source);
+    return target.focused ? openProject(client, str(existing.id)) : done(client, fleetThreadId(target.environmentId, str(existing.id)));
+  }
   try {
     const [commandId, projectId] = await access.ids(2);
     if (!target.focused) {
@@ -115,6 +132,12 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'copy-prompt-link') { await copyPromptLink(client, native, composerPromptLink(client, id === 'context')); return done(client); }
     if (op === 'restart-session') return await restartSession(client, native, storage, id);
     if (op === 'open-project') return openProject(client, id);
+    // ProjectPinButton and the pin shortcut on a project row keep the palette open; the Pin project action closes it.
+    if (op === 'project-pin' || op === 'project-pin-action') {
+      const group = projectScopes(client).find(scope => scope.key === id);
+      if (group && canPinProjectGroup(client, group.members, source)) await setProjectGroupPinned(client, native, group.members, !group.pinned, source);
+      return op === 'project-pin' ? stay(client) : done(client);
+    }
     if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
     if (op === 'toggle-publish') { flow.publish = !flow.publish; return stay(client); }
     // switchNewProjectEnvironment: New project moves to the chosen environment, its name and options kept.
@@ -126,7 +149,7 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'open-file') { await openFileSurface(client, native, id, Number(value) || 0); client.revision++; return done(client); }
     if (op === 'thread-pull-requests') { await openSurface(client, native, 'pull-requests'); client.revision++; return done(client); }
     if (op === 'open-favorite') return await openInEditor(client, native, op, id, value);
-    if (op === 'scratch') return await startScratch(client, native);
+    if (op === 'scratch') return await startScratch(client, native, storage, source);
     if (op === 'triage') return done(client, await startTriage(client, native));
     if (op === 'link-pr') return (await linkPullRequest(client, access, storage, id)) ? done(client) : stay(client, false);
     if (op === 'pr-link-thread') return (await linkFromPicker(client, native, storage, id)) ? done(client) : stay(client, false); // the thread picker
@@ -303,10 +326,18 @@ async function openInEditor(client: T3Client, native: Native, op: string, id: st
   await client.restAccess(native).request('shell.openInEditor', { cwd: line ? `${path}:${line}` : path, editor });
   return done(client);
 }
-/** chat.newWithoutProject: the environment's scratch project, created on first use. */
-async function startScratch(client: T3Client, native: Native): Promise<PaletteResult> {
+/**
+ * chat.newWithoutProject: startScratchThread on scratchEnvironmentId's machine, the primary first, its scratch project
+ * created on first use; on another machine the window moves to that project's new thread (handleNewThread).
+ */
+async function startScratch(client: T3Client, native: Native, storage: Files, source: EnvironmentFleet): Promise<PaletteResult> {
   try {
-    return done(client, await openScratchProject(client, native)); // upstream 845ddd9354: the shared opener
+    const opened = await openPrimaryScratch(client, native, source);
+    if (!opened || opened.environmentId === client.environmentId) return done(client, opened?.projectId ?? '');
+    const focused = await focusFleetProject(client, native, opened.environmentId, opened.projectId, source);
+    client.adoptStatus(focused.value, focused.generation);
+    await client.refresh(native, storage);
+    return done(client);
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Could not start without a project', description: message(error) });

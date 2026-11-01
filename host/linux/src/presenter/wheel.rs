@@ -94,7 +94,7 @@ impl<D: DataSource> Presenter<D> {
                     return true;
                 }
             }
-            if id == PAGE || self.alert_root() == Some(id) {
+            if id == PAGE || self.alert_inert() && self.alert_root() == Some(id) {
                 return false;
             }
             at = self.scroll_parent(id);
@@ -115,9 +115,10 @@ impl<D: DataSource> Presenter<D> {
         {
             return;
         }
-        if self.overlay_wheel(x, y, dy) || self.alert.is_some() && self.hit(x, y).is_none() {
+        if self.overlay_wheel(x, y, dy) || self.alert_inert() && self.hit(x, y).is_none() {
             return;
         }
+        self.person_scrolls += 1;
         self.restore_scroll_anchors();
         // A canvas that wants input takes the wheel, and the nodes' own
         // `wheel` is still heard (review b5-b 2), as the web's element hears it.
@@ -168,12 +169,12 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
             // At every requested edge, containment or the modal ends the chain.
-            if stops || self.alert_root() == Some(id) {
+            if stops || self.alert_inert() && self.alert_root() == Some(id) {
                 return;
             }
             at = parent;
         }
-        if self.alert.is_some() {
+        if self.alert_inert() {
             return;
         }
         let doc = self.document();

@@ -395,8 +395,11 @@ impl AppDirectories {
         if (actual.dev(), actual.ino()) != (pinned.dev(), pinned.ino()) {
             return Err(error("app directory was replaced"));
         }
-        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
-            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+        // Examined, never opened (Exact local patch 25): closing any descriptor
+        // of a file drops every POSIX lock the process holds on it, another
+        // SQLite library's included.
+        match document_metadata(&parent, Some(&leaf)) {
+            Ok(info) if info.st_mode & libc::S_IFMT != libc::S_IFREG => {
                 return Err(error("database is not a regular file"))
             }
             Ok(_) => {}
@@ -722,8 +725,12 @@ fn at_parent(op: FsOp, parent: &File, leaf: &str, data: &[u8]) -> Result<FsResul
                     return Err(error(io::Error::from_raw_os_error(libc::ELOOP)));
                 }
                 // `AT_SYMLINK_NOFOLLOW`: a link swapped in after the fstatat is
-                // checked as itself, never what it names.
+                // checked as itself, never what it names. Bionic refuses the flag
+                // (`crate::AT_EACCESS`), so there the fstatat alone keeps a link out.
+                #[cfg(not(target_os = "android"))]
                 let flags = libc::AT_EACCESS | libc::AT_SYMLINK_NOFOLLOW;
+                #[cfg(target_os = "android")]
+                let flags = 0;
                 last(libc::faccessat(fd, c.as_ptr(), mode, flags)).map(|()| FsResult::Done)
             }
             FsOp::Chmod => {

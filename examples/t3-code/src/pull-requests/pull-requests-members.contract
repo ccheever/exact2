@@ -1,0 +1,123 @@
+// T3Code's Pull Requests page and a thread's pull request surface (LLP 1091.002).
+use PrListView from "./pages-prs.contract"
+use PrDetailView from "./pages-pr-detail.contract"
+use TranscriptMarkdown from "../timeline/markdown.contract"
+members T3Code
+  state prQuery = ""
+  state prApplied = ""
+  state prTyped = false
+  state prSelected = ""
+  state prPanelOpen = true
+  state prRefresh = 0
+  state prTab = "summary"
+  // Filters › Author and Labels search the host (useHostedFilterOptions): the open picker ("authors", "labels" or none)
+  // and its search, sent to the list 250 ms after the last keystroke (OPTION_SEARCH_DEBOUNCE_MS), which asks the servers
+  // in the list's scope. A picker opening starts with an empty search.
+  state prOptionKind = ""
+  state prOptionTyped = ""
+  state prOptionSent = ""
+  task prOptionSettle when prOptionKind != "" and prOptionSent != prOptionTyped key=prOptionTyped
+    after(250, prOptionSettled)
+  action prOptionSettled
+    prOptionSent = prOptionTyped
+  resource prList = prList(utilityPage == "pull-requests", prRefresh, wallTime.epochAtZero + elapsed, prSelected, prApplied, prTyped, data.revision, page.visibilityState == "visible", windowReturns, prOptionKind, prOptionSent) as shape PrListView
+  // usePullRequestChecksRefresh: while the open pull request's checks are read again (prDetail.checksPoll), a tick every
+  // 45 s while runs are pending and 60 s once they settle moves the clock prDetail reads, as providerNow does in app.contract.
+  // The timer runs only while the detail is drawn: the page's panel open and Settings not over the page, or a thread's
+  // surface, which Settings leaves mounted (PullRequestsPage unmounts the panel, _chat.tsx the page). It starts again for
+  // another pull request (useLiveRefresh's key).
+  derive prChecksShown = (utilityPage == "pull-requests" and prPanelOpen and not settingsOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")
+  state prChecksNow = 0
+  action prChecksTick
+    prChecksNow = performanceNow()
+  task prChecksPending when prDetail.checksPoll == "pending" and prChecksShown key=prDetail.ref
+    every(45000, prChecksTick)
+  task prChecksSettled when prDetail.checksPoll == "settled" and prChecksShown key=prDetail.ref
+    every(60000, prChecksTick)
+  resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + max(elapsed, prChecksNow), data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request")), prChecksShown) as shape PrDetailView // the page, the linked threads' 10 s tick
+  task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
+    after(1, guideFallback)
+  // An unavailable tab falls back to the Summary without becoming the surface's remembered tab.
+  action guideFallback
+    prTab = "summary"
+  state guideFinishHandled = ""
+  task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.guide.key}:${prDetail.guide.finishNonce}` key=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`
+    after(1, guideFinishOpen)
+  action guideFinishOpen
+    guideFinishHandled = `${prDetail.guide.key}:${prDetail.guide.finishNonce}`
+    showPopover(utilityPage == "pull-requests" ? "pr-page-scroll-composer" : "pr-surface-scroll-composer")
+  state codeRevealHandled = ""
+  task codeRevealRequested when prTab == "code" and prDetail.codeTab.revealPath != "" and prDetail.codeTab.revealNonce > 0 and codeRevealHandled != `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}` key=`${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
+    after(1, codeRevealOpen)
+  action codeRevealOpen
+    codeRevealHandled = `${prDetail.guide.key}:${prDetail.codeTab.revealNonce}`
+    if utilityPage == "pull-requests"
+      scrollIntoView("pr-page-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
+    else
+      scrollIntoView("pr-surface-scroll-code", `file:${prDetail.codeTab.revealPath}`, block="start")
+  resource prMarkdown = renderPullRequestMarkdown(prDetail.bodies) as shape TranscriptMarkdown
+  action prType(value: string)
+    prQuery = value
+    prTyped = true
+  task prSearchSettle when utilityPage == "pull-requests" and prTyped and prApplied != prQuery key=prQuery // SEARCH_DEBOUNCE_MS: 250 ms after the last keystroke (exact2 #192)
+    after(250, prSettle)
+  action prSettle
+    prApplied = prQuery
+    send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
+  action prControl(op: string, value: string)
+    if op == "option-kind"
+      prOptionKind = value
+      prOptionTyped = ""
+      prOptionSent = ""
+    else if op == "option-query"
+      prOptionTyped = value
+    else
+      if op == "query"
+        prQuery = value
+        prApplied = value
+        prTyped = true
+      send localChanged = command(`pageslocal:pr-${op}`, "", value, 0)
+  action prSelect(ref: string)
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "summary"
+  action prClose
+    if prSelected != ""
+      send localChanged = command("shelllocal:surface-remember-pr", prSelected, "", 0)
+    prSelect("")
+  action prOpenGuide(ref: string)
+    openPage("pull-requests")
+    prSelected = ref
+    prPanelOpen = true
+    prTab = "guide"
+    settingsOpen = false
+  action prTogglePanel
+    prPanelOpen = not prPanelOpen
+  action prReload
+    prRefresh = prRefresh + 1
+  // A thread's pull request surface remembers its tab (rightPanelStore setPullRequestDetailTab):
+  // a choice there is kept with the surface, and showing that surface again, in its thread, shows it.
+  action prSetTab(value: string)
+    prTab = value
+    if utilityPage == "" and shell.panel.kind == "pull-request" and shell.panel.pr.surface != ""
+      send prTabSaved = command("shelllocal:surface-pr-tab", shell.panel.pr.surface, value, 0)
+  task prSurfaceTab when utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request" and shell.panel.pr.surface != "" key=`${shell.panel.key}|${shell.panel.pr.surface}`
+    after(1, prSurfaceTabShown)
+  action prSurfaceTabShown
+    prTab = shell.panel.pr.tab
+  action prAct(op: string, value: string)
+    if op == "guide-write" and not prDetail.guide.hasGuide
+      prSetTab("guide")
+    if op == "quick" or op == "close-batch"
+      send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(`pageslocal:pr-act-${op}`, utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, value, 0)
+  action prCopy(label: string, text: string)
+    send localChanged = command("pageslocal:copy", label, text, 0)
+  task prConfirmLapse when prDetail.actions.armedSerial > 0 key=prDetail.actions.armedSerial // useInlineActionConfirm: an armed confirmation lapses after 3 s, or as the window loses the focus
+    after(3000, prConfirmLapsed)
+  task prConfirmBlur when prDetail.actions.armedSerial > 0 and not page.hasFocus key=prDetail.actions.armedSerial
+    after(1, prConfirmLapsed)
+  action prConfirmLapsed
+    chatLocal("pr-ui-disarm", prDetail.ref, `serial:${prDetail.actions.armedSerial}`)

@@ -32,7 +32,8 @@ function harness(turn = turnPatch) {
   const command = (op: string, id = '', value = '', n = 0) => client.command(op, id, value, n, native, storage);
   return { client, command, calls };
 }
-const requests = (calls: Obj[]) => calls.filter(call => call.op === 'request');
+// The Commits submenu's read (review.getBranchCommits, diff-commits.test.ts) runs beside each answer; these follow the diff's own.
+const requests = (calls: Obj[]) => calls.filter(call => call.op === 'request' && call.method !== 'review.getBranchCommits');
 
 describe('diff panel', () => {
   test('a workspace outside git shows the reference\'s notice, not an empty diff or an error (DiffPanel !isGitRepo)', async () => {
@@ -90,17 +91,21 @@ describe('diff panel', () => {
     expect(requests(calls).length).toBe(count);
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That turn is no longer available.' });
   });
-  // Open diff names its tool call (#26304); the panel opens that call's run at its file.
-  test('a file change\'s Open diff (tool-diff) opens the panel at the change its tool call made', async () => {
+  // Open diff names its tool call (#26304); the panel shows that call's own change, at the revision it was drawn at.
+  test('a file change\'s Open diff (tool-diff) opens the panel on its tool call\'s own change', async () => {
     const { client, command, calls } = harness();
     const change = { id: 'fc', type: 'file_change', runId: 'r1', fileName: 'fixture-result.md', status: 'completed', updatedAt: '2026-10-03T14:14:00Z' };
     client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'fc', item: change }];
     await command('tool-diff', JSON.stringify(['t1', 'fc']), '', 0);
-    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
-    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null, reveal: 1 });
-    const { toolCallDiffTarget } = await import('../../src/timeline/timeline-inspect');
-    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'fc']))).toEqual({ threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z', runId: 'r1', filePath: 'fixture-result.md' });
-    expect(toolCallDiffTarget(client.projection, JSON.stringify(['t1', 'gone']))).toBeNull();
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnItem', payload: { threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z' } });
+    expect(client.diffState.selections['env:t1']).toMatchObject({ kind: 'tool-call', toolCall: { threadId: 't1', itemId: 'fc', revision: '2026-10-03T14:14:00Z' } });
+    expect(snapshot(client)).toMatchObject({ diffOpen: true, diffScopeLabel: 'Tool call' });
+    // A change outside the run's checkpoints (no runId) opens the same way.
+    client.thread!.projection.visibleTurnItems = [{ position: 0, visibility: 'local', sourceThreadId: 't1', sourceItemId: 'loose', item: { ...change, id: 'loose', runId: undefined } }];
+    await command('tool-diff', JSON.stringify(['t1', 'loose']), '', 0);
+    expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnItem', payload: { itemId: 'loose' } });
+    await command('tool-diff', JSON.stringify(['t1', 'gone']), '', 0);
+    expect(snapshot(client)).toMatchObject({ diffOpen: true, diffError: 'That file change is no longer available.' });
   });
   test('scope, whitespace, layout, wrap, tree and collapse are real and stateful', async () => {
     const { client, command, calls } = harness();

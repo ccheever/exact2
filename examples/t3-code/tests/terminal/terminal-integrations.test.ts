@@ -78,6 +78,11 @@ describe('terminal context reference ports', () => {
     expect(toasts(client).at(-1)?.title).toBe('Expired terminal context omitted from message');
     expect(buildExpiredTerminalContextToastCopy(2, 'omitted').title).toBe('Expired terminal contexts omitted from message');
   });
+  test('several expired contexts are them', () => {
+    expect(buildExpiredTerminalContextToastCopy(2, 'empty')).toEqual({ title: "Expired terminal contexts won't be sent", description: 'Remove them or re-add them to include terminal output.' });
+    expect(buildExpiredTerminalContextToastCopy(2, 'omitted')).toEqual({ title: 'Expired terminal contexts omitted from message', description: 'Re-add them if you want that terminal output included.' });
+    expect(buildExpiredTerminalContextToastCopy(1, 'omitted').description).toBe('Re-add it if you want that terminal output included.');
+  });
 });
 describe('terminal selection menu ports', () => {
   test('popup and context menus omit Add to chat without target and disable empty selection actions', () => {

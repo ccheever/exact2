@@ -325,7 +325,7 @@ final class ControlHost: NSObject {
             }
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
-                assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
+                assign(control, \.accessibilityLabel, owner.authoredLabel)
                 assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
             // A native button's box is its frame (below): its natural size is

@@ -7,12 +7,14 @@
 // t3-anchor hook (T3Composer.swift); composer-measure.ts reads the widths.
 
 component LabelProbe
+  inject
+    composerScope: string // a side chat's composer reports under its own names (thread-scope.ts)
   props
     name: string
     label: string
     xs: bool
   view
-    box hatch="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
+    box hatch="t3-anchor" data-anchor=`${composerScope}${name}` display="flex" flex-direction="row" flex-shrink=0
       text (label == "" ? " " : label) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=400 line-height=(xs ? "1rem" : "1.25rem") white-space="nowrap" flex-shrink=0
 
 component ComposerLabelProbes

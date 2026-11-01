@@ -40,6 +40,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod activation;
 pub mod agent;
 pub mod auth;
 pub mod bridge;
@@ -79,6 +80,7 @@ pub use runner::picker as picker_support;
 pub use runner::picker::shared as share_in;
 pub mod machine;
 pub mod midi;
+pub mod rows;
 pub mod share;
 pub mod sound;
 pub mod stdlib;
@@ -92,6 +94,7 @@ pub mod transport;
 pub mod upload;
 pub mod uses;
 pub mod viewport;
+pub mod viewport_reads;
 pub mod vm;
 pub mod wakelock;
 

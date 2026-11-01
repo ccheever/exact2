@@ -665,6 +665,20 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    /// Where the platform's Back goes from the selected visit, `nil` at the stack's root (LLP 1115.000 D5.5).
+    package func locationBehind() -> String? {
+        on(busy: nil) {
+            let len = exact_location_behind(rt)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
+    /// Where the platform's Forward goes, `nil` with nothing ahead (LLP 1115.000 D5.5).
+    package func locationAhead() -> String? {
+        on(busy: nil) {
+            let len = exact_location_ahead(rt)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     package func visitLocation(_ key: String) -> String? {
         guard let id = UInt64(key) else { return nil }
         return on(busy: nil) {
@@ -999,9 +1013,13 @@ package struct PointerSample {
     package var clientX: Double, clientY: Double
     /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
     package var held = ""
-    package var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(clientX),\(clientY),\(held)" }
-    package init(x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int, clientX: Double, clientY: Double, held: String = "") {
+    /// The button that went down or came up, DOM's number (UI Events): 0
+    /// primary or a contact, 1 auxiliary, 2 secondary, 3 back, 4 forward;
+    /// -1 on a move.
+    package var button = 0
+    package var line: String { "\(x),\(y),\(button),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(clientX),\(clientY),\(held)" }
+    package init(x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int, clientX: Double, clientY: Double, held: String = "", button: Int = 0) {
         self.x = x; self.y = y; self.buttons = buttons; self.pressure = pressure; self.type = type; self.id = id
-        self.clientX = clientX; self.clientY = clientY; self.held = held
+        self.clientX = clientX; self.clientY = clientY; self.held = held; self.button = button
     }
 }

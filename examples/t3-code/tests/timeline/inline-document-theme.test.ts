@@ -37,6 +37,20 @@ test('document system themes use the resolved host scheme while explicit appeara
   expect(inlineTheme(client, 'dark').appearance).toBe('light');
 });
 
+test('an HTML render\'s dark background is the dark chat\'s black (#25948)', () => {
+  const { client } = fixture('html');
+  expect(inlineTheme(client, 'dark').variables['--background']).toBe('#000000');
+  expect(inlineTheme(client, 'light').variables['--background']).toBe('#fcfcfc');
+});
+
+test('no theme id paints the standard theme, as the theme editor reads it', () => {
+  const { client } = fixture('html');
+  const standard = { light: inlineTheme(client, 'light').variables, dark: inlineTheme(client, 'dark').variables };
+  client.local.clientSettings = { ...client.local.clientSettings!, themeLight: '', themeDark: '' };
+  expect(inlineTheme(client, 'light').variables).toEqual(standard.light);
+  expect(inlineTheme(client, 'dark').variables).toEqual(standard.dark);
+});
+
 for (const kind of ['html', 'mcp'] as const) test(`${kind} live theme and font updates retain the mounted document and signed URL`, async () => {
   const { client, view, receive, drainPosts, mintCount } = fixture(kind);
   await syncInlineDocuments(client, native, 0, 'light');

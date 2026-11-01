@@ -7,9 +7,9 @@ import { describe, expect, test } from 'bun:test';
 import { appText } from '../support/app-files';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 
-// The root's write of Separate fonts (root-panels.contract), run as Contract runs it.
-const members = contractComponent('root-panels.contract', 'T3Code');
-const membersText = appText('root-panels.contract');
+// The root's write of Separate fonts (shell-members.contract), run as Contract runs it.
+const members = contractComponent('shell-members.contract', 'T3Code');
+const membersText = appText('shell-members.contract');
 const task = (name: string) => {
   const at = membersText.indexOf(`  task ${name} when `);
   const [head, body] = membersText.slice(at).split('\n');
@@ -57,7 +57,7 @@ describe('a jump to a separate font row turns Separate fonts on, whatever else i
   });
 
   test('the jump waits for it: it is ready only once the answer names its target (settings-core-view.ts holds it)', () => {
-    expect(appText('root-settings.contract')).toContain('settingsCore.jumpTarget == settingsFocusTarget');
+    expect(appText('settings-members.contract')).toContain('settingsCore.jumpTarget == settingsFocusTarget');
   });
 });
 

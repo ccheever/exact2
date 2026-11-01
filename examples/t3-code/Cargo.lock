@@ -2280,6 +2280,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 
 [[patch.unused]]
+name = "accesskit_windows"
+version = "0.35.2"
+
+[[patch.unused]]
 name = "fontique"
 version = "0.11.1"
 

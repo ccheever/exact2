@@ -3,12 +3,13 @@ import { mathFrames, noteMathFrame } from '../../src/timeline/markdown-math';
 import { appearanceSections } from '../../src/appearance/settings-appearance';
 import { decodeClientPrefs, DEVICE_DEFAULTS, restoreLabels } from '../../src/settings/settings-core';
 import { searchSettings } from '../../src/settings/settings-search';
+import { contractFn } from '../support/contract-fn-fixture';
 
 // Settings › Appearance › Render math (AppearanceSettingsPanel.tsx at 74541bab17) and the math pages' reports
 // (MathTypeset's cache): display formulas are ```math fences (data/src/markdown_math.rs, its own tests).
 describe('Render math', () => {
   test('the Appearance row is off by default, after Effort display, and resets to off', () => {
-    const rows = (math: boolean) => appearanceSections(decodeClientPrefs({ mathRenderingEnabled: math }), false).flatMap(section => section.rows);
+    const rows = (math: boolean) => appearanceSections(decodeClientPrefs({ mathRenderingEnabled: math })).flatMap(section => section.rows);
     const titles = rows(false).map(row => row.title);
     expect(titles.indexOf('Render math')).toBe(titles.indexOf('Effort display') + 1);
     expect(rows(false).find(row => row.id === 'math-rendering')).toMatchObject({ kind: 'switch', checked: false, resettable: false, target: 'mathRenderingEnabled',
@@ -38,5 +39,9 @@ describe('Render math', () => {
     for (const junk of ['nope', JSON.stringify({ status: 'rendered', width: 1, height: 1, theme: 'dark', size: 14, tex: '' }),
       JSON.stringify({ status: 'rendered', width: 1, height: 1, theme: 'dark', size: 0, tex }), JSON.stringify({ status: 'rendered', width: 0, height: 5, theme: 'dark', size: 14, tex: 'x' })]) noteMathFrame(junk);
     expect(mathFrames().length).toBe(before);
+  });
+  test('a display equation is a Tab stop only while it is wider than its lane (#23954)', async () => {
+    const scrollable = await contractFn('src/timeline/markdown-math.contract', 'mathScrollable', ['rendered', 'viewportWidth', 'formulaWidth']);
+    expect([scrollable(true, 600, 80), scrollable(true, 600, 900), scrollable(false, 600, 900), scrollable(true, 0, 900)]).toEqual([false, true, false, false]);
   });
 });

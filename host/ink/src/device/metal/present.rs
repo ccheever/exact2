@@ -42,7 +42,7 @@ struct Work {
     renderer: std::sync::Arc<std::sync::Mutex<Renderer>>,
     texture: Retained<ProtocolObject<dyn MTLTexture>>,
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
-    benchmark: (bool, f32),
+    benchmark: crate::device::apple::Scene,
     queued: f64,
     transaction: bool,
 }
@@ -56,6 +56,11 @@ impl Work {
         });
         let _trace = Trace::new(c"worker present");
         if !present {
+            self.renderer
+                .lock()
+                .unwrap()
+                .layer
+                .cancel_repeat(self.benchmark);
             self.command.commit();
             return Ok(None);
         }
@@ -73,6 +78,13 @@ impl Work {
         trace_interval(c"gpu present", || {
             (self.command.GPUStartTime(), self.command.GPUEndTime(), 0.)
         });
+        if result.is_err() || self.command.status() == MTLCommandBufferStatus::Error {
+            self.renderer
+                .lock()
+                .unwrap()
+                .layer
+                .cancel_repeat(self.benchmark);
+        }
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(
                 "window command failed: {:?}",
@@ -166,6 +178,7 @@ impl Upload {
                 return Err(Error::DeviceLost("image upload failed".into()));
             }
         }
+        let _encode = Trace::new(c"upload copy encode");
         let stride = self.row.div_ceil(256) * 256;
         let length = stride * self.size[1] as usize;
         trace_mark(c"staging bytes", || length as f64);
@@ -229,6 +242,7 @@ impl Metal {
         let render_layer = layer.render_layer();
         render_layer.raw.setDevice(Some(&self.device));
         self.thread = Some(thread.clone());
+        crate::counters::presentation_support(true, true);
         self.window = Some(Window {
             thread,
             uploads: std::sync::Arc::new(std::sync::Mutex::new(Uploads {
@@ -333,7 +347,7 @@ impl Renderer {
             return Err(error);
         }
         let pending = if transaction {
-            // Present on the caller's thread before AppKit commits its resize.
+            // Present on the caller's thread before AppKit commits its transaction.
             // https://developer.apple.com/documentation/quartzcore/cametallayer/presentswithtransaction
             command.commit();
             command.waitUntilScheduled();
@@ -344,6 +358,7 @@ impl Renderer {
             None
         };
         trace_mark(c"present committed", || 0.);
+        crate::counters::submitted();
         self.ring.retire(command);
         Ok(pending)
     }
@@ -361,11 +376,28 @@ fn encode(
     let pass = MTLRenderPassDescriptor::new();
     let attachment = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
     attachment.setTexture(Some(target));
-    attachment.setLoadAction(MTLLoadAction::DontCare);
+    let clear = crate::device::apple::benchmark_present_clear();
+    attachment.setLoadAction(if clear {
+        MTLLoadAction::Clear
+    } else {
+        MTLLoadAction::DontCare
+    });
+    if clear {
+        attachment.setClearColor(MTLClearColor {
+            red: 0.,
+            green: 0.,
+            blue: 0.,
+            alpha: 1.,
+        });
+    }
     attachment.setStoreAction(MTLStoreAction::Store);
     let encoder = command
         .renderCommandEncoderWithDescriptor(&pass)
         .ok_or_else(|| Error::Device("drawable encoder".into()))?;
+    if clear {
+        encoder.endEncoding();
+        return Ok(());
+    }
     let width = target.width() as f32;
     let height = target.height() as f32;
     let viewport = [width, height, 0., 0.];

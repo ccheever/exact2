@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { changeRequestTermsForUrl, parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
+import { changeRequestTermsForUrl, claimChangeRequestUrl, parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
@@ -36,11 +36,35 @@ describe('change request references', () => {
     expect(parseChangeRequestUrl('https://github.com/acme/widgets/issues/7')).toBeNull();
     expect(parseChangeRequestUrl('mailto:x@y.z')).toBeNull();
   });
+  // registry.ts claimChangeRequestUrlsFirst: GitCafe, then Azure DevOps, before the hosts that take routes on any hostname.
+  test('Azure DevOps claims its change requests before Forgejo', () => {
+    const claimed = claimChangeRequestUrl('https://tfs.example.test/org/_git/repo/pullrequest/9/pulls/2');
+    expect(claimed).toEqual({ kind: 'azure-devops', link: { host: 'tfs.example.test', repository: 'org/_git/repo', number: 9 } });
+  });
   test('typed references: numbers, #numbers, URLs and checkout commands', () => {
     expect(parsePullRequestReference('#42')).toBe('42');
     expect(parsePullRequestReference('gh pr checkout 12')).toBe('12');
     expect(parsePullRequestReference('https://github.com/a/b/pull/1')).toBe('https://github.com/a/b/pull/1');
     expect(parsePullRequestReference('feature/x')).toBeNull();
+  });
+  // gitlab and bitbucket definition.test.ts, pullRequestLinkInput.test.ts at 2359643cff.
+  test('self-hosted GitLab merge request URLs, http included, and only those it can parse', () => {
+    for (const url of ['https://code.example.com/group/project/-/merge_requests/42', 'http://git.internal/group/sub/project/-/merge_requests/7',
+      'https://code.acme.test/a/b/c/-/merge_requests/7?tab=diffs', 'http://git.internal/a/b/c/-/merge_requests/7#note_1', 'https://code.acme.test/a/b/c/-/merge_requests/7/diffs']) {
+      expect(parsePullRequestReference(url)).toBe(url);
+    }
+    for (const url of ['https://gitlab.com/g/p?x=/-/merge_requests/5', 'https://gitlab.com/g/p#/-/merge_requests/5', 'https://gitlab.com?x=/g/p/-/merge_requests/5',
+      'https://gitlab.com#/g/p/-/merge_requests/5', 'https://gitlab.com/t3code/-/merge_requests/12', 'https://gitlab.com/g//-/merge_requests/5']) {
+      expect(parsePullRequestReference(url)).toBeNull();
+    }
+  });
+  test('Bitbucket pull request URLs on Bitbucket hosts', () => {
+    for (const url of ['https://bitbucket.org/workspace/repo/pull-requests/5/diff', 'https://git.bitbucket.acme.test/workspace/repo/pull-requests/5']) {
+      expect(parsePullRequestReference(url)).toBe(url);
+    }
+    for (const url of ['https://scm.example.test/workspace/repo/pull-requests/5', 'https://bitbucket.org/workspace/repo/src/main']) {
+      expect(parsePullRequestReference(url)).toBeNull();
+    }
   });
   test('resolution against the thread project and the environment host', () => {
     expect(resolveLinkInput('#42', [github], 'p1', 'multiple')).toEqual({ link: { host: 'github.com', repository: 'acme/widgets', number: 42, url: 'https://github.com/acme/widgets/pull/42' } });

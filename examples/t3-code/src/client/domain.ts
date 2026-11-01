@@ -19,15 +19,17 @@ export interface ThreadState {
 export interface Activity { replArguments?: ReturnType<typeof import('../timeline/tool-activity').replArguments>; terminal?: boolean; terminalTruncated?: boolean; terminalSpans?: ReturnType<typeof import('../timeline/command-output').commandSpans>; toolImages?: Pick<import('../timeline/tool-images').ToolImage, 'id' | 'name' | 'source'>[]; id: string; label: string; body: string; icon: string; output: string; result: string; failed: boolean; timestamp: string;
   detailOpen?: boolean; outputState?: string; iconLight?: string; iconDark?: string; badge?: string; badgeColor?: string; tone?: string; ok?: boolean; reasoning?: boolean; expandable?: boolean; detail?: string; status?: string; targetId?: string; answer?: string; retryRunId?: string;
   /** V2ItemInspector's search results and file change, a subagent's avatar and live start. */
-  results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number; diffRunId?: string; diffPath?: string;
+  results?: import('../timeline/timeline-work-rows').InspectorResult[]; changePath?: string; stats?: boolean; additions?: number; deletions?: number;
   startedMs?: number; initials?: string; driverIcon?: string; targetLabel?: string; modelLine?: string; effort?: string; speed?: string; speedLabel?: string;
   /** A thread read's label in parts: `<linkPrefix> “<linkTitle>”`, the title opening linkThreadId. */
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
-export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; approval?: import('../timeline/timeline-approvals').TimelineApprovalView[]; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
+export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; approval?: import('../timeline/timeline-approvals').TimelineApprovalView[]; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; filesTotal?: CheckpointFileTotals; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; elapsed?: string; detail?: string; status?: string; groupId?: string; continues?: boolean;
-  revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
+  revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number;
   /** A folded automation or agent message's one line. */
   summary?: string;
+  /** A sent message's shape (timeline-attachments.ts userMessageShape), and whether Copy has anything to take. */
+  shape?: string; mediaAbove?: boolean; mediaLayout?: string; copyable?: boolean;
   /** An answer's text as the provider wrote it, before its thread links take their titles: the minimap's preview. */
   rawText?: string;
   /** A queued automation or agent message's fold heading: "Automation", or the sending thread's title. */
@@ -60,6 +62,33 @@ export function num(value: unknown, fallback = 0): number {
 }
 export function arr(value: unknown): Obj[] {
   return Array.isArray(value) ? value.filter(isObject) : [];
+}
+
+/** isListedThreadLineage (contracts orchestrationV2.ts): subagents and side chats live inside their parent's view, never in thread lists. */
+export function isListedThreadLineage(lineage: unknown): boolean {
+  const value = obj(lineage);
+  return value.relationshipToParent !== "subagent" && value.sideChat !== true;
+}
+
+/**
+ * A project group's organization (projectGrouping.ts buildProjectGroups): clients write every member together, so it is
+ * pinned when any member is, and archived only when every member is, which keeps a group whose members disagree visible.
+ */
+export function projectGroupOrganization(members: readonly Record<string, unknown>[]): { pinned: boolean; archived: boolean } {
+  return { pinned: members.some(member => member.pinnedAt != null), archived: members.length > 0 && members.every(member => member.archivedAt != null) };
+}
+/** pickableProjectGroups (projectGrouping.ts): the groups a project picker offers, archived groups left out, pinned ones first. */
+export function pickableProjectGroups<T extends { pinned: boolean; archived: boolean }>(groups: readonly T[]): T[] {
+  const open = groups.filter(group => !group.archived);
+  return [...open.filter(group => group.pinned), ...open.filter(group => !group.pinned)];
+}
+
+/** OrchestrationV2CheckpointFileTotals: sent only when a checkpoint's `files` is a prefix; the totals cover the full list. */
+export interface CheckpointFileTotals { count: number; additions: number; deletions: number }
+export function checkpointFileTotals(value: unknown): CheckpointFileTotals | null {
+  if (!isObject(value)) return null;
+  const count = num(value.count, -1), additions = num(value.additions, -1), deletions = num(value.deletions, -1);
+  return [count, additions, deletions].every(total => Number.isInteger(total) && total >= 0) ? { count, additions, deletions } : null;
 }
 
 function invalid(path: string): never { throw new Error(`Invalid T3 data: ${path}`); }
@@ -173,6 +202,8 @@ function validateTurnItem(value: unknown, path: string): Obj {
   if (type === "command_execution") string(item.input, `${path}.input`, true);
   if (type === "file_change") string(item.fileName, `${path}.fileName`);
   if (["run_interrupt_request", "run_interrupt_result", "system_notice"].includes(type)) string(item.message, `${path}.message`, true);
+  // Set when the provider did not confirm a Stop in time; clients then offer Force stop.
+  if (type === "run_interrupt_request") optionalFields(item, ["unresponsiveAt"], "string", path);
   if (type === "error") string(object(item.failure, `${path}.failure`).message, `${path}.failure.message`);
   if (type === "notification") string(item.summary, `${path}.summary`);
   optionalFields(item, ["title", "prompt", "summary", "progress", "result", "toolName", "diffStr"], "string", path);
@@ -524,8 +555,11 @@ function present(row: Obj): Message {
     case "user_input_request": kind = "request"; title = "Input requested"; body = arr(item.questions).map(question => str(question.question)).join("\n\n"); break;
     case "fork": kind = "fork"; title = "Conversation fork"; body = "Forked from conversation"; break;
     case "notification": title = "Notification"; body = [str(item.summary), str(item.detail)].filter(Boolean).join("\n\n"); break;
-    case "checkpoint": return { id, kind: "checkpoint", title: "Changes", body: "", checkpointId: str(item.checkpointId),
-      files: arr(item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
+    case "checkpoint": {
+      const filesTotal = checkpointFileTotals(item.filesTotal);
+      return { id, kind: "checkpoint", title: "Changes", body: "", checkpointId: str(item.checkpointId),
+        files: arr(item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })), ...(filesTotal ? { filesTotal } : {}) };
+    }
     default: body = str(item.message) || str(item.summary);
   }
   return { id, kind, title, body, runId: str(item.runId), sourceThreadId: str(row.sourceThreadId) };

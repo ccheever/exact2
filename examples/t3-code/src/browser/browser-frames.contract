@@ -14,6 +14,7 @@ use BrowserFrames from "./browser-shapes.contract"
 use BrowserMini from "./browser-shapes.contract"
 use ChatCanvasMini from "../shell/chat-canvas.contract"
 use BrowserMiniPlayer from "./browser-capture.contract"
+use ServerBrowserPip from "./server-browser.contract"
 
 // ZoomIndicator: in 200 ms, held to 1.5 s, out in 200 ms.
 keyframes bfZoomPill
@@ -65,9 +66,11 @@ component BrowserFrame
   derive layoutW = fixed ? f.pageWidth * f.zoom : width
   derive layoutH = fixed ? f.pageHeight * f.zoom : height
   view
+    // A tab neither shown nor held takes no room either: its box, empty and transparent, would still be hit, and over
+    // the window it would take every press, hover and double-click meant for the page under it.
     box position="absolute" left=left top=top width=width height=height opacity=(behind ? 0 : 1) pointer-events=(behind ? "none" : "auto") display=(shown or behind ? "block" : "none")
       box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=radius overflow=(radius > 0 ? "hidden" : "visible")
-        iframe id=f.frameId src=f.src partition=f.partition zoom=f.zoom color-scheme=(f.colorScheme == "dark" ? "dark" : f.colorScheme == "light" ? "light" : scheme == "dark" ? "dark" : "light") hatch="t3-browser-page" data-browser-frame=f.frameId data-browser-environment=f.environment data-browser-profile=f.profile navigate=record("navigate") currententrychange=record("currententrychange") navigatesuccess=record("navigatesuccess") navigateerror=record("navigateerror") newwindow=opened download=downloaded userpromptopened=prompted aria-label=label testId=testId position="absolute" left=0 top=0 width=layoutW height=layoutH scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0" border-width=0
+        iframe id=f.frameId src=f.src partition=f.partition zoom=f.zoom color-scheme=(f.colorScheme == "dark" ? "dark" : f.colorScheme == "light" ? "light" : scheme == "dark" ? "dark" : "light") hatch="t3-browser-page" data-browser-frame=f.frameId data-browser-environment=f.environment data-browser-profile=f.profile navigate=record("navigate") currententrychange=record("currententrychange") navigatesuccess=record("navigatesuccess") navigateerror=record("navigateerror") newwindow=opened download=downloaded userpromptopened=prompted aria-label=label testId=testId position="absolute" left=0 top=0 width=layoutW height=layoutH scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0" border-width=0 display=(shown or behind ? "block" : "none")
       if shown and f.promptType != ""
         column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" padding-top="1rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" background-color="light-dark(#0000001f, #00000052)" testId="browser-page-dialog-backdrop"
           column role="alertdialog" aria-label=f.promptTitle width="100%" max-width="26rem" padding="1.25rem" gap="0.75rem" box-sizing="border-box" border-radius="0.75rem" background-color="light-dark(#ffffff, #262626)" box-shadow="0 20px 40px -12px #00000066" testId="browser-page-dialog"
@@ -117,6 +120,9 @@ component BrowserFrameLayer
       BrowserFrame(f=f, left=(f.place == "mini" ? miniFrame.originX + miniFrame.x : slotWidth > 0 ? slotLeft : 0), top=(f.place == "mini" ? miniFrame.originY + miniFrame.top : slotTop), width=(f.place == "mini" ? miniFrame.width : f.place == "" ? f.heldWidth : slotWidth), height=(f.place == "mini" ? miniFrame.height : f.place == "" ? f.heldHeight : slotHeight), shown=(f.place == "mini" ? miniShown : f.place == "panel" and slotWidth > 0 and not covered), behind=(f.place == "" and f.held), radius=(f.place == "mini" ? miniFrame.radius : 0), label="Browser page", testId=(f.place == "panel" ? "browser-page" : f.place == "mini" ? "browser-mini-page" : f.frameId), local=local)
         if f.place == "mini" and miniShown
           BrowserMiniPlayer(mini=mini, frame=miniFrame, canvasWidth=canvasWidth, local=local, gesture=gesture, outside=outside, framed=true)
+    // A server tab's picture-in-picture window: the hidden image its stream paints (server-browser.contract).
+    if frames.pip.show
+      ServerBrowserPip(pip=frames.pip, local=local)
     for n in frames.namers key=n.frameId
       iframe id=n.frameId src=n.src partition=n.partition load=named(n.frameId) aria-hidden=true tabindex=-1 position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" border-width=0
     if panelShown and note != ""

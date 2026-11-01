@@ -9,6 +9,6 @@ for tests in [LocalBackendManagerTests.defaultTestSuite, LocalShellEnvironmentTe
               LocalProcessTests.defaultTestSuite, LocalAuthTests.defaultTestSuite, LocalSwitchTests.defaultTestSuite,
               LocalNetworkTests.defaultTestSuite, LocalDesktopSettingsTests.defaultTestSuite, LocalCliCommandTests.defaultTestSuite] { suite.addTest(tests) }
 suite.run()
-guard let run = suite.testRun, run.executionCount == 103 else { print("T3 local backend: \(suite.testRun?.executionCount ?? 0) tests ran, expected 103"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 106 else { print("T3 local backend: \(suite.testRun?.executionCount ?? 0) tests ran, expected 106"); exit(1) }
 print("T3 local backend: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)

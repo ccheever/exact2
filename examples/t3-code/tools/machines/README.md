@@ -36,8 +36,9 @@ rows are `run-on-<environment id>`.
 
 `bun machines.mjs up --older` also puts the older-server stand-in (`older-server.mjs`) in front of
 `third`, on its port + 40 (16551), and the drive pairs `third` through it. Everything passes
-through except the environment descriptor's version, which reads `0.0.46-nightly.20261001.1`
-(older than the client's `CLIENT_VERSION`, `version-skew.ts`) with the capabilities of a server
+through except the environment descriptor's version, which reads `0.1.5`
+(older than the client's `CLIENT_VERSION`, `version-skew.ts`, and on its channel: the update dialog skips a server on
+another channel) with the capabilities of a server
 under T3's service launcher (`serverSelfUpdate: "boot-service"`, with progress), and the update
 request, which the stand-in answers itself as the reference streams it: "downloading" (6 s),
 "installing" (3 s), "complete". The descriptor then keeps the old version for 10 s, the
@@ -48,7 +49,9 @@ So the clone offers the update and shows its busy states: Settings › Connectio
 Load balancing on and a new thread on `shared-notes` that is balanced across both machines, the
 composer's Auto balance banner "Update available for 1 machine", whose title opens the machines
 popover (`notice-machines-<id>`) with its Update; while it runs the rows read "Downloading…" and
-then "Restarting…". The stand-in updates once: `down` and `up --older` again for another run. Its
+then "Restarting…". The stand-in updates once: `down` and `up --older` again for another run. `bun machines.mjs older <name> [--version V]
+[--port N]` puts it in front of an environment already running (such as one `env.mjs start --runtime` started), on
+`--port` when the server's port + 40 is outside the lane's range. Its
 log is `envs/third/older-server.log`. A normal launch paired through it saves its token under the
 stand-in's origin; `env.mjs forget third` removes that one too while the stand-in runs.
 

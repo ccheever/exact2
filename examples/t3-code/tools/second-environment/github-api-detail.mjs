@@ -1,6 +1,7 @@
 // The detail panel's reads and writes for the GitHub API stand-in (github-api-standin.mjs): the pull request's
 // core detail with its checks, its activity and review threads, the files viewed, the node ids a write first
-// resolves, Comment, Close and Reopen, and the patch (GET pulls/<n> as application/vnd.github.diff). The shapes are
+// resolves, Comment, Close and Reopen, Viewed and Allow edits by maintainers, and the patch (GET pulls/<n> as
+// application/vnd.github.diff). The shapes are
 // the selections of the pinned server's queries (reference packages/source-control-github/src/server/
 // pullRequestReads.graphql, pullRequestReviews.graphql, pullRequestMutations.graphql; extra fields an older
 // runtime does not ask for are harmless). A comment and a close change
@@ -12,9 +13,14 @@ const url = `https://github.com/${pr.owner}/${pr.name}/pull/${pr.number}`;
 const ours = (v) => v.owner === pr.owner && v.name === pr.name && Number(v.number) === pr.number;
 const actor = (login, name = null) => ({ __typename: "User", login, avatarUrl: "https://avatars.githubusercontent.com/u/1", name, id: `U_${login}` });
 
-/** What the session's writes changed: the comments posted, the review comments submitted, and whether the pull request is closed. */
-const live = { comments: [], reviewThreads: [], closedAt: null };
-export const resetDetail = () => { live.comments = []; live.reviewThreads = []; live.closedAt = null; };
+/**
+ * What the session's writes changed: the comments posted, the review comments submitted, whether the pull request is
+ * closed, the files marked viewed and whether maintainers may edit the head branch.
+ */
+const live = { comments: [], reviewThreads: [], closedAt: null, viewed: new Set(), maintainerCanModify: true };
+export const resetDetail = () => { Object.assign(live, { comments: [], reviewThreads: [], closedAt: null, viewed: new Set(), maintainerCanModify: true }); };
+/** The changed files with their line counts, in the patch's order. */
+const FILES = [["README.md", 3, 1], ["notes/plan.md", 120, 0], ["notes/outline.ts", 80, 0]];
 
 /**
  * Checks of every kind the checks popover draws: passed and skipped (each with its run), running and failed, and a
@@ -39,12 +45,17 @@ export const DETAIL_PATCH = [
 ].join("\n");
 const state = () => (live.closedAt ? "CLOSED" : "OPEN");
 const commit = { oid: "a".repeat(40), messageHeadline: "Move the notes into notes/", committedDate: "2026-10-02T08:30:00Z" };
+/** The commit's node id, which the activity names and PullRequestCommitStats looks up. */
+const COMMIT_ID = "C_1";
 
 const core = (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true, viewerPermission: "WRITE", pullRequest: {
   number: pr.number, title: pr.title, url, body: pr.body, state: state(), isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: null, additions: 203, deletions: 1, changedFiles: 3,
   createdAt: pr.createdAt, updatedAt: live.closedAt ?? pr.updatedAt, mergedAt: null, closedAt: live.closedAt, headRefName: pr.headRefName, baseRefName: pr.baseRefName, headRefOid: commit.oid,
-  isCrossRepository: false, headRepositoryOwner: { __typename: "User", login: pr.owner }, headRepository: { nameWithOwner: `${pr.owner}/${pr.name}`, viewerPermission: "WRITE" }, headRef: { id: "REF_1" },
-  author: actor(pr.author, "Lane Fixture"), autoMergeRequest: null, viewerCanUpdate: true, viewerDidAuthor: false, viewerCanUpdateBranch: false, baseRef: { compare: { behindBy: 0 } },
+  // The viewer's own pull request from a fork it owns, so GitHub lets it allow edits by maintainers (v0.1.5
+  // gitHubPullRequestJson.ts toPullRequestCore canEditMaintainerEdits).
+  isCrossRepository: true, maintainerCanModify: live.maintainerCanModify, headRepositoryOwner: { __typename: "User", login: pr.author },
+  headRepository: { nameWithOwner: `${pr.author}/${pr.name}`, viewerPermission: "ADMIN" }, headRef: { id: "REF_1" },
+  author: actor(pr.author, "Lane Fixture"), autoMergeRequest: null, viewerCanUpdate: true, viewerDidAuthor: true, viewerCanUpdateBranch: false, baseRef: { compare: { behindBy: 0 } },
   reviewRequests: { nodes: [] }, labels: { nodes: [] },
   commits: { nodes: [{ commit: { statusCheckRollup: { contexts: { nodes: contexts(), pageInfo: { hasNextPage: false, endCursor: null } } } } }] } } } : null });
 
@@ -56,7 +67,8 @@ const activity = (v) => {
     ...live.comments,
   ];
   return { repository: { pullRequest: {
-    ...(v.head ? { author: actor(pr.author, "Lane Fixture"), commits: { nodes: [{ commit: { ...commit, authors: { nodes: [{ name: "Lane Fixture", email: "lane@example.test", user: { login: pr.author } }] } } }] } } : {}),
+    ...(v.head ? { author: actor(pr.author, "Lane Fixture"), commits: { nodes: [{ commit: { ...commit, id: COMMIT_ID, parents: { totalCount: 1 },
+      authors: { nodes: [{ name: "Lane Fixture", email: "lane@example.test", user: { login: pr.author } }] } } }] } } : {}),
     ...(v.withComments ? { comments: page(comments) } : {}),
     ...(v.withReviews ? { reviews: page([{ id: "PRR_1", body: "One question on the README.", state: "COMMENTED", submittedAt: "2026-10-02T10:00:00Z", lastEditedAt: null, url: `${url}#pullrequestreview-1`, author: actor("lane-reviewer", "Lane Reviewer") }]) } : {}),
   } } };
@@ -83,13 +95,14 @@ export const DETAIL_OPERATIONS = {
   PullRequestActivity: activity,
   ReviewThreads: reviewThreads,
   ReviewDismissals: (v) => ({ repository: ours(v) ? { pullRequest: { timelineItems: page([]) } } : null }),
-  ViewerPermissions: (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true, viewerPermission: "WRITE", pullRequest: { viewerCanUpdate: true, viewerDidAuthor: false, headRepository: { viewerPermission: "WRITE" } } } : null }),
-  PullRequestFilesViewed: (v) => ({ repository: ours(v) ? { pullRequest: { files: page(["README.md", "notes/plan.md", "notes/outline.ts"].map((path) => ({ path, viewerViewedState: "UNVIEWED" }))) } } : null }),
+  ViewerPermissions: (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true, viewerPermission: "WRITE", pullRequest: { viewerCanUpdate: true, viewerDidAuthor: true, headRepository: { viewerPermission: "ADMIN" } } } : null }),
+  PullRequestFilesViewed: (v) => ({ repository: ours(v) ? { pullRequest: { files: page(FILES.map(([path]) => ({ path, viewerViewedState: live.viewed.has(path) ? "VIEWED" : "UNVIEWED" }))) } } : null }),
+  PullRequestCommitStats: (v) => ({ nodes: (v.ids ?? []).map((id) => (id === COMMIT_ID ? { oid: commit.oid, additions: 203, deletions: 1 } : null)) }),
   PullRequestNodeId: (v) => ({ repository: ours(v) ? { pullRequest: { id: "PR_7" } } : null }),
   PullRequestSubject: (v) => ({ repository: ours(v) ? { pullRequest: { id: "PR_7" } } : null, node: v.subjectId === "PR_7" ? { __typename: "PullRequest", id: "PR_7" } : null }),
   ActorAvatars: () => ({ nodes: [] }),
   RoutingIdentityViewer: () => ({ viewer: { databaseId: 1, login: pr.author } }),
-  PullRequestFileStats: (v) => ({ repository: ours(v) ? { pullRequest: { files: page([["README.md", 3, 1], ["notes/plan.md", 120, 0], ["notes/outline.ts", 80, 0]].map(([path, additions, deletions]) => ({ path, additions, deletions }))) } } : null }),
+  PullRequestFileStats: (v) => ({ repository: ours(v) ? { pullRequest: { files: page(FILES.map(([path, additions, deletions]) => ({ path, additions, deletions }))) } } : null }),
   AddComment: (v) => {
     if (v.subjectId !== "PR_7") return null;
     const n = live.comments.length + 2;
@@ -98,7 +111,30 @@ export const DETAIL_OPERATIONS = {
   },
   ClosePullRequest: (v) => { if (v.pullRequestId !== "PR_7") return null; live.closedAt = new Date().toISOString(); return { closePullRequest: { clientMutationId: null } }; },
   ReopenPullRequest: (v) => { if (v.pullRequestId !== "PR_7") return null; live.closedAt = null; return { reopenPullRequest: { clientMutationId: null } }; },
+  // Edit title, description and Allow edits by maintainers; only the last is kept.
+  UpdatePullRequest: (v) => {
+    if (v.pullRequestId !== "PR_7") return null;
+    if (typeof v.maintainerCanModify === "boolean") live.maintainerCanModify = v.maintainerCanModify;
+    return { updatePullRequest: { pullRequest: { id: "PR_7" } } };
+  },
 };
+
+/**
+ * SetFileViewed, which the server sends once per file under the alias `_<n>_` with its variables prefixed alike
+ * (`GraphQLResolver.aliased`): markFileAsViewed or unmarkFileAsViewed by `$viewed`. Answers every alias and keeps
+ * what each marked; null when a file is not the pull request's.
+ */
+export function setFilesViewed(query, variables) {
+  const prefixes = [...new Set([...query.matchAll(/\$(_\d+_)?pullRequestId\b/g)].map((match) => match[1] ?? ""))];
+  const data = {};
+  for (const prefix of prefixes) {
+    const pick = (key) => variables[`${prefix}${key}`];
+    if (pick("pullRequestId") !== "PR_7" || !FILES.some(([path]) => path === pick("path"))) return null;
+    if (pick("viewed")) live.viewed.add(pick("path")); else live.viewed.delete(pick("path"));
+    data[`${prefix}${pick("viewed") ? "markFileAsViewed" : "unmarkFileAsViewed"}`] = { clientMutationId: null };
+  }
+  return prefixes.length ? data : null;
+}
 
 /**
  * POST repos/<owner>/<name>/pulls/<n>/reviews (the server's submitReview): each inline comment becomes a thread on its

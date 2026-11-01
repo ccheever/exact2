@@ -34,7 +34,7 @@ import { insertContext } from '../composer/composer-editor';
 import { composerNow } from '../composer/composer-controls';
 import { terminalLinkAction } from './terminal-integrations';
 import { subscriptionSerial } from '../details/shell-vcs';
-import { setCloseThreadTerminals } from './thread-terminal-cleanup';
+import { setCloseThreadTerminals } from '../sidebar/worktree-cleanup';
 import { commandShortcut } from '../shell/shell';
 import { uuid } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 import { terminalCloseConfirmMessage } from './terminal-close';
@@ -183,6 +183,9 @@ export function terminalCommandAction(client: T3Client, message: Obj): { op: str
   const prefix = surface === 'drawer' ? 'terminallocal' : 'terminalpanellocal', id = `${scopedThreadKey(ref)}|${terminalId}`;
   switch (message.command) {
     case 'terminal.toggle': return { op: 'terminallocal:toggle', id };
+    // F6 and ⇧F6 leave the page: the window moves the focus on from this terminal's area (shell-members workspaceMove).
+    case 'workspace.focusNext': case 'workspace.focusPrevious':
+      return { op: 'terminallocal:workspace-focus', id: `${message.command === 'workspace.focusNext' ? 'next' : 'previous'}:${surface === 'drawer' ? 'terminal' : 'panel'}` };
     case 'terminal.new': return { op: `${prefix}:new`, id };
     case 'terminal.split': return { op: `${prefix}:split`, id };
     case 'terminal.splitVertical': return { op: `${prefix}:split-vertical`, id };
@@ -411,6 +414,7 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
   const action = op.slice('terminallocal:'.length);
   if (['new', 'split', 'split-vertical', 'close', 'run-script', 'run-command'].includes(action)) requirePermission(this.scopes, 'terminal:operate');
   if (action === 'posted') { terminalFramePosted(this, id, value); return true; }
+  if (action === 'workspace-focus') { out.message = `terminal:workspace-focus:${id}`; return true; }
   if (action === 'menu') { await terminalMenuPick(this, native, id, value); return true; }
   if (action === 'message' || action === 'ticket') {
     const message = obj(safeJson(value));

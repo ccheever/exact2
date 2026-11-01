@@ -7,7 +7,7 @@
 import { changeCliCommand } from './cli-command';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { pushToast } from '../shell/toast';
-import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
+import { arr, num, obj, projectGroupOrganization, str, type Json, type Obj } from '../client/domain';
 import { ClientError, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
@@ -21,7 +21,7 @@ import { advancedBackgroundValue, baseProfile, profileOption } from './settings-
 import { seedDiffState } from '../appearance/settings-appearance-look';
 import { themeEditorCommand } from '../appearance/settings-appearance-editor';
 import { themeImportCommand } from '../appearance/settings-appearance-import';
-import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
+import { aboutRows, copyVersion, updateCommand, updateTrackCommand } from './settings-a-about';
 import { removeThemes, useCollectionDefaults } from '../appearance/settings-a-collections';
 import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
@@ -38,6 +38,7 @@ import { IDLE_COMPACTION_MODES, globalIdleCompaction, persistScopedSettingsPatch
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
+import { threadDetailsItemsLocal } from '../details/thread-details-items';
 import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '../browser/browser-url';
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
@@ -73,16 +74,16 @@ export function coreRow(id: string, title: string, description: string, kind: st
 export const CLIENT_DEFAULTS = {
   notificationMode: 'off', inAppNotificationsEnabled: false, diffColorScheme: 'red-green', chatWidth: 'comfortable',
   appearanceContrast: 100, panelAnimationDurationMs: 0, confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false,
-  diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', environmentIdentificationMode: 'artwork', glassOpacity: 80,
+  diffFilesCollapsed: true, diffIgnoreWhitespace: true, diffLayout: 'stacked', glassOpacity: 80,
   fontSizeInterface: 16, fontSizePrompt: 14, fontSizeCode: 13, fontSizeTerminal: 12, fontFamilyCode: '', fontFamilyComposer: '', fontFamilySans: '',
   fontFamilyTerminal: '', fontSmoothing: true, persistComposerContextStrip: false, contextWindowMeterEnabled: false, composerRichTextEnabled: true,
-  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: true,
+  followUpBehavior: 'steer', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, sidebarWorkingShelfEnabled: true,
   // How the composer shows reasoning effort: its word, or bars (contracts settings.ts EffortDisplay, default label).
   effortDisplay: 'label',
   wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
   sidebarProjectSortOrder: 'updated_at',
-  // The legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
-  sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
+  // The thread order a delete falls back along (contracts settings.ts SidebarThreadSortOrder).
+  sidebarThreadSortOrder: 'updated_at',
   // The browser's recording and floating-preview defaults (contracts settings.ts names and defaults:
   // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
   // Browser draws their rows and writes them.
@@ -100,14 +101,14 @@ export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (type
 const CHOICES: Record<string, readonly string[]> = {
   browserLinkTarget: ['system', 'app'], browserSearchEngine: BROWSER_SEARCH_ENGINES,
   notificationMode: ['off', 'notifications', 'sound', 'notifications-and-sound'], diffColorScheme: ['red-green', 'blue-orange'],
-  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'], environmentIdentificationMode: ['artwork', 'pill', 'none'],
+  chatWidth: ['comfortable', 'wide', 'full'], effortDisplay: ['label', 'bars'], diffLayout: ['stacked', 'split'],
   followUpBehavior: ['queue', 'steer'], confirmQuit: ['direct', 'hold', 'double-click'], sidebarProjectSortOrder: ['updated_at', 'created_at', 'manual'],
   sidebarThreadSortOrder: ['updated_at', 'created_at'],
 };
 const BOUNDS: Record<string, [number, number, number]> = {
   appearanceContrast: [50, 200, 5], glassOpacity: [40, 100, 5], panelAnimationDurationMs: [0, 400, 25],
   fontSizeInterface: [12, 20, 1], fontSizePrompt: [12, 20, 1], fontSizeCode: [10, 18, 1], fontSizeTerminal: [8, 20, 1],
-  sidebarThreadPreviewCount: [1, 15, 1], browserRecordingFrameRate: [30, 60, 30],
+  browserRecordingFrameRate: [30, 60, 30],
 };
 const FONT_FAMILY = /^[^"\\;{}<>]{0,120}$/;
 const FONT_SIZE_KEYS: Record<string, string> = { fontFamilySans: 'fontSizeInterface', fontFamilyComposer: 'fontSizePrompt', fontFamilyCode: 'fontSizeCode', fontFamilyTerminal: 'fontSizeTerminal' };
@@ -179,9 +180,9 @@ export function changedDeviceLabels(local: LocalPrefs): string[] {
   return labels;
 }
 /** What useSettingsRestore leaves alone (SettingsPanels.tsx restoreDefaults: its one updateSettings patch and useTheme's keys):
- *  Font smoothing, Sidebar (legacy), the legacy thread sort, Plan mode (legacy), and typography's Advanced switch, which the
- *  reference keeps in its own local storage key (TypographySection), outside the settings. */
-export const KEPT_ON_RESTORE = ['fontSmoothing', 'legacySidebarEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
+ *  Font smoothing, the thread sort, Plan mode (legacy), and typography's Advanced switch, which the reference keeps in its
+ *  own local storage key (TypographySection), outside the settings. */
+export const KEPT_ON_RESTORE = ['fontSmoothing', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
 export function restoreDeviceDefaults(local: LocalPrefs): void {
   const prefs = local.clientSettings || decodeClientPrefs({}), planModeEnabled = local.deviceSettings.planModeEnabled;
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS, { planModeEnabled });
@@ -227,7 +228,8 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
     ...projects.map(({ group: candidate, machines }) => {
       const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
       const root = str(candidate.memberProjects[0]?.workspaceRoot);
-      const secondary = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      const location = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      const secondary = projectGroupOrganization(candidate.memberProjects).archived ? ['Archived', location].filter(Boolean).join(' · ') : location;
       return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(groupMarkName(candidate)), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
     })];
   const marks = group ? markOf(groupMarkName(group)) : { mark: '', ink: '', surface: '' };
@@ -324,10 +326,10 @@ function serverState(context: ServerContext, key: string) {
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const SUBMODULE_LABELS: Record<string, string> = { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' };
 const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Repository conventions', conventional_commits: 'Conventional Commits', custom: 'Custom instructions' };
+const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<string, string> = { balanced: 'Balanced', performance: 'Performance', 'battery-saver': 'Battery saver', custom: 'Advanced' };
 /**
  * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
- * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
- * style reads "Custom": Background activity's `{ profile }` has no label of its own there.
+ * Source Control's and Integrations' in source-control-view.ts).
  */
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
@@ -343,8 +345,12 @@ export function formatSettingValue(key: string, value: unknown): string {
   }
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
   const entry = obj(value);
+  if (key === 'backgroundActivity' && typeof entry.profile === 'string') return BACKGROUND_ACTIVITY_PROFILE_LABELS[entry.profile] ?? entry.profile;
   if (typeof entry.model === 'string') return entry.model;
-  if (typeof entry.mode === 'string') return WRITING_STYLE_LABELS[entry.mode] ?? entry.mode;
+  if (typeof entry.mode === 'string') {
+    if (key === 'worktreeCleanup') return entry.mode === 'off' ? 'Off' : 'Custom';
+    return key === 'sourceControlWritingStyle' ? WRITING_STYLE_LABELS[entry.mode] ?? entry.mode : entry.mode;
+  }
   return 'Custom';
 }
 /** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
@@ -596,7 +602,6 @@ export function generalSections(client: T3Client, context: ServerContext, route 
   const legacy = [
     deviceRow('planModeEnabled', 'legacy-plan-mode', 'Plan mode (legacy)', 'Restore Build/Plan, /plan, /default, and Shift+Tab. Off uses build mode.', 'switch', { resettable: false }),
     deviceRow('contextWindowMeterEnabled', 'legacy-context-window-indicator', 'Context window indicator (legacy)', 'Shows context window usage as a circular indicator in the composer.', 'switch', { resettable: false }),
-    deviceRow('legacySidebarEnabled', 'legacy-sidebar', 'Sidebar (legacy)', 'Restore per-project thread trees instead of the default flat sidebar.', 'switch', { resettable: false }),
   ];
   const rows = new Map([...newThreads, ...snoozeRows, ...organization, ...behavior, ...projects, ...confirmations, ...textGeneration, ...about, ...diagnostics, ...legacy].map(row => [row.id, row]));
   const pick = (id: string, title: string, ids: string[], advanced: string[] = []): CoreSection =>
@@ -617,7 +622,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
     worktrees: [pick('worktree-creation', 'Creation', ['start-from-origin'], ['worktree-submodules'])],
     maintenance: [pick('updates', 'Updates', ['provider-update-checks', 'continue-threads-after-server-update']), pick('background', 'Background activity', ['background-activity'])],
     about: [pick('about', 'App', about.map(row => row.id)), pick('legal', 'Legal', ['open-source-licenses'])],
-    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator', 'legacy-sidebar'])],
+    labs: [pick('legacy-features', 'Legacy', ['legacy-plan-mode', 'legacy-context-window-indicator'])],
   };
   return (route ? pages[route] ?? [] : Object.values(pages).flat()).filter(entry => entry.rows.length > 0 || (entry.advanced ?? []).length > 0);
 }
@@ -813,8 +818,8 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Glass opacity', 'device', ['glassOpacity']],
   ['Diff colors', 'device', ['diffColorScheme']], ['Chat width', 'device', ['chatWidth']], ['Effort display', 'device', ['effortDisplay']], ['Render math', 'device', ['mathRenderingEnabled']],
   ['Panel animations', 'device', ['panelAnimationDurationMs']],
-  ['Environment identification', 'device', ['environmentIdentificationMode']], ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
-  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Visible threads', 'device', ['sidebarThreadPreviewCount']], ['Project Grouping', 'device', ['projectGrouping']],
+  ['Time format', 'device', ['timestampFormat']], ['Thread notifications', 'device', ['notificationMode']],
+  ['In-app notifications', 'device', ['inAppNotificationsEnabled']], ['Project Grouping', 'device', ['projectGrouping']],
   ['Project order', 'device', ['sidebarProjectSortOrder']], ['Working section', 'device', ['sidebarWorkingShelfEnabled']],
   ['Auto-settle inactive threads', 'server', ['sidebarAutoSettleAfterDays']], ['Keep threads with a PR', 'server', ['sidebarAutoSettleKeepPullRequests']], ['Auto-settle merged threads', 'server', ['sidebarAutoSettleOnMerge']],
   ['Resume after usage limits', 'server', ['autoResumeLimitedThreads']], ['Snooze until limits reset', 'server', ['snoozeLimitedThreads']], ['Snooze options', 'server', ['snoozePresets']],
@@ -864,8 +869,11 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     if (target.row === 'theme-collection') useCollectionDefaults(local, value); else removeThemes(local, value.split(',').filter(Boolean));
     return '';
   }
+  if (target.row === 'version' && target.part === 'copy') return copyVersion(client, native);
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
   if (target.row === 'update-track') return updateTrackCommand(client, native, value);
+  // Appearance › Thread details: an item's `part` is its id and `value` "true" or "false"; reset clears every choice.
+  if (target.row === 'thread-details-items') return threadDetailsItemsLocal(client, target.part === 'reset' ? 'reset' : 'item', target.part, value);
   if (target.row !== 'restore-device-defaults' && !key) {
     // Device rows: saved in this app's preferences, never sent to a server.
     if (target.part === 'reset') {

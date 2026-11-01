@@ -131,3 +131,4 @@ component UpdateEverythingDialog
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=ink
           button id="update-everything-confirm-confirm" press=run("ue:confirm", "", "") key=fromConfirm disabled=busy testId="update-everything-update" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) data-focus-stop=(busy ? "" : "enabled")
             text "Update" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+

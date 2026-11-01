@@ -1,11 +1,12 @@
 import { DiffFind, markDiffRows, findGap } from './diff-find';
 // Changes panel state and projection, adapted from T3 Code (MIT); see LICENSE-T3.
-// Sources (74541bab17; the Hide test files toggle and the tool-call source at 6d450a4284): apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
+// Sources (74541bab17; the Hide test files toggle and the tool-call source at 6d450a4284; a commit's source at 2359643cff): apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
 // and the served @pierre/diffs rendering (stacked/split rows, bars). DiffPanel.tsx passes
 // `lineDiffType: "none"`, but the served panel still marks changed words with Pierre's default
 // "word-alt" (measured on the 9c161462c9 oracle), so a replaced line pair carries its marks.
 // The server owns every patch: turn diffs come from orchestration.getTurnDiff,
-// working-tree/branch diffs from review.getDiffPreview, and a tool call's change from the item
+// working-tree/branch/commit diffs from review.getDiffPreview (the commits from review.getBranchCommits, diff-commits.ts),
+// and a tool call's change from the item
 // orchestration.getTurnItem returns (tool-call-diff.ts). The tree (diff-tree.ts), large
 // diffs and hidden lines (diff-lazy.ts) and line comments (diff-comments.ts) are
 // projected here; their commands are diff-review.ts.
@@ -27,14 +28,17 @@ import { utilityPlacement, type LineDrag } from './diff-line-drag';
 import { hideTestFiles, setHideTestFiles, shownDiffFiles, testFileCount } from './hide-test-files';
 import { resolveToolCallDiffTarget, toolCallDiff, toolCallTarget, type ToolCallDiffTarget, type ToolCallPreview } from './tool-call-diff';
 import { renderablePatch } from '../pull-requests/pages-pr-code-logic';
+import { branchCommitsView, commitScopeLabels, emptyBranchCommits, type BranchCommits } from './diff-commits';
 
 /** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). `reveal`: a turn's
  * revealRequestId, which each open of a turn diff bumps so its named file is revealed again. */
-export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn' | 'tool-call'; runId: string; filePath: string; baseRef: string | null; reveal?: number;
+export type DiffSelection = { kind: 'unstaged' | 'branch' | 'commit' | 'turn' | 'tool-call'; runId: string; filePath: string; baseRef: string | null; reveal?: number;
+  /** One local commit of the branch comparison (diffPanelStore selectCommit); `baseRef` stays the comparison's. */
+  sha?: string;
   /** A tool call's change (diffPanelStore selectToolCall): the item, in its source thread, at the revision asked for. */
   toolCall?: ToolCallDiffTarget };
-/** isGitSelection: Changes or Uncommitted, the scopes a git source answers. */
-export const isGitSelection = (selection: DiffSelection): boolean => selection.kind === 'branch' || selection.kind === 'unstaged';
+/** isGitSelection: Changes, Uncommitted or a commit, the scopes a git source answers. */
+export const isGitSelection = (selection: DiffSelection): boolean => selection.kind === 'branch' || selection.kind === 'unstaged' || selection.kind === 'commit';
 /** View preferences mirror the reference defaults: stacked, wrapped, whitespace ignored, tree hidden, files collapsed. */
 export class DiffState {
   find = new DiffFind();
@@ -47,6 +51,8 @@ export class DiffState {
   /** Default diff file state (General → Behavior), seeded by settings-appearance-look.ts. */
   defaultExpanded = false;
   truncated = false;
+  /** DiffPanel hasResolvedPatch: the answer carried a patch string (empty when nothing changed), not none at all. */
+  patchResolved = false;
   scopeKey = '';
   /** The tree's closed folders by scope (trailing slash), and the file it shows selected. */
   treeCollapsed: Record<string, string[]> = {};
@@ -76,6 +82,8 @@ export class DiffState {
   baseRefs: BaseRefPicker = emptyBaseRefPicker();
   /** The tool call's recorded change shown (tool-call-diff.ts), null for another source. */
   toolCall: ToolCallPreview | null = null;
+  /** The Commits submenu's list (diff-commits.ts). */
+  commits: BranchCommits = emptyBranchCommits();
 }
 /** UI-only operations never touch the server and never mark a pending write uncertain. */
 export const DIFF_LOCAL_OPS = ['diff-view', 'diffreview', 'diffbase'];
@@ -123,12 +131,30 @@ export function selectTurn(client: T3Client, runId: string, filePath = ''): void
   if (!runId) throw new ClientError('That turn is no longer available.');
   selectTurnFile(client, runId, filePath);
 }
-/** selectGitScope: Changes takes back the thread's comparison target; leaving Changes keeps it for later. */
+/** diffPanelStore branchBaseRef: the comparison target Changes or a commit carries, else the one kept for the thread. */
+export function branchBaseRef(client: T3Client): string | null {
+  const key = threadKey(client), previous = client.diffState.selections[key];
+  return previous?.kind === 'branch' || previous?.kind === 'commit' ? previous.baseRef : client.diffState.branchBaseRefs[key] ?? null;
+}
+/** diffPanelStore selectCommit: one commit of the branch comparison, which keeps that comparison's target. */
+export function selectCommit(client: T3Client, sha: string): void {
+  const baseRef = branchBaseRef(client);
+  client.diffState.branchBaseRefs[threadKey(client)] = baseRef;
+  select(client, { kind: 'commit', runId: '', filePath: '', baseRef, sha });
+}
+/** selectGitScope: Changes takes back the thread's comparison target; leaving Changes keeps it for later. A commit's
+ *  value selects that commit, or goes back to Changes when it is the one shown (DiffPanel selectScopeValue). */
 export function selectScope(client: T3Client, value: string): void {
+  const key = threadKey(client), previous = client.diffState.selections[key];
+  if (value.startsWith('commit:')) {
+    const sha = value.slice(7);
+    if (!sha) throw new ClientError('That commit is no longer available.');
+    if (previous?.kind !== 'commit' || previous.sha !== sha) return selectCommit(client, sha);
+    value = 'branch';
+  }
   if (value === 'unstaged' || value === 'branch') {
-    const key = threadKey(client), previous = client.diffState.selections[key];
-    if (previous?.kind === 'branch') client.diffState.branchBaseRefs[key] = previous.baseRef;
-    const baseRef = previous?.kind === 'branch' ? previous.baseRef : client.diffState.branchBaseRefs[key] ?? null;
+    const baseRef = branchBaseRef(client);
+    if (previous?.kind === 'branch' || previous?.kind === 'commit') client.diffState.branchBaseRefs[key] = previous.baseRef;
     return select(client, { kind: value, runId: '', filePath: '', baseRef: value === 'branch' ? baseRef : null });
   }
   const turns = turnSummaries(client.projection);
@@ -148,7 +174,7 @@ export function selectToolCall(client: T3Client, rowId: string): void {
   if (!target) throw new ClientError('That file change is no longer available.');
   select(client, { kind: 'tool-call', runId: '', filePath: '', baseRef: null, toolCall: target });
 }
-function workspace(client: T3Client): string {
+export function workspace(client: T3Client): string {
   const thread = obj(client.projection.thread);
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   return str(thread.worktreePath) || str(obj(thread.workspace).path) || str(project?.workspaceRoot);
@@ -159,7 +185,7 @@ function workspace(client: T3Client): string {
  */
 function scopeKey(client: T3Client, selection: DiffSelection): string { return `${threadKey(client)}:${sectionId(selection)}`; }
 const sectionId = (selection: DiffSelection) => selection.kind === 'turn' ? `turn:${selection.runId}`
-  : selection.kind === 'tool-call' ? `tool-call:${selection.toolCall?.threadId}:${selection.toolCall?.itemId}` : selection.kind;
+  : selection.kind === 'tool-call' ? `tool-call:${selection.toolCall?.threadId}:${selection.toolCall?.itemId}` : selection.kind === 'commit' ? `commit:${selection.sha}` : selection.kind;
 /** The current selection has an answer (the query's data): a refresh then keeps it on show instead of the loading state. */
 export function diffAnswered(client: T3Client): boolean { return client.diffState.scopeKey === scopeKey(client, currentSelection(client)); }
 export const NOT_GIT_REPO = 'Turn diffs are unavailable because this project is not a git repository.';
@@ -188,8 +214,10 @@ export function diffRequest(client: T3Client): { method: string; payload: Obj; s
   }
   const cwd = workspace(client);
   if (!cwd) throw new ClientError('Choose a project with a workspace to inspect its changes.');
-  return { method: 'review.getDiffPreview', scope: scopeKey(client, selection), source: selection.kind === 'unstaged' ? 'working-tree' : 'branch-range',
-    payload: { cwd, ...(selection.kind === 'branch' && selection.baseRef ? { baseRef: selection.baseRef } : {}), ignoreWhitespace: state.ignoreWhitespace } };
+  const source = selection.kind === 'unstaged' ? 'working-tree' : selection.kind === 'commit' ? 'commit' : 'branch-range';
+  return { method: 'review.getDiffPreview', scope: scopeKey(client, selection), source,
+    payload: { cwd, ...(selection.kind !== 'unstaged' && selection.baseRef ? { baseRef: selection.baseRef } : {}), ...(selection.kind === 'commit' ? { commitSha: selection.sha } : {}),
+      ignoreWhitespace: state.ignoreWhitespace } };
 }
 /** Adopts the server's answer for the scope that asked for it. */
 export function adoptDiff(client: T3Client, request: { scope: string; source: string }, result: Obj): string {
@@ -198,18 +226,20 @@ export function adoptDiff(client: T3Client, request: { scope: string; source: st
   // Opened file contents are read again for a scope that shows later; only the shown scope's are kept.
   for (const key of Object.keys(state.contents)) if (!key.includes(`::${request.scope}::`)) delete state.contents[key];
   state.toolCall = null;
-  if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; return str(result.diff); }
+  if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; state.patchResolved = typeof result.diff === 'string'; return str(result.diff); }
   if (request.source === 'tool-call') {
     const item = obj(result.item);
     state.source = null; state.lazy = null;
     state.toolCall = item.type === 'file_change' ? toolCallDiff(item) : null;
     state.truncated = state.toolCall?.truncated === true;
+    state.patchResolved = typeof state.toolCall?.patch === 'string';
     if (!state.toolCall) throw new ClientError('That file change is no longer available.');
     return state.toolCall.patch ?? '';
   }
   const source = arr(result.sources).find(entry => entry.kind === request.source);
   state.truncated = source?.truncated === true;
-  state.source = diffSource(result, request.source as 'working-tree' | 'branch-range');
+  state.patchResolved = typeof source?.diff === 'string';
+  state.source = diffSource(result, request.source as DiffSource['kind']);
   // useReviewFilePatches: a truncated source that lists its files is read file by file (diff-review.ts loads them).
   state.lazy = lazyPatches(state.source, state.ignoreWhitespace, state.lazy);
   return str(source?.diff);
@@ -364,6 +394,7 @@ export function reviewLinesOf(state: DiffState, file: DiffFileModel): ReviewLine
 export function reviewSection(client: T3Client): { id: string; title: string } {
   const selection = currentSelection(client);
   if (selection.kind === 'tool-call') return { id: sectionId(selection), title: 'Tool call' };
+  if (selection.kind === 'commit') return { id: sectionId(selection), title: commitScopeLabels(client.diffState.source, selection.sha ?? '').section };
   if (selection.kind !== 'turn') return { id: selection.kind, title: selection.kind === 'unstaged' ? 'Uncommitted' : 'Changes' };
   const turn = turnSummaries(client.projection).find(entry => entry.runId === selection.runId);
   return { id: `turn:${selection.runId}`, title: `Turn ${turn?.count ?? '?'}` };
@@ -405,6 +436,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   const gitSource = isGitSelection(selection) && state.source !== null;
   const turn = turns.find(entry => entry.runId === selection.runId);
   const scopeLabel = selection.kind === 'tool-call' ? 'Tool call' : selection.kind === 'unstaged' ? 'Uncommitted' : selection.kind === 'branch' ? 'Changes'
+    : selection.kind === 'commit' ? commitScopeLabels(state.source, selection.sha ?? '').trigger
     : turn && turn.runId === turns[0]?.runId ? 'Latest turn' : `Turn ${turn?.count ?? '?'}`;
   const items: DiffItemView[] = [];
   let rows = 0;
@@ -524,7 +556,8 @@ export function diffSnapshot(client: T3Client, now: number) {
   return {
     diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
-    diffScopeLabel: scopeLabel, diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind === 'tool-call' ? '' : selection.kind,
+    diffScopeLabel: scopeLabel, diffScope: selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind === 'tool-call' ? '' : selection.kind === 'commit' ? `commit:${selection.sha}` : selection.kind,
+    diffCommits: branchCommitsView(client, now),
     diffTurns: turns.map(entry => ({ id: `turn:${entry.runId}`, label: `Turn ${entry.count}`, time: messageTime(entry.completedAt, now, client.local.deviceSettings.timestampFormat), selected: selection.kind === 'turn' && selection.runId === entry.runId })),
     diffLatestSelected: selection.kind === 'turn' && selection.runId === turns[0]?.runId,
     diffCanRefresh: isGitSelection(selection) && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
@@ -533,7 +566,8 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!pending && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
     // isLoadingSelectedPatch: loading with no answer for this selection yet; a refresh keeps the answer (or its empty state) on show.
     diffPending: pending,
-    diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
+    // DiffPanel hasNoNetChanges: a patch that resolved and is blank; no patch at all (a tool call that recorded none) is the other text.
+    diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffState.patchResolved && !client.diffText.trim() && !lazy ? 'No net changes in this selection.' : 'No patch available for this selection.',
     // A tool call: the files its record names that the patch leaves out, and the content recorded without a diff.
     diffToolCallNote: toolCall && toolCall.recordedFiles > files.length && files.length > 0
       ? `This tool call changed ${toolCall.recordedFiles} files. The recorded patch omits ${toolCall.recordedFiles - files.length} of them.` : '',
@@ -547,7 +581,7 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffTreeFolders: collectDirectoryPaths(entries.map(entry => entry.path)).length > 0, diffTreeAllOpen: allDirectoriesExpanded(entries.map(entry => entry.path), closed),
     diffItems: marked.items, diffFind: state.find.view(marked.target), diffCommentOpen: draft !== null,
     diffReveal: state.reveal, diffRevealTarget: selection.kind === 'turn' && selection.filePath ? `file:${selection.filePath}` : '',
-    diffLoadingLabel: selection.kind === 'tool-call' ? 'Loading tool call diff...' : selection.kind === 'turn' ? 'Loading checkpoint diff...' : selection.kind === 'unstaged' ? 'Loading uncommitted changes...' : 'Loading changes...',
+    diffLoadingLabel: selection.kind === 'tool-call' ? 'Loading tool call diff...' : selection.kind === 'turn' ? 'Loading checkpoint diff...' : selection.kind === 'unstaged' ? 'Loading uncommitted changes...' : selection.kind === 'commit' ? 'Loading commit...' : 'Loading changes...',
   };
 }
 /**

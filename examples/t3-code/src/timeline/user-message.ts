@@ -1,6 +1,7 @@
-// packages/client-runtime/src/userMessage.ts at T3 Code 74541bab17 (MIT; LICENSE-T3).
+// packages/client-runtime/src/userMessage.ts at T3 Code v0.1.6 (MIT; LICENSE-T3).
 import { str, type Obj } from '../client/domain';
 import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
+import { isAttachmentOnlyPrompt } from '../composer/attachment-only-prompt';
 
 const LEGACY_AUTOMATION_PREFIX = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const LEGACY_AUTOMATION_MESSAGE_ID = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
@@ -15,7 +16,8 @@ export function userMessagePresentation(item: Obj): { text: string; attribution:
   const legacyPrefix = LEGACY_AUTOMATION_PREFIX.exec(text);
   const legacyTaskId = legacyPrefix ? LEGACY_AUTOMATION_MESSAGE_ID.exec(str(item.messageId))?.[1] : undefined;
   if (legacyPrefix && (legacyTaskId !== undefined || item.createdBy === 'agent')) return { text: text.slice(legacyPrefix[0].length), attribution: 'automation', scheduledTaskId: legacyTaskId ?? '' };
-  return { text, attribution: item.createdBy !== 'agent' ? '' : item.creationSource === 'server' ? 't3code' : 'agent', scheduledTaskId: '' };
+  // The agent needs words to start a turn; people sent only the attachments.
+  return { text: isAttachmentOnlyPrompt(text) ? '' : text, attribution: item.createdBy !== 'agent' ? '' : item.creationSource === 'server' ? 't3code' : 'agent', scheduledTaskId: '' };
 }
 
 /** A context link's kind, where its href is `t3-context://v1/<kind>/<anything>` (replaceComposerContextReferences reads any). */

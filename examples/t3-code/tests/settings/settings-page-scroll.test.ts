@@ -5,10 +5,11 @@
 // offset 0; the search jump then scrolls its target into view (scrollToSettingsTarget).
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appText } from '../support/app-files';
 import { settingsNavigation } from '../../src/settings/settings-search';
+import { appText } from '../support/app-files';
 
-const source = (file: string) => appText(file);
+
+const source = async (file: string) => appText(file);
 const lines = (text: string, needle: string) => text.split('\n').filter(candidate => candidate.includes(needle));
 
 describe('a Settings page owns its scroller', () => {
@@ -160,7 +161,7 @@ describe('a Settings page owns its scroller', () => {
     expect(focused).toEqual(['settings-advanced-composer-reveal', 'settings-advanced-composer-reveal']);
     // Every write of the jump's target, its landing too, clears the pass it had reached: a new query, Settings opened
     // again, a page, a result picked by press or Return, a toast's or the palette's link to a row.
-    for (const file of ['root-settings.contract', 'root-panels.contract', 'root-palette.contract']) {
+    for (const file of ['settings-members.contract', 'shell-members.contract', 'palette-members.contract']) {
       const body = appText(file).split('\n');
       const writes = body.flatMap((line, at) => /^\s+settingsFocusTarget = /.test(line) ? [[line.trim(), body[at + 1]!.trim().startsWith('settingsJumpOpened = ""')]] : []);
       expect(writes.length).toBeGreaterThan(0);
@@ -278,7 +279,7 @@ describe('a Settings page owns its scroller', () => {
     expect(providers).toMatch(/column width="100%" gap="0\.625rem" id="providers" tabindex=-1\n(\s+\/\/[^\n]*\n)+\s+row [^\n]* id="providers-scroll-target"\n/);
     expect(appText('settings-kit.contract')).toMatch(/id=sectionId tabindex=-1 testId=sectionId\n\s+row [^\n]* id=`\$\{sectionId\}-scroll-target`\n/);
     expect(appText('settings-rows.contract').match(/id=`\$\{section\.id\}-scroll-target`/g)).toHaveLength(1); // no result names Legacy features itself
-    expect(appText('root-settings.contract')).toContain('let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target');
+    expect(appText('settings-members.contract')).toContain('let anchor = frame(`${target}-scroll-target`).height > 0 ? `${target}-scroll-target` : target');
   });
 
   test('a jump to a legacy row opens Legacy features first, by Return as by a press on the result', () => {

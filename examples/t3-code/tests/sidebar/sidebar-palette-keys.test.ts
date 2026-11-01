@@ -3,7 +3,6 @@
 // chords, the header's facts, the month). The keys as a person presses them, through the Contract handlers, are
 // sidebar-palette-keys.test.contract, which the agent runs against the app (`agent.mjs macos --test`); the few
 // source reads below only pin the wiring between the two, as dialog-focus.test.ts does.
-import { appText } from '../support/app-files';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -16,8 +15,10 @@ import { newThreadInItems, threadJumpChords } from '../../src/palette/palette';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { calendarMove, dateLabel, snoozeCalendar } from '../../src/sidebar/snooze-calendar';
+import { appText } from '../support/app-files';
 
-const source = (file: string) => appText(file);
+
+const source = async (file: string) => appText(file);
 const NOW = new Date(2026, 9, 9, 21, 37).getTime(); // Friday, October 9, 2026, local time
 beforeEach(() => setRuntimeClock(() => NOW));
 afterEach(() => setRuntimeClock(() => Number.NaN));
@@ -51,13 +52,13 @@ describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
   test('the chord settles with the row action’s undo step and opens the next card', async () => {
     const chord = fake([thread('a'), thread('b')], 'a');
     await chatCommand(chord.client, native, {} as Files, 'settle-advance', 'a');
-    expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar.undoText).toBe('Settled 1 thread,');
+    expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar.undoShort).toBe('Settled,');
     expect(chord.opened).toEqual(['b']);
     await sidebarCommand(chord.client, native, {} as Files, 'undo', '', '');
     expect(chord.dispatched.map(payload => `${payload.type}:${payload.threadId}`)).toEqual(['thread.settle:a', 'thread.unsettle:a']);
     const row = fake([thread('a'), thread('b')]);
     await sidebarCommand(row.client, native, {} as Files, 'settle', 'a', '');
-    expect(sidebarSnapshot(row.client, NOW, helpers).sidebar.undoText).toBe('Settled 1 thread,');
+    expect(sidebarSnapshot(row.client, NOW, helpers).sidebar.undoShort).toBe('Settled,');
   });
   test('⇧⌘S un-settles only an explicit settle (ChatView activeThreadSettled)', () => {
     const context = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
@@ -76,7 +77,7 @@ describe('⇧⌘S settles with the sidebar\'s undo notice', () => {
     const chord = fake([thread('a')], 'a');
     await chatCommand(chord.client, native, {} as Files, 'settle', 'a', '', NOW);
     // The window hides the notice once its own wall time passes undoUntil (app.contract).
-    expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoUntil: NOW + 5000 });
+    expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar).toMatchObject({ undoShort: 'Settled,', undoUntil: NOW + 5000 });
     const app = await source('app.contract');
     expect(app).toContain('send changed = command(op, id, value, (n == 0 and op.startsWith("chat:")) ? wallTime.epochAtZero + performanceNow() : n)');
     expect(await source('client-ops-lanes.ts')).toContain("chatCommand(this, native, storage, op.slice(5), id, value, n)");

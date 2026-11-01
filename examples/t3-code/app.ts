@@ -22,7 +22,7 @@ import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } f
 import { composerRichSource } from './src/composer/composer-rich-source';
 import { uploadSource } from './src/composer/composer-uploads'; // a draft image's upload, a stream that tells its bytes sent
 import { composerFieldOwner } from './src/composer/auto-balance-owner';
-import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource, composerFieldWaiting } from './src/composer/composer-field-bridge';
 import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
 import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
@@ -55,6 +55,7 @@ import { paletteCommand } from './src/palette/palette-commands';
 import { shellView } from './src/shell/shell';
 import { shellDetails } from './src/details/shell-details';
 import { chatCanvasView } from './src/shell/chat-canvas-view';
+import { navigationHistorySource } from './src/sidebar/sidebar-history';
 import { sidebarLaunchWidth } from './src/sidebar/sidebar-width';
 import { highlightAsk, highlightStore, highlightView } from './src/highlight/highlights';
 import { noteServerUpdateClock } from './src/connections/server-update-notices';
@@ -72,6 +73,7 @@ import { Transport } from './src/transport/transport';
 import { noteLayoutFrames } from './src/shell/layout-frames';
 import type { SecretStore } from './src/transport/transport-catalog';
 import { externalOpenRequest } from './src/client/external-open';
+import { chipScopedOp, noteChipTarget, scopedCommand, scopedOp, sideChatClient } from './src/panel/side-chat-thread'; // a side chat's own chat view: its snapshot and its presses
 
 export const appId = 'com.exact.t3code.macos';
 // The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
@@ -80,16 +82,17 @@ export const appId = 'com.exact.t3code.macos';
 // The camera and microphone grants are for the commands terminals and agents run, which inherit the app's TCC identity:
 // under the hardened runtime they are refused without a prompt unless the app claims both (build-desktop-artifact.ts).
 // Save file and the media menu's Save fetch a server's signed asset and write it under app:/tmp/saves for the window's
-// Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts). An image
-// chip's accent fetches the image and scales it under app:/tmp/image-accent (image-accent.ts). The preference
+// Save panel; a draft's staged copy is read and saved from composer-files (save-file.ts, attachment-files.ts). The preference
 // file is t3-code.json (protocol.ts preferenceFiles). `browser.automation` lets data code drive a Browser tab's frame for
 // the agent's preview automation and Annotate (browser-automation.ts, browser-annotation.ts); a capture of a tab is written
 // under app:/tmp/browser-shots and an agent-driven tab's downloads under app:/tmp/browser-downloads before they move to the
 // artifact folder. Copy image writes the media's bytes and their PNG under app:/tmp/copy-image (media-copy-image.ts).
 // Thread and review guide notifications post, badge and ask through @exact/notifications (shell-notify.ts); the ChatGPT
 // sign-in opens on auth.openai.com and comes back to a loopback port T3's server chose (codex-setup-ops.ts receiveCallback).
-export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.read app:/data/snapshots/drafts\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/tmp/image-accent\nfs.write app:/tmp/image-accent\nfs.read app:/cache/media-preview\nfs.write app:/cache/media-preview\nfs.read app:/tmp/copy-image\nfs.write app:/tmp/copy-image\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone\ndevice.notifications purpose.notifications\nauth.session https://auth.openai.com\nauth.callback http://127.0.0.1/auth/callback';
+export const grants = 'net.websocket ws:\nnet.websocket wss:\nnet.fetch http:\nnet.fetch https:\nsecret.keep t3-catalog\nfs.read app:/data/t3-code.json\nfs.write app:/data/t3-code.json\nfs.read app:/tmp/saves\nfs.write app:/tmp/saves\nfs.read app:/data/composer-files\nfs.write app:/data/composer-files\nfs.read app:/data/snapshots/drafts\nfs.write app:/data/snapshots/drafts\nfs.read doc:/\nfs.read app:/tmp/picked\nfs.read app:/tmp/composer-stage\nfs.write app:/tmp/composer-stage\nfs.read app:/tmp/browser-frames\nfs.write app:/tmp/browser-frames\nfs.read app:/tmp/browser-shots\nfs.write app:/tmp/browser-shots\nfs.read app:/tmp/browser-downloads\nfs.write app:/tmp/browser-downloads\nbrowser.automation\nfs.read app:/cache/media-preview\nfs.write app:/cache/media-preview\nfs.read app:/tmp/copy-image\nfs.write app:/tmp/copy-image\ndevice.local-network purpose.local-network\ndevice.camera purpose.camera\ndevice.microphone purpose.microphone\ndevice.notifications purpose.notifications\nauth.session https://auth.openai.com\nauth.callback http://127.0.0.1/auth/callback';
 const client = new T3Client();
+/** The window's last snapshot answer, under a side chat's (`sideChatData`). */
+let windowData: Record<string, unknown> | null = null;
 const transport = new Transport();
 
 // The transport's own sources answer first and synchronously where they must: a socket's stream answer is the fetch
@@ -130,7 +133,11 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
-  if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
+  // The module's field edits (editorState, editorEdit, editorInsert) reach the field of the client that asks: the
+  // window's, or a side chat's for what runs on its scope.
+  const module = native;
+  const fieldNative = (host: T3Client) => module?.available ? composerFieldNative(host, letGoAware(module), () => composerFieldOwner(host)) : module;
+  if (native?.available) native = fieldNative(client);
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = preferenceFiles(_storage);
   if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
@@ -143,8 +150,8 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
     noteServerUpdateClock(client, String(args[1] ?? ''), String(args[2] ?? '')); // server-update-notices.ts: the 2 s and 20 s timers
     noteTranscriptFacts(client, args); // the transcript's viewport (transcript-facts.ts)
-    noteComposerTyping(client, args[9] === true); // the composer's typing clock (composer-typing-guard.ts)
-    noteLayoutFrames(client, args[10]); // the boxes app.contract measured (layout-frames.ts)
+    noteComposerTyping(client, args[8] === true); // the composer's typing clock (composer-typing-guard.ts)
+    noteLayoutFrames(client, args[9]); // the boxes app.contract measured (layout-frames.ts)
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts
@@ -153,10 +160,21 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
     // The views that paint code answer through highlightView (highlights.ts): each reports whether a text it painted
     // waits for its tokens, so the root's highlight pump refreshes it when they land (app.contract highlightStoredThen).
-    return highlightView('data', () => ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[11] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    return highlightView('data', () => windowData = ({ ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''), String(args[10] ?? '')), chatgptPlan: chatGptPlanSnapshot(client), // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
       linkMenu: chatLinkMenuView(client, native, storage), // a Markdown web link's menu rows (external-link-menu.ts)
       externalOpen: externalOpenRequest(), // the latest link to open outside the app (external-open.ts)
       ...codexReceivingSlots(client, native) })); // the ChatGPT sign-ins waiting on their loopback callbacks (app.contract codexLoopback)
+  }
+  // A side chat tab's chat view (side-chat-thread.ts): the window's snapshot with its thread's parts read through the side
+  // chat. args: the side chat ('' while none shows), the window's revision, the time, the display mode and the locale.
+  if (source === 'sideChatData') {
+    const threadId = String(args[0] ?? '');
+    if (!threadId || !windowData) return highlightView('sideChat', () => windowData ?? { ...snapshot(client), chatgptPlan: chatGptPlanSnapshot(client), linkMenu: chatLinkMenuView(client, native, storage), externalOpen: externalOpenRequest(), ...codexReceivingSlots(client, native) });
+    const base = windowData;
+    return highlightView('sideChat', () => {
+      const side = snapshot(sideChatClient(client, threadId), Number(args[2]) || 0, String(args[3] ?? ''), String(args[4] ?? ''));
+      return { ...base, ...side };
+    });
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
@@ -167,15 +185,17 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   }
   if (source === 'composerWorkspace') return composerWorkspaceView(client, args[1] !== false, typeof args[2] === 'number' ? args[2] : undefined); // args[1]: the chat view is on screen (ChatComposer mounted)
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
-  if (source === 'composerEditor') { noteLayoutFrames(client, args[2]); return composerEditorView(client, native, Number(args[1]) || 0); }
-  if (source === 'composerRich') return composerRichSource(client, { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' });
-  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
-  if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
-  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client), native);
-  if (source === 'composerIntent') return composerIntentAnswer(client, args);
-  if (source === 'composerChip') return chipPopoverView(client);
+  if (source === 'composerEditor') { noteLayoutFrames(client, args[2]); return composerEditorView(sideChatClient(client, String(args[3] ?? '')), native, Number(args[1]) || 0); } // args[3]: a side chat's composer
+  if (source === 'composerRich') return composerRichSource(sideChatClient(client, String(args[6] ?? '')), { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' }); // args[6]: a side chat's composer
+  // The composer field the editing engine serves: the window's, or a side chat's (its thread, the last argument).
+  if (source === 'composerField') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldResource(host, args, composerFieldOwner(host), native); }
+  if (source === 'composerFieldWaiting') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldWaiting(host, args, composerFieldOwner(host), native); } // args: whether it asks, the parked cursor, the field (its thread or '')
+  if (source === 'composerFieldObserved') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(host, args, composerFieldOwner(host)); }
+  if (source === 'composerFieldAcknowledged') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldAcknowledged(host, args, composerFieldOwner(host), native); }
+  if (source === 'composerIntent') return composerIntentAnswer(sideChatClient(client, String(args[13] ?? '')), args); // the field's source session: a side chat's is its scope's
+  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return chipPopoverView(sideChatClient(client, String(args[1] ?? ''))); } // args[1]: the composer it serves, a side chat's thread or ''
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
-  if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);
+  if (source === 'composerChipPressed') return composerChipPressed(sideChatClient(client, String(args[1] ?? '')), args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;
@@ -186,7 +206,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'pagesHome') return pagesHome(client, native);
   if (source === 'usagePage') return usagePage(client, native, storage, { open: args[0] === true, metric: String(args[1] || ''), windowDays: Number(args[2]) || 0, breakdown: String(args[3] || 'model'), refresh: Number(args[4]) || 0, width: plotWidth(Number(args[5]) || 1280, Number(args[6]) || 0), now: Number(args[7]) || 0, viewport: Number(args[5]) || 1280, sidebar: Number(args[6]) || 0 });
   if (source === 'usageKeys') return usageKeys(client.config, ariaChord);
-  if (source === 'timelineAttachments') return { ...await attachmentUrls(client, native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
+  if (source === 'timelineAttachments') return { ...await attachmentUrls(sideChatClient(client, String(args[4] ?? '')), native, Number(args[1]) || 0, String(args[3] || '')), posted: inlineDocumentsPosted(client) }; // timeline-attachments.ts
   if (source === 'prDetail') return highlightView('prDetail', () => pagesSource(client, native, source, args, storage) as Promise<object>); // its Code tab's rows
   if (source === 'prList' || source === 'welcome') return pagesSource(client, native, source, args, storage);
   if (source === 'connectionsPage') return connectionsPage(client, native, args[0] === true, Number(args[5]) || 0); // args[5]: the clock, each second while Authorized clients show
@@ -229,18 +249,19 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     const model = obj(override.defaultModelSelection || settings.defaultModelSelection);
     return { defaultModelExplicit: available && typeof settings.defaultModelSelection === "object" && settings.defaultModelSelection !== null, defaultModel: available ? [str(model.instanceId), str(model.model)].filter(Boolean).join(" / ") : "", modelOverridden: available && typeof override.defaultModelSelection === "object" && override.defaultModelSelection !== null, environmentId: client.environmentId, available, permission: available ? str(override.defaultRuntimeMode || settings.defaultRuntimeMode, 'approval-required') : '', overridden: available && typeof override.defaultRuntimeMode === 'string', environmentPermission: available ? str(settings.defaultRuntimeMode, 'approval-required') : '', ...client.local.deviceSettings, ...claimBoldChord(keyboardSettings(client.config, args[3] === true, { terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client), modalOpen: args[4] === true, editableFocus: args[3] === true || args[4] === true, turnRunning: args[5] === true, draftThreadRoute: args[6] !== true, modelPickerOpen: args[7] === true }), args[3] === true, richTextComposer(client), args[8] === true) };
   }
-  if (source === 'modelCatalog') return modelCatalog(client, String(args[0] || ''), String(args[1] || ''), String(args[3] || '')); // args[3]: a Settings row's picker target
+  if (source === 'modelCatalog') { const target = String(args[3] || ''); return target.startsWith('side-chat:') ? modelCatalog(sideChatClient(client, target.slice(10)), String(args[0] || ''), String(args[1] || ''), '') : modelCatalog(client, String(args[0] || ''), String(args[1] || ''), target); } // args[3]: a Settings row's picker target, or the side chat whose composer opened it
   if (source === 'createProvider') return client.command('provider-create', String(args[0] || ''), JSON.stringify({ driver: args[1], name: args[2], binaryPath: args[3], homePath: args[4] }), 0, native, storage);
   if (source === 'paletteView') return highlightView('palette', () => paletteView(client, native, args)); // its content search lines
   if (source === 'paletteCommand') return paletteCommand(client, native, storage, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''));
   if (source === 'shellDetails') return shellDetails(client, native, args[0] === true, String(args[1] || ''), args[3] === true, Number(args[4]) || 0, Number(args[5]) || 0, args[6] !== false, Array.isArray(args[7]) ? args[7].map(String) : [], Array.isArray(args[8]) ? args[8].map(String) : [], Array.isArray(args[9]) ? args[9].map(String) : [], args[10] !== false); // args[3]: the card docks inline; args[4]: wall time; args[5]: the window right of the canvas; args[6]: the window has the focus and is visible (exact2 #219); args[10]: the window is visible
+  if (source === 'navigationHistory') return navigationHistorySource(client, args); // the window's Back and Forward (sidebar-history.ts)
   if (source === 'sidebarLaunchWidth') return sidebarLaunchWidth(client, Number(args[0]) || 0, !!native?.available); // the width fixed at load
   if (source === 'chatCanvas') noteLayoutFrames(client, args[11]);
   if (source === 'chatCanvas') return chatCanvasView(client, native, { width: Number(args[1]) || 0, viewportHeight: Number(args[2]) || 0, detailsInline: args[3] === true, chatMax: Number(args[4]) || 0, overlaid: args[5] === true, gesture: String(args[6] || ''), wide: args[9] === true, popoverOpen: args[10] === true }); // args[7..8] re-ask when the player changes
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
   if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden', notifications: String(args[8] ?? '') }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown; args[8]: the notification permission
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
-  if (source === 'composerAttach') return client.command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
-  if (source === 'command') return client.command(String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage);
+  if (source === 'composerAttach') return sideChatClient(client, String(args[5] ?? '')).command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, fieldNative(sideChatClient(client, String(args[5] ?? ''))), storage);
+  if (source === 'command') { const op = chipScopedOp(client, String(args[0] || '')), scoped = scopedOp(op); return scopedCommand(client, op, String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, scoped ? fieldNative(sideChatClient(client, scoped.threadId)) : native, storage); } // `scope:<thread>|<op>` runs on a side chat (side-chat-thread.ts)
   throw new Error(`Unknown T3 source: ${source}`);
 }

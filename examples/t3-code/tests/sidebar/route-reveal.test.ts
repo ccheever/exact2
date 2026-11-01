@@ -1,17 +1,15 @@
 // Ported from T3 Code 7c3b3b3605ef apps/web/src/components/Sidebar.logic.test.ts (pendingSidebarRouteReveal,
 // resolveSidebarRouteReveal) and sidebar/routeReveal.browser.test.tsx (MIT, see LICENSE-T3). exact2: '' stands for
 // the reference's null key; the scroll itself is the view's marker (sidebar.contract revealDue), so these read the
-// snapshot's revealRow / revealPending, and the legacy sidebar's preview cut (useProjectThreadPanel).
+// snapshot's revealRow / revealPending.
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { completeRouteReveal, pendingRouteReveal, resolveRouteReveal } from '../../src/sidebar/route-reveal';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
-import { legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { sidebarLocal } from '../../src/sidebar/sidebar-commands';
 import { sidebarPrefs, sidebarSession } from '../../src/sidebar/sidebar-state';
-import { contractComponent } from '../support/contract-action-fixture';
 
 describe('pendingRouteReveal', () => {
   it('keeps a revealed thread settled across a frame with no thread open', () => {
@@ -107,45 +105,13 @@ describe('the sidebar\'s route reveal', () => {
   });
 });
 
-describe('the legacy sidebar', () => {
-  const threads = ['t1', 't2', 't3', 't4', 't5', 't6'].map((id, index) => shell(id, 'pa', { latestUserMessageAt: `2026-10-27T1${index}:00:00.000Z`, updatedAt: `2026-10-27T1${index}:00:00.000Z` }));
-  const legacy = (threadId: string, count = threads.length) => {
-    const client = window(threads.slice(0, count), { threadId });
+describe('a saved legacy sidebar opt-in', () => {
+  it('opens the default sidebar: its rows, and its reveal of the open row', () => {
+    // v0.1.5 removed the legacy sidebar; the setting it saved is still read there, but the clone reads nothing from it.
+    const client = window([shell('a', 'pa'), shell('b', 'pb')], { threadId: 'b' });
     Object.assign(client.local.clientSettings!, { legacySidebarEnabled: true, sidebarThreadPreviewCount: 3 });
-    return client;
-  };
-  it('lists the open thread past the preview cut, and it alone is no overflow', () => {
-    // Newest first: t6 t5 t4 above the cut; t2, the open thread, is listed after them and Show more stays for t3 and t1.
-    const open = legacySidebarSnapshot(legacy('t2'), NOW, helpers).projects[0]!;
-    expect(open.threads.map(row => row.id)).toEqual(['t6', 't5', 't4', 't2']);
-    expect(open.showMore).toBe(true);
-    // Four threads, the open one past the cut: nothing else is hidden, so there is no Show more.
-    const alone = legacySidebarSnapshot(legacy('t1', 4), NOW, helpers).projects[0]!;
-    expect(alone.threads.map(row => row.id)).toEqual(['t4', 't3', 't2', 't1']);
-    expect(alone.showMore).toBe(false);
-  });
-  it('reveals the open row, with the project the virtualized list brings in', () => {
-    const view = legacySidebarSnapshot(legacy('t2'), NOW, helpers);
-    expect(view).toMatchObject({ revealRow: 't2', revealPending: 't2', revealProject: 'env:/a' });
-  });
-  it('a row in a project the list has not built: the project comes in first, then the row, and only then is it done', () => {
-    const sidebar = contractComponent('legacy-sidebar.contract', 'LegacySidebar'), state = sidebar.state(), calls: unknown[][] = [];
-    let built = false;
-    const legacy = { revealPending: 't9', revealRow: 't9', revealProject: 'env:/a' };
-    const scope = {
-      data: { legacy }, legacy, // `legacy` is the component's derive of `data`; an action reads it as it stands
-      frame: () => ({ unavailable: !built }),
-      // The virtualized list builds a project's rows as it scrolls the project in.
-      scrollIntoView: (...args: unknown[]) => { calls.push(['scroll', ...args]); if (args[0] === 'legacy-projects') built = true; },
-      local: (...args: unknown[]) => { calls.push(['local', ...args]); },
-    };
-    expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(true);
-    sidebar.call('revealDue', state, scope, ['t9', 1, 1]);
-    expect(calls).toEqual([['scroll', 'legacy-projects', 'env:/a', { block: 'nearest', behavior: 'instant' }]]);
-    expect(sidebar.drawn('testId="legacy-reveal"', state, scope)).toBe(false);
-    expect(sidebar.drawn('testId="legacy-reveal-row"', state, scope)).toBe(true);
-    sidebar.call('revealRowDue', state, scope, ['t9', 1, 1]);
-    expect(calls.slice(1)).toEqual([['scroll', 'legacy-row-t9', { block: 'nearest', behavior: 'instant' }], ['local', 'reveal-done', 't9', '']]);
-    expect(state).toMatchObject({ revealRowNext: '', mountRevealed: true });
+    const view = sidebarSnapshot(client, NOW, helpers);
+    expect(view.threads.map(row => row.id).sort()).toEqual(['a', 'b']);
+    expect(view.sidebar).toMatchObject({ revealRow: 'b', revealPending: 'b' });
   });
 });

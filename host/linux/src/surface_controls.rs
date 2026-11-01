@@ -946,6 +946,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
+        self.disabled_blur.clear();
         let row = self.capture_split_row(target);
         // Capture ancestry before the handler can remove its button. Pointer
         // activation yields focus to commit autofocus; keyboard activation keeps
@@ -976,8 +977,14 @@ impl<D: DataSource> Presenter<D> {
             eprintln!("exact: {e}");
         }
         self.autofocus_from = prior_autofocus;
-        if self.focus.is_none()
-            || (pointer && self.focus == Some(target) && fallback != Some(target))
+        // A control this press's commits disabled has had its `blur`
+        // (`clear_removed_focus`), the pressed one or a control inside it:
+        // whatever focus that left stands, and none comes back to the press,
+        // even to a control its blur enabled again.
+        let blurred = !std::mem::take(&mut self.disabled_blur).is_empty();
+        if !blurred
+            && (self.focus.is_none()
+                || (pointer && self.focus == Some(target) && fallback != Some(target)))
         {
             self.focus = fallback;
             // A pressed button its own handler removed: `focusout` at the

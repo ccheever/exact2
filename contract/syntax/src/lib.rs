@@ -119,6 +119,15 @@ pub const HOST_COMMANDS: &[&str] = &[
     // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
     // when it did and when it left.
     "requestFullscreen",
+    // `requestPictureInPicture("id")`: the `image` with that HTML id floats
+    // in the platform's picture-in-picture window, which shows each picture
+    // its `src` names next; `enterpictureinpicture` and
+    // `leavepictureinpicture` say when it did and when it left (LLP 1042 §9).
+    "requestPictureInPicture",
+    // `exitPictureInPicture()`: the app's floating image leaves the window,
+    // as HTML's document.exitPictureInPicture(); no id, as one image floats
+    // at a time.
+    "exitPictureInPicture",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page
@@ -132,6 +141,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1020.002 D7 — WebDriver BiDi's `browsingContext.captureScreenshot`:
     // a picture of the frame's guest into an `app:/` file, answered by `capture=`.
     "captureScreenshot",
+    // @ref LLP 1020.002 D11 — Electron's `<webview>.openDevTools()`: the
+    // platform's inspector for the frame's guest, in a window of its own.
+    "openDevTools",
     "relaunch",
     "removeAllRanges",
     "selectText",

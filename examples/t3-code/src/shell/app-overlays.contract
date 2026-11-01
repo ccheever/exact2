@@ -130,6 +130,7 @@ component WelcomeLayer
 // Window overlays above everything: model picker, palette, thread details, title menu, dialogs, toasts.
 component WindowOverlays
   inject
+    composerTargetData: Snapshot // the composer the model picker serves (side-chat-members.contract)
     rem: number
   props
     modelsOpen: bool
@@ -192,7 +193,7 @@ component WindowOverlays
     filesDocuments: ChatDocument[]
   view
     if modelsOpen
-      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - 2 + 4 : 63 * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
+      ModelPicker(data=composerTargetData, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(composerTargetData.composer.toolbarTop > 0 ? viewport.height - composerTargetData.composer.toolbarTop - 2 + 4 : 63 * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
     PaletteFinalFocus(open=paletteOpen, owner=palette.testId, restore=paletteRestore)
     if paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)

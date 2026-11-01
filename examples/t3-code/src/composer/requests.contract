@@ -1,16 +1,8 @@
-// Composer-attached request banners, measured against T3's served UI
-// (ComposerBanner, ComposerPendingApprovalPanel/Actions, ComposerPendingUserInputPanel).
+// The composer-attached question banner, measured against T3's served UI
+// (ComposerBanner, ComposerPendingUserInputPanel). Approvals answer on their timeline row.
 use Snapshot from "../shared/shapes.contract"
-use Approval from "../shared/shapes.contract"
 use Question from "../shared/shapes.contract"
 use QuestionOption from "../shared/shapes.contract"
-use AttachButton from "./composer-controls.contract"
-use TipBubble from "../shell/shell-tip.contract"
-use ApprovalOption from "../shared/shapes.contract"
-use KmItem from "../shared/menu-keys.contract"
-use KeyMenu from "../shared/menu-keys.contract"
-use kmTriggerKey from "../shared/menu-keys.contract"
-use kmTriggerTarget from "../shared/menu-keys.contract"
 use ChatMarkdown from "../timeline/markdown.contract"
 use ChatDocument from "../timeline/markdown.contract"
 
@@ -22,208 +14,33 @@ component ReqIcon
     color: string
   view
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
-      if name == "shield"
-        path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
-      if name == "ellipsis"
-        circle cx=12 cy=12 r=1
-        circle cx=19 cy=12 r=1
-        circle cx=5 cy=12 r=1
-      if name == "check"
-        path d="M20 6 9 17l-5-5"
       if name == "chevron-down"
         path d="m6 9 6 6 6-6"
-      if name == "chevron-up"
-        path d="m18 15-6-6-6 6"
       if name == "chevron-left"
         path d="m15 18-6-6 6-6"
       if name == "chevron-right"
         path d="m9 18 6-6-6-6"
       if name == "x"
         path d="M18 6 6 18M6 6l12 12"
-      if name == "circle-alert"
-        circle cx=12 cy=12 r=10
-        path d="M12 8v4M12 16h.01"
-      if name == "triangle-alert"
-        path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-        path d="M12 9v4M12 17h.01"
-      if name == "message-circle"
-        path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"
-      if name == "refresh"
-        path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
-        path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
-        path d="M8 16H3v5"
-      if name == "wifi-off"
-        path d="M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
 
 // The banner sits behind the composer's top edge (calc(1rem + 1px) overlap).
-// Native SVG glyphs resolve light-dark() when they are created, so a scheme
-// change rebuilds the stack (the same workaround the shell uses).
 component RequestBanner
   props
     data: Snapshot
     command: action
-    busy: bool
-    compact: bool
     maximumHeight: number
-    scheme: string
   view
-    RequestStack(data=data, command=command, busy=busy, compact=compact, maximumHeight=maximumHeight)
+    RequestStack(data=data, command=command, maximumHeight=maximumHeight)
 
 component RequestStack
   props
     data: Snapshot
     command: action
-    busy: bool
-    compact: bool
     maximumHeight: number
   view
-    // A notice above it (ComposerDock: only a machine error or warning while a request is open) tucks under the request.
-    for a in data.approvals key=a.id
-      ApprovalBanner(approval=a, reason=data.composer.approvalReason, whyAsked=data.composer.approvalWhy, command=command, busy=busy, compact=compact, stacked=(data.composer.notices.length > 0))
+    // A notice above it (ComposerDock: only a machine error or warning while a question is open) tucks under the question.
     for q in data.questions key=q.id
       QuestionBanner(q=q, command=command, maximumHeight=maximumHeight, stacked=(data.composer.notices.length > 0))
-
-component ApprovalBanner
-  props
-    approval: Approval
-    reason: string
-    whyAsked: string
-    command: action
-    busy: bool
-    compact: bool
-    stacked: bool
-  view
-    column position="relative" margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top=(stacked ? "0.75rem" : "0.6875rem") padding-bottom="1.8125rem" gap="0.75rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1rem") border-top-right-radius=(stacked ? "0px" : "1rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#ffdda9, #603e0a)" background-color="light-dark(#fef6ea, #231b0f)" box-shadow="0 1px 2px light-dark(#0000000d, #00000000), 0 14px 32px -18px light-dark(#00000000, #000000bf)" role="group" aria-label=approval.label testId="pending-approval"
-      row width="100%" gap="0.5rem" align-items="flex-start"
-        box width="1.5rem" height="1.125rem" padding-top="0.125rem" flex-shrink=0 box-sizing="border-box" display="flex" justify-content="center"
-          ReqIcon(name="shield", size=16, color="#fe9a00")
-        column flex=1 min-width=0 gap="0.25rem"
-          row width="100%" min-width=0 gap="0.5rem" align-items="center"
-            text approval.label font-size="0.6875rem" font-weight=500 line-height="1rem" color="#fe9a00" flex-shrink=0
-            if approval.appName != ""
-              text approval.appName font-size="0.6875rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" min-width=0 line-clamp=1
-            if whyAsked != ""
-              WhyAsked(id=approval.id, explanation=whyAsked)
-            if approval.count != ""
-              box flex=1
-              text approval.count font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #a1a1a1)" flex-shrink=0
-          // A command wraps anywhere inside the composer, up to 10rem; an app's request wraps at words, up to 5rem.
-          scroll max-height=(approval.mono ? "10rem" : "5rem") width="100%" min-width=0 testId=`approval-detail-${approval.id}`
-            text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "Menlo, Consolas, \"Liberation Mono\", monospace" : "system-ui") white-space="pre-wrap" overflow-wrap=(approval.mono ? "anywhere" : "break-word") color="light-dark(#18181b, #f5f5f5)" aria-label="Command"
-          if reason != ""
-            text reason font-size="0.6875rem" line-height="1rem" width="100%" min-width=0 overflow-wrap="break-word" color="light-dark(#71717a, #a1a1a1)" testId=`approval-reason-${approval.id}`
-        if not compact
-          ApprovalActions(approval=approval, command=command, busy=busy)
-      if compact
-        row width="100%" padding-left="2rem" box-sizing="border-box" justify-content="flex-end"
-          ApprovalActions(approval=approval, command=command, busy=busy)
-
-// Full access still asked (ComposerPendingApprovalPanel): an InlineButton (tone muted) opens the explanation above it
-// as a hover popover in the tooltip style. Hovering shows it; a press keeps it open until Escape, a press outside or
-// another press. It wraps within min(22rem, 100vw - 2rem).
-component WhyAsked
-  inject
-    rem: number
-  props
-    id: string
-    explanation: string
-  state over = false
-  state pinned = false
-  state shown = false
-  action hover(value: bool)
-    over = value
-    if value
-      showPopover(`approval-why-card-${id}`, source=`approval-why-${id}`)
-    else if not pinned
-      hidePopover(`approval-why-card-${id}`)
-  action pressed
-    if pinned and shown
-      hidePopover(`approval-why-card-${id}`)
-    else
-      pinned = true
-      showPopover(`approval-why-card-${id}`, source=`approval-why-${id}`)
-  action toggled(e: ToggleEvent)
-    shown = e.newState == "open"
-    if not shown
-      pinned = false
-  view
-    box position="relative" display="flex" flex-shrink=0 hover=hover
-      button id=`approval-why-${id}` press=pressed aria-expanded=shown aria-haspopup="dialog" testId=`approval-why-${id}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
-        text "Why am I being asked this?" font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)") text-decoration-line=(over ? "underline" : "none")
-      // The 4pt between the card and the button is the card's own padding, so the pointer crossing it stays on the card.
-      column id=`approval-why-card-${id}` popover="auto" toggle=toggled role="dialog" aria-label="Why am I being asked this?" position="absolute" position-area="top" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" padding-bottom="0.25rem" max-width=`min(${22 * rem}px, calc(100vw - ${2 * rem}px))` background-color="#00000000" testId=`approval-why-card-${id}`
-        column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d"
-          text explanation font-size="0.75rem" line-height="1.03125rem" white-space="normal" text-wrap="balance" color="light-dark(#18181b, #f5f5f5)"
-
-// Accept and decline stay visible; every other advertised decision is in the menu.
-component ApprovalActions
-  inject
-    dialogMenuEntered: action
-  props
-    approval: Approval
-    command: action
-    busy: bool
-  state menuOpen = false
-  derive menuItems = busy or approval.responding or not approval.operable ? [] : approval.more.map((option) => KmItem(id=`approval-${approval.id}-${option.id}`, label=option.label))
-  // Base UI's MenuTrigger: Enter, Space, ↓ open the menu at its first item, ↑ at its last.
-  action menuKey(k: string, e: KeyboardEvent)
-    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
-      preventDefault()
-      stopPropagation()
-      if not e.repeat
-        showPopover(`approval-menu-${approval.id}`, source=`approval-more-${approval.id}`)
-        let target = kmTriggerTarget(menuItems, k)
-        if target != ""
-          focus(target)
-  action toggled(e: ToggleEvent)
-    menuOpen = e.newState == "open"
-  view
-    row gap="0.375rem" align-items="center" align-self="center" flex-shrink=0 flex-wrap="wrap" justify-content="flex-end" position="relative"
-      for option in approval.options key=option.id
-        ApprovalButton(option=option, approvalId=approval.id, disabled=(busy or approval.responding or not approval.live or not approval.operable), choose=command("approval", approval.id, option.id, 0))
-      if approval.more.length > 0
-        button id=`approval-more-${approval.id}` popovertarget=`approval-menu-${approval.id}` key=menuKey aria-haspopup="menu" disabled=(busy or approval.responding or not approval.operable) testId=`approval-more-${approval.id}` aria-label="More approval options" aria-expanded=menuOpen width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #3a3328)" background-color=(menuOpen ? "light-dark(#f4f4f5, #3a3328)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
-          ReqIcon(name="ellipsis", size=14, color="light-dark(#71717a, #a1a1a1)")
-        // The MenuPopup (side top, align end, width "content"): 4pt over "…", its right edge on the button's, as wide
-        // as its rows up to the window less 32pt, flipping near an edge. A popover, so a press anywhere outside it or Escape closes it, and
-        // Escape gives the focus back to "…".
-        column id=`approval-menu-${approval.id}` data-dialog-return="menu" focusin=dialogMenuEntered(`approval-menu-${approval.id}`, `approval-more-${approval.id}`) toggle=toggled popover="auto" position-area="top span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-bottom="0.25rem" max-width="calc(100vw - 32px)" testId=`approval-menu-layer-${approval.id}`
-          column padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="More approval options" testId=`approval-menu-${approval.id}`
-            KeyMenu(menuId=`approval-menu-${approval.id}-keys`, items=menuItems, keyed=0, gap="0px", modal=true)
-              for option in approval.more key=option.id
-                MenuChoice(keysId=`approval-menu-${approval.id}-keys`, menuId=`approval-menu-${approval.id}`, label=option.label, warning=option.warning, testId=`approval-${approval.id}-${option.id}`, disabled=(busy or approval.responding or not approval.operable), choose=command("approval", approval.id, option.id, 0))
-
-component MenuChoice
-  props
-    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
-    keysId: string
-    // The popover a choice closes.
-    menuId: string
-    label: string
-    warning: string
-    testId: string
-    disabled: bool
-    choose: action
-  state hovering = false
-  state focused = false
-  action setHover(over: bool)
-    hovering = over
-    if over
-      focus(testId)
-    else if focused
-      focus(keysId)
-  action setFocus(value: bool)
-    focused = value
-  view
-    box position="relative" width="100%"
-      // An option with a warning carries it as aria-description and a tooltip above it.
-      if warning != ""
-        TipBubble(label=warning, side="top", align="center", offset=32, inset=0, shown=(hovering or focused))
-      // The default MenuItem: a left-aligned 14pt row, 28pt tall.
-      button id=testId press=choose popovertarget=menuId popovertargetaction="hide" hover=setHover focus=setFocus(true) blur=setFocus(false) disabled=disabled opacity=(disabled ? 0.64 : 1) role="menuitem" testId=testId aria-label=label aria-description=warning width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 background-color=(focused ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-        if warning != ""
-          ReqIcon(name="triangle-alert", size=12, color="#fe9a00")
-        text label min-width=0 font-size="0.875rem" line-height="1.25rem" white-space="nowrap" color=(focused ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181b, #f5f5f5)")
 
 // One question at a time; the composer is its custom answer (pendingUserInput.ts).
 component QuestionBanner
@@ -242,11 +59,12 @@ component QuestionBanner
   view
     column margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.1875rem" padding-right="0.1875rem" padding-top=(stacked ? "0.25rem" : "0.1875rem") padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1rem") border-top-right-radius=(stacked ? "0px" : "1rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#eaeaea, #1c1c1c)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 1px 2px light-dark(#0000000d, #00000000), 0 14px 32px -18px light-dark(#00000000, #000000bf)" testId="pending-question"
       // The header row (px-4 pt-1.5, no icon column): the header, and while collapsed "·" and the question; then the
-      // count, the chevron and the dismiss button (gap-0). Its text starts where the question's does below.
+      // count, the chevron and the dismiss button (gap-0). Its text starts where the question's does below. A long
+      // header truncates; collapsed, it takes half the row at most, so the question keeps the rest.
       row width="100%" min-height="1.5rem" padding-left="1rem" padding-right="1rem" padding-top="0.375rem" box-sizing="border-box" align-items="center"
         button press=toggle testId=`question-toggle-${q.id}` aria-label=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") title=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") aria-expanded=(collapsed != q.id) flex=1 min-width=0 min-height="1.5rem" padding=0 padding-left="0.375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           row flex=1 min-width=0 gap="0.25rem" align-items="center"
-            text q.header font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" flex-shrink=0
+            text q.header font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" min-width=0 max-width=(collapsed == q.id ? "50%" : "none") line-clamp=1 testId=`question-header-${q.id}`
             if collapsed == q.id
               text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a66, #a1a1a166)" flex-shrink=0 aria-hidden=true
               text q.question font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" flex=1 min-width=0 line-clamp=1
@@ -309,18 +127,9 @@ component QuestionChoice
           box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#18181b12, #f5f5f512)" display="flex" align-items="center" justify-content="center"
             text option.shortcut font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
 
-// Stop, Previous and Submit/Next replace the composer's send cluster while a
-// question is pending (ComposerPrimaryActions pendingAction, compact labels).
-// It sits over the card's toolbar end, on the card's own surface colour.
-component RequestActions
-  props
-    data: Snapshot
-    command: action
-    busy: bool
-    scheme: string
-  view
-    QuestionActions(data=data, command=command, busy=busy)
-
+// Stop, Previous and Submit/Next in place of the composer's send cluster while a question is pending
+// (ComposerFooterPrimaryActions `pendingAction`, compact: gap-1.5), at the toolbar's end after its controls; Attach files
+// stays at the toolbar's start (composer-controls.contract ComposerFooter).
 component QuestionActions
   props
     data: Snapshot
@@ -328,11 +137,7 @@ component QuestionActions
     busy: bool
   view
     for q in data.questions key=q.id
-      row position="absolute" right="0.875rem" bottom="0.875rem" height="2.375rem" padding-left="0.5rem" padding-right="0.1875rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" gap="0.375rem" align-items="center" background-color="light-dark(#fefefe, #101010)" testId="question-actions"
-        // Attach files sits outside the pending actions (gap-2), which space their own buttons 6pt apart.
-        if data.composer.attach
-          box display="flex" margin-right="0.125rem" flex-shrink=0
-            AttachButton(disabled=(busy or q.responding))
+      row gap="0.375rem" align-items="center" flex-shrink=0 testId="question-actions"
         if data.canStop
           button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width="1.75rem" height="1.75rem" padding=0 border-radius="0.75rem" border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
             svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
@@ -342,26 +147,3 @@ component QuestionActions
             ReqIcon(name="chevron-left", size=14, color="light-dark(#18181b, #f5f5f5)")
         button press=command("advance-question", q.requestId, "", 0) disabled=(busy or q.responding or not q.operable or q.uploading or (q.last ? not q.complete : not q.canAdvance)) opacity=(busy or q.responding or not q.operable or q.uploading or (q.last ? not q.complete : not q.canAdvance) ? 0.64 : 1) testId=`submit-answers-${q.requestId}` aria-label=q.action height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           text q.action font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-
-// A primary approval decision (ComposerPendingApprovalActions): an option with a
-// warning shows the triangle, carries the warning as aria-description, and shows it in a tooltip above.
-component ApprovalButton
-  props
-    option: ApprovalOption
-    approvalId: string
-    disabled: bool
-    choose: action
-  state over = false
-  state focused = false
-  action hover(value: bool)
-    over = value
-  action mark(value: bool)
-    focused = value
-  view
-    box position="relative" display="flex" flex-direction="row" flex-shrink=0
-      if option.warning != ""
-        TipBubble(label=option.warning, side="top", align="center", offset=28, inset=0, shown=(over or focused))
-      button press=choose hover=hover focus=mark(true) blur=mark(false) disabled=disabled opacity=(disabled ? 0.64 : 1) testId=`approval-${approvalId}-${option.id}` aria-label=option.label aria-description=option.warning height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #3a3328)") background-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-        if option.warning != ""
-          ReqIcon(name="triangle-alert", size=12, color=(option.id == "accept" ? "#ffffff" : "#fe9a00"))
-        text option.label font-size="0.75rem" font-weight=500 line-height="1rem" max-width="10rem" line-clamp=1 color=(option.id == "accept" ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")

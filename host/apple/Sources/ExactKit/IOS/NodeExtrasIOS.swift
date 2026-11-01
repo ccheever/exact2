@@ -17,20 +17,25 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
-struct AcceptedTextRaster {
-    let key: TextRasterKey
-    let result: TextRasterImage
-    let namespace: Int
-}
-
+/// A paragraph's specs and raster, apart from its view: three `Spec`s
+/// inline made every `NodeView` about 1 KB larger, text or not (2112
+/// bytes, a 2.5 KB block); the raster's fields fit in the same block.
 final class TextSpecs {
     var rasterKey: TextRasterKey?
-    var accepted: AcceptedTextRaster?
+    var rasterSpec: Spec?
     var cached: Spec? { didSet { headroom = nil } }
     var headroom: Float?
+    var raster: CGImage?
     var rasterLayer: CALayer?
-    /// The layer at the paragraph's place that holds `rasterLayer` (`NodeView.placeTextRaster`).
-    var rasterBox: CALayer?
+    /// The layer at the paragraph's place (`NodeView.placeTextRaster`), whose
+    /// lines hold `rasterLayer` (`NodeView.makeTextBox`).
+    var rasterBox: TextBoxLayer?
+    /// What the shown pixels answer for in the paragraph's box, whether they
+    /// are a band of it, the ink they were painted from (`TextRasterImage.ink`)
+    /// and the room they serve (`TextRasterKey.room`).
+    var rasterCovered = CGRect.null, rasterBand = false, rasterInk = (ink: CGRect.null, shadows: CGRect.null), rasterRoom = CGRect.null
+    var rasterFrame = CGRect.zero
+    var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
     var layout: (width: CGFloat, paragraph: Paragraph)?
     /// Which way a tall paragraph's port travels, for its band ahead (`TextRasterizer.key`).
@@ -207,18 +212,14 @@ extension NodeView {
     }
     /// The words and style `textRaster` paints, which the paragraph's may
     /// have left behind since (`invalidateText` keeps the old pixels up).
-    var textRasterSpec: Spec? { specs?.accepted?.key.spec }
+    var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
     var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
-    var textRaster: CGImage? { specs?.accepted?.result.image }
+    var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
-    var textBoxLayer: CALayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
-    var textRasterFrame: CGRect {
-        guard let accepted = specs?.accepted else { return .zero }
-        let at = textPlace(scale: accepted.key.scale)
-        return accepted.result.coverage.answered.offsetBy(dx: at.x, dy: at.y)
-    }
-    var textRasterScale: CGFloat { specs?.accepted?.key.scale ?? 1 }
+    var textBoxLayer: TextBoxLayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
+    var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
+    var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)? { get { specs?.layout } set { if newValue != nil || specs != nil { textMore.layout = newValue } } }
 

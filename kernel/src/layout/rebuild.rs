@@ -37,6 +37,7 @@ impl LayoutTree {
                 tree.set_children(node, &children);
             }
         }
+        tree.tables.find(arena, &slots);
         tree
     }
 
@@ -76,6 +77,8 @@ impl LayoutTree {
             });
             tree.set_children(node, &children);
         }
+        let slots: Vec<u32> = nodes.keys().copied().collect();
+        tree.tables.find(arena, &slots);
         (tree, nodes)
     }
 

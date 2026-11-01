@@ -10,7 +10,6 @@ final class TextRasterizer {
         weak var node: NodeView?
         let key: TextRasterKey
         let namespace: Int
-        let reservedBytes: Int
         /// The node's incarnation when the job was issued (LLP 1068 §4.9).
         let incarnation: UInt64
         let group = DispatchGroup()
@@ -18,8 +17,8 @@ final class TextRasterizer {
         weak var operation: Operation?
         private let lock = NSLock()
         private var started = false, abandoned = false
-        init(_ node: NodeView, key: TextRasterKey, namespace: Int, reservedBytes: Int) {
-            self.node = node; self.key = key; self.namespace = namespace; self.reservedBytes = reservedBytes; incarnation = node.incarnation
+        init(_ node: NodeView, key: TextRasterKey, namespace: Int) {
+            self.node = node; self.key = key; self.namespace = namespace; incarnation = node.incarnation
             group.enter()
         }
         /// The worker's claim: false once the job was abandoned unstarted.
@@ -44,9 +43,17 @@ final class TextRasterizer {
     /// flight, so a worker finishing one finds the next already queued.
     static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
     private static let maxInFlight = concurrency * 2
-    private static let maximumBytes = TextRasterJob.maximumBytes
-    private static let leadBytes = 48 * 1024 * 1024
+    private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+    /// A tall paragraph's band a worker paints ahead of the scroll: room
+    /// for two ports at 3x on the iPhone Duo's open display, so the band is
+    /// ready before the port leaves the one shown.
+    private static let leadBytes: CGFloat = 48 * 1024 * 1024
+    /// Every tall paragraph's band, shown or being painted, takes its bytes
+    /// beyond `maximumBytes` from this one allowance, so they do not grow
+    /// with the number of tall paragraphs near the port: a band left
+    /// without any is as tall as the main thread's.
     private static let leadRoom = leadBytes - maximumBytes
+    /// The paragraphs that have had a band, weakly.
     private let banded = NSHashTable<NodeView>.weakObjects()
     /// The most text (UTF-16 units) a changed paragraph paints on the main
     /// thread to replace its old words at once: a paragraph's worth. A
@@ -76,21 +83,20 @@ final class TextRasterizer {
     private var keptNamespace = 0
     private static let keptLimit = 4 * 1024 * 1024
     private static let keptEntryLimit = 64 * 1024
-    private func keptImage(_ key: TextRasterKey, namespace: Int) -> Kept? {
+    private func keptImage(_ key: TextRasterKey, namespace: Int) -> TextRasterImage? {
         if namespace != keptNamespace { kept.removeAll(); keptBytes = 0; keptNamespace = namespace; return nil }
-        guard var hit = kept[key.anyRoom], hit.image.coverage.whole,
-              hit.key.serves(key, coverage: hit.image.coverage, demand: key.room ?? key.box) else { return nil }
+        guard var hit = kept[key.anyRoom], hit.key.serves(key, ink: hit.image.ink, shadows: hit.image.shadows) else { return nil }
         keptClock += 1; hit.used = keptClock; kept[key.anyRoom] = hit
-        return hit
+        return hit.image
     }
     private func keep(_ image: TextRasterImage?, for key: TextRasterKey, namespace: Int) {
         let any = key.anyRoom
-        guard let image, image.coverage.whole, namespace == keptNamespace else { return }
+        guard let image, namespace == keptNamespace else { return }
         let bytes = image.image.bytesPerRow * image.image.height + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0)
         guard bytes <= Self.keptEntryLimit else { return }
         // A newer image replaces one that cannot serve its room (a narrower view's, its ink cut)
         if let old = kept[any] {
-            guard !old.key.serves(key, coverage: old.image.coverage, demand: image.coverage.support) else { return }
+            guard !old.key.serves(key, ink: old.image.ink, shadows: old.image.shadows) else { return }
             kept.removeValue(forKey: any); keptBytes -= old.bytes
         }
         keptClock += 1
@@ -106,55 +112,63 @@ final class TextRasterizer {
     /// Let go of the pixels no view shows.
     func dropKept() { kept.removeAll(); keptBytes = 0 }
 
+    /// What the paragraph's pixels hold: its words and style, the box they
+    /// are laid out in (its width breaks and aligns the lines), the scale,
+    /// and where its ink is kept (`TextRasterKey.room`), all in the box's own
+    /// space, never where the box is in its view (`NodeView.placeTextRaster`).
+    /// The view's bounds are that room, and a tall view's paragraph is
+    /// painted in bands of the view's rows.
+    /// `urgent`: the band is painted on the main thread now, so it is no
+    /// taller than it must be; a worker's band leads the scroll instead.
     private func key(_ node: NodeView, urgent: () -> Bool) -> TextRasterKey {
         let scale = max(1, node.window?.screen.scale ?? node.traitCollection.displayScale)
         let box = node.paragraphBox(), room = node.textRasterRoom(box)
         var key = TextRasterKey(spec: node.paragraphSpec(), size: box.size, box: CGRect(origin: .zero, size: box.size), scale: scale, room: room)
-        if let accepted = node.specs?.accepted, accepted.namespace == node.text?.namespace, accepted.result.coverage.whole {
-            key.retention = accepted.key.retention
-            if accepted.key.serves(key, coverage: accepted.result.coverage, demand: .null) { return key }
+        // Whole ordinary paragraphs, viewport bands for tall ones. Never allocate
+        // to an unbreakable line's advance; the shared painter clips its ink.
+        if room.height > 4096 || room.width * room.height * scale * scale * 4 > Self.maximumBytes {
+            // `band` and `keeps` measure from the view's top left.
+            let inView = { (r: CGRect) in r.offsetBy(dx: -room.minX, dy: -room.minY) }
+            let port = (node.presenter?.textPreparationRect(node) ?? node.bounds).offsetBy(dx: -box.minX, dy: -box.minY)
+            let down = node.textMore.bandTravel.follow(port)
+            // Kept until the port nears its edge ahead; then a worker paints the next.
+            if let old = node.textRasterKey, var clip = old.clip, clip.minY <= port.minY, clip.maxY >= port.maxY,
+               TextRasterJob.keeps(inView(clip), port: inView(port), down: down, height: room.height) || urgent() {
+                // Its rows, across the view as it is now
+                let columns = TextRasterJob.bandColumns(key.spec, width: room.width).offsetBy(dx: room.minX, dy: 0)
+                clip.origin.x = columns.minX; clip.size.width = columns.width
+                var kept = key
+                kept.clip = clip
+                if kept == old || node.textRasterServes(kept) { return kept }
+            }
+            let now = urgent()
+            let lead = now ? 0 : max(0, Self.leadRoom - leadTaken(besides: node))
+            key.clip = TextRasterJob.band(key.spec, width: room.width, port: inView(port), scale: scale,
+                                          maximumBytes: Self.maximumBytes + lead, down: now ? nil : down)
+                .offsetBy(dx: room.minX, dy: room.minY)
+            banded.add(node)
         }
-        let at = node.textPlace(scale: scale)
-        let port = (node.presenter?.textPreparationRect(node) ?? node.bounds).offsetBy(dx: -at.x, dy: -at.y)
-        let down = node.textMore.bandTravel.follow(port)
-        let now = urgent()
-        let lead = now ? 0 : max(0, Self.leadRoom - leadTaken())
-        let preferred = now ? port : CGRect(x: port.minX - port.width / 2,
-            y: max(room.minY - 32, port.minY - port.height * (down ? 0.25 : 0.75)),
-            width: port.width * 2, height: port.height * 2)
-        key.retention = .viewport(required: port, preferred: preferred, maximumBytes: Self.maximumBytes + lead)
-        banded.add(node)
         return key
     }
 
-    private func leadTaken() -> Int {
-        func charge(_ taken: Int, _ bytes: Int) -> Int {
-            taken + min(Self.leadRoom - taken, max(0, bytes - Self.maximumBytes))
+    /// The allowance other paragraphs' bands hold, counted as a band is
+    /// sized, four bytes a pixel: the pixels each shows, which stay up while
+    /// new ones are asked for (`invalidateText` clears the key and keeps
+    /// them), and each job still to paint, whatever its paragraph asks for
+    /// now (one begun runs to its end). `node`'s own is the band its new one
+    /// replaces.
+    private func leadTaken(besides node: NodeView) -> CGFloat {
+        func beyond(_ width: CGFloat, _ height: CGFloat, _ scale: CGFloat) -> CGFloat {
+            max(0, width * height * scale * scale * 4 - Self.maximumBytes)
         }
-        let shown = banded.allObjects.reduce(0) { taken, node in
-            guard let image = node.specs?.accepted?.result else { return taken }
-            return charge(taken, image.image.bytesPerRow * image.image.height
-                + (image.cast.map { $0.bytesPerRow * $0.height } ?? 0))
+        let shown = banded.allObjects.reduce(0) { taken, other in
+            guard other !== node, other.textRaster != nil else { return taken }
+            return taken + beyond(other.textRasterFrame.width, other.textRasterFrame.height, other.textRasterScale)
         }
         return working.reduce(shown) { taken, work in
-            work.wasAbandoned ? taken : charge(taken, work.reservedBytes)
+            guard work.node !== node, !work.wasAbandoned, let clip = work.key.clip else { return taken }
+            return taken + beyond(clip.width, clip.height, work.key.scale)
         }
-    }
-
-    private func reservation(_ key: TextRasterKey) -> Int {
-        guard case let .viewport(required, _, budget) = key.retention else { return Self.maximumBytes }
-        var x: CGFloat = 0, y: CGFloat = 0
-        for shadow in key.spec.runs.map(\.shadow) + [key.spec.shadow] {
-            guard let shadow, TextEngine.isShadow(shadow) else { continue }
-            x = max(x, min(TextRasterJob.maxShadowReach, abs(shadow[0]) + shadow[2] * 1.5 + 1))
-            y = max(y, min(TextRasterJob.maxShadowReach, abs(shadow[1]) + shadow[2] * 1.5 + 1))
-        }
-        let w = ceil((required.maxX + x) * key.scale) - floor((required.minX - x) * key.scale)
-        let h = ceil((required.maxY + y) * key.scale) - floor((required.minY - y) * key.scale)
-        guard w.isFinite, h.isFinite, w >= 0, h >= 0, w < CGFloat(Int.max), h < CGFloat(Int.max),
-              let bytes = TextRasterJob.byteCount(width: max(1, Int(w)), height: max(1, Int(h)), pixelBytes: 8, cast: true)
-        else { return Int.max }
-        return max(budget, bytes)
     }
 
     /// Pixels for `node`'s paragraph. `urgent`: what shows has none, so they
@@ -168,43 +182,47 @@ final class TextRasterizer {
     /// and a batch's display pass asks again of every paragraph it gave new
     /// words.
     @discardableResult
-    func ensure(_ node: NodeView, urgent isUrgent: @autoclosure () -> Bool, now: Bool = false, priority: Operation.QueuePriority = .normal, deadline: TimeInterval? = nil) -> Bool {
+    func ensure(_ node: NodeView, urgent isUrgent: @autoclosure () -> Bool, now: Bool = false, priority: Operation.QueuePriority = .normal) -> Bool {
         guard node.canRasterText else { return true }
         // Asked once, and only when needed: it walks the clipping ancestors.
         lazy var urgent = isUrgent()
-        guard let engine = node.text else { return true }
-        var key = key(node, urgent: { urgent })
-        let pending = working.last { $0.node === node && $0.incarnation == node.incarnation && $0.namespace == engine.namespace && !$0.wasAbandoned }
-        if let pending, pending.key.containsWindow(key) { key = pending.key }
-        if !now, node.textRasterServes(key), node.specs?.accepted?.result.coverage.whole == true {
-            node.adoptTextRaster(key); return true
-        }
-        if !now, node.textPreparationServed(key, urgent: urgent) { node.adoptTextRaster(key); return true }
+        let key = key(node, urgent: { urgent })
+        // Pixels that hold what `key`'s would are its own (`TextRasterKey.serves`).
+        if node.textRasterKey != key, node.textRasterServes(key) { node.adoptTextRaster(key) }
+        if node.textRasterKey == key && node.textRasterReady { return true }
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
-        let otherWords = node.textRasterSpec != key.spec
+        // A whole paragraph's pixels of other words are none of this text's:
+        // an urgent paint replaces them now, rather than a worker a frame
+        // later. A tall paragraph's bands, a long text and a shadowed one
+        // (each line a blurred layer) keep the worker path.
+        let otherWords = key.clip == nil && node.textRasterSpec != key.spec
             && key.spec.shadow == nil && !key.spec.runs.contains { $0.shadow != nil }
             && key.spec.runs.reduce(0) { $0 + $1.text.utf16.count } <= Self.urgentWords
-        let missingPixels = !node.textRasterAnswers(visible) || now || otherWords
+        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now || otherWords
+        if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
-        if !now, let hit = keptImage(key, namespace: engine.namespace) {
+        let pending = working.last { $0.node === node }
+        guard let engine = node.text else { return true }
+        if key.clip == nil, let image = keptImage(key, namespace: engine.namespace) {
             if let pending { _ = pending.abandon() }
-            node.textRasterKey = key; node.textRasterFailed = false
-            node.showTextRaster(hit.image, for: hit.key, namespace: engine.namespace, requested: key)
+            node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
+            node.showTextRaster(image, for: key)
             return true
         }
-        if let pending, pending.key == key {
-            node.textRasterKey = key
-            if !firstPixels || (take(pending) && node.textRasterAnswers(visible)) { return true }
+        // A finished worker for this key shows only if the node still asks
+        // for it: the key a batch's change cleared is asked for again first
+        if firstPixels, let pending, pending.key == key {
+            node.textRasterKey = key; node.textRasterReady = false
+            if take(pending), node.textRasterReady { return true }
         }
-        guard firstPixels || (hasRoom && deadline.map({ CACurrentMediaTime() < $0 }) != false) else { return false }
+        guard firstPixels || hasRoom else { return false }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
         guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return true }
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
-            box: key.box, size: key.size, scale: key.scale, room: key.room, retention: key.retention,
-            layerShadow: key.spec.hdrShadow == nil ? key.spec.shadow.map(TextRunShadow.init) : nil,
+            box: key.box, size: key.size, scale: key.scale, clip: key.clip, room: key.room,
             ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
             // A layer shadow and a vibrancy view each take the ink as it is.
             tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil),
@@ -213,18 +231,18 @@ final class TextRasterizer {
             measuredColor: TextEngine.color(key.spec.color).cgColor)
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
-        node.textRasterKey = key; node.textRasterFailed = false
+        node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
         if firstPixels, urgentBatch != nil {
             urgentBatch?.append(UrgentPaint(node: node, key: key, job: job, namespace: engine.namespace))
         } else if firstPixels {
             let post = Presenter.signposts.beginInterval("text-raster-urgent"), phase = HostPhases.shared.begin(.text)
             defer { HostPhases.shared.end(phase) }
             let image = job.render()
-            node.showTextRaster(image, for: key, namespace: engine.namespace)
-            keep(image, for: key, namespace: engine.namespace)
+            node.showTextRaster(image, for: key)
+            if key.clip == nil { keep(image, for: key, namespace: engine.namespace) }
             Presenter.signposts.endInterval("text-raster-urgent", post)
         } else {
-            let work = Work(node, key: key, namespace: engine.namespace, reservedBytes: reservation(key))
+            let work = Work(node, key: key, namespace: engine.namespace)
             working.append(work)
             work.group.notify(queue: .main) { [weak self] in self?.publish(work) }
             let operation = BlockOperation {
@@ -286,8 +304,8 @@ final class TextRasterizer {
         }
         Presenter.signposts.endInterval("text-raster-urgent", post)
         for (paint, image) in zip(batch, images) {
-            paint.node.showTextRaster(image, for: paint.key, namespace: paint.namespace)
-            keep(image, for: paint.key, namespace: paint.namespace)
+            paint.node.showTextRaster(image, for: paint.key)
+            if paint.key.clip == nil { keep(image, for: paint.key, namespace: paint.namespace) }
         }
     }
 
@@ -314,11 +332,9 @@ final class TextRasterizer {
         working.remove(at: index)
         // Dropped unstarted: no pixels, and no failure either.
         guard !work.wasAbandoned else { return }
-        keep(work.result, for: work.key, namespace: work.namespace)
-        guard let node = work.node, node.incarnation == work.incarnation, node.text?.namespace == work.namespace else { return }
-        if let requested = node.textRasterKey, requested.sameContent(as: work.key) {
-            node.showTextRaster(work.result, for: work.key, namespace: work.namespace, requested: requested)
-        }
+        if work.key.clip == nil { keep(work.result, for: work.key, namespace: work.namespace) }
+        guard let node = work.node, node.incarnation == work.incarnation else { return }
+        node.showTextRaster(work.result, for: work.key)
         node.presenter?.requestTextPublication()
     }
     /// Jobs whose paragraph left, or whose text or box changed since, or
@@ -369,33 +385,10 @@ extension NodeView {
         NumeralLink.installed != nil && !Capture.capturing
             && (style["content_transition"]?.string ?? "none") != "none"
     }
-    var currentTextRaster: AcceptedTextRaster? {
-        guard let accepted = specs?.accepted, let key = textRasterKey, accepted.namespace == text?.namespace,
-              key.scale == max(1, window?.screen.scale ?? traitCollection.displayScale), key.size == paragraphBox().size,
-              accepted.key.serves(key, coverage: accepted.result.coverage, demand: .null) else { return nil }
-        return accepted
-    }
-    var textRasterWhole: Bool { currentTextRaster?.result.coverage.whole == true }
-    var textRasterReady: Bool {
-        guard let key = textRasterKey else { return false }
-        return textRasterServes(key)
-    }
-    var textRasterSettled: Bool { textRasterWhole && textRasterReady }
-
-    func textRasterAnswers(_ demand: CGRect) -> Bool {
-        guard let accepted = currentTextRaster else { return false }
-        let at = textPlace(scale: accepted.key.scale)
-        return accepted.result.coverage.covers(demand.offsetBy(dx: -at.x, dy: -at.y))
-    }
-
-    func textPaintBounds(in clip: CGRect) -> CGRect {
-        if let accepted = currentTextRaster {
-            let at = textPlace(scale: accepted.key.scale)
-            return accepted.result.coverage.support.offsetBy(dx: at.x, dy: at.y).intersection(clip)
-        }
-        let y = bounds.insetBy(dx: 0, dy: TextRasterJob.maxShadowReach * -1)
-        return CGRect(x: clip.minX, y: y.minY, width: clip.width, height: y.height).intersection(clip)
-    }
+    /// The whole paragraph's pixels are up for its current text and box: a
+    /// refresh has nothing to do for it until a change clears its key
+    /// (`invalidateText`, `textRasterGeometryChanged`, `dropTextRaster`).
+    var textRasterSettled: Bool { textRasterReady && textRasterWhole }
     func textRasterGeometryChanged() {
         // Laid out to nothing (a text that became a collapsed space, as
         // stopwatch's status line did on Reset, LLP 1116.005 D4), it paints
@@ -423,57 +416,32 @@ extension NodeView {
     /// The view's bounds in its text's box's space: where the paragraph's
     /// ink is kept (`TextRasterKey.room`).
     func textRasterRoom(_ box: CGRect) -> CGRect { bounds.offsetBy(dx: -box.minX, dy: -box.minY) }
+    /// Whether the pixels shown are exactly `key`'s (`TextRasterKey.serves`).
     func textRasterServes(_ key: TextRasterKey) -> Bool {
-        guard let accepted = specs?.accepted, accepted.namespace == text?.namespace else { return false }
-        let demand: CGRect
-        if case let .viewport(required, _, _) = key.retention { demand = required }
-        else { demand = key.room ?? key.box }
-        return accepted.key.serves(key, coverage: accepted.result.coverage, demand: demand)
+        guard textRasterReady, let shown = textRasterKey else { return false }
+        return shown.serves(key, ink: textMore.rasterInk.ink, shadows: textMore.rasterInk.shadows)
     }
-
-    func textPreparationServed(_ key: TextRasterKey, urgent: Bool) -> Bool {
-        guard textRasterServes(key), let accepted = specs?.accepted else { return false }
-        let coverage = accepted.result.coverage
-        if coverage.whole || urgent { return true }
-        guard case let .viewport(required, _, budget) = key.retention else { return true }
-        if case let .viewport(was, _, allowance) = accepted.key.retention, was == required, budget <= allowance { return true }
-        let answer = coverage.answered, support = coverage.support
-        let down = textMore.bandTravel.down
-        let vertical = down ? answer.maxY >= support.maxY || answer.maxY - required.maxY >= required.height / 2
-                            : answer.minY <= support.minY || required.minY - answer.minY >= required.height / 2
-        let horizontal = (answer.minX <= support.minX || required.minX - answer.minX >= required.width / 4)
-            && (answer.maxX >= support.maxX || answer.maxX - required.maxX >= required.width / 4)
-        return vertical && horizontal
-    }
-
+    /// Takes `key` for the pixels shown, which serve it: they answer for its
+    /// room too (`placeTextRaster`).
     func adoptTextRaster(_ key: TextRasterKey) {
         textRasterKey = key
+        textMore.rasterRoom = key.room ?? key.box
         placeTextRaster()
     }
-
-    func showTextRaster(_ result: TextRasterImage?, for key: TextRasterKey, namespace: Int? = nil, requested: TextRasterKey? = nil) {
-        let namespace = namespace ?? text?.namespace
-        let request = requested ?? key
-        guard presenter?.views[id] === self, textRasterKey == request, let namespace, namespace == text?.namespace else { return }
-        if request != key {
-            guard let result, key.serves(request, coverage: result.coverage, demand: .null) else { return }
-            let at = textPlace(scale: key.scale)
-            let visible = (presenter?.textScrollportRect(self) ?? .zero).offsetBy(dx: -at.x, dy: -at.y)
-            guard result.coverage.covers(visible) else { return }
-        }
+    func showTextRaster(_ result: TextRasterImage?, for key: TextRasterKey) {
+        guard presenter?.views[id] === self, textRasterKey == key, !textRasterReady else { return }
         guard let result else {
-            if let visible = presenter?.textScrollportRect(self), textRasterAnswers(visible) { return }
             dropTextRaster()
             textRasterKey = key; textRasterFailed = true
+            // Retrying display through UIKit supplies the allocation fallback.
             setNeedsDisplay()
             return
         }
-        if let visible = presenter?.textScrollportRect(self), textRasterAnswers(visible) {
-            let at = textPlace(scale: key.scale)
-            guard result.coverage.covers(visible.offsetBy(dx: -at.x, dy: -at.y)) else { return }
-        }
-        textMore.accepted = AcceptedTextRaster(key: key, result: result, namespace: namespace)
-        textRasterFailed = false
+        let shown = textRasterSpec
+        textRaster = result.image; textRasterScale = key.scale; textRasterSpec = key.spec
+        textMore.rasterCovered = result.covered; textMore.rasterBand = key.clip != nil; textMore.rasterInk = (result.ink, result.shadows)
+        textMore.rasterRoom = key.room ?? key.box
+        textRasterReady = true; textRasterFailed = false
         // One colour's coverage masks that colour; other ink carries its
         // own colours. Each has its own layer.
         let tint = result.tint
@@ -494,6 +462,8 @@ extension NodeView {
         hostText(ink)
         ink.frame = result.frame
         ink.contentsScale = key.scale
+        // The lines' clock settled first: a numeral roll runs in it
+        textBoxLayer?.show(from: shown, to: key.spec)
         let roll = NumeralRoll.roll(ink, node: self)
         if tint == nil { ink.contents = result.image }
         TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
@@ -513,26 +483,38 @@ extension NodeView {
     func dropTextRaster() {
         textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
         removeTextBox()
-        textMore.accepted = nil; textRasterKey = nil; textRasterFailed = false
+        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 
-    /// The paragraph's ink in its text's box (`placeTextRaster`), made now
-    /// if it has none. The box is inside a vibrancy view when the ink draws
-    /// in a system colour over a blur (`VibrancyIOS.swift`).
+    /// The paragraph's ink in the lines layer inside its text's box
+    /// (`makeTextBox`, `placeTextRaster`), the box made now if it has none.
+    /// The box is inside a vibrancy view when the ink draws in a system colour
+    /// over a blur (`VibrancyIOS.swift`).
     func hostText(_ ink: CALayer) {
         let made = textBoxLayer == nil
         if made { CATransaction.begin(); CATransaction.setDisableActions(true) }
         defer { if made { CATransaction.commit() } }
         let box = textBoxLayer ?? makeTextBox()
-        if ink.superlayer !== box { box.addSublayer(ink) }
+        if let lines = box.lines, ink.superlayer !== lines { lines.addSublayer(ink) }
         textRasterLayer = ink
         if box.superlayer == nil, syncVibrancy() == nil { mountTextBox() }
         placeTextRaster()
     }
 
-    private func makeTextBox() -> CALayer {
-        let box = BoxPartLayer()
+    /// The box, placed and sized as the paragraph's content box, moving and
+    /// resizing in UIKit's animation (`BoxPartLayer`), with its lines at its
+    /// origin, which never move in it. The lines are a layer of their own for
+    /// a fade (`TextBoxLayer`): a transition was seen to render the old state of
+    /// the layer it is on with that layer's geometry before the change, so a
+    /// fade on the box itself, moved in the same transaction, left the old
+    /// lines where it was; and a fade on the ink alone left out a one-colour
+    /// ink's coverage mask (both states showed the new one).
+    private func makeTextBox() -> TextBoxLayer {
+        let box = TextBoxLayer(), lines = InkLayer()
         box.anchorPoint = .zero
+        lines.anchorPoint = .zero
+        box.addSublayer(lines)
+        box.lines = lines
         textBoxLayer = box
         return box
     }
@@ -562,10 +544,17 @@ extension NodeView {
     /// moves with it (`BoxPartLayer`); what it holds changes only with the
     /// pixels (`showTextRaster`).
     func placeTextRaster() {
-        guard let box = textBoxLayer else { return }
+        guard let box = textBoxLayer, let specs else { return }
         let at = textPlace(scale: textRasterScale), size = paragraphBox().size
         if box.position != at { box.position = at }
         if box.bounds.size != size { box.bounds = CGRect(origin: .zero, size: size) }
+        // What the pixels answer for in this view: the room they were painted
+        // for (the view's bounds then, `TextRasterKey.room`) and the ink past
+        // it; a band, only its rows. Bounds that grew since are not theirs
+        // until they are painted again or shown to serve them.
+        let covered = specs.rasterCovered.offsetBy(dx: at.x, dy: at.y), room = specs.rasterRoom.offsetBy(dx: at.x, dy: at.y)
+        let rows = specs.rasterBand ? CGRect(x: room.minX, y: covered.minY, width: room.width, height: covered.height) : room
+        textRasterFrame = covered.isNull ? .zero : covered.union(rows)
     }
 }
 
@@ -634,11 +623,9 @@ final class TextClips {
         guard let s = above, view.transform.isIdentity, CATransform3DIsIdentity(view.layer.transform) else { return nil }
         return CGPoint(x: s.x + view.frame.minX - view.bounds.minX, y: s.y + view.frame.minY - view.bounds.minY)
     }
+    /// `node`'s bounds in viewport space.
     func frame(_ node: NodeView) -> CGRect {
-        let own = entry(node).shift
-        let outer = viewport.bounds.insetBy(dx: -reaches.max()!, dy: -reaches.max()!)
-        let local = own.map { outer.offsetBy(dx: -$0.x, dy: -$0.y) } ?? node.convert(outer, from: viewport)
-        return rect(node.textPaintBounds(in: local), of: node, shift: own)
+        rect(node.bounds, of: node, shift: shift(node, above: entry(node.superview).shift))
     }
     /// What `Presenter.textBand` finds by walking, for this reach or none;
     /// nil for any other reach, and outside the viewport or under a
@@ -648,13 +635,14 @@ final class TextClips {
     func band(_ node: NodeView, reach: CGFloat) -> CGRect? {
         guard let index = reaches.firstIndex(of: reach) else { return nil }
         if node.isHidden || node.alpha == 0 { return .zero }
-        let current = entry(node)
-        var clip = current.clips[index]
+        let above = entry(node.superview)
+        let clip = above.clips[index]
         guard !clip.isNull else { return .zero }
-        if clip.isInfinite { clip = viewport.bounds.insetBy(dx: -reach, dy: -reach) }
-        guard let own = current.shift else { return nil }
-        let band = node.textPaintBounds(in: clip.offsetBy(dx: -own.x, dy: -own.y))
-        return band.isNull ? .zero : band
+        if clip.isInfinite { return node.bounds }
+        guard let own = shift(node, above: above.shift) else { return nil }
+        let band = rect(node.bounds, of: node, shift: own).intersection(clip)
+        guard !band.isNull else { return .zero }
+        return band.offsetBy(dx: -own.x, dy: -own.y).intersection(node.bounds)
     }
 }
 
@@ -664,17 +652,15 @@ extension Presenter {
     private func textBand(_ node: NodeView, reach: CGFloat) -> CGRect {
         guard node.window != nil else { return .zero }
         if let band = textClips?.band(node, reach: reach) { return band }
-        guard let window = node.window else { return .zero }
-        var result = node.convert(window.bounds, from: window).insetBy(dx: -reach, dy: -reach)
+        var result = node.bounds
         var ancestor: UIView? = node
         while let view = ancestor {
             if view.isHidden || view.alpha == 0 { return .zero }
-            if view.clipsToBounds || view is UIWindow {
+            if view !== node && (view.clipsToBounds || view is UIWindow) {
                 result = result.intersection(node.convert(view.bounds, from: view).insetBy(dx: -reach, dy: -reach))
             }
             ancestor = view.superview
         }
-        result = node.textPaintBounds(in: result)
         return result.isNull ? .zero : result
     }
     func textScrollportRect(_ node: NodeView) -> CGRect { textBand(node, reach: 0) }
@@ -713,7 +699,7 @@ extension Presenter {
             clips = c; textClips = c
             if culls && !presented(node) && !c.frame(node).intersects(port) { return true }
             let visible = textScrollportRect(node)
-            guard !visible.isEmpty, !node.textRasterAnswers(visible) else { return true }
+            guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { return true }
             textRasters.ensure(node, urgent: true)
             return true
         }
@@ -795,13 +781,14 @@ extension Presenter {
         var deferred = false
         for (distance, node) in ranked {
             let visible = textScrollportRect(node)
-            if !visible.isEmpty && (!node.textRasterAnswers(visible)) {
+            if !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible)) {
                 textRasters.ensure(node, urgent: true)
                 continue
             }
             guard !node.textRasterSettled else { continue }
+            if !textRasters.hasRoom || deadline.map({ CACurrentMediaTime() >= $0 }) == true { deferred = true; continue }
             let priority: Operation.QueuePriority = distance == 0 ? .veryHigh : distance <= soon ? .high : .normal
-            if !textRasters.ensure(node, urgent: false, priority: priority, deadline: deadline) { deferred = true }
+            if !textRasters.ensure(node, urgent: false, priority: priority) { deferred = true }
         }
         return deferred
     }

@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { contractFns } from '../support/contract-fn-fixture';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
 import { readFileSync } from 'node:fs';
-import { appText, appFiles, appPath } from '../support/app-files';
+import { appFiles, appPath, appText } from '../support/app-files';
 import { threadJumpModifiers } from '../../src/sidebar/sidebar-view';
 import type { T3Client } from '../../src/client/client';
 
@@ -88,7 +88,7 @@ describe('the window tracks held modifiers from its key events', () => {
     expect(fns.speedModifiers(state.speedModifierState as State)).toBe(false);
   });
   test('the composer\'s own focus is a field\'s, as at a launch that seats the focus there', () => {
-    const state = { ...rootState(), composerComposing: false, restResting: false };
+    const state = { ...rootState(), composerComposing: false };
     state.speedModifierState = { ...emptyState(), shiftKey: true };
     root.call('composerFocus', state, { ...scope(), richComposer: { mode: 'rich' }, modifierEditableFocus: () => root.call('modifierEditableFocus', state, scope(), []) }, []);
     expect(state.speedModifierState).toEqual(emptyState());
@@ -167,7 +167,7 @@ const taskOf = (name: string) => {
 };
 const deriveOf = (name: string) => new RegExp(`^  derive ${name} = (.+)$`, 'm').exec(appSource)![1]!;
 const held = contractFns('src/shared/press-modifiers.contract');
-const env = (over: Env = {}): Env => ({ ...fns, ...held, data: { legacy: { enabled: false, jumpModifiers: [] }, sidebar: { jumpModifiers: ['meta'] } },
+const env = (over: Env = {}): Env => ({ ...fns, ...held, data: { sidebar: { jumpModifiers: ['meta'] } },
   page: { hasFocus: true }, shortcutModifiers: emptyState(), speedModifierState: emptyState(), threadJumpHintsShown: false, ...over });
 const withHeld = (over: Env = {}) => { const e = env(over); e.threadJumpsHeld = value(deriveOf('threadJumpsHeld'), e); return e; };
 
@@ -179,8 +179,8 @@ describe('the thread-jump hints show 200 ms after ⌘ alone and hide at once', (
     expect(value(delay.gate, withHeld({ shortcutModifiers: { ...emptyState(), metaKey: true, shiftKey: true } }))).toBe(false);
     expect(value(delay.gate, withHeld())).toBe(false);
     expect(value(delay.gate, withHeld({ shortcutModifiers: { ...emptyState(), metaKey: true }, threadJumpHintsShown: true }))).toBe(false);
-    // The legacy sidebar's list when it is on.
-    expect(value(delay.gate, withHeld({ shortcutModifiers: { ...emptyState(), ctrlKey: true }, data: { legacy: { enabled: true, jumpModifiers: ['control'] }, sidebar: { jumpModifiers: ['meta'] } } }))).toBe(true);
+    // The sidebar's own list: Control alone when its jump bindings use it.
+    expect(value(delay.gate, withHeld({ shortcutModifiers: { ...emptyState(), ctrlKey: true }, data: { sidebar: { jumpModifiers: ['control'] } } }))).toBe(true);
   });
   test('shown hints hide in the same commit ⌘ comes up, and the shown flag resets a millisecond later', () => {
     const shown = withHeld({ threadJumpHintsShown: true });
@@ -246,7 +246,7 @@ describe('Shift alone shows a row\'s quick actions (PullRequestSpeedActions)', (
 });
 
 describe('a thread row shows its jump label only while the hints show', () => {
-  for (const [file, name, marker] of [['src/sidebar/sidebar-row.contract', 'ThreadRow', 'text t.jump font-family'], ['src/sidebar/legacy-sidebar.contract', 'LegacyThread', 'text t.jump height']] as const) {
+  for (const [file, name, marker] of [['src/sidebar/sidebar-row.contract', 'ThreadRow', 'text t.jump font-family']] as const) {
     test(`${name}: threadJumpHints and a label`, () => {
       const component = contractComponent(file, name), state = component.state();
       // The row's other props and derives at rest: each name the view reads before the label is '' (no hover, no card).

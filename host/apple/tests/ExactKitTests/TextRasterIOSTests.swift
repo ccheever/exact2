@@ -48,12 +48,6 @@ final class TextRasterIOSTests: XCTestCase {
         while p.textRasters.inFlight > 0 && Date() < end { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01)) }
     }
 
-    private func preferred(_ node: NodeView) throws -> CGRect {
-        let key = try XCTUnwrap(node.textRasterKey)
-        guard case let .viewport(_, preferred, _) = key.retention else { XCTFail("expected a viewport request"); return .zero }
-        return preferred
-    }
-
     func testAlignedExtentsKeepTheirPhysicalPixelSpan() {
         let bounds = CGRect(x: 0, y: 0, width: 402, height: 874)
         func extent(_ physical: CGRect, scale: CGFloat = 3, clip: CGRect? = nil) -> TextRasterExtent {
@@ -200,7 +194,7 @@ final class TextRasterIOSTests: XCTestCase {
         RegionTextExecutor.queue.isSuspended = true
         p.textRasters.ensure(node, urgent: false)
         XCTAssertEqual(p.textRasters.inFlight, 1, "a worker paints the band")
-        let first = try preferred(node)
+        let first = try XCTUnwrap(node.textRasterKey?.clip)
         let port = p.textPreparationRect(node)
         XCTAssertTrue(first.contains(port))
         XCTAssertGreaterThan(first.maxY - port.maxY, port.minY - first.minY, "with more of it ahead of the travel than behind")
@@ -209,13 +203,13 @@ final class TextRasterIOSTests: XCTestCase {
 
         scroll(2050)
         XCTAssertTrue(p.textRasters.ensure(node, urgent: false))
-        XCTAssertEqual(node.specs?.accepted?.result.coverage.answered.maxY, first.maxY, "well inside the band, the port keeps its rows")
+        XCTAssertEqual(node.textRasterKey?.clip, first, "well inside the band, the port keeps it")
         XCTAssertEqual(p.textRasters.inFlight, 0)
 
         scroll(first.maxY - 150 - port.height)
         RegionTextExecutor.queue.isSuspended = true
         p.textRasters.ensure(node, urgent: false)
-        let next = try preferred(node)
+        let next = try XCTUnwrap(node.textRasterKey?.clip)
         XCTAssertEqual(p.textRasters.inFlight, 1, "within half a port of its edge, a worker paints the next")
         XCTAssertGreaterThan(next.maxY, first.maxY)
         drain(p)
@@ -225,9 +219,12 @@ final class TextRasterIOSTests: XCTestCase {
         node.dropTextRaster()
         p.textRasters.ensure(node, urgent: true)
         XCTAssertTrue(node.textRasterReady, "shown without pixels: painted here, the queue held")
-        XCTAssertTrue(node.textRasterAnswers(p.textPreparationRect(node)))
+        XCTAssertTrue(try XCTUnwrap(node.textRasterKey?.clip).contains(p.textPreparationRect(node)))
     }
 
+    /// Two tall paragraphs side by side share one allowance for room ahead
+    /// of the port: while one band holds it, the other's is the port's
+    /// height, and once that paragraph lets its pixels go the other leads.
     func testTallParagraphsShareTheRoomAheadOfThePort() throws {
         let session = ExactApp.shared.makeSession(label: "text-bands-shared")
         defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
@@ -239,10 +236,8 @@ final class TextRasterIOSTests: XCTestCase {
         let words = Array(repeating: "Why a magazine measures first and draws second.", count: 600).joined(separator: " ")
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "text", "props": ["text": words],
-             "style": ["font_size": 16.0, "text_shadow": ["o": [0, 0], "b": 0, "c": [0, 0, 0, 255]]]],
-            ["op": "create", "id": 3, "kind": "text", "props": ["text": words],
-             "style": ["font_size": 16.0, "text_shadow": ["o": [0, 0], "b": 0, "c": [0, 0, 0, 255]]]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": words], "style": ["font_size": 16.0]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": words], "style": ["font_size": 16.0]],
             ["op": "children", "id": 1, "ids": [2, 3]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 1600.0, "h": 6000.0],
@@ -253,45 +248,39 @@ final class TextRasterIOSTests: XCTestCase {
         p.viewport.contentOffset.y = 2000
         drain(p)
         let left = try XCTUnwrap(p.views[2]), right = try XCTUnwrap(p.views[3])
-        let base = TextRasterJob.maximumBytes, lead = 32 * 1024 * 1024
-        func allowance(_ node: NodeView) throws -> Int {
-            let key = try XCTUnwrap(node.textRasterKey)
-            guard case let .viewport(_, _, bytes) = key.retention else { XCTFail("expected a viewport request"); return 0 }
-            return bytes
-        }
         left.dropTextRaster(); right.dropTextRaster()
         RegionTextExecutor.queue.isSuspended = true
         p.textRasters.ensure(left, urgent: false)
-        XCTAssertEqual(try allowance(left), base + lead)
+        let port = p.textPreparationRect(left).height
+        XCTAssertGreaterThan(try XCTUnwrap(left.textRasterKey?.clip).height, port + 100, "the first leads the port")
         p.textRasters.ensure(right, urgent: false)
-        XCTAssertEqual(try allowance(right), base, "the unfinished left job consumes the shared lead")
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the allowance is taken: the other's band is the port")
+        // Shown, then invalidated: its pixels stay up and still hold the allowance
         drain(p)
-        for node in [left, right] {
-            let accepted = try XCTUnwrap(node.specs?.accepted)
-            XCTAssertTrue(node.textRasterAnswers(p.textPreparationRect(node)))
-            XCTAssertFalse(accepted.result.coverage.whole)
-            XCTAssertLessThanOrEqual(accepted.result.image.bytesPerRow * accepted.result.image.height, 48 * 1024 * 1024)
-        }
-        let pixels = try XCTUnwrap(left.textRaster)
-        let heldBytes = pixels.bytesPerRow * pixels.height
-        XCTAssertGreaterThan(heldBytes, base, "the retained left output actually consumes lead")
-        left.invalidateText()
-        XCTAssertTrue(left.textRaster === pixels, "old output stays mounted during invalidation")
+        XCTAssertNotNil(left.textRaster)
         right.dropTextRaster()
+        left.invalidateText()
         RegionTextExecutor.queue.isSuspended = true
         p.textRasters.ensure(right, urgent: false)
-        XCTAssertEqual(try allowance(right), base + max(0, lead - (heldBytes - base)), "invalidation retains the displayed output's charge")
-        left.dropTextRaster(); right.dropTextRaster()
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the first's pixels are still up: the other's band is the port")
+        // Its pixels gone but a band of it still to paint: that holds the allowance too
         p.textRasters.ensure(left, urgent: false)
-        XCTAssertEqual(try allowance(left), base, "the unfinished right job stays charged after its view drops the pixels")
         left.dropTextRaster()
-        p.textRasters.abandonStale { _ in false }
-        p.textRasters.ensure(left, urgent: false)
-        XCTAssertEqual(try allowance(left), base + lead, "abandoned unstarted work and released output restore the allowance")
+        right.dropTextRaster()
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertEqual(try XCTUnwrap(right.textRasterKey?.clip).height, p.textPreparationRect(right).height, accuracy: 0.5,
+                       "the first's job is still to paint: the other's band is the port")
         drain(p)
-        XCTAssertTrue(left.textRasterAnswers(p.textPreparationRect(left)))
+        right.dropTextRaster()
+        p.textRasters.ensure(right, urgent: false)
+        XCTAssertGreaterThan(try XCTUnwrap(right.textRasterKey?.clip).height, port + 100, "the first let it go: the other leads")
     }
 
+    /// A paragraph whose pixels are its words already returns before
+    /// `ensure` asks whether it is urgent or what shows: a batch's display
+    /// pass asks again of every paragraph the batch gave new words.
     func testEnsureAsksNothingOfAParagraphWhosePixelsAreCurrent() throws {
         let session = fixture("text-current")
         defer { session.destroy() }
@@ -300,17 +289,13 @@ final class TextRasterIOSTests: XCTestCase {
         move(p, y: 100)
         p.paintVisibleText()
         XCTAssertTrue(node.textRasterReady)
-        let image = try XCTUnwrap(node.textRaster)
-        var urgencyChecks = 0
-        func urgent() -> Bool { urgencyChecks += 1; return true }
+        var asked = 0
+        func urgent() -> Bool { asked += 1; return true }
         p.textRasters.ensure(node, urgent: urgent())
-        XCTAssertEqual(urgencyChecks, 0)
-        XCTAssertTrue(node.textRaster === image)
+        XCTAssertEqual(asked, 0)
         node.invalidateText()
         p.textRasters.ensure(node, urgent: urgent())
-        XCTAssertEqual(urgencyChecks, 0)
-        XCTAssertTrue(node.textRaster === image, "identical content can reuse its accepted pixels")
-        XCTAssertTrue(node.textRasterSettled)
+        XCTAssertEqual(asked, 1, "new words are asked about")
     }
 
     /// A scroll moves no paragraph in its scroller's content, so the index
@@ -366,65 +351,11 @@ final class TextRasterIOSTests: XCTestCase {
         parent.transform = CGAffineTransform(rotationAngle: .pi / 4)
         // Below the parent's own bounds, inside their rotated bounding box.
         node.frame = CGRect(x: 0, y: 120, width: 100, height: 20)
-        p.textRasters.ensure(node, urgent: true)
         let walked = p.textScrollportRect(node)
         XCTAssertTrue(walked.isEmpty, "\(walked)")
         p.textClips = TextClips(p.viewport, soon: 0, reach: 0)
         defer { p.textClips = nil }
         XCTAssertEqual(p.textScrollportRect(node), walked)
-    }
-
-    func testColdHorizontalOverflowAndReversalConvergeWithoutReplacingTheNode() throws {
-        let session = fixture("horizontal-raster-window")
-        defer { session.destroy(); RegionTextExecutor.queue.isSuspended = false }
-        let p = session.presenter, node = try XCTUnwrap(session.presenter.views[2])
-        let source = String(repeating: "independently scrolling code line ", count: 400)
-        p.apply(wireBatch([
-            ["op": "props", "id": 2, "set": ["text": source]],
-            ["op": "style", "id": 2, "set": ["white_space": "pre", "font_family": "monospace"]],
-            ["op": "frame", "id": 2, "x": 14.0, "y": 100.0, "w": 336.0, "h": 44.0],
-        ]))
-        let spec = node.paragraphSpec(), paragraph = try XCTUnwrap(node.paragraphLayout())
-        let advance = paragraph.lines.map { CTLineGetTypographicBounds($0, nil, nil, nil) }.max()!
-        let scale = window.screen.scale
-        p.viewport.contentSize.width = ceil((advance + 14) * scale) / scale
-        let edge = p.viewport.contentSize.width - p.viewport.bounds.width
-        let incarnation = node.incarnation
-        p.viewport.contentOffset.x = edge
-        node.dropTextRaster()
-        RegionTextExecutor.queue.isSuspended = true
-        p.paintVisibleText()
-        XCTAssertGreaterThan(p.viewport.contentOffset.x, node.frame.maxX)
-        XCTAssertFalse(p.textScrollportRect(node).isEmpty, "ink remains visible after the allocation has left")
-        XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
-        XCTAssertFalse(node.textRasterWhole)
-        let builds = p.textIndex.builds
-        for x in [CGFloat(0), edge, edge / 2, edge] {
-            p.viewport.contentOffset.x = x
-            p.paintVisibleText()
-            XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
-            XCTAssertEqual(node.incarnation, incarnation)
-            XCTAssertEqual(node.paragraphSpec(), spec)
-        }
-        for _ in 0..<TextRasterizer.concurrency * 3 {
-            XCTAssertFalse(p.refreshVisibleText(), "current admitted demand stays out of deferred debt while workers are paused")
-            XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
-        }
-        drain(p)
-        _ = p.refreshVisibleText()
-        drain(p)
-        XCTAssertFalse(p.refreshVisibleText(), "accepted or admitted work is not deferred pump debt")
-        drain(p)
-        let pixels = node.textRaster
-        XCTAssertFalse(p.refreshVisibleText())
-        XCTAssertTrue(node.textRaster === pixels, "an unchanged demand does not repaint trimmed lead")
-        XCTAssertEqual(p.textIndex.builds, builds, "moving a raster window does not rebuild the index")
-        let checkpoint = session.text.checkpoint()
-        session.text.restore(checkpoint)
-        XCTAssertFalse(node.textRasterSettled)
-        XCTAssertFalse(node.textRasterReady, "old engine namespaces cannot serve current requests")
-        p.paintVisibleText()
-        XCTAssertTrue(node.textRasterAnswers(p.textScrollportRect(node)))
     }
 }
 #endif

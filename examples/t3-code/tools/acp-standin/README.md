@@ -28,7 +28,12 @@ server reports the turn blocked on another thread (the sidebar's Waiting); "Link
 replies with a `t3-thread://v1/<id>` link (a thread chip); "Fail the turn" fails the turn with a
 provider's JSON error whose message is a sentence (the thread error banner's message). "Show the
 Markdown sample pausing <n>s" replies with a Mermaid flowchart, then n seconds later a sequence
-diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. Each new or
+diagram, a table and two display formulas, so a drive sees a closed fence drawn mid-reply. "Show the italic sample" replies with emphasis (`*…*` and `_…_`, in prose and a list); "Hold the turn"
+streams "Holding the turn." and keeps the turn running until `install.mjs release --home <t3 home>` writes `release`
+beside the executable, or the server cancels it (`session/cancel`, as a steer or Stop does); "Which effort?" replies
+with the session's reasoning effort. Each session offers a reasoning effort select (`configOptions`, category
+`thought_level`: Low, Medium, High, Max), which the server lists as the model's effort option and sets with
+`session/set_config_option`, so the composer shows effort as a word or bars. Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
 lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps
@@ -52,6 +57,7 @@ From `examples/t3-code/tools/acp-standin`:
 ```sh
 H=../../../../target/t3-fixtures/envs/second/t3home
 bun install.mjs install --home $H [--mode agent|terminal|both|none] [--auth-delay <ms>] [--no-logout]
+bun install.mjs release --home $H        # ends a turn "Hold the turn" holds
 bun ../second-environment/env.mjs start second
 bun ../second-environment/env.mjs drive --pair second --storage p1 -- "prefer keyboard-navigation true" \
   "tap toast-dismiss-1" "tap connection-settings" "clock settle" "tap settings-providers" "clock data" \

@@ -151,6 +151,140 @@ test('blank text rows clear a shorthand start through adoption', async () => {
   });
 }, 60000);
 
+// @ref LLP 1153 D7.2 — the HTML parser puts a table's own rows in a `tbody`, and the plan has it, so
+// the parsed page is the one construction walks; a cell holding one text stays a `table-cell`.
+test('a table rendered ahead adopts without a rebuild, its cells still cells', async () => {
+  const source = `routes nav
+  home "/" render=build
+
+component Moves
+  state count = 0
+  action add
+    count = count + 1
+  view
+    column
+      button testId="add" press=add
+        text "Add"
+      table testId="moves"
+        caption testId="caption"
+          text "Moves"
+        tr
+          th scope="col" testId="name"
+            text "Name"
+          th scope="col"
+            text "Power"
+        tr
+          td testId="tackle"
+            text "Tackle"
+          td testId="count"
+            text \`\${count}\`
+`;
+  const cells = `[...document.querySelectorAll('caption, th, td')].map(e => getComputedStyle(e).display)`;
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + e.children.length)`;
+  const want = ['table-caption', 'table-cell', 'table-cell', 'table-cell', 'table-cell'];
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, html, dist) => {
+    const displayed = html('').match(/<(?:caption|t[dh])\b[^>]*>/g).filter(tag => tag.includes('display:'));
+    expect([renderer, displayed]).toEqual([renderer, []]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let suite, browser;
+    try {
+      suite = await suiteBrowser();
+      const page = await suite.newPage({ javaScriptEnabled: false });
+      await page.goto(server.url.href);
+      expect([renderer, await page.evaluate(cells), await page.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      browser = await open({ host: 'web', url: server.url.href });
+      const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([renderer, true, []]);
+      expect([renderer, await browser.carrier.evaluate(cells), await browser.carrier.evaluate(shape)]).toEqual([renderer, want, ['caption:1', 'tbody:2']]);
+      await browser.tap('add');
+      expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="count"]').textContent`)).toBe('1');
+    } finally { await browser?.close(); await suite?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}, 180000);
+
+// A page built ahead serves every query its path is opened at; opened at one it was not built at, its list's rows are
+// not the list's items, so the runtime builds afresh rather than keep the rows past its items (LLP 1048.000 D6).
+test('a page built ahead and opened at another query shows its own rows, not the built ones', async () => {
+  const source = `routes nav
+  home "/" render=build
+
+component Rows
+  derive kind = searchParam(top(nav), "kind")
+  derive shown = ["a1", "a2", "b1", "b2"].filter(x => kind == "" or x.startsWith(kind))
+  view
+    column testId="rows"
+      for x in shown key=x
+        text x
+`;
+  const rows = `document.querySelector('[data-testid="rows"]').textContent`;
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let browser;
+    try {
+      browser = await open({ host: 'web', url: server.url.href + '?kind=b' });
+      const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, await browser.carrier.evaluate(rows), journal.some(l => /abandoned/.test(l))]).toEqual([renderer, 'b1b2', true]);
+      await browser.close(); browser = null;
+      browser = await open({ host: 'web', url: server.url.href });
+      const kept = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, await browser.carrier.evaluate(rows), kept.some(l => l.endsWith('adopted the document'))]).toEqual([renderer, 'a1a2b1b2', true]);
+    } finally { await browser?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}, 180000);
+
+// The parser's "in table" mode gives a row the table holds a `tbody` in either branch of a conditional
+// that makes a row in one and a row group in the other; the plan has one in each, so either adopts.
+test('a table rendered ahead adopts either branch of a conditional that makes rows', async () => {
+  const shape = `[...document.querySelector('table').children].map(e => e.localName + ':' + [...e.children].map(c => c.localName).join(','))`;
+  for (const shown of [true, false]) {
+    const source = `routes nav
+  home "/" render=build
+
+component Branches
+  state open = ${shown}
+  action flip
+    open = not open
+  view
+    column
+      button testId="flip" press=flip
+        text "Flip"
+      table
+        if open
+          tr testId="row"
+            td
+              text "open"
+        else
+          tbody
+            tr testId="row"
+              td
+                text "shut"
+`;
+    for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, _html, dist) => {
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+      } });
+      let browser;
+      try {
+        browser = await open({ host: 'web', url: server.url.href });
+        const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+        const at = [renderer, shown];
+        expect([...at, journal.some(l => l.endsWith('adopted the document')), journal.filter(l => /afresh|abandoned/.test(l))]).toEqual([...at, true, []]);
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        await browser.tap('flip');
+        expect([...at, await browser.carrier.evaluate(shape)]).toEqual([...at, ['tbody:tr']]);
+        expect(await browser.carrier.evaluate(`document.querySelector('[data-testid="row"]').textContent`)).toBe(shown ? 'shut' : 'open');
+      } finally { await browser?.close(); server.stop(true); }
+    }, {}, {}, renderer);
+  }
+}, 300000);
+
 test('select and date text styles preserve shell leading only under a said row', async () => {
   const ids = ['select-said','select-bound-said','date-said','time-bound-said','select-unsaid','select-bound-unsaid','date-unsaid','time-bound-unsaid'];
   for (const weighted of [false, true]) await textStylePage(ids, async (before, read, tap, browser) => {
@@ -196,6 +330,24 @@ component Greeting
     expect(html('')).toContain('>Bonjour<');
   }, { 'strings/fr.json': '{"hello":"Bonjour"}', 'strings/en.json': '{"hello":"Hello"}' }, { lang: 'fr', strings: { base: 'fr' } });
 }, 30000);
+
+// A link the render binds to data keeps its href, so the page navigates before the runtime runs, or without it.
+test('both document renderers keep the hrefs of links bound to data', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+  item "/items/:id"
+
+component Home
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      for id in ids key=id
+        link href=path("item", id)
+          text id
+`, (_, html) => {
+    expect([how, html('').match(/<a [^>]*>/g)?.map(a => /href="([^"]*)"/.exec(a)?.[1])]).toEqual([how, ['/items/a', '/items/b']]);
+  }, {}, {}, how);
+}, 180000);
 
 test('the render context reports UTC independently of the machine zone', async () => {
   const dir = mkdtempSync(resolve(import.meta.dir, '../../target/place-render-test-'));
@@ -388,6 +540,38 @@ component SequenceRender
   }, { 'assets/kick.wav': readFileSync(new URL('./conformance/transport/assets/kick.wav', import.meta.url)) });
 }, 30000);
 
+// Both renderers write the head a crawler reads, its URLs absolute against the manifest's origin, after the viewport
+// meta (page.rs `page_head`).
+test('both document renderers write the same crawler head', async () => {
+  const source = `routes nav
+  home "/" render=build
+    art "/art" render=build
+
+component Crawled
+  view
+    column
+      if top(nav).name == "art"
+        head title="Pikachu & co" description="An electric \\"mouse\\"" image="/art/25.png" canonical="/pokemon/25" robots="noindex"
+      text "page"
+`;
+  const crawled = page => [...page.matchAll(/<meta (?:name|property)="(?:viewport|description|robots|og:[a-z_]+|twitter:[a-z]+)" content="[^"]*">|<link rel="canonical"[^>]*>/g)].map(m => m[0]);
+  const heads = {};
+  for (const renderer of ['rust', 'js']) await renderedPages(source, (_, html) => { heads[renderer] = ['', 'art'].map(path => crawled(html(path))); },
+    {}, { name: 'Caltrain', app: { id: 'test.heads', name: 'Caltrain', origin: 'https://caltrain.exact.invalid' } }, renderer);
+  expect(heads.js).toEqual(heads.rust);
+  expect(heads.js[1]).toEqual([
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta name="description" content="An electric &quot;mouse&quot;">', '<meta name="robots" content="noindex">',
+    '<link rel="canonical" href="https://caltrain.exact.invalid/pokemon/25">', '<meta property="og:type" content="website">',
+    '<meta property="og:site_name" content="Caltrain">', '<meta property="og:title" content="Pikachu &amp; co">',
+    '<meta property="og:description" content="An electric &quot;mouse&quot;">', '<meta property="og:url" content="https://caltrain.exact.invalid/pokemon/25">',
+    '<meta property="og:image" content="https://caltrain.exact.invalid/art/25.png">', '<meta name="twitter:card" content="summary_large_image">',
+    '<meta name="twitter:title" content="Pikachu &amp; co">', '<meta name="twitter:description" content="An electric &quot;mouse&quot;">',
+    '<meta name="twitter:image" content="https://caltrain.exact.invalid/art/25.png">',
+  ]);
+  expect(heads.js[0]).toContain('<meta property="og:url" content="https://caltrain.exact.invalid/">');
+}, 1_800_000);
+
 test('JavaScript-rendered pages exclude a covered route’s deeper head', async () => {
   await renderedPages(`routes nav
   tab home "/" render=build
@@ -518,8 +702,8 @@ test('pages rendered ahead of time scroll the selected route before they adopt, 
   try {
     const source = resolve(dir, 'app.contract');
     writeFileSync(source, `routes nav
-  tab first "/" render=build
-  tab second "/second" render=build
+  tab first "/" render=build activate=idle
+  tab second "/second" render=build activate=idle
 
 component Tabs
   derive current = top(nav)
@@ -593,7 +777,7 @@ component Tabs
 
 test('JavaScript prerender keeps every sheet and its underlying page visible through adoption', async () => {
   await renderedPages(`routes nav
-  home "/" render=build
+  home "/" render=build activate=idle
 
 component Sheets
   view
@@ -670,6 +854,398 @@ component Page
     }, {}, {}, how);
   }
 }, 180000);
+
+// LLP 1153.001 D8: a rendered page paints without the runtime, so it fetches the runtime at low priority; the shell,
+// which cannot paint until the runtime runs, keeps the default.
+test('both document renderers preload the runtime at low priority, and the shell at the default', async () => {
+  for (const how of ['js', 'rust']) {
+    await renderedPages('routes nav\n  home "/" render=build activate=idle\n\ncomponent Page\n  view\n    text "Home"\n', (_, html, dist) => {
+      const preloads = page => page.match(/<link rel="modulepreload"[^>]*>/g);
+      expect([how, preloads(html(''))]).toEqual([how, ['<link rel="modulepreload" href="./app.js" fetchpriority="low">']]);
+      expect([how, preloads(readFileSync(resolve(dist, 'shell.html'), 'utf8'))]).toEqual([how, ['<link rel="modulepreload" href="./app.js">']]);
+    }, {}, {}, how);
+  }
+}, 180000);
+
+// LLP 1048.007 D1: an undeclared route waits for the reader when its render left the runtime nothing to do, and runs it
+// at once when something is due; a page laid out by the viewport carries its comparisons, which wake it elsewhere.
+test('both document renderers infer an undeclared route\'s activation from its render', async () => {
+  const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
+  const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
+  for (const how of ['js', 'rust']) {
+    await renderedPages(`routes nav
+  home "/" render=build
+  clock "/clock" render=build
+  wide "/wide" render=build
+  seen "/seen" render=build
+
+shape Viewport
+  width: number
+
+component App
+  state n = 0
+  state ticks = 0
+  state shown = 0
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  action add
+    n = n + 1
+  action tick
+    ticks = ticks + 1
+  action saw(entry: IntersectionObserverEntry)
+    shown = shown + 1
+  task ticker when top(nav).name == "clock"
+    every(1000, tick)
+  view
+    main
+      if top(nav).name == "home"
+        button "Add" press=add
+      if top(nav).name == "clock"
+        text \`\${ticks}\`
+      if top(nav).name == "wide"
+        text (wide ? "wide" : "narrow")
+      if top(nav).name == "seen"
+        column height="3000px"
+          text "Above"
+        column intersect=saw
+          text \`\${shown}\`
+`, async (_, html, dist) => {
+      const wake = '[["(width >= 640px)",false]]';
+      expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
+      expect([how, activation(html('clock'))]).toEqual([how, ['eager', [low], undefined]]);
+      expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
+      // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
+      expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
+      // The capture script wakes the runtime where the comparison differs, and only there.
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+        const path = new URL(req.url).pathname;
+        return new Response(Bun.file(resolve(dist, /^\/(wide|seen)$/.test(path) ? `${path.slice(1)}/index.html` : path.slice(1))));
+      } });
+      const browser = await suiteBrowser();
+      try {
+        for (const [width, woken] of [[390, false], [1280, true]]) {
+          const page = await browser.newPage({ viewport: { width, height: 800 } });
+          await page.goto(new URL('/wide', server.url).href);
+          await page.waitForTimeout(500);
+          expect([how, width, await page.evaluate(() => !!globalThis.exact?.ready)]).toEqual([how, width, woken]);
+          // Woken, the runtime lays the page out for the reader's viewport, not the render's (D2).
+          if (woken) await page.waitForFunction(() => globalThis.exact?.ready && document.querySelector('main')?.textContent === 'wide', null, { timeout: 5000 }).catch(() => {});
+          expect([how, width, await page.evaluate(() => document.querySelector('main')?.textContent)]).toEqual([how, width, woken ? 'wide' : 'narrow']);
+        }
+        const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
+        await page.goto(new URL('/seen', server.url).href);
+        await page.waitForTimeout(500);
+        const before = await page.evaluate(() => !!globalThis.exact?.ready);
+        await page.mouse.wheel(0, 4000);
+        await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+        expect([how, before]).toEqual([how, false]);
+      } finally { await browser.close(); server.stop(true); }
+    }, {}, {}, how);
+  }
+}, 240000);
+
+// LLP 1048.003 D4: only the shown route's `scroll document` is the page's scroller. A hidden route's is
+// `data-exact-offpage`, scrolling inside its bound, so its content leaves the page's height; each route keeps its own
+// place in the page's scroll, so a route opened anew starts at its top and one shown again where the reader left it.
+test('both document renderers make only the shown route\'s page scroller the page\'s, and each route keeps its place', async () => {
+  for (const how of ['rust', 'js']) await renderedPages(`routes nav
+  home "/" render=build activate=idle
+    detail "/detail" render=build activate=idle
+
+component Pages
+  action open
+    nav = push(nav, path("detail"))
+  action back
+    nav = back(nav)
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column"
+          scroll document flex=1 min-height=0
+            if e.name == "home"
+              column height=700
+              button "Open" press=open testId="open"
+              column height=1300
+            if e.name == "detail"
+              column height=1000
+`, async (_, html, dist) => {
+    const offpage = path => html(path).match(/\sdata-exact-offpage(?=[\s>=])/g)?.length ?? 0;
+    expect([how, offpage(''), offpage('detail'), /<html [^>]*data-scrolldocument/.test(html('detail'))]).toEqual([how, 0, 1, true]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/detail' ? 'detail/index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const page = await browser.newPage({ viewport: { width: 390, height: 600 } });
+      const at = () => page.evaluate(() => [location.pathname, scrollY, document.documentElement.scrollHeight]);
+      await page.goto(new URL('/detail', server.url).href);
+      expect([how, (await at())[2]]).toEqual([how, 1000]);
+      await page.goto(server.url.href);
+      await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+      const home = (await at())[2];
+      // The button shows at 500, so the press scrolls nothing before it.
+      await page.evaluate(() => scrollTo(0, 500));
+      await page.click('[data-testid="open"]');
+      await page.waitForFunction(() => location.pathname === '/detail');
+      expect([how, await at()]).toEqual([how, ['/detail', 0, 1000]]);
+      await page.evaluate(() => history.back());
+      await page.waitForFunction(() => location.pathname === '/');
+      await page.waitForTimeout(100);
+      expect([how, await at()]).toEqual([how, ['/', 500, home]]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
+// LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
+// back before its first render, so what it then shows is styled as on the shell.
+test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state shown = false
+  state pick = "a"
+  action show
+    shown = true
+  action choose(v: string)
+    pick = v
+  view
+    main
+      button "Show" press=show testId="show"
+      if shown
+        select value=pick change=choose aria-label="Pick" testId="pick"
+          option "A" value="a"
+          option "B" value="b"
+`, async (_, html, dist) => {
+    const page = html(''), full = readFileSync(resolve(dist, 'style.css'), 'utf8');
+    const own = /<style data-exact-page>([\s\S]*?)<\/style>/.exec(page)?.[1];
+    expect([how, own?.length < full.length / 2, page.match(/<style[ >]/g)?.length, own?.includes('select:not([multiple])')]).toEqual([how, true, 1, false]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      const tab = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      await tab.goto(server.url.href);
+      await tab.click('[data-testid="show"]');
+      await tab.waitForSelector('[data-testid="pick"]');
+      expect([how, await tab.evaluate(() => [!!document.querySelector('style[data-exact-page]'), !!document.querySelector('link[rel=stylesheet][href="./style.css"]'),
+        getComputedStyle(document.querySelector('[data-testid="pick"]')).appearance])]).toEqual([how, [false, true, 'none']]);
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
+// LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
+// The page's own first image, likely its largest paint, is preloaded ahead of the document at high priority.
+test('both document renderers lazy-load the images a for repeats, and load a lone one at once, first', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+
+component Page
+  state ids: string[] = ["a", "b"]
+  view
+    main
+      for e in stack(nav) key=e.id
+        for page in [e] key=page.id
+          image "https://example.com/hero.png" width=200 alt="Hero"
+          for id in ids key=id
+            image \`https://example.com/\${id}.png\` width=96 alt=id
+`, (_, html) => {
+    // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
+    const page = html('');
+    expect([how, page.match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
+    expect([how, page.match(/<img [^>]*>/g)?.map(img => img.includes('fetchpriority="high"'))]).toEqual([how, [true, false, false]]);
+    const preload = page.indexOf('<link rel="preload" as="image" href="https://example.com/hero.png">');
+    expect([how, preload > 0 && preload < page.indexOf('<div id="exact-root"')]).toEqual([how, true]);
+  }, {}, {}, how);
+}, 180000);
+
+// A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
+test('a realm made ahead renders the page a fresh one does', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+
+component App
+  view
+    main
+      text \`at \${top(nav).url}\`
+      link href=path("item", "b")
+        text "B"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const fresh = renderer(dist), ahead = renderer(dist);
+    fresh.ahead = false;
+    const page = async (r, at) => (await r(at)).html.replace(/"time":[\d.]+/, '"time":0');
+    await page(ahead, '/');
+    await new Promise(r => setTimeout(r, 1500));
+    for (const at of ['/items/b', '/']) expect([at, await page(ahead, at)]).toEqual([at, await page(fresh, at)]);
+  });
+}, 60000);
+
+// LLP 1048.007 D8: a request route's page made only of answers any reader may still be given, by TypeScript sources
+// that drew nothing at random, is given again until the first answer goes stale; any other is made for each request.
+test('serve gives a page again while every answer it was made of is fresh', async () => {
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+    const path = new URL(req.url).pathname;
+    return new Response(`from ${path}`, { headers: { 'cache-control': path === '/never' ? 'no-store' : 'public, max-age=60' } });
+  } });
+  try {
+    const origin = `http://127.0.0.1:${api.port}`;
+    await renderedPages(`shape Note
+  text: string
+
+routes nav
+  fresh "/" render=request
+  never "/never" render=request
+  seed "/seed" render=request
+  broken "/broken" render=request
+
+component App
+  resource note = note(top(nav).name) as shape Note
+  view
+    main
+      text note.text
+`, async (_, html, dist) => {
+      const { pageServer } = await import('./render.mjs');
+      const said = [];
+      const page = pageServer(dist, undefined, line => said.push(line));
+      const header = () => undefined;
+      for (const at of ['/', '/', '/never', '/never', '/seed', '/seed']) expect(Buffer.from((await page(at, header)).body).toString()).toContain('from /');
+      const renders = at => said.filter(l => l.startsWith(`render ${at} 200`)).length;
+      expect([renders('/'), renders('/never'), renders('/seed')]).toEqual([1, 2, 2]);
+      // A source that fails is named in the log, under its page, which shows its placeholder.
+      await page('/broken', header); await page('/broken', header);
+      expect([renders('/broken'), said.filter(l => l === '  /broken: resource note: no such note').length]).toEqual([2, 2]);
+    }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+const API = '${origin}';
+export const grants = \`net.fetch \${API}\`;
+export const answer: Answer = async (_source, [name]): Promise<Result<'note'>> => {
+  if (name === 'seed') crypto.getRandomValues(new Uint8Array(1));
+  if (name === 'broken') throw new Error('no such note');
+  const response = await fetch(\`\${API}/\${name === 'fresh' ? 'fresh' : name}\`);
+  return { text: await response.text() };
+};
+` });
+  } finally { api.stop(true); }
+}, 60000);
+
+// LLP 1048.007 D10: a request route's page that waits for the reader names its answers past 1 KB rather than holding
+// them; the capture script fetches them with the runtime, and the page adopts. Answers no longer kept build it afresh.
+test('a waiting page names its answers past 1 KB, adopts once they come, and builds afresh without them', async () => {
+  const api = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json(
+    Array.from({ length: 80 }, (_, i) => ({ name: `Item number ${i}` })), { headers: { 'cache-control': 'no-store', 'access-control-allow-origin': '*' } }) });
+  try {
+    const origin = `http://127.0.0.1:${api.port}`;
+    await renderedPages(`shape Item
+  name: string
+
+routes nav
+  home "/" render=request
+
+component App
+  state n = 0
+  resource items = items() as shape Item[]
+  action more
+    n = n + 1
+  view
+    main
+      button press=more testId="more"
+        text \`pressed \${n}\`
+      for it in items key=it.name
+        text it.name testId=\`item-\${it.name}\`
+`, async (_, html, dist) => {
+      const { pageServer, deferredAnswers, deferredPath } = await import('./render.mjs');
+      const page = pageServer(dist, undefined, () => {});
+      let keep = true;
+      const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+        const path = new URL(req.url).pathname, hash = deferredPath(path);
+        if (hash) { const body = keep ? deferredAnswers(hash) : undefined; return new Response(body ?? 'gone', { status: body ? 200 : 404 }); }
+        if (path === '/') { const r = await page('/', name => req.headers.get(name) ?? undefined); return new Response(r.body, { status: r.status, headers: r.headers }); }
+        return new Response(Bun.file(resolve(dist, path.slice(1))));
+      } });
+      const browser = await suiteBrowser();
+      try {
+        for (const kept of [true, false]) {
+          keep = kept;
+          const tab = await browser.newPage({ viewport: { width: 390, height: 800 } });
+          await tab.goto(server.url.href);
+          const named = await tab.evaluate(() => { const c = document.querySelector('script[type="application/vnd.exact.checkpoint"]'); return [/^\/\.exact\/checkpoint\/[0-9a-f]{32}\.json$/.test(c.dataset.src), c.textContent, !!globalThis.exact?.ready]; });
+          expect([kept, named]).toEqual([kept, [true, '', false]]);
+          await tab.evaluate(() => { document.querySelector('[data-testid="item-Item number 3"]').$mark = true; });
+          await tab.click('[data-testid="more"]');
+          await tab.waitForFunction(() => document.querySelector('[data-testid="more"]')?.textContent === 'pressed 1', null, { timeout: 10000 });
+          // Adopted, its elements are the rendered ones; built afresh, they are new, and show the answers asked again.
+          const after = await tab.evaluate(() => { const e = document.querySelector('[data-testid="item-Item number 3"]'); return [!!e, !!e?.$mark]; });
+          expect([kept, after]).toEqual([kept, [true, kept]]);
+          await tab.close();
+        }
+      } finally { await browser.close(); server.stop(true); }
+    }, { 'app.ts': `import type { Answer, Result } from './app.contract.d.ts';
+export const appId = 'test.heads';
+const API = '${origin}';
+export const grants = \`net.fetch \${API}\`;
+export const answer: Answer = async (): Promise<Result<'items'>> => (await fetch(API, { cache: 'no-store' })).json();
+` });
+  } finally { api.stop(true); }
+}, 120000);
+
+// A page's head status is its HTTP status under Bun, as under the render host (LLP 1048.000 D11): a found route whose
+// data names no item says 404 itself.
+test('a JavaScript-rendered page answers with its head status', async () => {
+  await renderedPages(`routes nav
+  home "/" render=request
+  item "/items/:id" render=request
+  notfound
+
+component App
+  view
+    main
+      if top(nav).name == "item" and top(nav).params.id == "gone"
+        head title="Not found" status=404
+        text "No such item"
+      else
+        head title="Item"
+        text "An item"
+`, async (_, html, dist) => {
+    const { renderer } = await import('./render.mjs');
+    const render = renderer(dist);
+    expect([(await render('/items/gone')).status, (await render('/items/kept')).status, (await render('/no/such/page')).status]).toEqual([404, 200, 404]);
+  });
+}, 60000);
+
+// LLP 1048.006 under Bun: a page laid out by the viewport is rendered at the reader's, as its request tells it, and asks for
+// the hints that tell it; a desktop browser's first visit gets the desktop layout, not the phone's it would shift from.
+test('serve lays a page out for the viewport its request tells', async () => {
+  await renderedPages(`shape Viewport
+  width: number
+
+routes nav
+  home "/" render=request
+
+component App
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 640
+  view
+    main
+      text (wide ? "wide" : "narrow")
+`, async (_, html, dist) => {
+    const { pageServer } = await import('./render.mjs');
+    const page = pageServer(dist, undefined, () => {});
+    const at = async headers => { const r = await page('/', name => headers[name]); return [/>(wide|narrow)</.exec(Buffer.from(r.body).toString())?.[1], r.headers['accept-ch']?.includes('Sec-CH-Viewport-Width')]; };
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15';
+    const phone = 'Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36';
+    expect(await at({ 'user-agent': mac })).toEqual(['wide', true]);
+    expect(await at({ 'user-agent': phone, 'sec-ch-ua-mobile': '?1' })).toEqual(['narrow', true]);
+    expect(await at({ 'user-agent': mac, 'sec-ch-viewport-width': '500' })).toEqual(['narrow', true]);
+    expect(await at({})).toEqual(['narrow', true]);
+  });
+}, 60000);
 
 // The render's DOM orders nodes as DOM §4.4 does (midi.js sorts its listeners by it).
 test('the render DOM compares document positions, across trees one way each', () => {

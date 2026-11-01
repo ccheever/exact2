@@ -438,6 +438,7 @@ fn root_loader<'a>(app_root: &'a Path, root: &Path, root_key: &Path, src: &str) 
             packages: Vec::new(),
             consulted: Vec::new(),
             motion: Vec::new(),
+            var_fallbacks: Vec::new(),
         },
         active: vec![root_key.to_path_buf()],
         units: Vec::new(),
@@ -446,6 +447,7 @@ fn root_loader<'a>(app_root: &'a Path, root: &Path, root_key: &Path, src: &str) 
         proposed: Vec::new(),
         declared: Vec::new(),
         motion: Vec::new(),
+        vars: None,
         refused: Refused::default(),
     }
 }

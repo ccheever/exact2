@@ -1,7 +1,7 @@
-// useUpdateEverything.ts, updateEverythingRun.tsx and UpdateEverythingDialog.tsx, T3 Code 6d450a4284 (MIT; see
+// useUpdateEverything.ts, updateEverythingRun.tsx and UpdateEverythingDialog.tsx, T3 Code 2359643cff (MIT; see
 // LICENSE-T3). Per-window state replaces React atoms; existing transport jobs keep
 // server updates alive across focus changes. This app has no desktop update feed, so its target is the bundled
-// server's version and its release archives never count as published.
+// server's version.
 import { obj, str } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -14,7 +14,6 @@ import { providerUpdateMachines, updateAllProviders, updateTargets, type Provide
 import { getProviderUpdateRunOutcome, type ProviderUpdateRun } from '../providers/provider-updates';
 import { providerDisplayName } from '../providers/provider-updates';
 import { pushToast } from '../shell/toast';
-import { cachedReleasePublished, releasePublished } from './npm-release';
 import { closeFinishedUpdateRun, collectRestartingMachines, collectServerUpdateTargets, collectUpdateEverythingResult, describeUpdateCapsule, describeUpdateEverything,
   formatUpdateElapsed, getUpdateEverythingToastView, resolveUpdateRunMachineStatus, RUN_STATUS_LABELS,
   type UpdateEverythingMachine, type UpdateEverythingRun, type UpdateRunMachine } from './update-everything-logic';
@@ -36,11 +35,8 @@ export function updateEverythingMachines(client: T3Client): UpdateEverythingMach
     updateState: serverUpdateStateFor(source.environmentId, str(obj(source.config.environment).serverVersion) || null),
   }));
 }
-export function updateEverythingPlan(client: T3Client, native: Native | null = null, published = false) {
-  const machines = updateEverythingMachines(client), collected = collectServerUpdateTargets(machines, CLIENT_VERSION, false);
-  const servers = published ? collected.targets : collected.targets.filter(server => !collected.waitForNpm.includes(server));
-  const skipped = [...collected.skipped, ...collected.targets.filter(server => !servers.includes(server))
-    .map(server => ({ environmentId: server.environmentId, label: server.serverLabel, reason: `t3@${CLIENT_VERSION} is not on npm yet` }))];
+export function updateEverythingPlan(client: T3Client, native: Native | null = null) {
+  const machines = updateEverythingMachines(client), { targets: servers, skipped } = collectServerUpdateTargets(machines, CLIENT_VERSION);
   const providers = providerUpdateMachines(updateTargets(client, native));
   return { servers, providers, skipped, restarts: collectRestartingMachines(machines, servers, false),
     ...describeUpdateEverything({ localVersion: null, localMachines: machines.filter(machine => machine.hostedByThisApp), servers, skipped,
@@ -49,12 +45,8 @@ export function updateEverythingPlan(client: T3Client, native: Native | null = n
       })) }), hasUpdates: servers.length > 0 || providers.length > 0 };
 }
 const notify = (native: Native) => { void native.later({ op: 'sidebarNotify' }).catch(() => {}); };
-/** Probes only when a remote npm-managed server is behind; the app remains usable while npm responds. */
-export function updateEverythingPass(client: T3Client, native: Native, now: number): void {
+export function updateEverythingPass(client: T3Client, now: number): void {
   updateEverythingState(client).now = now;
-  if (collectServerUpdateTargets(updateEverythingMachines(client), CLIENT_VERSION, false).waitForNpm.length > 0) {
-    releasePublished(CLIENT_VERSION, now, () => notify(native));
-  }
 }
 function versionOf(client: T3Client, environmentId: string): string | null {
   const machine = updateEverythingMachines(client).find(machine => machine.environmentId === environmentId);
@@ -121,7 +113,7 @@ export function retryEverythingServers(state: State, deps: Pick<RunDeps, 'server
 }
 export function updateEverythingView(client: T3Client, now: number) {
   const state = updateEverythingState(client); state.now = now;
-  const published = cachedReleasePublished(CLIENT_VERSION), plan = state.dialog ?? updateEverythingPlan(client, null, published);
+  const plan = state.dialog ?? updateEverythingPlan(client, null);
   const views = state.run?.machines.map(machine => ({ machine, status: resolveUpdateRunMachineStatus(machine, state.run!.phase, machineState(client, machine)) })) ?? [];
   const capsule = state.run ? describeUpdateCapsule(state.run, views, null, now) : null;
   return { available: plan.hasUpdates, running: state.run !== null, details: state.details,
@@ -138,7 +130,7 @@ export async function updateEverythingOp(client: T3Client, op: string, native: N
   const state = updateEverythingState(client), deps = nativeRunDeps(client, native);
   if (now > 0) state.now = now;
   if (op === 'ue:open' && !state.run) {
-    const plan = updateEverythingPlan(client, native, cachedReleasePublished(CLIENT_VERSION)); if (plan.hasUpdates) { state.dialog = plan; state.skippedOpen = false; }
+    const plan = updateEverythingPlan(client, native); if (plan.hasUpdates) { state.dialog = plan; state.skippedOpen = false; }
   } else if (op === 'ue:cancel') state.dialog = null;
   else if (op === 'ue:skipped') state.skippedOpen = !state.skippedOpen;
   else if (op === 'ue:confirm' && state.dialog && !state.run) {

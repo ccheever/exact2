@@ -1,9 +1,9 @@
 // Pending approvals and questions, adapted from T3 Code (MIT); see LICENSE-T3.
 // Sources at 74541bab17: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
-// apps/web/src/components/chat/ComposerPendingApproval{Panel,Actions}.tsx,
-// ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx, chat/usePendingThreadRequests.ts,
-// chat/ChatComposer.tsx (questionAttachmentTarget, questionTakesSnapShots) and
-// packages/client-runtime/src/work-log/userInput.ts. The server owns every answer.
+// apps/web/src/components/chat/ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx,
+// chat/usePendingThreadRequests.ts, chat/ChatComposer.tsx (questionAttachmentTarget, questionTakesSnapShots) and
+// packages/client-runtime/src/work-log/userInput.ts; ChatComposer.tsx at v0.1.5 for approvals, which answer on their
+// timeline row (timeline-approvals.ts). The server owns every answer.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
 import type { T3Client } from '../client/client';
@@ -40,10 +40,6 @@ export function fullAccessOverrideExplanation(override: string): string {
     : "Full access skips approvals, but the agent still stops for a few safety checks of its own that no setting can skip, such as a delete whose path it can't verify. T3 Code can't turn these off, so check the request and approve it if it's what you expect.";
 }
 
-function approvalLabel(kind: string): string {
-  return kind === 'mcp-elicitation' ? 'App access approval' : kind === 'command' ? 'Command approval'
-    : kind === 'file-read' ? 'File read approval' : kind === 'permission' ? 'App permission approval' : 'File change approval';
-}
 function question(value: Obj): Question {
   return { id: str(value.id), header: str(value.header), question: str(value.question), multiSelect: value.multiSelect === true,
     allowCustom: value.allowCustomAnswer !== false, ...(typeof value.initialAnswer === 'string' ? { initialAnswer: value.initialAnswer } : {}),
@@ -145,12 +141,9 @@ export function composerRequests(client: T3Client): { approvals: PendingApproval
 export async function declinePendingApprovals(approvals: readonly PendingApproval[], respond: (requestId: string) => Promise<void>): Promise<void> {
   for (const approval of approvals) if (approval.live) await respond(approval.requestId);
 }
-/** The question the composer answers, unless it is held or an approval shows. */
+/** The question the composer answers, unless it is held. Approvals wait on their timeline row meanwhile. */
 export function composerInput(client: T3Client) {
-  const requests = composerRequests(client);
-  // A shown approval comes first: the composer is the thread's draft, which a send redirects with.
-  if (requests.approvals.length) return undefined;
-  const input = requests.inputs[0];
+  const input = composerRequests(client).inputs[0];
   return input ? { input, ...progress(client, input) } : undefined;
 }
 
@@ -196,43 +189,35 @@ function pruneAnswers(client: T3Client): void {
   const retained = new Set(inputs.flatMap(input => input.questions.map(question => questionDraftKey(environmentId, threadId, input.requestId, question.id))));
   releaseQuestionDrafts(client.local.snapshotDrafts, client.local.snapshotReleases, questionDraftPrefix(environmentId, threadId), retained);
 }
-/** The composer shows the first pending approval, else the first pending question (ChatComposer). */
+/**
+ * The composer shows the first pending question (ChatComposer). Approvals answer on their timeline row
+ * (timeline-approvals.ts); while one shows, the composer is the draft a send redirects with.
+ */
 export function requestPresentation(client: T3Client) {
   pruneAnswers(client);
-  const { approvals: pendingApprovals } = composerRequests(client);
+  const approval = composerRequests(client).approvals.length > 0;
   const pending = client.pending;
   const responding = (id: string) => (!!pending && str(pending.payload.requestId) === id) || answerSubmitting(client, id);
-  const approvals = pendingApprovals.slice(0, 1).map(approval => {
-    const reason = responseReason(client, approval.live);
-    const options = approval.options.map(option => ({ id: str(option.decision), label: str(option.label), warning: str(option.warning),
-      primary: option.decision === 'accept' || option.decision === 'decline' }));
-    return { id: approval.requestId, label: approvalLabel(approval.kind), appName: approval.appName,
-      count: pendingApprovals.length > 1 ? `1/${pendingApprovals.length}` : '', mono: approval.kind !== 'mcp-elicitation',
-      detail: approval.live ? approval.detail || approvalLabel(approval.kind) : NOT_RESUMABLE, reason: approval.reason,
-      whyAsked: approval.fullAccessOverride ? fullAccessOverrideExplanation(approval.fullAccessOverride) : '', feedback: approval.supportsFeedback,
-      canRespond: !reason, operable: operable(client), live: approval.live, responding: responding(approval.requestId), responseReason: reason,
-      options: options.filter(option => option.primary), more: options.filter(option => !option.primary) };
-  });
-  const active = approvals.length ? undefined : composerInput(client);
+  const active = composerInput(client);
   const questions = active?.active ? [(() => {
     const { input, active: entry, index } = active;
     const reason = responseReason(client, input.resumable);
     const current = client.answers[`${input.requestId}::${entry.id}`];
     const customActive = (entry.initialAnswer !== undefined ? active.custom : active.custom.trim()).length > 0;
-    const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(entry.question), client.shell.threads), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
+    const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(entry.question), client.shell.threads, client.environmentId), root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot);
     return { id: `${input.requestId}::${entry.id}`, requestId: input.requestId, header: entry.header, question: text,
       multiSelect: entry.multiSelect, customAllowed: entry.allowCustom, canRespond: !reason, operable: operable(client), live: input.resumable, responseReason: reason,
       responding: responding(input.requestId), dismissible: input.dismissible, answer: active.custom,
       position: input.questions.length > 1 ? `${index + 1}/${input.questions.length}` : '', index, last: active.last,
       canAdvance: active.canAdvance, complete: active.complete, uploading: uploadBlock(client) !== '',
-      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads)), threadGlyphs: markdownThreadGlyphs(client, text) },
+      action: responding(input.requestId) ? 'Submitting...' : active.last ? 'Submit' : 'Next', md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, root, client.shell.threads, '', {}, client)), threadGlyphs: markdownThreadGlyphs(client, text) },
       options: entry.options.map((option, position) => ({ id: option.value, label: option.label,
         description: option.description !== option.label ? option.description : '',
         selected: !customActive && (current?.selected ?? []).includes(option.value), shortcut: position < 9 ? String(position + 1) : '' })) };
   })()] : [];
-  const requestMode = approvals.length ? 'approval' : questions.length ? 'question' : '';
+  const requestMode = questions.length ? 'question' : approval ? 'approval' : '';
   const edit = queuedEdit(client);
-  return { approvals, questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // a client-side prompt rewrite shows
+  return { questions, requestMode, requestKey: (questions[0]?.id ?? (edit ? `queued-edit:${edit.runId}` : '')) + promptRewriteKey(client), // a client-side prompt rewrite shows
     ...(questions.length ? { draft: active!.custom } : {}), ...threadErrors(client) };
 }
 
@@ -275,7 +260,7 @@ function setDraft(client: T3Client, key: string, next: Partial<RequestDraft>): v
 /** setPendingUserInputCustomAnswer: typing in the composer answers the active question. */
 export function setCustomAnswer(client: T3Client, value: string): boolean {
   const current = composerInput(client);
-  if (!current?.active || composerRequests(client).approvals.length) return false;
+  if (!current?.active) return false;
   if (!current.active.allowCustom) throw new ClientError('Choose one of the offered options.');
   if (value.length > 100_000) throw new ClientError('Keep an answer under 100,000 characters.');
   const key = `${current.input.requestId}::${current.active.id}`;

@@ -526,7 +526,7 @@ describe('a slow host and a refused pairing (reference 7c3b3b3605ef)', () => {
     expect(await sessionEvents(drive)).toEqual([{ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } }]);
   });
 
-  test('the ladder stops at 60 s, and a failure other than a timeout is not asked again', async () => {
+  test('the ladder stops at 60 s, and a failure other than a timeout is not stretched', async () => {
     const { drive, server } = await paired();
     server.delays['/api/auth/session'] = 120_000;
     await drive.op({ op: 'readSession' });
@@ -541,6 +541,31 @@ describe('a slow host and a refused pairing (reference 7c3b3b3605ef)', () => {
     expect(await sessionEvents(refused.drive)).toEqual([expect.objectContaining({ _replyError: expect.objectContaining({ kind: 'HTTP', message: 'Internal server error' }) })]);
     // Neither failure touches the connection.
     expect([value(await drive.op({ op: 'status' })).state, value(await refused.drive.op({ op: 'status' })).state]).toEqual(['connected', 'connected']);
+  });
+
+  test('a failed session read is asked again while its connection stays up: 2 s, doubling to 60 s, until one answers', async () => {
+    const { drive, server } = await paired();
+    server.routes['/api/auth/session'] = () => ({ status: 500, body: { message: 'Internal server error' } });
+    expect(value(await drive.op({ op: 'readSession' }))).toEqual({ id: '1' });
+    await drive.settle();
+    expect(sessionDeadlines(server)).toHaveLength(1);
+    await drive.advance(1_750);
+    expect(sessionDeadlines(server)).toHaveLength(1);
+    await drive.advance(250);
+    expect(sessionDeadlines(server)).toHaveLength(2);
+    // The next try waits 4 s.
+    await drive.advance(3_750);
+    expect(sessionDeadlines(server)).toHaveLength(2);
+    delete server.routes['/api/auth/session'];
+    await drive.advance(250);
+    expect(sessionDeadlines(server)).toHaveLength(3);
+    // Every reply comes under the read's id, the one the reader keys the grants on.
+    const events = (value(await drive.op({ op: 'events', after: 0 })).events as Obj[]).filter(event => event.key === 'session-state');
+    expect(events.map(event => event.subscriptionId)).toEqual(['1', '1', '1']);
+    expect(events.at(-1)!.value).toEqual({ _reply: { authenticated: true, scopes: ['orchestration:read', 'orchestration:operate'] } });
+    // An answer ends the retries.
+    await drive.advance(120_000);
+    expect(sessionDeadlines(server)).toHaveLength(3);
   });
 
   // LLP 1016.000, "An answer let go": the runner may start the answer that replaces one before or after that one's

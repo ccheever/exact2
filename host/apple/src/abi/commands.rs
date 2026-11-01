@@ -122,6 +122,30 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// Where the platform's Back goes from the selected visit, UTF-8;
+    /// empty at the stack's root. @ref LLP 1115.000 D5.5
+    pub fn location_behind(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().location_behind())
+            .unwrap_or_default()
+            .into_bytes();
+        self.output.len() as u32
+    }
+
+    /// Where the platform's Forward goes, UTF-8; empty with nothing ahead.
+    /// @ref LLP 1115.000 D5.5
+    pub fn location_ahead(&mut self) -> u32 {
+        self.output = self
+            .host
+            .as_ref()
+            .and_then(|h| h.runner().location_ahead())
+            .unwrap_or_default()
+            .into_bytes();
+        self.output.len() as u32
+    }
+
     /// A retained visit's canonical location, UTF-8; empty when absent.
     pub fn visit_location(&mut self, id: u64) -> u32 {
         self.output = self

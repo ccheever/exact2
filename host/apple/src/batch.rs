@@ -306,10 +306,21 @@ impl Batch {
         Batch::default()
     }
 
-    /// @ref LLP 1038 D7 — one coalesced router change beside commands.
+    /// @ref LLP 1038 D7 — one coalesced router change beside commands; its
+    /// `url` carries the visit's fragment, and `scroll` asks for the scroll
+    /// to it (LLP 1153 D5).
     pub fn router(&mut self, change: &exact_runner::RouterChange) {
         let mut s = format!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
-        quote(&change.url, &mut s);
+        quote(&change.location(), &mut s);
+        s.push_str(",\"fragment\":");
+        quote(&change.fragment, &mut s);
+        s.push_str(if change.scroll {
+            ",\"scroll\":true"
+        } else {
+            ",\"scroll\":false"
+        });
+        s.push_str(",\"activation\":");
+        s.push_str(&change.activation.to_string());
         s.push_str(",\"removed\":[");
         for (i, id) in change.removed.iter().enumerate() {
             if i > 0 {

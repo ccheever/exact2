@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
-import { contractComponent, value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
+
+import { contractComponent, value } from '../support/contract-action-fixture';
 import { documentShortcutCommand } from '../../src/timeline/inline-document-shortcuts';
 
 const root = contractComponent('app.contract', 'T3Code');

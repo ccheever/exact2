@@ -133,6 +133,11 @@ test('default destination follows reference preferred project order, then source
   expect(snapshotDefaultProject(projects, 'env', ['legacy-project-cwd:C:/repo/b', 'env:/repo/c'])).toBe('b');
   expect(snapshotDefaultProject(projects, 'env', ['other:/repo/c'])).toBe('a');
   expect(snapshotDefaultProject([], 'env', ['env:/repo/c'])).toBe('');
+  // An archived project is never the default, whatever the order says.
+  const archived = projects.map(project => project.id === 'a' || project.id === 'c' ? { ...project, archivedAt: '2026-10-31T00:00:00.000Z' } : project);
+  expect(snapshotDefaultProject(archived, 'env')).toBe('b');
+  expect(snapshotDefaultProject(archived, 'env', ['env:/repo/c'])).toBe('b');
+  expect(snapshotDefaultProject(archived.map(project => ({ ...project, archivedAt: 'x' })), 'env')).toBe('');
   expect(snapshotDestinationExists({ projects: [{ id: 'p' }], threads: [{ id: 't', projectId: 'other' }] }, 'p', 't')).toBe(false);
   expect(snapshotDestinationExists({ projects: [{ id: 'p' }] }, 'p', '')).toBe(true);
   expect(snapshotDestinationExists({ projects: [] }, '', '')).toBe(false);

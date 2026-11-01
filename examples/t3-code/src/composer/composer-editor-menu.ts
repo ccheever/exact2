@@ -1,7 +1,7 @@
 // The composer's command menus (T3 ComposerCommandMenu.tsx and ChatComposer's
 // composerMenuItems): which rows a trigger offers and in what order. Pure, so
 // the ranking, labels and empty states are tested without the native editor.
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import { COMPOSER_CITATION } from './composer-source-chips';
 import { contextLinks, contextTarget, replaceLinks, type ContextLink } from './context-links';
 export { contextLinks } from './context-links';
@@ -134,6 +134,8 @@ function scoreSlash(candidate: SlashCandidate, query: string): number | null {
 export type SlashInput = {
   query: string; atPromptStart: boolean; planModeUiEnabled: boolean; compactAvailable: boolean;
   driver: string; slashCommands: Obj[]; skills: Obj[]; showSkillsInSlashMenu: boolean;
+  /** `/side` and `/btw` (useSideChat's `available`), described by the reason they would be refused when there is one. */
+  sideChatAvailable?: boolean; sideChatDisabledReason?: string | null;
 };
 
 /** ChatComposer's slash rows: built-ins, the provider's commands, then skills. */
@@ -143,6 +145,10 @@ export function slashRows(input: SlashInput): MenuRow[] {
     ...(input.planModeUiEnabled ? [
       { row: row({ id: 'slash:plan', type: 'slash-command', label: '/plan', description: 'Switch this thread into plan mode' }), primary: 'plan', skill: null, tie: '0\u0000plan' },
       { row: row({ id: 'slash:default', type: 'slash-command', label: '/default', description: 'Switch this thread back to normal build mode' }), primary: 'default', skill: null, tie: '0\u0000default' },
+    ] : []),
+    ...(input.sideChatAvailable ? [
+      { row: row({ id: 'slash:side', type: 'slash-command', label: '/side', description: input.sideChatDisabledReason ?? 'Ask a side question in a new side chat' }), primary: 'side', skill: null, tie: '0\u0000side' },
+      { row: row({ id: 'slash:btw', type: 'slash-command', label: '/btw', description: input.sideChatDisabledReason ?? 'Same as /side' }), primary: 'btw', skill: null, tie: '0\u0000btw' },
     ] : []),
   ];
   const skills = input.showSkillsInSlashMenu ? dedupe(input.skills.filter(invocable)) : [];
@@ -162,7 +168,8 @@ export function slashRows(input: SlashInput): MenuRow[] {
       badge: SOURCE_LABEL[skillSourceKind(skill)]!, badgeIcon: SOURCE_ICON[skillSourceKind(skill)]!, insert: `$${str(skill.name)} ` }),
     primary: str(skill.name), skill, tie: `2\u0000${str(skill.name)}\u0000${input.driver}` }));
   const candidates = [...builtIns, ...commands, ...skillRows]
-    .filter(candidate => input.atPromptStart || candidate.row.type !== 'provider-slash-command');
+    // Provider commands, `/side` and `/btw` work only at the message start.
+    .filter(candidate => input.atPromptStart || (candidate.row.type !== 'provider-slash-command' && candidate.row.id !== 'slash:side' && candidate.row.id !== 'slash:btw'));
   const query = normalizeSearchQuery(input.query, /^\/+/);
   if (!query) return candidates.map(candidate => candidate.row);
   return ranked(candidates.flatMap(candidate => {
@@ -229,13 +236,13 @@ export function pathRows(entries: Obj[]): MenuRow[] {
 
 /**
  * matchComposerThreadItems: this environment's threads matched and ranked as ⌘K ranks them (recency as of `now`, no
- * picks), five at most, without the open thread, archived threads or subagent threads. `environmentId` keys this
+ * picks), five at most, without the open thread, archived threads, subagent threads or side chats. `environmentId` keys this
  * client's own opens.
  */
 export function threadRows(threads: Obj[], excludeThreadId: string, query: string, now: number, environmentId = ''): MenuRow[] {
   const folded = foldSearchQuery(query);
   if (!folded) return [];
-  const candidates = threads.filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && obj(thread.lineage).relationshipToParent !== 'subagent');
+  const candidates = threads.filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && isListedThreadLineage(thread.lineage));
   return rankSearchItems(candidates, (thread, options) => scoreThreadSearch(folded, threadSearchSubject(thread, null, null, environmentId), now, { ...options, picks: false }))
     .slice(0, 5)
     .map(({ item: thread }) => row({ id: `thread:${str(thread.id)}`, type: 'thread', label: str(thread.title), description: 'Thread', icon: 'messages-square',

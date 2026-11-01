@@ -28,8 +28,7 @@ const attribute = (text: string, name: string): string => {
 };
 
 describe('the footer under a page', () => {
-  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }],
-    ['legacy-sidebar.contract', 'LegacySidebar', { legacy: { revealPending: '', revealRow: '' } }]] as const)(
+  test.each([['sidebar.contract', 'Sidebar', { sidebar: { revealPending: '', revealRow: '', tree: [], treeCurrent: '' } }]] as const)(
     '%s keeps Settings, Pull requests and Usage under Usage; the pull requests page draws Back instead', (file, name, data) => {
       const sidebar = contractComponent(file, name), state = sidebar.state();
       for (const button of ['testId="connection-settings"', 'testId="open-pull-requests"', 'testId="open-usage"']) {
@@ -56,7 +55,7 @@ test('a row\'s status label is no live region; Woke keeps one', () => {
 });
 
 test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () => {
-  for (const [file, marker] of [['sidebar-row.contract', 'top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem"'], ['legacy-sidebar.contract', 'testId=`thread-jump-']] as const) {
+  for (const [file, marker] of [['sidebar-row.contract', 'top=(t.card ? "1.9375rem" : "0.5rem") height="1.25rem"']] as const) {
     const badge = line(file, marker);
     const radius = Number(/border-radius="([\d.]+)rem"/.exec(badge)?.[1]);
     expect(radius).toBeGreaterThanOrEqual(1.25 / 2);
@@ -66,7 +65,6 @@ test('the jump badges are pills, as `rounded-full` on their 1.25rem height', () 
 test('the undo notice is a footer item, not a live region: the shell\'s announcer speaks it', () => {
   expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).toContain('role="listitem"');
   expect(line('undo-notice.contract', 'testId="sidebar-undo-notice"')).not.toContain('aria-live');
-  expect(line('undo-notice.contract', 'testId="legacy-undo-notice"')).toContain('role="group"');
 });
 
 test('the drag ghost\'s count is a pill', () => {
@@ -92,4 +90,26 @@ test('the Working shelf\'s grace runs on two root timers, with the sidebar open 
   const root = contractComponent('app.contract', 'T3Code'), sent: unknown[][] = [];
   root.call('workingGraceClock', {}, { wallTime: { epochAtZero: 1_790_000_000_000 }, performanceNow: () => 2_500, command: (...args: unknown[]) => { sent.push(args); } }, []);
   expect(sent).toEqual([['sidebarlocal:working-grace', '', '1790000002500', 0]]);
+});
+
+// SidebarUpdatePill's "Check for updates" tooltip goes with the idle pill. Once a server has an update, the update pill
+// replaces it under a resting pointer, which gets no leave; the oracle's TooltipPopup unmounts with its trigger.
+describe('the idle update pill\'s tip goes with the pill', () => {
+  const when = /^ {2}task sidebarUpdateTipGone when (.+)$/m.exec(appText('app.contract'))![1]!;
+  const due = (hover: string, available: boolean, running = false) => value(when, { sidebarHoverId: hover, data: { updateEverything: { available, running } } });
+  test('the task is due once the update pill takes the idle pill\'s place under its tip', () => {
+    expect(due('sidebar-update', false)).toBe(false);
+    expect(due('sidebar-update', true)).toBe(true);
+    expect(due('sidebar-update', false, true)).toBe(true);
+    expect(due('sidebar-settings', true)).toBe(false);
+  });
+  test('it ends that tip and no other', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const state = { sidebarHoverId: 'sidebar-update' };
+    root.call('sidebarUpdateTipEnd', state, {}, []);
+    expect(state.sidebarHoverId).toBe('');
+    const other = { sidebarHoverId: 'sidebar-usage' };
+    root.call('sidebarUpdateTipEnd', other, {}, []);
+    expect(other.sidebarHoverId).toBe('sidebar-usage');
+  });
 });

@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DIFF_GLYPHS, ICON, ICON_FILLED, ICON_THIN, PROVIDER_FILLED, PROVIDER_ICON, PANEL_ICON, SETTINGS_ICONS, SHELL_ICON, SIDEBAR_ICON, TIMELINE_ICON } from './icon-tables.mjs';
-import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS, WORDMARK } from './icon-marks.mjs';
+import { DIFF_STATUS, DRIVER_MARKS, EDITOR_MARKS, PROVIDER_MARKS, SHELL_EDITOR_MARKS, SOURCE_CONTROL_MARKS, TIMELINE_MARKS } from './icon-marks.mjs';
 import { FILE_ICON_SPRITE, FILE_ICON_TINTS } from './file-icon-marks.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,12 +86,14 @@ function element([tag, a]) {
 const flatten = node => node.map(element).join('');
 // ── Contract lookups ─────────────────────────────────────────────────────────────────────────
 const q = JSON.stringify;
-/** A value lookup as a fn body: `includes` groups of ⌈√n⌉ keys, each a ternary chain, so a call's
- *  expression stays shallow. */
+/** A value lookup as a fn body: `includes` groups, each a ternary chain, so a call's expression stays
+ *  shallow. Each group is one key shorter than the one before it, so every key sits at the same depth: a
+ *  group's place in the chain of groups plus its place in the group's own chain. */
 function lookup(entries, fallback, key = 'token') {
-  const size = Math.ceil(Math.sqrt(entries.length));
+  let depth = 1;
+  while (depth * (depth - 1) / 2 < entries.length) depth++;
   const groups = [];
-  for (let at = 0; at < entries.length; at += size) groups.push(entries.slice(at, at + size));
+  for (let at = 0, size = depth - 1; at < entries.length; at += size, size = Math.max(1, size - 1)) groups.push(entries.slice(at, at + size));
   return groups.map(group => {
     const chain = group.length === 1 ? group[0][1]
       : `(${group.slice(0, -1).map(([k, v]) => `${key} == ${q(k)} ? ${v} : `).join('')}${group[group.length - 1][1]})`;
@@ -243,7 +245,7 @@ const T3_BY_NAME = { 'package.json': 'npm-plain', 'tsconfig.json': 'typescript-p
 // The document icons (pierre-icons.ts at 7c3b3b3605ef DOCUMENT_ICON_COLORS: Lucide File Type, File Text, File Spreadsheet,
 // Presentation and Book Open, tinted per kind).
 const DOCUMENT_ICON_EXTENSIONS = { pdf: 'pdf', doc: 'word', docx: 'word', odt: 'word', rtf: 'word', xls: 'spreadsheet', xlsx: 'spreadsheet', ods: 'spreadsheet', csv: 'spreadsheet', tsv: 'spreadsheet', ppt: 'slides', pptx: 'slides', odp: 'slides', epub: 'epub' };
-const FILE_ICON_EXTENSIONS = { ...DOCUMENT_ICON_EXTENSIONS, cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml' };
+const FILE_ICON_EXTENSIONS = { ...DOCUMENT_ICON_EXTENSIONS, cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', luau: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml', xsd: 'xml', xsl: 'xml', xslt: 'xml' };
 
 const attributes = tag => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
 /** Every symbol as { viewBox, inner, paths: [{ d, opacity, rule, fill }] }, by token; `extra`
@@ -391,16 +393,14 @@ ${derive ? `  derive geometry = ${derive}\n` : ''}  view
 
 async function iconsContract() {
   return `${header(`Icon: ${LUCIDE}, each glyph flattened to one path so a
-// use costs two nodes (icon-tables.mjs ICON). Wordmark and ProviderMark: T3 Code's marks (icon-marks.mjs; MIT,
-// see LICENSE-T3).`)}
+// use costs two nodes (icon-tables.mjs ICON). ProviderMark: T3 Code's marks (icon-marks.mjs; MIT, see
+// LICENSE-T3).`)}
 
 // Icon's ${FN_NOTE}
 ${await lookupFn('iconGeometry', ICON)}
 
 ${glyphComponent('Icon', `path d=geometry fill=(${ICON_FILLED.map(name => `name == ${q(name)}`).join(' or ')} ? "currentColor" : "none")`,
     { weight: `(name == ${q(ICON_THIN)} ? 1 : ${LUCIDE_STROKE})`, derive: 'iconGeometry(name)' })}
-
-${markComponent('Wordmark', WORDMARK)}
 
 component ProviderMark
   props

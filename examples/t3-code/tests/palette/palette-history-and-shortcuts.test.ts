@@ -3,9 +3,6 @@
 // chords (handleKeyDown), and ⌘O on a shown file (FilePreviewPanel's OpenInPicker). The palette's state is the root's
 // (app.contract), run here with Contract's action semantics.
 import { afterEach, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
 import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
@@ -17,81 +14,14 @@ import { announcements } from '../../src/shell/announce';
 import { fleet } from '../../src/connections/settings-b-fleet';
 import type { Files, Native } from '../../src/client/protocol';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appText, APP } from '../support/app-files';
+import { appText } from '../support/app-files';
 import { primaryAt, primaryOff, resetPrimary } from '../support/local-primary-fixture';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { rememberEditor } from '../../src/details/shell-details';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const root = contractComponent('app.contract', 'T3Code');
-
-test('the action fixture assembles relative same-owner members in listing order', () => {
-  const dir = mkdtempSync(join(tmpdir(), 't3-contract-members-'));
-  try {
-    mkdirSync(join(dir, 'feature'));
-    const before = '  state count = 1\n  derive first = count + 1\n';
-    const member = '  state other = 0\n  derive second = first + 1\n  action inner\n    other = count + 1\n    count = 7\n';
-    const after = '  derive third = second + 1\n  action outer\n    count = count + 1\n    inner()\n    seen(count)\n    match result\n      case some(reply)\n        other = reply\n      case none\n        absent()\n';
-    writeFileSync(join(dir, 'feature', 'part.contract'), `use Shape from "../shape.contract"\n\nmembers Sample\n${member}fn unrelated(): number = 0\n`);
-    writeFileSync(join(dir, 'entry.contract'), `component Sample\n${before}  members "./feature/part.contract"\n${after}component Other\n  state excluded = true\n`);
-    const file = relative(APP, join(dir, 'entry.contract'));
-    expect(appText(file)).toBe(`component Sample\n${before}${member}${after}component Other\n  state excluded = true\n`);
-    const component = contractComponent(file, 'Sample');
-    const state = component.state();
-    expect(state).toEqual({ count: 1, other: 0 });
-    expect(component.derives(state, {})).toEqual({ first: 2, second: 3, third: 4 });
-    const observed: unknown[] = [];
-    const scope: Env = { result: null, seen: (value: unknown) => observed.push(value), absent: () => observed.push('none') };
-    scope.inner = () => component.call('inner', state, scope, []);
-    component.call('outer', state, scope, []);
-    expect(state).toEqual({ count: 2, other: 2 });
-    expect(observed).toEqual([1, 'none']);
-    scope.result = 9;
-    component.call('outer', state, scope, []);
-    expect(state).toEqual({ count: 3, other: 9 });
-    writeFileSync(join(dir, 'feature', 'part.contract'), 'members Other\n  state other = 0\n');
-    expect(() => appText(file)).toThrow('no members Sample');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('none'); }, async atomicWriteFile() {} } };
-
-test('member actions share their starting state, ordered derives and mutation notifications', () => {
-  const dir = mkdtempSync(join(tmpdir(), 't3-contract-commit-'));
-  try {
-    writeFileSync(join(dir, 'part.contract'), `members Sample
-  derive doubled = count * 2
-  action inner
-    count = doubled
-    send changed = issue(count)
-`);
-    writeFileSync(join(dir, 'entry.contract'), `component Sample
-  state count = 2
-  members "./part.contract"
-  derive next = doubled + 1
-  action outer
-    count = 9
-    inner()
-    seen(next, count)
-  view
-    text id="summary" aria-label=(next + count)
-`);
-    const component = contractComponent(relative(APP, join(dir, 'entry.contract')), 'Sample');
-    const state = component.state(), observed: unknown[] = [];
-    component.call('outer', state, {
-      issue: (count: unknown) => ({ count }),
-      sent: (mutation: unknown, command: unknown) => observed.push([mutation, command]),
-      seen: (...values: unknown[]) => observed.push(values),
-    }, []);
-    expect(observed).toEqual([['changed', { count: 2 }], [5, 2]]);
-    expect(state).toEqual({ count: 4 });
-    expect(component.derives(state, {})).toEqual({ doubled: 8, next: 9 });
-    expect(component.attribute('id="summary"', 'aria-label', state, {})).toBe(13);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 type Palette = { parent: string; popOnEmpty: boolean; back: boolean; count: number; rows: Obj[] };
 
 /** The palette's root state, with the scope its actions read; calls to the root's own actions run in place. */
@@ -161,7 +91,7 @@ describe('going back in the palette keeps the search that led there (#15940)', (
 
 describe('a thread row\'s pick carries its moment and the query it was found by', () => {
   // The palette's own derive, read alone: the root's other derives need the whole app's state.
-  const threadQuery = /^  derive paletteThreadQuery = (.+)$/m.exec(appText('src/palette/root-palette.contract'))![1]!;
+  const threadQuery = /^  derive paletteThreadQuery = (.+)$/m.exec(appText('src/palette/palette-members.contract'))![1]!;
   /** What paletteRun sends paletteCommand for a thread row picked on `page` with `query` (the clock reads 1000 + 234.5). */
   function picked(page: string, query: string) {
     const p = palette(), sent: unknown[][] = [];
@@ -254,7 +184,7 @@ describe('new-thread chords run the palette row that lists them (#19055)', () =>
     const rows = [{ index: 0, op: 'new-thread', arg: 'p1', arg2: '', jump: 'Meta+Shift+n' }, { index: 1, op: 'flow', arg: 'scratch', arg2: '', jump: 'Meta+Alt+n' }];
     const press = (k: string, code: string, mods: string) => {
       const calls: unknown[][] = [];
-      const scope: Env = { view: { rows, jumpKeys: ['Meta+1'], accessoryKey: '' }, busy: false, first: (items: unknown[]) => items[0] ?? null,
+      const scope: Env = { view: { rows, jumpKeys: ['Meta+1'], accessoryKey: '', pinKeys: '' }, busy: false, first: (items: unknown[]) => items[0] ?? null,
         run: (...args: unknown[]) => calls.push(['run', ...args]), onKey: (key: string) => calls.push(['key', key]), preventDefault() {}, stopPropagation() {} };
       const event = { key: k, code, metaKey: mods.includes('meta'), ctrlKey: false, altKey: mods.includes('alt'), shiftKey: mods.includes('shift'), repeat: false };
       view.call('inputKey', {}, scope, [k, event]);

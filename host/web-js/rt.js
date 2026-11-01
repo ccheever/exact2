@@ -151,7 +151,7 @@ export const useSchedule = s => { Sched = s; }, refused = () => Refused;
 export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 export const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
-export function W(s, v) { Writes.push([s.n, v]); }
+export function W(s, v) { Writes.push([s.n, v]); if (s.n === Assigned.n) Assigned.v = v; } export const Assigned = { n: null, v: undefined }; // the router slot's last value written (router.js `assigned`)
 /** A host command inside an action: run after the commit. */
 export function C(name, args) { Commands.push([name, args, Origin.now()]); Rev++; } export const Origin = { now: () => "app" }; // who caused the commit (modules.js, LLP 1133.002 D12), taken as a command is queued, so a deferred tail runs it under its own commit's origin
 /** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
@@ -461,7 +461,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: kept ? READER.has(source) : !carried && initialArgs !== undefined, ticket: null, forced: false, rev: false, store: false, origin: 0, marks: [], context: args.context ?? 0 }; // `marks`: the uploads it asked, `context`: how many of its last arguments are its `with` context (uploads.js)
   Inspections.track(r, !kept && !carried, () => pend.n.v);
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } }, release = () => { if (r.ticket) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; } flag(pend, false); }, fails = (args, error, code, reason) => { r.failed = args; r.error = error; r.code = code; r.reason = reason; flag(fail, failure()); release(); say(`resource ${name} failed: ${error}`); Inspections.fail(r); return r.value; }, failure = () => r.failed ? [r.failed, r.code ?? "error", r.error ?? "it failed", r.reason ?? ""] : null; // `fail` holds the message too: a `failure(x)` reader is asked again when only it changes
   const hold = () => {
@@ -640,7 +640,7 @@ export function cv(e) {
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
 // mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
-let Adopt = false;
+let Adopt = false, AdoptedLists = new Set(); // the parents whose rows a keyed list adopted: one holding rows past the list's (a page built ahead, opened at a query it was not built at) is no projection of this plan either (`mount`)
 class Mismatch extends Refusal {}
 // The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
@@ -905,7 +905,7 @@ export function on(e, kind, f, bind) {
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   if (e.localName === "img" && (kind === "load" || kind === "error")) return imageEvent(e, kind, f);
   if (e.localName === "iframe" && kind === "error") return l(kind, ev => f(ev.detail ?? "iframe did not load"));
-  return bind ? bind(e, kind, f, l) : l(kind, () => f());
+  return bind ? bind(e, kind, f, l) : l(kind, kind === "pictureinpictureerror" ? ev => f(ev.detail) : () => f()); // picture-in-picture.js: the failure's reason
 }
 // Each event family's binder, passed to `on` by the generated module only where its plan binds that family
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
@@ -1244,7 +1244,7 @@ export function each(p, list, key, row, pure) {
         if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
-          r = { item: sig(item), index: sig(i) };
+          r = { item: sig(item), index: sig(i) }; AdoptedLists.add(p);
           if (single && i && performance.now() > AdoptBy) {
             // Past the adoption's budget, a row of one element waits for a
             // slice (`lazy`); a press on it or any commit adopts it first.
@@ -1406,7 +1406,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  Booting = true; let booted = commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; let booted = commit(() => { scope(() => f(root)); for (const p of AdoptedLists) { let n = at(p); while (n && n.nodeType !== 1) n = n.nextSibling; if (n) throw new Mismatch("adoption: a list's document holds more rows than its items"); } built = true; }, adopting ? "adopt" : "boot"); AdoptedLists.clear();
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1434,7 +1434,7 @@ export function mount(f) {
 /** The page's checkpoint (LLP 1048.000 D4): the answers its document used,
  * by resource name, so a resource admits the rendered value while its
  * arguments match, and the time the render stopped at. */
-let Checkpoint = null;
+let Checkpoint = null, READER = new Set(["exactViewport", "exactPage"]); // a document's answer from the reader's own device was the render's: `res` asks it again, as a bake's (LLP 1048.007 D2)
 export function checkpoint() {
   if (Checkpoint) return Checkpoint;
   Checkpoint = { kept: null };

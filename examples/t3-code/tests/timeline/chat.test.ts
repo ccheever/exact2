@@ -4,7 +4,7 @@ import { chatCommand } from '../../src/sidebar/chat-commands';
 import type { T3Client } from '../../src/client/client';
 import type { Message, Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { appText, appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 
 const at = '2026-10-03T13:13:00.000Z';
 function fakeClient(checkpoints: Obj[] = []) {
@@ -29,7 +29,22 @@ describe('timeline rows', () => {
     expect(rows[2]).toMatchObject({ attached: true, actionsId: 'a', actionsFork: true, checkpointOrdinal: 1, additions: 3, deletions: 0 });
     expect(rows[2]!.files).toEqual([{ id: 'file:fixture-result.md', path: 'fixture-result.md', additions: 3, deletions: 0, kind: 'file', name: 'fixture-result.md',
       depth: 0, expanded: false, icon: 'markdown', spacer: false, plus: '+3', minus: '-0' }]);
-    expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md' });
+    expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md', filesLabel: '1 changed file', moreFiles: '' });
+  });
+
+  test('your back-to-back messages stack as one burst, a run of steers labelled once (#27305, #27978)', () => {
+    const rows = timelineMessages(fakeClient(), [row('u1', 'user'), row('u2', 'user', { intent: 'Steer' }), row('u3', 'user', { intent: 'Steer' }),
+      row('t', 'user', { attribution: 't3code' }), row('a', 'assistant'), row('u4', 'user')], Date.parse(at));
+    expect(rows.map(message => [message.id, message.groupedPrevious, message.groupedNext, message.continuesSteer])).toEqual([
+      ['u1', false, true, false], ['u2', true, true, false], ['u3', true, false, true], ['t', false, false, false], ['a', false, false, false], ['u4', false, false, false]]);
+  });
+
+  test('a huge checkpoint counts and sums its totals and offers the rest in the full diff (#27110)', () => {
+    const files = [{ path: 'src/a.ts', additions: 3, deletions: 1 }, { path: 'src/b.ts', additions: 2, deletions: 0 }];
+    const rows = timelineMessages(fakeClient([{ id: 'cp', appRunOrdinal: 1 }]),
+      [row('a', 'assistant'), row('c', 'checkpoint', { checkpointId: 'cp', files, filesTotal: { count: 1_204, additions: 52_310, deletions: 4_002 } })], Date.parse(at));
+    expect(rows[1]).toMatchObject({ fileCount: 1_204, additions: 52_310, deletions: 4_002, filesLabel: '1,204 changed files', moreFiles: '1,202 more files in the full diff', targetId: 'src/a.ts' });
+    expect(rows[1]!.files.map(file => file.id)).toEqual(['dir:src']);
   });
 
   test('a checkpoint from another run stays standalone; one from another thread or without files is no row', () => {
@@ -136,7 +151,16 @@ test('every TypeScript source app.ts answers is registered with the mixed Rust/T
   const app = await Bun.file(appPath('app.ts')).text();
   const rust = await Bun.file(appPath('data/src/markdown.rs')).text();
   const listed = new Set([...rust.split('&["renderMarkdown"]')[0]!.split('exact_data::Mixed::new(')[1]!.matchAll(/"([A-Za-z]+)"/g)].map(match => match[1]));
-  const contract = appText('app.contract');
+  const contract = await appText('app.contract');
   const answered = [...app.matchAll(/source === '([A-Za-z]+)'/g), ...contract.matchAll(/\b(serverBrowser[A-Z][A-Za-z]+)\(/g)].map(match => match[1]!);
   expect(answered.filter(source => !listed.has(source))).toEqual([]);
+});
+
+// cb4fe60a4b (#24864): the thread details toggle keeps its tooltip while the card is open, as the panel toggles do.
+describe('the thread details toggle', () => {
+  test('its tooltip shows on hover whether or not the card is open', () => {
+    const toggle = appText('chat.contract').split('\n').find(line => line.includes('TipBubble(label=(shell.keyThreadPanel == ""'))!;
+    expect(toggle).toContain('shown=(hovered == "details"))');
+    expect(toggle).not.toContain('detailsOpen');
+  });
 });

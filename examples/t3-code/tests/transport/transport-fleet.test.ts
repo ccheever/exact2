@@ -249,6 +249,49 @@ describe('outdated hosts (outdatedHostUpdate.ts)', () => {
     }
   });
 
+  // outdatedHostUpdate.ts and state/server.ts (#23532): once progress arrived, a socket lost at the handoff is the restart.
+  test('a boot-service or respawn update whose socket drops after progress waits for the restart; without progress it fails', async () => {
+    for (const [method, progress, expected] of [['boot-service', true, 'resuming'], ['respawn', true, 'resuming'], ['respawn', false, 'failed'], ['desktop-app', true, 'failed']] as const) {
+      const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, serverVersion: '0.0.40', capabilities: { serverSelfUpdate: method, serverSelfUpdateProgress: true } });
+      const drive = new Drive(old);
+      await drive.op({ op: 'fleetOutdatedPair', fleet: `${A}\n`, credential: 'code-1' });
+      old.methods['server.updateServerWithProgress'] = (_method, _payload, id, server) => {
+        if (progress) server.chunk(id, [{ type: 'progress', stage: 'installing' }]);
+        return undefined;
+      };
+      const key = `${A}\nenv-old`;
+      await drive.op({ op: 'fleetOutdatedUpdate', fleet: key, targetVersion: '0.0.46' });
+      await drive.settle();
+      old.up = false;
+      await drive.settle();
+      const job = (value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs as Obj)[key] as Obj;
+      expect([method, progress, job.status === 'running' ? job.stage : job.status]).toEqual([method, progress, expected]);
+      if (expected !== 'resuming') { expect(job.message).toBe('The server connection closed (1006).'); continue; }
+      old.up = true; old.descriptor.orchestrationProtocolVersion = 2; old.descriptor.serverVersion = '0.0.46';
+      await drive.advance(1_500);
+      expect((value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs as Obj)[key]).toMatchObject({ status: 'done', resultVersion: '0.0.46' });
+    }
+  });
+
+  test('a connected server that does not report the target in time: the reference sentence asks to reconnect', async () => {
+    const server = new FakeServer(A, 'env-1', { serverVersion: '0.1.5', capabilities: { serverSelfUpdate: 'boot-service', serverSelfUpdateProgress: true } });
+    const drive = new Drive(server);
+    await drive.op(pairing(A));
+    server.methods['server.updateServerWithProgress'] = (_method, _payload, id, fake) => {
+      fake.chunk(id, [{ type: 'progress', stage: 'installing' }]);
+      return undefined;
+    };
+    const key = `${A}\nenv-1`;
+    await drive.op({ op: 'fleetOutdatedUpdate', fleet: key, targetVersion: '0.1.6', mode: 'connected', capabilities: server.descriptor.capabilities });
+    await drive.settle();
+    server.up = false;
+    await drive.settle();
+    server.up = true;
+    await drive.advance(32 * 60_000 + 2_000, 60_000);
+    expect((value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs as Obj)[key])
+      .toMatchObject({ status: 'failed', message: 'Could not confirm that the server resumed on t3@0.1.6. Reconnect to check the update outcome.' });
+  });
+
   test('a host that does not come back in time fails the job', async () => {
     const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, capabilities: { serverSelfUpdate: 'respawn' } });
     const drive = new Drive(old);

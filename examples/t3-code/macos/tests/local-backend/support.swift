@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9:
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 2359643cff:
 // apps/desktop/src/shell/DesktopShellEnvironment.test.ts (its darwin cases, the mise and probe-failure cases) and
 // apps/desktop/src/app/DesktopObservability.test.ts (the backend child output cases).
 // Change from the reference: bun/vitest over Effect there; XCTest over the native ports
@@ -15,7 +15,7 @@ final class LocalShellEnvironmentTests: XCTestCase {
     func test_hydrates_PATH_and_missing_SSH_AUTH_SOCK_from_the_login_shell_on_macOS() {
         var env = ["SHELL": "/bin/zsh", "PATH": "/Users/test/.local/bin:/usr/bin"]
         var commands: [String] = []
-        T3LocalShellEnvironment.install(into: &env) { command, args, _ in
+        let prepared = T3LocalShellEnvironment.install(into: &env) { command, args, _ in
             commands.append(command)
             XCTAssertEqual(args.first, "-ilc")
             return envOutput(["PATH": "/opt/homebrew/bin:/usr/bin", "SSH_AUTH_SOCK": "/tmp/secretive.sock", "HOMEBREW_PREFIX": "/opt/homebrew"])
@@ -24,6 +24,7 @@ final class LocalShellEnvironmentTests: XCTestCase {
         XCTAssertEqual(env["PATH"], "/opt/homebrew/bin:/usr/bin:/Users/test/.local/bin")
         XCTAssertEqual(env["SSH_AUTH_SOCK"], "/tmp/secretive.sock")
         XCTAssertEqual(env["HOMEBREW_PREFIX"], "/opt/homebrew")
+        XCTAssertTrue(prepared)
     }
 
     func test_preserves_inherited_POSIX_values_when_present() {
@@ -83,12 +84,25 @@ final class LocalShellEnvironmentTests: XCTestCase {
     func test_falls_back_to_launchctl_PATH_on_macOS_when_shell_probing_does_not_return_one() {
         var env = ["SHELL": "/opt/homebrew/bin/nu", "PATH": "/usr/bin"]
         var commands: [String] = []
-        T3LocalShellEnvironment.install(into: &env) { command, _, _ in
+        let prepared = T3LocalShellEnvironment.install(into: &env) { command, _, _ in
             commands.append(command)
             return command == "/bin/launchctl" ? "/opt/homebrew/bin:/usr/bin" : ""
         }
         XCTAssertEqual(commands, ["/opt/homebrew/bin/nu", "/bin/zsh", "/bin/launchctl"])
         XCTAssertEqual(env["PATH"], "/opt/homebrew/bin:/usr/bin")
+        XCTAssertFalse(prepared)
+    }
+
+    func test_leaves_macOS_preparation_incomplete_when_no_login_shell_returns_a_PATH() {
+        var env = ["SHELL": "/bin/zsh", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        XCTAssertFalse(T3LocalShellEnvironment.install(into: &env) { _, _, _ in "" })
+        // The envelope tells the server so, and it repairs PATH itself (os-jank.ts `fixPath`).
+        let start = T3LocalShellEnvironment.serverEnvironment(base: env) { _, _, _ in "" }
+        XCTAssertFalse(start.prepared)
+        let config = T3LocalBackend.startConfig(versionDir: URL(fileURLWithPath: "/v"), port: 16610, home: URL(fileURLWithPath: "/h"), token: "t", env: start.env, cwd: "/",
+                                                shellEnvironmentPrepared: start.prepared)
+        let line = try? JSONSerialization.jsonObject(with: config.bootstrap.jsonLine()) as? [String: Any]
+        XCTAssertEqual(line?["shellEnvironmentPrepared"] as? Bool, false)
     }
 
     /// The reference runs this case on linux; the logic is the same on macOS: a probe that fails

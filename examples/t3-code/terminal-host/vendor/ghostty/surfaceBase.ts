@@ -1,5 +1,6 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
-// with 74541bab17's synchronized output render gate and its key and paste state (surface.ts).
+// with 74541bab17's synchronized output render gate and its key and paste state (surface.ts), and
+// 2359643cff's drag that follows the rows output moved (`extendSelectionTo`).
 // This part holds the surface's options and state, and the methods that select, track the hovered
 // link, scroll, render and encode the mouse. The reference keeps all of surface.ts in one file.
 // Changes from the reference:
@@ -91,7 +92,6 @@ export class GhosttyTerminalSurfaceBase {
   protected mountHeight = 0;
   protected selectionEnd: { x: number; y: number } | null = null;
   protected selectionAnchorScreen: { x: number; y: number } | null = null;
-  protected selectionEndScreen: { x: number; y: number } | null = null;
   protected selectionMode: "cell" | "word" | "line" = "cell";
   // Word/line selection base in screen coordinates so streaming output cannot
   // shift the origin of a drag selection.
@@ -198,7 +198,6 @@ export class GhosttyTerminalSurfaceBase {
       this.selectionBase = range.screen;
       this.selectionEnd = range.viewport.end;
       this.selectionAnchorScreen = range.screen.start;
-      this.selectionEndScreen = range.screen.end;
       this.options.onSelectionChange();
     } else {
       this.selectionMode = "cell";
@@ -206,7 +205,6 @@ export class GhosttyTerminalSurfaceBase {
       this.selectionEnd = cell;
       const screen = this.core.viewportPointToScreen(cell.x, cell.y);
       this.selectionAnchorScreen = screen;
-      this.selectionEndScreen = screen;
       if (screen) {
         this.core.setSelection({ ...screen, tag: 2 }, { ...screen, tag: 2 });
       } else {
@@ -218,8 +216,18 @@ export class GhosttyTerminalSurfaceBase {
   }
 
   protected extendSelectionTo(clientX: number, clientY: number): void {
-    const anchorScreen = this.selectionAnchorScreen;
-    if (anchorScreen === null) return;
+    if (this.selectionAnchorScreen === null) return;
+    // Ghostty moves its selection with output; keep the drag on those rows too.
+    const anchorScreen = this.core.selectionRange()?.start;
+    if (!anchorScreen) return;
+    const rowDelta = anchorScreen.y - this.selectionAnchorScreen.y;
+    if (this.selectionBase && rowDelta !== 0) {
+      const { start, end } = this.selectionBase;
+      this.selectionBase = {
+        start: { x: start.x, y: start.y + rowDelta },
+        end: { x: end.x, y: end.y + rowDelta },
+      };
+    }
     const cell = this.cellAt(clientX, clientY);
     this.selectionMoved = true;
     this.selectionEnd = cell;
@@ -239,7 +247,6 @@ export class GhosttyTerminalSurfaceBase {
     const anchor = base === null ? anchorScreen : beforeBase ? base.end : base.start;
     const end = range === null ? cellScreen : beforeBase ? range.screen.start : range.screen.end;
     this.selectionAnchorScreen = anchor;
-    this.selectionEndScreen = end;
     this.core.setSelection({ ...anchor, tag: 2 }, { ...end, tag: 2 });
     this.options.onSelectionChange();
     this.forceFullRender = true;

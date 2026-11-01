@@ -1,5 +1,5 @@
 // The palette's "Link pull request to thread": T3 Code reference pullRequest/LinkPullRequestDialog.tsx and
-// client-runtime/pullRequestLinkInput.ts (7c3b3b3605ef) over each host's parseChangeRequestUrl and changeRequestUrl in
+// client-runtime/pullRequestLinkInput.ts (2359643cff) over each host's parseChangeRequestUrl and changeRequestUrl in
 // the definitions registry's claim order (packages/source-control-*/src/shared/definition.ts), with
 // web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching; 9c161462c9),
 // hooks/usePullRequestLinking.ts and client-runtime/threadPullRequestCompatibility.ts.
@@ -21,16 +21,17 @@ type Claim = { kind: string; route: RegExp; claims?: (hostname: string) => boole
 const GITCAFE_HOSTS = new Set(['git.cafe', 'staging.git.cafe']);
 const CLAIMS: Claim[] = [
   // GitCafe serves pull requests at /pull/<n> and redirects the older /pulls/<n> there. Those are GitHub's and
-  // Forgejo's routes on any hostname too, so GitCafe's own hosts claim first.
+  // Forgejo's routes on any hostname too, so GitCafe's own hosts claim first (claimChangeRequestUrlsFirst).
   { kind: 'gitcafe', route: /^\/([^/]+\/[^/]+)\/pulls?\/(\d+)(?:\/|$)/u, claims: hostname => GITCAFE_HOSTS.has(hostname) },
+  // Azure DevOps Server runs on any hostname, and its `_git` route claims before the routes others take on any
+  // hostname. Servers on different ports are different servers, so a port stays.
+  { kind: 'azure-devops', route: /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u, authority: url => url.port !== '' },
   // GitHub Enterprise Server runs on any hostname, so the route alone identifies a GitHub pull request.
   { kind: 'github', route: /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u },
   { kind: 'gitlab', route: /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u },
   // A Forgejo server's identity includes its port, so the link carries it.
   { kind: 'forgejo', route: /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u, authority: () => true },
   { kind: 'bitbucket', route: /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u, claims: hostname => hostname === 'bitbucket.org' || hostname.endsWith('.bitbucket.org') || hostname.split('.').includes('bitbucket') },
-  // Azure DevOps Server runs on any hostname; servers on different ports are different servers, so a port stays.
-  { kind: 'azure-devops', route: /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u, authority: url => url.port !== '' },
 ];
 /** The first host, in the registry's claim order, that reads `target` as one of its change requests. */
 export function claimChangeRequestUrl(target: string): { kind: string; link: ChangeRequestLink } | null {
@@ -99,7 +100,7 @@ function changeRequestUrlFor(kind: string, host: string, repository: string, num
 
 // ── Typed references (each host's isChangeRequestReference and checkoutCommandArgument) ──────────────────────────────
 const URL_PATTERNS = [/^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)+[^/\s]+\/pulls\/(\d+)(?:[/?#].*)?$/i, /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i,
-  /^https:\/\/[^/\s]*gitlab[^/\s]*\/.+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i,
+  /^https?:\/\/[^/?#\s]+\/[^/?#\s]+(?:\/[^/?#\s]+)+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i,
   /^https:\/\/(?:dev\.azure\.com\/[^/\s]+\/[^/\s]+|[^/\s]+\.visualstudio\.com\/[^/\s]+)\/_git\/[^/\s]+\/pullrequest\/(\d+)(?:[/?#].*)?$/i];
 function azureCheckout(args: string): string | null {
   const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -116,8 +117,9 @@ export function parsePullRequestReference(input: string): string | null {
   const normalized = /^tea\s+(?:pr|pulls)\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? /^gh\s+pr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim()
     ?? /^glab\s+mr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? (azure ? azureCheckout(azure) : null) ?? trimmed;
   if (!normalized) return null;
-  // GitCafe's references are its change request URLs, on its own hosts.
-  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1]) || claimChangeRequestUrl(normalized)?.kind === 'gitcafe') return normalized;
+  // GitCafe's and Bitbucket's references are their change request URLs, on their own hosts.
+  const claimed = claimChangeRequestUrl(normalized)?.kind;
+  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1]) || claimed === 'gitcafe' || claimed === 'bitbucket') return normalized;
   return /^#?(\d+)$/.exec(normalized)?.[1] ?? null;
 }
 

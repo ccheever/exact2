@@ -15,7 +15,7 @@ private final class LocalServer: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let body: [String: Any] = request.url!.path == "/oauth/token"
             ? ["access_token": "local-bearer", "token_type": "Bearer"]
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.5"]
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.6"]
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
         client?.urlProtocolDidFinishLoading(self)
@@ -35,7 +35,7 @@ final class LocalSwitchTests: XCTestCase {
     /// A runtime folder whose `t3` runs `body` after `--version`.
     private func runtime(_ body: String) -> URL {
         let directory = scratch("runtime"), script = directory.appendingPathComponent("t3")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.5'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.6'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return directory
     }
@@ -46,7 +46,7 @@ final class LocalSwitchTests: XCTestCase {
         let home = scratch("home")
         backend.environment = { ["T3_LOCAL_HOME": home.path, "T3_LOCAL_PORT": "\(port)", "T3_LOCAL_RUNTIME_DIR": runtime.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { nil }
-        backend.serverEnvironment = { $0 }
+        backend.serverEnvironment = { ($0, true) }
         backend.makeProber = { let prober = FakeProber(); if !answers { prober.fallback = nil }; return prober }
         backend.fatal = { stage, message in XCTFail("unexpected fatal \(stage): \(message)") }
         return backend

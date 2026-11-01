@@ -1,7 +1,7 @@
 # LLP 1042: Video — browser semantics, native playback
 
 **Type:** Spec
-**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28)
+**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31)
 **Systems:** Kernel replaced elements; Contract media attributes/events; web video; Apple AVKit; keyboard viewport; Video Player app
 **Author:** Codex for Charlie Cheever
 **Implementer:** Codex, 2026-09-18
@@ -439,3 +439,89 @@ audio-session category is LLP 1096 D8's `audio_session`).
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),
 [AVPlayerView](https://developer.apple.com/documentation/avkit/avplayerview).
+
+## 9. An image's pictures in picture in picture (Daehyeon Mun, 2026-10-31)
+
+Consumer: the T3 Code clone (`examples/t3-code`), whose server-rendered
+Browser tab is a stream of JPEG frames the app shows in an `image`. T3 Code
+floats that tab in the platform's picture-in-picture window: it paints the
+frames onto a canvas, plays the canvas's `captureStream()` in a hidden
+`video` and calls `requestPictureInPicture()` on it
+(`apps/web/src/browser/serverPictureInPicture.ts` at v0.1.5). Exact had no
+way to turn pictures into a video, so the clone hid the action.
+
+`requestPictureInPicture("id")`, an action's host command, floats the
+`image` with that HTML id in the platform's picture-in-picture window. The
+window then shows each picture the image's `src` names, as it changes: a
+live source, with no timeline, never paused. The image hears HTML's
+`enterpictureinpicture` when the window shows and `leavepictureinpicture`
+when the person closes it (its close button, or the button that returns to
+the app). Either brings the app forward, as a press on Chromium's window
+activates the browser; on macOS the panel is the system's, so a press
+elsewhere on it does not. An image that leaves the document
+closes the window, with no event, as no node is left to hear it. One image
+floats at a time, as one element per document does: a request for another
+moves the window to it, and the first hears `leavepictureinpicture`. Neither
+event carries a payload; the plan's EventKind table gains both, and the
+runner admits them as media events with an empty payload.
+
+Two rulings (Daehyeon Mun, 2026-10-31):
+
+- **A failed request is an event.** HTML's `requestPictureInPicture()`
+  returns a promise that rejects; an action has no promise, so a failure is
+  the image's `pictureinpictureerror(message)`, whose string is the reason.
+  It fires on every path that leaves the image not floating: on macOS the
+  first picture unreadable, the controller never possible within a second,
+  AVKit's failure to start, and no video module or no picture in picture on
+  the platform; on the web a rejected request, a picture that taints the
+  canvas, and a browser without the APIs; and at once on every host that
+  refuses the command, beside its journal line. No capability read says in
+  advance whether a host can float, so an app learns it from this event.
+- **`exitPictureInPicture()`** closes the window and the image hears
+  `leavepictureinpicture`, as HTML's `document.exitPictureInPicture()`. It
+  takes no id: one image floats at a time, so there is only one window to
+  close, and a bare command is how Exact names the app's own (`close()`,
+  `blur()`). With no image floating it does nothing and says so in the
+  journal.
+
+HTML has `requestPictureInPicture()` only on `video`. On an `image` it is
+this extension, which stands for the canvas and hidden video a page builds;
+the window shows the picture's pixels at the size the platform chooses, not
+the element's box, so a hidden 1-point image floats its full picture.
+
+| Host | What it does |
+| --- | --- |
+| macOS 14+ (ExactKit's minimum; the arm uses the display layer's `sampleBufferRenderer`) | The video arm (`host/apple/videoarm/PictureInPicture.swift`) decodes each picture with ImageIO into a BGRA `CVPixelBuffer`, enqueues it as a `CMSampleBuffer` shown at once on an `AVSampleBufferDisplayLayer`, and floats the layer with `AVPictureInPictureController(contentSource: .init(sampleBufferDisplayLayer:playbackDelegate:))`; the playback delegate reports an unbounded time range and never paused. AVKit stays in the on-demand artifact; ExactKit follows the node (`PictureInPicture.swift`) |
+| Web, JS target | `host/web-js/picture-in-picture.js`, loaded on first use: the image drawn onto a canvas on each `load`, its `captureStream()` in a hidden video, `requestPictureInPicture()` on it. A browser without `captureStream` or `document.pictureInPictureEnabled` refuses in the journal |
+| iOS, tvOS | Refused, with the event: their picture in picture needs the app's playback audio session and background mode, which an app that shows no media does not declare |
+| Web, wasm target; Linux; Windows (the Linux presenter) | Refused in the journal and with the event; `exitPictureInPicture()` in the journal |
+
+On macOS the PiP panel does not take the display layer into its window, as
+iOS does: it mirrors the layer's pixels at 1:1 from the window that holds
+the layer, so a layer larger than the panel shows only its lower-left corner
+and a layer in the app's own window shows that window's part of it (Apple
+Developer Forums thread 821582, FB22411168; reproduced on macOS 27.2). The
+layer therefore lives in a window of its own, borderless, transparent,
+click-through and out of the Window menu, sized to the panel's content. To
+follow the panel's size, the arm looks for an app window whose class name
+contains `PIPPanel` and observes its resizes; it links and calls no private
+symbol, only compares a class name. Where no such window is found, the layer
+keeps the size the first picture gave it (its aspect, at most 640 points
+long), which the panel then shows scaled down or cropped.
+
+AVKit moves the layer's video into the panel and lays it out again at the
+video's own size whenever that size changes; only the panel's next layout
+fits it back to the panel. A change that no panel layout follows leaves the
+picture outside the panel, which then shows its blank window background. A
+stream's pictures differ by a pixel as the page is scaled (a seed of
+1078 × 1496, then 922 × 1280), which left the panel blank in 20 of 30 runs.
+The arm therefore draws a picture whose aspect is within 2% of the video's
+at the video's size. A new aspect resizes the panel, whose layout fits the
+video again. A stream deletes a picture once it names the next, sometimes
+before the arm reads it: a first picture whose file is gone fails the
+request only when no picture opens the window within a second.
+
+Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
+[AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),
+[AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer),
+[HTMLCanvasElement.captureStream()](https://w3c.github.io/mediacapture-fromelement/).

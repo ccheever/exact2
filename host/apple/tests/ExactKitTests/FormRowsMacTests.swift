@@ -41,8 +41,14 @@ final class FormRowsMacTests: XCTestCase {
         XCTAssertFalse(field.drawsBackground)
         XCTAssertEqual(field.focusRingType, .none)
         XCTAssertEqual(field.alignment, .right)
+        // Its text stands at the node's edges, where a title's does: AppKit
+        // sets it in by the field editor's padding, so the field is that wider.
+        let pad = NodeView.editorPadding
+        XCTAssertGreaterThan(pad, 0)
+        XCTAssertEqual(field.frame, node.bounds.insetBy(dx: -pad, dy: 0))
         node.applyFieldContent(["rect": [4.0, 3.0, 232.0, 16.0]])
         XCTAssertTrue(field.isBezeled)
+        XCTAssertEqual(field.frame, node.bounds)
         XCTAssertEqual(field.focusRingType, .default)
 
         let cache = FieldChromeCache()

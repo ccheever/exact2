@@ -62,7 +62,8 @@ final class EditMenuTarget: NSObject {
 /// what the Dock's menu shows, what "Clear Menu" empties — drawn here with
 /// public API. AppKit fills its own recent menu only for one a nib names
 /// (or one named through a private selector, which the Mac App Store
-/// refuses; ruled: nothing here may make that harder). Choosing an entry is
+/// refuses; ruled: nothing here may make that harder; the one exception is
+/// the web arm's `openDevTools`, LLP 1020.002 D11). Choosing an entry is
 /// one more route in, to the same router as Launch Services' (LLP 1033 D3).
 final class RecentMenu: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -271,6 +272,8 @@ public enum DevMenu {
         // ⌘[ command stands in for it, and an app with no navigation has
         // no Go menu (`ShortcutHost.sync`).
         go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
+        // Forward ⌘], where Back left (D5.5).
+        go.addItem(withTitle: "Forward", action: #selector(GoMenuTarget.forward(_:)), keyEquivalent: "]").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = ShortcutMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
@@ -293,8 +296,6 @@ public enum DevMenu {
             if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
             #endif
             dev.addItem(withTitle: "Show Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
-            dev.addItem(withTitle: "Frame Health Details…", action: #selector(ExactView.showFrameHealthDetails(_:)), keyEquivalent: "")
-            dev.addItem(withTitle: "Share Frame Health…", action: #selector(ExactView.shareFrameHealth(_:)), keyEquivalent: "")
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]

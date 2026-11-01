@@ -221,7 +221,7 @@ component CodexSetupRow
                 // SettingsRow's description, plain text in the reference (CodexSetupSection.tsx accountDescription): no live role.
                 text setup.description max-width="42rem" text-wrap="balance" font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #a1a1a1)" testId=`codex-description-${setup.instanceId}`
           if setup.kind == "managed"
-            row flex-shrink=0 min-width=0 gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
+            row flex-shrink=0 min-width=0 max-width="22rem" gap="0.5rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
               if setup.control == "waiting"
                 button press=op("setup:codex-open", setup.target, setup.token, "", true) class=PvOutline disabled=setup.controlDisabled opacity=(setup.controlDisabled ? 0.64 : 1) testId=`codex-open-${setup.instanceId}` id=`codex-open-${setup.instanceId}` data-focus-stop=(setup.controlDisabled ? "" : stop)
                   text setup.controlLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
@@ -239,6 +239,8 @@ component CodexSetupRow
                   CodexGhost(stop=stop, label="Use a different account", muted=false, small=false, disabled=(setup.differentDisabled or pending), icon="", target=`codex-different-${setup.instanceId}`, testId=`codex-different-${setup.instanceId}`, press=op("setup:codex-different", setup.target, setup.token, "", true), first=false)
                 else
                   ChatGptButton(stop=stop, label=(pending ? "Setting up..." : setup.controlLabel), disabled=(setup.controlDisabled or pending), target=`codex-account-${setup.instanceId}`, testId=`codex-connect-${setup.instanceId}`, press=op("setup:codex-setup", setup.target, setup.token, "", true))
+                if setup.secondary == "existing"
+                  CodexGhost(stop=stop, label="Use existing CLI", muted=false, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target=`codex-existing-${setup.instanceId}`, testId=`codex-existing-${setup.instanceId}`, press=op("setup:codex-mode", setup.target, setup.token, "existing", true), first=false)
       if setup.usage
         row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.25rem" padding-bottom="0.25rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff0a)"
           ChatGptUsageGhost(stop=stop, small=false, testId=`codex-manage-usage-${setup.instanceId}`, press=op("setup:chatgpt-usage", setup.target, "", "", true), first=false)

@@ -1,11 +1,17 @@
 """Summarize G6's retained JSON and PresentMon CSV; never alter raw observations."""
+import argparse
 import csv
 import json
 from pathlib import Path
 import statistics as S
-import sys
-
-root=Path(sys.argv[1])
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('root',type=Path)
+parser.add_argument('--refresh-hz',type=float,default=60.)
+args=parser.parse_args()
+if args.refresh_hz <= 0:
+    parser.error('--refresh-hz must be positive')
+root=args.root
+late_ms=1500/args.refresh_hz
 
 def metric(values):
     values=[v for v in values if v is not None]
@@ -21,8 +27,8 @@ def input_metrics(sample):
     for gesture in range(4):
         ticks=[r['qpc'] for r in sample['posts'] if r['gesture']==gesture]
         gaps.extend((b-a)*1000/sample['qpcFrequency'] for a,b in zip(ticks,ticks[1:]))
-    return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps),
-                latePostGaps=sum(gap>25 for gap in gaps))
+    return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps,default=None),
+                latePostGaps=sum(gap>late_ms for gap in gaps))
 
 
 def frames(sample,path):
@@ -32,7 +38,7 @@ def frames(sample,path):
         rows=list(csv.DictReader(f))
     times=sorted(float(r['QPCTime'])+float(r['msUntilDisplayed'])*frequency/1000
                  for r in rows if r['Dropped']=='0' and float(r['msUntilDisplayed'])>0)
-    if not times: return {}
+    if not times and (not sample.get('motion') or sample['arm']=='wgpu'): return {}
     start,end=sample['flingStart']['qpc'],sample['flingEnd']['qpc']
     spans=sample['gestureWindows']
     intervals=[]
@@ -43,33 +49,32 @@ def frames(sample,path):
         intervals.extend((y-x)*1000/frequency for x,y in zip(t,t[1:]))
     intervals.sort()
     seconds=sum(b-a for a,b in spans)/frequency
-    if not intervals: return {}
-    return dict(p50=intervals[min(int(.5*len(intervals)),len(intervals)-1)],
-                p95=intervals[min(int(.95*len(intervals)),len(intervals)-1)],
-                p99=intervals[min(int(.99*len(intervals)),len(intervals)-1)],
-                latePerSecond=sum(x>25 for x in intervals)/seconds,
+    def percentile(p):
+        return intervals[min(int(p*len(intervals)),len(intervals)-1)] if intervals else None
+    return dict(p50=percentile(.5),p95=percentile(.95),p99=percentile(.99),
+                latePerSecond=sum(x>late_ms for x in intervals)/seconds,
                 gestureFps=count/seconds,phaseFps=sum(start<=v<=end for v in times)*frequency/(end-start),
                 restPresents=sum(end<v<=sample['restEnd']['qpc'] for v in times),
                 displayedFrames=len(times),csvRows=len(rows),
                 modes=sorted(set(r['PresentMode'] for r in rows)))
 
 report={}
-for phase in ['warm','warm-startup','cold']:
+for phase in ['warm','warm-startup','cold','rest','bar','caret']:
     directory=root/phase
     if not directory.exists(): continue
     quiet=[json.loads(line) for line in (directory/'quiet.jsonl').read_text().splitlines()]
     phase_report=dict(quietObservations=len(quiet),loadedObservations=[x for x in quiet if not x['quiet']],
                       maxCpuPercent=max(x['cpuPercent'] for x in quiet),arms={})
     for arm in ['d3d11','wgpu','egui']:
-        samples=[json.loads(p.read_text()) for p in sorted(directory.glob(arm+'-*.json'))]
-        passed=[x for x in samples if x['status']=='ok']
-        entry=dict(attempts=len(samples),failures=[x for x in samples if x['status']!='ok'],
+        sources=[(json.loads(p.read_text()),p) for p in sorted(directory.rglob(arm+'-*.json'))]
+        passed=[x for x,p in sources if x['status']=='ok' and not x.get('focusLosses')]
+        entry=dict(attempts=len(sources),failures=[x for x,p in sources if x['status']!='ok' or x.get('focusLosses')],
                    dwmMs=metric([x['dwmMs'] for x in passed]),dxgiMs=metric([x['dxgiMs'] for x in passed]))
-        full=[x for x in passed if 'flingEnd' in x]
+        full=[(x,p) for x,p in sources if x['status']=='ok' and not x.get('focusLosses') and 'flingEnd' in x]
         if full:
             measures={}
-            for x in full:
-                f=(frames(x,directory/f'{arm}-{x["number"]}-presents.csv')
+            for x,path in full:
+                f=(frames(x,path.with_name(f'{arm}-{x["number"]}-presents.csv'))
                    if x.get('presentmonEventsLost',0)==0 and x.get('presentmonExit')==0 else {})
                 f['eventsLost']=x.get('presentmonEventsLost',0)
                 f.update(input_metrics(x))

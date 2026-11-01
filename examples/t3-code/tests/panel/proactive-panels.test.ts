@@ -45,6 +45,17 @@ describe('which completed turn opens Changes', () => {
     expect(action({ runId: 'r', status: 'missing', files: [] })).toBe('defer');
     expect(resolveProactiveTurnDiffAction({ checkpoint: ready('r', 3), isGitRepo: undefined })).toBe('defer');
   });
+  test('a huge checkpoint\'s prefix of files counts by its totals (checkpointFileTotals)', () => {
+    const action = (filesTotal: { count: number; additions: number; deletions: number }) => resolveProactiveTurnDiffAction({ checkpoint: { ...ready('r', 1), filesTotal }, isGitRepo: true });
+    expect(action({ count: 3, additions: 1, deletions: 0 })).toBe('open');
+    expect(action({ count: 1, additions: 30, deletions: 20 })).toBe('open');
+    expect(action({ count: 2, additions: 10, deletions: 10 })).toBe('ignore');
+    const totals = { count: 400, additions: 9000, deletions: 120 };
+    const input = proactiveInput({ threadId: 't1', environmentId: 'env', generation: 1, preferencesLoaded: true, local: { clientSettings: {} }, config: {}, shell: { projects: [], threads: [{ id: 't1' }] },
+      thread: {}, projection: { runs: [], checkpoints: [{ runId: 'r1', appRunOrdinal: 1, status: 'ready', files: [{ path: 'a', additions: 1, deletions: 0 }], filesTotal: totals },
+        { runId: 'r2', appRunOrdinal: 2, status: 'ready', files: [], filesTotal: { count: -1 } }] } } as unknown as T3Client, 'env:t1', false);
+    expect(input.turnDiffSummaries).toEqual([{ runId: 'r1', status: 'ready', files: [{ additions: 1, deletions: 0 }], filesTotal: totals }, { runId: 'r2', status: 'ready', files: [] }]);
+  });
   test('only the turn seen running, or the latest one on first entry', () => {
     const open = (previousRunningTurnId: string | null | undefined, settledTurnId = 'r1') =>
       shouldOpenProactiveTurnDiff({ previousRunningTurnId, runningTurnId: null, settledTurnId, turnCompleted: true });

@@ -31,10 +31,16 @@ extension NodeView {
         }
         return content
     }
+    static let editorPadding = NSTextView.fieldEditor().textContainer?.lineFragmentPadding ?? 0
     func layoutField() {
         // A field the window's toolbar hosts is AppKit's to place and to style (LLP 1115.002 D2).
         guard let field, pageField == nil else { return }
-        field.frame = isNativeTextControl ? bounds : contentBox()
+        // A grouped row's field is borderless, and AppKit sets its text in from
+        // its frame by the field editor's line fragment padding (2 points,
+        // which the cell's drawing rect leaves out): out by that on each side,
+        // its text stands at the node's edges, where a row's title does.
+        let out = fieldInCell ? Self.editorPadding : 0
+        field.frame = isNativeTextControl ? bounds.insetBy(dx: -out, dy: 0) : contentBox()
         layoutStepper() // a number input's stepper takes the field's trailing end (LLP 1116.007 D4)
         field.needsDisplay = true
     }
@@ -155,6 +161,7 @@ extension NodeView {
             fieldInCell = cell
             styleNativeField()
             styleTextArea()
+            layoutField()
         }
     }
 }

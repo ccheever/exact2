@@ -16,11 +16,13 @@ const comparablePath = (value: unknown) => str(value).trim().replace(/\\/g, '/')
 
 /**
  * Reference useHandleNewThread: defaultProjectRef = orderedProjects[0], where
- * orderedProjects = orderItemsByPreferredIds(projects, projectOrder) keyed by
- * the physical project key or its legacy cwd key. An empty order keeps the
- * shell's source order; no project is no destination.
+ * orderedProjects = orderItemsByPreferredIds(projects, projectOrder) over the
+ * projects that are not archived, keyed by the physical project key or its
+ * legacy cwd key. An empty order keeps the shell's source order; no project is
+ * no destination.
  */
-export function snapshotDefaultProject(projects: Obj[], environmentId: string, projectOrder: readonly string[] = []): string {
+export function snapshotDefaultProject(all: Obj[], environmentId: string, projectOrder: readonly string[] = []): string {
+  const projects = all.filter(project => project.archivedAt == null);
   if (!projectOrder.length) return str(projects[0]?.id);
   const keys = (project: Obj) => {
     const path = comparablePath(project.workspaceRoot);

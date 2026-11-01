@@ -191,7 +191,7 @@ fn the_windows_root_removes_the_host_items_the_reference_bar_lacks() {
     assert_eq!(
         prop(runner, "t3-code", "menuRemove").as_deref(),
         Some(concat!(
-            "close-all show-tab-bar show-all-tabs develop back paste-and-match-style find ",
+            "close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find ",
             "spelling-and-grammar substitutions transformations app-help"
         ))
     );
@@ -512,6 +512,7 @@ fn the_new_keybinding_row_is_a_text_field_that_records_once_it_has_the_focus() {
             Event::Pointerdown(exact_runner::PointerEvent {
                 offset_x: 4.0,
                 offset_y: 4.0,
+                button: 0.0,
                 buttons: 1.0,
                 pressure: 0.5,
                 pointer_type: "mouse".to_owned(),

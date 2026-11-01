@@ -1,4 +1,4 @@
-// T3 Code 6d450a4284 (MIT, LICENSE-T3): packages/client-runtime/src/promptLinks.ts.
+// T3 Code 2359643cff (MIT, LICENSE-T3): packages/client-runtime/src/promptLinks.ts.
 // The clone keeps received entities as plain objects; repository and PR keys retain the reference's matching rules.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { resolveSelectableModel } from '../composer/composer-controls-model';
@@ -22,6 +22,8 @@ export function findPromptLinkPullRequestThread<T extends Obj>(threads: readonly
   let latest: T | undefined;
   for (const thread of threads) {
     if (latest && str(thread.updatedAt) <= str(latest.updatedAt)) continue;
+    // Side chats inherit their parent's links but stay hidden.
+    if (obj(thread.lineage).sideChat === true) continue;
     const legacy = obj(thread.linkedPullRequest);
     let legacyHost = '';
     try { legacyHost = new URL(str(legacy.url)).hostname; } catch {}

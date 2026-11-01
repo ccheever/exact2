@@ -25,6 +25,25 @@ final class BrowserCaptureReferenceTests: XCTestCase {
         XCTAssertEqual([landscape.width, landscape.height], [523, 294])
     }
 
+    // Manager.test.ts "shows picture-in-picture and keeps capturing after stalled captures" (2359643cff): a snapshot that
+    // never answers is given up after a second, and the window goes on capturing.
+    func testKeepsCapturingAfterStalledCaptures() {
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+        let image = NSImage(size: NSSize(width: 320, height: 200))
+        var calls = 0
+        let pip = T3BrowserPictureInPicture(web: web, title: "Stalled", agent: true) { _, done in
+            calls += 1
+            if calls > 2 { done(image) } // the first two never answer
+        }
+        defer { pip.window.close() }
+        XCTAssertEqual(calls, 1)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual([calls, pip.frames], [1, 0])
+        RunLoop.main.run(until: Date().addingTimeInterval(2.4))
+        XCTAssertGreaterThanOrEqual(calls, 3)
+        XCTAssertGreaterThan(pip.frames, 0)
+    }
+
     func testDerivesTheArtifactExtensionFromTheRecordersActualMimeType() {
         XCTAssertEqual(T3BrowserArtifacts.fileExtension("video/mp4;codecs=avc1.640028"), "mp4")
         XCTAssertEqual(T3BrowserArtifacts.fileExtension("video/webm;codecs=vp9"), "webm")

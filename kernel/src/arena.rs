@@ -1315,9 +1315,7 @@ mod tests {
     fn compact_inheritance_matches_full_styles_through_overrides_and_detach() {
         use crate::style::StyleValue;
         let number = StyleValue::Number;
-        fn text(s: &str) -> StyleValue<'_> {
-            StyleValue::Text(s.into())
-        }
+        let text = |s: &'static str| StyleValue::Text(s.into());
         let samples = [
             (StyleId::Direction, text("rtl")),
             (StyleId::CaretColor, text("light-dark(#ffffff, #112233)")),
@@ -1334,6 +1332,7 @@ mod tests {
             (StyleId::LineHeight, number(1.5)),
             (StyleId::LetterSpacing, number(2.0)),
             (StyleId::FontVariantNumeric, text("tabular-nums")),
+            (StyleId::FontVariantLigatures, text("none")),
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::DynamicRangeLimit, text("constrained")),

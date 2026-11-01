@@ -359,6 +359,25 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
             "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
         }
+        // CSS 2.1 §17.6.2's collapsing model is not implemented; the separated one with no spacing
+        // is what a table drawn with rules between its rows needs.
+        None if a.name == "border-collapse" => {
+            "; tables use the separated model: `border-spacing=0` puts the cells edge to edge, and a \
+             `border-bottom` on each cell draws a rule between rows"
+                .into()
+        }
+        // No `::marker` (CSS Lists 3 §3): every list is `list-style: none`.
+        None if a.name.starts_with("list-style") => {
+            "; a list here draws no marker, as `list-style=\"none\"` has it, so a reset needs \
+             nothing; a bullet is a `text \"•\"` before the item's text in a row"
+                .into()
+        }
+        // LLP 1048.007 D5: the build chooses.
+        None if tag == "image" && a.name == "loading" => {
+            "; Exact chooses: an image a `for` repeats loads as its row comes into view, and a lone \
+             image loads with the page"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

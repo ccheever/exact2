@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { composerPlaceholder, threadPhase, traitsMenu, commandChords, controlsWidth, composerView, runtimeModes } from '../../src/composer/composer-presentation';
+import { composerPlaceholder, threadPhase, commandChords, controlsWidth, composerView, runtimeModes } from '../../src/composer/composer-presentation';
+import { effortColumn, speedSegments, type EffortInput } from '../../src/composer/composer-model-effort';
 import { pickerCatalog, scoreModel, favoriteKeys, pickerReady } from '../../src/composer/model-catalog';
 import { setFanout } from '../../src/composer/composer-controls-fanout';
 
@@ -45,33 +46,36 @@ describe('composer placeholder and phase', () => {
 });
 
 describe('composer controls', () => {
-  test('traits use the descriptor label, every select option and the Default badge', () => {
-    const menu = traitsMenu([effort], []);
-    expect(menu.label).toBe('Medium');
-    expect(menu.items.map(item => [item.kind, item.label, item.selected, item.isDefault, item.index])).toEqual([
-      ['header', 'Reasoning', false, false, -1], ['option', 'Low', false, false, 0], ['option', 'Medium', true, true, 1], ['option', 'High', false, false, 2]]);
-    const two = traitsMenu([effort, { id: 'serviceTier', label: 'Speed', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'fast', label: 'Fast' }] },
-      { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'fast' }]);
-    expect(two.label).toBe('High · Fast');
-    // Boolean traits are On/Off radio groups after the selects (TraitsMenuContent).
-    expect(two.items.map(item => item.kind)).toEqual(['header', 'option', 'option', 'option', 'divider', 'header', 'option', 'option', 'divider', 'header', 'option', 'option']);
-    expect(two.items.slice(-3).map(item => [item.label, item.value, item.selected])).toEqual([['Thinking', '', false], ['On', 'true', true], ['Off', 'false', false]]);
-    expect(two.count).toBe(7);
-    expect(two.selected).toBe(2);
+  test("the effort column: the reasoning control under the header that names it, every option and its Default, then the others", () => {
+    const input = (descriptors: object[], selections: object[]): EffortInput => ({ driver: 'codex', descriptors, selections, selection: null, reported: null,
+      ultra: { primaryId: '', controlled: false, inBody: false }, unavailable: false, labels: {} });
+    const one = effortColumn(input([effort], []));
+    expect(one.header).toBe('Reasoning');
+    expect(one.groups.map(group => [group.kind, group.label, group.showLabel])).toEqual([['control', 'Reasoning', false]]);
+    expect(one.rows.map(row => [row.label, row.selected, row.isDefault, row.level, row.index])).toEqual([['Low', false, false, true, 0], ['Medium', true, true, true, 1], ['High', false, false, true, 2]]);
+    const tier = { id: 'serviceTier', label: 'Speed', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'fast', label: 'Fast' }] };
+    const two = input([effort, tier, { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true }], [{ id: 'reasoningEffort', value: 'high' }, { id: 'serviceTier', value: 'fast' }]);
+    // Codex's service tier is the footer's speed control; a boolean is a labelled On/Off group after the selects.
+    expect(effortColumn(two).groups.map(group => [group.label, group.showLabel, group.options.map(row => `${row.label}${row.selected ? '*' : ''}`).join(' ')]))
+      .toEqual([['Reasoning', false, 'Low Medium High*'], ['Thinking', true, 'On* Off']]);
+    expect(speedSegments(two).segments.map(segment => `${segment.label}${segment.checked ? '*' : ''}`)).toEqual(['Normal', 'Fast*']);
+    expect(effortColumn(input([], [])).groups).toEqual([{ key: 'none', kind: 'none', label: 'No effort levels', showLabel: false, note: '', value: '', options: [] }]);
   });
   test('Permissions hide at the default, show their label off it, and a new thread names them in its strip (#25869)', () => {
     const settings = { defaultRuntimeMode: 'full-access' };
     const at = (extra: object) => composerView(client({ config: { providers: [provider('exact_fixture', fixtureModels)], settings }, ...extra }), { approval: false, question: false, choiceOnly: false });
-    expect(at({})).toMatchObject({ accessDisplay: 'hidden', showModeBlock: false, effortOwnsMode: true, permissionsInStrip: false,
-      traitsTip: 'Effort: Medium · Permissions: Full access · ⇧⌘A', effortWord: 'Medium', effortBars: [] });
-    expect(at({ runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'label', accessEmphasized: true, showModeBlock: true, effortOwnsMode: false,
-      traitsTip: 'Effort: Medium', permissionsTip: 'Permissions: Supervised. Ask before commands and file changes.' });
+    // The model picker holds Permissions in its footer, so at the default it answers composer.mode (c96c1b69f5).
+    expect(at({})).toMatchObject({ accessDisplay: 'hidden', showModeBlock: false, pickerOwnsMode: true, permissionsInStrip: false,
+      modelDetail: 'Medium', effortWord: 'Medium', effortBars: [] });
+    expect(at({ runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'label', accessEmphasized: true, showModeBlock: true, pickerOwnsMode: false,
+      modelDetail: 'Medium', permissionsTip: 'Permissions: Supervised. Ask before commands and file changes.' });
     expect(at({ threadId: '', runtimeMode: 'approval-required' })).toMatchObject({ accessDisplay: 'hidden', permissionsInStrip: true, stripPermissionsTip: 'Permissions · ⇧⌘A' });
-    // Without traits there is no effort chip: the Permissions icon keeps composer.mode, and the strip opens it.
+    // Without traits the picker still holds Permissions: no chip at the default, and the picker answers composer.mode.
     const bare = (extra: object) => composerView(client({ config: { providers: [provider('exact_fixture', [{ slug: 'gpt-6-astra', name: 'GPT-6-Astra' }])], settings }, ...extra }),
       { approval: false, question: false, choiceOnly: false });
-    expect(bare({})).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, overflowPermissions: false, keyMode: 'Meta+Shift+A' });
-    expect(bare({ threadId: '' })).toMatchObject({ effortShown: false, accessDisplay: 'icon', effortOwnsMode: false, permissionsInStrip: true });
+    expect(bare({})).toMatchObject({ effortShown: false, modelDetail: '', accessDisplay: 'hidden', pickerOwnsMode: true, overflowPermissions: false, keyMode: 'Meta+Shift+A' });
+    expect(bare({ threadId: '' })).toMatchObject({ effortShown: false, accessDisplay: 'hidden', pickerOwnsMode: true, permissionsInStrip: true });
+    expect(bare({}).effortGroups.map(group => group.label)).toEqual(['No effort levels']);
     // Settings › Appearance › Effort display "Bars": the level as bars, the word only for named levels.
     expect(at({ local: { favoriteModels: [], deviceSettings: { planModeEnabled: false }, clientSettings: { effortDisplay: 'bars' } } })).toMatchObject({ effortWord: '',
       effortBars: [{ x: 0, y: 6, height: 6, on: true }, { x: 4, y: 3, height: 9, on: true }, { x: 8, y: 0, height: 12, on: false }], effortBarsWidth: 10 });
@@ -81,7 +85,7 @@ describe('composer controls', () => {
     const view = composerView(client({ config: { providers: [provider('exact_fixture', fixtureModels, { supportedRuntimeModes: ['approval-required', 'full-access'] })] } }),
       { approval: false, question: false, choiceOnly: false });
     expect(view.runtimes.map(option => option.mode)).toEqual(['approval-required', 'full-access']);
-    expect(view).toMatchObject({ runtimeLabel: 'Full access', runtimeIcon: 'shield-off', runtimeSelected: 1, traitsLabel: 'Medium', planVisible: false });
+    expect(view).toMatchObject({ runtimeLabel: 'Full access', runtimeIcon: 'shield-off', runtimeSelected: 1, modelDetail: 'Medium', planVisible: false });
     const legacy = composerView(client({ runtimeMode: 'auto' , config: { providers: [provider('exact_fixture', fixtureModels, { supportedRuntimeModes: ['approval-required'] })] } }),
       { approval: false, question: false, choiceOnly: false });
     expect(legacy.runtimeLabel).toBe('Supervised');
@@ -141,12 +145,14 @@ describe('model picker catalog', () => {
     expect(favorites.models.map(row => row.id)).toEqual(['m-b']);
     expect(c.providerId).toBe('exact_fixture');
   });
-  test('favorites lead an instance list; legacy models follow a collapsible header', () => {
+  test('favorites lead an instance list; legacy models sit above a trailing Show more row', () => {
     const c = two();
     c.local.favoriteModels = [JSON.stringify(['other', 'm-b'])];
     const catalog = pickerCatalog(c, 'other', '', badge);
-    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini', 1], ['legacy', 'Legacy models', 2], ['legacy-model', 'Old', 3]]);
-    expect(catalog.models[2]!.label).toBe('1 models');
+    expect(catalog.models.map(row => [row.kind, row.name, row.index])).toEqual([['model', 'Beta', 0], ['model', 'Mini', 1], ['legacy-model', 'Old', 2], ['legacy', '', 3]]);
+    // One row shape: the provider's logo and name, no second line.
+    expect(catalog.models.map(row => row.twoLine)).toEqual([false, false, false, false]);
+    expect(catalog.models[0]).toMatchObject({ providerName: 'Other account', label: '' });
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);
   });
@@ -157,10 +163,10 @@ describe('model picker catalog', () => {
     c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite']), JSON.stringify(['codex', 'legacy-favorite'])];
     const rows = (catalog: ReturnType<typeof pickerCatalog>) => catalog.models.map(row => [row.kind, row.name]);
     expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Legacy favorite'], ['model', 'Current favorite'], ['model', 'Current model'],
-      ['legacy', 'Legacy models'], ['legacy-model', 'Other legacy']]);
+      ['legacy-model', 'Other legacy'], ['legacy', '']]);
     c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite'])];
     expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Current favorite'], ['model', 'Current model'],
-      ['legacy', 'Legacy models'], ['legacy-model', 'Legacy favorite'], ['legacy-model', 'Other legacy']]);
+      ['legacy-model', 'Legacy favorite'], ['legacy-model', 'Other legacy'], ['legacy', '']]);
     // The active model's Legacy section opens expanded only when that model is not a favorite.
     const favorite = legacyClient('legacy-favorite');
     favorite.local.favoriteModels = [JSON.stringify(['codex', 'legacy-favorite'])];
@@ -183,7 +189,8 @@ describe('model picker catalog', () => {
     const counted: number[] = [];
     const counting = (_provider: unknown, providers: unknown[]) => { counted.push(providers.length); return { providerBadge: '', providerBadgeColor: '' }; };
     pickerCatalog(client({ config: { providers: [provider('exact_fixture', fixtureModels), provider('codex', fixtureModels, { enabled: false })] } }), '', '', counting);
-    expect(counted).toEqual([1]);
+    // Once for the rows' logos and once for the rail, each over the one enabled instance.
+    expect(counted).toEqual([1, 1]);
   });
   test('readiness and favorite keys follow the reference', () => {
     expect(pickerReady({ enabled: true, status: 'ready' })).toBe(true);

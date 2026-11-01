@@ -75,6 +75,8 @@ mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
+#[cfg(windows)]
+mod windows_field;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
 #[path = "content_region/presenter.rs"]
@@ -143,6 +145,8 @@ pub use device::{touch_only, Device, Pointing};
 pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
+#[cfg(target_os = "macos")]
+pub use painter::SubmittedAppleFrame;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 pub(crate) use palette::reported_accent;
 pub use palette::{material, ContrastPalette, Material, Palette, MATERIAL_ROLES};
@@ -194,6 +198,9 @@ pub struct Presenter<D: DataSource> {
     focus_out: Vec<(ViewId, Event)>,
     /// The current pointer press may yield its focus to a newly mounted field.
     pub(crate) autofocus_from: Option<ViewId>,
+    /// The controls commits disabled and blurred (`blur_disabled_focus`) since
+    /// a press began, so its fallback does not give its own the focus back.
+    pub(crate) disabled_blur: Vec<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
@@ -254,6 +261,7 @@ pub struct Presenter<D: DataSource> {
     /// The fields `rangeFrame` reads, as painted beside `boxes`.
     ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
+    pub(crate) image_paint_pending: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
@@ -306,6 +314,19 @@ pub struct Presenter<D: DataSource> {
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// Commands from the last commits, consumed by `run_commands`.
     commands: Vec<exact_runner::Command>,
+    /// The activation a router change asked a fragment's scroll for, and
+    /// the person's scrolls by then (`person_scrolls`: a wheel, a key, a
+    /// scrollbar, the reader's drag): one since cancels that scroll; the
+    /// last activation armed, so a router change seen again arms nothing;
+    /// then the target held in place while the pictures load (LLP 1153 D5;
+    /// `reveal.rs`).
+    fragment_armed: Option<(u64, u64)>,
+    fragment_seen: u64,
+    fragment_anchor: Option<(ViewId, u64)>,
+    person_scrolls: u64,
+    /// HTML's sequential focus navigation starting point: where Tab starts
+    /// from while nothing has the focus (a fragment's target).
+    focus_start: Option<ViewId>,
     /// Range replacement selects wait until the action's commands finish.
     field_select_tasks: Vec<ViewId>,
     field_change_tasks: std::collections::BTreeSet<ViewId>,
@@ -385,18 +406,25 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = plan.decode().map_err(HostError::Plan)?;
-        #[cfg(windows)]
-        crate::app::boot_phase("plan-ready");
+        #[cfg(target_os = "macos")]
+        let painted_boot = matches!(plan, PlanBytes::Painted(..));
+        #[cfg(not(target_os = "macos"))]
+        let painted_boot = false;
+        let decoded =
+            crate::traced(c"boot plan decode", || plan.decode()).map_err(HostError::Plan)?;
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"plan-ready");
         #[cfg(windows)]
         let preparing = painter.prepare_direct();
-        let text = TextEngine::shared_for_assets(&decoded, &assets);
+        let text = crate::traced(c"boot fonts", || {
+            TextEngine::shared_for_assets(&decoded, &assets)
+        });
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        #[cfg(windows)]
-        crate::app::boot_phase("fonts-ready");
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"fonts-ready");
         #[cfg(windows)]
         let opened = preparing
             .is_none()
@@ -405,6 +433,8 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Painter)?;
         #[cfg(not(windows))]
         let (backend, painter) = painter.open().map_err(HostError::Painter)?;
+        let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         let (mut host, error) = Host::boot_decoded(
             decoded,
             data,
@@ -416,6 +446,7 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
             Some(text.clone()),
+            (painted_boot && !assets.is_selected()).then_some((&mut images, scale)),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
@@ -425,8 +456,6 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(HostError::Painter)?,
             None => opened.expect("synchronous painter"),
         };
-        let mut images = Images::with_assets(assets.clone());
-        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -476,6 +505,7 @@ impl<D: DataSource> Presenter<D> {
             focus: None,
             focus_out: Vec::new(),
             autofocus_from: None,
+            disabled_blur: Vec::new(),
             edited: None,
             fields: BTreeMap::new(),
             field_history: Default::default(),
@@ -509,6 +539,7 @@ impl<D: DataSource> Presenter<D> {
             boxes_serial: 0,
             ranges: Default::default(),
             dirty: true,
+            image_paint_pending: false,
             deferred_collections: None,
             live_clock: None,
             native_timers: false,
@@ -545,6 +576,11 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            fragment_armed: None,
+            fragment_seen: 0,
+            fragment_anchor: None,
+            person_scrolls: 0,
+            focus_start: None,
             field_select_tasks: Vec::new(),
             field_change_tasks: Default::default(),
             agent: crate::app::AGENT_BOOT.get(),
@@ -876,6 +912,13 @@ impl<D: DataSource> Presenter<D> {
             .runner_mut()
             .publish_sockets(|batch| executor.socket(batch));
         let commands = self.host.take_commands();
+        if let Some(activation) = (self.host.router_op())
+            .map(|op| op.activation)
+            .filter(|a| *a > self.fragment_seen)
+        {
+            self.fragment_seen = activation;
+            self.fragment_armed = Some((activation, self.person_scrolls));
+        }
         if !commands.is_empty() {
             self.commands.extend(commands);
             self.executor.notify();
@@ -1387,12 +1430,12 @@ impl<D: DataSource> Presenter<D> {
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
-        let animating = self.host.motion()
-            || self.arrange.is_some()
+        let animating = self.arrange.is_some()
             || self.group.is_some()
             || self.focus.is_some()
             || self.brush.moving();
-        if self.host.tick(now_ms) {
+        let (layout, paint) = self.host.tick_effects(now_ms);
+        if layout {
             self.hatches.stale = true;
             self.dirty = true;
             self.clamp_scroll();
@@ -1405,7 +1448,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.deliver_scroll_ends() {
             self.host.log(error);
         }
-        self.dirty |= animating;
+        self.dirty |= paint || animating;
     }
 
     /// The box of a node, if painted.

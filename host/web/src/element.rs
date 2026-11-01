@@ -6,6 +6,8 @@
 
 #[path = "button_css.rs"]
 mod button_css;
+#[path = "element_semantic.rs"]
+mod semantic;
 #[path = "sized_css.rs"]
 mod sized;
 #[path = "element_symbol.rs"]
@@ -149,9 +151,14 @@ pub(super) fn holds_folded(
 }
 
 /// A box holding a folded text ([`folds`]) is a block, which wraps no
-/// anonymous item around its text.
-pub fn blocks(mut css: String, holds_folded: bool) -> String {
-    if holds_folded {
+/// anonymous item around its text; a table's element keeps the display
+/// HTML's UA sheet gives it (`table-cell`, `table-caption`).
+pub fn blocks(mut css: String, holds_folded: bool, node: &NodeFacts<'_>) -> String {
+    let table = node
+        .props
+        .str(PropId::SemanticTag)
+        .is_some_and(semantic::not_block);
+    if holds_folded && !table {
         css.push_str("display:block;");
     }
     css
@@ -423,22 +430,12 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     {
         return "a";
     }
-    if let Some(t) = node.props.str(PropId::SemanticTag) {
-        match t {
-            "time" => return "time",
-            "main" => return "main",
-            "header" => return "header",
-            "nav" => return "nav",
-            "section" => return "section",
-            "footer" => return "footer",
-            "article" => return "article",
-            "aside" => return "aside",
-            "dialog" => return "dialog",
-            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
-            // no children, and its UA rows are the node's own.
-            "hr" => return "hr",
-            _ => {}
-        }
+    if let Some(t) = node
+        .props
+        .str(PropId::SemanticTag)
+        .and_then(semantic::element)
+    {
+        return t;
     }
     match node.node_type {
         NodeType::View | NodeType::List | NodeType::NativeView => "div",
@@ -802,6 +799,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     {
         out.insert("data-exact-textfield".into(), String::new());
     }
+    // @ref LLP 1020.002 D5 — a frame's guest may take the screen, as a
+    // top-level page may. `*`, not the bare feature: Firefox and WebKit grant
+    // `allow="fullscreen"` (the `src` origin) to no opaque sandboxed guest.
+    if node.node_type == NodeType::WebView {
+        out.insert("allow".into(), "fullscreen *".into());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -1050,6 +1053,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityHasPopup => "aria-haspopup",
             PropId::AccessibilityCurrent => "aria-current",
             PropId::AccessibilitySort => "aria-sort",
+            // @ref LLP 1153 D7 — a table cell's own attributes.
+            PropId::ColSpan => "colspan",
+            PropId::RowSpan => "rowspan",
+            PropId::Scope => "scope",
             // HTML's global `title`: the browser's own tooltip (studio diary R24).
             PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
@@ -1265,6 +1272,20 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-said".into(), said.join(" "));
         }
     }
+    // @ref LLP 1075.003 §9.10 — what else its author wrote `appearance: none`
+    // on says so too: in a route's header it is no bar item (navigation.js),
+    // as iOS projects none of it, and a Back control so written is the
+    // route's Back, with none of the bar's beside it.
+    if element(node) != "header"
+        && node.style.written.has(exact_kernel::StyleId::Appearance)
+        && node.style.appearance == exact_kernel::Appearance::None
+    {
+        let words = match out.get("data-exact-said") {
+            Some(said) if !said.is_empty() => format!("{said} appearance"),
+            _ => "appearance".to_string(),
+        };
+        out.insert("data-exact-said".into(), words);
+    }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());
@@ -1325,22 +1346,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
-    // authors should not restate it): a button's `button`, a checkbox's
-    // `checkbox`, a link's `link`. Its accessibility is the element's own.
-    let implicit = match (element(node), out.get("type").map(String::as_str)) {
-        ("button", _) => Some("button"),
-        ("input", Some("checkbox")) => Some("checkbox"),
-        ("input", Some("radio")) => Some("radio"),
-        ("a", _) if out.contains_key("href") => Some("link"),
-        ("progress", _) => Some("progressbar"),
-        _ => None,
-    };
+    // authors should not restate it). Its accessibility is the element's own.
+    let implicit =
+        super::roles::implicit_role(element(node), |name| out.get(name).map(String::as_str));
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
         out.remove("role");
     }
     out
 }
-
 #[cfg(test)]
 #[path = "element_name_tests.rs"]
 mod name_tests;
@@ -1360,7 +1373,7 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         );
         let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
-        let css = blocks(css, holds_folded(kernel, node, &handled));
+        let css = blocks(css, holds_folded(kernel, node, &handled), &node.facts());
         self.paint_css(node, css)
     }
 

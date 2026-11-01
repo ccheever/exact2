@@ -7,7 +7,7 @@ import { branchLocal, cardBranchView } from '../../src/details/git-branch';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 import { connected, thread } from '../support/composer-controls-fixture';
 import { toasts } from '../../src/shell/toast';
-import { appText, appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 
 describe('workspace strip details', () => {
   // handleOpenChange (BranchToolbarBranchSelector): each picker that opens asks for the checkout's current branch once.
@@ -269,7 +269,7 @@ describe('one Run on and Workspace keyboard order', () => {
       ['cclocal:env-mode', '', 'worktree', 0], ['cclocal:env-mode', '', 'previous', 0]]);
     expect(workspace).not.toContain('focus(');
     expect(workspace).not.toContain('close(');
-    const app = appText('app.contract');
-    expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
+    const app = await appText('app.contract');
+    expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus(composerTarget == "" ? "composer" : "side-chat-composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, n)');
   });
 });

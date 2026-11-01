@@ -181,18 +181,18 @@ describe('a chip\'s face is its pill', () => {
   });
 });
 
-describe('focus coming into the composer expands a resting one (ChatComposer onFocusCapture)', () => {
-  test('a focus ends the rest', () => {
-    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', restResting: true};
+describe('focus coming into the composer', () => {
+  test('marks it focused and holds its mode', () => {
+    const state: Env = {composerFocused: false, composerComposing: true, composerHeldMode: ''};
     root.call('composerFocus', state, {richComposer: {mode: 'rich'}, modifierEditableFocus: () => {}}, []);
-    expect([state.composerFocused, state.restResting]).toEqual([true, false]);
+    expect([state.composerFocused, state.composerComposing, state.composerHeldMode]).toEqual([true, false, 'rich']);
   });
 });
 
 describe('a change of mode remounts the composer and keeps its focus', () => {
   const run = (focused: boolean) => {
     const calls: unknown[][] = [];
-    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false, restResting: false};
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
     const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'Look at @README.md later', composerSelectionStart: 12, composerSelectionEnd: 12, min: Math.min,
       modifierEditableFocus: () => {}, focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
     if (focused) root.call('composerFocus', state, scope('rich'), []);
@@ -207,7 +207,7 @@ describe('a change of mode remounts the composer and keeps its focus', () => {
   });
   test('a blur before the change ends the hold', () => {
     const calls: unknown[][] = [];
-    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false, restResting: false};
+    const state: Env = {composerFocused: false, composerComposing: false, composerHeldMode: '', composerTyping: false, composerShift: false, composerCommand: false};
     const scope = (mode: string): Env => ({richComposer: {mode}, composerText: 'x', composerSelectionStart: 1, composerSelectionEnd: 1, min: Math.min, modifierEditableFocus: () => {},
       focus: (id: string) => calls.push(['focus', id]), setSelectionRange: (...args: unknown[]) => calls.push(['select', ...args])});
     root.call('composerFocus', state, scope('rich'), []);

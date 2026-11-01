@@ -1,8 +1,8 @@
-// Ported from T3 Code 1e2ecbd975 apps/web/src/components/settings/scheduledTasksSettings.logic.test.ts
+// Ported from T3 Code 1e2ecbd975 (the default project at 2359643cff) apps/web/src/components/settings/scheduledTasksSettings.logic.test.ts
 // (MIT, see LICENSE-T3), with the original test names. resolveSettingsScope's groups are the
 // reduced ScopeGroup records; provider entries are the server's provider snapshots.
 import { describe, expect, test } from 'bun:test';
-import { automationLine, matchesScheduledTaskScope, relativeLabel, resolveTaskScope, scheduleLabel, scheduledTaskDefaultModel, taskStatus, taskToDraft, validateScheduledTasksSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/scheduled-tasks';
+import { automationLine, defaultScheduledTaskProjectId, matchesScheduledTaskScope, relativeLabel, resolveTaskScope, scheduleLabel, scheduledTaskDefaultModel, taskStatus, taskToDraft, validateScheduledTasksSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/scheduled-tasks';
 import type { Obj } from '../../src/client/domain';
 
 const laptopId = 'laptop', serverId = 'server';
@@ -31,6 +31,16 @@ describe('scheduled task settings scope', () => {
   test.each(cases)('lists only matching tasks for $search', ({ search, expected }) => {
     const scope = resolveTaskScope(search, groups, environments);
     expect(tasks.filter(task => matchesScheduledTaskScope(scope, task.environmentId, task.projectId)).map(task => task.id)).toEqual(expected);
+  });
+
+  test('defaults a new task to a pinned open project, and to an archived one only when scoped to it', () => {
+    const at = '2026-01-01T00:00:00.000Z';
+    const project = (id: string, pinnedAt: string | null, archivedAt: string | null) => ({ id, pinnedAt, archivedAt });
+    const all = resolveTaskScope({}, groups, environments);
+    const scoped = resolveTaskScope({ project: 't3code' }, groups, environments);
+    expect(defaultScheduledTaskProjectId([project('a', null, null), project('b', at, null)], all)).toBe('b');
+    expect(defaultScheduledTaskProjectId([project('x', null, at)], all)).toBe('');
+    expect(defaultScheduledTaskProjectId([project('x', null, at)], scoped)).toBe('x');
   });
 
   test('keeps tasks with removed projects manageable at environment scope', () => {

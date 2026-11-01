@@ -143,6 +143,13 @@ export async function terminalFrameMessage(owner: object, id: string, message: O
       state.menu = { serial: state.menu.serial + 1, x: Math.max(0, Number(message.x) || 0), y: Math.max(0, Number(message.y) || 0), rows };
       return true;
     }
+    case 'selection-moved': {
+      // Output moved or cleared the selection while its menu may be open (ThreadTerminalDrawer addSelectionToChat):
+      // Add to chat takes the rows it sits on now, and nothing once other text is selected.
+      const selection = selectionOf(message);
+      state.selection = selection && state.selection?.clipboard === selection.clipboard ? selection : null;
+      return true;
+    }
     case 'selection-dismiss':
       // A newer gesture: the open menu's rows no longer act.
       if (message.reason === 'interaction') { state.selection = null; state.menu = { ...state.menu, serial: state.menu.serial + 1, rows: [] }; }

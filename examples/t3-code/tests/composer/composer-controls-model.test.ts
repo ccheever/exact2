@@ -7,7 +7,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import { displayModelName, formatModelSlugName, reportedModelLabel, reportedSelection, resolveSelectableModel, triggerModelName } from '../../src/composer/composer-controls-model';
 import { modelShortName } from '../../src/client/model-short-name';
 import { presentBackgroundWork, traitsDisplay } from '../../src/composer/composer-controls-view';
-import { traitsMenu } from '../../src/composer/composer-presentation';
+import { effortColumn } from '../../src/composer/composer-model-effort';
 import { latestExecutedRun, resumeState } from '../../src/composer/composer-controls';
 import { selectionEffort, subagentBar } from '../../src/composer/composer-controls-subagent';
 import { modelCatalog, snapshot } from '../../src/client/presentation';
@@ -120,9 +120,10 @@ describe('provider-reported option labels (63f74e209d)', () => {
   });
   test('the menu checks the reported radio and the subagent effort reads it too', () => {
     const reported = openCode([{ id: 'variant', value: 'thinking' }]);
-    const menu = traitsMenu([variant], [], openCode(), reported);
-    expect(menu.items.filter(item => item.selected).map(item => item.value)).toEqual(['thinking']);
-    expect(traitsMenu([variant], [], openCode(), null).items.some(item => item.selected)).toBe(false);
+    const column = (report: typeof reported | null) => effortColumn({ driver: 'opencode', descriptors: [variant], selections: [], selection: openCode(), reported: report,
+      ultra: { primaryId: '', controlled: false, inBody: false }, unavailable: false, labels: {} }).rows;
+    expect(column(reported).filter(row => row.selected).map(row => row.value)).toEqual(['thinking']);
+    expect(column(null).some(row => row.selected)).toBe(false);
     const models = [{ slug: 'openai/gpt-5', name: 'GPT-5', capabilities: { optionDescriptors: [variant] } }];
     expect(selectionEffort(openCode(), models, reported)).toBe('Thinking');
     expect(selectionEffort(openCode(), models, null)).toBe('Unknown');
@@ -134,9 +135,9 @@ describe('provider-reported option labels (63f74e209d)', () => {
     const projection = client.thread!.projection;
     Object.assign(obj(projection.thread), { activeProviderThreadId: 'pt' });
     projection.providerThreads = [{ id: 'pt', providerInstanceId: 'codex', nativeMetadata: { modelSelection: { instanceId: 'codex', model: 'model-a', options: [{ id: 'variant', value: 'thinking' }] } } }];
-    expect(snapshot(client).composer.traitsLabel).toBe('Thinking');
+    expect(snapshot(client).composer.modelDetail).toBe('Thinking');
     projection.providerThreads = [];
-    expect(snapshot(client).composer.traitsLabel).toBe('Unknown');
+    expect(snapshot(client).composer.modelDetail).toBe('Unknown');
   });
 });
 

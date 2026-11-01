@@ -945,6 +945,17 @@ impl Parser {
                 tag: self.launch_str("locale", "a BCP 47 tag, as \"fr-FR\",")?,
                 span,
             },
+            // @ref LLP 1153 D5 — `at "/item/7#moves"`: where the app opens.
+            "at" => {
+                let location = self.launch_str("at", "a location, as \"/item/7#moves\",")?;
+                if !location.starts_with('/') {
+                    return self.err(
+                        "syntax-expected-step",
+                        format!("`at` takes a path that starts with `/`, as \"/item/7#moves\", found {location:?}"),
+                    );
+                }
+                Step::At { location, span }
+            }
             "seed" => {
                 let seed = self.step_number("the seed, a whole number")?;
                 // Below 2^32, as every host draws it (LLP 1116.005 D5).
@@ -1219,8 +1230,9 @@ fn during_read(op: &str) -> bool {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 9] = [
+pub(super) const LAUNCH: [&str; 10] = [
     "size",
+    "at",
     "epoch",
     "time-zone",
     "locale",
@@ -1236,6 +1248,7 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
     match step {
         Step::Prefer { .. } => "prefer",
         Step::Size { .. } => "size",
+        Step::At { .. } => "at",
         Step::Epoch { .. } => "epoch",
         Step::TimeZone { .. } => "time-zone",
         Step::Locale { .. } => "locale",

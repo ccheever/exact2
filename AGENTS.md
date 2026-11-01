@@ -1,14 +1,15 @@
 # Agent instructions
 
-**Building an app with Exact rather than working on it?** Make it with `bun scripts/exact.mjs
-new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
-rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+**Building an app with Exact rather than working on it?** This checkout is the version to use:
+Exact has no releases, tags or npm package, and an app uses the checkout by path. Make it with
+`bun scripts/exact.mjs new <path>` and read `docs/start-here.md`: it is the only required
+reading (LLP 1115 D7). The rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
 `docs/reference.md`) is lookup only, by the section its table names: do not read the long
 guides front to back. `docs/recipes/` answers the common questions in one short file each,
 `contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
 --help` names its flags, and `apps/shelf` is a whole app to grep.
 
-Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
+Working on exact2 itself: read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
@@ -245,8 +246,3 @@ section binds (`rules/RULES.md`, "Agents").
 Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
 Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
 `bun exact.mjs snapback --rebuild` after changing these pins.
-
-## T3 Code clone
-
-Before resuming clone work, read `examples/t3-code/CLONE.md` for the current
-state and basic next steps.

@@ -15,7 +15,7 @@ import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { startOnFallback } from '../composer/composer-provider-selection';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
-import { takeRowDrops } from '../sidebar/legacy-sidebar-drop';
+import { takeRowDrops } from '../sidebar/row-drop';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from '../composer/image-attachment-size';
 import { draftUpload } from '../snapshot/snapshot-upload';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from '../connections/relaunch-reconnect';
@@ -23,12 +23,13 @@ import { adoptSidebarPrefs } from '../sidebar/sidebar-state';
 import { PROVIDER_OPS } from '../providers/providers';
 import { CONNECTION_OPS } from '../connections/connections';
 import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './client-ops';
-import { createProjectFromThread, prepareTriage, setMaintainerEdits, stopLocalServer } from './server-operations';
+import { createProjectFromThread, forceStopThread, prepareTriage, setMaintainerEdits, stopLocalServer, type ForceStopResult } from './server-operations';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
 import { announceHostFreezes } from '../connections/host-freeze';
 import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
+import type { SessionCheck } from '../connections/auth-scope-options';
 import { environmentRequest, routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
@@ -52,7 +53,7 @@ import { adoptBrowserPrefs } from '../browser/browser-defaults';
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from '../pull-requests/pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from '../device/device-surface';
 import { LIVE_KEYS, liveEvent } from './live-streams';
-import { discoveredServersEvent, isDiscoveredServersKey } from '../browser/browser-targets'; // the Browser and the legacy sidebar's ports: the live local servers
+import { discoveredServersEvent, isDiscoveredServersKey } from '../browser/browser-targets'; // the Browser's and the details card's live local servers
 import { adoptBrowserHistory } from '../browser/browser-history';
 import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from '../browser/browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from '../timeline/timeline-worktree';
@@ -136,6 +137,10 @@ export class T3Client {
   legacyPermissions = false;
   /** The session read found a session the server no longer accepts (`authenticated: false`): pair again. */
   private sessionRejected = false;
+  /** The last session read failed; the transport asks again while this connection stays up. */
+  private sessionFailed = false;
+  /** What the session read has said (SessionPermissions' pending, failed, rejected or granted). */
+  get sessionCheck(): SessionCheck { return this.sessionRejected ? 'rejected' : this.scopesKnown ? 'granted' : this.sessionFailed ? 'failed' : 'pending'; }
   shellLive = false;
   threadLive = false;
   configLive = false;
@@ -371,7 +376,7 @@ export class T3Client {
       this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
       this.config = {}; this.providerId = ''; this.modelId = '';
-      this.scopes = []; this.scopesKnown = false; this.legacyPermissions = false; this.sessionRejected = false;
+      this.scopes = []; this.scopesKnown = false; this.legacyPermissions = false; this.sessionRejected = false; this.sessionFailed = false;
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
@@ -432,7 +437,7 @@ export class T3Client {
       if (await settleHome(this, native)) this.changed(); // the launch's landing, once a shell that is in holds a project
       if (this.reconcilePending()) await this.save(storage);
       await sidebarRefreshed(this, native); // sidebar-commands.ts: a timed provider pill's repaint, new projects' favicons
-      if (await takeRowDrops(this, native)) await this.save(storage); // legacy-sidebar-drop.ts: files dropped on the open thread's sidebar row
+      if (await takeRowDrops(this, native)) await this.save(storage); // row-drop.ts: files dropped on the open thread's sidebar row
       await this.flushSnapshotReleases(native, storage);
       if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage);
     } catch (error) {
@@ -500,7 +505,7 @@ export class T3Client {
   private adoptSession(entry: Obj): void {
     const item = obj(entry.value), read = item._replyError === undefined, auth = read ? obj(item._reply) : {};
     this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
-    this.scopesKnown = read && auth.authenticated === true; this.sessionRejected = read && auth.authenticated !== true;
+    this.scopesKnown = read && auth.authenticated === true; this.sessionRejected = read && auth.authenticated !== true; this.sessionFailed = !read;
     // Only the notices the session decides change; another failure's banner stays.
     if (this.synchronizedGeneration === this.generation && [CONTEXT_NOTICE, PAIR_AGAIN, ''].includes(this.error)) this.error = this.sessionNotice();
   }
@@ -875,11 +880,12 @@ export class T3Client {
     // A pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
     return method.startsWith('pullRequests.') ? routedPullRequestRequest(this, native, method, payload, write) : this.request(native, method, payload, this.generation, write);
   }
-  // The operations a 0.1.5 server adds (server-operations.ts).
+  // The operations 0.1.5 and 0.1.6 servers add (server-operations.ts).
   stopLocalServer(native: Native, input: { pid: number; port: number }): Promise<void> { return stopLocalServer(this, native, input); }
   prepareTriage(native: Native): Promise<string> { return prepareTriage(this, native); }
   createProjectFromThread(native: Native, threadId: string): Promise<string> { return createProjectFromThread(this, native, threadId); }
   setMaintainerEdits(native: Native, reference: Obj, allowed: boolean): Promise<void> { return setMaintainerEdits(this, native, reference, allowed); }
+  forceStopThread(native: Native, threadId: string, runId?: string): Promise<ForceStopResult> { return forceStopThread(this, native, threadId, runId); }
   projectGroups() {
     const byKey = new Map<string, Obj[]>();
     for (const project of this.shell.projects) {

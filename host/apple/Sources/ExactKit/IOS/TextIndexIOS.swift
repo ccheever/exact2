@@ -36,7 +36,6 @@ final class TextIndex {
         /// The paragraph's bounds in its scroller's bounds space, which
         /// scrolling does not move.
         let rect: CGRect
-        let shift: CGPoint
         let node: NodeView
     }
     /// One scroller's paragraphs, those not under a transform or a view
@@ -82,15 +81,10 @@ final class TextIndex {
                 continue
             }
             let band = scroller.bounds.insetBy(dx: -reach * port.unit - 1, dy: -reach * port.unit - 1)
-            func meets(_ entry: Entry) -> Bool {
-                let r = entry.rect
-                guard r.maxY >= band.minY && r.minY <= band.maxY else { return false }
-                guard let accepted = entry.node.currentTextRaster else { return true }
-                let at = entry.node.textPlace(scale: accepted.key.scale)
-                let support = accepted.result.coverage.support.offsetBy(dx: at.x + entry.shift.x, dy: at.y + entry.shift.y)
-                return support.intersects(band)
+            func meets(_ r: CGRect) -> Bool {
+                r.maxY >= band.minY && r.minY <= band.maxY && r.maxX >= band.minX && r.minX <= band.maxX
             }
-            for entry in port.tall where meets(entry) && !body(entry.node) { return }
+            for entry in port.tall where meets(entry.rect) && !body(entry.node) { return }
             let entries = port.entries
             var lo = 0, hi = entries.count
             let start = band.minY - port.tallest
@@ -100,7 +94,7 @@ final class TextIndex {
             }
             var i = lo
             while i < entries.count, entries[i].rect.minY <= band.maxY {
-                if meets(entries[i]) && !body(entries[i].node) { return }
+                if meets(entries[i].rect) && !body(entries[i].node) { return }
                 i += 1
             }
         }
@@ -144,10 +138,8 @@ final class TextIndex {
         }
         for node in views.values {
             guard identity(node), let parent = node.superview, let above = origin(parent) else { loose.append(node); continue }
-            let shift = CGPoint(x: above.shift.x + node.frame.minX - node.bounds.minX,
-                                y: above.shift.y + node.frame.minY - node.bounds.minY)
-            let rect = node.bounds.offsetBy(dx: shift.x, dy: shift.y).insetBy(dx: 0, dy: -TextRasterJob.maxShadowReach)
-            let entry = Entry(rect: rect, shift: shift, node: node)
+            let rect = node.frame.offsetBy(dx: above.shift.x, dy: above.shift.y)
+            let entry = Entry(rect: rect, node: node)
             if rect.height > Self.tallLimit { above.port.tall.append(entry) } else { above.port.entries.append(entry) }
         }
         self.ports = ports.values.filter { !$0.entries.isEmpty || !$0.tall.isEmpty }

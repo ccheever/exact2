@@ -37,35 +37,44 @@ component TipCard2
 //   the sidebar's edge), centred on the window's height.
 // - Search row (SidebarHeaderIconButton): side top, 4pt above the 28pt buttons
 //   (62pt down), centred 78/50/22pt in from the sidebar's edge.
-// - Footer (SidebarUtilityItem): side top, 4pt above the 32pt buttons (36pt
+// - Footer (SidebarUtilityItem): side top, 4pt above the 32pt buttons (40pt
 //   up from the bottom); Settings aligns to its start at 8pt, Pull requests and
 //   Usage are centred at 60 and 60 or 96pt; SidebarUpdatePill's "Check for
 //   updates" is centred on the pill, 24pt in from the sidebar's edge.
+// - Header (HistoryNavigationButton): side bottom, 4pt under the 28pt Go back and Go forward buttons (44pt down),
+//   centred on each; `historyLeft` is Go back's left edge. A disabled one has none.
 component SidebarEdgeTips
   inject
     rem: number
   props
     width: number
     hoverId: string
+    historyLeft: number
+    goBack: string
+    goForward: string
     newThread: string
     newThreadDetail: string
     pullRequests: bool
   view
     row position="absolute" left=(width + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
       TipCard(label="Drag to resize sidebar", shown=(hoverId == "sidebar-rail"))
+    row position="absolute" left=(historyLeft + 0.875 * rem - 12.5 * rem) width="25rem" top="2.75rem" justify-content="center" pointer-events="none" z-index=140
+      TipCard(label=goBack, shown=(hoverId == "sidebar-go-back" and goBack != ""))
+    row position="absolute" left=(historyLeft + 2.625 * rem - 12.5 * rem) width="25rem" top="2.75rem" justify-content="center" pointer-events="none" z-index=140
+      TipCard(label=goForward, shown=(hoverId == "sidebar-go-forward" and goForward != ""))
     row position="absolute" left=(width - 17.375 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Filter threads by project", shown=(hoverId == "sidebar-filter"))
     row position="absolute" left=(width - 15.625 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Add project", shown=(hoverId == "sidebar-add-project"))
     row position="absolute" left=(width - 13.875 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard2(label=newThread, detail=newThreadDetail, shown=(hoverId == "sidebar-new-thread"))
-    row position="absolute" left="0.5rem" bottom="2.5rem" pointer-events="none" z-index=140
+    row position="absolute" left="0.5rem" bottom="2.75rem" pointer-events="none" z-index=140
       TipCard(label="Settings", shown=(hoverId == "sidebar-settings"))
-    row position="absolute" left="-8.75rem" width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left="-8.75rem" width="25rem" bottom="2.75rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Pull requests", shown=(hoverId == "sidebar-pull-requests"))
-    row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.75rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
-    row position="absolute" left=(width - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 14 * rem) width="25rem" bottom="2.75rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Check for updates", shown=(hoverId == "sidebar-update"))
 
 // SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers. It leaves in

@@ -1,8 +1,9 @@
 // `t3 app <dir>` opens a project in the running app. Ported from T3 Code
 // (MIT, see LICENSE-T3), reference 1e2ecbd975: apps/web/src/desktopAppActivation.ts
 // (handleDesktopAppActivationRequest), components/desktop/DesktopAppActivationCoordinator.tsx (when
-// the window is ready, and what each step does), packages/contracts/src/desktopAppActivation.ts
-// (the protocol) and packages/shared/src/desktopAppControl.ts (the socket address).
+// the window is ready, and what each step does; the unarchive at 2359643cff),
+// packages/contracts/src/desktopAppActivation.ts (the protocol) and packages/shared/src/desktopAppControl.ts
+// (the socket address, at 2359643cff).
 //
 // The socket and the broker are native (modules/apple/T3AppControl.swift); this file is the
 // window's half, the reference's renderer:
@@ -31,6 +32,7 @@ import { findProjectByPath, inferProjectTitleFromPath } from '../shared/project-
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { sleep } from '../client/command-waits';
 import { letGo } from '../client/let-go';
+import { pushToast } from './toast';
 import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 // ── The protocol (packages/contracts/src/desktopAppActivation.ts) ─────────
@@ -56,7 +58,7 @@ export function parseActivationRequest(value: unknown): DesktopAppActivationRequ
 /**
  * resolveDesktopAppControlAddress: the socket the app listens on and the CLI dials. The state
  * directory (`<T3 home>/userdata`) is hashed so a long T3 home stays under the Unix socket path
- * limit. `sha256` is the digest's hex; the app computes the same address natively
+ * limit, and a temporary directory too long for it gives way to /tmp. `sha256` is the digest's hex; the app computes the same address natively
  * (T3AppControlAddress), and both are held to the reference's vectors.
  */
 export function resolveDesktopAppControlAddress(input: { stateDir: string; platform: string; tempDir: string; userId: number | undefined;
@@ -64,8 +66,14 @@ export function resolveDesktopAppControlAddress(input: { stateDir: string; platf
   const stateHash = input.sha256(input.stateDir).slice(0, 24);
   if (input.platform === 'win32') return { address: `\\\\.\\pipe\\t3code-app-${stateHash}`, directory: null };
   const userKey = input.userId === undefined ? stateHash.slice(0, 12) : input.userId;
-  const directory = input.joinPath(input.tempDir, `t3code-${userKey}`);
-  return { address: input.joinPath(directory, `${stateHash}.sock`), directory };
+  const socketName = `${stateHash}.sock`;
+  // sun_path holds 104 bytes on macOS and 108 on Linux, each with its NUL.
+  const maxPathBytes = input.platform === 'linux' ? 107 : 103;
+  let directory = input.joinPath(input.tempDir, `t3code-${userKey}`);
+  if (new TextEncoder().encode(input.joinPath(directory, socketName)).byteLength > maxPathBytes) {
+    directory = input.joinPath('/tmp', `t3code-${userKey}`);
+  }
+  return { address: input.joinPath(directory, socketName), directory };
 }
 
 // ── apps/web/src/desktopAppActivation.ts ─────────────────────────────────
@@ -226,8 +234,26 @@ export function activationDependencies(client: T3Client, native: Native, source:
     },
     // useNewThreadHandler: the project's draft, focused, with its own thread id (newThreadId).
     openThread: async ({ environmentId, projectId }) => {
-      if (!projects().some(project => project.id === projectId)) return null;
+      const project = projects().find(candidate => candidate.id === projectId);
+      if (!project) return null;
       const entry = target?.entry;
+      // Opening an archived project's folder again brings the project back; a failure is a toast, and the draft opens
+      // without waiting for the write (`void updateProject`). A remote machine's write goes before its connection is
+      // replaced below, which would cut it off, so that one is awaited.
+      if (project.archivedAt != null) {
+        const unarchive = (async () => {
+          try {
+            const [commandId] = await client.ids(native, 1);
+            const payload = { type: 'project.update', commandId, projectId, archived: false };
+            if (entry) await fleetCall(native, entry, { op: 'request', method: 'projects.mutate', payload });
+            else await client.rpc(native, 'projects.mutate', payload, true);
+          } catch (error) {
+            // A cancelled write is no failure (reportProjectFailure skips an interrupted command), and blocks nothing.
+            if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+          }
+        })();
+        if (entry) await unarchive;
+      }
       if (entry) {
         client.local.selections[environmentId] = { projectId, threadId: '' };
         source.forget(entry.key);

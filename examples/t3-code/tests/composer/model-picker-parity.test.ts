@@ -15,8 +15,9 @@ import { sourceControlRows } from '../../src/settings/source-control-view';
 const writingRows = (rows: ReturnType<typeof sourceControlRows>) => [...rows.writing, ...rows.writingAdvanced];
 import { connected } from '../support/composer-controls-fixture';
 import { fleet } from '../../src/connections/settings-b-fleet';
-import { appPath } from '../support/app-files';
-import { contractComponent } from '../support/contract-action-fixture';
+import { appPath, appText } from '../support/app-files';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { contractFns } from '../support/contract-fn-fixture';
 
 const ready = { enabled: true, installed: true, availability: 'available', auth: { status: 'authenticated' }, status: 'ready' };
 const codexError = { instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true, installed: true, auth: { status: 'unauthenticated' }, status: 'error',
@@ -85,11 +86,11 @@ describe('the next and previous provider skip what cannot be chosen', () => {
 });
 
 describe('the first nine rows a person can choose show their jump shortcut', () => {
-  test('⌘1… on the provider list, the search results and Favorites; the legacy header takes none, its rows follow', () => {
+  test('⌘1… on the provider list, the search results and Favorites; the legacy rows follow, the Show more row takes none', () => {
     const c = client();
     const rows = (catalog: ReturnType<typeof modelCatalog>) => catalog.models.map(row => [row.kind, row.id, row.jump, row.jumpKey]);
     expect(rows(modelCatalog(c, 'claudeAgent', ''))).toEqual([['model', 'claude-opus-5-5', '⌘1', 'Meta+1'], ['model', 'claude-sonnet-5-5', '⌘2', 'Meta+2'],
-      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy', '', '', ''], ['legacy-model', 'claude-old', '⌘4', 'Meta+4']]);
+      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy-model', 'claude-old', '⌘4', 'Meta+4'], ['legacy', '', '', '']]);
     // The dispatch's own jump buttons cover the current rows; an open Legacy section's rows answer to their own aria-keyshortcuts.
     expect(keyboardDispatch(c, [], 'claudeAgent', '', pickerContext).filter(item => item.command.startsWith('modelPicker.jump')).map(item => item.command))
       .toEqual(['modelPicker.jump.1', 'modelPicker.jump.2', 'modelPicker.jump.3']);
@@ -120,6 +121,31 @@ describe('a rail button names its state and the provider\'s message', () => {
   });
 });
 
+// The rail's tooltip is drawn by the window's hover layer, so it outlives the rail: Escape or a pick unmounts the button
+// under the pointer, which then gets no leave. The oracle's TooltipPopup goes with the picker; the root's hover surface
+// counts the picker, and its change ends the tip.
+describe('the rail tooltip goes with the picker', () => {
+  test('closing the picker under a hovered rail button ends its tip', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const fns = contractFns('src/shell/hover-layer.contract', ['HoverTip']) as unknown as { hoverTipAtFrame: (...args: unknown[]) => Env };
+    const label = 'Codex: Unavailable. Could not start Codex CLI.';
+    const tip = fns.hoverTipAtFrame('picker-rail-tip-1', 'tip', label, [], 'left', 'center', { x: 60, y: 400, width: 36, height: 36 }, 300, 'picker-rail-tip-1');
+    const source = appText('app.contract');
+    const shownWhen = /^ {2}derive hoverShown = (.+)$/m.exec(source)![1]!;
+    const state: Env = { hoverTip: { key: '' }, hoverOn: '', hoverOpen: 0, hoverUntil: 0, hoverWait: 0, hoverEnd: 0 };
+    const scope: Env = { hoverOpenDelay: () => 0, hoverDelay: () => 0, hoverShown: false };
+    const shown = () => value(shownWhen, state);
+    root.call('hoverTipAt', state, scope, [tip, 'trigger', true]);
+    expect(shown()).toBe(true);
+    const task = /^ {2}task hoverSurface key=(`[^`]*`)$/m.exec(source)![1]!;
+    const surface = (modelsOpen: boolean) => value(task, { settingsOpen: false, settingsRoute: '', utilityPage: '', modal: '', prSelected: '', data: { threadId: 't1' }, modelsOpen });
+    expect(surface(false)).not.toBe(surface(true));
+    // The key changed: the task runs hoverTicked a millisecond later.
+    root.call('hoverTicked', state, scope, []);
+    expect(shown()).toBe(false);
+  });
+});
+
 describe('a search highlights its first row a person can choose', () => {
   test('firstEnabled is the first model row', () => {
     const c = client();
@@ -130,14 +156,26 @@ describe('a search highlights its first row a person can choose', () => {
 
   test('Return\'s target is any highlighted model row a person can choose, an open Legacy section\'s rows too', async () => {
     const picker = await block('model-picker.contract', 'component ModelPicker');
-    const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
+    // A closed section's legacy row keeps its raw index, which the Show more row then takes, so Right on Show more
+    // must not pick the hidden model (upstream finds no highlighted model there).
+    const choosable = '(r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == ""';
     expect(picker).toContain(`derive targetId = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.id).join("")`);
     expect(picker).toContain(`derive targetProvider = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.providerId).join("")`);
-    // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then, and they follow the header.
+    // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then. The Show
+    // more row trails them, so its index counts them only while they show (legacyIndex).
     expect(picker).toContain('derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)');
+    expect(picker).toContain('derive targetLegacy = catalog.models.filter((r) => r.kind == "legacy" and legacyIndex(r.index, legacyOpen, catalog.legacyCount) == highlight).length > 0');
     const catalog = modelCatalog(client(), 'claudeAgent', '');
     expect([catalog.count, catalog.legacyCount]).toEqual([5, 1]);
-    expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy', 3, ''], ['legacy-model', 4, 'claude-old']]);
+    expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy-model', 3, 'claude-old'], ['legacy', 4, '']]);
+  });
+  test('/model opens the picker as the trigger does, so the focus stays in the search field', async () => {
+    // modelMeasure records the pick the picker opened on; without it modelEffortFocusTask sees a new pick and moves
+    // the focus to the effort column.
+    const members = await source('composer-members.contract');
+    expect(members).toContain('else if result.then == "models"\n            // As the trigger\'s press: the anchor, and the pick the effort focus compares against.\n            fieldOpenModels()');
+    // The window's field opens the window's picker, a side chat's its own (side-chat-members.contract).
+    expect(members).toContain('  action fieldOpenModels\n    if fieldSide\n      sideModelMeasure()\n      sideOpenModels()\n    else\n      modelMeasure()\n      openModels()');
   });
 });
 

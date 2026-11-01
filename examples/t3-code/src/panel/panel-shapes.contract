@@ -115,6 +115,8 @@ shape FilesView
   treeMenu: SidebarMenuRow[]
   explorer: bool
   showExplorer: bool
+  // The explorer's saved width beside a file ("t3code.fileExplorerWidth"); FilesSurface clamps it to the room.
+  explorerWidth: number
   // The subheader shows (a file, a folder, or the explorer the crumbs walked up to); the explorer toggle beside a workspace preview.
   subheader: bool
   explorerToggle: bool
@@ -334,3 +336,21 @@ shape PanelView
   annotationGeneration: number
   annotationSend: number // an annotation's ⌘Return asks the window's Send, whatever the panel shows
   automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over
+  sideChat: SideChatPane // the active side chat tab's pane (side-chat.ts)
+
+// A side chat tab's pane (side-chat.ts sideChatView): its header's state; its chat view is the root's `sideChat`
+// (side-chat-members.contract).
+shape SideChatPane
+  show: bool
+  threadId: string
+  title: string
+  deleted: bool
+  loading: bool
+  bringBackDisabled: bool
+  bringBackTip: string
+  bringingBack: bool
+  deleteDisabled: bool
+  confirmDelete: bool
+  deleteTitle: string
+  deleteBody: string
+  started: number

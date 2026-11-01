@@ -1,6 +1,6 @@
-// The index route's landing over every environment (T3 Code 74541bab17, MIT, see LICENSE-T3):
+// The index route's landing over every environment (T3 Code 2359643cff, MIT, see LICENSE-T3):
 // apps/web/src/routes/_chat.index.tsx IndexDraftLanding opens a draft in the first project of
-// sortScopedProjectsForSidebar(projects, threads, "updated_at") (components/Sidebar.logic.ts) over the
+// sortScopedProjectsForSidebar(projects, threads, "updated_at") (components/Sidebar.logic.ts), archived projects left out, over the
 // environments whose shells are in, as soon as one holds a project; only an empty workspace waits until
 // every enabled environment's shell has bootstrapped (state/shell.ts allEnvironmentShellsBootstrappedAtom),
 // since a pending environment cannot prove it empty. The focused environment is
@@ -24,11 +24,11 @@ const timestamp = (value: unknown): number | null => {
 const synchronized = (source: EnvironmentFleet, focusedId: string) => [...source.entries.values()]
   .filter(entry => entry.environmentId && entry.environmentId !== focusedId && entry.phase === 'connected' && entry.synchronized === entry.generation);
 
-/** sortScopedProjectsForSidebar(…, "updated_at") over the focused shell and each synchronized background one. */
+/** sortScopedProjectsForSidebar(…, "updated_at") over the focused shell and each synchronized background one, without archived projects. */
 export function scopedProjectsByActivity(client: Focused, source: EnvironmentFleet = fleet, shell: Shell = client.shell): HomeTarget[] {
   const scoped: { environmentId: string; project: Obj; threads: Obj[] }[] = [];
   const add = (environmentId: string, value: Pick<Shell, 'projects' | 'threads'>) => {
-    for (const project of value.projects) scoped.push({ environmentId, project, threads: value.threads.filter(thread => !thread.archivedAt && thread.projectId === project.id) });
+    for (const project of value.projects) if (project.archivedAt == null) scoped.push({ environmentId, project, threads: value.threads.filter(thread => !thread.archivedAt && thread.projectId === project.id) });
   };
   add(client.environmentId, shell);
   for (const entry of synchronized(source, client.environmentId)) add(entry.environmentId, entry.shell);

@@ -399,9 +399,10 @@ impl Backend {
         true
     }
     fn decode(&self, permit: DecodePermit) {
-        #[cfg(target_os = "macos")]
-        let _trace = exact_ink::device::apple::Trace::new(c"image decode");
         let key = permit.key();
+        #[cfg(target_os = "macos")]
+        let _trace =
+            exact_ink::device::apple::Trace::with_value(c"image decode", key.source as f64);
         let source = self
             .state
             .lock()

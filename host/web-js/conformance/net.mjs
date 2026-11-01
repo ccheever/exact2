@@ -189,7 +189,9 @@ function certificate(hosts) {
       if (r.status !== 0) throw new Error(`conformance net: openssl ${args[0]} failed: ${r.stderr || r.error?.message}`);
       return r;
     };
-    const ec = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes'];
+    // A named curve: macOS's LibreSSL `openssl` otherwise writes the curve's explicit
+    // parameters, which Bun's BoringSSL refuses to decode (PUBLIC_KEY_DECODE_ERROR).
+    const ec = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-pkeyopt', 'ec_param_enc:named_curve', '-nodes'];
     run(['req', '-x509', ...ec, '-days', '2', '-subj', '/CN=exact conformance authority',
       '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign',
       '-keyout', 'authority-key.pem', '-out', 'authority.pem']);

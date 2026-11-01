@@ -7,6 +7,7 @@ import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { entryIcon, projectedWorkEntry } from '../../src/timeline/timeline-worklog';
 import { subagent, subagentGroupTiming, summarizeSubagentStatuses } from '../../src/timeline/timeline-events';
+import { notificationSubagent } from '../../src/timeline/timeline-inspect';
 import {
   assistantCanFork, canForkProjectedAssistantItem, decodeNotificationSource, externalWebLinkHref, formatElapsedSeconds,
   groupToolPresentation, inspectorExtras, subagentElapsedMs,
@@ -60,6 +61,15 @@ describe('background work kinds from older or newer servers', () => {
     }
     expect(decodeNotificationSource({ kind: 'delegated_task' })).toBeNull();
     expect(decodeNotificationSource({ kind: 'subagent', childThreadId: 7 })).toBeNull();
+  });
+
+  test('a delegated task\'s notice shows that task, not the first task of the shared child thread (#22141)', () => {
+    const tasks = [{ id: 'task-1', childThreadId: 'child', status: 'completed', title: 'First pass', result: 'First result' },
+      { id: 'task-2', childThreadId: 'child', status: 'completed', title: 'Follow-up', result: 'Follow-up result' }];
+    const notice = (source: Obj) => notificationSubagent(notification(source), tasks, at(9), '09:00:09');
+    expect(notice({ kind: 'delegated_task', taskIds: ['task-2'], childThreadId: 'child' })?.body).toBe('Follow-up result');
+    expect(notice({ kind: 'delegated_task', taskIds: ['task-3'], childThreadId: 'child' })).toBeNull();
+    expect(notice({ kind: 'subagent', childThreadId: 'child' })?.body).toBe('First result');
   });
 
   test('"Background build finished" shows the terminal icon', () => {
@@ -160,11 +170,11 @@ describe('the inspector’s search results and file changes', () => {
       { id: '1', kind: 'web', label: 'javascript:alert(1)', href: '', preview: '' }]);
     expect(externalWebLinkHref('//example.test/a')).toBe('https://example.test/a');
   });
-  test('file_change shows its path with green +N and red -M, and Open diff for a run’s change', () => {
+  test('file_change shows its path with green +N and red -M', () => {
     expect(inspectorExtras({ type: 'file_change', fileName: 'fixture.txt', additions: 1, deletions: 0, runId: null }, relative))
-      .toMatchObject({ changePath: 'project/fixture.txt', stats: true, additions: 1, deletions: 0, diffRunId: '', results: [] });
+      .toMatchObject({ changePath: 'project/fixture.txt', stats: true, additions: 1, deletions: 0, results: [] });
     expect(inspectorExtras({ type: 'file_change', fileName: 'a.ts', runId: 'r1', changes: [{ operation: 'rename', oldPath: 'b.ts', path: 'a.ts', fileType: 'text' }] }, relative))
-      .toMatchObject({ stats: false, diffRunId: 'r1', diffPath: 'a.ts', results: [{ kind: 'change', label: 'rename b.ts → project/a.ts (text)' }] });
+      .toMatchObject({ stats: false, results: [{ kind: 'change', label: 'rename b.ts → project/a.ts (text)' }] });
   });
   test('Open diff selects the change’s run and file, as onOpenTurnDiff does', () => {
     const value = { environmentId: 'e', threadId: 't1', diffState: { selections: {} as Obj } } as unknown as T3Client;
@@ -285,5 +295,24 @@ describe('keys inside an expanded tool row (#18831)', () => {
     const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
     expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
     expect(lines.some(line => /button press=command\("tool-diff", entry\.id, "", 0\)/.test(line))).toBe(true);
+  });
+  test('every file change offers Open diff, beside its counts (V2ItemInspector at v0.1.5)', async () => {
+    const lines = (await source('timeline-work.contract')).split('\n');
+    const button = lines.findIndex(line => line.includes('button press=command("tool-diff"')), stats = lines.findIndex(line => line.trim() === 'if entry.stats');
+    expect(button).toBeGreaterThan(stats);
+    expect(lines[button]!.search(/\S/)).toBe(lines[stats]!.search(/\S/));
+  });
+});
+
+// TimelineUserMessageRow at v0.1.6 (#26769): an attachment-only message hides the prompt that stands in for its words.
+describe('image-only messages', () => {
+  const prompt = '[User attached one or more files without additional text. Respond using the conversation context and the attached files.]';
+  const sent = (text: string) => item('u-img', 'user_message', 1, { text, messageId: 'm-img', inputIntent: 'turn_start', createdBy: 'user',
+    attachments: [{ type: 'image', id: 'a1', name: 'shot.png', mimeType: 'image/png' }] });
+  test('the image shows on its own, without the placeholder prompt, Ultrathink or not', () => {
+    for (const text of [prompt, `Ultrathink:\n${prompt}`]) {
+      const message = rows(client([sent(text)])).find(entry => entry.kind === 'user')!;
+      expect(message).toMatchObject({ body: '', shape: 'media', mediaAbove: false, mediaLayout: 'lone' });
+    }
   });
 });

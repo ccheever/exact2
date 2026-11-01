@@ -10,6 +10,41 @@ mod exit;
 // A re-ask after a turn over its budget, which `clock settle` waits for.
 mod overrun;
 
+#[test]
+fn a_seek_past_the_discrete_instant_cap_reports_where_it_stopped() {
+    let plan = crate::test_plan(
+        r#"keyframes blink
+  from opacity=1
+  to opacity=0
+component App
+  view
+    box animation="blink 1s steps(2, jump-none) infinite"
+"#,
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &plan,
+        (),
+        (80., 40.),
+        1.,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let (landed, error) = clock_hatched(&mut p, 2_049_000., deadline);
+    assert_eq!(
+        error.as_deref(),
+        Some("clock seek exceeds 4096 discrete instants")
+    );
+    assert_eq!(landed, 2_048_000.);
+    // The caller can resume from the reported instant without losing an edge.
+    assert_eq!(
+        clock_hatched(&mut p, 2_049_000., deadline),
+        (2_049_000., None)
+    );
+}
+
 /// A source whose one request is handed to work that never replies: the
 /// reply is leaked, so neither an outcome nor the drop's abort arrives.
 #[derive(Default)]

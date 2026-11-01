@@ -44,6 +44,133 @@ fn assets() -> Assets {
 }
 
 #[test]
+fn boot_metadata_waits_for_layout_size_before_decoding() {
+    let mut k = kernel(2);
+    source(&mut k, 2, "symbol:checkmark");
+    let mut images = Images::with_assets(Assets::selected(
+        PathBuf::new(),
+        Arc::new(|_| Ok(Some(encoded(512, 512, [40, 100, 200, 255])))),
+    ));
+    images.prepare_boot(&k, &k.roots(), 2.);
+    images.poll();
+    assert!(
+        images.views[&1].source_id.is_none(),
+        "binding starts no I/O"
+    );
+    assert!(images.views[&1].request.is_none());
+    assert!(images.bitmaps.is_empty());
+    assert!(
+        !images.views.contains_key(&2),
+        "symbols still owe their intrinsic size"
+    );
+    boxed(&mut k, 1, 32., 32., exact_kernel::ObjectFit::Cover);
+    images.enable_decode();
+    let reports = images.sync_visible(&k, &k.roots(), 2., |_| true);
+    assert!(reports.iter().any(|(id, size)| *id == 2 && size.is_some()));
+    until(|| {
+        images.poll();
+        images.bitmaps.contains_key(&1)
+    });
+    let picture = &images.bitmaps[&1];
+    assert!(
+        picture.width() < 512 && picture.height() < 512,
+        "layout must size the decode"
+    );
+    assert_eq!(picture.natural(), (512, 512));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn painted_boot_requests_no_images_below_the_first_screen() {
+    use crate::{
+        host::PlanBytes,
+        presenter::{PainterBoot, PainterChoice, Presenter},
+    };
+    let mut source =
+        String::from("component App\n  view\n    column width=100 height=2600\n      box height=200 flex-shrink=0\n");
+    for i in 0..60 {
+        source.push_str(&format!(
+            "      image \"offscreen-{i}.png\" width=40 height=40 flex-shrink=0\n"
+        ));
+    }
+    let bytes = contract::compile(&source).unwrap().encode();
+    let decoded = std::cell::Cell::new(0);
+    let ready = |_: &exact_plan::Plan| decoded.set(decoded.get() + 1);
+    let (mut p, error) = Presenter::boot_selected(
+        PlanBytes::Painted(&bytes, &ready),
+        (),
+        (100., 100.),
+        1.,
+        ".".into(),
+        None,
+        ("{}", exact_runner::Delivery::default()),
+        "/",
+        None,
+        PainterBoot::selected(PainterChoice::Cpu),
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(decoded.get(), 1);
+    assert_eq!(p.images().views.len(), 60);
+    for id in p.images().views.keys() {
+        let frame = p.host().kernel().node(*id).unwrap().frame;
+        assert!(
+            frame.y >= 200.,
+            "off-screen fixture was laid out at {frame:?}"
+        );
+    }
+    assert!(p
+        .images()
+        .views
+        .values()
+        .all(|v| !v.visible && v.source_id.is_none() && v.request.is_none()));
+    assert!(!p.images().pending());
+    let (ordinary, error) =
+        Presenter::boot_with(&bytes, (), (100., 100.), 1., ".".into(), PainterChoice::Cpu).unwrap();
+    assert!(error.is_none());
+    assert!(
+        ordinary.images().views.values().all(|v| v.visible),
+        "ordinary hosts keep their pre-paint mounted-image policy"
+    );
+    p.frame();
+    p.finish_boot_images();
+    assert!(
+        p.images().views.values().all(|v| v.visible && !v.on_screen),
+        "the ordinary mounted first-load pass resumes only after first paint"
+    );
+    assert!(p.images().views.values().any(|v| v.source_id.is_some()));
+}
+
+#[test]
+fn a_boot_symbol_has_no_picture_request_to_wait_for() {
+    let mut k = kernel(1);
+    source(&mut k, 1, "symbol:checkmark");
+    let mut images = Images::new(PathBuf::new());
+    images.prepare_boot(&k, &k.roots(), 1.);
+    images.enable_decode();
+    images.sync_visible(&k, &k.roots(), 1., |_| true);
+    assert!(images.views[&1].symbol_size.is_some());
+    assert!(!images.pending());
+}
+
+#[test]
+fn a_refused_boot_picture_is_settled_content() {
+    let k = kernel(1);
+    let mut images = Images::with_assets(Assets::selected(PathBuf::new(), Arc::new(|_| Ok(None))));
+    images.prepare_boot(&k, &k.roots(), 1.);
+    images.enable_decode();
+    images.sync_visible(&k, &k.roots(), 1., |_| true);
+    until(|| {
+        images.poll();
+        images.has_refusals()
+    });
+    assert!(
+        !images.pending(),
+        "a terminal refusal must not keep boot alive"
+    );
+}
+
+#[test]
 fn http_images_share_a_download_without_blocking_local_images() {
     use std::io::{Read, Write};
     use std::net::TcpListener;

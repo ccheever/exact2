@@ -248,8 +248,10 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
 #[cfg(target_os = "macos")]
 mod seams {
     use exact_gpu::{wgpu, Frame, InputEvent, Registry, Surface, SurfaceError, Value};
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     thread_local! { static FRAMES: RefCell<Vec<Frame>> = const { RefCell::new(Vec::new()) }; }
+    /// `gpu_drew` after `fed`'s last render, before its flush
+    thread_local! { static DREW: Cell<u32> = const { Cell::new(0) }; }
     thread_local! { static BINDS: RefCell<Vec<Option<f64>>> = const { RefCell::new(Vec::new()) }; }
     /// A live-clock render once the canvas's drawable, acquired off this
     /// thread, has arrived: a starved render draws nothing and wants a frame.
@@ -257,7 +259,9 @@ mod seams {
         for _ in 0..400 {
             let r = gpu_render(id, w, h, scale, now);
             if gpu_starved(id) == 0 {
+                DREW.with(|d| d.set(gpu_drew(id)));
                 gpu_flush();
+                assert_eq!(gpu_drew(id), 0, "the flush submitted what the render drew");
                 return r;
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
@@ -437,6 +441,11 @@ mod seams {
         gpu_seekable(false);
         let result = fed(id, 4.0, 4.0, 1.0, 13.0);
         assert_eq!(result, 0, "{}", exact_gpu::native::error());
+        assert_eq!(
+            DREW.with(Cell::get),
+            1,
+            "a render that found its drawable drew"
+        );
         assert_eq!(
             exact_gpu::native::messages(id).as_deref(),
             Some(r#"["render"]"#)

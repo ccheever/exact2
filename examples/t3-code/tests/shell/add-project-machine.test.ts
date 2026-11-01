@@ -240,12 +240,11 @@ describe('adding the project (addProjectToMachine)', () => {
     await submitAddMachine(client, native);
     fleet.entries.set(studio.key, studio);
     clones(studio, 2, [{ projectId: 'new-0', phase: 'done' }]);
-    let release!: () => void, reachedWrite!: () => void;
+    let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
-    const writeStarted = new Promise<void>(resolve => { reachedWrite = resolve; });
-    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projects.writeFile') { reachedWrite(); await gate; } return native.later(input); } } as Native;
+    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projects.writeFile') await gate; return native.later(input); } } as Native;
     const first = fileCopyPass(client, slow);
-    await writeStarted;
+    await new Promise(resolve => setTimeout(resolve, 0));
     const second = fileCopyPass(client, slow); // the shell's next pass, with the first write in flight
     expect(projectFileCopy(client, 'studio', 'new-0')).toMatchObject({ phase: 'copying', writing: true });
     release();
@@ -278,12 +277,11 @@ describe('adding the project (addProjectToMachine)', () => {
     const { client, native } = harness();
     await machine('studio', 'Studio');
     await addMachineLocal(client, native, 'open', '', 'studio');
-    let release!: () => void, reachedStart!: () => void;
+    let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
-    const cloneStarted = new Promise<void>(resolve => { reachedStart = resolve; });
-    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projectClone.start') { reachedStart(); await gate; } return native.later(input); } } as Native;
+    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projectClone.start') await gate; return native.later(input); } } as Native;
     const submitting = submitAddMachine(client, slow);
-    await cloneStarted;
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(addMachineView(client).submitLabel).toBe('Starting…');
     await addMachineLocal(client, native, 'close', '', '');
     expect(addMachineView(client).open).toBe(false);

@@ -70,7 +70,9 @@ impl<D: DataSource> Presenter<D> {
         let _roles = self.host.runner().bind_roles();
         let frame = crate::text::cache::deferring_eviction(|| {
             let frame = self.paint_frame(target);
-            if self.last_frame_succeeded && self.reveal_field_cursor() {
+            // A field's caret, or a fragment's target as pictures arrive
+            // (LLP 1153 D5), moved by this frame's layout: paint again.
+            if self.last_frame_succeeded && (self.reveal_field_cursor() | self.hold_fragment()) {
                 self.paint_frame(target)
             } else {
                 frame
@@ -300,6 +302,9 @@ impl<D: DataSource> Presenter<D> {
             self.queue_collections();
         }
         self.dirty = self.collection.pending();
+        if self.last_frame_succeeded {
+            self.image_paint_pending = false;
+        }
         if let Some(e) = self.sync_images() {
             self.host.log(e);
         }

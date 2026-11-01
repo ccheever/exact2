@@ -978,35 +978,46 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
     .unwrap();
     let js = crate::emit::emit(&conditional, false, false).unwrap().js;
     assert!(js.contains("\"padding-inline-start\""), "{js}");
-    // Its author writing the other side of the pair, neither mirrors (as the kernel and wasm keep them).
+    // Its author binding the other side of the pair, that inset is physical
+    // while the author's side has a value and logical while it is unset (as
+    // the kernel and wasm keep them): each write is gated on the author's.
     let mixed = contract::compile(
-        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let js = crate::emit::emit(&mixed, false, false).unwrap().js;
-    assert!(
-        js.contains("\"padding-left\"") && js.contains("\"padding-right\""),
-        "{js}"
-    );
-    assert!(
-        !js.contains("inline-start") && !js.contains("inline-end"),
-        "{js}"
-    );
-    // And beside the sheet's static inset (an unconditional symbol): that inset stays left too.
+    for (side, gate) in [
+        ("padding-left", "?null:("),
+        ("padding-inline-start", "==null?("),
+    ] {
+        let at = js
+            .find(&format!("\"{side}\""))
+            .unwrap_or_else(|| panic!("{side}: {js}"));
+        let write = &js[at..js[at..].find(";S").map_or(js.len(), |n| at + n)];
+        assert!(
+            write.contains(gate),
+            "{side} is gated on the author's side: {write}"
+        );
+    }
+    // And beside the sheet's static inset (an unconditional symbol): that
+    // inset stays left in the class; while the author's side is unset,
+    // neither is the author's, and inline logical sides mirror the pair.
     let mixed = contract::compile(
-        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : 4) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let out = crate::emit::emit(&mixed, false, false).unwrap();
-    let all = format!("{}{}", out.css, out.js);
     assert!(
-        all.contains("padding-left:") && out.js.contains("\"padding-right\""),
-        "{all}"
+        out.css.contains("padding-left:3.4375rem") && out.js.contains("\"padding-right\""),
+        "{}{}",
+        out.css,
+        out.js
     );
-    assert!(
-        !all.contains("padding-inline-start") && !all.contains("padding-inline-end"),
-        "{all}"
-    );
+    assert!(!out.css.contains("padding-inline-"), "{}", out.css);
+    for (side, value) in [("start", "3.4375rem"), ("end", "0px")] {
+        let write = format!("\"padding-inline-{side}\",\"\",()=>(v=>v==null?\"{value}\":null)");
+        assert!(out.js.contains(&write), "{write}: {}", out.js);
+    }
 }
 
 /// A progress in block flow keeps its width with `justify-self: start` only where its parent's
@@ -1111,4 +1122,73 @@ fn a_canvas_inside_a_canvas_reads_the_other_name() {
         "{}",
         out.css
     );
+}
+
+/// A role an element has natively is left off the page, as the live host
+/// leaves it off (host/web/src/element.rs `implicit_role`): a single `select`
+/// is a combobox already. A role an element lacks stays.
+#[test]
+fn a_native_elements_own_role_is_not_restated() {
+    let plan = contract::compile(
+        "component App\n  state v = \"a\"\n  action pick(s: string)\n    v = s\n  view\n    column\n      select value=v change=pick\n        option value=\"a\"\n          text \"A\"\n      button press=pick(\"b\") role=\"radio\" aria-checked=true\n        text \"B\"\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(!js.contains("combobox"), "{js}");
+    assert!(
+        js.contains("\"role\":\"radio\"") || js.contains("role:\"radio\""),
+        "{js}"
+    );
+}
+
+/// A header's bound `appearance` says `none` as element.rs marks a written
+/// one (`data-exact-said~="appearance"`), so the bar's rules and
+/// navigation.js leave it the author's while it reads `none` (LLP 1075.003
+/// §9.10), keeping the header's other said words.
+#[test]
+fn a_bound_appearance_marks_a_header_while_it_reads_none() {
+    let plan = contract::compile(
+        "component App\n  state plain = false\n  view\n    column\n      header appearance=(plain ? \"none\" : \"auto\") justify-content=\"start\" testId=\"h\"\n        text \"Title\" role=\"heading\" aria-level=1\n",
+    )
+    .unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let at = js
+        .find("\"data-exact-said\",()=>")
+        .unwrap_or_else(|| panic!("{js}"));
+    let write = &js[at..js[at..].find("});").map_or(js.len(), |n| at + n)];
+    assert!(
+        write.contains("[\"justify-content\"]") && write.contains("w.push(\"appearance\")"),
+        "{write}"
+    );
+}
+
+/// @ref LLP 1153 D7.2 — a table and a description list are HTML's own
+/// elements, a cell's `colspan`, `rowspan` and `scope` their attributes, and
+/// `aria-sort` the attribute it is; the browser lays them out.
+#[test]
+fn a_table_and_a_description_list_are_their_elements() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      table\n        caption\n          text \"Moves\"\n        thead\n          tr\n            th scope=\"col\" aria-sort=\"ascending\"\n              text \"Name\"\n            th scope=\"col\"\n              text \"Power\"\n        tbody\n          tr\n            td colspan=2\n              text \"Tackle\"\n          tr\n            td rowspan=2\n              text \"a\"\n            td\n              text \"b\"\n        tfoot\n          tr\n            td\n              text \"2\"\n      dl\n        dt\n          text \"Type\"\n        dd\n          text \"Electric\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    for tag in [
+        "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "dl", "dt", "dd",
+    ] {
+        assert!(
+            out.js.contains(&format!("\"{tag}\",")),
+            "<{tag}> in {}",
+            out.js
+        );
+    }
+    for attr in [
+        "\"scope\":\"col\"",
+        "\"aria-sort\":\"ascending\"",
+        "\"colspan\":\"2\"",
+        "\"rowspan\":\"2\"",
+    ] {
+        assert!(out.js.contains(attr), "{attr} in {}", out.js);
+    }
+    // No grid of the host's: the browser's UA sheet gives each its display.
+    assert!(!out.css.contains("display:grid"), "{}", out.css);
 }

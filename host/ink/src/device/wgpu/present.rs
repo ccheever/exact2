@@ -31,6 +31,7 @@ impl Wgpu {
     pub fn attach_layer(&mut self, layer: Layer) -> Result<()> {
         let _trace = crate::device::apple::Trace::new(c"boot wgpu attach layer");
         self.wait(self.submitted)?;
+        layer.track_wgpu_drawables();
         let render_layer = layer.render_layer();
         // SAFETY: the window owner and its retained CAMetalLayer outlive the
         // surface and the joined render thread. This is the layer itself, not NSView.
@@ -118,6 +119,7 @@ impl Wgpu {
                 None,
             )
         });
+        crate::counters::presentation_support(false, true);
         self.window = Some(Window {
             thread: Thread::new()?,
             renderer: Arc::new(Mutex::new(Renderer {
@@ -166,9 +168,11 @@ impl Wgpu {
                 crate::device::apple::benchmark_present(benchmark);
                 renderer.present(view, size, transaction)
             } else {
+                renderer.layer.cancel_repeat(benchmark);
                 Ok((renderer.queue.submit([]), None))
             };
             if let Err(error) = &result {
+                renderer.layer.cancel_repeat(benchmark);
                 *errors.lock().unwrap() = Some(error.clone());
             }
             renderer.queue.on_submitted_work_done(move || {
@@ -182,7 +186,10 @@ impl Wgpu {
                             submission_index: Some(index.clone()),
                             timeout: Some(std::time::Duration::from_secs(30)),
                         })
-                        .map_err(|e| Error::Device(e.to_string()))?;
+                        .map_err(|e| {
+                            renderer.layer.cancel_repeat(benchmark);
+                            Error::Device(e.to_string())
+                        })?;
                 }
             }
             result

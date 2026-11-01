@@ -4,7 +4,7 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { EnvironmentFleet, parseFleetThreadId } from '../connections/settings-b-fleet';
-import { envAccess } from '../sidebar/legacy-sidebar-fleet';
+import { envAccess } from '../sidebar/background-threads';
 import { attachStagingLimit, reservedAttachments } from './composer-editor-attach';
 import { draftFiles, fileChipLink, MAX_ATTACHMENTS, stageTextAttachment, utf8Length } from './composer-editor-files';
 import { composerInput } from './requests';

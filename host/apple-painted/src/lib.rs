@@ -6,6 +6,12 @@ mod agent;
 #[cfg(target_os = "macos")]
 mod window;
 
+/// Mark the benchmark executable's entry on the linked probe's clock.
+pub fn main_started() {
+    #[cfg(target_os = "macos")]
+    exact_ink::device::apple::trace_mark(c"boot main", || 0.);
+}
+
 /// Run a benchmark window over the app's baked plan and data source.
 pub fn run<D: exact_runner::DataSource + Default + 'static>(
     name: &str,

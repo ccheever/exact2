@@ -67,6 +67,15 @@ describe('/usage-limits banner', () => {
     expect(native.opened).toEqual(['https://chatgpt.com/#settings/Usage']);
   });
 
+  test('an instance accent colours the bars in both schemes; one that is not #rrggbb leaves the driver colour', async () => {
+    const { usage, client } = await banner({ windows: [session] });
+    const codex = arr(client.config.providers)[0]!;
+    codex.accentColor = ' #7C3AED ';
+    expect(usage().usage[0]).toMatchObject({ light: '#7C3AED', dark: '#7C3AED' });
+    codex.accentColor = 'red';
+    expect(usage().usage[0]).toMatchObject({ light: '#18181b', dark: '#f5f5f5' });
+  });
+
   test('several accounts: each is labelled; an address is redacted; a hub error is a line', async () => {
     const hub = { id: 'hub', kind: 'cliproxy', label: 'Accounts', checkedAt: iso(-30_000), accounts: [
       { id: 'codex-me@example.com.json', driver: 'codex', plan: 'ChatGPT Plus', usageLimits: { checkedAt: iso(-30_000), windows: [session], resetCredits: { availableCount: 1, nextCreditId: 'credit-9' } } },

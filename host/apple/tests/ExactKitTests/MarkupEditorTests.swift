@@ -259,6 +259,33 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual((storage.attribute(.link, at: linkRange.location, effectiveRange: nil) as? URL)?.absoluteString, "https://example.com")
     }
 
+    func testThematicBreakDrawsInTheSecondaryLabelsOpacityWhateverTheSelection() {
+        let source = "Above\n\n---\n\n> ***"
+        let (node, f, window, presenter) = editor(source, selection: NSRange(location: 0, length: 0))
+        let session = ExactApp.shared.makeSession(label: "markup-rule")
+        presenter.session = session
+        defer { window.close(); session.destroy() }
+        let text = source as NSString, rule = text.range(of: "---"), quoted = text.range(of: "***"), quote = text.range(of: ">")
+        let alpha = { (at: Int) in (f.textStorage!.attribute(.foregroundColor, at: at, effectiveRange: nil) as? NSColor)?.alphaComponent ?? -1 }
+        var opacities: [CGFloat] = []
+        for name in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: name)
+            var secondary: CGFloat = 0
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance { secondary = NSColor.secondaryLabelColor.alphaComponent }
+            opacities.append(secondary)
+            for caret in [0, rule.location + 1, quoted.location + 1] {
+                f.setSelectedRange(NSRange(location: caret, length: 0))
+                node.markdownRestyle()
+                for at in [rule.location, NSMaxRange(rule) - 1, quoted.location] {
+                    XCTAssertEqual(alpha(at), secondary, accuracy: 0.002, "\(name.rawValue) caret \(caret) at \(at)")
+                }
+                // A quote's `>` beside a break stays the quieter syntax.
+                XCTAssertLessThan(alpha(quote.location), 0.45)
+            }
+        }
+        XCTAssertNotEqual(opacities[0], opacities[1], "the appearance's own opacity, not one value")
+    }
+
     func testRemovingMarkupRestoresPlainAttributesAndCommands() {
         let (node, f, window, presenter) = editor("**bold** [link](https://example.com)", selection: NSRange(location: 3, length: 0))
         defer { window.close(); _ = presenter }

@@ -43,7 +43,7 @@ final class FrameHealthMacTests: XCTestCase {
         window.close()
         XCTAssertEqual(node.press.to, 1)
     }
-    func testDesktopCardUsesHostSlotPassesBodyAndClampsWithoutResizingTheApp() throws {
+    func testDesktopCardUsesHostSlotTakesClicksWithinItsBoundsAndClampsWithoutResizingTheApp() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "desktop-frame-health")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 640, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
@@ -59,9 +59,22 @@ final class FrameHealthMacTests: XCTestCase {
         overlay.layoutSubtreeIfNeeded()
         XCTAssertEqual(exact.frame, before)
         XCTAssertTrue(session.frameHealth.hudVisible)
-        overlay.place(at: CGPoint(x: -10_000, y: -10_000))
+        // A drag past the window's edge carries the card part of the way, and on release it springs back
+        overlay.card.moved?(CGPoint(x: -10_000, y: -10_000))
+        XCTAssertLessThan(overlay.card.frame.minX, 8)
+        XCTAssertGreaterThan(overlay.card.frame.minX, 8 - 640)
+        overlay.card.released?(.zero)
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(session.frameHealth.hudBounds).minX, 8)
-        XCTAssertNil(overlay.hitTest(CGPoint(x: 600, y: 400)))
+        XCTAssertNil(overlay.hitTest(CGPoint(x: 600, y: 400)), "outside the card, clicks reach the app")
+        XCTAssertNotNil(overlay.hitTest(CGPoint(x: 100, y: 100)), "the opaque card takes the clicks within its bounds")
+        // Details takes the place of the charts at the same size; a second click returns them
+        let size = overlay.card.frame.size
+        overlay.card.activate?(.details)
+        XCTAssertFalse(overlay.card.detailsScroll.isHidden)
+        XCTAssertEqual(overlay.card.frame.size, size)
+        XCTAssertEqual(overlay.card.detailsScroll.frame, FrameHealthCardFace.Layout(width: size.width, showsDetails: true).detailsArea)
+        overlay.card.activate?(.details)
+        XCTAssertTrue(overlay.card.detailsScroll.isHidden)
         let item = NSMenuItem(title: "Show Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
         XCTAssertTrue(exact.validateMenuItem(item))
         XCTAssertEqual(item.title, "Hide Frame Health")

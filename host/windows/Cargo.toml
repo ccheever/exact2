@@ -17,6 +17,7 @@ contract = { path = "../../contract/cli" }
 [target.'cfg(windows)'.dependencies]
 exact-ink = { path = "../ink" }
 accesskit = "0.25.1"
+accesskit_windows = "0.35.2"
 accesskit_winit = { version = "0.34.1", default-features = false, features = ["rwh_06"] }
 exact-kernel = { path = "../../kernel" }
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }

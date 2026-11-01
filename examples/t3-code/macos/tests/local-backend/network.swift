@@ -22,7 +22,7 @@ private final class AccessServer: URLProtocol, @unchecked Sendable {
         let status = path == "/api/auth/clients/revoke" ? 403 : 200
         let answer: Any = path == "/oauth/token" ? ["access_token": "local-bearer", "token_type": "Bearer"] as Any
             : path == "/api/auth/pairing-token" ? ["id": "link-1", "credential": "SECRET", "expiresAt": "2036-04-07T00:05:00.000Z"] as Any
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.5"] as Any
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.6"] as Any
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: answer))
         client?.urlProtocolDidFinishLoading(self)
@@ -227,7 +227,7 @@ final class LocalNetworkTests: XCTestCase {
 
     func testARestartStartsANewServerWithTheNewEnvelope() {
         let runtime = scratch("runtime"), script = runtime.appendingPathComponent("t3"), envelopes = scratch("envelopes")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.5'; exit 0; fi\nhead -n 1 > \(envelopes.path)/$$.json\nwhile :; do sleep 0.1; done\n"
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.6'; exit 0; fi\nhead -n 1 > \(envelopes.path)/$$.json\nwhile :; do sleep 0.1; done\n"
             .write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let configuration = URLSessionConfiguration.ephemeral
@@ -236,7 +236,7 @@ final class LocalNetworkTests: XCTestCase {
         try! #"{"version":1,"serverExposureMode":"local-only"}"#.write(to: data.appendingPathComponent("t3-code.json"), atomically: true, encoding: .utf8)
         backend.environment = { ["T3_LOCAL_HOME": home.path, "T3_LOCAL_PORT": "16898", "T3_LOCAL_RUNTIME_DIR": runtime.path, "PATH": "/usr/bin:/bin"] }
         backend.resources = { nil }
-        backend.serverEnvironment = { $0 }
+        backend.serverEnvironment = { ($0, true) }
         backend.makeProber = { FakeProber() }
         backend.fatal = { stage, message in XCTFail("unexpected fatal \(stage): \(message)") }
         backend.attach(owner, dataRoot: data, changed: { _ in })

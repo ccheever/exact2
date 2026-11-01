@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9, ServerBrowserSurface.tsx and serverBrowserStream.ts (MIT).
+// T3 Code 2359643cff, ServerBrowserSurface.tsx and serverBrowserStream.ts (MIT).
 // The active stream belongs to a connection generation and one server session.
 import { appFiles } from '../media/save-file';
 import type { T3Client } from '../client/client';
@@ -20,7 +20,9 @@ function runtime(client: T3Client, id: string): Runtime {
 }
 export const serverStreamUrl = (client: T3Client, id: string): string => { const state = runtime(client, id); return state.id === id ? state.url : ''; };
 export const serverStreamFrame = (client: T3Client, id: string): StreamFrame => { const state = runtime(client, id); return state.id === id ? state.stream.frame : emptyStreamFrame(); };
-export async function prepareServerStream(client: T3Client, native: Native, id: string, threadId: string, tabId: string): Promise<void> {
+/** `pip`: the picture-in-picture window's own stream (server-browser-pip.ts), which watches and never operates: the
+ *  reference's `interactive: false` client at 1280 × 1280 (serverPictureInPicture.ts). */
+export async function prepareServerStream(client: T3Client, native: Native, id: string, threadId: string, tabId: string, pip = false): Promise<void> {
   const state = runtime(client, id), now = composerNow(client);
   if (!id) { await retainServerStreams(client, []); return; }
   if (client.connection !== 'connected') { state.request++; state.pending = ''; state.stream.stop(); state.id = state.url = ''; return; }
@@ -47,7 +49,8 @@ export async function prepareServerStream(client: T3Client, native: Native, id: 
   finally { if (state.request === request) state.pending = ''; }
   if (client.generation !== generation || state.request !== request) return;
   const url = new URL(`${str(access.wsBase)}/ws`);
-  for (const [key, value] of Object.entries({ threadId, tabId, maxWidth: String(state.maxWidth * 2), maxHeight: String(state.maxHeight * 2), wsTicket: str(access.ticket) })) url.searchParams.set(key, value);
+  const size = pip ? { maxWidth: '1280', maxHeight: '1280', interactive: 'false' } : { maxWidth: String(state.maxWidth * 2), maxHeight: String(state.maxHeight * 2) };
+  for (const [key, value] of Object.entries({ threadId, tabId, ...size, wsTicket: str(access.ticket) })) url.searchParams.set(key, value);
   if (state.id !== id) { state.stream.stop(); state.buttons = 0; }
   state.stream.frame.runtimeId = id;
   state.id = id; state.threadId = threadId; state.tabId = tabId; state.generation = generation; state.url = url.href; state.stream.begin(state.url);
@@ -118,7 +121,11 @@ export function serverStreamInput(client: T3Client, id: string, kind: string, ra
     stream.send({ type: 'key', action: value.phase === 'up' ? 'up' : 'down', key, code, keyCode: key.length === 1 ? key.toUpperCase().charCodeAt(0) : ({ Enter: 13, Backspace: 8, Tab: 9, Escape: 27, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Delete: 46, Home: 36, End: 35, PageUp: 33, PageDown: 34 }[key] ?? 0),
       ...((printable || key === 'Enter') && value.phase !== 'up' && !value.ctrlKey && !value.metaKey ? { text: key === 'Enter' ? '\r' : key } : {}), modifiers: modifiers(value) });
   } else if (kind === 'text') { if (typeof value.text === 'string' && value.text) stream.send({ type: 'text', text: value.text }); }
-  else if (kind === 'dialog') stream.send({ type: 'dialog', accept: value.accept === true, promptText: str(value.promptText) });
+  else if (kind === 'back' || kind === 'forward') stream.send({ type: 'history', delta: kind === 'back' ? -1 : 1 }); // a mouse's thumb buttons
+  else if (kind === 'copy' || kind === 'cut') {
+    // ServerBrowserSurface handleClipboard: the menu bar's Copy or Cut, as Control+C or X while this viewer controls the page.
+    if (frame.controlled) for (const action of ['down', 'up'] as const) stream.send({ type: 'key', action, ...(kind === 'copy' ? { key: 'c', code: 'KeyC', keyCode: 67 } : { key: 'x', code: 'KeyX', keyCode: 88 }), modifiers: 2 });
+  } else if (kind === 'dialog') stream.send({ type: 'dialog', accept: value.accept === true, promptText: str(value.promptText) });
   else if (kind === 'takeControl' || kind === 'releaseControl') { if (stream.send({ type: kind }) && kind === 'takeControl') state.width = state.height = 0; }
   return stream.frame;
 }

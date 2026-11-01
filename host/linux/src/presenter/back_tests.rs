@@ -201,6 +201,68 @@ fn a_desktops_back_keys_go_back_in_the_same_order() {
     assert_eq!(slot(&p, "followed"), 1.0, "one visit back, of two");
 }
 
+/// LLP 1115.000 D5.5: a mouse's back and forward buttons step history at
+/// their release, as Chrome's do, unless a `pointerup` prevented it; Forward
+/// goes where Back left, by the root's `navigate` or the runner's own `go`,
+/// and Alt+Right and the Forward key go there too.
+#[test]
+fn the_mouses_back_and_forward_buttons_step_history_at_their_release() {
+    for root in ["navigate=follow", ""] {
+        let mut p = boot(root, "text \"no control here\"");
+        open(&mut p);
+        p.pointer_aux(8, true, 300., 700., 1.);
+        assert!(on_detail(&p), "{root:?}: not at the press");
+        p.pointer_aux(8, false, 300., 700., 2.);
+        assert!(!on_detail(&p), "{root:?}: back at the release");
+        p.pointer_aux(16, true, 300., 700., 3.);
+        p.pointer_aux(16, false, 300., 700., 4.);
+        assert!(on_detail(&p), "{root:?}: forward to the detail");
+        p.pointer_aux(16, true, 300., 700., 5.);
+        p.pointer_aux(16, false, 300., 700., 6.);
+        assert!(on_detail(&p), "{root:?}: nothing further ahead");
+        device_key(&mut p, ALT, "ArrowLeft");
+        assert!(!on_detail(&p), "{root:?}");
+        device_key(&mut p, ALT, "ArrowRight");
+        assert!(on_detail(&p), "{root:?}: Alt+Right went forward");
+        device_key(&mut p, ALT, "ArrowLeft");
+        device_key(&mut p, &[], "BrowserForward");
+        assert!(on_detail(&p), "{root:?}: the Forward key");
+        // Back went by `navigate` too: three each way.
+        assert_eq!(
+            slot(&p, "followed"),
+            if root.is_empty() { 0. } else { 6. },
+            "{root:?}"
+        );
+    }
+    // A `pointerup` that prevents its default keeps the page, as in Chrome;
+    // a `pointerdown` that does goes back all the same.
+    let hold = "  action hold(e: PointerEvent)\n    kept = e.button * 10 + e.buttons\n    preventDefault()\n";
+    for (handler, kept, back) in [("pointerup", 30.0, false), ("pointerdown", 38.0, true)] {
+        let pad = format!("box testId=\"pad\" width=400 height=400 {handler}=hold");
+        let source = (APP.replace("ROOT", "").replace("BACK", &pad))
+            .replace("  action claim\n", &format!("{hold}  action claim\n"));
+        let (mut p, error) = Presenter::boot_with(
+            &crate::test_plan(&source),
+            (),
+            (400., 800.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        open(&mut p);
+        p.pointer_aux(8, true, 20., 20., 1.);
+        p.pointer_aux(8, false, 20., 20., 2.);
+        assert_eq!(on_detail(&p), !back, "{handler}");
+        assert_eq!(
+            slot(&p, "kept"),
+            kept,
+            "{handler}: button 3, buttons 8 down, 0 up"
+        );
+    }
+}
+
 #[test]
 fn back_is_its_keys_default_action_after_the_authors() {
     // In a text field Alt+Left goes back; the caret's keys are the bare arrows.

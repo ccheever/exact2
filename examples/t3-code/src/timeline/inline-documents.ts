@@ -24,8 +24,10 @@ const MIN_URL_LIFE = 5 * 60_000;
 const LIMIT = 64;
 let nextDocument = 0;
 const ADAPTER_PAGE = 'assets/inline-document/index.html';
-export function inlineDocumentSource(src: string, token: string): string {
-  return ADAPTER_PAGE + '#' + encodeURIComponent(JSON.stringify({ src, token }));
+/** The adapter page holding `src` in its sandboxed frame; `allow` is that frame's permissions policy (an HTML render's
+ *  `fullscreen`, so its page's video or image viewer can take the screen). */
+export function inlineDocumentSource(src: string, token: string, allow = ''): string {
+  return ADAPTER_PAGE + '#' + encodeURIComponent(JSON.stringify({ src, token, ...(allow ? { allow } : {}) }));
 }
 
 function postToDocument(client: T3Client, frame: Frame, message: unknown): void {
@@ -61,10 +63,12 @@ function state(client: T3Client): State {
   }
   return value;
 }
+/** deriveTimelineEntriesFromVisibleTurnItems: an HTML render once its tool completed; an MCP App's form whatever the
+ *  call's status, so one from a failed tool result shows too. */
 export function inlineReference(item: Obj): InlineReference | null {
-  if (item.type !== 'dynamic_tool' || item.status !== 'completed') return null;
+  if (item.type !== 'dynamic_tool') return null;
   const tool = { toolName: str(item.toolName), output: item.output };
-  const html = htmlRenderFromToolItem(tool);
+  const html = item.status === 'completed' ? htmlRenderFromToolItem(tool) : undefined;
   if (html) return { kind: 'html', reference: html };
   const app = mcpAppFromToolItem(tool);
   return app ? { kind: 'mcp', reference: app } : null;
@@ -75,7 +79,9 @@ export function inlineTheme(client: T3Client, systemScheme = 'dark') {
   const { prefs, custom, mode } = paintOf(client), appearance = mode === 'light' || mode === 'dark' ? mode : systemScheme === 'light' ? 'light' : 'dark';
   const themeId = appearance === 'light' ? prefs.themeLight : prefs.themeDark;
   const own = custom.find(theme => theme.id === themeId);
-  const colors = { ...STANDARD[appearance], ...(own?.[appearance] ?? builtInThemeColors(themeId, appearance) ?? themeRoles(themeId, appearance, custom)) };
+  // The standard theme's colours are getStandardThemeColors' (STANDARD): its dark background is the dark chat's black.
+  // No theme id is the standard theme too, as the theme editor reads it (rolesOf).
+  const colors = { ...STANDARD[appearance], ...(own?.[appearance] ?? builtInThemeColors(themeId, appearance) ?? (themeId === 't3-code' || !themeId ? {} : themeRoles(themeId, appearance, custom))) };
   return htmlRenderTheme(colors, appearance, { sans: fontStack(prefs.fontFamilySans, false), mono: fontStack(prefs.fontFamilyCode, true) });
 }
 
@@ -122,7 +128,7 @@ export async function syncInlineDocuments(client: T3Client, native: Native, now:
         const result = obj(item.output);
         frame.runtime.host.setToolCall({ arguments: item.input, result: { ...result, content: arr(result.content) } });
       }
-      frame.src = inlineDocumentSource(frame.url + (ref.kind === 'html' ? htmlRenderThemeFragment(inlineTheme(client, held.systemScheme)) : ''), frame.token);
+      frame.src = inlineDocumentSource(frame.url + (ref.kind === 'html' ? htmlRenderThemeFragment(inlineTheme(client, held.systemScheme)) : ''), frame.token, ref.kind === 'html' ? 'fullscreen' : '');
     } catch (error) {
       if (letGo(error)) { held.frames.delete(key); throw error; }
       frame.error = error instanceof Error ? error.message : 'Unable to load document.';

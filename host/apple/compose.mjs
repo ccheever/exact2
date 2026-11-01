@@ -1,47 +1,9 @@
 // The Swift that composes an app's module with its packages' implementations (LLP 1133.001 D5), which
 // host/apple/build.mjs writes beside the module's sources and never commits.
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdirSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 /** The module side's fixed Swift, in `root`: the table, its view entries, the hatch bindings and the extensions. */
 export const moduleSeam = (resolve, root) => ['ExactNativeModule.swift', 'ExactNativeViews.swift', 'ExactTamber.swift', 'ExactExtensions.swift']
   .map(f => resolve(root, 'host/apple/modules', f));
-
-/** Package objects and imports for one SDK and target, isolated from the app's other roster probes. */
-export function packageModules(packages, copies, { seam, directory, cache, development = false }) {
-  const targets = new Map();
-  return (sdk, target) => {
-    const key = JSON.stringify([sdk, target, development]);
-    if (targets.has(key)) return targets.get(key);
-    const out = resolve(directory, createHash('sha256').update(key).digest('hex').slice(0, 16));
-    const args = (name, sources) => ['--sdk', sdk, 'swiftc', '-module-cache-path', cache, '-parse-as-library', '-wmo', '-O', '-swift-version', '5', '-module-name', name, '-emit-module', '-emit-module-path', resolve(out, `${name}.swiftmodule`), '-I', out, '-c', ...sources, '-o', resolve(out, `${name}.o`), ...target];
-    const seamArgs = args('ExactPackage', [seam]), packageArgs = packages.map((p, i) => [...args(p.module, copies[i]), ...(development ? ['-D', 'EXACT_DEVELOPMENT'] : [])]);
-    const normalized = args => args.map(a => a.replaceAll(directory, '<packages>'));
-    const stamp = JSON.stringify([normalized(seamArgs), ...packages.map((p, i) => [p.module, p.sources, normalized(packageArgs[i])])]);
-    let placed = false;
-    const built = {
-      link: packages.length ? ['-I', out, ...['ExactPackage', ...packages.map(p => p.module)].map(name => resolve(out, `${name}.o`))] : [],
-      stamp: packages.length ? stamp : '',
-      place() {
-        if (placed || !packages.length) return;
-        mkdirSync(out, { recursive: true });
-        const seamResult = spawnSync('xcrun', seamArgs, { encoding: 'utf8' });
-        if (seamResult.status !== 0) throw new Error(`host/apple: ExactPackage.swift did not compile:\n${seamResult.stderr ?? ''}`);
-        packages.forEach((p, i) => {
-          const r = spawnSync('xcrun', packageArgs[i], { encoding: 'utf8' });
-          // swiftc may name a copy by its real /private/var path.
-          const said = copies[i].reduce((text, copy, j) => text.replaceAll(realpathSync(copy), p.sources[j]).replaceAll(copy, p.sources[j]), r.stderr ?? '');
-          if (r.status !== 0) throw new Error(`host/apple: ${p.extension}'s Swift (${p.sources.join(', ')}) did not compile:\n${said}`);
-        });
-        placed = true;
-      },
-    };
-    targets.set(key, built);
-    return built;
-  };
-}
 
 /** Link declared system frameworks even when only an Objective-C category uses them. Frameworks introduced
  * above the app's minimum OS are weak-linked; the package checks `#available` before using them (LLP 1133.016 D15). */

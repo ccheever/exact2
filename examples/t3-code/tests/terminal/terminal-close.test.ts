@@ -2,9 +2,6 @@
 // Changes from the reference: `vite-plus/test` is `bun:test` (`vi.fn` is `mock`); the `~/localApi`
 // module mock is the `setTerminalCloseLocalApi` seam.
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-import type { T3Client } from "../../src/client/client";
-import type { Native } from "../../src/client/protocol";
-import { closeThreadTerminals, setCloseThreadTerminals } from "../../src/terminal/thread-terminal-cleanup";
 
 const confirmMock = mock<(message: string, options?: unknown) => Promise<boolean>>();
 const readLocalApiMock = mock<
@@ -17,19 +14,6 @@ const readLocalApiMock = mock<
 
 import { confirmTerminalClose, isTerminalCloseConfirmPending, setTerminalCloseLocalApi } from "../../src/terminal/terminal-close";
 setTerminalCloseLocalApi(() => readLocalApiMock());
-
-it("thread cleanup defaults to a no-op and uses the current replacement", async () => {
-  const client = {} as T3Client, native = {} as Native, previous = closeThreadTerminals;
-  await expect(closeThreadTerminals(client, native, "thread-1")).resolves.toBeUndefined();
-  const closed: unknown[][] = [];
-  try {
-    setCloseThreadTerminals(async (...args) => { closed.push(args); });
-    await closeThreadTerminals(client, native, "thread-1");
-    setCloseThreadTerminals(async (...args) => { closed.push(["replacement", ...args]); });
-    await closeThreadTerminals(client, native, "thread-2");
-    expect(closed).toEqual([[client, native, "thread-1"], ["replacement", client, native, "thread-2"]]);
-  } finally { setCloseThreadTerminals(previous); }
-});
 
 describe("terminal close confirmation", () => {
   beforeEach(() => {

@@ -37,6 +37,9 @@ pub(super) fn encode(entry: &Entry, w: &mut Writer) {
     }
 }
 
+/// `rem`'s unit tag, past the viewport units' (3 onward).
+const REM: u8 = 128;
+
 fn node_out(n: &Node, w: &mut Writer) {
     match n {
         Node::Value(v, unit) => {
@@ -47,6 +50,7 @@ fn node_out(n: &Node, w: &mut Writer) {
                 Unit::Percent => 1,
                 Unit::Px => 2,
                 Unit::Viewport(u) => 3 + *u as u8,
+                Unit::Rem => REM,
             });
         }
         Node::Env(term) => {
@@ -170,6 +174,7 @@ fn node(r: &mut Reader<'_>, level: usize, nodes: &mut usize) -> Option<Node> {
                 0 => Unit::Number,
                 1 => Unit::Percent,
                 2 => Unit::Px,
+                REM => Unit::Rem,
                 u => Unit::Viewport(*ViewportUnit::ALL.get(usize::from(u.checked_sub(3)?))?),
             };
             Node::Value(v, unit)

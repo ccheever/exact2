@@ -1,7 +1,5 @@
 # T3 Code for Exact on macOS
 
-See [the clone handoff](CLONE.md) for the current project state and next steps.
-
 A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, written with Exact.
 Contract draws the interface; TypeScript owns the client state, the projections and the server
 connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's
@@ -17,8 +15,8 @@ The app carries the official T3 server release (the CLI archive of the release b
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `6d450a4284` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors the stable release `0.1.5`, `version-skew.ts`). Ported files name
+The reference is T3 Code `2359643cff` (`referencePin` in `server-runtime/runtime-pin.json`;
+the client mirrors the stable release `0.1.6`, `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
@@ -104,10 +102,12 @@ and both variables set) runs the development binary, which carries no bundle res
 no server: build the bundle, then point `EXACT_MAC_BIN` at its `Contents/MacOS/T3 Code (Exact)`
 (the driver then skips its stale-build check, so rebuild after every source change).
 
-Safari's Web Inspector (exact2 #101): every web view the clone shows is an Exact `iframe` (a Browser tab, a
-rendered HTML preview, the terminal, a Mermaid diagram), which main #309 makes `isInspectable` in a development
-build, so Safari's Develop menu lists it, and never in a production-trust bake or a distributed bundle. There is no
-View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2 (#101).
+Safari's Web Inspector: every web view the clone shows is an Exact `iframe` (a Browser tab, a rendered HTML
+preview, the terminal, a Mermaid diagram). Unasked, the web arm makes these `isInspectable` in a development build
+only (main #309), so Safari's Develop menu lists them there. A Browser tab's ⋮ › Open DevTools opens that tab's
+inspector, and makes it inspectable, in any build, a distributed bundle included (`openDevTools`, LLP 1020.002 D11,
+ruled 2026-10-31). There is no View › Toggle Developer Tools: an inspector for the app's own UI stays out of exact2
+(#101).
 
 ## Desktop command
 
@@ -323,7 +323,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Browser surface: a right-panel Browser tab is a partitioned `iframe` (LLP 1020.002; `browser-frames.*`,
   `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
-  floating player, profiles, and an agent's `previewAutomation` requests.
+  floating player, profiles, and an agent's `previewAutomation` requests. A server-rendered tab's floating player pops
+  it into the platform's picture-in-picture window (`server-browser-pip.ts`): a stream of its own paints a hidden image
+  that Exact's `requestPictureInPicture` floats, as the reference floats its canvas stream.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -375,18 +377,18 @@ its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which E
 menu is a window-level popup, placed from the trigger's `frame()` (scroll offsets applied),
 that Escape and an outside press close (`table-menu.*`). The row context menus are Contract context
 popovers, which the host presents as an `NSMenu` at the pointer, or for the ContextMenu key at the
-focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the legacy sidebar's
-row, selection and project menus, the Files tree's, a panel tab's, a pull request number's, the branch
-picker's Copy branch name (on its trigger and on each ref in the open picker, which stays open under it), and the chat's
-web and file link menus (`link-menus.contract`; their rows are computed before the right-click,
-`external-link-menu.ts` and `file-link-menu.ts`). A draft
-row's ContextMenu and Shift+F10, and a tab's Shift+F10, show theirs from the row, below it. A mailto, irc,
-xmpp or fragment link has no menu of its own, so its right-click and its ContextMenu key get the desktop shell's
-(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). The legacy
-sidebar's New thread shows a project's members, and a file link on the pull request page its menu, where the press
-was (LLP 1021 D2: the press's `clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0,
-the window's corner, as the reference's `Menu.popup` puts it). A global hotkey of another
-app (a launcher holding ⌘1, say) never reaches the window.
+focused row's centre (exact2 #314): the sidebar's thread, draft and selection menus, the Files
+tree's, a panel tab's, a pull request number's, the branch picker's Copy branch name (on its trigger
+and on each ref in the open picker, which stays open under it), and the chat's web and file link
+menus (`link-menus.contract`; their rows are computed before the right-click,
+`external-link-menu.ts` and `file-link-menu.ts`). A draft row's ContextMenu and Shift+F10, and a
+tab's Shift+F10, show theirs from the row, below it. A mailto, irc, xmpp or fragment link has no
+menu of its own, so its right-click and its ContextMenu key get the desktop shell's
+(`T3TextContextMenu.swift`). The media menu stays the module's (`T3ContextMenu.swift` says why). A
+file link on the pull request page shows its menu where the press was (LLP 1021 D2: the press's
+`clientX` and `clientY` as the popover's `left` and `top`; a key's press is at 0, 0, the window's
+corner, as the reference's `Menu.popup` puts it). A global hotkey of another app (a launcher holding
+⌘1, say) never reaches the window.
 
 Saved environments and their credentials are one kept secret, `t3-catalog` (granted by `secret.keep
 t3-catalog`, kept in the Keychain on macOS; `transport-catalog.ts`), each token scoped to the server
@@ -729,6 +731,10 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
+- Appearance has no Environment identification row. The clone is the stable app only, and it does
+  not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
+  row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
+  header."); its version pill is offered only on a Dev or Nightly stage.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -750,6 +756,28 @@ above.
 
 **Known differences:**
 
+- Settings › About › Update track saves only this app's own track. In v0.1.6 the switch also moves every
+  connected server between Stable and Nightly, after a database-migration check
+  (`UpdateTrackSwitchDialog.tsx`). The clone is updated through Exact delivery and has no desktop
+  update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description but not
+  its "N machines still run … Review" line: Review opens that switch in v0.1.6, and here it would move no machine.
+- A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
+  which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
+  over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks.
+  AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
+  palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
+  thread, where ⌘[ and the sidebar arrows do nothing either.
+- A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
+  tooltip on hover only, where v0.1.6's opens on a keyboard focus.
+- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
+  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
+  takes no outline from the app.
+- The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
+  sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
+  has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
+  opens "New thread in…". For the same reason, the Working section's description leaves out v0.1.5's
+  "The boring sidebar in Labs has no Working section."
+
 - After VO-Space on a composer thread chip, the reference's VoiceOver cursor ends on the window's close
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
@@ -761,11 +789,21 @@ above.
   AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
   view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
   removed text, which VoiceOver does not read.
-- The Browser tab's ⋮ menu has no "Open DevTools": macOS has no public API that opens Web Inspector
-  from code. A development build's page is inspectable from Safari › Develop.
-- A server-rendered Browser tab has no picture-in-picture window: Exact has no source that turns its
-  JPEG frames into a video, which the reference's `canvas.captureStream()` does. Its in-app
-  floating preview works.
+- The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
+  after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
+  open, so several items can be turned on or off in one visit.
+- The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
+  draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
+  pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
+  paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
+  build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
+  Web Inspector, not Chrome DevTools.
+- A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
+  216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
+  return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's
+  icon. Pause does nothing, as the tab is live. A press elsewhere on the panel does not bring the app forward, as a
+  press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
+  the Picture in Picture process.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
   colours, with the platform's padding and radius and no border; its glyph is the nearest SF
@@ -775,6 +813,11 @@ above.
   per scheme.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
+- A composer chip's name does not underline while the pointer is over it, where the reference's
+  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
+  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
+  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
+  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
@@ -858,9 +901,6 @@ above.
   lasts, 5 s (`sidebar-commands.ts`); a ⌘Z after that leaves the row snoozed (FN29).
 - A composer pull request chip is named 'Open Open pull request #132: …': the reference's own
   template, `Open ${kindLabel} …` with the kind label 'Open pull request' (contextChipParts.tsx:113).
-- With Reduce motion on, a legacy project's rows jump as it collapses but its chevron still turns,
-  as the reference's (`transition-transform duration-150` with no motion-reduce variant,
-  LegacySidebar.tsx:2405-2409).
 - Return on a focused button that is not the default one, such as 'Edit Echo test', does nothing
   and Space presses it, as in any AppKit window (Return presses the default button).
 - A press outside a chip's popover closes it and still does what it lands on (a press on a
@@ -872,13 +912,8 @@ above.
   first click on #144 that did not open it come from the github-lane fixture's `gh` stand-in;
   the list loaded and the second click opened it. The timeline's 'Image unavailable' for a table
   image and a linked image is the lane's missing media server.
-- The legacy sidebar's thread machine glyph has no pointer tooltip, and neither does the
-  reference's. Its meta slot is `pointer-events-none` and fades out on hover
-  (LegacySidebar.tsx:489-493, 903-920); 'Lane Second' is only the glyph's accessible name.
 - Mark unread changes nothing on a thread with no completed run: the server refuses it and the
   reference stays silent. On a completed thread the row gains the green 'Completed' label.
-- The legacy thread menu has no Archive item, in the reference too (LegacySidebar.tsx:2241-2264).
-  One row archives from its hover button, a selection from 'Archive (n)'.
 - A chip pressed to open its preview stays selected after the preview closes, and a letter typed
   after Escape, Close or a backdrop click replaces the file or image chip (C14/C23). T3 Code's
   Tiptap editor keeps the chip's NodeSelection and Base UI's finalFocus gives the editor back the
@@ -1137,6 +1172,198 @@ VoiceOver reach the chips, which the clone now has from main):
   timeline's own pointerdown op replaced the details' close on their shared send, and the focus went
   nowhere; chip ops now have a send of their own (`chipChanged`).
 
+**Checked with real input (2026-10-31, the v0.1.5 follow round)** (bundle of `fbf13e6f05`, a lane copy
+on its own bundle id and home, `second` seeded with `--turns --pull-request`, the v0.1.5 oracle paired
+with the same lane server). Presses, drags, wheel scrolls and keys came from the HID event source
+(small CGEvent tools). `orca computer`'s accessibility right-click is not real input for native menus:
+it opens the menu with its first item highlighted, and the next key or snapshot chooses that item.
+22 rows: 17 hold and 5 failed; the five were fixed and hold when checked again (below).
+
+Hold:
+
+- A sidebar row's menu. Copy › Thread writes `[title](t3-context://v1/thread/thread_<id>)` (1 of 1).
+  Turn into project, on a scratch thread with its own folder, makes the project, and the server
+  moves the thread into it (1 of 1). Snooze lists the server's presets and In 1 hour snoozes the row
+  (1 of 1). There are 5 presets, or 4 when This evening and In 3 hours fall on the same minute, as
+  the Settings preview says. The row's clock popover lists the same presets (1 of 1). Escape on the
+  menu chooses nothing (1 of 1).
+- Custom snooze's Edit snooze options opens Settings › Threads with Snooze options in view (1 of 1).
+- The thread title menu: Copy › Thread writes the same link and shows "Thread copied" (1 of 1);
+  Turn into project on a scratch thread (1 of 1); Snooze › Tomorrow ("Snoozed, 18h left", 1 of 1).
+- The palette's Copy thread row, and ⇧⌘C, copy the open thread's link (1 of 1 each).
+- The sidebar tree: Tab from Search lands on a row, ArrowDown moves the focus ring, and F2 opens the
+  rename field (1 of 1).
+- F6 from the composer goes to the right panel, the terminal, the sidebar, the conversation and back
+  (1 of 1). From the terminal, F6 reaches the sidebar and ⇧F6 the right panel (1 of 1). The panel
+  takes the focus itself, where the oracle focuses its Diff scope menu (a known difference, #1187).
+- The approval row: More lists Cancel and Always allow this session, Approve underlines on hover, and
+  pressing Approve lets the turn complete with notes/approved.md (1 of 1). Decline was not pressed:
+  the fixture seeds one approval.
+- The composer's Permissions chip opens the four-mode toggle, hovering a mode describes it, and Full
+  access leaves the chip as its icon alone, as the oracle draws it (1 of 1).
+- Settings › Appearance › Thread details lists the ten items, and unchecking Servers reads "8 of 10
+  on" (1 of 1).
+- Thread details › Servers. A `python3 -m http.server` run in the thread's terminal shows as
+  "localhost:16946, Terminal · Python". Hover shows Stop and "Open in the browser panel. ⌘-click for
+  your browser.". A press opens the server in the Browser panel. Stop ends the server: the port no
+  longer listens and the section goes (1 of 1).
+- With that page live in the Browser panel, presses in the right half of the window reach their
+  targets: the Diff tab, a link in the page, the timeline's Open diff, the details card's Changes and
+  the tab's close button (5 of 5). Under the agent driver, #1186 saw these presses blocked.
+- Dragging a sidebar row toward the bottom brings the dashed drop hint into view. Over Settled, the
+  header lights up and the row shows Settle; the drop settles it ("Settled 1 thread, ⌘Z to undo")
+  (1 of 1).
+
+Failed, then fixed and checked again with real input (bundle of `7656e94b94`, a lane copy on its own
+bundle id and home, `second` seeded with `--turns`; presses, right-clicks and keys from the HID event
+source, each result read back from the accessibility tree or the clipboard). All five hold:
+
+- Open diff on a tool call whose change has no recorded patch opened the Diff panel on the Tool call
+  scope, as the oracle does, but read "No net changes in this selection." The oracle reads "No patch
+  available for this selection." The panel now follows DiffPanel's `hasNoNetChanges` (a patch that
+  resolved blank). Checked again: the README.md call's Open diff in "Turn with file edits" opens the
+  Diff panel on Tool call, reading "No patch available for this selection." (1 of 1).
+- Right-clicking the thread details card opened nothing (0 of 3: on its padding and on its Workspace
+  row). On its padding the oracle opens Show in thread details; on the Workspace row, Copy full path.
+  The card's menu was not menu-shaped (a check icon box beside each label), so macOS opened nothing;
+  its rows are now text alone and the Workspace row has Copy full path (`shell-details.contract`).
+  Checked again: a right-click on the padding between the card's sections opens the Mac's menu,
+  headed Show in thread details, with the ten items and Reset to default. Choosing Project scripts
+  hides the card's Add project script row, a right-click on the bottom padding shows the item
+  unchecked, and choosing it again brings the row back. A right-click on the Workspace row opens Copy
+  full path, which copies the lane repository's path and shows "Path copied" (3 of 3 menus).
+- A thread chip in a sent message showed no tooltip on hover (0 of 2), and a double-click selected
+  nothing (0 of 2), on inline code in an answer or a user message or on a plain word, though a drag
+  selected text. The oracle shows "Open thread" and selects `selectme`. The session had opened a page
+  in the Browser panel: a Browser tab neither shown nor held left its empty, transparent box over the
+  window (1280 by 800 from the left edge while the panel is closed), which took the hover, the presses
+  and the double-clicks meant for the timeline under it. The box is no longer displayed
+  (`browser-frames.contract`). Checked again in three states: before any Browser tab; with a page
+  open, after closing the panel, while its floating preview shows; and after closing that preview,
+  which leaves the tab neither shown nor held, the state that failed. In each, hovering the chip shows
+  "Open thread" (3 of 3), and a double-click selects `selectme` in the answer and in the user message
+  and a plain word in each, as ⌘C then reads (12 of 12).
+- After F2 and then Escape in the sidebar, the focus went to the window, and F6 never entered the
+  sidebar after that: from the composer it stopped at the terminal (4 presses). In the oracle, Escape
+  returns the focus to the row and F6 reaches it. Once the rename field has gone, the row's treeitem
+  now takes the focus back, and F6 enters the sidebar at that treeitem (`shell-members.contract`).
+  Checked again: Tab from Search to a row, F2, a typed character, then Escape leaves the title
+  unchanged and the focus on the row (2 of 2). F6 from the composer then reaches the row first (2 of
+  2); further presses go Conversation, composer, row.
+
+The rows the first session left (below, the second session) were checked on 2026-10-31 too.
+
+**Checked with real input (2026-10-31, second session)** (bundle of `7656e94b94`, a lane copy on its own bundle id
+and its own `HOME`, This machine on the fixture's local home with no folder for threads without a project, `second`
+seeded with `--more-turns --pull-request --limits` and started with `--scratch`, `third` on the 0.1.4 release behind
+the older-server stand-in reporting 0.1.4; the v0.1.5 oracle paired with the same two lane servers). Presses, drags,
+right-clicks and keys from the HID event source; each result read back from the accessibility tree, the lane
+server's API or VoiceOver's caption panel; the oracle driven the same way in the same state. 11 rows hold, 3
+fail (one is the video chip of the chips row) and 2 are not reachable with these fixtures; all three were fixed
+and hold when checked again (below). The oracle's doc.pdf and sample.py
+chips were not opened under VoiceOver: an XCTest run of another lane took the front window during that step.
+
+Hold:
+
+- Effort words and bars. The stand-in's effort menu lists Low, Medium, High and Max; High reads "Effort: High" on
+  the composer control and the next turn replies "effort high" (1 of 1). Appearance › Effort display › Bars draws
+  rising bars: Low fills one of three, Max is named (1 of 1 each). The oracle draws the same and its turn replied
+  "effort medium" after Medium (1 of 1).
+- Shift-click Viewed on the pull request's Code tab: Viewed on the first file, then Shift on the last, marks all
+  three, and the server's `pullRequests.filesViewed` reads all three viewed (1 of 1). The oracle does the same (1 of 1).
+- Allow edits from maintainers, in the pull request's actions menu, unchecks and checks again; the server's detail
+  reads `maintainerCanModify` false, then true (1 of 1). The oracle's menu offers the same item and its toggle reads
+  back the same (1 of 1).
+- Settings › Environments › Update all on Lane Third (0.1.4) shows "Downloading…" and leaves the row with no version
+  once the stand-in reports 0.1.5 (1 of 1).
+- ⌘-click send while a turn runs: the send tooltip reads "Click to steer, ⌘-click or ⌘Enter to queue", and ⌘-click
+  queues the message (the queue reads "2 queued") (1 of 1). The oracle queues it the same way (1 of 1).
+- Decline on an approval: the turn ends with "Stand-in reply: left the notes as they were" and no notes/approved.md
+  (1 of 1); the oracle the same (1 of 1).
+- The palette's New thread without a project, with This machine offering no folder: the thread starts in No project
+  on Lane Second, whose scratch project the server lists (1 of 1). The oracle the same (1 of 1).
+- The Usage page's bars under VoiceOver: interacting with the page reads, per window, "Session", "58%", "left", the
+  pace ("Under pace: headroom left for the rest of the window, image"), the reset credit line and each account's
+  segment ("ST: 20% left, resets in 38m, 13% of the window left, dialog pop up collapsed, button"; with "2 reset credits
+  banked" where it has them), for Codex and Claude (1 of 1). The oracle speaks the same strings, as one group per
+  window.
+- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused, and doc.pdf the PDF
+  preview reading "1 / 1 pages" (1 of 1 each). VO-Right from Message reads the three chips in text order, and Escape
+  gives the prompt back with the chip selected. In the oracle the chips are reached by interacting with Message
+  (VO-Right from it goes to Attach files); doc.pdf and sample.py were not opened there (below).
+- An italic face: with Interface font Georgia, the stand-in's answer draws its emphasis in Georgia Italic, and bold
+  with italic in Georgia Bold Italic (1 of 1). The oracle the same (1 of 1).
+- The Thread title instructions textarea's grip: a drag of 60 pt from the grip grows the field by 60 pt (1 of 1); the
+  oracle's grows the same (1 of 1).
+
+Failed, then fixed and checked again with real input (2026-11-01, bundle of `5954688bbc`, a lane copy on its own
+bundle id and `HOME`, `second` seeded with `--turns --more-turns`, `third` on the 0.1.4 release behind the older-server
+stand-in; the v0.1.5 oracle paired with the same two lane servers; presses, moves and keys from the HID event source).
+Both hold:
+
+- The model picker's "Codex: Unavailable. Could not start Codex CLI …" tooltip stayed on screen after Escape closed the
+  picker, and after the pointer moved away. The hover layer draws it at the window level, and the rail button went with
+  no pointer leave. The root's hover surface now counts the picker (`hoverSurface`, app.contract), and its change ends
+  the tip. Checked again: hovering Codex shows the tip, Escape removes it, and 3 s after the pointer moves away it is
+  still gone (3 of 3); the oracle the same (1 of 1).
+- The update dialog listed Lane Third under "1 skipped", "t3@0.1.5 is not on npm yet". The npm check was a fetch the
+  shell's answer made and waited on, and the runner lets that answer go on each revision and each 500 ms tick: a trace
+  of the old bundle shows the request forgotten 85 ms after it was sent, after which the check read "not published"
+  for five minutes. The check is now the `npmRelease` resource's answer, keyed by the version and its five-minute
+  window (`sidebar/npm-release.ts`), outside the ordered fetch queue. Checked again: just after pairing, the footer
+  reads "Update 1 server" within a second, and its dialog lists Lane Third as a Server row; again after a relaunch
+  (2 of 2). The old bundle in the same state shows no pill (1 of 1). The oracle lists Lane Third as a Server row
+  (1 of 1); its own machine adds a Codex provider row, which the clone, with no local server in this lane, has not.
+
+Also seen in this session, then fixed and checked again (bundle of `d9bb57b588`, the same lane):
+
+- The footer's "Check for updates" tooltip stayed on screen once the update pill appeared, also after the pointer moved
+  away. With the pointer resting on the idle pill as the app starts, npm's answer replaces that pill with the update
+  pill under the pointer, which gets no pointer leave, so the root's sidebar hover stayed on the idle pill. A root task
+  now ends it when the idle pill gives way (`sidebarUpdateTipGone`, app.contract). Checked again: four relaunches with
+  the pointer resting on the pill show no tooltip, then or after the pointer moves away (4 of 4); opening and
+  cancelling the update dialog leaves none (1 of 1). The previous bundle keeps "Check for updates" (1 of 1). The
+  oracle shows the update pill's own tooltip, "Update 1 server and 1 provider", while the pointer rests there, and none
+  once it moves away (1 of 1); the clone's update pill shows no tooltip while the pointer rests where the idle pill
+  was.
+
+Failed, then fixed in the macOS host and checked again with real input (2026-11-01, a bundle of this change with
+exact2 #1225 merged, a lane copy on its own bundle id and `HOME`, the fixture's samples and a PNG attached as chips;
+keys from the HID event source, VoiceOver read from its caption panel; the v0.1.5 oracle with the same files
+attached). It holds:
+
+- VO-Space on the clip.mp4 chip focused Close, and VoiceOver read "Close video preview, button", then half a second
+  later "Expanded video preview, dialog" (3 of 3); the image preview read the same way (1 of 1). The oracle reads
+  "Expanded video preview, dialog, with 3 items, Close video preview, button" (1 of 1). VoiceOver names a dialog before
+  the control that takes the focus only when a web area is among the dialog's ancestors, as every dialog in Chrome
+  has; the macOS host had none, and named a dialog drawn in the page itself, after the control. Each such dialog now
+  has a web area of its own as its parent, and the host announces nothing (exact2 #1225, LLP 1080.003 D3.1). Checked
+  again: VO-Space on the clip.mp4 chip reads "Expanded video preview, dialog, with 22 items, Close video preview,
+  button", with the focus on Close (5 of 5); on the photo.png chip "Expanded image preview, dialog, with 5 items, Close
+  image preview, button" (3 of 3; the oracle "with 3 items", 1 of 1); on the sample.py chip "sample.py, dialog, with 9
+  items, Disable word wrap, button" (3 of 3; the oracle focuses Save file and reads "sample.py, dialog, with 8 items,
+  Save file, button", 1 of 1). The counts are the clone's: its previews serve more children than the oracle's (the
+  video preview's player controls, the image preview's second Close and its zoom). The Settings sample's skill chip
+  reads "Skill Frontend Design, dialog, with 2 items" (3 of 3; before, "Skill Frontend Design, dialog"), and the font
+  picker "Interface font family Search fonts..., dialog, with 2 items, Search fonts, expanded, combo box" (3 of 3;
+  before, the field, then "Interface font family, dialog"). The 2026-10-31 "no control focused" was not seen (0 of 11
+  opens by VO-Space).
+
+Not reachable with these fixtures:
+
+- The fallback model notice. The 0.1.5 server sets `usageLimits` only on providers that read an account's usage
+  (Codex app-server, Claude, Cursor, Grok, OpenCode, Antigravity), each signed in to a real account; the ACP stand-in
+  reports none, so no default provider is ever out of usage.
+- Escape on the Merge confirmation over the thread-details popover, and the narrow-window Merge row: the window
+  resizes through AX, but the pull request thread's details show no Git actions with Merge (its branch is not checked
+  out in the lane), so there is no Merge to press there.
+
+Also seen on the `7656e94b94` bundle: with the Diff panel open, the header's thread details button opens
+the details as a popover, as upstream's `PanelLayoutControls` does in that layout. An agent drive
+had seen no change from that button. After the origin/main merge, opening a
+thread, sending a message, the ⌘K palette (a query lists Threads and Settings results; Escape closes
+it) and Settings › Appearance behave as before.
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1144,9 +1371,6 @@ VoiceOver reach the chips, which the clone now has from main):
   want of a credential connects and its row stops saying 'Connection failed'. Before, it kept the
   failure (`connections-repair.test.ts`). Checked by that test only: no fixture makes the failed
   credential cheap.
-- The Thread title instructions textarea's grip (`resize: vertical`). Not checked: `orca computer
-  drag` delivered nothing in this app (the grip twice, a drag-select in the prompt twice), and its
-  scroll did not move a page either.
 
 **Checked with real keys** (2026-10-16):
 
@@ -1196,32 +1420,42 @@ Real-input sessions should type IME rows with held keys: orca's zero-dwell press
 input method commit a jamo at once. They should switch input sources with the system shortcut or
 menu, not TISSelectInputSource, before they judge IME rows.
 
-**Not checked yet:** the Usage page's progress bars under VoiceOver (the 2026-10-30 session had no
-`--limits` seed), and an italic font face (no fixture has italic text). Also:
+**Not checked yet:**
 
-- Escape on the Merge confirmation over the thread-details popover in a narrow window. Not checked on
-  2026-10-30: `orca computer` cannot resize the window, and its drags deliver nothing here.
-- VO-Space on the chip kinds the 2026-10-31 session did not press (sample.py, a video, doc.pdf, the
-  citation and the thread chip), and the terminal output as a chip's focus target.
+- VO-Space on the citation and the thread chip, and a terminal excerpt's details as a chip's focus target: the second
+  2026-10-31 session ran out of its real-input time before them.
+- The fallback model notice and the narrow-window Merge rows (above, "Not reachable with these fixtures").
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
 sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and GitHub writes.
 
-**Next real-input session:** VO-Space on the chip kinds not yet pressed and a terminal excerpt's
-details; the textarea grip and the narrow-window Merge row, which need a tool whose drags reach the
-app; and the Usage page's bars under VoiceOver. Drive it with `orca computer`. While VoiceOver runs,
+**Next real-input session:**
+
+- VO-Space on the citation and the thread chip, and a terminal excerpt's details.
+- The fallback model notice, once a fixture provider reports usage limits.
+- The narrow-window Merge row, with a pull request thread whose branch is checked out in the lane.
+
+Open native context menus with a HID right-click, not `orca computer`'s. VoiceOver's keys need the modifier keys'
+own events (Control and Option down, then the key), not only the flags on the key's event, and ⌘F5 from the HID
+source needs the Fn flag. Every copy of this bundle keeps its preferences and drafts in `~/Library/Application
+Support/Exact/com.exact.t3code.macos/data/t3-code.json` whatever its bundle id (the host names the data root by the
+app's id), so a lane copy needs its own `HOME`, with a `Library/Keychains` link to the user's keychains or macOS asks
+to reset the keychain. While VoiceOver runs,
 its caption panel covers the composer of a window 840 pt tall, and `orca computer` refuses a click
 there (`window_not_focused`): make the window shorter first.
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` (each has its
 README) give This machine plus two lane environments, a machines list, and an ACP agent stand-in.
 `seed second --limits` adds pooled usage limits from a CLIProxyAPI hub stand-in; `seed second
+--more-turns` a second approval, an italic answer and a turn held open, besides `--turns`' threads; `seed second
 --turns` threads on the stand-in with a completed turn, a turn that edits files (a turn diff), an
 approval waiting and a context meter, and its `$frontend-design` skill; the seed itself an empty
 project and a project action; `seed second --pull-request` a thread whose branch has an open pull
-request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; and `machines.mjs up --older` a
-server older than the client that streams a scripted self-update.
+request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; `machines.mjs up --older` (or `older <name>`) a
+server older than the client that streams a scripted self-update; `env.mjs start --runtime <version>` an older release
+from `.runtime-cache`, `--scratch` a lane that offers a folder for threads without a project, `no-scratch <home>` This
+machine without one; and `env.mjs samples <dir>` a Python file, a PDF and a video to attach.
 
 **Framework issues opened by this app:** open on main is
 [`issues/20261016-native-menu-pick-voiceover-old-focus.md`](../../issues/20261016-native-menu-pick-voiceover-old-focus.md)

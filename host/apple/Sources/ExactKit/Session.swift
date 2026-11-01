@@ -475,8 +475,7 @@ public final class ExactSession {
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
-    private var preferenceObservers: [NSObjectProtocol] = []
-    private var pageObservers: [NSObjectProtocol] = []
+    private var preferenceObservers: [NSObjectProtocol] = [], pageObservers: [NSObjectProtocol] = [], localeObserver: NSObjectProtocol?
     #if os(macOS)
     private var colorObserver: NSObjectProtocol?
     #endif
@@ -549,6 +548,7 @@ public final class ExactSession {
         wire()
         preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferencesSoon() }
         pageObservers = PageFacts.observe { [weak self] in self?.tellPageSoon() }
+        localeObserver = observeFormatLocale()
         #if os(macOS)
         // @ref LLP 1095 D5 — the accent or another system colour changed:
         // what was resolved goes, the report is made again, and every view
@@ -664,6 +664,9 @@ public final class ExactSession {
             if case .advance = next.kind { applyUnlessEmpty(batch) } else if !(changesNothing(batch) && clockUnchanged(batch)) {
                 apply(batch)
             }
+            // A frame's owner work finishes when it lands, applied or skipped (LLP 1079.000 §4.6), and the card's charts show it
+            if case .tick = next.kind { frameHealth.landed(FrameHealth.tick) } else if case .advance = next.kind { frameHealth.landed(FrameHealth.advance) }
+            frameHealth.chart?.present()
             if case .reply = next.kind {
                 sampler?.replyPump(main: submitted + (CACurrentMediaTime() - began) * 1000)
                 retryActivation(generation: next.generation)
@@ -1095,7 +1098,7 @@ public final class ExactSession {
         // Each batch says what its turn left owed; batches apply in the owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
         if canvasOwed { askCanvasDraw() }
-        for op in batch.ops where op.op == .router { routerOp = op.payload }
+        for op in batch.ops where op.op == .router { routerOp = op.payload; presenter.armFragment(op.payload["activation"]) } // a scroll to its fragment, which the runner's `scrollToFragment` makes (LLP 1153 D5)
         // @ref LLP 1048.003 D1 — the head's title, for the app that owns the chrome.
         for op in batch.ops where op.op == .title {
             presenter.headTitle(op.payload["title"] as? String)
@@ -1165,7 +1168,7 @@ public final class ExactSession {
                     app.deliver { DevMenu.reload() }
                     continue
                 }
-                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7)
+                if ["navigate", "traverseHistory", "reload", "stopLoading", "captureScreenshot", "openDevTools"].contains(name) { app.deliver { [weak self] in self?.webviews.command(name, args) }; continue } // an iframe's, by id (LLP 1020.002 D3, D7, D11)
                 if name == "relaunch" { app.deliver { [weak self] in self?.relaunch() }; continue }
                 if name == "startTrace_EXPERIMENTAL" || name == "stopTrace_EXPERIMENTAL" { app.deliver { [weak self] in self?.traceCommand(name, args) }; continue }
                 if name == "haptic" {
@@ -1202,7 +1205,8 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
-                if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
+                if name == "scrollToFragment" { app.deliver { [weak self] in self?.presenter.scrollToFragment(args) }; continue }
+                if ["fastSeek", "load", "requestFullscreen", "requestPictureInPicture", "exitPictureInPicture"].contains(name) {
                     app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
                 }
@@ -1257,8 +1261,8 @@ public final class ExactSession {
         return made
     }
 
-    /// Drawn once per launch; the same across a dev reload's new runner.
-    let launchPlace: LaunchPlace
+    /// Drawn once per launch and kept across a dev reload's new runner; its `formatLocale` follows the Region and the hour cycle (`formatLocaleChanged`).
+    var launchPlace: LaunchPlace
     /// The zone's offset last told (`followOffset`, before each advance, so a
     /// DST change reaches the timer after it, habits F6; `tellAgentOffset`).
     var toldOffset: Double?, offsetHeld: (zone: String, until: Date)? // `followOffset`
@@ -1417,6 +1421,8 @@ public final class ExactSession {
     /// containing app's to open (`openURL`).
     @discardableResult public func follow(_ href: String) -> Bool {
         guard state != .destroyed, !href.isEmpty else { return false }
+        // A link to a fragment (`href="#moves"`) is the visit shown, at that fragment (LLP 1153 D5).
+        let href = href.hasPrefix("#") ? String((routerOp?["url"] as? String ?? "/").prefix { $0 != "#" }) + href : href
         if href.hasPrefix("/"), !href.hasPrefix("//"), booted, runtime.routeMatches(href) { return navigate(href) }
         delegate?.exactSession(self, command: "openURL", args: [href])
         return true
@@ -1475,7 +1481,7 @@ public final class ExactSession {
         frameHealth.destroy()
         finishHold.moved(false) // its work ends with the runtime
         DisplayPreferences.forget(preferenceObservers)
-        PageFacts.forget(pageObservers)
+        PageFacts.forget(pageObservers); localeObserver.map(NotificationCenter.default.removeObserver)
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif

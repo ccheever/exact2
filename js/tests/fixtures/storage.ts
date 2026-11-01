@@ -99,6 +99,7 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
 }
 
 let busyOnceDone = false;
+let held: {close(): Promise<void>} | null = null;
 async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
@@ -489,6 +490,13 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     catch (e) { return {text:"denied"}; }
     return {text:"leaked"};
   }
+  // A connection kept open across answers, and its close (native_storage.rs).
+  if (op === "hold") {
+    try { held = await storage.sqlite.open("app:/data/notes.db"); }
+    catch (e:any) { return {text:e.message}; }
+    return {text:"held"};
+  }
+  if (op === "release") { await held?.close(); held = null; return {text:"released"}; }
   if (op === "sqlite-refused") {
     try { await storage.sqlite.open("app:/data/notes-bob.db"); }
     catch (e:any) { return {text:e.code + " " + e.message}; }

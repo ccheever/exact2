@@ -14,6 +14,7 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
+mod atlas;
 mod cache;
 #[cfg(target_os = "macos")]
 mod present;
@@ -107,6 +108,7 @@ impl Wgpu {
 
     /// Browser callers await this without blocking the event loop.
     pub async fn open() -> Result<Self> {
+        crate::counters::initialize();
         #[cfg(target_os = "macos")]
         let _trace = super::apple::Trace::new(c"boot wgpu constructor");
         let started = Instant::now();
@@ -691,6 +693,9 @@ impl Device for Wgpu {
         Ok(submission)
     }
 
+    fn upload_textures(&mut self, uploads: &[super::TextureUpload]) -> Result<Submission> {
+        self.upload_atlas(uploads)
+    }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
         Ok(self.texture(id)?.last)
     }

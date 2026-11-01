@@ -6,8 +6,8 @@
 // `refresh <resource>` (the scope's `refresh(name)`), and a call (an action prop such as ThreadSection's `hoverCard`, an
 // injected action, a host command such as `preventDefault()`, a mutation's `send`, whose command the scope records and
 // whose mutation a `sent(mutation, command)` in the scope is told), made with the reads as they stand at its line.
-// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (legacy-sidebar-full.test.ts
-// runs the legacy rows' hover and focus through it, as the host delivers them).
+// `drawn` says whether a view line is drawn: the `if` / `else if` / `else` arms around it hold (sidebar-chrome.test.ts
+// asks it which footer buttons a page draws).
 import { readFileSync } from 'node:fs';
 import { appPath, appText } from './app-files';
 
@@ -133,6 +133,7 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
     } else if ((m = /^send (\w+) = (.+)$/.exec(line))) {
+      // A mutation's send: its command, a call the scope records, and the mutation it goes on, told to the scope's `sent`.
       const command = value(m[2]!, env);
       if (typeof env.sent === 'function') env.sent(m[1]!, command);
     } else if ((m = /^refresh (\w+)$/.exec(line))) {
@@ -143,7 +144,7 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       writes[m[1]!] = value(m[2]!, env);
     } else if (/^\w+\(.*\)$/.test(line)) {
       // A call: an action prop (`hoverCard`, the window's hover), an
-      // injected action or a host command (legacy-sidebar-full.test.ts).
+      // injected action (sidebar-hover-archive-and-glyph.test.ts injects the root's `sidebarHoverRoot`) or a host command.
       value(line, env);
     } else {
       throw new Error(`unsupported statement: ${line}`);
@@ -163,9 +164,10 @@ function uncommented(line: string): string {
   return line;
 }
 
-/** `component name` of `file`: its assembled state, actions and derives. */
+/** `component name` of `file` (next to this module): its state, its actions and its derives. */
 export function contractComponent(file: string, name: string) {
   const source = appText(file).split('\n');
+  // A component, or a members file of one (`members T3Code`), whose members read as the component's.
   const from = source.includes(`component ${name}`) ? source.indexOf(`component ${name}`) : source.indexOf(`members ${name}`);
   if (from < 0) throw new Error(`${file}: no component ${name}`);
   const to = source.findIndex((line, i) => i > from && line.startsWith('component '));
@@ -196,6 +198,7 @@ export function contractComponent(file: string, name: string) {
     return { params, body: tree(0, 4)[0] };
   };
 
+  /** The first line of the view containing `marker`. */
   const viewLine = (marker: string): string => {
     const line = lines.slice(lines.indexOf('  view') + 1).find(entry => entry.includes(marker));
     if (!line) throw new Error(`${file}: no view line of ${name} has ${marker}`);
@@ -227,10 +230,17 @@ export function contractComponent(file: string, name: string) {
      * the starting state too, and its writes land with these. A function of the same name in `scope` stands in for it.
      */
     call(actionName: string, state: Env, scope: Env, args: unknown[]) {
-      const writes: Env = {}, slots = new Set(Object.keys(state));
+      // A slot the test leaves out of `state` reads as its declared value, unless the scope gives it, and an action may
+      // write it: the write lands on `state` as the others do.
+      const declared: Env = {};
+      for (const line of lines) {
+        const m = /^  state (\w+) = (.+)$/.exec(line);
+        if (m && !(m[1]! in state) && !(m[1]! in scope)) { try { declared[m[1]!] = value(m[2]!, scope); } catch { /* typed or shaped: left out */ } }
+      }
+      const writes: Env = {}, slots = new Set([...Object.keys(state), ...Object.keys(declared)]);
       const own: Env = {};
       // Each derive the scope can give (a test's scope may leave out what an unrelated derive reads).
-      const derived: Env = {}, env: Env = { ...scope, ...state };
+      const derived: Env = {}, env: Env = { ...declared, ...scope, ...state };
       for (const line of lines) {
         const m = /^  derive (\w+) = (.+)$/.exec(line);
         if (!m) continue;
@@ -238,7 +248,7 @@ export function contractComponent(file: string, name: string) {
       }
       const invoke = (target: string, values: unknown[]) => {
         const { params, body } = action(target);
-        run(body, { ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
+        run(body, { ...declared, ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
       };
       for (const line of lines) { const m = /^  action (\w+)/.exec(line); if (m && !(m[1]! in scope)) own[m[1]!] = (...values: unknown[]) => invoke(m[1]!, values); }
       invoke(actionName, args);

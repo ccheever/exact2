@@ -364,6 +364,30 @@ fn tabular_nums_is_the_faces_tnum_feature() {
     assert_eq!(digits(&mut e, "111", 1), digits(&mut e, "888", 1));
 }
 
+fn glyphs(e: &mut TextEngine, text: &str, ligatures: &str) -> usize {
+    let mut s = spec(text, WhiteSpace::Normal);
+    s.runs[0].font_variant_ligatures = exact_kernel::FontVariantLigatures::bits(ligatures).unwrap();
+    let p = e.paragraph(&s, None);
+    p.layout_runs().map(|r| r.glyphs.len()).sum()
+}
+
+#[test]
+fn font_variant_ligatures_turns_the_faces_ligatures_off() {
+    // DejaVu Sans joins "fi" and "fl" by its `liga` feature.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let joined = glyphs(&mut e, "fifl", "normal");
+    assert!(joined < 4, "the fixture must join fi and fl: {joined}");
+    assert_eq!(glyphs(&mut e, "fifl", "none"), 4);
+    assert_eq!(glyphs(&mut e, "fifl", "no-common-ligatures"), 4);
+    assert_eq!(glyphs(&mut e, "fifl", "common-ligatures"), joined);
+    assert_eq!(glyphs(&mut e, "fifl", "no-contextual"), joined);
+    // A distinct shape identity: the cache never answers one with the other.
+    let a = spec("fifl", WhiteSpace::Normal);
+    let mut b = a.clone();
+    b.runs[0].font_variant_ligatures = exact_kernel::FontVariantLigatures::bits("none").unwrap();
+    assert!(!Rc::ptr_eq(&e.paragraph(&a, None), &e.paragraph(&b, None)));
+}
+
 #[test]
 fn tabular_nums_is_a_distinct_shape_identity() {
     let mut e = engine(INTER, "Inter");

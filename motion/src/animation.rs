@@ -19,6 +19,7 @@ use crate::easing::{Easing, EasingError};
 use crate::property::{Property, Value};
 
 mod parse;
+mod schedule;
 pub use parse::{easing_css, link, value_css, LONGHANDS};
 
 /// Most animations one node may declare.

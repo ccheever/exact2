@@ -243,7 +243,7 @@ async function panel(client: T3Client, input: { selected?: string; refresh?: num
   return view;
 }
 
-// The prDetail resource as app.contract declares it: its arguments, evaluated over the root's state,
+// The prDetail resource as pull-requests-members.contract declares it: its arguments, evaluated over the root's state,
 // reach the page through pages-sources.ts, and the checks timer (prChecksTick under prChecksPending or prChecksSettled)
 // moves the clock it reads.
 const root = contractComponent('app.contract', 'T3Code');
@@ -440,7 +440,7 @@ describe('the details row merges a checks answer as the PR page does', () => {
     await readDetail(client, native, ref, 1_000 + 6 * 60_000, visibleRow);
     expect([count('pullRequests.checks'), rowChecksPoll(client, ref, 1_000 + 6 * 60_000, true)]).toEqual([2, '']);
     forgetDetails(client);
-    // root-panels.contract's row timer: its gates and key over the card's rows, its tick into the clock the card reads.
+    // shell-members.contract's row timer: its gates and key over the card's rows, its tick into the clock the card reads.
     const rows = (checksPoll: string) => ({ prRows: { checksPoll, checksKey: 'k' } });
     const pending = timer('prRowChecksPending', 'prRowChecksTick'), settled = timer('prRowChecksSettled', 'prRowChecksTick');
     expect([pending.every, settled.every, pending.key, settled.key]).toEqual([45_000, 60_000, 'details.prRows.checksKey', 'details.prRows.checksKey']);

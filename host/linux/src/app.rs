@@ -142,9 +142,48 @@ pub struct Config {
     /// slow start (a plan fetched from a URL) does not fire the boot's
     /// timers at the first frame. `None`: a driver's clock, from zero.
     pub clock_started: Option<std::time::Instant>,
+    /// Painted Mac carrier only: use the decoded plan before fonts and layout,
+    /// and request the first screen's pictures at layout.
+    #[cfg(target_os = "macos")]
+    pub painted_boot: Option<Box<dyn Fn(&exact_plan::Plan)>>,
 }
 
 impl Config {
+    /// None means an authored value needs the runner; Some(None) is the platform background.
+    #[cfg(target_os = "macos")]
+    pub fn initial_window_background(
+        plan: &exact_plan::Plan,
+        dark: bool,
+    ) -> Option<Option<[u8; 4]>> {
+        use exact_plan::{BindingKind, Opcode, StrId};
+        let mut roots = plan
+            .nodes
+            .iter()
+            .filter(|n| n.parent.is_none() && n.arm.is_none());
+        let root = roots.next()?;
+        if roots.next().is_some() {
+            return None;
+        }
+        let Some(binding) = root.bindings.iter().map(|id| plan.binding(id)).find(|b| {
+            b.kind == BindingKind::Style && b.id == exact_kernel::StyleId::BackgroundColor as u16
+        }) else {
+            return Some(None);
+        };
+        let mut code = exact_runner::vm::instructions(plan.code(binding.expr));
+        let literal = code.next()?.ok()?;
+        if literal.op != Opcode::Str
+            || code.next()?.ok()?.op != Opcode::Return
+            || code.next().is_some()
+        {
+            return None;
+        }
+        let value = plan.str(StrId(literal.args[0] as u32));
+        let color = exact_kernel::ColorValue::parse_light_dark(value)
+            .map(|pair| pair.resolve(dark))
+            .or_else(|| exact_kernel::Color::parse(value))?;
+        (color.a() == 255).then_some(Some([color.r(), color.g(), color.b(), color.a()]))
+    }
+
     /// The manifest's painter with `EXACT_PAINTER` applied, also used to open the window.
     pub fn painter(&self) -> crate::presenter::PainterChoice {
         use crate::presenter::PainterChoice;
@@ -288,6 +327,8 @@ impl Config {
             hatches: None,
             packages: Vec::new(),
             clock_started: None,
+            #[cfg(target_os = "macos")]
+            painted_boot: None,
         }
     }
 
@@ -338,11 +379,19 @@ thread_local! {
 }
 
 /// Process-clock phases for the carrier's explicit startup measurement.
-#[cfg(windows)]
-pub(crate) fn boot_phase(name: &str) {
-    if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
-        if let Ok(ms) = exact_ink::device::process_ms() {
-            eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) fn boot_phase(name: &'static core::ffi::CStr) {
+    #[cfg(target_os = "macos")]
+    exact_ink::device::apple::trace_mark(name, || 0.);
+    #[cfg(windows)]
+    {
+        let at = std::time::Instant::now();
+        let name = name.to_string_lossy();
+        exact_ink::device::d3d11::startup_watchdog::phase(&name, at);
+        if std::env::var_os("EXACT_AGENT_WINDOW_READY").is_some() {
+            if let Ok(ms) = exact_ink::device::process_ms_at(at) {
+                eprintln!("exact-windows: boot {name} at {ms:.3} ms (process)");
+            }
         }
     }
 }
@@ -360,6 +409,26 @@ pub fn boot_presenter_with_device<D: DataSource + Default>(
         viewport,
         PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
     )?;
+    presenter.install_prepared_painter(preparing)?;
+    Ok((presenter, warning))
+}
+
+#[cfg(windows)]
+/// Measurement arm: prepare the device only after the ordinary first layout.
+pub fn boot_presenter_after_layout_device<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+) -> Result<(Presenter<D>, Option<String>), String> {
+    let (mut presenter, warning) = boot_presenter_with_painter(
+        config,
+        viewport,
+        PainterBoot::selected(crate::presenter::PainterChoice::Cpu),
+    )?;
+    let device = std::env::var("EXACT_INK_DEVICE").ok();
+    let preparing = exact_ink::device::d3d11::Startup::start(
+        exact_ink::device::direct_d3d11(device.as_deref()).unwrap_or(false),
+    )
+    .map_err(|error| error.to_string())?;
     presenter.install_prepared_painter(preparing)?;
     Ok((presenter, warning))
 }
@@ -481,7 +550,7 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
         Some(assets) => crate::delivery::Module::resolve(assets),
         None => config.module.clone(),
     };
-    let admitted = D::default();
+    let admitted = crate::traced(c"boot data construction", D::default);
     let source = module
         .as_ref()
         .map_err(Clone::clone)
@@ -498,6 +567,16 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             };
             exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
+                    #[cfg(target_os = "macos")]
+                    if let Some(ready) = config.painted_boot.as_deref() {
+                        PlanBytes::Painted(&config.plan, ready)
+                    } else {
+                        match &config.plan {
+                            std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
+                            std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
+                        }
+                    },
+                    #[cfg(not(target_os = "macos"))]
                     match &config.plan {
                         std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
                         std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
@@ -544,6 +623,14 @@ pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
             };
             exact_runner::time::launching_with(launch, || {
                 Presenter::boot_selected(
+                    #[cfg(target_os = "macos")]
+                    config
+                        .painted_boot
+                        .as_deref()
+                        .map_or(PlanBytes::Copied(baked), |ready| {
+                            PlanBytes::Painted(baked, ready)
+                        }),
+                    #[cfg(not(target_os = "macos"))]
                     PlanBytes::Copied(baked),
                     D::default(),
                     viewport,
@@ -892,12 +979,61 @@ mod scale_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_window_background_comes_from_the_literal_root_before_boot() {
+        for (source, expected) in [
+            (
+                "component App\n  view\n    main background-color=\"#23394f\"\n",
+                Some(Some([35, 57, 79, 255])),
+            ),
+            (
+                "component App\n  view\n    main\n      box background-color=\"red\"\n",
+                Some(None),
+            ),
+            (
+                "component App\n  state color = \"red\"\n  view\n    main background-color=color\n",
+                None,
+            ),
+            (
+                "component App\n  view\n    main background-color=\"transparent\"\n",
+                None,
+            ),
+        ] {
+            let plan = contract::compile(source).unwrap();
+            assert_eq!(
+                Config::initial_window_background(&plan, false),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn early_background_resolves_pairs_and_roles_in_the_windows_appearance() {
+        for value in ["light-dark(#ffffff, #111111)", "-exact-background"] {
+            let source = format!("component App\n  view\n    main background-color=\"{value}\"\n");
+            let plan = contract::compile(&source).unwrap();
+            for dark in [false, true] {
+                let color = exact_kernel::ColorValue::parse_light_dark(value)
+                    .unwrap()
+                    .resolve(dark);
+                assert_eq!(
+                    Config::initial_window_background(&plan, dark),
+                    Some(Some([color.r(), color.g(), color.b(), color.a()]))
+                );
+            }
+        }
+    }
+
     #[test]
     fn launch_arguments_share_url_interpretation_with_other_hosts() {
         for (args, expected) in [
+            // The fragment rides on the launch location (LLP 1153 D5).
             (
-                vec!["--agent", "s2b://post/42?q=a b#ignored", "/later"],
-                "/post/42?q=a%20b",
+                vec!["--agent", "s2b://post/42?q=a b#moves", "/later"],
+                "/post/42?q=a%20b#moves",
             ),
             (vec!["--flag", "https://example.com/post/7"], "/post/7"),
             (vec!["/post/../post/8", "s2b://later"], "/post/8"),

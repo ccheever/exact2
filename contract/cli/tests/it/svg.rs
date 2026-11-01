@@ -179,7 +179,6 @@ fn attribute_lengths_refuse_deferred_units_and_functions() {
         for (value, name) in [
             ("\"calc(10px + 2%)\"", "calc()"),
             ("\"env(safe-area-inset-top)\"", "env()"),
-            ("\"var(--position)\"", "var()"),
             ("`${n}em`", "em"),
             ("`10px, ${n}vh`", "vh"),
             ("`calc(${n}px + 1px)`", "calc()"),

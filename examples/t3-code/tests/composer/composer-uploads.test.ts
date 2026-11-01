@@ -410,7 +410,7 @@ describe('the tile draws its upload, and the root pumps the uploads', () => {
 
   test('the prompt\'s chips take their images\' upload states from the draft\'s uploads and the resources\' answers', () => {
     const card = contractComponent('composer.contract', 'ComposerCard');
-    const data = { canSend: true, snapshotDrafts: [], composer: { uploadBlock: '', compactTokens: '', canResume: false, queueEditing: '', uploads: { images: [image({})] } } };
+    const data = { canSend: true, snapshotDrafts: [], composer: { uploadBlock: '', compactTokens: '', canResume: false, queueEditing: '', queueEditAttachments: [], uploads: { images: [image({})] } } };
     const scope = { data, text: '', richComposer: { chips: [{ face: { imageId: 'img-0' } }, { face: { imageId: '' } }] }, composerUploads: [live({ progress: 0.6 })],
       composerAtomFace: (chip: Obj, upload: string) => [obj(chip.face).imageId, upload], uploadChipStatus: fns.uploadChipStatus };
     expect(card.derives({}, scope).faces).toEqual([['img-0', '60%'], ['', '']]);

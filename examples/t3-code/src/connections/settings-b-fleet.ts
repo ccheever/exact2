@@ -14,6 +14,7 @@ import { bridgeReply, applyConfig, type Native } from '../client/protocol';
 import { announceJobs } from './settings-b-outdated';
 import { announceServerUpdates } from './server-update';
 import type { T3Client } from '../client/client';
+import type { SessionCheck } from './auth-scope-options';
 import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from '../client/live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from '../terminal/terminal-session';
@@ -25,7 +26,6 @@ import { automationFleetEvent } from '../browser/browser-automation';
 import { codexHandoffEvent } from '../providers/codex-handoff-events'; // the primary's handoff stream
 import { providerSetupEvent } from '../providers/provider-setup';
 import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background computer's Codex setup streams
-import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
 import { SESSION_STATE_KEY } from '../transport/transport-session';
 import { accessFleetPass } from './auth-access';
@@ -37,7 +37,7 @@ export interface FleetEntry {
   key: string; origin: string; environmentId: string;
   phase: FleetPhase; message: string; traceId: string;
   generation: number; synchronized: number; lastEvent: number; subscriptions: Record<string, string>;
-  config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; error: string; requested: boolean; busy?: boolean;
+  config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; session?: SessionCheck; error: string; requested: boolean; busy?: boolean;
   /** The route this environment's transport connected over. */
   activeRouteId?: string;
   /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
@@ -199,7 +199,6 @@ export class EnvironmentFleet {
     await this.watchDevices(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
-    await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
     // sidebar-glyph.ts: this server's project favicons, for its sidebar rows and thread chips.
     await syncProjectFavicons({ environmentId: entry.environmentId, generation: entry.generation }, entry.origin, entry.shell.projects,
       payload => this.call(remote, entry, { op: 'request', method: 'assets.createUrl', payload }));
@@ -265,7 +264,6 @@ export class EnvironmentFleet {
         if (seq <= entry.lastEvent) continue;
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
-        if (fleetPortsEvent(entry, event)) { this.revision++; continue; } // legacy-sidebar-ports.ts
         if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
         if (automationFleetEvent(entry, event)) { this.revision++; continue; } // browser-automation.ts: this environment's previewAutomation host
         if (usageFleetEvent(entry, event)) { this.revision++; continue; } // usage-replies.ts: the Usage page's detached requests
@@ -274,8 +272,9 @@ export class EnvironmentFleet {
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
         if (key === SESSION_STATE_KEY) {
           // The session read's grants; a failed read grants nothing (sessionHasScope reads a failure as no scope).
-          const auth = item._replyError === undefined ? obj(item._reply) : {};
-          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth); this.revision++;
+          const read = item._replyError === undefined, auth = read ? obj(item._reply) : {};
+          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
+          entry.session = !read ? 'failed' : auth.authenticated === true ? 'granted' : 'rejected'; this.revision++;
           continue;
         }
         if (key === 'device-state') {
@@ -419,9 +418,9 @@ export function parseFleetThreadId(id: string): { environmentId: string; threadI
 }
 /**
  * Whether a sidebar thread lives off the primary environment, and that environment's machine kind and
- * label: isRemoteThread (`thread.environmentId !== primaryEnvironmentId`, LegacySidebar.tsx and
- * Sidebar.tsx). The focused environment is remote too when it is not the primary, as after opening a
- * background environment's thread; with no primary every thread is remote.
+ * label: isRemoteThread (`thread.environmentId !== primaryEnvironmentId`, Sidebar.tsx). The focused
+ * environment is remote too when it is not the primary, as after opening a background environment's thread;
+ * with no primary every thread is remote.
  */
 export function remoteThread(client: T3Client, thread: Obj, source: LocalPrimary = primary): { machine: string; label: string } | null {
   const background = parseFleetThreadId(str(thread.id));

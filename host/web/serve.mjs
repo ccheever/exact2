@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
-// Serve the current web build for a browser — and, through exact.json, for
-// a native client (LLP 1023 D1). LAN by default (D8); --loopback (or
-// EXACT_LOOPBACK=1) binds 127.0.0.1 only.
-// Usage: bun host/web/serve.mjs [port=8765] [--loopback]
+// Serve a web build for a browser — and, through exact.json, for a native
+// client (LLP 1023 D1): the app's (`web-build`'s target/web-dist), or the
+// directory named. LAN by default (D8); --loopback (or EXACT_LOOPBACK=1) binds
+// 127.0.0.1 only, as the app's `serve` verb does unless given --lan.
+// Usage: bun host/web/serve.mjs [<dir> | --origin <dir>] [--port <n>] [--loopback|--lan]
 import { createServer } from 'node:http';
 import { createServer as createSocketServer } from 'node:net';
-import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
+import { brotliCompress, brotliCompressSync, constants as zlib, gzip, gzipSync } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -15,11 +16,14 @@ import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { withLock } from './build-lock.mjs';
 import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
-import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
+import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
+import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
 import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { canonical, matchPattern } from '../web-js/route-pattern.js';
+import { guardFlags } from '../../scripts/help.mjs';
 
 import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
-import { keepGeneration, reapGenerations, servedFile } from './generations.mjs';
+import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerationBase } from './generations.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_PUBLIC,
@@ -546,56 +550,64 @@ function planAppId(bytes) {
 // The schema is the wire authority; no table offsets or row sizes are mirrored here.
 const planFormat = JSON.parse(readFileSync(new URL('../../plan/tables/format.json', import.meta.url), 'utf8'));
 const planFormatDigest = createHash('sha256').update('EXACT.PLAN.FORMAT.SHA256.V1\0').update(canonicalBytes(planFormat)).digest().subarray(0, 8);
+const renderPolicies = planFormat.enums.RenderPolicy;
 const routeBuffers = new WeakMap();
 function planRoutes(bytes) {
   if (routeBuffers.has(bytes)) return routeBuffers.get(bytes);
-  let routes = [];
-  try {
-    if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
-      || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
-    let at = 32;
-    const take = n => { const start = at; at += n; if (at > bytes.length) throw new Error('truncated plan'); return start; };
-    const u32 = () => bytes.readUInt32LE(take(4));
-    const decoder = new TextDecoder('utf-8', { fatal: true });
-    const string = () => { const n = u32(); return decoder.decode(bytes.subarray(take(n), at)); };
-    for (const field of planFormat.header) {
-      if (field.codec === 'string') string(); else take(4);
-    }
-    const count = u32(), strings = [];
-    for (let i = 0; i < count; i++) strings.push(string());
-    take(u32()); // code pool
-    take(u32()); // data pool
-    const width = codec => {
-      const kind = codec.split(':')[0];
-      if (['u8', 'bool', 'enum'].includes(kind)) return 1;
-      if (kind === 'u16') return 2;
-      if (['u32', 'i32', 'str', 'idx', 'opt'].includes(kind)) return 4;
-      if (['f64', 'range', 'code', 'bytes'].includes(kind)) return 8;
-      throw new Error('unknown plan codec');
-    };
-    for (const table of planFormat.tables) {
-      const count = u32(), size = table.fields.reduce((n, field) => n + width(field.codec), 0);
-      const start = take(count * size);
-      if (table.name !== 'routes') continue;
-      for (let i = 0; i < count; i++) {
-        let offset = start + i * size;
-        const row = {};
-        for (const field of table.fields) {
-          if (field.name === 'pattern') row.pattern = strings[bytes.readUInt32LE(offset)];
-          if (field.name === 'notfound') { const value = bytes[offset]; if (value > 1) throw new Error('invalid route'); row.notfound = !!value; }
-          offset += width(field.codec);
-        }
-        if (typeof row.pattern !== 'string') throw new Error('invalid route pattern');
-        routes.push(row);
-      }
-    }
-    if (at !== bytes.length) throw new Error('trailing plan bytes');
-  } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
+  let routes;
+  try { routes = planRouteTable(bytes); } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
   routeBuffers.set(bytes, routes);
   return routes;
 }
+/** The plan's route table, in its order: each route's name, pattern, render policy and whether it is the
+ * `notfound` route (`routes.json`, LLP 1153 D3). Throws on a plan this format does not read. */
+export function planRouteTable(bytes) {
+  if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
+    || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
+  let at = 32;
+  const take = n => { const start = at; at += n; if (at > bytes.length) throw new Error('truncated plan'); return start; };
+  const u32 = () => bytes.readUInt32LE(take(4));
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const string = () => { const n = u32(); return decoder.decode(bytes.subarray(take(n), at)); };
+  for (const field of planFormat.header) {
+    if (field.codec === 'string') string(); else take(4);
+  }
+  const count = u32(), strings = [];
+  for (let i = 0; i < count; i++) strings.push(string());
+  take(u32()); // code pool
+  take(u32()); // data pool
+  const width = codec => {
+    const kind = codec.split(':')[0];
+    if (['u8', 'bool', 'enum'].includes(kind)) return 1;
+    if (kind === 'u16') return 2;
+    if (['u32', 'i32', 'str', 'idx', 'opt'].includes(kind)) return 4;
+    if (['f64', 'range', 'code', 'bytes'].includes(kind)) return 8;
+    throw new Error('unknown plan codec');
+  };
+  const routes = [];
+  for (const table of planFormat.tables) {
+    const count = u32(), size = table.fields.reduce((n, field) => n + width(field.codec), 0);
+    const start = take(count * size);
+    if (table.name !== 'routes') continue;
+    for (let i = 0; i < count; i++) {
+      let offset = start + i * size;
+      const row = {};
+      for (const field of table.fields) {
+        if (field.name === 'name') row.name = strings[bytes.readUInt32LE(offset)];
+        if (field.name === 'pattern') row.pattern = strings[bytes.readUInt32LE(offset)];
+        if (field.name === 'render') { row.render = renderPolicies[bytes[offset]]; if (!row.render) throw new Error('invalid route render policy'); }
+        if (field.name === 'notfound') { const value = bytes[offset]; if (value > 1) throw new Error('invalid route'); row.notfound = !!value; }
+        offset += width(field.codec);
+      }
+      if (typeof row.pattern !== 'string' || typeof row.name !== 'string') throw new Error('invalid route pattern');
+      routes.push(row);
+    }
+  }
+  if (at !== bytes.length) throw new Error('trailing plan bytes');
+  return routes;
+}
 const servedRoutePlans = new Map();
-function routePlanIdentity(dist, published) {
+function routeFileIdentity(dist, files) {
   const was = buildRoot(dist);
   if (!was) return null;
   const stamp = name => {
@@ -604,25 +616,46 @@ function routePlanIdentity(dist, published) {
       return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs, s.mode].join(':');
     } catch (error) { if (error.code === 'ENOENT') return '-'; throw error; }
   };
-  return [was.root, was.at.dev, was.at.ino, stamp('app.plan'), published ? stamp(webRootPath) : ''].join('|');
+  return [was.root, was.at.dev, was.at.ino, ...files.map(stamp)].join('|');
+}
+/** The route table of a JS-target build, from the `routes.json` its build writes from the plan: `[]` for none, or
+ * for one this does not parse (no route is then declared), and null when it cannot be read: a read that fails, or
+ * a build that moves under it, is asked again, four times in all. Checked as `servedRoutePlan` checks a plan. */
+function* servedRouteTable(dist) {
+  const key = `routes:${resolve(dist)}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let identity, bytes;
+    try {
+      identity = routeFileIdentity(dist, ['routes.json']);
+      if (!identity) return [];
+      const cached = servedRoutePlans.get(key);
+      if (cached?.identity === identity) return cached.plan;
+      bytes = yield {op: 'get', root: resolve(dist), path: 'routes.json'};
+      if (routeFileIdentity(dist, ['routes.json']) !== identity) continue;
+    } catch { continue; }
+    let routes = [];
+    try {
+      const table = bytes === null ? null : JSON.parse(Buffer.from(bytes, 'base64').toString('utf8'));
+      if (Array.isArray(table?.routes) && table.routes.every((r) => typeof r?.pattern === 'string')) routes = table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true, render: r.render}));
+    } catch { /* not a route table */ }
+    if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+    servedRoutePlans.set(key, {identity, plan: routes});
+    return routes;
+  }
+  return null;
 }
 // Check the build, plan and published head before reading. A producer may
 // rewrite a local plan without replacing its build directory.
-function* servedRoutePlan(dist, published = true) {
-  const key = `${published}:${resolve(dist)}`;
+function* servedRoutePlan(dist) {
+  const key = `plan:${resolve(dist)}`;
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const identity = routePlanIdentity(dist, published);
+      const identity = routeFileIdentity(dist, ['app.plan', webRootPath]);
       if (!identity) return null;
       const cached = servedRoutePlans.get(key);
       if (cached?.identity === identity) return cached.plan;
-      let plan;
-      if (published) plan = yield* staticRead(dist, '/app.plan');
-      else {
-        const bytes = yield {op: 'get', root: resolve(dist), path: 'app.plan'};
-        plan = bytes === null ? null : {body: Buffer.from(bytes, 'base64')};
-      }
-      if (routePlanIdentity(dist, published) !== identity) continue;
+      let plan = yield* staticRead(dist, '/app.plan');
+      if (routeFileIdentity(dist, ['app.plan', webRootPath]) !== identity) continue;
       // Static reads return null for both absence and failure; neither should suppress a retry.
       if (!plan) return null;
       plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
@@ -718,6 +751,23 @@ export function replaceBuild(stage, dist) {
   });
 }
 
+/** The lines `web-build --out` ends with (LLP 1153 D3): the routes the browser draws, each route a static root
+ * cannot render on request, which `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
+ * (`buildTreeFile`). */
+export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
+  const shown = relative(process.cwd(), dist) || '.', routes = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes;
+  const missing = existsSync(resolve(dist, '404.html')) ? '404.html with status 404' : 'status 404, a page with shell.html as its body (the client draws the notfound route)';
+  // A public page left at the default reaches its reader last, after the runtime and then its data.
+  const client = routes.filter((r) => r.render === 'client' && !r.notfound).map((r) => r.pattern);
+  return [
+    ...client.length ? [`${client.join(', ')}: render=client, the default, so the browser draws the page only once app.js and its data have loaded; a page every reader sees alike arrives whole sooner as render=request, which serve renders with the API's answer at each request (docs/recipes/website.md)`] : [],
+    ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render}, so serve renders its page ${r.render === 'cached' ? 'and keeps it 60 s' : 'for each request'}; a static host serves its shell, and the client draws it`),
+    `${shown}: the site, for any static host. ${serve} ${shown} serves it by the rule a host applies:`,
+    `  a file at the path; else, for a browser's navigation to a path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
+    '  A host with a single fallback page serves shell.html for every page it lacks; the client then draws the notfound route.',
+  ];
+}
+
 const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
 let exchangeCall, exchangeSaid = false;
 /** Whether builds are put in place in one step in directory `dir` (a
@@ -765,17 +815,20 @@ export function jsTargetBuild(dist) {
   try { return JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).target === 'js'; }
   catch { return false; }
 }
-/** A file of a JS-target build for a request path: the file, a directory's
- * index.html (a page rendered at build), else the shell for an app
- * location. The previous build answers during a rebuild's rename. */
-export function buildTreeFile(dist, pathname, accept = '') { return runReads(treeFile(dist, pathname, accept)); }
-export function buildTreeFileAsync(dist, pathname, accept = '') { return runReadsAsync(treeFile(dist, pathname, accept)); }
-function* treeFile(dist, pathname, accept) {
+/** A file of a JS-target build for a request path, by the hosting rule (LLP 1153 D3): the file, or a directory's
+ * index.html (a page rendered at build); else, for an HTML navigation (`acceptsHTML`) whose path a route in the
+ * build's `routes.json` matches, `shell.html`. With `miss`, a request the rule finds nothing for gets the build's
+ * `404.html`, else, for a navigation to a page, the shell, whose client draws the notfound route; either marked
+ * `status: 404`. The previous build answers during a rebuild's rename. */
+export function buildTreeFile(dist, pathname, accept = '', { miss = false } = {}) { return runReads(treeFile(dist, pathname, accept, miss)); }
+export function buildTreeFileAsync(dist, pathname, accept = '', { miss = false } = {}) { return runReadsAsync(treeFile(dist, pathname, accept, miss)); }
+function* treeFile(dist, pathname, accept, miss) {
   let path;
   try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
   // No dot path, but the auth callback page's (LLP 1069.006 D4: `/.exact/auth/…`)
   // and the install pages and their data (LLP 1030.003 D6a).
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
+  const navigation = acceptsHTML(accept), page = navigation && appDocumentPath(pathname, true);
   // Asked again, three times at most: a build put in place as it was looked up
   // moves the tree it resolved away under it (its files then resolve to
   // where the old tree went).
@@ -783,14 +836,35 @@ function* treeFile(dist, pathname, accept) {
     const was = buildRoot(dist);
     if (!was) continue;
     const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
-    for (const [i, route] of [path, path.replace(/\/?$/, '/index.html'), '/index.html'].entries()) {
-      if (i === 2 && !appDocumentPath(pathname, acceptsHTML(accept))) {
-        const plan = acceptsHTML(accept) ? yield* servedRoutePlan(root, false) : null;
-        if (!stillBuild(dist, was) || !appDocumentPath(pathname, acceptsHTML(accept), plan?.routes ?? [])) break;
-      }
-      const file = resolve(root, '.' + route);
-      try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
-    }
+    const file = (route) => {
+      const at = resolve(root, '.' + route);
+      try { if (at.startsWith(prefix) && realpathSync(at) === at && statSync(at).isFile()) return { path: at, route }; } catch { /* none */ }
+      return null;
+    };
+    const exact = file(path);
+    if (exact) return exact;
+    const index = file(path.replace(/\/?$/, '/index.html'));
+    // Only a navigation gets the shell; a dotted last segment is a page only when it is no file's extension or a
+    // route matches it (`appDocumentPath`).
+    if (navigation) {
+      const routes = yield* servedRouteTable(root);
+      if (!stillBuild(dist, was)) continue;
+      // A route table that cannot be read is no answer yet (503 when serving), never "no route" (a 404 for a page).
+      if (routes === null) return miss ? { status: 503 } : null;
+      const at = appDocumentPath(pathname, true, routes) ? matchPattern(routes, canonical(pathname)) : -1;
+      const render = at >= 0 ? routes[at].render : null, shell = file('/shell.html'), served = (policy) => policy === 'request' || policy === 'cached';
+      // The shell, with its route's render policy, which `serve` renders in its place (`render=request` or `cached`):
+      // before a directory's index.html for such a route, since the root's is the shell too; a page built for its
+      // path (`render=build`) is served as built.
+      if (shell && served(render)) return { ...shell, render };
+      if (index) return index;
+      if (shell && at >= 0) return { ...shell, render };
+      // A miss: the notfound route's page, with 404, rendered per request where it is declared so.
+      const notfound = routes.find((r) => r.notfound);
+      if (miss && page && shell && served(notfound?.render)) return { ...shell, status: 404, render: notfound.render };
+    } else if (index) return index;
+    const missed = miss && (file('/404.html') ?? (page ? file('/shell.html') : null));
+    if (missed) return { ...missed, status: 404 };
     // None there: asked again only if the build moved meanwhile.
     if (stillBuild(dist, was)) return null;
   }
@@ -798,15 +872,106 @@ function* treeFile(dist, pathname, accept) {
 }
 /** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
  * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
- * generation kept no more is 410, which the page's glue answers by loading the page again. */
-export async function serveBuildTree(dist, req, res, { pinned = null } = {}) {
+ * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
+ * `sitePages`, LLP 1153 D3.4), a `render=request` or `cached` route's page is rendered for the request in place of
+ * its shell. With `compression` (`serve`'s, `compressionCache`), it is a site's server: a page goes compressed as the
+ * reader accepts, and a file as its warmed variant, revalidated by its ETag; else (the drivers, the dev server) every
+ * response is identity and never kept. */
+export async function serveBuildTree(dist, req, res, { pinned = null, pages = null, compression = null } = {}) {
   // The raw target is refused as serveStatic refuses it (an encoded dot
   // segment); a parsed URL would resolve one into another route.
   const target = webRequestURL(req.url);
+  // A waiting page's answers, kept by the renderer that made it (render.mjs `deferredAnswers`, LLP 1048.007 D10).
+  const answers = target && pages?.answers?.(target.pathname);
+  if (answers) {
+    sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
+    return;
+  }
   const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
-  if (r.status !== 200) { res.writeHead(r.status, { 'cache-control': 'no-store' }); res.end(); return; }
-  sendStaticBody(req, res, r.body, { 'content-type': webContentType(r.route), 'cache-control': 'no-store' });
+  if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
+    let page = null;
+    try { page = await pages(r.id, (r.location ?? target.pathname) + target.search, (name) => req.headers[name]); } catch (error) {
+      console.error(`render ${target.pathname}: ${error.message}`);
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
+    }
+    if (page) {
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}) };
+      // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
+      // page and is a tenth of its size, which the reader's first paint waits on (LLP 1048.007 D6).
+      const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
+      const encoding = ['br', 'gzip'].find(name => accepted.has(name));
+      const body = encoding === 'br' ? brotliCompressSync(page.html, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? gzipSync(page.html) : page.html;
+      const vary = [compression && 'Accept-Encoding', ...(page.vary ?? '').split(', ').filter(v => v && v !== 'Accept-Encoding')].filter(Boolean).join(', ');
+      sendStaticBody(req, res, body, { ...headers, ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
+      return;
+    }
+  }
+  // A request that does not ask for HTML (`curl`'s `*/*`) gets no page, and a site without a 404 page sends nothing:
+  // where a browser's would get a page, that empty 404 says how to ask for it.
+  if (r.status === 404 && !r.body && target && !acceptsHTML(req.headers.accept) && (await servedFile(dist, target.pathname, 'text/html', { pinned })).status === 200) {
+    res.writeHead(404, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`${target.pathname} is a page: ask for it as a browser does, with Accept: text/html (curl -H 'Accept: text/html' …).\n`);
+    return;
+  }
+  if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
+  const type = webContentType(r.route);
+  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
+  const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body), digest = bodyDigest(body);
+  let encoding = null;
+  if (COMPRESSIBLE.has(type)) {
+    const accepted = acceptedEncodings(req.headers['accept-encoding']);
+    encoding = ['br', 'gzip'].find(name => accepted.has(name) && compression.get(digest, name)) ?? null;
+    void compression.warm(digest, body);
+  }
+  const headers = { 'content-type': type, 'cache-control': 'no-cache', etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
+    ...(COMPRESSIBLE.has(type) ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+  if (matchesETag(req.headers['if-none-match'], headers.etag)) {
+    const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
+    res.writeHead(304, validators); res.end(); return;
+  }
+  sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
+}
+
+/** `serve`'s `pages` for the JS-target build at `dist`: `(id, location, header)`, the page for `location` rendered by
+ * render.mjs's `pageServer` from build generation `id` (`servedFile`'s), wherever that build is (`dist`, or `<dist>.gen`
+ * once another replaced it), and bound to it as a document `servedFile` sends is: its base that generation's, and
+ * rendered again from where the build was kept when another replaced it during the render. Whole, not streamed, so
+ * its head is sent only when all of it is known to be that build's. Null for a build with no server bundle (`--render
+ * none`), whose `render=request` and `cached` routes are then served their shell. */
+function sitePages(dist, { pageServer, deferredAnswers, deferredPath }) {
+  const servers = new Map(); // `${id} ${tree}` -> its page server, a `cached` route's pages kept in it
+  const serverOf = (id, tree) => {
+    const key = `${id} ${tree}`;
+    if (!servers.has(key)) {
+      if (servers.size >= 8) servers.delete(servers.keys().next().value);
+      servers.set(key, existsSync(resolve(tree, '.gen/server.js')) ? pageServer(tree) : null);
+    }
+    return servers.get(key);
+  };
+  const pages = async (id, location, header) => {
+    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent; laid
+    // out for the viewport the request tells (render.mjs `viewportOf`, LLP 1048.006).
+    const asked = (name) => (name === 'cache-control' || name === 'user-agent' || name.startsWith('sec-ch-') || name === 'viewport-width' ? header(name) : undefined);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = !id || generationOf(dist) === id, tree = current ? dist : resolve(`${dist}.gen`, id);
+      const render = existsSync(tree) && serverOf(id, tree);
+      if (!render) return null;
+      const { status, headers, body } = await render(location, asked);
+      if (current && id && generationOf(dist) !== id) continue;
+      const html = Buffer.from(body).toString('utf8');
+      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], html: id ? withGenerationBase(html, id) : html };
+    }
+    return null;
+  };
+  // `/.exact/checkpoint/<hash>.json`: the answers a waiting page named (render.mjs `deferAnswers`), else null.
+  pages.answers = (path) => {
+    const hash = deferredPath(path);
+    if (!hash) return null;
+    const body = deferredAnswers(hash);
+    return body === undefined ? { status: 404, body: "These answers are no longer kept; the page builds itself afresh.\n" } : { status: 200, body };
+  };
+  return pages;
 }
 
 const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
@@ -967,10 +1132,10 @@ const matchesETag = (header, etag) => typeof header === 'string'
 
 /** Warm every compressible file the server will answer for: a local build's
  * public files, or a published root's current release. */
-export async function warmCompression(dist, compression) {
+export async function warmCompression(dist, compression, js = false) {
   let names;
   try { names = listPublicFiles(dist); } catch { names = []; }
-  if (!names.includes('app.wasm')) {
+  if (!js && !names.includes('app.wasm')) {
     try { names = parseWebRoot(readFileSync(resolve(dist, webRootPath))).files.map(card => card.name); } catch { return 0; }
   }
   let warmed = 0;
@@ -1030,10 +1195,11 @@ export async function readWebRequest(dist, pathname, accept = '', admittedPlan =
  * handling, including no-store deletions and the native envelope rung. */
 // One byte range is enough for browser media seeking. Unknown/multipart ranges
 // fall back to the full representation; If-Range without a validator does too.
-export function sendStaticBody(req, res, body, headers = {}) {
+// A `status` other than 200 (a 404's page) is sent whole.
+export function sendStaticBody(req, res, body, headers = {}, status = 200) {
   const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const size = bytes.length;
-  const range = req.method !== 'HEAD' && !req.headers['if-range'] && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  const range = status === 200 && req.method !== 'HEAD' && !req.headers['if-range'] && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
   const common = { ...headers, 'accept-ranges': 'bytes' };
   if (range && (range[1] || range[2])) {
     const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
@@ -1044,7 +1210,7 @@ export function sendStaticBody(req, res, body, headers = {}) {
     res.writeHead(206, { ...common, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
     res.end(bytes.subarray(start, end + 1)); return;
   }
-  res.writeHead(200, { ...common, 'content-length': size });
+  res.writeHead(status, { ...common, 'content-length': size });
   res.end(req.method === 'HEAD' ? undefined : bytes);
 }
 
@@ -1078,40 +1244,155 @@ export async function serveStatic(dist, req, res, listener, compression = null) 
 }
 
 async function main() {
-  const argv = process.argv.slice(2);
-  const at = argv.indexOf('--origin');
-  if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
-  const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
-  // A JS-target build (LLP 1071) is served as its tree, uncompressed.
+  const argv = guardFlags('serve', process.argv.slice(2));
+  const value = (flag) => {
+    const at = argv.indexOf(flag);
+    if (at < 0) return null;
+    if (!argv[at + 1] || argv[at + 1].startsWith('--')) { console.error(`serve: ${flag} needs a value`); process.exit(2); }
+    return argv.splice(at, 2)[1];
+  };
+  const origin = value('--origin'), portFlag = value('--port');
+  const named = argv.filter((a) => !a.startsWith('--'));
+  if (named.length > 1 || origin && named.length) { console.error(`serve: one directory, a build or a published --origin, not ${[...named, origin].filter(Boolean).join(' and ')}`); return 2; }
+  const dist = resolve(origin ?? named[0] ?? webDist());
+  const settled = settleBuild(dist);
+  if (settled) return settled;
+  // A JS-target build (LLP 1071) is served as its tree. A published root is its pointer's release, whose page is the
+  // JS target's or the wasm's.
   const js = jsTargetBuild(dist);
-  if (!js && !await readStaticFileAsync(dist, '/app.wasm')) {
+  if (!js && !await readStaticFileAsync(dist, origin && existsSync(resolve(dist, webRootPath)) ? '/index.html' : '/app.wasm')) {
     // A build that is there but unreadable says why: the reader is a Cargo-built
     // helper, and "build first" misled when cargo was not on PATH (LLP 1054 O5).
     let why = null;
     if (existsSync(resolve(dist, 'app.wasm'))) {
       try { filesystem({ op: 'get', root: resolve(dist), path: 'app.wasm' }); } catch (error) { why = error.message; }
     }
-    console.error(why ? `${dist}/app.wasm is built but could not be read: ${why}` : `no build in ${dist}: run bun host/web/build.mjs first, or serve a published --origin <dir>`);
+    const build = process.env.EXACT_APP_DIR ? 'bun exact.mjs web-build' : 'bun host/web/build.mjs';
+    console.error(why ? `${dist}/app.wasm is built but could not be read: ${why}` : `no build in ${dist}: run ${build} first, or serve a published --origin <dir>`);
     return 2;
   }
-  const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
-  const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
+  // TODO(LLP 1153 D4): compare each setting app.json declares with the value the build inlined before serving.
+  const loopback = !argv.includes('--lan') && (argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1');
+  // `--port`, else `PORT`, which a host sets for `npm start` (LLP 1153.001 D3), else 8765.
+  const portText = portFlag ?? process.env.PORT ?? null;
+  const port = portText === null || portText === '' ? 8765 : Number(portText);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: ${portFlag === null ? 'PORT' : '--port'} ${portText} is not a port`); return 2; }
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
   const compression = compressionCache();
-  const warming = js ? Promise.resolve(0) : warmCompression(dist, compression);
-  createServer((req, res) => js ? serveBuildTree(dist, req, res) : serveStatic(dist, req, res, {host,port}, compression)).listen(port, host, () => {
-    const urls = [`http://127.0.0.1:${port}/`];
+  const warming = warmCompression(dist, compression, js);
+  const pages = js ? sitePages(dist, await import('../web-js/render.mjs')) : null;
+  const rebuild = rebuildOnChange(dist);
+  const server = createServer(async (req, res) => {
+    if (rebuild && acceptsHTML(req.headers.accept)) {
+      const failed = await rebuild();
+      if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
+    }
+    return js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression);
+  });
+  server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
+  server.listen(port, host, () => {
+    const urls = [`http://127.0.0.1:${server.address().port}/`];
     if (!loopback) {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
-      urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
+      urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${server.address().port}/`));
     }
     // Name the app, so a directory another build replaced is seen at once (LLP 1054 O5).
     let served = '';
     try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
     console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
+    if (rebuild) console.log('  (an edit to the app builds it again before the next page: leave this running and reload)');
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
+    let rendered = [];
+    try { rendered = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes.filter((r) => r.render === 'request' || r.render === 'cached'); } catch { /* no route table */ }
+    if (js && rendered.length && !existsSync(resolve(dist, '.gen/server.js'))) console.log(`  (${rendered.map((r) => r.pattern).join(', ')}: their shell, since this build has no server bundle to render them with; web-build makes one)`);
   });
   return 0;
+}
+
+/** The build in `dist` brought to this environment's settings (LLP 1153 D4): a setting it inlined that the
+ * environment or the app's files now give another value is built again when the app's sources are beside the build,
+ * and refused, naming the setting and both values, when they are not (a build copied elsewhere). 0 when it may be
+ * served, else the exit code. */
+function settleBuild(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return 0; }
+  if (!marker.env) return 0;
+  const app = sourcesOf(dist, marker.app?.id), changed = settingChanges(marker.env, process.env, app);
+  if (!changed.length) return 0;
+  const said = (s) => (s ? `${JSON.stringify(s.value)} (${s.source})` : 'unset');
+  const what = changed.map(({ name, built, now }) => `import.meta.env.${name} was built as ${said(built)} and is ${said(now)} here`).join('; ');
+  if (!app) {
+    console.error(`${dist}: ${what}, and the app's sources are not beside this build to build it again: build it with these settings (bun exact.mjs web-build), or serve it with the ones it was built with`);
+    return 2;
+  }
+  // A development build is built again only in its app's build directory, the one `serve` serves by default: built
+  // again anywhere else, what the build keeps beside it (`<dist>.previous`, …) would be taken as its own and replaced.
+  if (!marker.release && resolve(dist) !== webDist()) {
+    console.error(`${dist}: ${what}, and a development build is built again only in its app's build directory: build it again (bun exact.mjs web-build), or serve it with the settings it was built with`);
+    return 2;
+  }
+  console.error(`${dist}: ${what}: building it again`);
+  // On the target it was built for (the JS target's marker says so; the wasm target's says no target), and as what it
+  // was: a release site (`web-build --out`, its marker says so) is built again as one, into its directory; a
+  // development build into its.
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+    { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+  return built.status === 0 ? 0 : built.status ?? 1;
+}
+
+/** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
+ * browser's navigation awaits, which builds the site again once a source changed since the build (newer than its
+ * receipt), as a framework's dev server does, and answers the build's output when it failed (null when it built or
+ * nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
+function rebuildOnChange(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
+  const app = sourcesOf(dist, marker.app?.id);
+  if (!app || (!marker.release && resolve(dist) !== webDist())) return null;
+  const out = resolve(dist), receipt = () => { try { return statSync(resolve(dist, '.exact-build.json')).mtimeMs; } catch { return 0; } };
+  // What a build reads: the app's files, but for what builds and tools write (its outputs, dependencies, dot
+  // directories but `.env`s, generated types, test reports).
+  const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']);
+  const newest = (dir, depth = 0) => {
+    let at = 0;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, e.name);
+      if (SKIP.has(e.name) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || path === out || path.startsWith(`${out}.`)) continue;
+      if (e.isDirectory()) { if (depth < 4) at = Math.max(at, newest(path, depth + 1)); } else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
+    }
+    return at;
+  };
+  let since = receipt(), checked = 0, running = null;
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  return () => {
+    if (running) return running;
+    if (Date.now() - checked < 300) return null;
+    checked = Date.now();
+    if (newest(app) <= Math.max(since, receipt())) return null;
+    const started = Date.now();
+    console.log(`${app}: a source changed since the build: building it again`);
+    running = new Promise((done) => {
+      const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+      let said = '';
+      for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
+      child.on('close', (code) => { if (code === 0) since = started; else console.error(said.trimEnd()); done(code === 0 ? null : said); });
+    }).finally(() => { running = null; });
+    return running;
+  };
+}
+
+/** The directory of the app whose sources made the build in `dist` (its marker's app `id`), when they are beside it:
+ * an `app.json` of that id above it, or the app whose own build directory it is (an app of this checkout builds into
+ * host/web/dist); else null. */
+function sourcesOf(dist, id) {
+  for (let dir = dirname(dist); ; dir = dirname(dir)) {
+    try { if (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app?.id === id) return dir; } catch { /* none here */ }
+    if (dirname(dir) === dir) break;
+  }
+  try { const app = resolveApp(); if (app.id === id && webDist() === dist) return app.dir; } catch { /* no app resolves */ }
+  return null;
 }
 
 /** A development page's trace (LLP 1079 D5): ⌥⇧T posts its journal, frames and

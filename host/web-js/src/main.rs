@@ -596,9 +596,15 @@ fn main() -> ExitCode {
             for w in &out_files.warnings {
                 eprintln!("warning: {w}");
             }
-            let count = warned.len() + out_files.warnings.len();
+            let notes = warned.iter().filter(|w| contract::information(w)).count();
+            let count = warned.len() - notes + out_files.warnings.len();
+            let notes = match notes {
+                0 => String::new(),
+                1 => ", 1 note".into(),
+                n => format!(", {n} notes"),
+            };
             println!(
-                "{out}: app.js {} B, app.css {} B, {count} warning{}",
+                "{out}: app.js {} B, app.css {} B, {count} warning{}{notes}",
                 out_files.js.len(),
                 out_files.css.len(),
                 if count == 1 { "" } else { "s" }

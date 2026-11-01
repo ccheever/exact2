@@ -41,7 +41,8 @@ describe('typed text is kept as typed', () => {
   });
 
   test('the composer, the Files editor and the commit message are among them', async () => {
-    const ids = (await textareas()).map(({ line }) => /\b(?:id|testId)="([^"]+)"/.exec(line)?.[1]).filter(Boolean);
+    // The composer's ids carry its scope's prefix (composer.contract ComposerCard).
+    const ids = (await textareas()).map(({ line }) => /\b(?:id|testId)=(?:"([^"]+)"|`\$\{composerScope\}([^`]+)`)/.exec(line)).map(match => match?.[1] ?? match?.[2]).filter(Boolean);
     expect(ids).toEqual(expect.arrayContaining(['composer', 'file-editor', 'git-commit-message']));
   });
 });

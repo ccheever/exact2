@@ -174,6 +174,9 @@ pub(crate) fn value_edit(
     if let Some(edit) = mix_edit(name, text) {
         return Some(edit);
     }
+    if let Some(edit) = (name == "display").then(|| display_edit(text)).flatten() {
+        return Some(edit);
+    }
     match error {
         StyleValueError::BadColor { .. } => role_hint(text, true).map(|e| e.lead(name, text)),
         StyleValueError::WrongKind { .. } => {
@@ -212,6 +215,21 @@ pub(crate) fn value_edit(
         }
         _ => None,
     }
+}
+
+/// The edit for a CSS `display` that has no box here (CSS Display 3 §2): an inline box, which
+/// a flex item's sizing stands in for, and a list item, whose marker is not drawn.
+fn display_edit(text: &str) -> Option<String> {
+    let text = text.trim();
+    let why = match text {
+        "inline" | "inline-block" => "a box here is a block, or a flex or grid item; an item of a `row` (`display=\"flex\"`) is as wide as its content, as an inline-block is, so leave `display` off there, and in block flow put the box in a `row`; a `text` inside a `text` is a run of its line",
+        "inline-flex" | "inline-grid" => "write `display=\"flex\"` (or `grid`), and to size it to its content make it an item of a `row`",
+        "list-item" => "a list here draws no marker; a bullet is a `text \"•\"` before the item's text in a row",
+        _ => return None,
+    };
+    Some(format!(
+        "`display=\"{text}\"` is not a `display` here (block, flex, grid or none): {why}"
+    ))
 }
 
 /// The edit for a refused value holding `color-mix()`, which no host parses: a mix of the

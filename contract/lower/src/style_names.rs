@@ -83,6 +83,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("text-overflow", "css CSS Overflow 3", AttrTarget::Styles(&[StyleId::TextOverflow])),
     // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
     ("font-variant-numeric", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantNumeric])),
+    ("font-variant-ligatures", "css CSS Fonts 4", AttrTarget::Styles(&[StyleId::FontVariantLigatures])),
     ("column-width", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnWidth])),
     ("column-fill", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnFill])),
     ("column-rule-style", "css CSS Multi-column Layout 1", AttrTarget::Styles(&[StyleId::ColumnRuleStyle])),
@@ -150,6 +151,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     // hyphenation (`manual` honours soft hyphens; `auto` adds the
     // language's own points where the host has a dictionary).
     ("text-indent", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextIndent])),
+    // A table's cell spacing, one length (kernel style/table.rs; HTML's UA 2px unsaid).
+    ("border-spacing", "css CSS 2.1 §17.6.1", AttrTarget::Styles(&[StyleId::BorderSpacing])),
     ("hyphens", "css CSS Text 3", AttrTarget::Styles(&[StyleId::Hyphens])),
     ("line-height", "css CSS Inline 3", AttrTarget::Styles(&[StyleId::LineHeight])),
     ("text-align", "css CSS Text 3", AttrTarget::Styles(&[StyleId::TextAlign])),

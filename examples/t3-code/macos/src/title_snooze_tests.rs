@@ -141,6 +141,17 @@ fn snooze_host() -> exact_apple::Host<Replies> {
         .unwrap();
     let thread_type = plan.type_(plan.field(threads).ty).elem.unwrap();
     let mut thread = empty_record(&plan, thread_type);
+    let presets = [("hour", "In an hour"), ("tomorrow", "Tomorrow")]
+        .into_iter()
+        .map(|(id, label)| {
+            Value::record(vec![
+                Value::str(id),
+                Value::str(label),
+                Value::str(""),
+                Value::str(""),
+            ])
+        })
+        .collect::<Vec<_>>();
     for (name, value) in [
         ("id", Value::str("fixture-thread")),
         ("title", Value::str("Fixture thread")),
@@ -157,17 +168,7 @@ fn snooze_host() -> exact_apple::Host<Replies> {
     ] {
         set(&plan, thread_type, &mut thread, &[name], value);
     }
-    let presets = [("hour", "In an hour"), ("tomorrow", "Tomorrow")]
-        .into_iter()
-        .map(|(id, label)| {
-            Value::record(vec![
-                Value::str(id),
-                Value::str(label),
-                Value::str(""),
-                Value::str(""),
-            ])
-        })
-        .collect();
+    // Each row lists its own environment's options.
     set(
         &plan,
         thread_type,

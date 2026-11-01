@@ -133,7 +133,7 @@ describe('general rows', () => {
       'Follow-up behavior', 'Diff layout', 'Hide whitespace changes', 'Default diff file state', 'Diff colors', 'Proactive panels', 'Open pull requests in T3 Code', 'Add project starts in', 'Model', 'Fallback model', 'Permissions', 'Workspace',
       'Snooze options', 'Resume after usage limits', 'Snooze until limits reset', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle',
       'Text generation model', 'Start from remote', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
-      'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
+      'Version', 'Update track', 'Mobile app', 'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)']);
     // AdvancedSettings: Chat's Show skills, Threads' Response streaming and Worktrees' Submodules fold at their section's end.
     expect(sections.flatMap(section => (section.advanced ?? []).map(row => [section.title, row.title]))).toEqual([['Composer', 'Show skills in slash menu'],
       ['Text generation', 'Thread title instructions'], ['Text generation', 'Response streaming'], ['Creation', 'Submodules']]);
@@ -144,7 +144,7 @@ describe('general rows', () => {
     expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
-    expect(row('version').value).toBe('0.1.5'); // this app's own release, not the server's
+    expect(row('version').value).toBe('0.1.6'); // this app's own release, not the server's
   });
   test('Fallback model: None until set, the picked model once saved, no traits, and absent in a project scope', async () => {
     const client = fake();
@@ -393,12 +393,12 @@ describe('writes through the command', () => {
     // Every route reads the scope (Restore defaults is the settings header's), and the project scope's target is its first member.
     expect([await list('repo', 'p1', 'source-control'), await list('repo', '')]).toEqual([p1, p1]);
     expect(await list('repo', 'p2')).toBe('This will reset: Snooze until limits reset, New thread mode.');
-    // Device values take their places among the environment's; a font counts its family and its size; Visible threads is listed.
-    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['sidebarThreadPreviewCount', '8'], ['chatWidth', 'wide']] as const)
+    // Device values take their places among the environment's; a font counts its family and its size.
+    for (const [key, value] of [['confirmThreadDelete', 'false'], ['wordWrap', 'false'], ['fontSizeCode', '14'], ['chatWidth', 'wide']] as const)
       applyDeviceSetting(client.local as never, key, value);
-    expect(await list('', '')).toBe('This will reset: Chat width, Visible threads, Snooze until limits reset, Word wrap, Code font, Delete confirmation.');
+    expect(await list('', '')).toBe('This will reset: Chat width, Snooze until limits reset, Word wrap, Code font, Delete confirmation.');
     // No connected target lists the device values alone (DEFAULT_SERVER_SETTINGS).
-    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Visible threads', 'Word wrap', 'Code font', 'Delete confirmation']);
+    expect(restoreLabels(client.local as never, null)).toEqual(['Chat width', 'Word wrap', 'Code font', 'Delete confirmation']);
   });
   test('Restore defaults lists "Theme mix" for a theme on one appearance, after Follow system (useTheme themeHalves)', async () => {
     // The library's Use puts a one-palette theme on its own half (assignHalf): the reference stores the mix and lists it
@@ -505,10 +505,10 @@ describe('navigation and search', () => {
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / Threads', 'Text generation model / Threads', 'Source control writer model / Source control', 'Review guide model / Source control',
       'Project defaults and overrides / Threads', 'Providers / Providers', 'Health check interval / Providers']);
-    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
+    expect(titles('token')).toEqual(['GitHub accounts and token / Source control', 'Thread details / Appearance', 'Compact idle threads / Providers', 'Response streaming / Threads', 'Context window indicator (legacy) / Labs', 'Cursor account usage / Providers',
       'GitCafe credentials / Source control', 'Bitbucket credentials / Source control']);
     expect(titles('mcp')).toEqual([]);
-    expect(titles('sidebar')).toEqual(['Sidebar (legacy) / Labs', 'Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
+    expect(titles('sidebar')).toEqual(['Project grouping / General', 'Project order / General', 'Working section / General', 'Auto-settle inactive threads / Threads',
       'Auto-settle merged threads / Threads', 'Keep threads with a PR / Threads', 'Days of inactivity before auto-settle / Threads', 'Environment icon / Sharing & access']);
     expect(titles('settle')).toEqual(['Auto-settle inactive threads / Threads', 'Auto-settle merged threads / Threads', 'Days of inactivity before auto-settle / Threads', 'Keep threads with a PR / Threads']);
     // 7c3b3b3605ef's moves: network access on Sharing & access, pull request sharing on Environments, the fetch interval in
@@ -567,32 +567,33 @@ describe('appearance', () => {
     const cards = themeCards(prefs);
     expect(cards.map(card => card.label)).toEqual(['T3 Code', 'T3 Chat', 'Grove', 'Ocean', 'Ember', 'Iris']);
     expect(cards.find(card => card.id === 'iris')!.orbs.every(orb => orb.picked)).toBe(true);
-    const sections = appearanceSections(decodeClientPrefs({ glassOpacity: 60 }), true), rows = sections.flatMap(section => section.rows);
+    const sections = appearanceSections(decodeClientPrefs({ glassOpacity: 60 })), rows = sections.flatMap(section => section.rows);
     // AppearanceSettingsPanel at 6d450a4284: Interface, then Typography, each ending with its Advanced fold.
     expect(sections.map(section => [section.id, section.rows.map(row => row.title), (section.advanced ?? []).map(row => row.title)])).toEqual([
-      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Effort display', 'Render math'], ['Panel animations', 'Environment identification', 'Composer context']],
+      ['appearance-interface', ['Contrast', 'Glass opacity', 'Chat width', 'Thread details', 'Effort display', 'Render math'], ['Panel animations', 'Composer context']],
       ['typography', ['Interface font', 'Monospace font', 'Word wrap'], ['Separate fonts', 'Font smoothing']]]);
-    expect(appearanceSections(decodeClientPrefs({}), false)[0]!.advanced!.map(row => row.id)).toEqual(['panel-animations', 'composer-context']);
+    // Environment identification is not offered: this stable app has no Dev or Nightly stage to identify.
+    expect(appearanceSections(decodeClientPrefs({}))[0]!.advanced!.map(row => row.id)).toEqual(['panel-animations', 'composer-context']);
     // Separate fonts is a switch on typographyAdvanced with no reset, as SeparateFontsRow.
     expect(sections[1]!.advanced![0]).toMatchObject({ id: 'separate-fonts', kind: 'switch', checked: false, resettable: false, target: 'typographyAdvanced',
       description: 'Set the prompt, code, and terminal fonts separately instead of one monospace font.' });
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
     // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.
-    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 }), true).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
-    const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
+    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 })).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
+    const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 })).at(-1)!.rows;
     expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Word wrap', '']]);
     expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);
     // WordWrapRow's reset reads "word wrapping" (SettingResetButton label), not the row's title.
     expect(advanced.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: false });
-    expect(appearanceSections(decodeClientPrefs({ wordWrap: false }), true).at(-1)!.rows.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: true });
+    expect(appearanceSections(decodeClientPrefs({ wordWrap: false })).at(-1)!.rows.find(row => row.id === 'word-wrap')).toMatchObject({ resetLabel: 'word wrapping', resettable: true });
     // A jump to a separate font row draws the separate rows with Separate fonts on (TypographySection showAdvanced).
     for (const target of ['prompt-font', 'terminal-font']) {
-      const typography = appearanceSections(decodeClientPrefs({}), true, [], target).at(-1)!;
+      const typography = appearanceSections(decodeClientPrefs({}), [], target).at(-1)!;
       expect(typography.rows.map(row => row.id)).toEqual(['interface-font', 'prompt-font', 'code-font', 'terminal-font', 'word-wrap']);
       expect(typography.advanced![0]!.checked).toBe(true);
     }
-    expect(appearanceSections(decodeClientPrefs({}), true, [], 'font-smoothing').at(-1)!.rows.map(row => row.id)).toEqual(['interface-font', 'code-font', 'word-wrap']);
+    expect(appearanceSections(decodeClientPrefs({}), [], 'font-smoothing').at(-1)!.rows.map(row => row.id)).toEqual(['interface-font', 'code-font', 'word-wrap']);
   });
 });
 
@@ -783,7 +784,7 @@ describe('model picker shortcut presses', () => {
     const root = contractComponent('app.contract', 'T3Code');
     const rule = appText('app.contract').match(/^  derive modelPickTaken = (.+)$/m)![1]!;
     for (const target of ['', 'task-model:t1', 'source-control-writer-model:|ctx', 'review-guide-model:|ctx']) for (const commandPending of [false, true]) {
-      const state: Obj = { commandPending, modelTarget: { id: target }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+      const state: Obj = { commandPending, modelTarget: { id: target }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
       let took = false;
       root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
       expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
@@ -807,7 +808,7 @@ describe('model picker shortcut presses', () => {
     expect([sent, busy.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['cclocal:picker-provider-key', 'claudeAgent', '', 0]], true]);
     // ⇧⌘↓, then Return before its announcement is answered: the pick is sent.
     sent.length = 0;
-    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
     root.call('pickerAnnounce', idle, scope, ['cclocal:picker-provider-key', 'codex', '']);
     expect(idle.commandPending).toBe(false);
     root.call('selectModel', idle, scope, ['gpt-6', 'codex', false]);
@@ -822,9 +823,9 @@ describe('code font', () => {
     expect([fontStack('', true), fontStack('', false)]).toEqual(['Menlo, Consolas, "Liberation Mono", monospace', 'system-ui']);
     expect([defaultCodeFamily([]), defaultCodeFamily([{ family: 'Consolas', monospace: true }]), defaultCodeFamily([{ family: 'SF Mono', monospace: true }, { family: 'Menlo', monospace: true }])])
       .toEqual(['Menlo', 'Consolas', 'Menlo']);
-    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true }), true).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
+    const rows = appearanceSections(decodeClientPrefs({ typographyAdvanced: true })).at(-1)!.rows.filter(row => row.id === 'code-font' || row.id === 'terminal-font');
     expect(rows.map(row => [row.label, row.options[0]!.label, row.driver])).toEqual([['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace'], ['Menlo', 'Menlo', 'Menlo, Consolas, "Liberation Mono", monospace']]);
-    const single = appearanceSections(decodeClientPrefs({}), true).at(-1)!.rows.find(row => row.id === 'code-font')!;
+    const single = appearanceSections(decodeClientPrefs({})).at(-1)!.rows.find(row => row.id === 'code-font')!;
     expect([single.title, single.label, single.options[0]!.label]).toEqual(['Monospace font', 'Menlo', 'Menlo']);
     // Every code view reads the look's codeFont: chat Markdown, diffs, file previews and inline documents.
     expect(appText('settings-appearance-look.ts')).toContain('codeFont: fontStack(prefs.fontFamilyCode, true)');

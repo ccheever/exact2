@@ -291,6 +291,7 @@ package final class ChainingScrollView: NSScrollView {
         trackPhase = !event.momentumPhase.intersection(moving).isEmpty ? "d" : !event.phase.intersection(moving).isEmpty ? "t" : "-"
         defer { trackPhase = "-" }
         (superview as? NodeView)?.cancelElementScroll()
+        (superview as? NodeView)?.presenter?.personScrolls += 1 // a wheel's notch is no live scroll (Fragment.swift)
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
         // of the height AppKit scrolls a line by (10 points unless set; it
         // was 40 here, a browser's tick).

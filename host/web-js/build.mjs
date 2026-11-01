@@ -1,5 +1,5 @@
 import { asyncContext, bundleOptions, developmentLocalNetwork, lowered, packageConfig, webImplementations } from '../../js/bake/src/typescript.mjs';
-import { bakeWatchEnv, hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
+import { bakeWatchEnv, hatchWords, injectedProfiles, moduleDirectory, resolveApp, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -21,10 +21,13 @@ import { basename, dirname, isAbsolute, join, normalize, posix, relative, resolv
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { transformSync, parseSync } from 'rolldown/utils';
 import { copyGpuCache } from './gpu-cache.mjs';
+import { analyze } from './page-style.mjs';
 import { localImports, stageHostGlue } from './glue.mjs';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler, withInspectHooks, withoutDev, withRuntimeStamp } from './module.mjs';
 import { developmentStore } from '../../scripts/agent-launch.mjs';
+import { settingLines } from '../../js/bake/src/__exact_env.mjs';
 import { withLook } from '../web/look.mjs';
+import { beside as besideDist } from '../web/beside.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -53,17 +56,18 @@ if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
     process.exit(again.status ?? 1);
   }
 }
-// `--production` (delivery, scripts/deploy.mjs): a release over a wasm bake's
-// baked plan (`--plan <dist>/app.plan`) — agent mode refused, and the bake's
-// origin files (the envelope, the web manifest, install and auth pages,
-// sitemap) and head links carried, so the web root it publishes is the
-// wasm root's in everything but the program (LLP 1071 §7, delivery).
+// `--production` (delivery, scripts/deploy.mjs): a release, agent mode
+// refused. Over a wasm bake's baked plan (`--plan <dist>/app.plan`), the
+// bake's origin files (the envelope, the web manifest, install and auth
+// pages, sitemap) and head links are carried, so the web root it publishes
+// is the wasm root's in everything but the program (LLP 1071 §7, delivery).
+// With no bake (an app that names no native platform, LLP 1153 D3.6), it
+// builds the app's own Contract, links its web manifest, and has no envelope.
 const production = args.includes('--production');
 // `--dev` (host/web-js/dev.mjs): typed state checkpoint hooks that ordinary
 // and production builds neither emit nor link.
 const devReload = args.includes('--dev');
 if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
-if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 // Its app.ts copy loses a development build's only grant lines (`configure`), which reads the trust.
 if (production && (process.env.EXACT_UPDATE_TRUST ?? 'production') !== 'production') { console.error(`--production builds under EXACT_UPDATE_TRUST=production, not ${process.env.EXACT_UPDATE_TRUST}`); process.exit(2); }
 if (production) process.env.EXACT_UPDATE_TRUST = 'production';
@@ -194,6 +198,8 @@ if (devReload) writeFileSync(resolve(gen, 'rt.js'), withInspectHooks(readFileSyn
 const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
 if (canvas2d && !rust && !ts) { console.error(`${app}: a Canvas 2D surface with no data source to draw it`); process.exit(1); }
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
+// An image's pictures in the browser's floating window, loaded on first use (commands.js, LLP 1042 §9).
+cpSync(resolve(here, 'picture-in-picture.js'), resolve(gen, 'picture-in-picture.js'));
 const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
 // The checked capture of app.ts and what it imports (typecheck, below): the
 // page and its server render bundle it, never the app's own directory.
@@ -239,7 +245,9 @@ const orientationlock = existsSync(resolve(gen, 'orientationlock.flag'));
 const webScript = resolve(appDir, 'web/build.rs');
 if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(webScript, 'utf8'))) {
   // With what its bake watches named, as every baking build is (`bakeWatchEnv`): unset, a check reruns it every time.
-  const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit', env: { ...process.env, ...bakeWatchEnv({ dir: appDir, manifest }) } });
+  // The workspace's lock is checked first, as every build's is, and `--locked` keeps the check from rewriting it (LLP 1153 D2.1).
+  resolveApp(appDir).rust();
+  const r = spawnSync('cargo', ['check', '-q', '--locked', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit', env: { ...process.env, ...bakeWatchEnv({ dir: appDir, manifest }) } });
   if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
 }
 // `app.ts` is captured and type-checked as the native bake does it: the
@@ -262,6 +270,8 @@ if (checkOnly) {
   if (typeError) { console.error(`${String(typeError.message ?? typeError).trimEnd()}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
   process.exit(0);
 }
+// Each setting app.ts read, as inlined, and its source (`configure`; LLP 1153 D4).
+if (ts) for (const line of settingLines(JSON.parse(readFileSync(resolve(tsStage, '__exact_env.json'), 'utf8')))) console.log(line);
 async function typecheck(checking) {
   const { configure, check, capturedSources, staticFacts } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
   const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
@@ -291,6 +301,8 @@ async function typecheck(checking) {
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;
+      // Nor is what a build in `dist` keeps beside it (`web-build --out dist`: serve.mjs `replaceBuild`, generations.mjs).
+      if (top && besideDist(name)) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
       // Links are refused, except a document link outside the static trees
       // (CLAUDE.md → AGENTS.md), as js/bake's capture: no build reads one.
@@ -380,7 +392,7 @@ const grants = ts ? developmentLocalNetwork(String(tsModule.grants ?? '')) : '';
 if (ts) {
   const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
   const problems = [
-    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
+    ...['__exact_backend_source.json', '__exact_backend_warning.json', '__exact_packages.json', '__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_binding.mjs', '__exact_env.mjs', '__exact_env.json', '__exact_paths.json', '__exact_declarations.json', '__exact_canvas.js', '__exact_canvas.d.ts', 'app.js']
       .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
     ...tsModule.exported.includes('draw') !== tsModule.exported.includes('surfaces') ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
     ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json's "app": { "id" } is ${expected} (its top-level "id" is the web manifest's, another field): make the two the same`] : [],
@@ -457,7 +469,17 @@ writeFileSync(resolve(gen, 'main.js'), [
   // What armed itself at module load (sounds' output, a native page module's connection) reads `clock.agent` in a
   // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
   "if (fonts) clock.agent = agentMode();",
-  "const go = f => fonts ? fonts.then(f) : f();",
+  // A rendered page's sheet holds only what its document can match (LLP 1048.007 D4): the whole sheet comes first,
+  // then the page's goes, before the first render (one that fails to load leaves the page's, and the render goes on).
+  "const page = typeof document === 'object' && document.querySelector('style[data-exact-page]');",
+  "const sheet = page && new Promise(r => { const l = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: './style.css' }); l.onload = () => { page.remove(); r(); }; l.onerror = r; page.before(l); });",
+  // A waiting page's answers past 1 KB are named, not held (LLP 1048.007 D10): the capture script fetched them as it
+  // imported this; the first render waits for them. Ones no longer kept are none, and the boot builds afresh.
+  "const named = typeof document === 'object' && document.querySelector('script[type=\"application/vnd.exact.checkpoint\"][data-src]');",
+  "const answers = named && (globalThis.exact?.answers ?? fetch(named.dataset.src).then(r => r.ok ? r.text() : null, () => null)).then(t => { named.textContent = t ?? '{\"time\":0,\"answers\":[]}'; });",
+  "const waits = [fonts, sheet, answers].filter(Boolean);",
+  "if ((sheet || answers) && !fonts) { (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; }); clock.agent = agentMode(); }",
+  "const go = f => waits.length ? Promise.all(waits).then(f) : f();",
   // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
   // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
   // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
@@ -520,11 +542,12 @@ cpSync(resolve(here, 'midi.js'), resolve(gen, 'midi.js'));
 writeFileSync(resolve(gen, 'main-server.js'), [
   `import app${rust ? ', { sources }' : ''} from './app.js';`,
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
-  "import { data, clock, inflight, Resources, routeAt, Head } from './rt.js';",
-  "import { types, sourceTypes, pages } from './names.js';",
+  "import { data, clock, inflight, Resources, Mutations, routeAt, Head } from './rt.js';",
+  "import { types, sourceTypes, pages, viewportMedia, activation } from './names.js';",
+  "import { viewportFacts } from './facts.js';",
   "import { answers } from './checkpoint.js';",
   "import { markBars } from './navigation.js';",
-  "import { markRoutes } from './document.js';",
+  "import { markRoutes, markDocument } from './document.js';",
   ...(ts ? ["import { install as ts } from './ts-data.js';", "import { answering } from './ts-fetch.js'; import { heldReply, looseFetch } from './held.js'; Object.assign(answering, { loose: looseFetch, heldReply });"] : []),
   ...(rust ? ["import { install } from './rust-data.js';"] : []),
   // Two steps, so a server can send the page's head between them
@@ -537,15 +560,24 @@ writeFileSync(resolve(gen, 'main-server.js'), [
   '  app();',
   '  route = routeAt(location.pathname + location.search);',
   '  const [render, activate] = pages[route] ?? ["build", "inferred"];',
-  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "eager", policy: render, notfound: !!pages[route]?.[2] };',
+  '  return { activate: ["idle", "interaction", "never"].includes(activate) ? activate : "inferred", policy: render, notfound: !!pages[route]?.[2], readsViewport: activation.viewport };',
   '};',
   'globalThis.__render = async deadline => {',
   '  const end = t0 + deadline;',
   '  do await new Promise(r => setTimeout(r, 1)); while (inflight.n && performance.now() < end);',
   '  markBars(document.getElementById("exact-root")); // the bars the glue marks, so their symbols are the size they will be',
-  '  markRoutes(document.getElementById("exact-root"));',
-  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, time: clock.now, answers: answers(Resources, types[2], sourceTypes),',
-  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0 };',
+  '  markRoutes(document.getElementById("exact-root")); markDocument(); // a hidden route\'s page scroller is off the page',
+  '  return { root: document.rootHTML(), title: Head.headTitle, description: Head.headDescription, image: Head.headImage, canonical: Head.headCanonical, robots: Head.headRobots,',
+  // The manifest's origin, against which a crawler's URLs are made absolute (page.rs `page_head`).
+  `    origin: ${JSON.stringify(manifest.app?.origin ?? null)}, status: Head.headStatus ?? null, time: clock.now, answers: answers(Resources, types[2], sourceTypes),`,
+  // Each resource whose source failed, with its message: the server's log names it (render.mjs), as the page cannot.
+  '    failed: Resources.filter(r => r.failed).map(r => `${r.name}: ${r.error}`),',
+  '    pending: Resources.filter(r => r.ticket).map(r => r.name), scrollDocument: document.documentElement.hasAttribute("data-scrolldocument"), render: performance.now() - t0,',
+  // What an inferred activation reads (LLP 1048.007 D1): what is still due, the sources read, the viewport's comparisons as the render saw them.
+  '    due: clock.timers.length > 0 || Mutations.some(m => m.due < Infinity || m.next < Infinity), activation, zoned: !!globalThis.__exactZone,',
+  // Only a TypeScript source is held to no clock and no Math.random (ts-fetch.js): a Rust module's page is never kept.
+  `    rust: ${!!rust},`,
+  '    wake: viewportMedia.map(([query, holds]) => [query, holds(viewportFacts())]) };',
   '};',
 ].join('\n'));
 cpSync(resolve(here, 'checkpoint.js'), resolve(gen, 'checkpoint.js'));
@@ -568,8 +600,12 @@ if (!production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js'))
   if (scoped !== code) writeFileSync(resolve(gen, f), scoped);
 }
 // Bun's bundler, in this process, for the server bundle. A build that
-// renders nothing (the dev loop's) makes no server bundle.
-const how = opt('--render') ?? 'rust';
+// renders nothing (the dev loop's) makes no server bundle. Pages render with
+// the app's native render entry where it has one (`<app>-render`, in an
+// authored crate), else under Bun (LLP 1153 D3.5).
+const renderBin = `${app}-render`;
+const renderAt = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${renderBin}.rs`)));
+const how = opt('--render') ?? (renderAt ? 'rust' : 'js');
 // Inject only into the app's module graph (the capture, under gen), never
 // the copied host runtime. Oxc resolves lexical bindings, so an authored
 // local `fetch` stays local.
@@ -671,6 +707,10 @@ const statics = ['app.js', ...new Set([...readFileSync(resolve(out, 'app.js'), '
 // Declared fonts: a preload each, from the head (LLP 1019; the faces are in app.css).
 const fonts = existsSync(resolve(gen, 'preloads.html')) ? readFileSync(resolve(gen, 'preloads.html'), 'utf8') : '';
 const preloads = fonts + (args.includes('--inline') ? '' : statics.map(f => `<link rel="modulepreload" href="./${f}">\n`).join(''));
+// A rendered page carries only the rules its document can match (page-style.mjs, LLP 1048.007 D4); the runtime adds
+// the whole sheet before its first render (main.js), from style.css.
+writeFileSync(resolve(out, 'style.css'), base + css);
+writeFileSync(resolve(gen, 'page-style.json'), JSON.stringify(analyze(base + css)));
 writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <html lang="${attr(webManifest.lang)}">
 <meta charset="utf-8">
@@ -682,7 +722,11 @@ ${preloads}<style>${base}${css}</style>
 <div id="exact-root"${manifest.audio_session ? ` data-audio-session="${manifest.audio_session}"` : ''}></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
-if (production) {
+if (production && !opt('--plan')) {
+  // No bake, so no envelope to link: the web manifest written above, as a bake's page links it.
+  const links = ['<link rel="manifest" href="./manifest.json">', ...(webManifest.theme_color ? [`<meta name="theme-color" content="${attr(webManifest.theme_color)}">`] : [])];
+  writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`));
+} else if (production) {
   const bake = dirname(resolve(opt('--plan')));
   const links = readFileSync(resolve(bake, 'index.html'), 'utf8').match(/^<(?:link rel="(?:alternate|manifest)"|meta name="theme-color")[^>]*>$/gm) ?? [];
   writeFileSync(resolve(out, 'index.html'), readFileSync(resolve(out, 'index.html'), 'utf8').replace(/(<meta name="viewport"[^>]*>\n)/, `$1${links.map(l => l + '\n').join('')}`)); // its `<html lang>` is already the manifest's, as the bake's is
@@ -771,6 +815,12 @@ if (existsSync(gpuLib)) {
 }
 if (pageModules) cpSync(moduleDirectory(appDir, 'web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
+// Copy each imported package's declared web assets from the capture, to /assets/<package>/<path> (LLP 1154 D2;
+// js/bake/src/typescript.mjs `capturedSources`).
+if (ts) for (const { name, path, file } of (await import(resolve(root, 'js/bake/src/typescript.mjs'))).capturedAssets(tsStage)) {
+  mkdirSync(dirname(resolve(out, 'assets', name, path)), { recursive: true });
+  cpSync(file, resolve(out, 'assets', name, path));
+}
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
@@ -793,38 +843,48 @@ cpSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'), resolv
 rmSync(resolve(out, 'app.plan.map.json'), { force: true });
 if (!production && !opt('--plan') && existsSync(resolve(gen, 'app.plan.map.json'))) cpSync(resolve(gen, 'app.plan.map.json'), resolve(out, 'app.plan.map.json'));
 // The install pages and their data (LLP 1030.003 D6a), as the wasm build
-// writes them (a release carries its bake's, above). The build is named by
-// the program's bytes: the plan and the page's module.
-if (!production) {
+// writes them (a release over a bake carries its bake's, above). The build is
+// named by the program's bytes: the plan and the page's module.
+if (!production || !opt('--plan')) {
   const [{ readManifest }, { writeInstallPages }] = await Promise.all([import('../../scripts/app.mjs'), import('../../scripts/install-page.mjs')]);
-  // A release is `--production`'s, so this is a development build whatever
-  // the shell's EXACT_UPDATE_TRUST; with no bake receipt its reach is unknown.
-  const [source, changes] = await revision;
+  // A release is `--production`'s, so otherwise this is a development build
+  // whatever the shell's EXACT_UPDATE_TRUST; with no bake receipt its reach is unknown.
+  const [source, changes] = await revision ?? [null, null];
   const id = createHash('sha256').update(readFileSync(resolve(out, 'app.plan'))).update(readFileSync(resolve(out, 'app.js'))).digest('hex');
   writeInstallPages(out, readManifest(appDir, app), { id, source, dirty: changes === null ? null : !!changes, builtAt: new Date().toISOString(),
-    mode: 'Development build' });
+    mode: production ? 'Release build' : 'Development build' });
 }
 // The type check, which ran while the page bundled: its diagnostics are the
 // native bake's (host/web/build.mjs keeps them in its summary).
 const typeError = await captured?.typed;
 if (typeError) { console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
-// Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
-// native render entry (`<app>-render`, exact_render) over this shell;
-// `--render js` runs this runtime under Bun (render.mjs). Either page adopts.
-// `--render none` renders nothing: the dev loop's, where every route is the
-// shell and the page builds itself (a render entry rebuilds on every
-// Contract edit, since its crate bakes the plan).
+// Pages at build (LLP 1048.000): `--render rust` (the default where the app
+// has one) runs the app's native render entry (`<app>-render`, exact_render)
+// over this shell; `--render js` runs this runtime under Bun (render.mjs).
+// Either page adopts. `--render none` renders nothing: the dev loop's, where
+// every route is the shell and the page builds itself (a render entry
+// rebuilds on every Contract edit, since its crate bakes the plan).
 const pages = JSON.parse(readFileSync(resolve(gen, 'pages.json'), 'utf8'));
-// The shell a page is composed over stays as shell.html (a render server's, too).
-if (pages.length) cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
+// The shell, before a rendered home page replaces index.html: what a host
+// serves for a route with no page of its own, and what a page is composed
+// over (a render server's, too). And the route table a host serves by
+// (LLP 1153 D3: host/web/serve.mjs `buildTreeFile` applies it).
+cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
+{
+  const { planRouteTable } = await import('../web/serve.mjs');
+  const routes = planRouteTable(readFileSync(resolve(out, 'app.plan'))).map(({ name, pattern, render, notfound }) => ({ name, pattern, render, notfound }));
+  writeFileSync(resolve(out, 'routes.json'), JSON.stringify({ routes }, null, 2) + '\n');
+}
+if (pages.length && !opt('--render') && !renderAt) console.log(`${app}: no ${renderBin} entry, so its pages render under Bun (--render js)`);
 if (pages.length && how === 'rust') {
-  const bin = `${app}-render`;
-  const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));
+  const bin = renderBin, at = renderAt;
   if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
   const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
-  // The render entry runs here as a build tool: the development profile, which the Linux host an agent drives shares.
-  const r = spawnSync('cargo', ['run', '--profile', 'host-dev', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, ...(manifest.app?.origin ? ['--origin', manifest.app.origin] : []), '--shell', resolve(out, 'index.html'), '--build'],
-    { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, EXACT_UPDATE_TRUST: 'development' } });
+  // The render entry runs here as a build tool, in the app's own workspace and target (an authored app outside the
+  // repository has its own, LLP 1153 D1.4): the development profile, which the Linux host an agent drives shares.
+  const renderApp = resolveApp(appDir);
+  const r = spawnSync('cargo', ['run', ...injectedProfiles(renderApp), '--profile', 'host-dev', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, ...(manifest.app?.origin ? ['--origin', manifest.app.origin] : []), '--shell', resolve(out, 'index.html'), '--build'],
+    { cwd: renderApp.workspace, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, CARGO_TARGET_DIR: renderApp.target, EXACT_UPDATE_TRUST: 'development' } });
   if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
   for (const doc of r.stdout.split('\n').filter(Boolean).map(l => JSON.parse(l))) {
     if (doc.error) { console.error(`${bin} ${doc.location}: ${doc.error}`); process.exit(1); }

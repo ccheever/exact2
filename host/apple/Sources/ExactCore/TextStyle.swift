@@ -23,6 +23,7 @@ package enum TextStyle {
                    family: Int(style["font_family"]?.number ?? 0), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(style["letter_spacing"]?.number ?? 0)),
                    numeric: Int(style["font_variant_numeric"]?.number ?? 0),
+                   ligatures: Int(style["font_variant_ligatures"]?.number ?? 0),
                    stretch: CGFloat(Float(style["font_stretch"]?.number ?? 100)),
                    variations: FontAxis.of(style))
     }

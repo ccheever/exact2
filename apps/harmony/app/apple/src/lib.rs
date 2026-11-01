@@ -8,13 +8,12 @@ include!(concat!(env!("OUT_DIR"), "/module.rs"));
 /// the app's grants and the host's storage directories.
 struct Snapback(exact_snapback4::Module);
 impl exact_js::NativeModule for Snapback {
-    fn configure_storage(
-        &mut self,
-        data: std::path::PathBuf,
-        cache: std::path::PathBuf,
-        temporary: std::path::PathBuf,
-    ) -> Result<(), String> {
-        self.0.configure_storage(data, cache, temporary)
+    fn configure_storage(&mut self, storage: exact_js::NativeStorage) -> Result<(), String> {
+        // The adapter admits its partition under its own parse of the grants
+        // until it takes `storage.sqlite` instead (LLP 1154 §5 step 3).
+        let roots = (storage.data(), storage.cache(), storage.temporary());
+        self.0
+            .configure_storage(roots.0.into(), roots.1.into(), roots.2.into())
     }
     fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
         self.0.call(request)

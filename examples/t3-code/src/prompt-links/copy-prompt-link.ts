@@ -5,10 +5,12 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
+import { isAttachmentOnlyPrompt } from '../composer/attachment-only-prompt';
 import { buildNewThreadLink, parsePromptLinkRepository, PROMPT_LINK_MAX_PROMPT_LENGTH, type PromptLinkRepository } from './prompt-links';
 
 export function promptLinkFor(prompt = '', context?: { repository: PromptLinkRepository | null; provider: string | null; model: string | null }): string | null {
-  const trimmed = prompt.trim();
+  // An attachment-only message's prompt shares as nothing (copyPromptLink at 2359643cff).
+  const trimmed = isAttachmentOnlyPrompt(prompt) ? '' : prompt.trim();
   return !trimmed || trimmed.length > PROMPT_LINK_MAX_PROMPT_LENGTH ? null : buildNewThreadLink({ prompt: trimmed, ...context });
 }
 export function promptLinkRepositoryOf(project: Obj | undefined): PromptLinkRepository | null {

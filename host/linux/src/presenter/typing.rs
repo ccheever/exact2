@@ -499,7 +499,9 @@ impl<D: DataSource> Presenter<D> {
     /// D7.3): the Tab stops in tree order, positive `tabindex` values first
     /// in ascending order; from the focus to the next (Shift: the previous),
     /// wrapping, and from no focus, or one out of the order, to the first
-    /// (Shift: the last). A `key` handler's `preventDefault()` keeps Tab.
+    /// (Shift: the last), or from the starting point a fragment set, to the
+    /// next stop in tree order (Shift: the one before it; LLP 1153 D5). A
+    /// `key` handler's `preventDefault()` keeps Tab.
     pub(crate) fn move_focus(&mut self, backward: bool, now_ms: f64) -> Option<String> {
         self.move_focus_filtered(backward, now_ms, |_, _| true)
     }
@@ -525,7 +527,18 @@ impl<D: DataSource> Presenter<D> {
         boxed: &BTreeSet<ViewId>,
     ) -> Option<String> {
         let mut order: Vec<(i64, usize, ViewId)> = Vec::new();
+        let mut start = None;
         for (at, id) in self.host.preorder().into_iter().enumerate() {
+            if Some(id) == self.focus_start {
+                start = Some(at);
+            }
+            // A focused node inside an open popover that is no stop goes on
+            // from its place in tree order, within the popover's scope
+            // (HTML's sequential navigation starting point).
+            if Some(id) == self.focus && !self.tabbable(id, boxed) && self.in_popover(id) {
+                order.push((i64::MAX, at, id));
+                continue;
+            }
             if self.tabbable(id, boxed) {
                 let index = self
                     .host
@@ -538,13 +551,30 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         order.sort_unstable();
+        let order = self.alert_tab_order(order);
         let n = order.len();
+        let placed = self
+            .focus
+            .filter(|f| !self.tabbable(*f, boxed) && self.in_popover(*f));
+        // From a starting point out of the order, the stop nearest it in tree
+        // order, whatever its tabindex, as browsers search (HTML's
+        // "sequential navigation search algorithm").
+        let after = |s: usize| {
+            (0..n)
+                .filter(|&i| order[i].1 > s)
+                .min_by_key(|&i| order[i].1)
+        };
+        let before = |s: usize| {
+            (0..n)
+                .filter(|&i| order[i].1 < s)
+                .max_by_key(|&i| order[i].1)
+        };
         let next = match self.focus.and_then(|f| order.iter().position(|o| o.2 == f)) {
-            _ if n == 0 => return None,
+            _ if n == 0 || n == 1 && placed.is_some() => return None,
             Some(i) if backward => (i + n - 1) % n,
             Some(i) => (i + 1) % n,
-            None if backward => n - 1,
-            None => 0,
+            None if backward => start.and_then(before).unwrap_or(n - 1),
+            None => start.and_then(after).unwrap_or(0),
         };
         self.set_focus(Some(order[next].2), now_ms)
     }
@@ -619,7 +649,7 @@ impl<D: DataSource> Presenter<D> {
     fn key_pressed(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // A held Select chooses nothing in a surface it opened either
         // (LLP 1115.001.003 D3).
-        if repeat && code == "Select" && self.surface_takes_keys() {
+        if repeat && code == "Select" && self.page_inert() {
             return;
         }
         // An open surface of the top layer takes every key (`top.rs`).
@@ -631,8 +661,9 @@ impl<D: DataSource> Presenter<D> {
         if self.shortcut(name, repeat, now_ms) {
             return;
         }
-        // Then a desktop's Back key (LLP 1115.000 D5.4), focus or none.
-        if self.back_key(name) {
+        // Then a desktop's Back or Forward key (LLP 1115.000 D5.4, D5.5),
+        // focus or none.
+        if self.back_key(name) || self.forward_key(name) {
             self.back_key_down(name, code, repeat, now_ms);
             return;
         }

@@ -12,7 +12,9 @@ shape DetailsItems
   servers: bool
   automations: bool
   lineage: bool
+  sideChats: bool
   usage: bool
+  context: bool
 
 shape DetailsItemRow
   id: string
@@ -42,11 +44,11 @@ shape ThreadServersView
 shape UsageRow
   id: string
   label: string
-  left: number
+  fill: number // the bar's fill, 0 to 100; -1: no bar
+  tick: number // a marker on the bar (where context compacts), 0 to 100; -1: none
   value: string
   tone: string
   muted: bool
-  spaced: bool
   aria: string
   tip: string
   tipLines: string[]

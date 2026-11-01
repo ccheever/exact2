@@ -6,7 +6,7 @@
 // T3 Code 9c161462c9: the Working shelf orders by the last authored send
 // (threadInbox.ts sortWorkingThreadsBySend); the active shelf keeps the return order.
 import { pendingSubagentRequest } from './subagent-requests';
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 
 export type SidebarSection = 'pinned' | 'active' | 'working' | 'snoozed' | 'settled';
 export type SidebarStatus = 'approval' | 'input' | 'working' | 'waiting' | 'failed' | 'limited' | 'ready';
@@ -180,9 +180,9 @@ export function sectionOf(thread: Obj, caps: Caps, now: number, workingShelf: bo
   if (thread.pinnedAt != null) return 'pinned';
   return workingShelf && isWorking(thread) ? 'working' : 'active';
 }
-/** filterSidebarV2VisibleThreads: archived and subagent threads stay out of the list. */
+/** filterSidebarV2VisibleThreads: archived, subagent and side chat threads stay out of the list. */
 export function sidebarVisible(thread: Obj): boolean {
-  return thread.archivedAt == null && thread.deletedAt == null && obj(thread.lineage).relationshipToParent !== 'subagent';
+  return thread.archivedAt == null && thread.deletedAt == null && isListedThreadLineage(thread.lineage);
 }
 
 const byId = (left: Obj, right: Obj) => str(left.id).localeCompare(str(right.id));

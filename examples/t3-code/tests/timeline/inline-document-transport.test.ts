@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
-import { contractComponent } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
+
+import { contractComponent } from '../support/contract-action-fixture';
 
 // These messages can arrive in one load turn, and ACKs can overlap RPC replies.
 // They must use the runner's ordered mutation rather than newest-answer wins.

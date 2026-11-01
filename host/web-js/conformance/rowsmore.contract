@@ -1,7 +1,7 @@
 // data: interaction-gallery
 // Synthetic conformance plan: the dynamic rows that are not one declaration
 // of their own (LLP 1071 §7): `box-shadow`, `font-family` (a stack),
-// `line-clamp`, `font-variant-numeric`, `-exact-press-scale`, an `animation` and a
+// `line-clamp`, `font-variant-numeric`, `font-variant-ligatures`, `-exact-press-scale`, an `animation` and a
 // `transition` on a pressed node, an SVG `transform`, a marker and a paint
 // server named by `url(#…)`, resolved within the node's own instance.
 keyframes pop
@@ -24,6 +24,7 @@ component RowsMore
       text "Mixed families" testId="family" font-family=(on ? "Missing, serif, sans-serif" : "Missing, monospace") font-size=18
       text "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty" testId="clamped" width=200 line-clamp=(on ? 1 : 3)
       text "0123456789" testId="digits" font-variant-numeric=(on ? "tabular-nums" : "normal") font-size=18
+      text "office -> a://b" testId="ligatures" font-variant-ligatures=(on ? "none" : "normal") font-size=18
       button press=flip testId="squeeze" -exact-press-scale=(on ? 0.7 : 0.9) width=160 height=48 background-color="#0ea5e9" border-width=0
         text "squeeze"
       button press=flip testId="pops" -exact-press-scale=0.9 width=160 height=48 background-color="#16a34a" border-width=0 animation=(on ? "pop 1s linear -500ms paused" : "glow 1s linear -500ms paused") transition=(on ? "scale 200ms ease-out, opacity 200ms" : "none")

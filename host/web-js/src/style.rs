@@ -1347,6 +1347,7 @@ pub fn style_row(id: u16, written: bool) -> Result<(String, String), String> {
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
+            | StyleId::FontVariantLigatures
             // One `vertical-align`, a keyword or a length (LLP 1011.002 D3).
             | StyleId::VerticalAlign
             | StyleId::BaselineShift
@@ -1449,6 +1450,37 @@ pub(crate) fn other_side(id: StyleId) -> Option<StyleId> {
         StyleId::MarginRight => StyleId::MarginLeft,
         _ => return None,
     })
+}
+
+/// Right to left, a side its author binds keeps the sheet's other side
+/// physical in the class (`static_tree`) while it has a value. Unset, neither
+/// side is the author's and the sheet's pair mirrors, as the kernel's
+/// `mirror_unsaid` has it: inline logical sides, which outrank the class's
+/// physical ones, say the pair as css.rs would. The writes for the bound side
+/// `id`, given its class's `css`; none when the sheet sets no other side.
+pub(crate) fn unset_mirrors(id: StyleId, css: &str) -> Vec<(String, String, Option<String>)> {
+    let sheet = |row: StyleId| {
+        let name = format!("{}:", css_property(row));
+        css.split(';')
+            .find_map(|d| d.strip_prefix(name.as_str()).map(str::to_string))
+    };
+    let Some(theirs) = other_side(id).and_then(sheet) else {
+        return Vec::new();
+    };
+    let own = sheet(id).unwrap_or_else(|| "0px".into());
+    let left = matches!(id, StyleId::PaddingLeft | StyleId::MarginLeft);
+    let (start, end) = if left { (own, theirs) } else { (theirs, own) };
+    let side = match id {
+        StyleId::PaddingLeft | StyleId::PaddingRight => "padding",
+        _ => "margin",
+    };
+    [("start", start), ("end", end)]
+        .into_iter()
+        .map(|(edge, value)| {
+            let map = format!("v=>v==null?{value:?}:null");
+            (format!("{side}-inline-{edge}"), String::new(), Some(map))
+        })
+        .collect()
 }
 
 #[cfg(test)]

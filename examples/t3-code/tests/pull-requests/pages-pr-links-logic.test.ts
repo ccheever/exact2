@@ -111,7 +111,11 @@ describe('pullRequestCandidateUrlFromReferenceAutolink', () => {
   test("turns GitHub's shared issue route into a pull request candidate", () => {
     expect(pullRequestCandidateUrlFromReferenceAutolink('https://github.com/pingdotgg/t3code/issues/8600#issuecomment-1')).toBe('https://github.com/pingdotgg/t3code/pull/8600#issuecomment-1');
   });
+  test('reads GitHub Enterprise Cloud hosts under ghe.com', () => {
+    expect(pullRequestCandidateUrlFromReferenceAutolink('https://acme.ghe.com/team/app/issues/12')).toBe('https://acme.ghe.com/team/app/pull/12');
+  });
   test('does not reinterpret other issue hosts or malformed references', () => {
+    expect(pullRequestCandidateUrlFromReferenceAutolink('https://ghe.example.com/team/app/issues/12')).toBeNull();
     expect(pullRequestCandidateUrlFromReferenceAutolink('https://gitlab.com/pingdotgg/t3code/-/issues/8600')).toBeNull();
     expect(pullRequestCandidateUrlFromReferenceAutolink('https://github.com/pingdotgg/t3code/issues/not-a-number')).toBeNull();
   });

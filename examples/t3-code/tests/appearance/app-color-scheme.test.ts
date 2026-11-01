@@ -11,9 +11,9 @@ import { decodeClientPrefs } from '../../src/settings/settings-core';
 import { settingsCore } from '../../src/settings/settings-core-view';
 import { editorView, syncDraft } from '../../src/appearance/settings-appearance-editor';
 import type { CustomTheme } from '../../src/appearance/settings-themes';
-import { appText, appFiles } from '../support/app-files';
+import { appFiles, appPath } from '../support/app-files';
 
-const source = (file: string) => appText(file);
+const source = (file: string) => Bun.file(appPath(file)).text();
 const contracts = appFiles().filter(file => file.endsWith('.contract')).sort();
 const DERIVE = '  derive scheme = ';
 

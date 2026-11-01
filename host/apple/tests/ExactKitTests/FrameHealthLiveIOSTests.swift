@@ -74,10 +74,10 @@ final class FrameHealthLiveIOSTests: XCTestCase {
         XCTAssertEqual(FrameClock.shared.linksMade, clock)
         let observed = expectation(description: "native scroll updates reach the passive observer")
         var seen = false
-        session.frameHealth.inspected = {
+        session.frameHealth.changed = {
             if !seen, observer.health.snapshot().callbacks > 0 { seen = true; observed.fulfill() }
         }
-        defer { session.frameHealth.inspected = nil }
+        defer { session.frameHealth.changed = nil }
         scroll.contentSize = CGSize(width: 320, height: 4000)
         scroll.setContentOffset(CGPoint(x: 0, y: 100), animated: true)
         wait(for: [observed], timeout: 10)

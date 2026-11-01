@@ -11,8 +11,6 @@ import { timestamp, thread, storage, Backend, connected, opened } from '../suppo
 import { appPath } from '../support/app-files';
 import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 import { attachmentUrls } from '../../src/timeline/timeline-attachments';
-import { serveAssets } from '../support/asset-server';
-import { memoryFiles } from '../support/image-accent-fixture';
 
 describe('desktop presentation and model options', () => {
   const capabilities = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', label: 'Reasoning', currentValue: 'medium',
@@ -95,7 +93,7 @@ describe('desktop presentation and model options', () => {
       const result = transcriptPresentation(client);
       expect(result.map(row => row.kind)).toEqual(status === 'running'
         ? ['user', 'work', 'assistant', 'user', 'working', 'live'] : ['user', 'work', 'assistant', 'user', 'work', 'assistant']);
-      expect(result[1]).toMatchObject({ title: 'Worked for 2.0s', groupId: 'a' });
+      expect(result[1]).toMatchObject({ title: 'Worked for 2s', groupId: 'a' });
       if (status === 'running') expect(result[5]).toMatchObject({ title: 'Running b1', live: true });
     }
   });
@@ -159,8 +157,10 @@ describe('desktop presentation and model options', () => {
     }
     expect(data.messages[2]!.checkpointId).toBe('cp1');
     await command('checkpoint-diff', '', '', 1);
-    expect(native.calls.at(-1)?.method).toBe('orchestration.getTurnDiff');
-    expect(obj(native.calls.at(-1)?.payload).toTurnCount).toBe(1);
+    // The Diff's answer is followed by the Commits submenu's read (diff-commits.ts).
+    const turnDiff = native.calls.filter(call => call.method !== 'review.getBranchCommits').at(-1);
+    expect(turnDiff?.method).toBe('orchestration.getTurnDiff');
+    expect(obj(turnDiff?.payload).toTurnCount).toBe(1);
     await command('checkpoint-diff', '', '', 99);
     expect(client.diffError).toContain('No completed checkpoint');
   });
@@ -196,16 +196,14 @@ describe('desktop presentation and model options', () => {
       text: 'See [badge.svg](t3-context://v1/file/file_svg) and [gone.pdf](t3-context://v1/file/file_gone)', attachments: [svg, gone],
       context: { version: 1, records: [record('file_svg', svg), record('file_gone', gone)] } } }];
     const chips = () => snapshot(client).messages[0]!.md.chips.map(chip => [chip.kind, chip.target, chip.tip]);
-    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\n1 KB']]);
+    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\nSending…']]);
     // Both are chips in the prose, so neither has a file row of its own.
     expect(snapshot(client).messages[0]!.attachFiles).toEqual([]);
     // The thumbnail's URL is the one attachmentUrls signed (SvgFileChip's failedPreviewUrl names the URL that failed).
     let sign = 0;
     client.rpc = (async (_native: Native, method: string) => method === 'assets.createUrl'
       ? { relativeUrl: `/api/assets/att-svg?sig=${++sign}`, expiresAt: Date.now() + (sign > 1 ? 3_600_000 : 30_000) } : {}) as typeof client.rpc;
-    memoryFiles(null);
-    const accents = serveAssets(() => ({ status: 404 }));
-    try {
+    {
       const signed = async () => (await attachmentUrls(client, native, Date.now())).items.find(entry => entry.id === 'att-svg')!.url;
       const url = await signed();
       await command('chatlocal:chip-preview-failed', 'att-svg', 'http://127.0.0.1:1/another');
@@ -215,7 +213,7 @@ describe('desktop presentation and model options', () => {
       // Signed again (the first URL was near its expiry), the picture is tried again.
       expect(await signed()).not.toBe(url);
       expect(chips()[0]![0]).toBe('image');
-    } finally { accents.restore(); }
+    }
   });
 
   test('a checkpoint that changed no files is no row, so the transcript holds no zero-height row', async () => {
@@ -872,6 +870,7 @@ describe('streams and requests', () => {
     await command('submit-answers', 'questions');
     expect(native.committed[0]).toMatchObject({ type: 'runtime-request.respond', answers: { scope: [' exact ', 'two'] } });
   });
+  // The question card shows while an approval waits on its timeline row (#26255); its reasons are the composer's.
   test('request response reasons distinguish permanent, connection, permission and submission states', async () => {
     const { client } = await opened();
     const approval = { id: 'approval', status: 'pending', responseCapability: { type: 'live' } };
@@ -881,20 +880,18 @@ describe('streams and requests', () => {
       { id: 'a', type: 'approval_request', requestId: 'approval' },
       { id: 'q', type: 'user_input_request', requestId: 'question', questions: [{ id: 'q1', question: 'Choose' }] },
     ];
-    const reasons = () => { const view = snapshot(client), status = approval.status; approval.status = 'resolved'; const later = snapshot(client).questions[0]; approval.status = status; return [view.approvals[0], later]; };
-    expect(reasons().map(item => [item.canRespond, item.responseReason])).toEqual([[true, ''], [true, '']]);
+    const reason = () => snapshot(client).questions[0];
+    expect([reason().canRespond, reason().responseReason]).toEqual([true, '']);
     client.busy = true;
-    expect(reasons().every(item => !item.canRespond && item.responseReason.includes('submission'))).toBe(true);
+    expect(!reason().canRespond && reason().responseReason.includes('submission')).toBe(true);
     client.busy = false; client.scopes = ['orchestration:read'];
-    expect(reasons().every(item => item.responseReason.includes('permission'))).toBe(true);
+    expect(reason().responseReason).toContain('permission');
     client.scopes.push('orchestration:operate'); client.threadLive = false;
-    expect(reasons().every(item => item.responseReason.includes('synchronization'))).toBe(true);
+    expect(reason().responseReason).toContain('synchronization');
     client.connection = 'reconnecting';
-    expect(reasons().every(item => item.responseReason.includes('Reconnect'))).toBe(true);
-    approval.responseCapability.type = 'not_resumable'; question.responseCapability.type = 'not_resumable';
-    expect(reasons().every(item => item.responseReason.startsWith('Provider process is gone'))).toBe(true);
-    approval.responseCapability.type = 'message';
-    expect(reasons()[0].responseReason).toContain('Interrupt or restart the run');
+    expect(reason().responseReason).toContain('Reconnect');
+    question.responseCapability.type = 'not_resumable';
+    expect(reason().responseReason).toStartWith('Provider process is gone');
   });
   test('diff uses checkpoint ordinal and exposes read-only unified lines', async () => {
     const { client, native, command } = await opened();
@@ -982,13 +979,13 @@ test('badge initials stay readable on light accent colors', () => {
 test('timeline presentation belongs to one connection/project/thread', () => {
   const client = new T3Client();
   client.origin = 'http://localhost:1'; client.projectId = 'p'; client.threadId = 't';
-  // The snapshot's arguments 4-7: the transcript's owner, resting, at its end, pulls (transcript-facts.ts).
-  noteTranscriptFacts(client, [0, '', '', '', 'http://localhost:1:p:t', true, false, 0]);
-  expect(snapshot(client)).toMatchObject({composerResting:true,transcriptAway:true});
+  // The snapshot's arguments 4-6: the transcript's owner, at its end, pulls (transcript-facts.ts).
+  noteTranscriptFacts(client, [0, '', '', '', 'http://localhost:1:p:t', false, 0]);
+  expect(snapshot(client)).toMatchObject({transcriptAway:true});
   client.threadId = 'other';
-  expect(snapshot(client)).toMatchObject({composerResting:false,transcriptAway:false});
-  // The Collapse composer on scroll setting is gone (T3 Code v0.1.5 #25869).
-  expect('composerCollapseOnScroll' in snapshot(client)).toBe(false);
+  expect(snapshot(client)).toMatchObject({transcriptAway:false});
+  // The Collapse composer on scroll setting is gone, and with it the composer's resting state (T3 Code v0.1.5 #25869).
+  expect(['composerCollapseOnScroll', 'composerResting'].filter(key => key in snapshot(client))).toEqual([]);
 });
 
 

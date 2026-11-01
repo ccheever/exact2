@@ -1,4 +1,4 @@
-// Hosts too old for this client (T3 Code 74541bab17, MIT, see LICENSE-T3: connection/compatibility.ts,
+// Hosts too old for this client (T3 Code 2359643cff, MIT, see LICENSE-T3: connection/compatibility.ts,
 // onboarding.ts preparePairingRegistration, outdatedHostUpdate.ts updateOutdatedHost, resolver.ts
 // prepareForUpdate, registry.ts setCompatibility, state/server.ts updateServer). A host whose orchestration
 // protocol is older cannot open a session, but one that can update itself is still paired and can be
@@ -40,6 +40,8 @@ interface Run {
   slot: number; step: number; url: string; openDeadline: number;
   /** The progress result (`complete`), which wins over a socket lost after it. */
   terminal: Obj | null;
+  /** A progress event arrived: the server accepted the update, so a socket lost at the handoff is the restart. */
+  progressed: boolean;
   commitSent: boolean;
   label: string; selfUpdate: string; deadline: number; nextPollAt: number; stepRunning: boolean;
 }
@@ -160,7 +162,7 @@ export class OutdatedHosts {
       label: str(request.label), mode: connected ? 'connected' : 'outdated', attempt: String(this.attempts) };
     this.hooks.changed();
     this.runs.set(key, { key, origin, environment, target, connected, capabilities: obj(request.capabilities), phase: 'waiting', slot: -1, step: 0, url: '',
-      openDeadline: 0, terminal: null, commitSent: false, label: '', selfUpdate: '', deadline: 0, nextPollAt: 0, stepRunning: false });
+      openDeadline: 0, terminal: null, progressed: false, commitSent: false, label: '', selfUpdate: '', deadline: 0, nextPollAt: 0, stepRunning: false });
     this.assign();
     return { started: true, attempt: String(this.attempts) };
   }
@@ -277,7 +279,10 @@ export class OutdatedHosts {
         if (id === '1') for (const value of Array.isArray(frame.values) ? frame.values : []) {
           const event = obj(value);
           if (event.type === 'complete' && typeof event.result === 'object') run.terminal = obj(event.result);
-          else if (event.type === 'progress' && ['downloading', 'installing'].includes(str(event.stage))) this.setJob(run.key, { stage: str(event.stage) });
+          else if (event.type === 'progress') {
+            run.progressed = true;
+            if (['downloading', 'installing'].includes(str(event.stage))) this.setJob(run.key, { stage: str(event.stage) });
+          }
         }
         send({ _tag: 'Ack', requestId: frame.requestId });
         continue;
@@ -308,7 +313,11 @@ export class OutdatedHosts {
       // resolveServerUpdateProgressResult: the terminal event wins over a lost handoff.
       if (result.failure !== undefined) return this.fail(run.key, result.failure);
       if (run.terminal) return finish(run.terminal);
-      if (result.dropped !== undefined) return this.fail(run.key, result.dropped);
+      if (result.dropped !== undefined) {
+        // A desktop-app update needs its terminal commit token, so only these two methods are accepted without one.
+        if (run.progressed && (run.selfUpdate === 'boot-service' || run.selfUpdate === 'respawn')) return finish({ targetVersion: run.target, method: run.selfUpdate });
+        return this.fail(run.key, result.dropped);
+      }
       return this.fail(run.key, `The t3@${run.target} update ended before the server accepted the restart.`);
     }
     if (result.failure !== undefined) return this.fail(run.key, result.failure);
@@ -341,7 +350,7 @@ export class OutdatedHosts {
     // A connected server resumed once it reports the target version (matchesServerUpdateReadyEvent).
     if (run.connected) {
       if (descriptor && str(descriptor.serverVersion) === run.target) { this.end(run.key); this.setJob(run.key, { status: 'done', resultVersion: run.target }); return; }
-      if (this.hooks.now() >= run.deadline) { this.fail(run.key, `The server did not resume on t3@${run.target}.`); return; }
+      if (this.hooks.now() >= run.deadline) { this.fail(run.key, `Could not confirm that the server resumed on t3@${run.target}. Reconnect to check the update outcome.`); return; }
     } else {
       if (descriptor && protocolOf(descriptor) === PROTOCOL_VERSION) {
         this.switchBackOn(run, descriptor);

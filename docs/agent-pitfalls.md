@@ -13,6 +13,18 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **In the web build, a view that leaves with an exit animation can jump as it starts
+  to fade.** Symptom: the leaving view starts its exit higher or lower than it was,
+  when the same action also changes its parent's layout, such as a top padding that is
+  there only while the view shows. iOS and macOS keep it in place. Cause: the web
+  build (the JS target) reads a leaving view's box during its page update, after it
+  has already applied the action's other changes; iOS and macOS read it before any
+  change ([LLP 1063](../llp/1063-presence-and-layout-motion.rfc.md), "Known gaps"). What to
+  do: give the space to the leaving view instead of its parent, for example a
+  `margin-top` on a banner in place of a column's `padding-top` that follows whether a
+  banner shows, so the action that removes the view does not also change its
+  parent's layout. (A vehicle app's offline banner, 2026-10-30.)
+
 - **An unknown-size image stays blank after disclosure.** On Windows, an auto-height
   wrapper around a percentage-width image can leave the image at zero height before
   decoding. The lazy loader then sees no visible area to load. Give the image a fallback
@@ -204,6 +216,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `border-top-width=1 border-top-style="solid"`. (T3 Code clone's terminal drawer,
   whose panes lost 6 px to side borders, 2026-10-06; reproduced on the web and
   macOS, 2026-10-12.)
+
+- **A button in a table's numeric column stays at the cell's start.** A sort button in a
+  `th text-align="end"` sat at the left of its column while the numbers under it lined up
+  at the right. Cause: a bare node is `display: block`, a `button` too, where HTML's
+  `<button>` is `inline-block`; `text-align` places inline content, not a block. Fix:
+  `margin-left="auto"` on the button, as a block's auto margin places it. (The `site`
+  pattern's sortable table, LLP 1153 D8; reproduced on the web, 2026-10-30.)
 
 ## Lists and scrolling
 
@@ -481,18 +500,6 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
   and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
   rough 4 and 11; Recipe Finder, round 27.)
-- **An external touch needs a second tap under the agent.** `timing: 'platform'`
-  keeps UIKit animations natural; the agent still controls runner scheduling.
-  External gestures can leave mutation continuations or tasks waiting for a
-  clock advance. Use the driver's clock for a diagnostic, then compare an
-  ordinary launch without `EXACT_AGENT` before calling this an app defect.
-  T3 Code's first Home tap worked in that ordinary comparison.
-- **The iOS app renders but the agent handshake times out.** A deeply nested
-  task-private `TMPDIR` can make the agent's Unix socket path exceed the host's
-  length limit. Use a short, task-owned temporary directory, such as
-  `/private/tmp/exact-<task-id>`, and retain its ownership and cleanup record.
-  Shortening that path restored the handshake without rebuilding the app.
-  (T3 Code Review qualification, ENG-28508.)
 - **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
   takes the free height it is given, so a `button` written after it lands at that
   space's foot. Fix: indent the button under the `EmptyState` call, its slot.
@@ -1169,39 +1176,17 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Driving and testing
 
-- **`bun test` reports that a test is outside the test runner.**
-  Importing `scripts/app.mjs` calls `ensureBun()`. If it selects another Bun
-  executable, re-execution carries the script arguments but loses Bun's `test`
-  mode. Set `BUN` to the pinned executable you invoke, even when both paths
-  report the same version. (Main integration, 2026-10-28;
-  [executable selection](../scripts/bun.mjs), `ensureBun`.)
-
-- **An iOS release simulator build keeps a separate version stamp.**
-  `EXACT_VERSION` and `EXACT_BUILD_NUMBER` enter the iOS bundle through
-  `distributionKeys` only when `--archive` writes an IPA. A `--ios --release`
-  build can still report `0.1.0 (1)` with those variables set. Inspect each
-  artifact's `Info.plist` separately before claiming its version or source.
-  (T3 release verification, 2026-10-28;
-  [bundle assembly](../host/apple/bundle.mjs), `assembleIOS`.)
+- **A production bake does not open an agent socket.** Its baked
+  `embedded.trust="production"` makes the host ignore `EXACT_AGENT` and
+  `EXACT_AGENT_*`, including `EXACT_AGENT_SOCKET` and `EXACT_AGENT_LIVE`,
+  with a message on stderr. Check the binary's `--exact-receipt` and use a
+  development bake for an agent drive. A release benchmark needs its own
+  probe or ordinary input. (LLP 1069.007 D2; M10 cut 2, 2026-10-31.)
 
 - **A temporary import fixture says a sibling `use` leaves the app directory.**
   Canonicalize its directory before passing the entry path to the compiler. On
   macOS, `/var` aliases `/private/var`; mixing those paths makes the containment
   check reject the sibling. (`contract-property-cone`, 2026-10-28.)
-
-- **A private preview fixture cannot import an app's components.**
-  The entry file's parent is its app root. An unnamed relative `use` must stay
-  inside that root. Put the temporary entry beside the app's components,
-  compile its plan into private output, and remove the entry in `finally`.
-  [Source boundary](../contract/cli/src/lib.rs), `app_root`.
-
-- **Restored app sources still report implicit `any` in callbacks.**
-  A temporary Contract entry can replace the ignored `app.contract.d.ts` with
-  fixture signatures. Restore the original entry and data files, then regenerate
-  declarations with `target/debug/contract types <app>/app.contract -o
-  <app>/app.contract.d.ts` before strict TypeScript checking. Restoring tracked
-  bytes alone does not restore these generated signatures. (T3 preview fixture,
-  2026-10-29.)
 
 - **A timer has fired before the next assertion although the test has no clock line.**
   The test driver advances one millisecond per mutation request after each step,
@@ -1731,6 +1716,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Working on exact2 itself
 
+- **A CDP adapter re-sends known children and Styles stays empty.**
+  `DOM.setChildNodes` replaces the frontend's node objects. Repeating it for
+  children already introduced can leave the selected object different from
+  the DOM model's current object of the same id; the matched-style result is
+  then discarded. Introduce children once per document, and invalidate ids on
+  `DOM.documentUpdated`. Source-linked styles also need property ranges inside
+  their style range, or the frontend hides their declarations. Verified with
+  stock Chrome 156.0.8078.74 in LLP 1155's stub gate (2026-10-30).
+
+- **The Mac agent carrier is not exported by `agent-launch.mjs`.**
+  Use `open` from `agent.mjs`, or its underlying `openStdio` from
+  `agent-stdio.mjs`; the session's `op` sends a wire request. `agent-launch.mjs`
+  contains shared helpers and the browser's `Cdp` client, not `launch`/`send`
+  exports. LLP 1155's implementation brief named the wrong module.
+
 - **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
   `./navigation.js` and other relative imports are supplied beside it by the
   web build, so `bun build host/web-js/rt.js` is not a valid host build. Use
@@ -1902,6 +1902,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
 
+- **A package's prebuilt library, built by Cargo on a Mac, fails the app's link.** With
+  `MACOSX_DEPLOYMENT_TARGET` set, the dylib Xcode 27's `strip` leaves from Cargo's release
+  default (strip debug info) is one ld refuses ("mis-aligned LINKEDIT string pool"; the root
+  `Cargo.toml` says the same of build scripts). Set `strip = false` in the library's
+  `[profile.release]` (`packages/fixtures/vault/library/Cargo.toml`). (LLP 1154, 2026-10-31.)
+
+- **A package's `web.assets` are missing from the web build.** The bake captures a package,
+  and its assets with it, only when `app.ts` imports it: import its driver even if the app
+  uses nothing from it yet. (LLP 1154, 2026-10-31.)
+
+- **A file added to a `file:` package does not reach the app.** Bun installs a `file:`
+  package as directories of links to the files it had then: an edit to one reaches the app at
+  once (and the bake's `#[path]` names the source), but a new file, an `exact.json` or a
+  shim, is not in `node_modules` until the next `bun install`. (LLP 1154, 2026-10-31.)
+
 ## Games
 
 A game's pitfalls (the world and its saves, game input, its tests, proof and setup)
@@ -1909,15 +1924,6 @@ are in [game-pitfalls.md](game-pitfalls.md).
 
 
 ## Access hatches
-
-- **A native view stays in `error` after its resource becomes ready.** A cold
-  startup can supply an empty resource placeholder to the factory. A refused
-  create has no handle, so `NativeViews.update` cannot apply later props
-  (`host/apple/Sources/ExactKit/NativeModule.swift`). Mount the tag only when
-  its required configuration and route key are present, as T3 Code's
-  `mobile/home-chrome.contract` and `mobile/mobile-keyboard.contract` do.
-  On EAS, their empty configurations caused factory refusals; conditional
-  mounts let both factories reach `ready` after the resources completed.
 
 - **Published diagnostics stop gaining keys, or repeated elements overwrite
   one another.** `element.diagnostics` is scoped to the hatch word. The session

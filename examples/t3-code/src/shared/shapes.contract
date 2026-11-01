@@ -4,6 +4,7 @@ use SecretCardView from "../timeline/secret-card.contract"
 use TimelineApproval from "../timeline/timeline-approval.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
+use DiffCommitsView from "../diff/diff-commits-shapes.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/mermaid-frame.contract"
 use MathFrame from "../timeline/markdown-math.contract"
@@ -18,7 +19,6 @@ use ComposerView from "../composer/composer-shapes.contract"
 use Thread from "../sidebar/sidebar-shapes.contract"
 use ChatGptPlanNotice from "../providers/codex-setup.contract"
 use SidebarView from "../sidebar/sidebar-shapes.contract"
-use LegacySidebarView from "../sidebar/legacy-sidebar-shapes.contract"
 use Look from "../appearance/settings-appearance-look.contract"
 use ComposerVideo from "../composer/composer-video.contract"
 use ComposerVideoPreview from "../composer/composer-video.contract"
@@ -93,14 +93,12 @@ shape Activity
   timeTip: string
   // Upstream 737993303d: the failed run a workspace preparation Retry prepares again.
   retryRunId: string
-  // The inspector's results, and a file change's path, +/- counts and Open diff.
+  // The inspector's results, and a file change's path and +/- counts.
   results: InspectorResult[]
   changePath: string
   stats: bool
   additions: number
   deletions: number
-  diffRunId: string
-  diffPath: string
   // SubagentAvatar's driver mark (`detail` is the driver) and a live agent's start (ms; 0 when settled).
   initials: string
   driverIcon: string
@@ -161,12 +159,21 @@ shape Message
   attribution: string
   // A folded automation or agent message's one line (its task title or first line).
   summary: string
+  // A sent message's shape (timeline-attachments.ts userMessageShape): "" its bubble, "media" its media alone, "files"
+  // file cards, "audio" a bubble-shaped voice note; `mediaAbove` its media above the bubble, `mediaLayout` that media's.
+  shape: string
+  mediaAbove: bool
+  mediaLayout: string
+  copyable: bool
+  // Your back-to-back messages: another of yours directly below or above, and a steer under a steer (its label once).
+  groupedNext: bool
+  groupedPrevious: bool
+  continuesSteer: bool
   // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
   sender: string
   targetId: string
   actionLabel: string
   copied: number
-  copyFailed: bool
   meta: bool
   collapsible: bool
   code: CodeHighlight[]
@@ -178,6 +185,9 @@ shape Message
   codeCopied: string
   codeCopyNonce: number
   fileCount: number
+  // A checkpoint's "N changed files" over all its files, and "N more files in the full diff" when the wire sent a prefix.
+  filesLabel: string
+  moreFiles: string
   images: MessageImage[]
   attachFiles: MessageFile[]
   // A sent message's sounds, each an audio chip (timeline-audio.contract).
@@ -204,29 +214,6 @@ shape ModelOption
   value: string
   selected: bool
   default: bool
-shape ApprovalOption
-  id: string
-  label: string
-  warning: string
-  primary: bool
-shape Approval
-  id: string
-  label: string
-  appName: string
-  count: string
-  mono: bool
-  detail: string
-  // The composer's presentation (requests.ts) carries these too; a snapshot field outside its shape refuses it whole.
-  reason: string
-  whyAsked: string
-  feedback: bool
-  canRespond: bool
-  operable: bool
-  live: bool
-  responding: bool
-  responseReason: string
-  options: ApprovalOption[]
-  more: ApprovalOption[]
 shape QuestionOption
   id: string
   label: string
@@ -494,7 +481,6 @@ shape Snapshot
   modelShortLabel: string
   modelUnavailable: bool
   planModeEnabled: bool
-  composerResting: bool
   transcriptAway: bool
   // composer-overlay.ts: the transcript's end reservation under the composer overlay, the Scroll to end pill's rise,
   // and the composer height the column keeps (the terminal drawer's cap, the empty timeline's centring).
@@ -529,6 +515,8 @@ shape Snapshot
   diffScopeLabel: string
   diffScope: string
   diffTurns: DiffTurn[]
+  // The Commits submenu and a shown commit's short SHA (diff-commits.ts).
+  diffCommits: DiffCommitsView
   diffLatestSelected: bool
   diffCanRefresh: bool
   diffLayout: string
@@ -573,8 +561,6 @@ shape Snapshot
   searchFirstId: string
   threads: Thread[]
   sidebar: SidebarView
-  // General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
-  legacy: LegacySidebarView
   messages: Message[]
   // The transcript's rows its window keeps mounted (timeline-kept-rows.ts): the first and last message, a playing
   // sound's row and a full-screen app's.
@@ -608,7 +594,6 @@ shape Snapshot
   planSaveRow: string
   providers: Provider[]
   models: Model[]
-  approvals: Approval[]
   questions: Question[]
   requestMode: string
   requestKey: string

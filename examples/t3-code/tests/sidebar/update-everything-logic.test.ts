@@ -1,4 +1,4 @@
-// Ported from T3 Code 9c161462c9 updateEverything.logic.test.ts (MIT; LICENSE-T3).
+// Ported from T3 Code 2359643cff updateEverything.logic.test.ts (MIT; LICENSE-T3).
 import { obj } from '../../src/client/domain';
 type ServerSelfUpdateCapability = "boot-service" | "respawn" | "desktop-managed";
 const EnvironmentId = { make: (id: string) => id };
@@ -383,22 +383,18 @@ describe("update everything summary", () => {
   });
 });
 
-describe("collectServerUpdateTargets npm wait", () => {
-  it("waits for npm only for hosts that install from it or when the release may lack archives", () => {
+describe("collectServerUpdateTargets without a registry precheck", () => {
+  it("lists hosts that install from npm at once: each server's updater checks the release before it restarts", () => {
     const hosts = [
       machine("archive-service", "0.1.4", "boot-service"),
       machine("npm-service", "0.0.40", "boot-service"),
       machine("legacy-respawn", "0.1.4", "respawn"),
-      machine("desktop", "0.1.4", "desktop-managed"),
     ];
-    const waits = (releaseArchivesPublished: boolean) =>
-      collectServerUpdateTargets(hosts, "0.1.5", releaseArchivesPublished).waitForNpm.map(
-        (target) => target.serverLabel,
-      );
-
-    expect(waits(true)).toEqual(["npm-service", "legacy-respawn"]);
-    // This app has no desktop update feed, so its archives never count as published.
-    expect(waits(false)).toEqual(["archive-service", "npm-service", "legacy-respawn"]);
+    expect(collectServerUpdateTargets(hosts, "0.1.5")).toEqual({
+      targets: [expect.objectContaining({ serverLabel: "archive-service" }), expect.objectContaining({ serverLabel: "npm-service" }),
+        expect.objectContaining({ serverLabel: "legacy-respawn" })],
+      skipped: [],
+    });
   });
 });
 
@@ -455,3 +451,4 @@ describe("describeUpdateEverything", () => {
     ).toBe("Update 1 provider");
   });
 });
+

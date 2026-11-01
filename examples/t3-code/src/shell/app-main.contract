@@ -9,6 +9,7 @@ use StashBadge from "../composer/composer-editor.contract"
 use ComposerEditorView from "../composer/composer-editor.contract"
 use ComposerDock from "../composer/composer-controls.contract"
 use ComposerStrip from "../composer/composer-controls.contract"
+use ComposerDetachedNotices from "../composer/composer-controls.contract"
 use SubagentBar from "../composer/composer-controls.contract"
 use ComposerBranches from "../composer/composer-shapes.contract"
 use Viewport from "../shared/shapes.contract"
@@ -39,7 +40,6 @@ use TimelineMinimap, turnRunStart, turnRunEnd, turnBefore from "../timeline/time
 use TimelineAnchor, anchorOf, anchorKept, anchorKey from "../timeline/timeline-anchor.contract"
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
 use RequestBanner from "../composer/requests.contract"
-use RequestActions from "../composer/requests.contract"
 use DiffPanel from "../diff/diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
@@ -97,7 +97,6 @@ component ChatColumn
     releaseFold: action
     jumpRequest: number
     composerOwner: string
-    canRest: bool
     chatLocal: action
     markdown: TranscriptMarkdown
     earlier: action
@@ -257,7 +256,7 @@ component ChatColumn
       scrollIntoView("transcript", target, offset=-24, behavior="instant")
     else if target != ""
       scrollIntoView("transcript", target, offset=-24, behavior="smooth")
-  // The reader's wheel ends a citation's placement (the root's citePlace) and is the composer's resting gesture.
+  // The reader's wheel ends a citation's placement (the root's citePlace); toward the end it may be a pull (restGesture).
   action transcriptWheel(e: WheelEvent)
     citeEnd()
     restGesture(e.deltaY > 0)
@@ -274,7 +273,7 @@ component ChatColumn
       wheelTop = target == listTop ? target + 0.01 : target
       wheelJump = jumpRequest
       wheelPending = true
-  // A scroll key with the focus in the transcript is a resting gesture too (End, Page Down, ↓ and Space toward the end).
+  // A scroll key with the focus in the transcript is a gesture too (End, Page Down, ↓ and Space toward the end).
   action transcriptKeys(k: string)
     if k == "Home" or k == "End" or k == "PageUp" or k == "PageDown" or k == "ArrowUp" or k == "ArrowDown" or k == " "
       restGesture(k == "End" or k == "PageDown" or k == "ArrowDown" or k == " ")
@@ -349,7 +348,7 @@ component ChatColumn
                 ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             if editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
-          RequestBanner(data=data, command=command, busy=commandPending, scheme=scheme, compact=(min(data.look.chatMax, conversationWidth - 6 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
+          RequestBanner(data=data, command=command, maximumHeight=min(384, viewport.height * 0.4))
         column padding-bottom="1.25rem" justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" id="frame-stack" resize=frameMoved
           column width="100%" max-width=data.look.chatMax position="relative"
             // A pending approval leaves the composer usable: a send declines it and redirects the agent.
@@ -359,9 +358,9 @@ component ChatColumn
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               if branches.show
-                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact, composer=data.composer)
-            if data.requestMode == "question"
-              RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
+                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 36 * rem), compact=data.composer.stripCompact, composer=data.composer)
+              if data.composer.detachedNotices.length > 0
+                ComposerDetachedNotices(data=data, busy=commandPending, command=command, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)
       // The header's thread details popover (app.contract detailsShown: chat is narrow, or the floating player left the
       // docked card no placement), 13pt in from the chat column's right edge and under the floating player, as the
@@ -548,7 +547,7 @@ component PagesCover
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, busy=commandPending, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // The main sidebar trigger is drawn here, whatever the page: after the chat and the page in paint and Tab order,
     // under the dialogs below, which cover the whole window as the reference's portaled dialogs cover SidebarControl.
-    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, artwork=data.look.artwork, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
+    SidebarToggle(open=data.sidebarOpen, controlsLeft=data.controlsLeft, keySidebar=settings.keySidebar, inert=(toggleInert or (pageCover and utilityPage == "usage") or prDetail.actions.stack.dialogOpen), toggle=toggleSidebar)
     // Usage opens as the large modal over the page that opened it (AppRouteModal label "Usage", 3faeb9e6f9 #24847).
     if pageCover and utilityPage == "usage"
       AppRouteModal(label="Usage", modalId="usage-modal", viewportWidth=viewport.width, canvas="light-dark(#fcfcfc, #000000)", border="light-dark(#e4e4e7, #ffffff14)", backdrop="light-dark(#fcfcfc99, #000000a3)", inert=modal, first="usage-environment", last="close-usage", close=pageBack)

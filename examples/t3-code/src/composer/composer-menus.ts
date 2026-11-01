@@ -111,14 +111,12 @@ const cap = (width: number, viewport: number) => viewport > 0 ? Math.min(width, 
 export function workspaceLabels(worktree: boolean): string[] { return [worktree ? 'Current worktree' : 'Current checkout', 'New worktree']; }
 
 /** The snapshot's measured menu fields (composer-presentation.ts composerSnapshot). */
-export function composerMenus(presentation: Obj, view: { traits: Trait[]; runtimes: Runtime[] }, runOn: string[], extra: Probe[] = []) {
+export function composerMenus(presentation: Obj, view: { more: Trait[]; runtimes: Runtime[] }, runOn: string[], extra: Probe[] = []) {
   return {
-    menuProbes: uniqueProbes([...menuProbes(view.traits, view.runtimes, runOn.length ? [...runOn, ...workspaceLabels(false), ...workspaceLabels(true)] : []), ...extra]),
-    // The effort menu holds the Permissions section under its traits (ComposerControlsBar extraMenuContent), and
-    // the Permissions chip's menu is that section alone.
-    effortMenuWidth: Math.max(effortMenuWidth(presentation, view.traits), PERMISSIONS_MENU_WIDTH),
-    runtimeMenuWidth: PERMISSIONS_MENU_WIDTH,
-    effortMenuHeight: traitsMenuHeight(view.traits) + 9 + PERMISSIONS_SECTION_HEIGHT, runtimeMenuHeight: 10 + PERMISSIONS_SECTION_HEIGHT,
+    // The overflow menu's rows, which size it (moreMenuWidth), and the Permissions section's texts.
+    menuProbes: uniqueProbes([...menuProbes(view.more, view.runtimes, runOn.length ? [...runOn, ...workspaceLabels(false), ...workspaceLabels(true)] : []), ...extra]),
+    // The Permissions chip's menu is the Permissions section alone.
+    runtimeMenuWidth: PERMISSIONS_MENU_WIDTH, runtimeMenuHeight: 10 + PERMISSIONS_SECTION_HEIGHT,
   };
 }
 
@@ -145,7 +143,7 @@ export function checkMenu(presentation: Obj, rows: CheckRow[], extra: string[] =
  * the paddings are the reference's rem utilities at 16); the menus' own rows are rem, so each size follows
  * the Interface font size (the root font size) as the reference's rem-sized popups do.
  */
-export const ROOT_SIZED_MENU_FIELDS = ['effortMenuWidth', 'runtimeMenuWidth', 'effortMenuHeight', 'runtimeMenuHeight',
+export const ROOT_SIZED_MENU_FIELDS = ['runtimeMenuWidth', 'runtimeMenuHeight', 'effortHeight',
   'moreMenuWidth', 'moreMenuHeight', 'sendTipWidth', 'compactWidth'] as const;
 export function atRootFontSize<T extends object>(row: T, rootFontSize: number): T {
   if (rootFontSize === 16) return row;

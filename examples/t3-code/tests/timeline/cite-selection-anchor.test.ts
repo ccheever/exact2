@@ -9,8 +9,9 @@
 // semantics (contract-action-fixture.ts).
 import { describe, expect, test } from 'bun:test';
 import { contractComponent, value, type Env } from '../support/contract-action-fixture';
-import { appText } from '../support/app-files';
 import { contractFn, contractFns as fnsOf } from '../support/contract-fn-fixture';
+import { appText } from '../support/app-files';
+
 
 const contractFns = (file: string) => fnsOf(file, ['CitePart', 'CiteOffer', 'CiteLine']);
 const std = { min: Math.min, max: Math.max };

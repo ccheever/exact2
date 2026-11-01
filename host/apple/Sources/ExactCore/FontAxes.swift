@@ -88,3 +88,20 @@ extension TextEngine {
         return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 }
+
+extension TextEngine {
+    /// The OpenType features CSS `font-variant-ligatures`' bits set, 1 on and
+    /// 0 off: common ligatures are `liga` and `clig`, discretionary `dlig`,
+    /// historical `hlig`, contextual alternates `calt` (CSS Fonts 4). The bits
+    /// are the kernel's `FontVariantLigatures`, in the schema's order: each
+    /// kind's on bit, then its off bit. Core Text applies the tags to AAT faces
+    /// too; a kind left unsaid keeps the face's default.
+    package static func ligatureFeatures(_ bits: Int) -> [(String, Int)] {
+        let kinds: [([String], Int)] = [(["liga", "clig"], 0), (["dlig"], 2), (["hlig"], 4), (["calt"], 6)]
+        return kinds.flatMap { tags, shift -> [(String, Int)] in
+            let on = bits >> shift & 1 != 0, off = bits >> (shift + 1) & 1 != 0
+            guard on || off else { return [] }
+            return tags.map { ($0, on ? 1 : 0) }
+        }
+    }
+}

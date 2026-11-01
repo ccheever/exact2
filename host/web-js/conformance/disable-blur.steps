@@ -1,0 +1,8 @@
+# A button that disables itself while its work runs.
+tap self
+clock +200
+# A button inside a container its press disables.
+tap inner
+tap open
+# A button its press removes.
+tap leaving

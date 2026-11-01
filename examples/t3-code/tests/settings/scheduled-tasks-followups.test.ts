@@ -95,6 +95,18 @@ describe('Runs on switches a new task to another environment', () => {
     const reads = calls.filter(call => call.method === 'vcs.listRefs').map(call => [call.fleet, call.fleet ? obj(call.payload.payload) : call.payload]);
     expect(reads).toEqual([['', { cwd: '/repo', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', query: 'main', limit: 10 }]]);
   });
+  // ScheduledTaskEditorForm at 2359643cff: pinned projects first, archived ones left out, the default a pinned open one.
+  test("the editor's projects: pinned first, archived left out, a new task on the pinned project", async () => {
+    const { client, native, subscriptions } = harness();
+    const at = '2026-10-31T00:00:00.000Z';
+    client.shell.projects = [{ id: 'p1', title: 'fixture', workspaceRoot: '/repo' }, { id: 'p2', title: 'old', workspaceRoot: '/old', archivedAt: at } as Obj as typeof client.shell.projects[number],
+      { id: 'p3', title: 'favorite', workspaceRoot: '/favorite', pinnedAt: at } as Obj as typeof client.shell.projects[number]];
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    const page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
+    expect(page.projects.map(project => project.value)).toEqual(['p3', 'p1']);
+    expect(page.editors.map(editor => editor.projectId)).toEqual(['p3']);
+  });
   test('a new task starts on the primary environment, listed first, when the window is focused elsewhere', async () => {
     const { client, native, subscriptions } = harness();
     await studio();
@@ -139,6 +151,59 @@ describe('Runs on switches a new task to another environment', () => {
       fleet.saved = [{ origin: remote.origin, environmentId: remote.environmentId, routes: [{ id: 'lan', origin: 'http://192.168.1.20:16424' }, ssh] }];
       expect((await scheduledPage(client, native, 'env', '', '', '', true, NOW)).sections.find(section => section.id === 'env2')?.transport).toBe('LAN');
     } finally { fleet.saved = saved; resetPrimary(); }
+  });
+});
+
+describe('New task, the route in use and the destination (ScheduledTasksSettings at 2359643cff)', () => {
+  test('New task opens on the representative when it permits tasks, else on the first connected one that does, else is disabled', async () => {
+    const { client, native, subscriptions } = harness();
+    const remote = await studio();
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    const opened = async () => { const page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW); return [page.creatable, page.editors.map(editor => editor.environmentId)]; };
+    // Neither may create tasks (no orchestration:operate): disabled.
+    expect(await opened()).toEqual([false, ['env']]);
+    // Only Studio may: New task opens there.
+    remote.scopes = ['orchestration:read', 'orchestration:operate'];
+    expect(await opened()).toEqual([true, ['env2']]);
+    // The representative may too: it wins.
+    Object.assign(client, { scopes: ['orchestration:read', 'orchestration:operate'] });
+    expect(await opened()).toEqual([true, ['env']]);
+  });
+  test('a connected environment with several routes names the one in use ("via <route>")', async () => {
+    const { client, native, subscriptions } = harness();
+    const remote = await studio();
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    const saved = fleet.saved;
+    try {
+      fleet.saved = [{ origin: remote.origin, environmentId: remote.environmentId, routes: [{ id: 'lan', origin: 'http://192.168.1.20:16424' }, { id: 'tail', origin: 'http://studio.tail1234.ts.net:16424' }] }];
+      const transport = async () => (await scheduledPage(client, native, 'env', '', '', '', true, NOW)).sections.find(section => section.id === 'env2')?.transport;
+      expect(await transport()).toBe('LAN');
+      remote.activeRouteId = 'tail';
+      expect(await transport()).toMatch(/^via /);
+      expect(await transport()).not.toBe('via LAN');
+      // Not connected: the preferred route, whatever was in use.
+      remote.phase = 'reconnecting';
+      expect(await transport()).toBe('LAN');
+    } finally { fleet.saved = saved; }
+  });
+  test('Destination names the thread a run continues, or says each run starts a new thread', async () => {
+    const { client, native, subscriptions } = harness();
+    client.shell.threads = [{ id: 't1', projectId: 'p1', title: '  Nightly triage ' }];
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [
+      { id: 'a', projectId: 'p1', title: 'Continues', prompt: 'go', enabled: true, threadId: 't1', schedule: { type: 'interval', everyMs: 3600000 } },
+      { id: 'b', projectId: 'p1', title: 'Gone thread', prompt: 'go', enabled: true, threadId: 't9', schedule: { type: 'interval', everyMs: 3600000 } },
+      { id: 'c', projectId: 'p1', title: 'Fresh', prompt: 'go', enabled: true, schedule: { type: 'interval', everyMs: 3600000 } },
+    ] } });
+    const destination = async (id: string) => (await scheduledPage(client, native, 'env', '', 'task', `env|${id}`, true, NOW)).editors.map(editor => [editor.threadId, editor.destination]);
+    expect(await destination('a')).toEqual([['t1', 'Nightly triage']]);
+    expect(await destination('b')).toEqual([['t9', 'Thread t9']]);
+    expect(await destination('c')).toEqual([['', '']]);
+    const source = await Bun.file(new URL('../../src/settings/settings-scheduled.contract', import.meta.url)).text();
+    expect(source).toContain('"Each run starts a new thread with the workspace and model below."');
+    expect(source).toContain('"Each run continues this conversation, in its workspace and with its current model."');
   });
 });
 

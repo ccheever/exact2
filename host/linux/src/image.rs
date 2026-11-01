@@ -192,6 +192,7 @@ pub(crate) const RETRY_AFTER: [Duration; 6] = [
 
 /// One generation's bounded live demand, sharing its budget with replacements.
 pub struct Images {
+    pub(crate) boot_visible_only: bool,
     assets: Arc<Assets>,
     backend: Arc<Backend>,
     generation: u64,
@@ -253,6 +254,7 @@ impl Images {
             bitmaps: BTreeMap::new(),
             loaded: Vec::new(),
             load_events: Vec::new(),
+            boot_visible_only: false,
             decode_enabled: true,
             deferred: 0,
             pictures: false,
@@ -585,7 +587,8 @@ impl Images {
         let scale = self.scale;
         for (id, view) in &mut self.views {
             // (An `error` ends its source assignment: nothing more is asked.)
-            if view.source.is_empty()
+            if self.boot_visible_only && !view.visible
+                || view.source.is_empty()
                 || view.symbol_size.is_some()
                 || self.package.serves(&view.source)
                 || view.errored
@@ -822,6 +825,8 @@ impl Images {
                 }
                 match self.backend.request(demand) {
                     Ok(request) => {
+                        #[cfg(target_os = "macos")]
+                        exact_ink::device::apple::trace_mark(c"image request", || source as f64);
                         view.request = Some((request, decode.full()));
                         view.requested_for = view.desired;
                         view.requested_fit = view.object_fit;
@@ -880,7 +885,8 @@ impl Images {
         // A package's picture is answered through the host's turn, not the
         // workers: nothing here to wait on.
         self.views.values().any(|v| {
-            !v.source.is_empty()
+            (!self.boot_visible_only || v.visible && !v.errored && v.symbol_size.is_none())
+                && !v.source.is_empty()
                 && !self.package.serves(&v.source)
                 && match v
                     .source_id
@@ -963,6 +969,29 @@ impl Images {
     }
     pub(crate) fn enable_decode(&mut self) {
         self.decode_enabled = true;
+    }
+
+    /// First-commit identities are known before layout supplies decode sizes.
+    pub(crate) fn prepare_boot(&mut self, kernel: &Kernel, roots: &[ViewId], scale: f32) {
+        self.decode_enabled = false;
+        self.boot_visible_only = true;
+        let live = kernel.preorder_where(roots, |ty, _| ty == NodeType::Image);
+        let live: Vec<_> = live
+            .into_iter()
+            .filter(|id| {
+                kernel.node(*id).is_some_and(|n| {
+                    !n.props
+                        .str(PropId::ImageSource)
+                        .unwrap_or("")
+                        .starts_with("symbol:")
+                })
+            })
+            .collect();
+        self.sync_visible(kernel, &live, scale, |_| false);
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn finish_boot(&mut self) {
+        self.boot_visible_only = false;
     }
     /// Wait for available work until the deadline, without spinning on capacity.
     pub fn wait(&mut self, timeout: Duration) -> Vec<Report> {

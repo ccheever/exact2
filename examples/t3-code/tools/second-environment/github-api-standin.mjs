@@ -13,7 +13,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { PULL_REQUEST } from "./gh-standin.mjs";
-import { DETAIL_OPERATIONS, detailRest, detailWrite } from "./github-api-detail.mjs";
+import { DETAIL_OPERATIONS, detailRest, detailWrite, setFilesViewed } from "./github-api-detail.mjs";
 
 export const API_HOST = "api.github.com";
 
@@ -87,7 +87,7 @@ export function respond(method, path, body, accept = "") {
   const { pathname } = new URL(path, `https://${API_HOST}`);
   if (method === "POST" && pathname === "/graphql") {
     const { query = "", variables = {} } = JSON.parse(body || "{}"), name = operationOf(query);
-    const data = OPERATIONS[name] && batched(query, variables, OPERATIONS[name]);
+    const data = name === "SetFileViewed" ? setFilesViewed(query, variables) : OPERATIONS[name] && batched(query, variables, OPERATIONS[name]);
     // GraphQL reports a failure in a 200 answer's `errors`.
     return data ? json(200, { data }, name) : json(200, { errors: [{ type: "NOT_SUPPORTED", message: `the lane's GitHub stand-in does not answer ${name || "this query"}` }] }, name || query.slice(0, 160));
   }

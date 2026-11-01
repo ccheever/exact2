@@ -19,12 +19,14 @@ import { openInEditorHere } from '../connections/remote-open'; // remote Open (O
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { detachSession, mergeBack } from '../details/lineage-actions';
 import { visiblePullRequests } from '../panel/shell-pr';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
 import { addMachineLocal } from './add-project-dialog';
 import { announce } from './announce';
 import { editorLabel } from '../shared/editors';
+import { formatFilePathForClipboard } from '../timeline/workspace-file-lookup';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -58,6 +60,9 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
   if (op === 'stop-subagent') { await stopSubagent(client, native, storage, id); return ''; }
   if (op === 'stop-workflow') { await stopWorkflow(client, native, id); return ''; }
+  // Lineage's Merge back and Disconnect agent session (lineage-actions.ts): a failure is their own toast.
+  if (op === 'merge-back') { await mergeBack(client, native, storage, id, value); return ''; }
+  if (op === 'detach-session') { await detachSession(client, native, id || client.threadId); return ''; }
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
   if (op === 'rename') {
@@ -66,16 +71,6 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
     if (resolution.action === 'noop') return '';
     const [commandId] = await access.ids(1);
     await access.dispatch(storage, { type: 'thread.metadata.update', commandId, threadId: id, title: resolution.title }, `Rename ${title}`);
-    return '';
-  }
-  if (op === 'merge-back') {
-    // ThreadRelationshipsPanel merge(): thread.merge_back from the fork's latest finished run, then open the target.
-    const [targetThreadId = '', runId = ''] = value.split('|');
-    if (!targetThreadId || !runId) throw new ClientError('Complete a run in this fork before merging it back');
-    const [commandId] = await access.ids(1);
-    await access.dispatch(storage, { type: 'thread.merge_back', commandId, createdBy: 'user', creationSource: 'web', sourceThreadId: id, targetThreadId,
-      sourcePoint: { type: 'run', runId } }, `Merge ${title} back`);
-    await client.openSelected(native, targetThreadId);
     return '';
   }
   const [commandId] = await access.ids(1);
@@ -186,6 +181,14 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
   if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
   if (op.startsWith('add-machine-')) return addMachineLocal(client, native, op.slice(12), id, value); // Add to another machine (add-project-dialog.ts)
+  // The thread details card's Workspace row menu (BranchToolbar showWorkspaceContextMenu): the path in its host's form.
+  if (op === 'details-copy-path') {
+    const text = formatFilePathForClipboard(value);
+    if (!text) return '';
+    try { await copy(text); } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: messageOf(error), stacked: true }); return ''; }
+    pushToast(client, { kind: 'success', title: 'Path copied', description: text });
+    return '';
+  }
   const thread = client.shell.threads.find(candidate => candidate.id === id);
   if (op === 'copy-path') {
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
@@ -297,17 +300,14 @@ export function settingsFailure(client: T3Client, op: string, id: string, value:
 }
 
 /**
- * Successes the reference announces (⇧⌘C copy-thread: "Thread ID copied";
- * ⌥⇧⌘A appearance.cycle, the only device-setting write of appearanceMode:
- * an untyped 1.5 s "Appearance: <mode>" that replaces the previous one).
+ * Successes the reference announces (⌥⇧⌘A appearance.cycle, the only device-setting write of appearanceMode:
+ * an untyped 1.5 s "Appearance: <mode>" that replaces the previous one; the trace ID's copy). ⇧⌘C announces its
+ * own copy (thread-reference.ts copyThreadTarget).
  */
 export function shellSuccess(client: T3Client, op: string, value: string, message: string, id = ''): void {
   if (op === 'device-setting' && id === 'appearanceMode' && !message) {
     const label = value === 'light' ? 'Light' : value === 'dark' ? 'Dark' : 'System';
     pushToast(client, { kind: 'info', title: `Appearance: ${label}`, timeoutMs: 1500, leading: 'none', key: 'appearance-cycle' });
-  }
-  if (op === 'restlocal:copy-thread' && message === 'Copied thread ID') {
-    pushToast(client, { kind: 'success', title: 'Thread ID copied', description: client.threadId });
   }
   if (op === 'copy-diagnostic' && message === 'Copied trace ID') pushToast(client, { kind: 'success', title: 'Trace ID copied', description: value });
 }

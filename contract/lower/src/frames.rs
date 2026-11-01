@@ -145,7 +145,7 @@ fn frame_ids(view: &[contract_syntax::Node]) -> Option<std::collections::BTreeMa
 pub(crate) fn is_frame_command(name: &str, args: &[Expr]) -> bool {
     matches!(
         name,
-        "navigate" | "traverseHistory" | "stopLoading" | "captureScreenshot"
+        "navigate" | "traverseHistory" | "stopLoading" | "captureScreenshot" | "openDevTools"
     ) || name == "reload" && !args.is_empty()
 }
 

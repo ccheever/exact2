@@ -244,7 +244,7 @@ final class T3LocalBackend: @unchecked Sendable {
     var environment: () -> [String: String] = { ProcessInfo.processInfo.environment }
     var resources: () -> URL? = { Bundle.main.resourceURL }
     var bundleInfo: () -> [String: Any] = { Bundle.main.infoDictionary ?? [:] }
-    var serverEnvironment: ([String: String]) -> [String: String] = { T3LocalShellEnvironment.serverEnvironment(base: $0, run: T3LocalShellEnvironment.runCommand) }
+    var serverEnvironment: ([String: String]) -> (env: [String: String], prepared: Bool) = { T3LocalShellEnvironment.serverEnvironment(base: $0, run: T3LocalShellEnvironment.runCommand) }
     var makeSpawner: () -> T3LocalSpawner = { T3LocalProcessSpawner() }
     var makeProber: () -> T3LocalProber = { T3LocalHTTPProber() }
     var fatal: (String, String) -> Void = { T3LocalFatal.handle(stage: $0, message: $1) }
@@ -459,9 +459,11 @@ final class T3LocalBackend: @unchecked Sendable {
         let launchExposure = T3LocalExposure.atLaunch(settings: settings.settings,
                                                       interfaces: (try? T3LocalNetwork.shared.interfaces()) ?? [:], lanHostOverride: T3LocalNetwork.shared.lanHostOverride)
         lock.lock(); exposure = launchExposure; lock.unlock()
-        var serverEnv = serverEnvironment(env)
+        let prepared = serverEnvironment(env)
+        var serverEnv = prepared.env
         serverEnv["T3CODE_CLI_PATH"] = try? cliCommand().installLauncher()
-        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: launchExposure, secret: bootstrapSecret)
+        let config = Self.startConfig(versionDir: versionDir, port: port, home: home, token: currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(),
+                                      exposure: launchExposure, secret: bootstrapSecret, shellEnvironmentPrepared: prepared.prepared)
         let httpBaseUrl = config.httpBaseUrl
         let logDirectory = home.appendingPathComponent("userdata/logs", isDirectory: true)
         let manager = T3LocalBackendManager(
@@ -480,7 +482,8 @@ final class T3LocalBackend: @unchecked Sendable {
                     }
                 }
                 self.lock.lock(); let exposure = self.exposure; self.lock.unlock()
-                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure, secret: self.bootstrapSecret)
+                return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure,
+                                        secret: self.bootstrapSecret, shellEnvironmentPrepared: prepared.prepared)
             }))
         manager.logger = { [weak self] in self?.log($0) }
         manager.spec.onStarted = { pid, config in T3LocalPidFile.write(pidFile, pid: pid, executable: config.executablePath) }
@@ -565,7 +568,8 @@ final class T3LocalBackend: @unchecked Sendable {
     /// `resolvePrimaryStartConfig` for the SEA: `t3 --bootstrap-fd 0` from the version folder, cwd the
     /// home folder (`backendCwd` of a packaged build), local-only (`127.0.0.1`), no Tailscale Serve
     /// (`exposure` adds it), the resource monitor when the tree has one.
-    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure(), secret: String? = nil) -> T3LocalStartConfig {
+    static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure(), secret: String? = nil,
+                            shellEnvironmentPrepared: Bool = true) -> T3LocalStartConfig {
         let monitor = versionDir.appendingPathComponent("resource-monitor/darwin-arm64/t3-resource-monitor")
         return T3LocalStartConfig(
             executablePath: versionDir.appendingPathComponent("t3").path,
@@ -573,7 +577,7 @@ final class T3LocalBackend: @unchecked Sendable {
             cwd: cwd,
             env: env,
             bootstrap: T3LocalBootstrap(port: port, t3Home: home.path, host: exposure.host, desktopBootstrapToken: token, desktopBootstrapSecret: secret,
-                                        tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
+                                        shellEnvironmentPrepared: shellEnvironmentPrepared, tailscaleServeEnabled: exposure.tailscaleServeEnabled, tailscaleServePort: exposure.tailscaleServePort,
                                         resourceMonitorPath: FileManager.default.isExecutableFile(atPath: monitor.path) ? monitor.path : nil),
             // The app always reaches its own server over loopback; network access only widens the bind host.
             httpBaseUrl: URL(string: "http://127.0.0.1:\(port)")!)

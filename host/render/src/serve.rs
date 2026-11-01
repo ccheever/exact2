@@ -198,8 +198,14 @@ impl Server {
         });
         let hints = crate::stream::preload_paths(&shell);
         let js = page::is_js(&shell);
+        // The build's analyzed sheet (LLP 1048.007 D4).
+        let rules = std::fs::read_to_string(serve.dist.join(".gen/page-style.json")).ok();
         let early = lang.filter(|_| js).and_then(|(lang, dir)| {
             let at = page::Js::of(&shell).ok()?;
+            let at = match &rules {
+                Some(rules) => at.with_rules(rules),
+                None => at,
+            };
             let heads =
                 [true, false].map(|preload| page::head_js(&shell, &at, &lang, dir, preload, false));
             Some((at, heads))
@@ -1175,8 +1181,7 @@ fn document<D: DataSource + 'static>(
     // @ref LLP 1071 D6 — the early flush (crate::stream): a browser's
     // navigation gets the page's head now; its rest follows the render.
     let js = shared.js && !notfound && request.method == "GET";
-    let preload = route_at(&shared.plan, location)
-        .is_none_or(|route| route.activate != exact_plan::ActivatePolicy::Interaction);
+    let preload = crate::page::preloads_early(&shared.plan, location);
     let mut early = early.filter(|_| js);
     if let Some(out) = early.as_deref_mut().filter(|_| request.cdn && preload) {
         crate::stream::hint(out, &shared.hints);
@@ -1251,7 +1256,10 @@ fn document<D: DataSource + 'static>(
                         !preload && crate::page::activate_js(rendered.activate) != "interaction";
                     head.clone() + &crate::page::body_js(&shared.shell, at, &rendered, late, false)
                 }
-                None => page(&shared.shell, &rendered)?,
+                None => match &shared.early {
+                    Some((at, _)) => crate::page::page_with(&shared.shell, at, &rendered),
+                    None => page(&shared.shell, &rendered)?,
+                },
             };
             if html.len() > MAX_PAGE {
                 return Err(format!("the page is {} bytes", html.len()));

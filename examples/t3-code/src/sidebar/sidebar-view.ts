@@ -4,8 +4,10 @@ import { instanceIconUrl } from '../providers/acp-icons';
 // paint order (collapsed shelves contribute only the open thread, as the
 // reference renders them, so thread.jump and prev/next follow the same list)
 // plus the sidebar's own view state. Pure over the client and `now`.
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, obj, pickableProjectGroups, projectGroupOrganization, str, type Obj } from '../client/domain';
 import { effectiveShortcut } from '../shell/shortcut-labels';
+import { chordWinners } from '../shell/keyboard-dispatch';
+import { canPinProjectGroup, orderWhileOpen } from './project-pin';
 import { PLATFORM } from '../settings/desktop-shell-favicon';
 import { machineKind } from '../connections/connections';
 import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
@@ -15,7 +17,7 @@ import { selectRunningSubprocessTerminalIds } from '../terminal/terminal-session
 import { terminalFocused } from '../terminal/terminal-focus';
 import { snoozePresets, snoozePresetSettings, type SnoozePreset } from './sidebar-presentation';
 import { searchMatch, searchRows, threadSearchPending, type SearchPart } from './sidebar-search';
-import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoShortSummary, undoSummary } from './sidebar-state';
+import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, noteSnapshotTime, sidebarPrefs, sidebarSession, undoLive, undoShortSummary } from './sidebar-state';
 import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './sidebar-glyph';
@@ -30,7 +32,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
 import { sidebarPrBadge } from '../panel/pr-surface';
 import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr';
 import { notePlaces, rowHoverKey } from './row-hover-key';
-import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // the persisted project order
+import { orderItemsByPreferredIds } from './thread-sort'; // the persisted project order
 import { resolveRouteReveal } from './route-reveal';
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup';
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
@@ -82,7 +84,7 @@ export interface SidebarThread {
 }
 /** A row of the sidebar's tree (lib/sidebarTree.ts), by its element id: a shelf header's rows name it as their parent. */
 export interface SidebarTreeRow { id: string; parent: string; expanded: string }
-export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
+export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph; canPin: boolean; pinned: boolean; pinTitle: string }
 export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph; menu: MenuRow[] }
 export interface SidebarView {
   drafts: SidebarDraft[];
@@ -93,11 +95,13 @@ export interface SidebarView {
   /** Non-zero while a grace's start or a return's stamp waits for the window's clock, changing with each new one. */
   graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
-  emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
+  emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; newThreadPicks: boolean; scopePinChord: string; dragEnabled: boolean;
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
-  scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
-  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoText: string; undoShort: string; undoLabel: string; undoUntil: number;
+  scopeOpen: boolean; scopeQuery: string;
+  /** The row Base UI highlights before the pointer moves (scopeHighlight); "\n" for none. */
+  scopeHighlight: string;
+  renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoShort: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
   pillKey: string; pillTone: string; pillTitle: string; pillDescription: string; pillDismissible: boolean; sweepEpoch: number;
@@ -121,10 +125,11 @@ const timestamp = (value: unknown) => { const time = Date.parse(str(value)); ret
  * Project groups in the sidebar picker's order (sortSidebarV2ProjectGroups):
  * the Project order setting sorts by each group's latest user message (or its
  * threads' creation) with no-thread groups on their own stamps; Manual keeps
- * the source order, as an empty projectOrder does.
+ * the source order, as an empty projectOrder does. Each carries its organization (`pinned`, `archived`); the pickers
+ * and the project filter offer pickableScopes.
  */
 export const NO_PROJECT_SCOPE = '\0no-project';
-export function projectScopes(client: T3Client): { key: string; name: string; ids: Set<string>; time: number; members: Obj[] }[] {
+export function projectScopes(client: T3Client): { key: string; name: string; ids: Set<string>; time: number; members: Obj[]; pinned: boolean; archived: boolean }[] {
   const threads = [...client.shell.threads, ...fleetThreads()].filter(sidebarVisible);
   const order = projectSortOrder(client);
   const grouped = new Map<string, { key: string; members: Obj[]; name: string }>();
@@ -150,22 +155,30 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
     const own = threads.filter(thread => ids.has(str(thread.projectId)));
     const time = own.length ? Math.max(...own.map(thread => threadSortTime(thread, order)))
       : Math.max(...group.members.map(member => order === 'created_at' ? timestamp(member.createdAt) : timestamp(member.updatedAt ?? member.createdAt)));
-    return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members };
+    return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members,
+      ...projectGroupOrganization(group.members) };
   });
   // A saved physical scratch filter may precede the config that identifies its No project group.
   const prefs = sidebarPrefs(client), scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
   const scratchKey = (saved: string) => scratch?.members.some(member => saved === logicalKey(client, str(member.environmentId), member) || saved === `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) === true;
   if (scratch && prefs.scopes.some(scratchKey)) prefs.scopes = [...new Set(prefs.scopes.map(saved => scratchKey(saved) ? NO_PROJECT_SCOPE : saved))];
-  // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
+  // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys).
   if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
     getPreferenceIds: group => group.members.map(member => `${str(member.environmentId)}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
 }
 type ProjectScope = ReturnType<typeof projectScopes>[number];
-/** resolveSidebarProjectScopeKeys: the chosen project groups in list order; a stored key whose group is not loaded is skipped. */
+/** The groups the project filter and the project pickers offer (pickableProjectGroups): no archived one, pinned ones first. */
+export function pickableScopes(client: T3Client, scopes: ProjectScope[] = projectScopes(client)): ProjectScope[] {
+  return pickableProjectGroups(scopes);
+}
+/**
+ * resolveSidebarProjectScopeKeys: the chosen project groups in list order; a stored key whose group is not loaded is
+ * skipped, and an archived project's reads as all projects, matching the menu.
+ */
 export function chosenScopes(client: T3Client, scopes: ProjectScope[] = projectScopes(client)): ProjectScope[] {
   const keys = sidebarPrefs(client).scopes;
-  return keys.length ? scopes.filter(group => keys.includes(group.key)) : [];
+  return keys.length ? pickableScopes(client, scopes).filter(group => keys.includes(group.key)) : [];
 }
 /** The project ids the chosen groups hold, or null when the list shows every project. */
 export function scopedProjectIds(chosen: readonly ProjectScope[]): Set<string> | null {
@@ -175,6 +188,10 @@ export function scopedProjectIds(chosen: readonly ProjectScope[]): Set<string> |
 export function projectSortOrder(client: T3Client): 'updated_at' | 'created_at' | 'manual' {
   const value = (client.local.clientSettings as Record<string, unknown> | undefined)?.sidebarProjectSortOrder;
   return value === 'created_at' || value === 'manual' ? value : 'updated_at';
+}
+/** clientSettings.sidebarThreadSortOrder: updated_at (default) or created_at; the delete fallback's order. */
+export function threadSortOrder(client: T3Client): 'updated_at' | 'created_at' {
+  return (client.local.clientSettings as Record<string, unknown> | undefined)?.sidebarThreadSortOrder === 'created_at' ? 'created_at' : 'updated_at';
 }
 /** getThreadSortTimestamp: creation (else update), or the latest user message (else update, else creation). */
 function threadSortTime(thread: Obj, order: string): number {
@@ -327,8 +344,8 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
     ...searchMatch(extra.match, session.searchFoundFor), // a row listed for its message
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
-    // metaLineEmpty: only the provider icon would remain, so a card drops its third line and the icon joins the title.
-    metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && !remote && terminalCount === 0,
+    // metaLineEmpty: only the trailing icons would remain, so a card drops its third line and they join the title.
+    metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && terminalCount === 0,
     duration: started ? workingDuration(now - Date.parse(started)) : '',
     workingSince: started ? Date.parse(started) : 0, remoteMachine: remote?.machine ?? '',
     scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
@@ -409,12 +426,13 @@ function revealRows(client: T3Client, rows: { thread: Obj }[], searching: boolea
 }
 
 export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarHelpers): { threads: SidebarThread[]; searchFirstId: string; sidebar: SidebarView } {
-  // The legacy sidebar keeps its own reveal while it is the one shown (legacy-sidebar-view.ts).
-  const searching = client.query.trim() !== '', reveals = client.local.clientSettings?.legacySidebarEnabled !== true;
+  const searching = client.query.trim() !== '';
   noteSnapshotTime(client, now);
-  if (reveals) revealRoute(client, searching);
+  revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), chosen = chosenScopes(client, scopes), scope = chosen[0];
+  // Pinning from a row keeps the rows in place while the menu is open (useOrderWhileOpen).
+  const scopeList = orderWhileOpen(session.scopeHold, scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity), item => item.key, session.scopeOpen);
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
   const rows: { thread: Obj; section: SidebarSection; match?: Obj }[] = searching ? searchRows(client, parts, now) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchKey = ''; }
@@ -454,17 +472,16 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
         : chosen.length > 1 ? 'No threads in these projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
       emptyAddProject: !searching && total === 0 && client.shell.projects.length === 0,
       hasProjects: client.shell.projects.length > 0, projectGroupCount: scopes.length,
+      newThreadPicks: !shouldCreateNewThreadInCurrentProject(false, pickableScopes(client, scopes).length, scopes.length),
+      scopePinChord: pinChord(client),
       dragEnabled: !searching && capabilities(client.config).pinning && capabilities(client.config).pinReorder && session.renameId === '',
       scopeKey: chosen.map(group => group.key).join('\n'), scopeLabel: chosen.map(group => group.name).join(', '),
       scopeMark: scope ? identity.projectMark : '', scopeInk: scope ? identity.projectInk : '', scopeSurface: scope ? identity.projectSurface : '',
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
       // Several projects: the trigger overlaps the first two glyphs.
       scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
-      scopes: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity),
-      scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
-      scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity)[0]?.key ?? '',
+      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeHighlight: scopeHighlight(scopeList, session.scopeQuery),
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
-      undoText: undo && live ? `${undoSummary(undo)},` : '', // drafts (upstream 95edeb753b)
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
       undoLabel: undoLabel(client),
@@ -480,7 +497,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       updateDialog: updateEverythingDialog(client),
       tree: searching ? [] : sidebarTree(threads, parts, prefs, total, draftRows(client, helpers.projectIdentity), prefs.settledExpanded && hidden > 0),
       treeCurrent: !searching && threads.some(thread => thread.id === routeRowThreadId(client)) ? `thread-${routeRowThreadId(client)}` : '',
-      ...(reveals ? revealRows(client, rows, searching) : { revealRow: '', revealPending: '' }),
+      ...revealRows(client, rows, searching),
     },
   };
 }
@@ -537,13 +554,38 @@ function groupGlyph(client: T3Client, group: { key?: string; name: string; membe
 /** The representative member's title, which names the group's monogram; the group's name for No project or a member without one. */
 const groupTitle = (group: { key?: string; name: string; members: Obj[] }): string => group.key === NO_PROJECT_SCOPE ? group.name : str(group.members[0]?.title) || group.name;
 
-/** filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. "All projects" is selected with no project. */
-function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[] }[], identity: Identity): SidebarScope[] {
-  const needle = query.trim().toLowerCase();
-  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity) },
-    ...scopes.map(group => { const mark = identity(groupTitle(group)); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false, glyph: groupGlyph(client, group, identity) }; })];
+/**
+ * filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. "All projects" is selected with
+ * no project. Each group offers its pin (ProjectPinButton) where it can be pinned, titled with the thread pin shortcut.
+ */
+function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[]; pinned: boolean }[], identity: Identity): SidebarScope[] {
+  const needle = query.trim().toLowerCase(), shortcut = shortcutLabel(client, 'thread.pin');
+  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity), canPin: false, pinned: false, pinTitle: '' },
+    ...scopes.map(group => {
+      const mark = identity(groupTitle(group)), action = `${group.pinned ? 'Unpin' : 'Pin'} ${group.name}`;
+      return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false,
+        glyph: groupGlyph(client, group, identity), canPin: canPinProjectGroup(client, group.members), pinned: group.pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action };
+    })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }
+/**
+ * The project filter's highlight before the pointer moves (Base UI Combobox, autoHighlight): with a query, the first
+ * match; without one, the selected row (focusItemOnOpen syncs the highlight to selectedIndex), which is All projects
+ * with no project chosen, the project with one, and none ("\n") with several, where the Combobox holds no value.
+ */
+export function scopeHighlight(rows: readonly { key: string; selected: boolean; all: boolean }[], query: string): string {
+  if (query.trim()) return rows[0]?.key ?? '\n';
+  const selected = rows.filter(row => row.selected);
+  return selected.length === 1 ? selected[0]!.key : '\n';
+}
+/** isProjectPinShortcut: the thread pin binding in effect in an editable field (a project list's search), as a chord. */
+export function pinChord(client: T3Client): string {
+  const winners = chordWinners(arr(client.config.keybindings), { editableFocus: true, modelPickerOpen: false, composerFocus: false, turnRunning: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false });
+  return [...winners].find(([, command]) => command === 'thread.pin')?.[0] ?? '';
+}
+/** shouldCreateNewThreadInCurrentProject: the "New thread in" picker opens unless there is one open project or none. */
+export const shouldCreateNewThreadInCurrentProject = (shiftKey: boolean, openProjectGroupCount: number, projectGroupCount: number): boolean =>
+  shiftKey || openProjectGroupCount === 1 || projectGroupCount === 0;
 
 /** SidebarDraftBlock: new-thread drafts with text or attachments, other than the one on screen, newest project first. */
 export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] {

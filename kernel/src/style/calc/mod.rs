@@ -29,8 +29,9 @@ pub const MAX_VALUES: usize = 32;
 pub const MAX_DEPTH: usize = 32;
 
 /// A numeric value's unit: a number, a percentage, a length in px (the
-/// canonical unit every absolute length converts to when parsed) or in a
-/// viewport unit, which resolves only with the viewport.
+/// canonical unit every absolute length converts to when parsed), in a
+/// viewport unit, which resolves only with the viewport, or in `rem`, which
+/// resolves with the root font size ([`Env::root_font_size`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
     /// A number: a coefficient, or a divisor.
@@ -41,6 +42,8 @@ pub enum Unit {
     Px,
     /// A viewport unit.
     Viewport(ViewportUnit),
+    /// `rem`: the root font size.
+    Rem,
 }
 
 impl Unit {
@@ -51,6 +54,7 @@ impl Unit {
             Unit::Percent => "%",
             Unit::Px => "px",
             Unit::Viewport(unit) => unit.name(),
+            Unit::Rem => "rem",
         }
     }
 }
@@ -154,6 +158,7 @@ impl Node {
                 Unit::Number | Unit::Px => *v,
                 Unit::Percent => basis? * v / 100.0,
                 Unit::Viewport(u) => f64::from(u.basis(env)) * v / 100.0,
+                Unit::Rem => f64::from(env.root_font_size) * v,
             },
             Node::Env(term) => term.value(env)?,
             Node::Sum(c) => {
@@ -444,6 +449,12 @@ impl Comparison {
 
     pub(crate) fn is_length_percentage(self) -> bool {
         self.tree(|t| !t.any(&|n| matches!(n, Node::Env(_) | Node::Value(_, Unit::Viewport(_)))))
+            .unwrap_or(false)
+    }
+
+    /// Whether a `rem` stands in it, which the root font size resolves.
+    pub(crate) fn reads_rem(self) -> bool {
+        self.tree(|t| t.any(&|n| matches!(n, Node::Value(_, Unit::Rem))))
             .unwrap_or(false)
     }
 

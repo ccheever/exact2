@@ -250,7 +250,7 @@
     "view-tags": {
       "patterns": [
         {
-          "match": "^\\s*(view|box|column|row|dialog|hr|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|audio|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|progress|time|head)(?=\\s|$)(?!\\s*[=:])",
+          "match": "^\\s*(view|box|column|row|dialog|hr|main|header|nav|section|footer|article|aside|table|caption|thead|tbody|tfoot|tr|th|td|dl|dt|dd|list|scroll|text|button|link|textarea|input|canvas|iframe|video|audio|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|progress|time|head)(?=\\s|$)(?!\\s*[=:])",
           "captures": {
             "1": {
               "name": "support.type.view.exact-contract"
@@ -278,7 +278,7 @@
     "attributes": {
       "patterns": [
         {
-          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|close|toggle|select|hover|focus|blur|focusin|focusout|key|keycapture|keyup|submit|load|message|contextmenu|delete|dblclick|swiperight|refresh|scroll|scrollend|pan|panrelease|loadedmetadata|durationchange|fullscreenchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|seekbackward|seekforward|seekto|previoustrack|nexttrack|stop|navigate|currententrychange|navigatesuccess|navigateerror|newwindow|download|capture|userpromptopened|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend|beforeunload|midimessage|beforeinput|copy|cut|drop|dragenter|dragleave|atompress|paste|pointerdown|pointermove|pointerup|resize|intersect|selectionchange|wheel)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
+          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|close|toggle|select|hover|focus|blur|focusin|focusout|key|keycapture|keyup|submit|load|message|contextmenu|delete|dblclick|swiperight|refresh|scroll|scrollend|pan|panrelease|loadedmetadata|durationchange|fullscreenchange|enterpictureinpicture|leavepictureinpicture|pictureinpictureerror|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|seekbackward|seekforward|seekto|previoustrack|nexttrack|stop|navigate|currententrychange|navigatesuccess|navigateerror|newwindow|download|capture|userpromptopened|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend|beforeunload|midimessage|beforeinput|copy|cut|drop|dragenter|dragleave|atompress|paste|pointerdown|pointermove|pointerup|resize|intersect|selectionchange|wheel)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
           "name": "support.function.event.exact-contract"
         },
         {
@@ -398,7 +398,7 @@
       "patterns": [
         {
           "name": "support.function.builtin.exact-contract",
-          "match": "(?<![A-Za-z0-9_\\-])(?:blur|captureScreenshot|close|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|hidePopover|load|navigate|openURL|playSound|playSounds|requestMIDIAccess|requestPermission|postMessage|preventDefault|relaunch|reload|removeAllRanges|requestFullscreen|saveFile|scrollBy|scrollIntoView|selectText|sendMIDI|setMode|setRangeText|setRootFontSize|setScheme|setSelectionRange|share|showDirectoryPicker|showModal|showOpenFilePicker|showPicker|showPopover|showSaveFilePicker|startTrace_EXPERIMENTAL|stopLoading|stopPropagation|stopSounds|stopTrace_EXPERIMENTAL|togglePopover|traverseHistory)(?=\\s*\\()"
+          "match": "(?<![A-Za-z0-9_\\-])(?:blur|captureScreenshot|close|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|hidePopover|load|navigate|openDevTools|openURL|playSound|playSounds|requestMIDIAccess|requestPermission|postMessage|preventDefault|relaunch|reload|removeAllRanges|requestFullscreen|requestPictureInPicture|exitPictureInPicture|saveFile|scrollBy|scrollIntoView|selectText|sendMIDI|setMode|setRangeText|setRootFontSize|setScheme|setSelectionRange|share|showDirectoryPicker|showModal|showOpenFilePicker|showPicker|showPopover|showSaveFilePicker|startTrace_EXPERIMENTAL|stopLoading|stopPropagation|stopSounds|stopTrace_EXPERIMENTAL|togglePopover|traverseHistory)(?=\\s*\\()"
         }
       ]
     }

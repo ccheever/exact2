@@ -164,7 +164,7 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   const secondary = await evaluate(`getComputedStyle(document.getElementById('secondary')).color`);
   expect(secondary).not.toBe(await evaluate(`getComputedStyle(document.body).color`));
   expect(await evaluate(`[document.getElementById('r1').getAttribute('data-exact-split'), box('r1'), getComputedStyle(document.querySelector('#r1 img')).display, shown('r1'), placeholder('p1')]`))
-    .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"No Selection"', 320, secondary]]);
+    .toEqual(['list', [240, 0, 320, 800], 'none', true, ['"Select an item"', 320, secondary]]);
   // A row's press pushes its detail: both show, the list live and the row marked; the detail has no Back.
   await evaluate(`{ const row = document.getElementById('r1-bo'); row.addEventListener('click', () => push('2', '/people/bo'), {once:true}); row.click(); }`);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2'), document.getElementById('r2').getAttribute('data-exact-split'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), back('r2'), off(), placeholder('p1')]`))
@@ -176,11 +176,12 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   expect([sheet[0], sheet[2], sheet[3], Math.abs(sheet[1] * 2 + sheet[3] - 800) <= 1]).toEqual([360, 560, 720, true]);
   expect(await evaluate(`[document.getElementById('r3').hasAttribute('data-exact-split'), shown('r1'), shown('r2'), document.getElementById('r1').hasAttribute('data-exact-covered'), off()]`))
     .toEqual([false, false, false, true, ['p2', 'r1', 'r2']]);
-  // A phone: the pushed stack, the list hidden and inert, the detail the whole width with Back; then wide again.
+  // A phone: the pushed stack, the list hidden and inert, the detail the whole width with Back, the row's disclosure
+  // still not drawn (the web draws none at any width); then wide again.
   await evaluate(`select('2')`);
   await size(390);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r2')[2], box('r2')[3] + box('bar')[3], document.getElementById('r1').hasAttribute('data-exact-split'), back('r2'), getComputedStyle(document.querySelector('#r1 img')).display, off()]`))
-    .toEqual([false, true, 390, 800, false, true, 'block', ['p2', 'r1', 'r3']]);
+    .toEqual([false, true, 390, 800, false, true, 'none', ['p2', 'r1', 'r3']]);
   // A phone's list, nothing chosen, is the whole width: no placeholder.
   await evaluate(`select('1')`);
   expect(await evaluate(`[shown('r1'), box('r1')[2], placeholder('p1')]`)).toEqual([true, 390, null]);

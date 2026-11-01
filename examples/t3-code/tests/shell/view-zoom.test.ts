@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractFns } from '../support/contract-fn-fixture';
 import { contractComponent } from '../support/contract-action-fixture';
-import { appText, appPath } from '../support/app-files';
+import { appPath, appText } from '../support/app-files';
 
 const { zoomFactor } = contractFns('src/settings/settings-shortcuts.contract') as unknown as { zoomFactor: (step: number) => number };
 

@@ -55,6 +55,10 @@ shape PaletteRow
   jump: string
   timestamp: string
   trailing: string
+  // ProjectPinButton: "pinned" or "unpinned" ("" for none), the project group it pins and its title.
+  pin: string
+  pinKey: string
+  pinTitle: string
   badge: string
   badgeOp: string
   checkbox: bool
@@ -120,6 +124,7 @@ shape PaletteView
   loading: bool
   listHeight: number
   jumpKeys: string[]
+  pinKeys: string
 shape PaletteResult
   revision: number
   ok: bool
@@ -132,7 +137,7 @@ shape PaletteResult
 
 // PaletteIcon's lookups are fns: a call reads its argument once, so a caller's deep expression is not
 // nested under every comparison.
-fn paletteIconGeometry(name: string): string = ["search", "arrow-left", "square-pen", "chevron-right", "file-search", "text-search"].includes(name) ? (name == "search" ? "m21 21-4.34-4.34M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0" : name == "arrow-left" ? "m12 19-7-7 7-7M19 12H5" : name == "square-pen" ? "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" : name == "chevron-right" ? "m9 18 6-6-6-6" : name == "file-search" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5M9 14.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0M13.3 16.3 15 18" : "M21 5H3M10 12H3M10 19H3M14 15a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m7 4-1.9-1.9") : ["folder-git", "folder-plus", "palette", "monitor", "sun", "moon"].includes(name) ? (name == "folder-git" ? "M18 19a5 5 0 0 1-5-5v8M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5M11 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M18 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" : name == "folder-plus" ? "M12 10v6M9 13h6M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : name == "palette" ? "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" : name == "monitor" ? "M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM8 21h8M12 17v4" : name == "sun" ? "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" : "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401") : ["pull-request", "pull-request-link", "chart", "settings", "folder", "message-square"].includes(name) ? (name == "pull-request" ? "M2 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M5 9v12M16 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m-1-9-3-3 3-3M12 6h5a2 2 0 0 1 2 2v7" : name == "pull-request-link" ? "M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" : name == "chart" ? "M5 21v-6M12 21V3M19 21V9" : name == "settings" ? "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "folder" ? "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z") : ["link", "source-url", "rotate-ccw", "corner-left-up", "file", "arrow-up", "arrow-down"].includes(name) ? (name == "link" or name == "source-url" ? "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "corner-left-up" ? "M14 9 9 4 4 9M20 20h-7a4 4 0 0 1-4-4V4" : name == "file" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5" : name == "arrow-up" ? "m5 12 7-7 7 7M12 19V5" : "M12 5v14m7-7-7 7-7-7") : ["check", "message-square-dashed", "bug"].includes(name) ? (name == "check" ? "M20 6 9 17l-5-5" : name == "bug" ? "M12 20v-9M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4zM14.12 3.88 16 2M21 21a4 4 0 0 0-3.81-4M21 5a4 4 0 0 1-3.55 3.97M22 13h-4M3 21a4 4 0 0 1 3.81-4M3 5a4 4 0 0 0 3.55 3.97M6 13H2M8 2l1.88 1.88M9 7.13V6a3 3 0 1 1 6 0v1.13" : "M12 19h.01M12 3h.01M16 19h.01M16 3h.01M2 13h.01M2 17v4.286a.71.71 0 0 0 1.212.502l2.202-2.202A2 2 0 0 1 6.828 19H8M2 5a2 2 0 0 1 2-2M2 9h.01M20 3a2 2 0 0 1 2 2M22 13h.01M22 17a2 2 0 0 1-2 2M22 9h.01M8 3h.01") : ""
+fn paletteIconGeometry(name: string): string = ["search", "arrow-left", "square-pen", "chevron-right", "file-search", "text-search"].includes(name) ? (name == "search" ? "m21 21-4.34-4.34M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0" : name == "arrow-left" ? "m12 19-7-7 7-7M19 12H5" : name == "square-pen" ? "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" : name == "chevron-right" ? "m9 18 6-6-6-6" : name == "file-search" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5M9 14.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0M13.3 16.3 15 18" : "M21 5H3M10 12H3M10 19H3M14 15a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m7 4-1.9-1.9") : ["folder-git", "folder-plus", "palette", "monitor", "sun", "moon"].includes(name) ? (name == "folder-git" ? "M18 19a5 5 0 0 1-5-5v8M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5M11 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M18 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" : name == "folder-plus" ? "M12 10v6M9 13h6M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : name == "palette" ? "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" : name == "monitor" ? "M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM8 21h8M12 17v4" : name == "sun" ? "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" : "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401") : ["pull-request", "pull-request-link", "chart", "settings", "folder", "message-square"].includes(name) ? (name == "pull-request" ? "M2 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M5 9v12M16 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m-1-9-3-3 3-3M12 6h5a2 2 0 0 1 2 2v7" : name == "pull-request-link" ? "M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" : name == "chart" ? "M5 21v-6M12 21V3M19 21V9" : name == "settings" ? "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "folder" ? "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z") : ["link", "source-url", "rotate-ccw", "corner-left-up", "file", "arrow-up", "arrow-down"].includes(name) ? (name == "link" or name == "source-url" ? "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "corner-left-up" ? "M14 9 9 4 4 9M20 20h-7a4 4 0 0 1-4-4V4" : name == "file" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5" : name == "arrow-up" ? "m5 12 7-7 7 7M12 19V5" : "M12 5v14m7-7-7 7-7-7") : ["check", "message-square-dashed", "bug"].includes(name) ? (name == "check" ? "M20 6 9 17l-5-5" : name == "bug" ? "M12 20v-9M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4zM14.12 3.88 16 2M21 21a4 4 0 0 0-3.81-4M21 5a4 4 0 0 1-3.55 3.97M22 13h-4M3 21a4 4 0 0 1 3.81-4M3 5a4 4 0 0 0 3.55 3.97M6 13H2M8 2l1.88 1.88M9 7.13V6a3 3 0 1 1 6 0v1.13" : "M12 19h.01M12 3h.01M16 19h.01M16 3h.01M2 13h.01M2 17v4.286a.71.71 0 0 0 1.212.502l2.202-2.202A2 2 0 0 1 6.828 19H8M2 5a2 2 0 0 1 2-2M2 9h.01M20 3a2 2 0 0 1 2 2M22 13h.01M22 17a2 2 0 0 1-2 2M22 9h.01M8 3h.01") : name == "pin" ? "M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" : name == "pin-off" ? "M12 17v5M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89M2 2l20 20M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" : ""
 
 // CheckboxMark's tick (ui/checkbox.tsx): its own path at stroke 3, which the reference's 1.75 rule for Lucide glyphs leaves
 // alone.
@@ -303,6 +308,8 @@ component PaletteRowView
     reduced: bool
     row: PaletteRow
     highlighted: bool
+    // The row Enter runs: the highlighted one, else the first (Base UI's autoHighlight marks it data-highlighted).
+    target: bool
     busy: bool
     dark: bool
     run: action
@@ -369,6 +376,8 @@ component PaletteRowView
                   text row.prNumber font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(row.prState == "" ? "light-dark(#71717b, #a1a1a1)" : prdTone(row.prState))
               if row.terminalCount > 0
                 TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`palette-terminal-status-${row.key}`)
+              if row.pin != ""
+                PalettePinButton(row=row, highlighted=target, dark=dark, run=run)
               if row.timestamp != ""
                 text row.timestamp min-width="3rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)"
               if row.shortcut != ""
@@ -379,6 +388,21 @@ component PaletteRowView
               // New project's chosen environment (newProjectMachineGroup's CheckIcon).
               if row.trailing == "check"
                 PaletteIcon(name="check", size=16, color=(dark ? "#a1a1a1b3" : "#71717bb3"))
+
+// ProjectPinButton (icon-xs, ghost-muted): a pinned project always shows its pin, PinOff under the pointer; an unpinned
+// one shows it only on the highlighted row. Out of the tab order: the field's pin shortcut is the keyboard's way.
+component PalettePinButton
+  props
+    row: PaletteRow
+    highlighted: bool
+    dark: bool
+    run: action
+  state over = false
+  action pinHover(on: bool)
+    over = on
+  view
+    button press=run("flow", "project-pin", row.pinKey) hover=pinHover tabindex=-1 aria-hidden=true title=row.pinTitle testId=`palette-pin-${row.key}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(row.pin == "pinned" or highlighted ? 1 : 0) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      PaletteIcon(name=(row.pin == "pinned" and over ? "pin-off" : "pin"), size=14, color=(over ? (dark ? "#f5f5f5" : "#18181b") : (dark ? "#a1a1a1" : "#71717b")))
 
 component PalettePublishRow
   props
@@ -534,6 +558,7 @@ component CommandPaletteBody
   // chat.newWithoutProject) runs the displayed row that has it, since the window's new-thread keys are off while the
   // palette is open. Every other key is the root's (the arrows, Backspace).
   // An accessory labelled "⌘ Enter" (a highlighted row holds Enter) takes ⌘Return: Add while browsing, Create on New project.
+  // The thread pin shortcut (view.pinKeys) pins the highlighted row's project, where the row has a pin.
   // A letter is matched lowercase, and by its physical key when Option typed another character (⌥⌘N's "˜").
   action inputKey(k: string, e: KeyboardEvent)
     let letter = (e.code.startsWith("Key") and e.code.length == 4) ? e.code.slice(3).toLowerCase() : ""
@@ -544,6 +569,11 @@ component CommandPaletteBody
       stopPropagation()
       if not e.repeat and not busy and view.accessoryEnabled
         run(view.accessoryOp, view.accessoryArg, view.accessoryArg2)
+    else if view.pinKeys != "" and view.pinKeys.split(" ").includes(chord) and target.filter((r) => r.pin != "").length > 0
+      preventDefault()
+      stopPropagation()
+      if not e.repeat and not busy
+        run("flow", "project-pin", target.map((r) => r.pinKey).join(""))
     else
       match first(view.rows.filter((r) => r.jump != "" and r.jump.split(" ").includes(chord)))
         case some(r)
@@ -609,7 +639,7 @@ component CommandPaletteBody
         scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 26.25 * rem : listMax) width="100%" box-sizing="border-box" testId="palette-list"
           column padding=(view.panel == "fill" ? "0px" : "0.5rem") padding-top="0.5rem" padding-bottom="0.5rem" width="100%" box-sizing="border-box" role="listbox"
             for row in view.rows key=row.key
-              PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
+              PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
       else
         if view.empty != ""
           // The fill panel (content search) keeps its height and centres the hint.
@@ -741,7 +771,7 @@ component PaletteThreadPicker
           scroll scrollTop=scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%" box-sizing="border-box" testId="palette-list"
             column padding="0.5rem" width="100%" box-sizing="border-box" role="listbox" aria-label=view.label
               for row in view.rows key=row.key
-                PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
+                PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
         else
           column padding="0.5rem" width="100%" box-sizing="border-box"
             text view.empty text-align="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="1.5rem" padding-bottom="1.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="palette-empty"

@@ -1,5 +1,5 @@
 // Editing a queued message together with its attachments,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef:
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 7c3b3b3605ef (the attachment-only prompt at 2359643cff):
 // apps/web/src/components/chat/queuedMessageEdit.ts (prepareQueuedEditAttachments,
 // recoverQueuedMessageEdit), chat/useQueuedRunEdit.ts (beginEdit, removeEditingAttachment,
 // submitQueuedRunEdit, the run-left-queue toasts) and packages/client-runtime/src/
@@ -16,11 +16,11 @@ import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { composerFileAttachments, referencedFiles } from './composer-editor-files';
 import { messageContext } from './composer-editor';
+import { restoreAttachmentOnlyPrompt, stripAttachmentOnlyPrompt } from './attachment-only-prompt';
+export { ATTACHMENT_ONLY_PROMPT } from './attachment-only-prompt';
 
 /** PROVIDER_SEND_TURN_MAX_ATTACHMENTS. */
 export const MAX_ATTACHMENTS = 100;
-/** ATTACHMENT_ONLY_BOOTSTRAP_PROMPT: the text an attachment-only message sends. */
-export const ATTACHMENT_ONLY_PROMPT = '[User attached one or more files without additional text. Respond using the conversation context and the attached files.]';
 export const SAVE_FAILED = 'Could not save the edited queued message.';
 
 /**
@@ -71,9 +71,11 @@ export function startEdit(client: T3Client, run: Obj, text: string, previous: Qu
   const draftKey = client.draftKey;
   const stash = previous ? previous.stash : client.local.drafts[draftKey] ?? '';
   const stashImages = previous ? previous.stashImages : client.local.snapshotDrafts[draftKey] ?? [];
-  client.local.drafts[draftKey] = text;
+  // An attachment-only message opens with an empty field, not the prompt it was sent with.
+  const editText = stripAttachmentOnlyPrompt(text);
+  client.local.drafts[draftKey] = editText;
   client.local.snapshotDrafts[draftKey] = [];
-  return { key: draftKey, environmentId: client.environmentId, threadId: client.threadId, runId: str(run.id), messageId: str(run.userMessageId), originalText: text,
+  return { key: draftKey, environmentId: client.environmentId, threadId: client.threadId, runId: str(run.id), messageId: str(run.userMessageId), originalText: editText,
     stash, stashImages, existing: arr(message?.attachments).map(attachment => ({ ...attachment })), context: message?.context ? obj(message.context) : undefined, paused: false };
 }
 /** The thread's own draft comes back (cancel, a save, or a discarded edit), wherever the user is. */
@@ -104,8 +106,8 @@ export function endLostEdit(client: T3Client, editing: QueuedEditing): void {
 }
 
 /**
- * submitQueuedRunEdit: at most 100 attachments in all; an empty text with attachments sends the attachment-only prompt;
- * nothing at all is a no-op (false). `queued-run.edit` carries the full attachment list and the context; the save's
+ * submitQueuedRunEdit: at most 100 attachments in all; an empty text (or "Ultrathink:" alone) with attachments sends the
+ * attachment-only prompt; nothing at all is a no-op (false). `queued-run.edit` carries the full attachment list and the context; the save's
  * result decides the edit's fate, even when the run starts meanwhile.
  */
 export async function saveEdit(client: T3Client, native: Native, storage: Files, editing: QueuedEditing, value: string,
@@ -121,7 +123,7 @@ export async function saveEdit(client: T3Client, native: Native, storage: Files,
   const [commandId] = await access.ids(1);
   try {
     await access.dispatch(storage, { type: 'queued-run.edit', commandId, threadId: editing.threadId, runId: editing.runId,
-      text: text || ATTACHMENT_ONLY_PROMPT, attachments, ...(arr(context.records).length ? { context } : {}) }, 'Update queued message');
+      text: restoreAttachmentOnlyPrompt(text, attachments.length > 0), attachments, ...(arr(context.records).length ? { context } : {}) }, 'Update queued message');
   } catch (error) {
     if (error instanceof ClientError && error.kind === 'superseded') throw error;
     throw new ClientError(SAVE_FAILED);

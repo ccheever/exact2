@@ -25,6 +25,7 @@ import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaS
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
 import { notePullRequestLinks } from './pull-link-registry';
+import { chipInks } from '../composer/composer-chip-presentation';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -32,7 +33,9 @@ export interface ChipView {
   /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); [] until then and for every other chip. */
   menu: { id: string; label: string }[];
 }
-export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[] }
+/** A chip kind's ink (markdown-chip-inks.contract ChipInk): `light-dark()` of its accent raised to 5:1 on each theme half. */
+export interface ChipInk { kind: string; ink: string }
+export interface MarkdownEnv { codeFont: string; codeSize: number; wrap: boolean; chips: ChipView[]; runCommands: string[]; threadGlyphs: ThreadLinkGlyph[]; inks: ChipInk[] }
 
 
 // extractMarkdownLinkHrefs (packages/shared/src/markdownLinks.ts at 9c161462c9): a forward scan
@@ -299,8 +302,10 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
       // opens as (`detail` is its tooltip); `icon` is the file's glyph for when the picture does not load.
       if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, icon: fileIconToken(name), target };
-      const video = isVideo(attachment);
-      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target };
+      // A paste is "Pasted text", and a file the server has not stored yet says "Sending…" (userMessageFileLabel).
+      const video = isVideo(attachment), label = obj(attachment.source)._tag === 'pasted-text' ? 'Pasted text' : name;
+      const shown = attachment.downloadable === false ? 'Sending…' : size;
+      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(label), size: shown, tip: `${label}\n${shown}`, icon: video ? '' : fileIconToken(name), target };
     }
     case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
       tip: str(record.terminalLabel), detail: str(record.text) };
@@ -337,44 +342,25 @@ export function asFileChip(chip: ChipView): ChipView {
   return { ...chip, kind: 'file', tip: chip.detail, detail: '' };
 }
 
-/** appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads. */
+/**
+ * appearanceFonts.ts: the code family and clamped size (10–18, default 13) and the word-wrap default chat Markdown reads,
+ * with the chips' inks on the canvas (shared/chip-accents.ts).
+ */
 export function markdownEnv(client: T3Client): MarkdownEnv {
   const prefs = (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings || decodeClientPrefs({});
   const size = Number(prefs.fontSizeCode);
   return { codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace', codeSize: Number.isFinite(size) ? Math.min(18, Math.max(10, Math.round(size))) : 13,
-    wrap: prefs.wordWrap !== false, chips: [], runCommands: [], threadGlyphs: [] };
+    wrap: prefs.wordWrap !== false, chips: [], runCommands: [], threadGlyphs: [], inks: markdownChipInks(client) };
+}
+/** The chips' inks as a list, on the canvas or in a sent message's bubble; none for a client without settings, whose
+ *  chips take the default theme's (markdown-chip-inks.contract defaultChipInk). */
+export function markdownChipInks(client: T3Client, bubble = false): ChipInk[] {
+  if (!(client.local as { deviceSettings?: unknown } | undefined)?.deviceSettings) return [];
+  return Object.entries(chipInks(client, bubble)).map(([kind, ink]) => ({ kind, ink }));
 }
 /** Settings → Appearance → Diff colors: "blue-orange" or the default "red-green". */
 export function diffSchemeOf(client: { local: object }): string {
   return (client.local as unknown as { clientSettings?: ClientPrefs } | undefined)?.clientSettings?.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green';
-}
-
-// color-mix(in oklab, …) for an image chip whose accent is its picture's average colour.
-const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const toGamma = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
-function oklab(rgb: number[]): number[] {
-  const [r, g, b] = rgb.map(value => toLinear(value / 255)) as [number, number, number];
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b),
-    s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
-}
-function hexOf(lab: number[]): string {
-  const [L, A, B] = lab as [number, number, number];
-  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
-  const rgb = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
-  return `#${rgb.map(value => Math.round(Math.min(1, Math.max(0, toGamma(value))) * 255).toString(16).padStart(2, '0')).join('')}`;
-}
-const mix = (accent: number[], other: string, share: number) => {
-  const a = oklab(accent), b = oklab([1, 3, 5].map(at => parseInt(other.slice(at, at + 2), 16)));
-  return hexOf(a.map((value, index) => value * share + b[index]! * (1 - share)));
-};
-/** ContextChip's accent maths on an image's average colour ("r g b"): an 11% fill (17% hovered),
- * a border mixing 34% of it into the border colour, text mixing 22% into the foreground. */
-export function imageChipInks(accent: string): { fill: string; hover: string; border: string; ink: string } | null {
-  const rgb = accent.trim().split(/\s+/).map(Number);
-  if (rgb.length !== 3 || rgb.some(value => !Number.isFinite(value) || value < 0 || value > 255)) return null;
-  const hex = hexOf(oklab(rgb));
-  return { fill: `${hex}1c`, hover: `${hex}2b`, border: `light-dark(${mix(rgb, '#e4e4e7', 0.34)}, ${hex}61)`, ink: `light-dark(${mix(rgb, '#18181b', 0.22)}, ${mix(rgb, '#f5f5f5', 0.22)})` };
 }
 
 // Ported from T3 Code 1e2ecbd975 SkillInlineText.tsx and providerSkills.ts (MIT).

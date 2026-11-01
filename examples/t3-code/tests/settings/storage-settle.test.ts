@@ -82,7 +82,7 @@ test('new and existing task editor projections match the strict Contract draft s
     schedule: { type: 'webhook', signature: { header: 'x-signature', encoding: 'hex', prefix: 'sha256=' }, maxDeliveryAgeMinutes: 60 }, webhook: { hasSecret: true } };
   for (const task of [undefined, existing]) {
     const draft = editorDraft(task, 'project', 'codex:m', 'environment');
-    const projected = { ...draft, ...webhookAddress(task?.webhook, 'http://127.0.0.1:16771'), key: 'editor', missing: false };
+    const projected = { ...draft, ...webhookAddress(task?.webhook, 'http://127.0.0.1:16771'), key: 'editor', missing: false, destination: '' };
     expect(Object.keys(projected).sort()).toEqual(declared);
     expect(draft.signatureSecret).toBe('');
     expect(draft.hasSecret).toBe(task !== undefined);
@@ -120,6 +120,7 @@ test('deliveries load through their owner, retain the list, and expose the rende
 
 
 import { cleanupEntries, cleanupHasRules, cleanupPermitted, databaseCompactionNotices, formatBytes } from '../../src/settings/storage-maintenance';
+import { settledStatus } from '../../src/settings/settings-data';
 import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
 
 test('cleanup recognizes zero-day settled and custom project rules while off suppresses inherited worktree rules', () => {
@@ -163,6 +164,8 @@ test('cleanup results name the machine, project, folder and thread of each entry
   expect(cleanupEntries({ entries: [{ ...report.entries[0], projectPath: undefined }], omittedCount: 1234 }, 'Lane Mac')).toMatchObject({ omitted: 'Lane Mac: 1,234 more results.', empty: '' });
   expect(cleanupEntries({ entries: [], omittedCount: 0 }, 'Lane Mac')).toMatchObject({ entries: [], omitted: '', empty: 'Lane Mac: Nothing needed cleanup.' });
   expect([formatBytes(512), formatBytes(10.5 * 1024), formatBytes(150 * 1024 ** 3)]).toEqual(['512 B', '10.5 KB', '150 GB']);
+  // The unit follows the rounded value (formatBytes.test.ts): just under the next unit reads 1.00 of it, not 1024.
+  expect([formatBytes(1023.6), formatBytes(1023.6 * 1024), formatBytes(1024 ** 2 - 1), formatBytes(1024 ** 5 * 2)]).toEqual(['1.00 KB', '1.00 MB', '1.00 MB', '2048 TB']);
   // The fold's first line takes its divider from the header: the first report's first entry, or its empty line.
   expect(cleanupEntries(report, 'Lane Mac', true).entries.map(entry => entry.first)).toEqual([true, false, false, false]);
   expect(cleanupEntries(report, 'Lane Mac').entries.some(entry => entry.first)).toBe(false);
@@ -214,4 +217,24 @@ test('webhook copy and rotation complete without closing the editor or showing t
     root.call('commandCompleted', state, { changed: { message, relaunch: false, routeReorder: 0 }, routeKeyboardComplete: () => '', routeKeyboardOwned: false }, []);
     expect(state).toMatchObject({ modalError: '', commandPending: false, pendingModal: '', settingsRefresh: 8, restEditor: message ? 'task' : '' });
   }
+});
+
+// StorageCleanupSections at 2359643cff: the artifact and log rows' "Mixed across selected machines" waits until the
+// machines have disagreed for 300 ms (useDebouncedValue), and the days field keeps one width while it is typed in.
+test('a changed mixed status settles after the debounce and asks again; the first answer settles at once', async () => {
+  let woke: () => void = () => {};
+  const wake = new Promise<void>(resolve => { woke = resolve; });
+  const watched: string[] = [], sent: unknown[] = [];
+  const native = { available: true, watch: (topic: string) => watched.push(topic), later: async (request: unknown) => { sent.push(request); woke(); return { ok: true, generation: 0, value: {} }; } };
+  const client = {} as never;
+  expect(settledStatus(client, native, 'logsAfterDays', 'a,b:true')).toBe('a,b:true');
+  expect(settledStatus(client, native, 'logsAfterDays', 'a,b:false')).toBe('a,b:true');
+  expect(settledStatus(client, native, 'logsAfterDays', 'a,b:false')).toBe('a,b:true');
+  expect(watched).toEqual(['t3.notify', 't3.notify']);
+  await wake;
+  expect(sent).toEqual([{ op: 'wake', topic: 't3.notify' }]);
+  expect(settledStatus(client, native, 'logsAfterDays', 'a,b:false')).toBe('a,b:false');
+  const source = readFileSync(appPath('settings-storage.contract'), 'utf8');
+  expect(source).toContain('testId=`storage-days-${rule.key}` width=(59 * rem / 16)');
+  expect(readFileSync(appPath('settings-data.ts'), 'utf8')).toContain("context.targets.length > 1 && settledStatus(");
 });

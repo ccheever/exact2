@@ -7,11 +7,11 @@ import { applyCoreSetting, decodeClientPrefs, formatSettingValue, generalSection
 import { advancedBackgroundValue, backgroundDialog, normalizeBackground, profileOption, resolveBackground } from '../../src/settings/settings-a-background';
 import { appPath } from '../support/app-files';
 
-type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
+type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; scopes: string[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
 export function fakeClient(settings: Obj = {}, ready = true): Fake {
   const client: Fake = {
     local: { deviceSettings: { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
-    ready, environmentId: 'env1', writes: [],
+    ready, environmentId: 'env1', writes: [], scopes: [],
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }] }],
     async settingsCoreRequest(_native, method, payload) {
@@ -73,11 +73,15 @@ describe('background activity, advanced', () => {
     const gone = backgroundRow({ ...client, environmentId: '' } as Fake);
     expect(gone.options.find(entry => entry.id === 'advanced')!.disabled).toBe(true);
   });
-  test("the inheritance popover reads Custom for the policy, as SettingInheritance's formatValue has no profile labels", () => {
+  test("the inheritance popover names the background activity profile, as SettingInheritance's formatValue does", () => {
     const client = fakeClient();
-    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Custom']]);
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Balanced']]);
     client.config.settings = { ...(client.config.settings as Obj), backgroundActivity: { schemaVersion: 1, profile: 'performance', overrides: {} } };
-    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Custom'], ['Default', 'Custom']]);
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Performance'], ['Default', 'Balanced']]);
+    expect(['battery-saver', 'custom', 'future'].map(profile => formatSettingValue('backgroundActivity', { profile }))).toEqual(['Battery saver', 'Advanced', 'future']);
+    // Worktree cleanup reads Off or Custom; only the writing style maps its mode through the writing-style labels.
+    expect([formatSettingValue('worktreeCleanup', { mode: 'off' }), formatSettingValue('worktreeCleanup', { mode: 'custom', afterDays: 7 }), formatSettingValue('worktreeCleanup', { mode: 'custom_instructions' }),
+      formatSettingValue('someOtherSetting', { mode: 'custom' })]).toEqual(['Off', 'Custom', 'Custom', 'custom']);
     // The rest of formatValue: model selections, writing styles, merge methods and the writer model's unset value.
     expect([formatSettingValue('textGenerationModelSelection', { instanceId: 'codex', model: 'gpt-6' }), formatSettingValue('sourceControlWritingStyle', { mode: 'conventional_commits' }),
       formatSettingValue('pullRequestMergeMethod', 'squash'), formatSettingValue('pullRequestMergeMethod', null), formatSettingValue('sourceControlWriterModelSelection', null),
@@ -195,12 +199,12 @@ describe('device tools, refs, archive menu, look', () => {
     panel.call('menuFor', state, {}, ['env1:p1:t9']);
     expect(state.menuOf).toBe('env1:p1:t9');
   });
-  test('look follows chat width, diff colours, identification and themes', () => {
+  test('look follows chat width, diff colours and themes, and draws no environment identification', () => {
     const client = Object.assign(fakeClient(), { preferencesLoaded: true });
-    Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', environmentIdentificationMode: 'pill', themeLight: 'grove', themeDark: 'grove' });
+    Object.assign(client.local.clientSettings as Obj, { chatWidth: 'wide', diffColorScheme: 'blue-orange', themeLight: 'grove', themeDark: 'grove' });
     const value = look(as(client));
-    // The pill names the stage; this stable client has none (environment-identification.test.ts).
-    expect([value.chatMax, value.diff, value.artwork, value.pill, value.themed]).toEqual([1152, 'blue-orange', false, '', true]);
+    expect([value.chatMax, value.diff, value.themed]).toEqual([1152, 'blue-orange', true]);
+    expect(Object.keys(value).filter(key => key === 'artwork' || key === 'pill')).toEqual([]);
     expect(value.sidebar).toContain('light-dark(');
     expect(look(as(fakeClient())).themed).toBe(false);
   });

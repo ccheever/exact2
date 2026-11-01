@@ -6,6 +6,10 @@ use std::fmt;
 
 #[cfg(windows)]
 pub mod d3d11;
+#[cfg(windows)]
+pub mod directwrite;
+#[cfg(windows)]
+mod windows_library;
 
 #[cfg(exact_ink_metal)]
 pub mod metal;
@@ -104,6 +108,14 @@ impl TextureDesc {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Submission(pub u64);
 
+/// One tightly packed rectangle; a batch snapshots all rectangles in queue order.
+pub struct TextureUpload {
+    pub texture: TextureId,
+    pub origin: [u32; 2],
+    pub size: [u32; 2],
+    pub data: Vec<u8>,
+}
+
 /// The headless operations used by S0. Buffer uploads and draws are ordered on
 /// one queue. Each device orders mutations after the resource's last use, waits,
 /// or chooses fresh storage. Submissions include uploads; a larger completed value
@@ -133,6 +145,15 @@ pub trait Device {
         size: [u32; 2],
         data: &[u8],
     ) -> Result<Submission>;
+    /// Upload a group before its first draw. The default retains the device's
+    /// ordered per-rectangle path; Metal and wgpu share one staging allocation.
+    fn upload_textures(&mut self, uploads: &[TextureUpload]) -> Result<Submission> {
+        let mut submitted = Submission(0);
+        for u in uploads {
+            submitted = self.upload_texture(u.texture, u.origin, u.size, &u.data)?;
+        }
+        Ok(submitted)
+    }
     /// Latest upload, read or write using this texture.
     fn last_use(&self, texture: TextureId) -> Result<Submission>;
     fn generate_mips(&mut self, texture: TextureId) -> Result<Submission>;
@@ -344,4 +365,24 @@ impl Retry {
         self.failures = self.failures.saturating_add(1);
         self.due = Some(now + std::time::Duration::from_millis(ms));
     }
+}
+
+/// Map a monotonic phase mark to process age. Every logged interval uses the
+/// same clock as the startup watchdog, regardless of how long logging takes.
+#[cfg(windows)]
+pub fn process_ms_at(at: std::time::Instant) -> Result<f64> {
+    static ORIGIN: std::sync::OnceLock<Result<(std::time::Instant, f64)>> =
+        std::sync::OnceLock::new();
+    let (origin, age) = ORIGIN
+        .get_or_init(|| {
+            let now = std::time::Instant::now();
+            process_ms().map(|age| (now, age))
+        })
+        .as_ref()
+        .map_err(Clone::clone)?;
+    Ok(if at >= *origin {
+        age + at.duration_since(*origin).as_secs_f64() * 1000.
+    } else {
+        age - origin.duration_since(at).as_secs_f64() * 1000.
+    })
 }

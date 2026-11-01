@@ -97,7 +97,10 @@ fn interview_table_shapes_roundtrip_and_launch_fill() {
     for (name, fields) in [
         ("Router", vec!["tab", "tabs", "next"]),
         ("Tab", vec!["name", "stack"]),
-        ("Entry", vec!["id", "name", "url", "tab", "params"]),
+        (
+            "Entry",
+            vec!["id", "name", "url", "tab", "params", "fragment"],
+        ),
         ("Params", vec!["post", "question", "person"]),
     ] {
         let row = plan
@@ -279,7 +282,17 @@ fn corpus_verb_sequences_run_through_compiled_actions_without_copying_expectatio
                     .unwrap_or_default();
                 r.act(step["verb"].as_str().unwrap(), args).unwrap();
             }
-            if state(&r)["slots"]["nav"] != step["expected"] {
+            // The corpus leaves an empty fragment unwritten, as `exact_route::Entry`
+            // serializes it; the agent's state names every field.
+            let mut nav = state(&r)["slots"]["nav"].clone();
+            for tab in nav["tabs"].as_array_mut().into_iter().flatten() {
+                for entry in tab["stack"].as_array_mut().into_iter().flatten() {
+                    if entry["fragment"] == "" {
+                        entry.as_object_mut().map(|e| e.remove("fragment"));
+                    }
+                }
+            }
+            if nav != step["expected"] {
                 failures.push(format!(
                     "{} step {index}: {}",
                     sequence["name"],
@@ -773,6 +786,12 @@ component App
     );
     assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
     assert_rows(&r);
+    // @ref LLP 1115.000 D5.5 — Back left the detail ahead: the platform's
+    // Forward goes there by the runner's own `go`, and nothing is ahead then.
+    assert_eq!(r.location_ahead().as_deref(), Some("/detail"));
+    r.host_go("/detail").unwrap().unwrap();
+    assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 2);
+    assert_eq!(r.location_ahead(), None);
     // Routes now sit where every host finds them, or are refused.
     let wrapped = source.replace(
         "      for e in stack(nav) key=e.id\n        column navigationKey",

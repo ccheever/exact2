@@ -77,7 +77,7 @@ function publish() {
 export function projectRoots(history, navigate, say, after, hostBack, hostGo, routeMatches) {
   const root = document.getElementById("exact-root"), project = () => history.project(root, say);
   history.connect(root, navigate, say, hostBack, hostGo, routeMatches, true);
-  after.push(project); history.activate(root, say);
+  after.push(project, markDocument); history.activate(root, say);
 }
 
 /** Project route visibility before startup. A modal keeps the underlying page
@@ -100,14 +100,29 @@ export function markRoutes(root) {
 }
 
 /** The elements that may be the page's scroller: `<html data-scrolldocument>`
- * while one is (D4), which the shell's rule reads, as the web host's glue. */
+ * while one is (D4), which the shell's rule reads, as the web host's glue.
+ * One in a route or panel the projection hid is `data-exact-offpage`, an inner
+ * scroller again, so a covered route's content leaves the page's height. When
+ * the page's one scroller changes, it is given the page's scroll it last had:
+ * a route opened anew starts at its top, one shown again where the reader left
+ * it. Each one's place is kept as the page scrolls, since by the time a commit
+ * switches them, moving the focus into the route shown may have scrolled the
+ * page. */
 export const Docs = new Set();
-let Marked = false;
+let Marked = false, Page = null, Listening = false;
+const Scrolled = new WeakMap();
+const hidden = e => { for (let a = e; a; a = a.parentElement) if (a.style?.getPropertyValue("visibility") === "hidden") return true; return false; };
 export function markDocument() {
   if (!Docs.size && !Marked) return;
-  Marked = false;
-  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
+  const live = [];
+  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else if (e.getAttribute("data-scrolldocument") === "true") (hidden(e) ? e.setAttribute("data-exact-offpage", "") : live.push(e));
+  const page = live.length === 1 ? live[0] : null, scrolls = typeof globalThis.scrollTo === "function" && typeof globalThis.scrollY === "number";
+  if (scrolls && !Listening) { Listening = true; addEventListener("scroll", () => { if (Page?.isConnected) Scrolled.set(Page, [scrollX, scrollY]); }, { passive: true }); }
+  for (const e of live) e.removeAttribute("data-exact-offpage");
+  Marked = live.length > 0;
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
+  // One that left the page (a popped route, or the rendered page's, adopted) hands nothing on.
+  if (page && Page !== page) { if (scrolls && (Page?.isConnected || Scrolled.has(page))) scrollTo(...(Scrolled.get(page) ?? [0, 0])); Page = page; }
 }
 
 // @ref LLP 1075.003 §3.7 — a navigation tab is built the first time it is

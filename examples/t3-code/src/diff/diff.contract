@@ -25,6 +25,7 @@ use KeyMenu from "../shared/menu-keys.contract"
 use kmTriggerKey from "../shared/menu-keys.contract"
 use kmTriggerTarget from "../shared/menu-keys.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
+use DiffCommitsItem, DiffCommitSha from "./diff-commits.contract"
 
 // Rebuilt on a scheme change so native SVG glyphs resolve the new light-dark() side.
 component DiffPanel
@@ -179,7 +180,7 @@ component DiffToolbar
   state refsWidth = 1000
   action refsSized(width: number, height: number)
     refsWidth = width
-  derive scopeItems = [KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted"), KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn")]
+  derive scopeItems = [KmItem(id="diff-scope-branch", label="Changes"), KmItem(id="diff-scope-unstaged", label="Uncommitted"), KmItem(id="diff-scope-latest", label="Latest turn"), KmItem(id="diff-scope-turns", label="Turn"), KmItem(id="diff-scope-commits", label="Commits")]
   // Base UI's MenuTrigger: Enter, Space, ↓ open the scope menu at its first item, ↑ at its last.
   action scopeKey(k: string, e: KeyboardEvent)
     if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
@@ -200,6 +201,10 @@ component DiffToolbar
             text data.diffScopeLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
             ReqIcon(name="chevron-down", size=14, color="light-dark(#18181b, #f5f5f5)")
           DiffScopeMenu(data=data, command=command, items=scopeItems, toggled=scopeToggled)
+        // A commit shown names its short SHA beside the trigger (DiffPanel's gap-3), and the trigger gives way first.
+        if data.diffCommits.sha != ""
+          box flex-shrink=0 margin-left="0.5rem" display="flex"
+            DiffCommitSha(data=data, command=command)
         // Changes with a base ref names "<head> → <base>", the base being the comparison target picker.
         if data.diffCompare
           DiffCompare(data=data, command=command, narrow=(refsWidth < 20 * rem))
@@ -233,8 +238,8 @@ component DiffToolbar
 
 // DiffPanel's DropdownMenuContent (align start): 4pt under the trigger, flipping near an edge. A popover, so a press
 // anywhere outside it or Escape closes it, as Base UI's Menu does; it is modal while it shows, so its Escape is not the
-// right panel sheet's toggle's. DiffPanel lists Changes, Uncommitted, Latest turn and the Turn submenu whether or not
-// the thread has turns; Latest turn without one only closes the menu (client-ops-diff.ts), and Turn then opens nothing,
+// right panel sheet's toggle's. DiffPanel lists Changes, Uncommitted, Latest turn, the Turn submenu and the Commits
+// submenu (diff-commits.contract) whether or not the thread has turns; Latest turn without one only closes the menu (client-ops-diff.ts), and Turn then opens nothing,
 // as the reference's empty submenu shows nothing.
 component DiffScopeMenu
   inject
@@ -252,6 +257,7 @@ component DiffScopeMenu
           DiffMenuItem(keysId="diff-scope-keys", menuId="diff-scope-menu", label="Uncommitted", time="", selected=(data.diffScope == "unstaged"), testId="diff-scope-unstaged", choose=command("diff-scope", "", "unstaged", 0))
           DiffMenuItem(keysId="diff-scope-keys", menuId="diff-scope-menu", label="Latest turn", time="", selected=data.diffLatestSelected, testId="diff-scope-latest", choose=command("diff-scope", "", "latest", 0))
           DiffTurnsItem(keysId="diff-scope-keys", data=data, command=command)
+          DiffCommitsItem(keysId="diff-scope-keys", data=data, command=command)
 
 // DropdownMenuSubTrigger "Turn" and its DropdownMenuSubContent beside it (MenuSubPopup: side end, 5pt up), flipping to
 // the start side near an edge; the pointer resting on the row opens it, as →, Enter or Space do.

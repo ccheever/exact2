@@ -15,16 +15,14 @@ import { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
-import { appText } from '../support/app-files';
 import { contractFn } from '../support/contract-fn-fixture';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { sidebarSnapshot } from '../../src/sidebar/sidebar-view';
-import { legacySidebarSnapshot } from '../../src/sidebar/legacy-sidebar-view';
 import { branchPullRequest, fallbackReference, syncBranchPullRequests } from '../../src/sidebar/sidebar-branch-pr';
 import { archiveCommand, archiveConfirmation } from '../../src/settings/settings-a-archive';
-import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
+import { appPath } from '../support/app-files';
 
-const source = (file: string) => appText(file);
+const source = (file: string) => Bun.file(appPath(file)).text();
 
 // ---- The window's hover over a row, its controls and their tips ----
 const windowHalf = contractComponent('app-window.contract', 'T3Window');
@@ -123,11 +121,11 @@ describe('A row menu\'s pick lets go of the composer, so ⌘Z after Archive is t
     rootHalf.call('sidebarRun', { commandPending: true }, { composerFocused, blur: (...args: unknown[]) => { blurs.push(args); } }, [op, 'thread-1', 'archive']);
     return blurs.length;
   };
-  test('the thread, draft and legacy row menus take the focus off the composer', () => {
-    expect(['menu-choice', 'draft-choice', 'legacy-thread-menu'].map(op => run(op, true))).toEqual([1, 1, 1]);
+  test('the thread and draft row menus take the focus off the composer', () => {
+    expect(['menu-choice', 'draft-choice'].map(op => run(op, true))).toEqual([1, 1]);
   });
   test('nothing else does, and a menu leaves a focus that is not the composer\'s where it is', () => {
-    expect(['settle', 'drop', 'open-draft', 'legacy-thread-choice'].map(op => run(op, true))).toEqual([0, 0, 0, 0]);
+    expect(['settle', 'drop', 'open-draft'].map(op => run(op, true))).toEqual([0, 0, 0]);
     expect(run('menu-choice', false)).toBe(0); // a keyboard-opened menu: the row keeps the focus Base UI gives back
   });
 });
@@ -175,7 +173,6 @@ function laneRig(threads: Obj[], caps: Obj = {}) {
   client.environmentId = 'lane'; client.threadId = ''; client.projectId = LANE_PROJECT;
   client.shell = { projects: [{ id: LANE_PROJECT, title: 'playground', workspaceRoot: '/lane/repos/playground', createdAt: '2026-10-14T00:00:00.000Z', updatedAt: '2026-10-14T00:00:00.000Z' }], threads, sequence: 1 };
   client.config = { environment: { label: 'GitHub lane', capabilities: { pullRequests: true, threadPullRequests: true, threadSettlement: true, ...caps } }, settings: {}, providers: [], keybindings: [] };
-  client.local.clientSettings = { ...client.local.clientSettings, legacySidebarEnabled: true } as typeof client.local.clientSettings; // both sidebars' rows are built
   client.request = async (_native, method, payload) => { asks.push({ method, payload }); return method === 'pullRequests.summary' ? SUMMARY : {}; };
   const native: Native = { available: true, watch() {}, async later(request) {
     const op = request as Obj;
@@ -185,7 +182,6 @@ function laneRig(threads: Obj[], caps: Obj = {}) {
   return { client, native, asks };
 }
 const defaultRow = (client: T3Client, id = 'studio') => sidebarSnapshot(client, NOW, identity).threads.find(row => row.id === id)!;
-const legacyRow = (client: T3Client, id = 'studio') => legacySidebarSnapshot(client, NOW, identity).projects.flatMap(project => project.threads).find(row => row.id === id)!;
 afterEach(() => { fleet.entries.clear(); });
 
 describe('A thread with no pull request link draws its branch\'s', () => {
@@ -201,7 +197,7 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     expect(fallbackReference(studio({ branchPullRequest: null }), config)).toBeNull();
   });
 
-  test('the server\'s summary draws #113 in both sidebars, asked once a minute inside the refresh', async () => {
+  test('the server\'s summary draws #113 in the sidebar, asked once a minute inside the refresh', async () => {
     const { client, native, asks } = laneRig([studio()]);
     // Before: the row read `pullRequests` alone, so the Studio branch row drew nothing.
     expect(defaultRow(client)).toMatchObject({ badge: '', badgeIcon: '' });
@@ -209,7 +205,6 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     expect(asks).toEqual([{ method: 'pullRequests.summary', payload: { projectId: LANE_PROJECT, host: 'github.com', repository: 'octocat/playground', number: 113 } }]);
     expect(branchPullRequest(client, studio())).toMatchObject({ number: 113, title: 'Document the release steps', state: 'open' });
     expect(defaultRow(client)).toMatchObject({ badge: '113', stacked: false, badgeIcon: 'git-pull-request-arrow', badgeState: 'open' });
-    expect(legacyRow(client)).toMatchObject({ prIcon: 'git-pull-request-arrow', prState: 'open', prTooltip: 'PR #113 - Open: Document the release steps', prPending: false });
     await syncBranchPullRequests(client, native, NOW + 59_000);
     expect(asks.length).toBe(1);
     await syncBranchPullRequests(client, native, NOW + 61_000);
@@ -224,7 +219,6 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     await syncBranchPullRequests(client, native, NOW);
     expect(asks).toEqual([{ method: 'pullRequests.summary', payload: { projectId: LANE_PROJECT, host: 'github.com', repository: 'octocat/playground', number: 113, fleet: 'gh' } }]);
     expect(defaultRow(client, 'fleet:env-gh:studio')).toMatchObject({ badge: '113', badgeState: 'open' });
-    expect(legacyRow(client, 'fleet:env-gh:studio')).toMatchObject({ prTooltip: 'PR #113 - Open: Document the release steps' });
   });
 
   test("a background environment's rows draw its projects with that server's favicon (#22621)", async () => {
@@ -236,7 +230,6 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     const { syncProjectFavicons } = require('../../src/sidebar/sidebar-glyph') as typeof import('../../src/sidebar/sidebar-glyph');
     await syncProjectFavicons({ environmentId: 'env-gh', generation: 3 }, entry.origin, entry.shell.projects, async () => ({ relativeUrl: '/assets/gh-favicon.png' }));
     expect(defaultRow(client, 'fleet:env-gh:studio').glyph).toMatchObject({ kind: 'image', src: 'http://127.0.0.1:16523/assets/gh-favicon.png' });
-    expect(legacySidebarSnapshot(client, NOW, identity).projects.find(project => project.name === 'playground' && project.glyph.kind === 'image')?.glyph.src).toBe('http://127.0.0.1:16523/assets/gh-favicon.png');
   });
 
   test('concurrent summaries stay with their rows and duplicate references share one pending read', async () => {
@@ -281,14 +274,5 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     expect(asks.length).toBe(1);
     expect(defaultRow(client)).toMatchObject({ badge: '' });
     expect(defaultRow(client, 'linked')).toMatchObject({ badge: '132', badgeState: 'open' });
-  });
-
-  test('the legacy glyph opens the branch\'s pull request (handlePrClick\'s prStatus.url)', async () => {
-    const { client, native } = laneRig([studio()]);
-    client.shell.projects[0]!.repositoryIdentity = { provider: 'github', canonicalKey: 'github.com/octocat/playground', displayName: 'octocat/playground' };
-    expect(await sidebarCommand(client, native, {} as never, 'legacy-pr', 'studio', 'pull-requests')).toBe('');
-    await syncBranchPullRequests(client, native, NOW);
-    const opened = await sidebarCommand(client, native, {} as never, 'legacy-pr', 'studio', 'pull-requests');
-    expect(JSON.parse(opened.slice('sidebar:pr-page:'.length))).toEqual({ projectId: LANE_PROJECT, host: 'github.com', repository: 'octocat/playground', number: 113 });
   });
 });

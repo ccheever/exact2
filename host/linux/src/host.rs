@@ -8,7 +8,7 @@
 //! seeks the app's clock and keeps node presentation values.
 
 use crate::paint::Presented;
-use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, PaintMotion};
+use exact_kernel::motion::{motion_node, MotionSync, PaintMotion};
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Engine, Property};
 use exact_plan::Plan;
@@ -68,6 +68,8 @@ use system::{physical_memory, store_snapshot};
 pub(crate) enum PlanBytes<'a> {
     Copied(&'a [u8]),
     Static(&'static [u8]),
+    #[cfg(target_os = "macos")]
+    Painted(&'a [u8], &'a dyn Fn(&Plan)),
 }
 
 impl PlanBytes<'_> {
@@ -75,6 +77,12 @@ impl PlanBytes<'_> {
         match self {
             PlanBytes::Copied(bytes) => Plan::decode(bytes),
             PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+            #[cfg(target_os = "macos")]
+            PlanBytes::Painted(bytes, ready) => {
+                let plan = Plan::decode(bytes)?;
+                ready(&plan);
+                Ok(plan)
+            }
         }
     }
 }
@@ -199,7 +207,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         Self::boot_decoded(
-            plan, data, measurer, width, height, carried, delivery, launch, region, None,
+            plan, data, measurer, width, height, carried, delivery, launch, region, None, None,
         )
     }
 
@@ -217,6 +225,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         font_sync: Option<crate::text::Shared>,
+        mut boot_images: Option<(&mut crate::image::Images, f32)>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
@@ -255,6 +264,8 @@ impl<D: DataSource> Host<D> {
             .iter()
             .filter(|_| carried.is_none())
             .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
+        #[cfg(target_os = "macos")]
+        let boot_trace = exact_ink::device::apple::Trace::new(c"boot runner through first commit");
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -266,13 +277,18 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
-        #[cfg(windows)]
-        crate::app::boot_phase("runner-ready");
+        #[cfg(target_os = "macos")]
+        drop(boot_trace);
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"runner-ready");
         if let Some(p) = presence {
             runner.install_presence(p.backend, p.keystore);
         }
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
+        }
+        if let Some((images, scale)) = &mut boot_images {
+            images.prepare_boot(runner.kernel(), &runner.roots(), *scale);
         }
         let mut host = Host {
             runner,
@@ -356,10 +372,24 @@ impl<D: DataSource> Host<D> {
                 .map_err(HostError::Layout)?,
             );
         }
-        let error = host.layout().err();
+        let mut error = crate::traced(c"boot first layout", || host.layout()).err();
         host.observe_layout();
-        #[cfg(windows)]
-        crate::app::boot_phase("layout-ready");
+        #[cfg(any(windows, target_os = "macos"))]
+        crate::app::boot_phase(c"layout-ready");
+        if let Some((images, scale)) = boot_images {
+            images.enable_decode();
+            let reports = images.sync_visible(host.kernel(), &host.preorder(), scale, |id| {
+                !host.route_visibility(id).0
+                    && host.kernel().node(id).is_some_and(|n| {
+                        let f = n.frame;
+                        f.x < width
+                            && f.y < height
+                            && f.x + f.width.max(1.) > 0.
+                            && f.y + f.height.max(1.) > 0.
+                    })
+            });
+            error = error.or(host.set_intrinsics(reports));
+        }
         host.present();
         Ok((host, error))
     }
@@ -673,6 +703,16 @@ impl<D: DataSource> Host<D> {
     /// Whether motion is running (the presenter runs frames).
     pub fn motion(&self) -> bool {
         !self.engine.quiescent() || self.press_settle().is_some()
+    }
+
+    /// The next sampled visual change, in the host's milliseconds. A change
+    /// due now needs display callbacks; a later change needs only a timer.
+    pub fn motion_due_ms(&self) -> Option<f64> {
+        if self.press_settle().is_some() {
+            Some(self.now_ms)
+        } else {
+            self.engine.next_change().map(|seconds| seconds * 1000.0)
+        }
     }
 
     /// The roots, in order.
@@ -1217,6 +1257,11 @@ impl<D: DataSource> Host<D> {
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {
+        self.tick_effects(now_ms).0
+    }
+
+    pub(crate) fn tick_effects(&mut self, now_ms: f64) -> (bool, bool) {
+        let press = self.press_settle().is_some();
         self.now_ms = now_ms.max(self.now_ms);
         self.retire_presses();
         let seek = self.engine.advance(self.now_ms / 1000.0);
@@ -1231,8 +1276,8 @@ impl<D: DataSource> Host<D> {
         if changed {
             self.observe_layout();
         }
-        self.present();
-        changed
+        let paint = self.present();
+        (changed, paint || press)
     }
 
     pub(crate) fn commit(&mut self, receipts: &[Timed], error: Option<String>) -> Option<String> {
@@ -1407,83 +1452,6 @@ impl<D: DataSource> Host<D> {
     /// A shell presents the top layer (`presenter/top.rs`), or none does.
     pub(crate) fn top_layer(&mut self, on: bool) {
         self.navigation.top_layer = on;
-    }
-
-    /// Every presentation value the engine changed, kept by node.
-    fn present(&mut self) -> bool {
-        // Holds and commits both reconcile reader tracks before publishing.
-        let epoch = self.lowered_epoch;
-        self.play_transitions();
-        let mut changed = self.lowered_epoch != epoch;
-        for p in self.engine.frame() {
-            let key = node_key(p.node);
-            let Some(view) = self.keys.get(&key).copied() else {
-                continue;
-            };
-            if p.property == Property::Height || self.presents_nothing(view, &p) {
-                continue;
-            }
-            changed = true;
-            self.row_dirty.node(key);
-            // A path's `d` is read from the engine where it is painted.
-            if p.property == Property::D {
-                continue;
-            }
-            if Property::PAINT.contains(&p.property) {
-                self.present_paint(p);
-                continue;
-            }
-            let base = self.unpresented(view);
-            let entry = self.presented.entry(view).or_insert(base);
-            match p.property {
-                Property::Translate => {
-                    entry.translate = (p.value.x as f32, p.value.y as f32);
-                    entry.translate_percent = (p.value.z as f32, p.value.w as f32);
-                }
-                Property::Layout => {
-                    entry.layout = layout_presented(&self.engine, p.node, p.value).map(|v| v as f32)
-                }
-                Property::Scale => entry.scale = p.value.x as f32,
-                Property::Rotate => entry.rotate = p.value.x as f32,
-                Property::Opacity => entry.opacity = p.value.x as f32,
-                Property::R => entry.svg[0] = Some(p.value.x as f32),
-                Property::StrokeDashoffset => entry.svg[1] = Some(p.value.x as f32),
-                // @ref LLP 1055.000 D15 — geometry, in `Presented::svg`'s order.
-                Property::Cx => entry.svg[2] = Some(p.value.x as f32),
-                Property::Cy => entry.svg[3] = Some(p.value.x as f32),
-                Property::X => entry.svg[4] = Some(p.value.x as f32),
-                Property::Y => entry.svg[5] = Some(p.value.x as f32),
-                Property::Rx => entry.svg[6] = Some(p.value.x as f32),
-                Property::Ry => entry.svg[7] = Some(p.value.x as f32),
-                _ => unreachable!("height is projected through layout; paint is above"),
-            }
-        }
-        changed
-    }
-
-    /// Whether a value the engine restates is the committed style's own, for
-    /// a node nothing is presented for: a new or renewed node's transform and
-    /// opacity rows (four a node, every node of a rebound list row), which
-    /// show what the style shows.
-    fn presents_nothing(&self, view: ViewId, p: &exact_motion::Presentation) -> bool {
-        if self.presented.contains_key(&view) {
-            return false;
-        }
-        let Some(node) = self.runner.kernel().node(view) else {
-            return false;
-        };
-        let s = node.style;
-        let v = p.value;
-        match p.property {
-            Property::Translate => {
-                (s.translate.x, s.translate.y) == (v.x as f32, v.y as f32)
-                    && (s.translate_percent.x, s.translate_percent.y) == (v.z as f32, v.w as f32)
-            }
-            Property::Scale => s.scale == v.x as f32,
-            Property::Rotate => s.rotate == v.x as f32,
-            Property::Opacity => s.opacity == v.x as f32,
-            _ => false,
-        }
     }
 
     /// Every live node in preorder.

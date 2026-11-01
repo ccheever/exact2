@@ -1,6 +1,6 @@
 // Where a link opens, the "Open links in" setting (MIT reference, see LICENSE-T3, T3 Code
-// 9c161462c9: apps/web/src/browser/browserLinkTarget.ts, useOpenLink.ts, openFileInPreview.ts `openUrlInPreview`,
-// ElectronBrowserHost.tsx `onOpenLink`; apps/web/src/components/preview/openTerminalLinkInPreview.ts;
+// 9c161462c9: apps/web/src/browser/browserLinkTarget.ts (canOpenLinksInApp at 2359643cff), useOpenLink.ts,
+// openFileInPreview.ts `openUrlInPreview`, ElectronBrowserHost.tsx `onOpenLink`; apps/web/src/components/preview/openTerminalLinkInPreview.ts;
 // components/ChatMarkdown.tsx's anchor; components/settings/IntegrationsSettings.tsx `BrowserLinkTargetSetting`).
 //
 // Chat Markdown links (`chatlocal:link-open`, kind "link": ⌘ or Ctrl held is the way out of the in-app default),
@@ -24,10 +24,12 @@ import { type PreviewSessionSnapshot, type PreviewViewportSetting } from './brow
 import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { BrowserSettingsReadError, DEFAULT_BROWSER_PROFILE_ID } from './browser-profiles';
 import { mediaFileReference } from '../media/media-reference';
-import { htmlResource } from '../panel/files-rendered-html';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 import { openExternal } from '../client/external-open';
+import { fleet } from '../connections/settings-b-fleet';
+import { sessionScopes } from '../connections/local-primary';
+import { openCommitLink } from '../diff/diff-commit-links'; // a commit link of the thread's repository (useOpenChangeRequestLink)
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
@@ -55,8 +57,13 @@ export function resolveLinkTargetPreference(client: T3Client): BrowserLinkTarget
   if ((client as { preferencesLoaded?: boolean }).preferencesLoaded === false) throw new BrowserSettingsReadError();
   return linkTargetPreference(client);
 }
-/** Whether the in-app target exists: a thread to open beside, on this macOS client (isPreviewSupportedInRuntime). */
-export const canOpenLinksInApp = (hasThread: boolean, native: Native | null | undefined): boolean => hasThread && !!native?.available;
+/** canOpenLinksInApp: a thread to open beside (its environment, null for none), on this macOS client
+ *  (isPreviewSupportedInRuntime), whose environment lets this session operate the browser (`preview:operate`). */
+export function canOpenLinksInApp(client: T3Client, environmentId: string | null, native: Native | null | undefined): boolean {
+  if (!environmentId || !native?.available) return false;
+  const scopes = environmentId === client.environmentId ? client.scopes : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.scopes ?? [];
+  return sessionScopes(environmentId, scopes).includes('preview:operate');
+}
 
 /** browserDefaultOpenViewport / browserDefaultOpenProfileId: what a new tab opens with (`resolveBrowserOpenDefaults`). */
 export type BrowserDefaults = { viewport: PreviewViewportSetting; profileId: string };
@@ -109,20 +116,12 @@ export async function openFrameWindow(client: T3Client, native: Native, frameId:
   catch (error) { if (letGo(error)) throw error; }
 }
 
-type PreviewFile = {
-  readonly path: string;
-  readonly workspace: { readonly threadId: string; readonly cwd: string } | null;
-};
-
-/** A file's captured persisted thread ID, empty for a draft, is independent of its Browser session owner.
- *  Absolute draft paths and standalone files are served on their own. */
-export async function openFileInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, file: PreviewFile): Promise<void> {
+/** openFileInPreview: a browser document (a page or a PDF) in a new Browser tab beside the thread. Inside the workspace
+ *  the page may load its siblings (`workspace-file`); a file outside it is served on its own (`media-file`). */
+export async function openFileInPreview(client: T3Client, native: Native, ref: ScopedThreadRef, filePath: string, workspaceRoot: string): Promise<void> {
   if (!native.available) throw new ClientError('The integrated browser is unavailable in this runtime.');
-  const { workspace, path } = file;
-  const resource = workspace && (!workspace.threadId || mediaFileReference(path, workspace.cwd).relativePath !== undefined)
-    ? htmlResource(workspace.threadId, workspace.cwd, path)
-    : { _tag: 'media-file', threadId: ref.threadId, path };
-  const asset = obj(await client.rpc(native, 'assets.createUrl', { resource }));
+  const inside = mediaFileReference(filePath, workspaceRoot).relativePath !== undefined;
+  const asset = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: inside ? 'workspace-file' : 'media-file', threadId: ref.threadId, path: filePath } }));
   const url = assetUrl(client.origin, str(asset.relativeUrl));
   if (!url) throw new ClientError('The environment returned an invalid asset URL.');
   await openUrlInPreview(client, native, ref, url);
@@ -137,7 +136,7 @@ export async function openInSystemBrowser(url: string): Promise<void> {
  *  Unread settings open neither browser (BrowserSettingsReadError is thrown, as the reference rethrows it). */
 export async function openLink(client: T3Client, native: Native, url: string, options: { event?: LinkEvent; threadRef?: ScopedThreadRef | null } = {}): Promise<BrowserLinkTarget> {
   const ref = options.threadRef === undefined ? activeRef(client) : options.threadRef;
-  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: resolveLinkTargetPreference(client), canOpenInApp: canOpenLinksInApp(!!ref, native) });
+  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: resolveLinkTargetPreference(client), canOpenInApp: canOpenLinksInApp(client, ref?.environmentId ?? null, native) });
   if (target === 'app' && ref) {
     try { await openUrlInPreview(client, native, ref, url); return 'app'; }
     catch (error) { if (letGo(error) || error instanceof BrowserSettingsReadError) throw error; }
@@ -166,6 +165,8 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // A button on the pull request page ("button-page") has no thread to open beside: the system browser.
   // A work-log web result ("external") is the reference's target=_blank link: always the system browser (setWindowOpenHandler).
   try {
+    // ChatMarkdown asks openChangeRequestLink first: a commit of the thread's repository opens in the Diff pane.
+    if (kind === 'link' && await openCommitLink(client, native, url, { meta: event.metaKey, ctrl: event.ctrlKey, shift: held.includes('shift'), alt: held.includes('alt') })) return '';
     if (kind === 'external') await openInSystemBrowser(url);
     else await openLink(client, native, url, { event, ...(kind === 'button-page' ? { threadRef: null } : {}) });
   }
@@ -209,7 +210,7 @@ export async function openTerminalLinkInPreview(input: {
 export class TerminalLinkPreviewOpenError extends Error {
   constructor(readonly threadRef: ScopedThreadRef, readonly targetOrigin: string, readonly cause: unknown) {
     super(`Failed to open terminal link ${targetOrigin} in preview for thread ${threadRef.threadId}.`);
-    this.name = 'TerminalLinkPreviewOpenError';
+    Object.defineProperty(this, 'name', { value: 'TerminalLinkPreviewOpenError', configurable: true, writable: true }); // Error.prototype is frozen
   }
 }
 

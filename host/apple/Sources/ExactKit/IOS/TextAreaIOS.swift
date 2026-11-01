@@ -194,7 +194,6 @@ package final class TextArea: UITextView {
     /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
     var atomElements: [AtomElement] = []
     var atomTap: (AnyObject, UITapGestureRecognizer)?
-    var atomLook: (any UITraitChangeRegistration)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
@@ -487,6 +486,12 @@ extension NodeView {
         // `layoutManager`: that would irreversibly switch back to TextKit 1.
         let f = TextArea(frame: .zero)
         f.owner = self
+        // A Markdown editor's colours and its atoms' pills are drawn for one
+        // appearance: it restyles for another (light or dark, Increase
+        // Contrast), as AppKit's does.
+        f.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: TextArea, _: UITraitCollection) in
+            if view.markup != nil { view.owner?.restyleMarkup() }
+        }
         #if !os(tvOS)
         // A CGColor does not retain UIColor's semantic appearance. The
         // native textarea's drawn separator follows UIKit's trait change.
@@ -554,7 +559,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
+            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
         f.textColor = fieldInk
         f.tintColor = isNativeTextControl ? caretColor ?? channels("accent_color").map { TextEngine.color($0) } : caretColor
         if isNativeTextControl {

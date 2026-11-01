@@ -779,7 +779,7 @@ final class MacShortcutTests: XCTestCase {
         let shown = { go.items.filter { !$0.isHidden } }
         XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
         XCTAssertTrue(shown()[0].target is ShortcutHost)
-        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), ["", "]"], "Forward keeps ⌘], which nothing claims")
         XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })
@@ -945,8 +945,8 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(titles(development), ["File", "Edit", "View", "Go", "Window", "Develop", "Help"])
         let develop = development.items.first { $0.submenu?.title == "Develop" }!.submenu!
         // The frame-health commands (#1141) take no chord.
-        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Show Frame Health", "Frame Health Details…", "Share Frame Health…", "Save Trace"])
-        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "", "", "", "t"])
+        XCTAssertEqual(develop.items.map(\.title), ["Reload", "Open Project…", "App Info…", "Show Frame Health", "Save Trace"])
+        XCTAssertEqual(develop.items.map(\.keyEquivalent), ["r", "o", "d", "", "t"])
         XCTAssertEqual(develop.items.filter { !$0.keyEquivalent.isEmpty }.map(\.keyEquivalentModifierMask), [.command, .command, .command, [.command, .option]])
         // Which build is which: production trust, or `build.mjs`'s stamp of a
         // production or distributed build (`exact release`); an unstamped

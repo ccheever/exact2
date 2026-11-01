@@ -1,5 +1,6 @@
 // T3 Code 9c161462c9 (MIT, see LICENSE-T3): closedViewStore.ts and reopenClosedView.ts.
-// The newest user-closed view wins across threads; terminals are deliberately excluded.
+// The newest user-closed view wins across threads; terminals are deliberately excluded. A side chat tab whose thread is
+// gone from the live shell is skipped, as its owner's deletion is (2359643cff reopenClosedView `sideChatExists`).
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
@@ -18,7 +19,9 @@ import { panelState, surfaceStore, surfaceLocal, openFileIn, type PanelState, ty
 import { ensureFile } from './files-surface';
 
 export type ClosedView = { id: string; key: string; surface: Surface; snapshot?: PreviewSessionSnapshot; draft?: true; projectId?: string; page?: string };
-export type ReopenOwner = { environmentKnown: boolean; catalogReady: boolean; ownerExists: boolean; shellLive: boolean; panel: Pick<PanelState, 'visible' | 'surfaces'> };
+export type ReopenOwner = { environmentKnown: boolean; catalogReady: boolean; ownerExists: boolean; shellLive: boolean; panel: Pick<PanelState, 'visible' | 'surfaces'>;
+  /** False only for a side chat tab whose thread is gone from the shell. */
+  sideChatExists?: boolean };
 const live = new WeakMap<object, ClosedView[]>();
 type Holder = { local: object };
 const persistent = (entry: ClosedView) => entry.snapshot?.profileId !== INCOGNITO_BROWSER_PROFILE_ID;
@@ -73,7 +76,7 @@ export function planNextReopen(entries: readonly ClosedView[], ownerOf: (entry: 
   for (const entry of entries) {
     const owner = ownerOf(entry);
     if (!owner.environmentKnown) { if (!owner.catalogReady) break; drop.push(entry); continue; }
-    if (!owner.ownerExists) { if (owner.shellLive) continue; break; }
+    if (!owner.ownerExists || owner.sideChatExists === false) { if (owner.shellLive) continue; break; }
     const open = (entry.surface.kind === 'browser' || owner.panel.visible) && owner.panel.surfaces.some(surface => surface.id === entry.surface.id);
     if (open) { drop.push(entry); continue; }
     return { drop, restore: entry };
@@ -90,7 +93,8 @@ export async function reopenClosedView(client: T3Client, native: Native, storage
     const draft = entry.draft === true || ref.threadId.startsWith('new:');
     const ownerExists = !!entry.page || (draft ? shell?.projects.some(project => project.id === (entry.projectId || ref.threadId.slice(4))) === true
       : shell?.threads.some(thread => thread.id === ref.threadId && thread.deletedAt == null) === true);
-    return { environmentKnown: focused || !!background, catalogReady: client.ready, ownerExists,
+    const sideChatExists = entry.surface.kind !== 'side-chat' || shell?.threads.some(thread => thread.id === entry.surface.path) === true;
+    return { environmentKnown: focused || !!background, catalogReady: client.ready, ownerExists, sideChatExists,
       shellLive: focused ? client.ready : background?.phase === 'connected' && background.synchronized === background.generation,
       panel: entry.page ? { visible: openPages.get(client) === entry.page, surfaces: openPages.get(client) === entry.page ? [entry.surface] : [] } : surfaceStore(client).panels.get(entry.key) ?? { surfaces: [], visible: false } };
   });

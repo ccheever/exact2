@@ -17,8 +17,10 @@ use CcIcon from "../composer/composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use PolicyTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
+use AboutVersionTitle from "./settings-a-about.contract"
 use MobileAppControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
+use ThreadDetailsItemsMenu from "../appearance/thread-details-items-menu.contract"
 use FontFamilyPicker from "../appearance/settings-a-fonts.contract"
 use PromptFontPreview from "../appearance/settings-prompt-preview.contract"
 use FontCodePreview from "../appearance/settings-font-previews.contract"
@@ -325,9 +327,7 @@ component CoreRowView
         column flex=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center" gap="0.375rem"
             if row.kind == "version"
-              // The reference's `<h3>` holds the version too ("Version 0.0.45"): the heading says both, the value is not read twice.
-              text "Version" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=3 aria-label=`Version ${row.value}` id=`paint-CoreRowView-2-${row.id}` data-paint="text" data-pick="text"
-              text row.value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=pal.text aria-hidden=true id=`paint-CoreRowView-3-${row.id}` data-paint="text" data-pick="text"
+              AboutVersionTitle(row=row, pal=pal, change=change)
             else
               text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text role="heading" aria-level=3 id=`paint-CoreRowView-4-${row.id}` data-paint="text" data-pick="text"
             if row.info != "" and not row.info.startsWith("preview")
@@ -365,6 +365,8 @@ component CoreRowView
               if row.value2 == "configure"
                 button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
+            if row.kind == "items-menu"
+              ThreadDetailsItemsMenu(rowId=row.id, label=row.label, items=row.options, resetDisabled=(not row.resettable), pal=pal, disabled=(busy or row.inert), choose=change(row.id))
             if row.kind == "model"
               // ProviderModelPicker: the composer's picker (model-picker.contract) opens under this trigger;
               // a Mixed value, and the Fallback model's "None" (no driver), show their neutral label without a provider mark.

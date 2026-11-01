@@ -442,12 +442,21 @@ fn a_document_whose_ids_nobody_keeps_is_the_settled_tree_projected() {
         });
         assert_eq!(strip(&runtime.document.root), strip(&any.document.root));
         assert_eq!(
-            (
-                runtime.settled,
-                runtime.checkpoint.clone(),
-                runtime.activate
-            ),
-            (any.settled, any.checkpoint.clone(), any.activate)
+            (runtime.settled, runtime.checkpoint.clone()),
+            (any.settled, any.checkpoint.clone())
+        );
+        // Only a JavaScript page infers its activation (LLP 1048.007 D1): the
+        // answered post waits for the reader, the one held at the deadline
+        // runs its runtime at once to finish it.
+        assert_eq!(runtime.activate, exact_plan::ActivatePolicy::Inferred);
+        let waits = matches!(post, Post::Soon);
+        assert_eq!(
+            any.activate,
+            if waits {
+                exact_plan::ActivatePolicy::Interaction
+            } else {
+                exact_plan::ActivatePolicy::Inferred
+            }
         );
     }
     assert!(exact_render::projects_as_booted(&plan()));
@@ -546,11 +555,13 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let shell = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<link rel=\"modulepreload\" href=\"./shared-1.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
     let html = exact_render::page(shell, &r).unwrap();
     // Undeclared is eager: the runtime downloads from the head, before the
-    // stylesheet and the document, while the page streams.
+    // stylesheet and the document, while the page streams, at low priority:
+    // the page paints without it (LLP 1153.001 D8).
     assert!(html.contains("data-activate=\"eager\""), "{html}");
     let head = &html[..html.find("<style>").unwrap()];
-    assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\">\n"));
-    assert!(head.contains("<link rel=\"modulepreload\" href=\"./shared-1.js\">\n"));
+    assert!(head.contains("<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">\n"));
+    assert!(head
+        .contains("<link rel=\"modulepreload\" href=\"./shared-1.js\" fetchpriority=\"low\">\n"));
     // First paint runs nothing of the app's: no module script is in the
     // page (the checkpoint takes the entry's place), and the one script
     // that runs is the capture script, in the head, which imports the entry
@@ -626,6 +637,7 @@ fn a_javascript_page_preloads_its_runtime_and_runs_it_after_first_paint(mut r: R
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"idle\""));
     assert_eq!(html.matches("rel=\"modulepreload\"").count(), 2);
+    assert_eq!(html.matches("fetchpriority=\"low\"").count(), 2);
     r.activate = exact_plan::ActivatePolicy::Interaction;
     let html = exact_render::page(shell, &r).unwrap();
     assert!(html.contains("data-activate=\"interaction\""));

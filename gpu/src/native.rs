@@ -648,6 +648,11 @@ pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
 }
 
+/// Whether a canvas's last render drew into the frame the next flush submits.
+pub fn drew(id: u32) -> bool {
+    with(|m| m.drew(id)).unwrap_or(false)
+}
+
 /// Whether a canvas's last render went without a drawable.
 pub fn starved(id: u32) -> bool {
     with(|m| m.starved(id)).unwrap_or(false)
@@ -1111,6 +1116,13 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_dirty(id: u32) -> u32 {
             u32::from($crate::native::dirty(id))
+        }
+
+        /// Whether a canvas's last render drew into the frame the next
+        /// `gpu_flush` submits: one that found no drawable drew nothing.
+        #[no_mangle]
+        pub extern "C" fn gpu_drew(id: u32) -> u32 {
+            u32::from($crate::native::drew(id))
         }
 
         /// Whether a canvas's last render went without a drawable: render it

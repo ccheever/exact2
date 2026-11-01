@@ -31,6 +31,10 @@ mod named_records;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "said.rs"]
+mod said;
+#[path = "sides.rs"]
+mod sides;
 #[path = "timers.rs"]
 mod timers;
 #[path = "trapped.rs"]
@@ -729,9 +733,11 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         })
         .collect();
     let names_js = format!(
-        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];\n",
+        "{names_js}export const sourceTypes={{{}}};export const pages=[{}];export const viewportMedia={};export const activation={};\n",
         source_types.join(","),
-        pages.join(",")
+        pages.join(","),
+        crate::facts::viewport_media(plan),
+        crate::facts::activation(plan)
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let budget: Vec<String> = em.uses.budget.iter().cloned().collect();
@@ -971,6 +977,9 @@ impl Em<'_> {
             self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
+        if element == "img" && exact_runner::rows::repeated(plan, exact_plan::NodesId(i)) {
+            attrs.push(("loading".into(), "lazy".into()));
+        }
         let mut css = parts.css.clone();
         css.push_str(&extra);
         // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom
@@ -1358,6 +1367,10 @@ impl Em<'_> {
                 | EventKind::Volumechange
                 // @ref LLP 1042 — through `media.js`, a bool payload.
                 | EventKind::Fullscreenchange
+                // @ref LLP 1042 §9 — an image's, which picture-in-picture.js dispatches on it.
+                | EventKind::Enterpictureinpicture
+                | EventKind::Leavepictureinpicture
+                | EventKind::Pictureinpictureerror
                 // @ref LLP 1098 D6 — the media session's, through `media.js`.
                 | EventKind::Seekbackward
                 | EventKind::Seekforward

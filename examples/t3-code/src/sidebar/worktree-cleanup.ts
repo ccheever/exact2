@@ -1,5 +1,5 @@
 // Deleting a thread's worktree with it,
-// adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
+// adapted from T3 Code 2359643cff (MIT); see LICENSE-T3. Sources:
 // apps/web/src/worktreeCleanup.ts (getOrphanedWorktreePathForThread and
 // formatWorktreePathForDisplay, unchanged), apps/web/src/hooks/useThreadActions.ts
 // deleteThread (the orphan check, the "Delete the worktree too?" confirmation,
@@ -9,7 +9,8 @@
 // packages/client-runtime/src/operations/commands.ts stopThreadSession.
 // Changes: the confirmation is the sidebar's dialog (kind "delete-worktree"),
 // answered by a later command instead of an awaited promise, so the deletion
-// that asked is resumed from `worktreePrompt`.
+// that asked is resumed from `worktreePrompt`; closing terminals with their
+// history is one hook (`closeThreadTerminals`), set by terminal-drawer-view.ts.
 import { arr, effectiveWorktreeRules, obj, str, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Files, Native } from '../client/protocol';
@@ -17,19 +18,18 @@ import { pushToast } from '../shell/toast';
 import { shellRuntime } from './sidebar-model';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { letGo } from '../client/let-go';
-
-function normalizeWorktreePath(path: unknown): string | null {
-  const trimmed = typeof path === 'string' ? path.trim() : '';
-  return trimmed ? trimmed : null;
-}
+import { normalizeProjectPathForComparison } from '../shared/project-paths';
 
 /** getOrphanedWorktreePathForThread: the thread's worktree when no other given thread uses it. */
 export function getOrphanedWorktreePathForThread(threads: ReadonlyArray<{ id?: unknown; worktreePath?: unknown }>, threadId: string): string | null {
   const targetThread = threads.find(thread => thread.id === threadId);
   if (!targetThread) return null;
-  const targetWorktreePath = normalizeWorktreePath(targetThread.worktreePath);
+  const targetWorktreePath = typeof targetThread.worktreePath === 'string' ? targetThread.worktreePath.trim() : '';
   if (!targetWorktreePath) return null;
-  const isShared = threads.some(thread => thread.id !== threadId && normalizeWorktreePath(thread.worktreePath) === targetWorktreePath);
+  // Threads can store one worktree as `/repo/wt` and `/repo/wt/`, and
+  // confirming deletion force-removes the checkout for every thread on it.
+  const targetKey = normalizeProjectPathForComparison(targetWorktreePath);
+  const isShared = threads.some(thread => thread.id !== threadId && typeof thread.worktreePath === 'string' && normalizeProjectPathForComparison(thread.worktreePath) === targetKey);
   return isShared ? null : targetWorktreePath;
 }
 
@@ -55,7 +55,7 @@ export type WorktreePlan = { path: string; display: string; cwd: string };
  * "on delete" cleanup rule is off; when it is on the server cleans up).
  * Null when nothing is to be asked or removed.
  */
-/** `env`: the thread's environment's reads (a background environment's for the legacy sidebar, legacy-sidebar-fleet.ts). */
+/** `env`: the thread's environment's reads (a background environment's row, background-threads.ts). */
 export function worktreePlan(client: T3Client, threadId: string, deleted: ReadonlySet<string>,
   env: { shell: { projects: Obj[]; threads: Obj[] }; config: Obj; connected: boolean } = { shell: client.shell, config: client.config, connected: client.connection === 'connected' }): WorktreePlan | null {
   const threads = env.shell.threads.filter(thread => thread.id === threadId || (!thread.archivedAt && !deleted.has(str(thread.id))));
@@ -94,6 +94,14 @@ export async function detachThreadSessions(client: T3Client, native: Native, thr
     }
   } catch { /* the reference awaits the detach and ignores its result */ }
 }
+
+/**
+ * closeTerminal({ threadId, deleteHistory: true }) before the delete. The terminal
+ * drawer (terminal-drawer-view.ts) sets this hook to its `terminal.close` call; until
+ * it does, nothing is closed.
+ */
+export let closeThreadTerminals: (client: T3Client, native: Native, threadId: string) => Promise<void> = async () => undefined;
+export function setCloseThreadTerminals(hook: typeof closeThreadTerminals): void { closeThreadTerminals = hook; }
 
 /**
  * After the thread is gone: vcs.removeWorktree (forced), then vcs.refreshStatus

@@ -65,12 +65,15 @@ the protocol in Rust without I/O, the native device, the web's wasm, and the
 TypeScript driver an app mounts with `typescript.sources`. The client is its
 own Cargo workspace, `snapback4/`, with its own lock. Direct Cargo commands use
 `--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
-Harmony's crates (`apps/harmony/app/`) are root members, so the root lock
-carries the private source too, and root Cargo commands need Snapback access.
-On a machine without it, a local clone holding the commit seeds Cargo's cache
-once: `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=url.file://<clone>.insteadOf
+Harmony's crates (`apps/harmony/app/`) link it, so they are a workspace of their
+own (`apps/harmony/app/Cargo.toml`), which the root `exclude`s: the root lock
+carries no private source, and root Cargo commands need no Snapback access (LLP
+1153 D2.4). Building Harmony or Snapback on a machine without it, a local clone
+holding the commit seeds Cargo's cache once: `GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=url.file://<clone>.insteadOf
 GIT_CONFIG_VALUE_0=https://github.com/expo/snapback.git
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch --locked`.
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo fetch --locked --manifest-path
+apps/harmony/app/Cargo.toml`.
 The driver imports wasm-bindgen glue (`snapback4/ts/generated/`, never
 committed). The bake of an app that mounts the driver writes it with
 `snapback4/web/build.mjs`, which builds only when the inputs recorded in the

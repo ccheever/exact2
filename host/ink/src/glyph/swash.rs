@@ -27,6 +27,8 @@ pub struct Glyphs {
     scale: ScaleContext,
     placements: HashMap<Vec<u32>, Glyph>,
     empty: std::collections::HashSet<Vec<u32>>,
+    #[cfg(windows)]
+    directwrite: Option<crate::device::directwrite::DirectWrite>,
 }
 
 impl Default for Glyphs {
@@ -37,6 +39,8 @@ impl Default for Glyphs {
             scale: ScaleContext::new(),
             placements: HashMap::new(),
             empty: Default::default(),
+            #[cfg(windows)]
+            directwrite: None,
         }
     }
 }
@@ -71,6 +75,11 @@ impl Glyphs {
             self.empty.clear();
         }
         Ok(())
+    }
+
+    /// Submit newly cached masks before a pass samples their atlas entries.
+    pub fn flush(&mut self, device: &mut impl Device) -> Result<()> {
+        Atlas::flush(&mut [&mut self.alpha, &mut self.color], device)
     }
 
     pub fn stats(&self) -> (Stats, Stats) {
@@ -121,25 +130,50 @@ impl Glyphs {
         let Some(face) = swash::FontRef::from_index(font.data, font.index as usize) else {
             return Ok(None);
         };
-        let mut scaler = self
-            .scale
-            .builder_with_id(face, font.id)
-            .size(size)
-            .hint(true)
-            .normalized_coords(font.coords.iter().copied())
-            .build();
-        let image = Render::new(&[
-            Source::ColorOutline(0),
-            Source::ColorBitmap(StrikeWith::BestFit),
-            Source::Outline,
-        ])
-        .format(Format::Alpha)
-        .offset(Vector::new(f32::from(phase) * 0.25, 0.))
-        .transform(
-            font.skew
-                .then(|| Transform::skew(Angle::from_degrees(14.), Angle::from_degrees(0.))),
-        )
-        .render(&mut scaler, glyph);
+        #[cfg(windows)]
+        let image =
+            if directwrite_enabled() && crate::device::directwrite::DirectWrite::candidate(font) {
+                if self.directwrite.is_none() {
+                    self.directwrite = Some(
+                        crate::device::directwrite::DirectWrite::new()
+                            .map_err(|e| crate::device::Error::Device(e.to_string()))?,
+                    );
+                }
+                Some(
+                    self.directwrite
+                        .as_mut()
+                        .unwrap()
+                        .raster(font, glyph, size, phase)
+                        .map_err(|e| crate::device::Error::Device(e.to_string()))?,
+                )
+            } else {
+                None
+            };
+        #[cfg(not(windows))]
+        let image: Option<swash::scale::image::Image> = None;
+        let image = image.or_else(|| {
+            #[cfg(target_os = "macos")]
+            let _trace = crate::device::apple::Trace::new(c"glyph swash");
+            let mut scaler = self
+                .scale
+                .builder_with_id(face, font.id)
+                .size(size)
+                .hint(true)
+                .normalized_coords(font.coords.iter().copied())
+                .build();
+            Render::new(&[
+                Source::ColorOutline(0),
+                Source::ColorBitmap(StrikeWith::BestFit),
+                Source::Outline,
+            ])
+            .format(Format::Alpha)
+            .offset(Vector::new(f32::from(phase) * 0.25, 0.))
+            .transform(
+                font.skew
+                    .then(|| Transform::skew(Angle::from_degrees(14.), Angle::from_degrees(0.))),
+            )
+            .render(&mut scaler, glyph)
+        });
         let Some(image) = image.filter(|i| i.placement.width > 0 && i.placement.height > 0) else {
             self.empty.insert(key);
             return Ok(None);
@@ -339,6 +373,7 @@ mod tests {
                     )
                     .unwrap();
             }
+            glyphs.flush(&mut device).unwrap();
             device
                 .render(&encoder.finish(), target, Some([0.; 4]))
                 .unwrap();
@@ -385,4 +420,11 @@ fn nearby_blur_sigmas_reuse_the_quantized_glyph() {
         .unwrap();
     assert_eq!((a.entry.texture, a.entry.uv), (b.entry.texture, b.entry.uv));
     assert_eq!(glyphs.stats().0.misses, 1);
+}
+
+#[cfg(windows)]
+fn directwrite_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var("EXACT_INK_RASTERIZER").as_deref() == Ok("directwrite-audit"))
 }

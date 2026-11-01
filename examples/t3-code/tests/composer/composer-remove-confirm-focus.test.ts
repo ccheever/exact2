@@ -7,6 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 
+
 describe('a removal asked from a focused Remove gives the focus away before its dialog goes', () => {
   const root = contractComponent('app.contract', 'T3Code');
   const scopeFor = (calls: string[]) => ({
@@ -28,7 +29,7 @@ describe('a removal asked from a focused Remove gives the focus away before its 
       expect(calls).toEqual([`focus:${target}`, `close:${accept}`]);
       expect(state.confirmHanding).toBe('');
     }
-    const app = appText('app.contract');
+    const app = await appText('app.contract');
     expect(app).toContain('  task confirmHand when confirmHanding != "" key=confirmHanding\n    after(200, confirmHanded)\n');
   });
 

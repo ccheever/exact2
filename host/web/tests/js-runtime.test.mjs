@@ -1012,8 +1012,9 @@ test('a module\'s activation: only a trusted event raises, and a navigate opens 
   const { clock, navigateTo, journal } = await import(resolve(dir, 'rt.js'));
   const { modules } = await import(resolve(dir, 'modules.js'));
   const corpus = JSON.parse(readFileSync(new URL('../../../route/tests/corpus.json', import.meta.url), 'utf8'));
+  // A canonical case through a URL keeps its fragment (LLP 1153 D5), which its canonical form drops.
   const cases = [...corpus.location_of, ...corpus.canonical.map(({ input, expected }) => ({
-    input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected,
+    input: 'https://x' + (input.startsWith('/') ? input : '/' + input), expected, fragment: true,
   }))];
   let context = null;
   clock.agent = false;
@@ -1029,11 +1030,11 @@ test('a module\'s activation: only a trusted event raises, and a navigate opens 
     let got;
     navigateTo(location => { got = location; });
     const mismatches = [];
-    for (const { input, expected } of cases) {
+    for (const { input, expected, fragment } of cases) {
       const routed = { listeners: [], addEventListener(type, f) { this.listeners.push(f); } };
       context.activation(routed, 'click', 'opened', [], { navigate: input });
       routed.listeners[0]({ isTrusted: true, type: 'click' });
-      if (got !== expected) mismatches.push({ input, expected, got });
+      if ((fragment ? got?.split('#')[0] : got) !== expected) mismatches.push({ input, expected, got });
     }
     expect(mismatches).toEqual([]);
   } finally { if (previousFocus === undefined) delete globalThis.focus; else globalThis.focus = previousFocus; navigateTo(null); }

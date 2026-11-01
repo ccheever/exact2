@@ -252,6 +252,15 @@ describe('hideWhitespaceChanges (diffRendering.ts)', () => {
     expect(renderablePatch('Binary blob without headers', false)).toEqual({ kind: 'raw', text: 'Binary blob without headers', reason: 'Unsupported diff format. Showing raw patch.' });
     expect(renderablePatch('  ', false)).toBeNull();
   });
+  // diffRendering.test.ts "keeps whitespace at the end of the last hunk" (2359643cff): the patch is not trimmed.
+  test('whitespace at the end of the last hunk stays', () => {
+    const patch = (last: string[]) => ['diff --git a/example.ts b/example.ts', '--- a/example.ts', '+++ b/example.ts', ...last, ''].join('\n');
+    const trailing = renderablePatch(patch(['@@ -1 +1 @@', '-a', '+  b \t']), false);
+    expect(trailing?.kind === 'files' && trailing.files[0]?.additionLines).toEqual(['  b \t']);
+    const blank = renderablePatch(patch(['@@ -1,2 +1,2 @@', '-a', '+b', ' ']), false);
+    expect(blank?.kind === 'files' && blank.files[0]?.hunks[0]?.lines.map(line => [line.kind, line.text])).toEqual([['deletion', 'a'], ['addition', 'b'], ['context', '']]);
+    expect(renderablePatch(' \n\t\n', false)).toBeNull();
+  });
 });
 
 describe('resolveDiffReviewPosition (reviewCommentContext.ts)', () => {

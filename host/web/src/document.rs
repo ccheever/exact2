@@ -36,6 +36,8 @@ pub use document_url::{frame_app_source, frame_navigable, navigable};
 
 #[path = "document_bars.rs"]
 mod bars;
+#[path = "document_markup.rs"]
+mod markup;
 #[path = "page.rs"]
 mod page;
 use crate::css;
@@ -44,6 +46,8 @@ use exact_kernel::paint_order::{self, Child, Facts};
 use exact_kernel::{NodeFacts, PropId, SortedMap, SortedSet, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, DocTree, Runner};
+pub use markup::dataset;
+use markup::{markup_pieces, Json};
 pub use page::{
     build_locations, canonical_location, checkpoint, digest, read_checkpoint, route_at,
     route_location, Site,
@@ -234,11 +238,17 @@ pub fn project_tree<D: DataSource>(
             exact_runner::press_writes_router(runner.plan(), n.site?).map(|writes| (n.id, writes))
         })
         .collect();
+    let lazy = |id: ViewId| {
+        tree.node(id)
+            .and_then(|n| n.site)
+            .is_some_and(|site| exact_runner::rows::repeated(runner.plan(), site))
+    };
     let (out, keyframes, scroll_document, _, sent) = write(
         tree,
         tree.roots(),
         handlers,
         presses,
+        &lazy,
         font_names_for_runner(runner),
         None,
         writing,
@@ -301,11 +311,17 @@ fn walk<D: DataSource>(
         .keys()
         .filter_map(|id| runner.press_writes_router(*id).map(|writes| (*id, writes)))
         .collect();
+    let lazy = |id: ViewId| {
+        runner
+            .site_of(id)
+            .is_some_and(|(site, _)| exact_runner::rows::repeated(runner.plan(), site))
+    };
     let (out, keyframes, scroll_document, computed, _) = write(
         &src,
         &roots,
         handlers,
         presses,
+        &lazy,
         font_names_for_runner(runner),
         computed,
         Writing::default(),
@@ -326,12 +342,13 @@ fn walk<D: DataSource>(
 /// The roots' elements; the `@keyframes`, whether an element is the page's
 /// scroller, what was computed, and what of the HTML the sink has not been
 /// handed yet.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn write<S: Source>(
     src: &S,
     roots: &[ViewId],
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     presses: SortedMap<ViewId, bool>,
+    lazy: &dyn Fn(ViewId) -> bool,
     fonts: Vec<String>,
     computed: Option<Computed>,
     writing: Writing<'_>,
@@ -343,12 +360,15 @@ fn write<S: Source>(
         fonts,
         handlers,
         presses,
+        lazy,
         routes: SortedMap::new(),
         bars: SortedSet::new(),
+        sites: SortedSet::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
         buttons: 0,
+        hidden: 0,
         touch: 0,
         select: None,
         scroll_document: false,
@@ -555,9 +575,14 @@ struct Walk<'r, 'w, S: Source> {
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     presses: SortedMap<ViewId, bool>,
+    /// Whether an image's view is a row's, which loads as the row comes into
+    /// view (`loading="lazy"`, LLP 1048.007 D5, as the JS build writes it).
+    lazy: &'r dyn Fn(ViewId) -> bool,
     routes: SortedMap<ViewId, Route>,
     /// The headers marked as their route's bar ([`bar_header`]).
     bars: SortedSet<ViewId>,
+    /// The routes' headers marked as a site's ([`bars::site_header`]).
+    sites: SortedSet<ViewId>,
     keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
@@ -567,6 +592,8 @@ struct Walk<'r, 'w, S: Source> {
     /// Open boxes that restrict touch (`element::restricts_touch`): a folded
     /// text under one is an inline box.
     touch: u32,
+    /// Open routes `navigation.project` hides.
+    hidden: u32,
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
@@ -622,9 +649,14 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
-        self.scroll_document |= props
+        // A page scroller in a route `navigation.project` hides is off the
+        // page (`markDocument`): an inner scroller, not the document's.
+        let route_hidden = self.routes.get(&id).is_some_and(|r| r.hidden);
+        let page_scroller = props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
+        let offpage = page_scroller && (route_hidden || self.hidden > 0);
+        self.scroll_document |= page_scroller && !offpage;
         let mut text = match src.with_style_rows(id, css_style_of(&resolve, &node)) {
             Cow::Borrowed(style) => {
                 let fonts = &self.fonts;
@@ -664,12 +696,14 @@ impl<S: Source> Walk<'_, '_, S> {
                 self.touch > 0,
             ),
             holds,
+            &node,
         );
         let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
+        bars::mark_sites(self.src, &node, &children, &mut self.sites);
         let chosen = (element == "select").then(|| props.get("value").cloned());
         // A waiting keyed row is opaque to adoption. Its complete paint
         // summary lets the JS target decide siblings without visiting it.
@@ -801,8 +835,17 @@ impl<S: Source> Walk<'_, '_, S> {
                 attrs.push(("inert".into(), None));
             }
         }
+        if offpage {
+            attrs.push(("data-exact-offpage".into(), None));
+        }
         if self.bars.contains(&id) {
             attrs.push(("data-exact-bar".into(), None));
+        }
+        if self.sites.contains(&id) {
+            attrs.push(("data-exact-site".into(), None));
+        }
+        if element == "img" && (self.lazy)(id) {
+            attrs.push(("loading".into(), Some("lazy".into())));
         }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
@@ -838,7 +881,16 @@ impl<S: Source> Walk<'_, '_, S> {
         if !style.is_empty() {
             attrs.push(("style".into(), Some(style)));
         }
-        attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
+        // `paintWait` takes a summary left out as the template facts with no
+        // z-index, which it is in most elements.
+        let said = attrs
+            .iter()
+            .filter(|(n, _)| n == "data-exact-f" || n.starts_with("data-exact-f-"))
+            .filter_map(|(_, v)| v.as_deref()?.parse::<u16>().ok())
+            .fold(0, |bits, f| bits | f);
+        if flags != said || z != "null" {
+            attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
+        }
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input" | "hr") {
             // Void: no content, no end tag.
@@ -874,6 +926,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.buttons += u32::from(button);
         let touch = restricts_touch(&node);
         self.touch += u32::from(touch);
+        self.hidden += u32::from(route_hidden);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
         let only = children.len() == 1;
         for child in children.iter().copied() {
@@ -890,6 +943,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.links -= u32::from(link);
         self.buttons -= u32::from(button);
         self.touch -= u32::from(touch);
+        self.hidden -= u32::from(route_hidden);
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');
@@ -1150,199 +1204,6 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
     }
     out.push_str(&text[run..]);
     Ok(())
-}
-
-/// One piece of `markupPieces`, as the page reads it: numbers keep the
-/// spelling the glue's template literals would give them.
-#[derive(Debug, Clone, PartialEq)]
-struct Piece {
-    text: String,
-    scale: String,
-    weight: String,
-    flags: u8,
-    href: String,
-    /// A list item's indent, CSS px; "0" outside a list.
-    indent: String,
-    /// An inline atom's kind: its label is drawn as text, marked
-    /// `data-exact-atom` for the page to draw again (LLP 1045.000 D6).
-    atom: Option<String>,
-}
-
-/// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
-/// href, indent?], …]`), as the linked Markdown capability wrote them; anything else
-/// is a defect.
-fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
-    let mut p = Json::new(json);
-    let mut pieces = Vec::new();
-    p.expect(b'[')?;
-    if p.peek() == Some(b']') {
-        return Ok(pieces);
-    }
-    loop {
-        p.expect(b'[')?;
-        let text = p.string()?;
-        p.expect(b',')?;
-        let scale = p.number()?;
-        p.expect(b',')?;
-        let weight = p.number()?;
-        p.expect(b',')?;
-        let flags = p.number()?.parse::<u8>().map_err(|e| e.to_string())?;
-        p.expect(b',')?;
-        let href = p.string()?;
-        let indent = if p.peek() == Some(b',') {
-            p.next();
-            p.number()?
-        } else {
-            "0".to_owned()
-        };
-        // An inline atom's detail (LLP 1045.000 D6): its kind and source,
-        // marked so the page draws its pill when it adopts this one. Its
-        // range is the two numbers after six strings; its paint, its
-        // direction and its accessible name, four more.
-        let mut atom = None;
-        if p.peek() == Some(b',') {
-            p.next();
-            p.expect(b'[')?;
-            let mut fields = Vec::new();
-            for n in 0..12 {
-                if n > 0 {
-                    p.expect(b',')?;
-                }
-                let range = matches!(n, 6 | 7);
-                fields.push(if range { p.number()? } else { p.string()? });
-            }
-            p.expect(b']')?;
-            atom = Some(fields[0].clone());
-        }
-        p.expect(b']')?;
-        pieces.push(Piece {
-            text,
-            scale,
-            weight,
-            flags,
-            href,
-            indent,
-            atom,
-        });
-        match p.next() {
-            Some(b',') => continue,
-            Some(b']') => return Ok(pieces),
-            other => return Err(format!("markup pieces: unexpected {other:?}")),
-        }
-    }
-}
-
-/// A `dataset` row's pairs, the `dataset` capability's reading (LLP 1075.003
-/// §3.3): the runner's object of strings (`NativeProps`,
-/// LLP 1024 §9), written without whitespace and with JSON's escapes for
-/// `"`, `\\` and control characters only. Anything else yields what it
-/// parsed so far.
-pub fn dataset(json: &str) -> Vec<(String, String)> {
-    let mut p = Json::new(json);
-    let mut pairs = Vec::new();
-    if p.expect(b'{').is_err() {
-        return pairs;
-    }
-    while p.peek() == Some(b'"') {
-        let Ok(key) = p.string() else { break };
-        let (Ok(()), Ok(value)) = (p.expect(b':'), p.string()) else {
-            break;
-        };
-        pairs.push((key, value));
-        if p.peek() == Some(b',') {
-            p.next();
-        }
-    }
-    pairs
-}
-
-/// A reader of the JSON the host and the runner write themselves: the
-/// `markupPieces`, and a `dataset` row ([`dataset`]).
-struct Json<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl<'a> Json<'a> {
-    fn new(text: &'a str) -> Self {
-        Json {
-            bytes: text.as_bytes(),
-            at: 0,
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.at).copied()
-    }
-
-    fn next(&mut self) -> Option<u8> {
-        let b = self.peek();
-        self.at += 1;
-        b
-    }
-
-    fn expect(&mut self, b: u8) -> Result<(), String> {
-        match self.next() {
-            Some(got) if got == b => Ok(()),
-            got => Err(format!(
-                "markup pieces: expected `{}`, found {got:?}",
-                b as char
-            )),
-        }
-    }
-
-    fn number(&mut self) -> Result<String, String> {
-        let start = self.at;
-        while matches!(
-            self.peek(),
-            Some(b'0'..=b'9' | b'.' | b'-' | b'e' | b'E' | b'+')
-        ) {
-            self.at += 1;
-        }
-        let text = std::str::from_utf8(&self.bytes[start..self.at]).map_err(|e| e.to_string())?;
-        // The glue's `${scale}` and `fontWeight = weight` spell the number
-        // as JavaScript does; the host's `css::num` already writes it so.
-        exact_num::parse_f64(text)
-            .map(|_| text.to_owned())
-            .map_err(|e| format!("markup pieces: number {text:?}: {e}"))
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        self.expect(b'"')?;
-        let mut out = String::new();
-        loop {
-            let start = self.at;
-            while !matches!(self.peek(), Some(b'"' | b'\\') | None) {
-                self.at += 1;
-            }
-            out.push_str(
-                std::str::from_utf8(&self.bytes[start..self.at]).map_err(|e| e.to_string())?,
-            );
-            match self.next() {
-                Some(b'"') => return Ok(out),
-                Some(b'\\') => match self.next() {
-                    Some(b'"') => out.push('"'),
-                    Some(b'\\') => out.push('\\'),
-                    Some(b'n') => out.push('\n'),
-                    Some(b'r') => out.push('\r'),
-                    Some(b't') => out.push('\t'),
-                    Some(b'u') => {
-                        let hex = self
-                            .bytes
-                            .get(self.at..self.at + 4)
-                            .and_then(|h| std::str::from_utf8(h).ok())
-                            .and_then(|h| u32::from_str_radix(h, 16).ok())
-                            .and_then(char::from_u32)
-                            .ok_or("markup pieces: bad \\u escape")?;
-                        self.at += 4;
-                        out.push(hex);
-                    }
-                    other => return Err(format!("markup pieces: bad escape {other:?}")),
-                },
-                _ => return Err("markup pieces: unterminated string".into()),
-            }
-        }
-    }
 }
 
 #[cfg(test)]

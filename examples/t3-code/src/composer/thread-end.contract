@@ -13,12 +13,14 @@ use TimelineIcon from "../timeline/timeline-icons-kit.contract"
 keyframes teFadeIn
   from opacity=0
 
-// ThreadNowLine (text-xs muted, 14pt glyph, gap-1.5, px-1 pb-2, as ThreadStatusLine): the icon, then the title, its
+// ThreadNowLine (text-xs muted, 14pt glyph, gap-1.5, px-1 pb-2, as ThreadStatusLine): the icon (info or warning
+// toned on a line that needs you), then the title, its
 // name (`body`, in the code font when `meta`) and the detail (2pt further, fainter: muted/80, dark /60) as one line that
 // gives way before the actions, so Stop stays reachable; the actions follow 6pt on, 10pt apart, with the one task's
 // elapsed time first (tickTextContent). A cut line offers its whole text from a details button (NoticeText).
-// formatDuration (orchestrationTiming.ts) from a second up: tenths below 10 s, then whole units, rounded first.
-fn threadNowDuration(ms: number): string = ms < 10000 ? (round(ms / 100) >= 100 ? "10s" : `${floor(round(ms / 100) / 10)}.${round(ms / 100) % 10}s`) : round(ms / 1000) < 60 ? `${round(ms / 1000)}s` : `${floor(round(ms / 1000) / 3600) > 0 ? floor(round(ms / 1000) / 3600).toString() + "h " : ""}${floor(round(ms / 1000) % 3600 / 60) > 0 ? floor(round(ms / 1000) % 3600 / 60).toString() + "m " : ""}${round(ms / 1000) % 60 > 0 ? (round(ms / 1000) % 60).toString() + "s" : ""}`.trim()
+// formatDuration (orchestrationTiming.ts) from a second up: tenths below 10 s without a trailing ".0", then whole
+// units, rounded first.
+fn threadNowDuration(ms: number): string = ms < 10000 ? `${floor(round(ms / 100) / 10)}${round(ms / 100) % 10 > 0 ? "." + (round(ms / 100) % 10).toString() : ""}s` : round(ms / 1000) < 60 ? `${round(ms / 1000)}s` : `${floor(round(ms / 1000) / 3600) > 0 ? floor(round(ms / 1000) / 3600).toString() + "h " : ""}${floor(round(ms / 1000) % 3600 / 60) > 0 ? floor(round(ms / 1000) % 3600 / 60).toString() + "m " : ""}${round(ms / 1000) % 60 > 0 ? (round(ms / 1000) % 60).toString() + "s" : ""}`.trim()
 component ThreadNowLine
   inject
     still: bool
@@ -36,7 +38,7 @@ component ThreadNowLine
   view
     row width="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" role=(message.status == "alert" ? "alert" : message.status == "status" ? "status" : "") animation=(still ? "none" : "teFadeIn 150ms ease-out") testId=`thread-now-${message.id}`
       row width="0.875rem" height="0.875rem" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
-        CcIcon(name=message.icon, size=14, color=(message.tone == "info" ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
+        CcIcon(name=message.icon, size=14, color=(message.tone == "info" ? "light-dark(#1447e6, #50a2ff)" : message.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
       // Hooked so the app can tell when the line is cut (thread-end.ts `collapsible`).
       row flex-shrink=1 min-width=0 overflow="hidden" align-items="center" hatch="t3-anchor" data-anchor=`tn:${message.id}` testId=`thread-now-text-${message.id}`
         if segments.length == 0 and message.body == "" and message.detail == ""
@@ -52,7 +54,7 @@ component ThreadNowLine
               for seg, index in segments key=seg.id
                 if seg.status == "link"
                   // InlineButton tone muted: the foreground and an underline while hovered.
-                  button press=command("select-thread", seg.targetId, "", 0) hover=hover(`seg:${seg.id}`) disabled=busy aria-label=(seg.body != "" ? seg.body : seg.label) testId=`thread-now-open-${seg.targetId}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" flex-shrink=0 title=""
+                  button press=command(seg.detail != "" ? seg.detail : "select-thread", seg.targetId, "", 0) hover=hover(`seg:${seg.id}`) disabled=busy aria-label=(seg.body != "" ? seg.body : seg.label) testId=`thread-now-open-${seg.targetId}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" flex-shrink=0 title=""
                     text seg.label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=(over == `seg:${seg.id}` ? "light-dark(#18181b, #f5f5f5)" : faint) text-decoration-line=(over == `seg:${seg.id}` ? "underline" : "none")
                 else
                   text seg.label font-size="0.75rem" line-height="1rem" white-space="nowrap" color=faint flex-shrink=0
@@ -110,7 +112,7 @@ component LineDetails
               text `${message.title} ` font-size="0.75rem" line-height="1.03125rem" white-space="pre-wrap" color="light-dark(#18181b, #f5f5f5)"
               for seg, index in segments key=seg.id
                 if seg.status == "link"
-                  button press=command("select-thread", seg.targetId, "", 0) disabled=busy aria-label=(seg.body != "" ? seg.body : seg.label) padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" title=""
+                  button press=command(seg.detail != "" ? seg.detail : "select-thread", seg.targetId, "", 0) disabled=busy aria-label=(seg.body != "" ? seg.body : seg.label) padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" title=""
                     text seg.label font-size="0.75rem" font-weight=500 line-height="1.03125rem" overflow-wrap="anywhere" text-align="left" color="light-dark(#71717b, #a1a1a1)"
                 else
                   text seg.label font-size="0.75rem" line-height="1.03125rem" overflow-wrap="anywhere" color="light-dark(#18181b, #f5f5f5)"

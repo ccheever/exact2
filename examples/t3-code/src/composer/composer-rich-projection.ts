@@ -8,7 +8,7 @@ import type { ComposerMode } from './composer-source-session';
 import { plainListLines } from './composer-list-continuation';
 
 export type ComposerCodeHeader = ComposerRange & { infoStart: number; infoEnd: number; info: string; language: string; label: string };
-export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number; bodyLine: boolean };
+export type ComposerSourceBlock = ComposerRange & { kind: string; contentStart: number; bodyStart: number; bodyEnd: number; bodyLine: boolean; nested: boolean };
 /** `dirs`: the rich field's `paragraphDirs`, one word per source line ("" in the plain and literal fields, which take none). */
 export type ComposerRichProjection = { owner: string; value: string; mode: ComposerMode; headers: ComposerCodeHeader[]; chips: ComposerChip[]; blocks: ComposerSourceBlock[]; dirs: string };
 export type ComposerRichInput = {
@@ -34,7 +34,7 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
   const blocks = parsed.blocks.map(block => {
     const body = block.kind !== 'code' ? block : block.body ?? { start: block.close?.start ?? block.end, end: block.close?.start ?? block.end };
     return { kind: block.kind, start: block.start, end: block.end, contentStart: 'contentStart' in block ? block.contentStart : block.start,
-      bodyStart: body.start, bodyEnd: body.end, bodyLine: block.kind !== 'code' || block.body !== null };
+      bodyStart: body.start, bodyEnd: body.end, bodyLine: block.kind !== 'code' || block.body !== null, nested: false };
   });
   // The plain composer has no Markdown blocks, but Tab still indents a list line typed as text (listIndentForTab).
   if (!input.styling && !input.literal) {
@@ -43,6 +43,8 @@ export function composerRichProjection(input: ComposerRichInput): ComposerRichPr
       if (index >= 0) blocks[index] = { ...blocks[index]!, kind: 'list' };
     }
   }
+  // A list line whose marker is indented, which ⇧Tab moves out instead of toggling plan mode (listOutdentForTab).
+  for (const block of blocks) block.nested = block.kind === 'list' && /^[ \t]/.test(input.value.slice(block.start, block.start + 1));
   const inBlocks = composerChipsInBlocks(input.value, parsed.blocks, chips), rich = input.styling && !input.literal;
   return { owner: input.owner, value: input.value, mode: input.literal ? 'literal' : input.styling ? 'rich' : 'plain', headers, blocks, chips: inBlocks,
     dirs: rich ? composerParagraphDirs(input.value, parsed.blocks, inBlocks) : '' };

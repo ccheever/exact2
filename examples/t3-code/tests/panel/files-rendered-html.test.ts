@@ -90,6 +90,31 @@ describe('Files: rendered HTML (FilePreviewPanel renderBrowserFile)', () => {
     expect(edited.url).toBe('http://127.0.0.1:9/api/assets/signed/abc?sig=2&workspace-revision=r2');
   });
 
+  test('a PDF is a media-file signed for each workspace change, keyed by its own revision, so a reply that leaves it alone keeps its page', async () => {
+    const { client, calls } = fakeClient();
+    let signature = 0, fileRevision = 'f1';
+    (client as unknown as { rpc: (n: Native, method: string, payload: Record<string, unknown>) => Promise<unknown> }).rpc = async (_n, method, payload) => {
+      calls.push({ method, payload });
+      return { relativeUrl: `/api/assets/signed/doc?sig=${++signature}`, fileRevision };
+    };
+    const projection = (id: string) => { (client as unknown as { projection: unknown }).projection = { visibleTurnItems: [{ item: { id, type: 'command_execution', status: 'completed' } }] }; };
+    const shown = async () => JSON.parse((await filesView(client, native, surface('docs/report.pdf'), 1000)).viewer.config) as { key: string; documentId: string; src: string };
+    projection('c1');
+    const first = await shown();
+    expect(calls.find(call => call.method === 'assets.createUrl')?.payload).toEqual({ resource: { _tag: 'media-file', threadId: 't1', path: '/repo/docs/report.pdf' } });
+    expect(first.src).toBe('http://127.0.0.1:9/api/assets/signed/doc?sig=1&file-revision=f1');
+    expect([first.key, first.documentId]).toEqual(['pdf:env:t1:/repo/docs/report.pdf:file:f1', 'pdf:env:t1:/repo/docs/report.pdf']);
+    // The agent ran a command that left the PDF alone: signed again, the same viewer at the same URL.
+    projection('c2');
+    expect(await shown()).toEqual(first);
+    expect(signature).toBe(2);
+    // The file changed: a new key of the same document, which opens where the reader was (the viewer page's documentId).
+    fileRevision = 'f2';
+    projection('c3');
+    const edited = await shown();
+    expect([edited.key, edited.documentId, edited.src]).toEqual(['pdf:env:t1:/repo/docs/report.pdf:file:f2', first.documentId, 'http://127.0.0.1:9/api/assets/signed/doc?sig=3&file-revision=f2']);
+  });
+
   test('workspaceMutationId: the newest settled command or file change and the newest checkpoint (ChatView)', () => {
     const at = (items: unknown[], checkpoints: unknown[] = []) => workspaceMutationId({ projection: { visibleTurnItems: items.map(item => ({ item })), checkpoints } } as unknown as T3Client);
     expect(at([{ id: 'm1', type: 'assistant_message' }])).toBeNull();

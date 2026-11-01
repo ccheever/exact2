@@ -19,9 +19,11 @@ const FORMAT = (n: number) => n >= 1e6 ? `${(n / 1e6).toFixed(1).replace(/\.0$/,
 
 export type Extension = { id: string; namespace: string; name: string; displayName: string; publisher: string; description: string; version: string; downloads: string;
   sourceUrl: string; source: string; iconUrl: string; installed: boolean; installing: boolean; action: string };
-type Search = { query: string; sort: string; searching: boolean; error: string; results: Extension[] | null; installing: string; pendingUpdate: string; fileName: string; json: string; conflicts: string };
+type Search = { query: string; sort: string; searching: boolean; error: string; results: Extension[] | null; installing: string; pendingUpdate: string; fileName: string; json: string;
+  /** ThemeImportDialog's conflict step: themes whose id is already installed, and the batch's failures it keeps showing. */
+  conflicts: CustomTheme[]; failure: string };
 const searches = new WeakMap<T3Client, Search>();
-const blank = (): Search => ({ query: '', sort: 'downloadCount', searching: false, error: '', results: null, installing: '', pendingUpdate: '', fileName: '', json: '', conflicts: '' });
+const blank = (): Search => ({ query: '', sort: 'downloadCount', searching: false, error: '', results: null, installing: '', pendingUpdate: '', fileName: '', json: '', conflicts: [], failure: '' });
 export const searchState = (client: T3Client) => { let state = searches.get(client); if (!state) { state = blank(); searches.set(client, state); } return state; };
 export function resetImport(client: T3Client): void { searches.set(client, blank()); }
 
@@ -211,8 +213,67 @@ export function addManyThemes(client: T3Client, themes: CustomTheme[], collectio
   const updated = kept.length < customThemes(client).length;
   if (kept.length + themes.length > 100) throw new ClientError('Remove a theme before adding another.');
   local.customThemes = [...kept, ...themes];
+  importedToast(client, themes, updated);
+}
+function importedToast(client: T3Client, themes: CustomTheme[], updated: boolean): void {
   const verb = updated ? 'updated' : 'added';
   pushToast(client, { kind: 'success', title: themes.length === 1 ? `${themes[0]!.label} ${verb}` : `${themes.length} themes ${verb}`, description: themes.map(theme => theme.label).join(', ') });
+}
+
+// ── ThemeImportDialog's conflict step (Already installed: Update existing / Keep both) ──
+/** A theme under another name, checked as a theme file would be (parseThemeFile throws on a reserved id). */
+function renamed(theme: CustomTheme, name: string): CustomTheme {
+  const other = theme.appearance === 'light' ? 'dark' : 'light';
+  const variant = theme[other];
+  return parseThemeFile(JSON.stringify({ version: 1, name, appearance: theme.appearance, colors: theme[theme.appearance], ...(variant ? { variants: { [other]: variant } } : {}), ...(theme.managed ? { managed: true } : {}) }), []);
+}
+/** versionedCopy: the picked file's own name when it differs, else "<name> (n)", at an id no installed theme has. */
+export function versionedCopy(theme: CustomTheme, preferredName: string | null, taken: string[]): CustomTheme {
+  if (preferredName && preferredName.toLowerCase() !== theme.label.toLowerCase()) {
+    const candidate = renamed(theme, preferredName.slice(0, 48));
+    if (!taken.includes(candidate.id)) return candidate;
+  }
+  for (let copy = 1; copy < 100; copy += 1) {
+    const candidate = renamed(theme, `${theme.label.slice(0, 48 - ` (${copy})`.length)} (${copy})`);
+    if (!taken.includes(candidate.id)) return candidate;
+  }
+  throw new ClientError(`Too many copies of "${theme.label}".`);
+}
+/**
+ * resolveConflicts: "update" replaces each installed theme in place (keeping its collection), "copy" adds a
+ * versioned copy. Either is announced as onImportedMany does; failures join the batch's earlier ones, and the
+ * dialog closes only when there are none.
+ */
+export function resolveThemeConflicts(client: T3Client, mode: 'update' | 'copy'): void {
+  const state = searchState(client);
+  const conflicts = state.conflicts, local = client.local as unknown as { customThemes?: CustomTheme[] };
+  if (!conflicts.length) return;
+  const resolved: CustomTheme[] = [], failures: string[] = [];
+  const preferredName = conflicts.length === 1 && state.fileName ? humanizeThemeName(state.fileName.replace(/\.[^.]+$/, '')) : null;
+  for (const theme of conflicts) {
+    try {
+      const current = customThemes(client);
+      if (mode === 'update') {
+        const index = current.findIndex(existing => existing.id === theme.id);
+        if (index === -1) throw new ClientError(`The theme "${theme.label}" is not installed.`);
+        const next = current[index]!.collection ? { ...theme, collection: current[index]!.collection } : theme;
+        local.customThemes = current.map((existing, at) => at === index ? next : existing);
+        resolved.push(next);
+      } else {
+        if (current.length >= 100) throw new ClientError('Remove a theme before adding another.');
+        const copy = versionedCopy(theme, preferredName, current.map(existing => existing.id));
+        local.customThemes = [...current, copy];
+        resolved.push(copy);
+      }
+    } catch (cause) {
+      failures.push(`${theme.label}: ${cause instanceof Error ? cause.message : 'failed'}`);
+    }
+  }
+  if (resolved.length) importedToast(client, resolved, mode === 'update');
+  state.conflicts = [];
+  const failure = [state.failure, ...failures].filter(Boolean).join('; ');
+  state.failure = failure;
+  if (failure) throw new ClientError(failure);
 }
 
 const customThemes = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
@@ -231,7 +292,9 @@ export function addThemes(client: T3Client, themes: CustomTheme[]): void {
 }
 
 export type ImportView = { query: string; sort: string; sortLabel: string; sorts: { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean }[];
-  searching: boolean; error: string; searched: boolean; pendingUpdate: string; pendingUpdateName: string; results: Extension[]; status: string; fileName: string; json: string; popular: string[] };
+  searching: boolean; error: string; searched: boolean; pendingUpdate: string; pendingUpdateName: string; results: Extension[]; status: string; fileName: string; json: string; popular: string[];
+  /** The conflict step's installed theme names, '' outside it. */
+  conflicts: string };
 export function importView(client: T3Client): ImportView {
   const state = searchState(client);
   return { query: state.query, sort: state.sort, sortLabel: SORT_OPTIONS.find(([value]) => value === state.sort)?.[1] ?? 'Most downloaded',
@@ -240,7 +303,7 @@ export function importView(client: T3Client): ImportView {
     pendingUpdate: state.pendingUpdate, pendingUpdateName: state.results?.find(entry => entry.id === state.pendingUpdate)?.displayName ?? '',
     results: (state.results ?? []).map(ext => ({ ...ext, installing: state.installing === ext.id, action: state.installing === ext.id ? `${ext.installed ? 'Updating' : 'Installing'}...` : ext.action })),
     status: state.searching ? 'Searching themes...' : state.results ? `${state.results.length} supported ${state.results.length === 1 ? 'theme' : 'themes'} found.` : '',
-    fileName: state.fileName, json: state.json, popular: SUGGESTED_SEARCHES };
+    fileName: state.fileName, json: state.json, popular: SUGGESTED_SEARCHES, conflicts: state.conflicts.map(theme => theme.label).join(', ') };
 }
 
 // ── ThemeImportDialog's size guard and file reads (1e2ecbd975) ──────────────
@@ -284,10 +347,20 @@ export async function themeImportCommand(client: T3Client, native: Native | null
   const state = searchState(client);
   if (part === 'reset') { resetImport(client); return ''; }
   if (part === 'json') { state.json = value.slice(0, 1_048_576); return ''; }
+  if (part === 'conflict-update' || part === 'conflict-copy') {
+    resolveThemeConflicts(client, part === 'conflict-update' ? 'update' : 'copy');
+    resetImport(client);
+    return '';
+  }
+  // Back leaves the conflict step with the batch's error still showing.
+  if (part === 'conflict-back') { state.conflicts = []; throw new ClientError(state.failure || 'toasted:'); }
   if (part === 'add') {
     const text = value || state.json;
     if (!text.trim()) throw new ClientError('Paste a theme file first.');
-    const theme = importThemeText(text, ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...customThemes(client).map(entry => entry.id)]);
+    state.failure = '';
+    // An id already installed asks first (handleSubmit's setConflicts) rather than adding a renamed copy.
+    const theme = importThemeText(text, []);
+    if (customThemes(client).some(entry => entry.id === theme.id)) { state.conflicts = [theme]; throw new ClientError('toasted:'); }
     addThemes(client, [theme]);
     resetImport(client);
     return '';
@@ -299,11 +372,16 @@ export async function themeImportCommand(client: T3Client, native: Native | null
     const files = Array.isArray(reply.files) ? (reply.files as unknown[]).map(obj).map(file => ({ name: str(file.name), size: Number(file.size) || 0, text: str(file.text) })) : [];
     // A cancelled picker leaves the dialog open (`toasted:` keeps its inline error empty).
     if (!files.length) throw new ClientError('toasted:');
-    const taken = ['t3-code', 't3-chat', 'grove', 'ocean', 'ember', 'iris', ...customThemes(client).map(entry => entry.id)];
-    const result = readThemeFiles(files, taken);
-    if (result.kind === 'single') { state.json = result.json; state.fileName = result.fileName; return ''; }
-    if (result.themes.length) addManyThemes(client, result.themes);
-    if (result.failures.length) throw new ClientError(result.failures.join('; '));
+    const result = readThemeFiles(files, []);
+    if (result.kind === 'single') { state.json = result.json; state.fileName = result.fileName; state.failure = ''; return ''; }
+    // installThemeBatch: new themes install at once; installed ids wait in the conflict step, shown even when
+    // another file failed.
+    const installed = new Set(customThemes(client).map(entry => entry.id));
+    const fresh = result.themes.filter(theme => !installed.has(theme.id)), conflicting = result.themes.filter(theme => installed.has(theme.id));
+    if (fresh.length) addManyThemes(client, fresh);
+    state.failure = result.failures.join('; ');
+    state.conflicts = conflicting;
+    if (conflicting.length || state.failure) throw new ClientError(state.failure || 'toasted:');
     resetImport(client);
     return '';
   }

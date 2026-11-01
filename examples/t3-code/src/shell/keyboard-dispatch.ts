@@ -12,13 +12,12 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { modelCatalog } from '../client/presentation';
 import { adjacentPickerProvider } from '../composer/model-catalog';
 import type { T3Client } from '../client/client';
-import { undoLive } from '../sidebar/sidebar-state';
+import { sidebarSession, undoLive } from '../sidebar/sidebar-state';
 import { addStripShortcuts } from '../composer/composer-controls-branch';
 import { diffShown } from './button-chords'; // ⌘D
 import { openFavoriteEnabled, remoteOpenFor } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
 import { closeChordTarget } from '../panel/close-surface'; // ⌘W closes the active surface tab
-import { legacyTraversal } from '../sidebar/legacy-sidebar-view'; // the legacy sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
-import { resolveAdjacentThreadId } from '../sidebar/legacy-sidebar-model';
+import { resolveAdjacentThreadId } from '../sidebar/thread-sort';
 import { threadCommandRows } from './thread-keys'; // queue and host keys
 import { terminalRows, terminalOpen } from '../terminal/terminal-drawer-view';
 import { terminalFocused } from '../terminal/terminal-focus'; // ⌘J
@@ -34,7 +33,9 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
   /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
-  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
+  terminalClosePending?: boolean;
+  /** A confirmation (role="alertdialog") is open and holds the focus. */
+  confirmOpen?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
   /** The right panel shows a file (not an attachment): its Open in picker's path, '' while that picker cannot open it. */
   fileSurface?: boolean; fileOpenPath?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
@@ -77,11 +78,12 @@ export function chordWinners(bindings: Obj[], context: DispatchContext): Map<str
 // The main view's visited locations, newest last: a thread, a project's
 // new-thread draft, or a page over them (Usage, Pull Requests;
 // the reference's history covers every route). Arriving at the entry beside the cursor moves the cursor
-// (that is what Back and Forward do); anywhere else is a new visit.
-type History = { entries: string[]; cursor: number };
+// (that is what Back and Forward do); anywhere else is a new visit. Each visit has its own number, for the router's
+// location of it (visitHref).
+type History = { entries: string[]; visits: number[]; cursor: number; next: number };
 const histories = new WeakMap<T3Client, History>();
 export function visit(client: T3Client, page = ''): History {
-  const history = histories.get(client) ?? { entries: [], cursor: -1 };
+  const history = histories.get(client) ?? { entries: [], visits: [], cursor: -1, next: 0 };
   histories.set(client, history);
   const here = page ? `page:${page}` : client.threadId ? `thread:${client.threadId}` : client.projectId ? `draft:${client.projectId}` : '';
   if (!here || history.entries[history.cursor] === here) return history;
@@ -89,10 +91,20 @@ export function visit(client: T3Client, page = ''): History {
   else if (history.entries[history.cursor + 1] === here) history.cursor++;
   else {
     history.entries = [...history.entries.slice(0, history.cursor + 1), here].slice(-50);
+    history.visits = [...history.visits.slice(0, history.cursor + 1), history.next++].slice(-50);
     history.cursor = history.entries.length - 1;
   }
   return history;
 }
+/** The router's location of the visit at `index` (app.contract `routes promptLinks`): the first visit is the home
+ *  route itself, so the router has no visit beneath it; '' past either end. */
+export function visitHref(history: History, index: number): string {
+  if (index < 0) return index === history.cursor ? '/' : '';
+  const n = history.visits[index];
+  return n === undefined ? '' : n === 0 ? '/' : `/visit/${n}`;
+}
+/** The current visit's location, recording nothing (Settings, open over it, is no visit of this history). */
+export const visitHere = (client: T3Client) => { const history = histories.get(client); return history ? visitHref(history, history.cursor) : '/'; };
 function liveEntry(client: T3Client, entry: string | undefined): boolean {
   if (!entry) return false;
   const [kind, id] = [entry.slice(0, entry.indexOf(':')), entry.slice(entry.indexOf(':') + 1)];
@@ -112,6 +124,7 @@ export function favoriteEditor(config: Obj, last = ''): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
+  if (context.confirmOpen) return waitForConfirmation(keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, confirmOpen: false, terminalClosePending: false }));
   if (context.terminalClosePending) return refuseTerminalClose(client, keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, terminalClosePending: false }));
   context = { ...context, terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client) };
   const winners = chordWinners(arr(client.config.keybindings), context);
@@ -189,6 +202,21 @@ function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
     ...closing.map(chord => ({ id: `terminal.close:refused:${chord}`, command: 'terminal.close', chord, kind: 'refuse', target: '', extra: '', label: 'Close Terminal' }))];
 }
 
+/**
+ * dispatcher.ts runScope (v0.1.6): a command chord pressed inside a confirmation (role="alertdialog") runs nothing and
+ * its key is swallowed. Each chord stays a "refuse" button under a command nothing else reads (rightPanel.close's
+ * window capture and thread.undo's claim look rows up by command). Settings… is the reference's menu item, not a
+ * dispatcher command, and the dialog's own Escape (its Cancel) must still reach it.
+ */
+function waitForConfirmation(rows: Dispatch[]): Dispatch[] {
+  const held = new Set<string>();
+  return rows.flatMap(row => {
+    if (row.command === 'settings.open' || row.chord === 'Escape' || held.has(row.chord)) return row.command === 'settings.open' ? [row] : [];
+    held.add(row.chord);
+    return [{ id: `confirmation.wait:${row.chord}`, command: 'confirmation.wait', chord: row.chord, kind: 'refuse', target: '', extra: '', label: row.label }];
+  });
+}
+
 /** `add` files one button per winning chord of a command (keyboardDispatch); `add.chord` files one for a chord it names. */
 export type DispatchAdd = ((command: string, kind: string, target: string, label: string, extra?: string) => void) &
   { chord(command: string, chord: string, kind: string, target: string, label: string, extra?: string): void };
@@ -230,10 +258,8 @@ function appearanceRow(add: DispatchAdd, client: T3Client, threads: Obj[], brows
 function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // Thread order as the sidebar paints it: pinned, active, working, snoozed, settled.
   const order = ['pinned', 'active', 'working', 'snoozed', 'settled'];
-  const legacy = legacyTraversal(client);
-  const ordered = legacy?.ordered ?? order.flatMap(section => threads.filter(thread => str(thread.section) === section));
-  if (legacy) { if (legacy.previous) add('thread.previous', 'thread', legacy.previous, 'Previous Thread'); if (legacy.next) add('thread.next', 'thread', legacy.next, 'Next Thread'); }
-  else if (ordered.length && !context.modelPickerOpen) {
+  const ordered = order.flatMap(section => threads.filter(thread => str(thread.section) === section));
+  if (ordered.length && !context.modelPickerOpen) {
     // resolveAdjacentThreadId: stops at the ends; no current thread starts from the last/first; an unlisted one goes nowhere.
     const ids = ordered.map(thread => str(thread.id)), selected = ordered.find(thread => thread.selected === true);
     const current = selected ? str(selected.id) : client.threadId ? undefined : null;
@@ -244,16 +270,26 @@ function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
   }
   ordered.slice(0, 9).forEach((thread, index) => add(`thread.jump.${index + 1}`, 'thread', str(thread.id), `Thread ${index + 1}`));
 }
+/** Where Back and Forward go from the main view: a dispatch row's kind, target and extra, or null at that end. */
+export type HistoryStep = { kind: string; target: string; extra: string };
+/** Settings' location over the visit it was opened from. */
+export const SETTINGS_HREF = '/visit/settings';
+export function historySteps(client: T3Client, page: string): { back: HistoryStep | null; forward: HistoryStep | null; here: string; backHref: string; forwardHref: string } {
+  // Back and Forward between the visited threads and drafts.
+  const history = visit(client, page);
+  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
+  const route = (entry: string): HistoryStep => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7), extra: '' }
+    : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: entry.slice(6), extra: '' };
+  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
+  return { back: back && liveEntry(client, back) ? route(back) : null,
+    forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null,
+    here: visitHref(history, history.cursor), backHref: visitHref(history, history.cursor - 1), forwardHref: settingsRoute ? SETTINGS_HREF : visitHref(history, history.cursor + 1) };
+}
 /** Back and Forward. */
 function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
-  // Back and Forward between the visited threads and drafts.
-  const history = visit(client, context.page ?? '');
-  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
-  const route = (entry: string) => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7) } : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5) } : { kind: 'new-thread-in', target: entry.slice(6) };
-  if (back && liveEntry(client, back)) add('navigation.back', route(back).kind, route(back).target, 'Back');
-  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
-  if (settingsRoute) add('navigation.forward', 'palette-run', 'settings', 'Forward', settingsRoute);
-  else if (forward && liveEntry(client, forward)) add('navigation.forward', route(forward).kind, route(forward).target, 'Forward');
+  const { back, forward } = historySteps(client, context.page ?? '');
+  if (back) add('navigation.back', back.kind, back.target, 'Back', back.extra);
+  if (forward) add('navigation.forward', forward.kind, forward.target, 'Forward', forward.extra);
 }
 /** chat.newWithoutProject, when the server has a scratch workspace. */
 function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
@@ -267,8 +303,9 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
     // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle-advance', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
-    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
-    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {
+    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks. An open project filter
+    // pins its highlighted project with this key instead (useThreadLifecycle).
+    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true && !sidebarSession(client).scopeOpen) {
       const pinned = thread.pinnedAt != null;
       add('thread.pin', 'command', pinned ? 'sidebar:unpin' : 'sidebar:pin', pinned ? 'Unpin Thread' : 'Pin Thread', str(thread.id));
     }
@@ -285,7 +322,7 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   if (context.fileSurface && context.fileOpenPath) add('editor.openFavorite', 'command', 'chatlocal:surface-files-open-editor', 'Open in Editor', context.fileOpenPath);
   else if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title)) && (!context.fileSurface || remoteOpenFor(client).state.mode === 'local-exec')) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
-/** The right panel: close, toggle, thread details, Diff, and Copy Thread ID. */
+/** The right panel: close, toggle, thread details, Diff, and Copy Link or Thread. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
   // rightPanel.close: an open panel closes before ⌘W reaches the window, a draft's panel too.
   const closing = closeChordTarget(client, context.diffOpen, context.prNumber ?? ''); // the active surface tab first
@@ -296,7 +333,7 @@ function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePro
   if (!context.page && (client.threadId || client.projectId)) add('threadPanel.toggle', 'details', '', 'Toggle Thread Details');
   if (!context.draftThreadRoute) {
     add('diff.toggle', diffShown(client) ? 'diff' : 'diff-open', '', 'Toggle Diff');
-    add('thread.copyReference', 'copy-thread', '', 'Copy Thread ID');
+    add('thread.copyReference', 'copy-thread', '', 'Copy Link or Thread');
   }
 }
 /** Stop, and the composer's context strip. */
@@ -327,6 +364,6 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), confirmOpen: String(args[18] || '') !== '', findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
     fileSurface: args[22] === true, fileOpenPath: String(args[23] || '') });
 }

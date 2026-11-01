@@ -8,7 +8,7 @@ import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { T3Client } from '../client/client';
 import { ClientError, type Native } from '../client/protocol';
 import { relativeTimeLabel } from './settings-data';
-import { dxCell, dxFinish, dxHeaders, dxRow, liveCollapsed, option, syncTelemetry, telemetryTimeline, telemetryView, type DxTable } from './settings-a-telemetry';
+import { dxCell, dxFinish, dxHeaders, dxRow, fixedTrim, liveCollapsed, option, syncTelemetry, telemetryTimeline, telemetryView, type DxTable } from './settings-a-telemetry';
 import { preferredEditor } from '../details/shell-details';
 import { letGo } from '../client/let-go';
 
@@ -17,7 +17,7 @@ const WINDOWS: Record<string, [number, number]> = { '5m': [300000, 30000], '15m'
 type Stat = { id: string; label: string; value: string; tone: string; tip: string };
 
 export const count = (value: unknown) => Math.round(num(value)).toLocaleString('en-US');
-export function duration(value: unknown): string { const v = num(value); return v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(v >= 10000 ? 1 : 2)} s`; }
+export function duration(value: unknown): string { const v = num(value); return v < 1000 ? `${Math.round(v)} ms` : `${fixedTrim(v / 1000, v >= 10000 ? 1 : 2)} s`; }
 export function bytes(value: unknown): string {
   let next = num(value);
   if (next < 1024) return `${next} B`;
@@ -28,10 +28,10 @@ export function bytes(value: unknown): string {
 /** DiagnosticsSettings formatCpuTime (seconds). */
 export function cpuTime(value: unknown): string {
   const seconds = num(value);
-  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
+  if (seconds < 60) return `${fixedTrim(seconds, seconds >= 10 ? 1 : 2)}s`;
   const minutes = seconds / 60;
-  if (minutes < 60) return `${minutes.toFixed(minutes >= 10 ? 1 : 2)}m`;
-  return `${(minutes / 60).toFixed(2)}h`;
+  if (minutes < 60) return `${fixedTrim(minutes, minutes >= 10 ? 1 : 2)}m`;
+  return `${fixedTrim(minutes / 60, 2)}h`;
 }
 export function shortTrace(id: string): string { return id.length <= 32 ? id : `${id.slice(0, 18)}...${id.slice(-10)}`; }
 export function processName(command: string): string {

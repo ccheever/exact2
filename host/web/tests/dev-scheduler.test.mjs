@@ -631,18 +631,20 @@ test('the JS dev loop rebuilds backend selection creation, edits and removal',as
   }
 },240000);
 
-test('the resident module watcher follows backend selection without other local state',async()=>{
+test('the resident module watcher follows backend selection and the settings files without other local state',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'exact-resident-backend-'));let watcher,changes=0;
   const begin=source.indexOf('function watchModuleSources('),end=source.indexOf('\nlet moduleWatch',begin);
   const make=new Function('lstatSync','readdirSync','resolve','readlinkSync','statSync','watch',source.slice(begin,end)+';return watchModuleSources;')(lstatSync,readdirSync,resolve,readlinkSync,statSync,watch);
-  const backendInput=new Function('return '+source.match(/const backendInput = (.*);/)[1])();
+  const dotInput=new Function('return '+source.match(/const dotInput = (.*?); \/\//)[1])();
   const until=async()=>{const n=changes,end=Date.now()+3000;while(changes===n&&Date.now()<end)await new Promise(r=>setTimeout(r,10));assert.ok(changes>n,'the resident producer was notified');};
   try{
-    watcher=make(dir,name=>name.startsWith('.')&&!backendInput(name),error=>{assert.equal(error,null);changes++;});
+    watcher=make(dir,name=>name.startsWith('.')&&!dotInput(name),error=>{assert.equal(error,null);changes++;});
     mkdirSync(join(dir,'.exact'));const selection=join(dir,'.exact/backend-origin');
     writeFileSync(selection,'http://127.0.0.1:4412');await until();
     writeFileSync(selection,'http://127.0.0.1:4413');await until();
     rmSync(selection);await until();
+    // A setting's file (`import.meta.env`, LLP 1153 D4).
+    writeFileSync(join(dir,'.env'),'API_BASE_URL=http://127.0.0.1:4412\n');await until();
     const before=changes;writeFileSync(join(dir,'.exact/other'),'not an input');
     await new Promise(r=>setTimeout(r,250));assert.equal(changes,before);
   }finally{watcher?.close();rmSync(dir,{recursive:true,force:true});}

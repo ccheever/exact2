@@ -4,11 +4,15 @@ use PickerCatalog from "./composer-shapes.contract"
 use PickerRow from "./composer-shapes.contract"
 use PickerRail from "./composer-shapes.contract"
 use PickerTarget from "./composer-shapes.contract"
+use EffortRow from "./composer-shapes.contract"
+use SpeedSegment from "./composer-shapes.contract"
 use ProviderMark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use ComposerInstanceMark from "./instance-mark.contract"
 use CmpIcon from "./composer.contract"
 use CcIcon from "./composer-controls.contract"
+use FastBolt from "./composer-controls.contract"
+use ComposerRuntime from "./composer-shapes.contract"
 use ProviderSetupLink from "../providers/providers-setup.contract"
 use ChatGptUsageButton from "../providers/codex-setup.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract"
@@ -17,14 +21,21 @@ use hoverTipAtFrame from "../shell/hover-layer.contract"
 // the colour it settles to over the canvas: a native backdrop blur sees only its
 // parent's subtree, so translucency would show the transcript through crisply.
 // T3's ProviderModelPicker popover (ModelPickerContent, ModelPickerSidebar,
-// ModelListRow): below the model trigger (side bottom, align start, 4px
-// offset), flipped above it when it does not fit (the docked composer), 360
-// wide inside a 1px popover border. It is as tall as its content (rail, or
-// search row plus 32pt or 48pt rows, 2pt apart, plus 20pt), capped at 346; once a
-// search starts it keeps the height it had and results scroll within it. It is
-// never shorter than its tallest tab (5a38e6b859). The
-// search field keeps focus while the arrows move the highlighted row, as the
-// reference combobox does; Return chooses it, Escape and outside presses dismiss.
+// ModelListRow): below the model trigger (side bottom, align start, end-aligned
+// when the start would overflow, 4px offset), flipped above it when it does not
+// fit (the docked composer), 360 wide inside a 1px popover border. The list is
+// as tall as its content (rail, or search row plus 32pt rows, 2pt apart, plus
+// 20pt), capped at 346; once a search starts it keeps the height it had and
+// results scroll within it. It is never shorter than its tallest tab
+// (5a38e6b859). The search field keeps focus while the arrows move the
+// highlighted row, as the reference combobox does; Return chooses it, Escape
+// and outside presses dismiss. The composer's picker (2359643cff) docks its
+// model's effort column beside the list and a footer with speed and
+// Permissions under both, and stays open through every pick until Escape or an
+// outside press.
+
+// The keyboard index of the Show more row, which trails the legacy models only while they show.
+fn legacyIndex(index: number, open: bool, legacyCount: number): number = open ? index : index - legacyCount
 
 component ModelRow
   inject
@@ -33,6 +44,8 @@ component ModelRow
   props
     row: PickerRow
     favoriteWritable: bool
+    // Favorites, unsearched: every row is starred, so its star shows only on a hovered or highlighted row.
+    starOnHover: bool
     highlighted: bool
     busy: bool
     select: action
@@ -65,28 +78,26 @@ component ModelRow
         select(row.id, row.providerId, true)
   view
     if row.kind == "legacy"
-      button press=toggleLegacy hover=hover class=Control width="100%" min-height="3rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" gap="0.5rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-        column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
-          text "Legacy models" font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)"
-          text row.label font-size="0.75rem" line-height="1.03125rem" color="light-dark(#71717a, #a1a1a1)"
-        box rotate=(legacyOpen ? 90 : 0) display="flex"
-          CmpIcon(name="chevron-right", size=16, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+      // The trailing Show more row (2359643cff): expanding it reveals the older models above it.
+      button press=toggleLegacy hover=hover class=Control width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        text (legacyOpen ? "Show less" : "Show more") font-size="0.875rem" font-weight=400 line-height="1.203125rem" color=(highlighted or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)")
     else
-      row id=`model-row-${row.key}` hover=hover width="100%" min-height=(row.twoLine ? "3rem" : "2rem") border-radius="0.25rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : row.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
-        button -exact-menu="none" press=pick key=rowKey disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-keyshortcuts=row.jumpKey class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" gap=0
-          column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
-            row gap="0.5rem" align-items="center" min-width=0 max-width="100%"
-              text row.name font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
-              if row.isNew
-                text "NEW" font-size="0.5rem" font-weight=700 line-height="0.5rem" letter-spacing=0.2 padding-left="0.125rem" padding-right="0.125rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed859, #346bf159)" background-color="light-dark(#1b4ed826, #346bf126)" color="light-dark(#1b4ed8, #51a2ff)" flex-shrink=0
-            if row.twoLine
-              row gap="0.375rem" align-items="center" min-width=0 max-width="100%"
-                ComposerInstanceMark(driver=row.driver, icon=row.icon, size=12, color="light-dark(#71717a, #a1a1a1)", badge="", accent="")
-                text row.label font-size="0.75rem" line-height="1.03125rem" color="light-dark(#71717ab3, #a1a1a1b3)" line-clamp=1 min-width=0
+      // One row shape in every tab (c96c1b69f5): the provider's logo, then the name, the sub-provider, NEW; the
+      // selected row has no fill of its own (selectedFill false), only its check.
+      row id=`model-row-${row.key}` hover=hover width="100%" min-height="2rem" border-radius="0.25rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        // The logo is decorative, so the name carries the provider for VoiceOver.
+        button -exact-menu="none" press=pick key=rowKey disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-label=[`${row.name}, ${row.providerName}`, row.label, (row.isNew ? "New model" : "")].filter((part) => part != "").join(" ") aria-keyshortcuts=row.jumpKey class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" gap="0.5rem"
+          ComposerInstanceMark(driver=row.driver, icon=row.icon, size=16, color="light-dark(#18181b, #f5f5f5)", badge=row.providerBadge, accent=row.providerBadgeColor)
+          row flex=1 min-width=0 gap="0.5rem" align-items="center"
+            text row.name font-size="0.875rem" font-weight=400 line-height="1.203125rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1 min-width=0
+            if row.label != ""
+              text row.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" line-clamp=1 min-width=0
+            if row.isNew
+              text "NEW" font-size="0.5rem" font-weight=700 line-height="0.5rem" letter-spacing=0.2 padding-left="0.125rem" padding-right="0.125rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed859, #346bf159)" background-color="light-dark(#1b4ed826, #346bf126)" color="light-dark(#1b4ed8, #51a2ff)" flex-shrink=0
         // ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
         if row.jump != ""
           text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #a1a1a1)" flex-shrink=0 testId=`model-jump-${row.id}`
-        button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar focus=starFocused(true) blur=starFocused(false) class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 opacity=(row.favorite or highlighted or over or starFocus ? 1 : 0) background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+        button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar focus=starFocused(true) blur=starFocused(false) class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 opacity=((row.favorite and not starOnHover) or highlighted or over or starFocus ? 1 : 0) background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         // ModelListRow: the check comes last and keeps its column on every row, so stars and checks line up;
         // it shows on the composer's model, or on each model a multi-model draft chose.
@@ -97,6 +108,13 @@ component ModelPicker
   inject
     rem: number
     hoverTipAt: action
+    // The composer's picker (composer-controls-members.contract): its trigger's edges, whether its Permissions menu
+    // is open, and its effort, speed and permissions picks.
+    modelAnchorX: number
+    modelAnchorWidth: number
+    modelOpenTarget: string
+    modelPermissions: action
+    pickerPick: action
   props
     data: Snapshot
     session: number
@@ -123,21 +141,31 @@ component ModelPicker
   state searchFocused = true
   state railHoverIndex = -1
   state railSession = -1
+  // The search field's caret, for Right at its end (selectionchange).
+  state caret = 0
+  state caretSession = -1
   derive navigated = navSession == session
   derive legacyOpen = (legacySession == session) != catalog.legacyDefault
   derive railOver = (railSession == session ? railHoverIndex : -1)
   derive sidebar = not catalog.searching and catalog.providers.length > 0
   derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)
-  // Combobox autoHighlight: a search highlights its first row a person can choose
-  // until the arrows move the highlight; an unsearched list highlights nothing until then.
-  derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))
+  // The composer's picker docks the effort column and footer; a Settings row's does not. Under 640pt the column
+  // stacks under a 224pt list (max-sm).
+  derive docked = anchor.bottom <= 0
+  derive stacked = docked and viewport.width < 640
+  // The model the composer shows, which the open list highlights (the combobox's value).
+  derive selectedIndex = (catalog.selectedLegacy and not legacyOpen ? -1 : catalog.selectedIndex)
+  // Combobox autoHighlight: a search highlights its first row a person can choose until the arrows move the
+  // highlight; an unsearched list highlights its selected model.
+  derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : selectedIndex))
   derive highlight = (count > 0 ? base : -1)
-  // Return's model: any highlighted model row a person can choose, an open Legacy section's rows too (the reference's
-  // Enter parses the highlighted model key); the highlight reaches those rows only while the section is open (`count`).
-  derive targetId = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.id).join("")
-  derive targetProvider = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.providerId).join("")
-  derive targetLegacy = catalog.models.filter((r) => r.index == highlight and r.kind == "legacy").length > 0
-  derive width = min(362, viewport.width - 10)
+  // Return's and Right's model: any highlighted model row a person can choose, an open Legacy section's rows too (the
+  // reference's Enter parses the highlighted model key). The Show more row trails the legacy rows and counts them only
+  // while they show, so a closed section's rows, whose raw index it then takes, are not targets.
+  derive targetId = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == "").map((r) => r.id).join("")
+  derive targetProvider = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == "").map((r) => r.providerId).join("")
+  derive targetLegacy = catalog.models.filter((r) => r.kind == "legacy" and legacyIndex(r.index, legacyOpen, catalog.legacyCount) == highlight).length > 0
+  derive width = (docked and not stacked ? min(554, viewport.width - 10) : min(362, viewport.width - 10))
   // Content height (a6aebbe2e0): the rail (4 + 36 + 4 + 1 + 4 per provider 40, + 4) or the
   // search row (43) over the list (rows, gaps and 20 of padding; "No models found" is 36).
   derive rails = catalog.providers.length
@@ -146,7 +174,8 @@ component ModelPicker
   derive setupCount = catalog.setup.length
   derive footer = (setupCount > 0 ? min(176, 17 + 58 * setupCount) : 0)
   derive updateHeight = min(176, catalog.updateRequired.length * 76)
-  derive sharing = (catalog.chatgptSharing ? 41 : 0) // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button
+  // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button.
+  derive sharing = (catalog.chatgptSharing ? 41 : 0)
   // Rows are 32pt, 48pt with the provider line, 2pt apart, inside 10pt of padding; the list is never shorter than
   // the tallest tab's (catalog.tallest), so a tab switch does not move the rail under the pointer.
   derive twoLines = (legacyOpen ? catalog.twoLineCount : catalog.twoLineCount - catalog.legacyTwoLineCount)
@@ -154,17 +183,25 @@ component ModelPicker
   derive floor = (catalog.tallest > 0 ? 43 + catalog.tallest + 18 : 0)
   derive listHeight = (count > 0 ? count * 34 + twoLines * 16 + 18 : (setupCount > 0 ? 0 : 36)) + footer
   derive restListHeight = (restRows > 0 ? restRows * 34 + restTwoLines * 16 + 18 : 36)
-  derive natural = max(floor, catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + sharing + updateHeight
+  derive listNatural = max(floor, catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + updateHeight
+  // Docked: the list and the effort column share a row capped at 346 (stacked: a 224pt list over at most 256 of
+  // column), then the 45pt footer (py-2 round a 28pt control, and its border).
+  derive rowHeight = (stacked ? 224 + min(256, data.composer.effortHeight) : min(346, max(listNatural, data.composer.effortHeight)))
+  derive natural = (docked ? rowHeight + 45 + sharing : min(346, listNatural + sharing))
   // The trigger's window-space edges: its top sits 4pt under the given bottom edge.
   // A Settings row's picker opens under its trigger, start-aligned (PopoverPopup align start), flipped above when it does not fit.
   derive anchored = anchor.bottom > 0
   derive triggerTop = (anchored ? anchor.top : viewport.height - bottom + 4)
   derive triggerBottom = (anchored ? anchor.bottom : triggerTop + (data.composer.toolbarTop > 0 and triggerTop - data.composer.toolbarTop >= 4 ? 24 : 28))
-  derive below = (anchored or data.composer.toolbarTop > 0) and triggerBottom + 4 + min(346, natural) + 2 <= viewport.height - 5
-  derive height = min(min(346, natural), below ? viewport.height - triggerBottom - 11 : triggerTop - 11) + 2
+  derive below = (anchored or data.composer.toolbarTop > 0) and triggerBottom + 4 + natural + 2 <= viewport.height - 5
+  derive height = min(natural, below ? viewport.height - triggerBottom - 11 : triggerTop - 11) + 2
   derive y = (below ? triggerBottom + 4 : triggerTop - 4 - height)
-  derive edge = (anchored ? anchor.left : left + 7)
-  derive x = (edge + width <= viewport.width - 5 ? edge : max(5, viewport.width - 5 - width))
+  derive edge = (anchored ? anchor.left : modelAnchorX >= 0 ? modelAnchorX : left + 7)
+  // The composer's measured trigger: its end when its start would overflow (Base UI's align flip).
+  derive x = (edge + width <= viewport.width - 5 ? edge : not anchored and modelAnchorX >= 0 ? max(5, modelAnchorX + modelAnchorWidth - width) : max(5, viewport.width - 5 - width))
+  derive permissionsOpen = docked and modelOpenTarget == "permissions"
+  // The effort rows Up and Down move between (the column's enabled rows).
+  derive effortEnabled = data.composer.effortGroups.map((g) => g.options.filter((o) => not o.disabled).map((o) => o.index)).flat()
   action favoriteModel(op: string, id: string, model: string, n: number)
     command(op, catalog.environmentId + "\t" + id, model, n)
   action searchFocus
@@ -173,7 +210,14 @@ component ModelPicker
     searchFocused = false
   action toggleLegacy
     legacySession = legacySession == session ? -1 : session
+  action caretMoved(e: InputEvent)
+    caret = e.selectionStart
+    caretSession = session
+  // A key that confirms an input method's candidate is the input method's (ModelPickerContent's isComposing guard).
   action searchKey(name: string, e: KeyboardEvent)
+    if not e.isComposing
+      searchMove(name, e)
+  action searchMove(name: string, e: KeyboardEvent)
     if name == "ArrowDown" and count > 0
       cursor = (highlight < 0 or highlight + 1 >= count) ? 0 : highlight + 1
       navSession = session
@@ -191,6 +235,14 @@ component ModelPicker
       preventDefault()
     if name == "ArrowLeft" and query == "" and sidebar
       focus(`picker-rail-${max(0, catalog.railIndex)}`)
+    // Right at the end of the search text moves into the effort column; a highlighted model other than the selected
+    // one is picked first, and the pick then moves the focus to its levels.
+    if docked and name == "ArrowRight" and not e.altKey and not e.ctrlKey and not e.metaKey and not e.shiftKey and (caretSession == session ? caret : query.length) >= query.length
+      preventDefault()
+      if targetId != "" and highlight != selectedIndex
+        select(targetId, targetProvider, false)
+      else if data.composer.effortFocusAny >= 0
+        focus(`model-effort-row-${data.composer.effortFocusAny}`)
   action setup(id: string)
     closePicker()
     openSetup(id)
@@ -207,54 +259,75 @@ component ModelPicker
       focus(`picker-rail-${origin + 1 > catalog.providers.length ? 0 : origin + 1}`)
     if name == "ArrowUp"
       focus(`picker-rail-${origin <= 0 ? catalog.providers.length : origin - 1}`)
+  // The effort column's Up and Down (moveBetweenRows: no wrap) and Left back to the search (ProviderModelPicker).
+  action effortKey(index: number, name: string, e: KeyboardEvent)
+    if name == "ArrowDown" or name == "ArrowUp"
+      let after = effortEnabled.filter((i) => name == "ArrowDown" ? i > index : i < index)
+      let next = (name == "ArrowDown" ? after : sortBy(after, (i, at) => i, "desc"))
+      preventDefault()
+      match first(next)
+        case some(target)
+          focus(`model-effort-row-${target}`)
+        case none
+    if name == "ArrowLeft" and not e.altKey and not e.ctrlKey and not e.metaKey
+      preventDefault()
+      focus("model-search")
   view
-    // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40).
-    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker" title=""
+    // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40). While the
+    // Permissions menu is open, Escape is that menu's.
+    button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts=(permissionsOpen ? "" : "Escape") testId="dismiss-model-picker" title=""
     column position="absolute" left=x top=y width=width height=height border-radius="0.5rem" box-shadow="0 16px 40px -18px #0000008c" z-index=(anchored ? 50 : 30)
       column width="100%" height="100%" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
-        row width="100%" flex=1 min-height=0
-          if sidebar
-            column width="2.75rem" flex-shrink=0 height="100%" padding="0.25rem" gap="0.25rem" box-sizing="border-box" position="relative" background-color="light-dark(#fafafa4d, #ffffff02)" role="toolbar" aria-label="Providers" testId="model-picker-rail"
-              if catalog.railIndex >= 0
-                box position="absolute" right="0.5rem" top=((catalog.railIndex == 0 ? 12 : 57 + (catalog.railIndex - 1) * 40) * rem / 16) width="0.1875rem" height="1.25rem" border-radius="62.4375rem" background-color="light-dark(#1b4ed8, #346bf1)" z-index=2 testId="model-picker-indicator"
-              button press=chooseRail("favorites") hover=railHover(0, "Favorites") key=railMove(0) id="picker-rail-0" class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label="Favorites" aria-pressed=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#18181b1a, #f5f5f51a)" : "#00000000") title=""
-                CmpIcon(name="star-filled", size=20, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
-              box width="2.25rem" height=1 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
-              // A disabled button sits in a span that keeps its tooltip (ModelPickerSidebar `trigger`): the hover is the wrapper's.
-              for provider in catalog.providers key=provider.id
-                box hover=railHover(provider.index, provider.label) display="flex" flex-shrink=0 testId=`provider-hover-${provider.id}`
-                  button press=chooseRail(provider.id) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label=provider.label aria-pressed=provider.selected testId=`provider-${provider.id}` disabled=(not provider.selectable) opacity=(provider.selectable ? 1 : 0.5) background-color=(railOver == provider.index and provider.selectable ? "light-dark(#18181b1a, #f5f5f51a)" : "#00000000") title=""
-                    ComposerInstanceMark(driver=provider.driver, icon=provider.icon, size=20, color="light-dark(#18181b, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
-          column flex=1 min-width=0 height="100%" box-sizing="border-box" background-color="light-dark(#fafafa66, #ffffff03)" border-left-style="solid" border-left-width=(sidebar ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff0e)"
-            column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5625rem" padding-bottom=1 flex-shrink=0
-              row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchFocused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0e)")
-                box position="absolute" left=0 top="0.375rem" display="flex"
-                  CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #a1a1a18c)", weight=1.75)
-                if query == ""
-                  text "Search models..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
-                // ComboboxSearchInput draws no focus ring: focus turns the underline blue instead.
-                input id="model-search" testId="model-search" value=query input=search key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-editable="yes"
-            scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? "0.625rem" : "0px") padding-bottom=(count > 0 ? "0.625rem" : "0px") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" testId="model-list"
-              column gap="0.125rem" width="100%" role="listbox"
-                for row in catalog.models key=row.key
-                  if row.kind != "legacy-model" or legacyOpen
-                    ModelRow(row=row, favoriteWritable=catalog.favoriteWritable, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
-            // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
-            // matches, it was clipped away (#298 bug 8).
-            if count == 0 and setupCount == 0
-              text (catalog.favoritesSelected and not catalog.searching ? "No favorites yet" : "No models found") flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #a1a1a1)" testId="model-empty"
-            if catalog.updateRequired.length > 0
-              scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-update-required"
-                for notice in catalog.updateRequired key=notice.id
-                  column gap="0.25rem" padding-bottom="0.5rem"
-                    text notice.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
-                    ProviderSetupLink(label="Provider settings", fontSize="0.75rem", lineHeight="1rem", testId=`model-update-settings-${notice.id}`, press=setup(notice.id))
-            if setupCount > 0
-              scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-setup"
-                for entry in catalog.setup key=entry.id
-                  column width="100%" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="flex-start" gap="0.25rem"
-                    text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #a1a1a1)"
-                    ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
+        // Docked, the row is as tall as the list or the column (capped), the footer under it; alone, the list takes the popup.
+        box display="flex" flex-direction=(stacked ? "column" : "row") width="100%" flex-grow=(docked ? 0 : 1) flex-shrink=1 flex-basis=(docked ? "auto" : "0%") height=(docked ? rowHeight : "auto") min-height=0
+          row width=(docked and not stacked ? 360 : "100%") height=(stacked ? 224 : "100%") flex-shrink=0 min-height=0
+            if sidebar
+              column width="2.75rem" flex-shrink=0 height="100%" padding="0.25rem" gap="0.25rem" box-sizing="border-box" position="relative" background-color="light-dark(#fafafa4d, #ffffff02)" role="toolbar" aria-label="Providers" testId="model-picker-rail"
+                if catalog.railIndex >= 0
+                  box position="absolute" right="0.5rem" top=((catalog.railIndex == 0 ? 12 : 57 + (catalog.railIndex - 1) * 40) * rem / 16) width="0.1875rem" height="1.25rem" border-radius="62.4375rem" background-color="light-dark(#1b4ed8, #346bf1)" z-index=2 testId="model-picker-indicator"
+                button press=chooseRail("favorites") hover=railHover(0, "Favorites") key=railMove(0) id="picker-rail-0" class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label="Favorites" aria-pressed=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#18181b1a, #f5f5f51a)" : "#00000000") title=""
+                  CmpIcon(name="star-filled", size=20, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+                box width="2.25rem" height=1 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
+                // A disabled button sits in a span that keeps its tooltip (ModelPickerSidebar `trigger`): the hover is the wrapper's.
+                for provider in catalog.providers key=provider.id
+                  box hover=railHover(provider.index, provider.label) display="flex" flex-shrink=0 testId=`provider-hover-${provider.id}`
+                    button press=chooseRail(provider.id) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label=provider.label aria-pressed=provider.selected testId=`provider-${provider.id}` disabled=(not provider.selectable) opacity=(provider.selectable ? 1 : 0.5) background-color=(railOver == provider.index and provider.selectable ? "light-dark(#18181b1a, #f5f5f51a)" : "#00000000") title=""
+                      ComposerInstanceMark(driver=provider.driver, icon=provider.icon, size=20, color="light-dark(#18181b, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
+            column flex=1 min-width=0 height="100%" box-sizing="border-box" background-color="light-dark(#fafafa66, #ffffff03)" border-left-style="solid" border-left-width=(sidebar ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff0e)"
+              column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5625rem" padding-bottom=1 flex-shrink=0
+                row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchFocused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0e)")
+                  box position="absolute" left=0 top="0.375rem" display="flex"
+                    CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #a1a1a18c)", weight=1.75)
+                  if query == ""
+                    text "Search models..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
+                  // ComboboxSearchInput draws no focus ring: focus turns the underline blue instead.
+                  input id="model-search" testId="model-search" value=query input=search selectionchange=caretMoved key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-editable="yes"
+              scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? "0.625rem" : "0px") padding-bottom=(count > 0 ? "0.625rem" : "0px") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" testId="model-list"
+                column gap="0.125rem" width="100%" role="listbox"
+                  for row in catalog.models key=row.key
+                    if row.kind != "legacy-model" or legacyOpen
+                      ModelRow(row=row, favoriteWritable=catalog.favoriteWritable, starOnHover=catalog.starOnHover, highlighted=((row.kind == "legacy" ? legacyIndex(row.index, legacyOpen, catalog.legacyCount) : row.index) == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=favoriteModel, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
+              // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
+              // matches, it was clipped away (#298 bug 8).
+              if count == 0 and setupCount == 0
+                text (catalog.favoritesSelected and not catalog.searching ? "No favorites yet" : "No models found") flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #a1a1a1)" testId="model-empty"
+              if catalog.updateRequired.length > 0
+                scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-update-required"
+                  for notice in catalog.updateRequired key=notice.id
+                    column gap="0.25rem" padding-bottom="0.5rem"
+                      text notice.message font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
+                      ProviderSetupLink(label="Provider settings", fontSize="0.75rem", lineHeight="1rem", testId=`model-update-settings-${notice.id}`, press=setup(notice.id))
+              if setupCount > 0
+                scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-setup"
+                  for entry in catalog.setup key=entry.id
+                    column width="100%" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="flex-start" gap="0.25rem"
+                      text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #a1a1a1)"
+                      ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
+          if docked
+            ModelEffortColumn(data=data, stacked=stacked, pick=pickerPick, move=effortKey)
+        // ComposerPickerFooter: speed stays one click away, Permissions sit one menu deeper.
+        if docked
+          ModelPickerFooter(data=data, permissionsOpen=permissionsOpen, pick=pickerPick, permissions=modelPermissions)
         // ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx:317-319).
         if catalog.chatgptSharing
           row width="100%" flex-shrink=0 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-chatgpt-sharing"
@@ -262,6 +335,11 @@ component ModelPicker
               ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #a1a1a1)")
               text "Using ChatGPT plan" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
             ChatGptUsageButton(small=true, testId="model-picker-manage-usage", press=command("pageslocal:chatgpt-usage", "", "", 0), first=false)
+      // The footer's Permissions menu (MenuPopup side top, align end, 4pt over its trigger): the Permissions section; a
+      // pick closes the menu and leaves the picker open. Escape and a press outside it close the menu alone.
+      if permissionsOpen
+        button position="absolute" left=(0 - x) top=(0 - y) width=viewport.width height=viewport.height z-index=1 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=modelPermissions(false) aria-label="Close permissions" aria-keyshortcuts="Escape" testId="dismiss-model-permissions" title=""
+        PickerPermissions(data=data, bottom=(sharing + 41), pick=pickerPick, dismiss=modelPermissions)
 
 // A Settings row's ProviderModelPicker trigger outside General (Scheduled Tasks' Model,
 // Source Control's writer model; SETTINGS_PICKER_TRIGGER_CLASSNAME over ComposerControl "sm": h-7 px-2.5 gap-1.5,
@@ -282,3 +360,147 @@ component SettingsPickerTrigger
         ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #a1a1a1)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1
       CcIcon(name="chevron-down", size=14, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
+
+// ── The composer's picker: its effort column and footer (ComposerModelEffort.tsx at 2359643cff) ─────────────────
+
+// ComposerEffortColumn (w-48, border-l, bg-muted/40; under 640pt a full-width block under the list, at most 16rem):
+// a header that matches the search row, so one rule runs across the top (the reasoning control's label, and the model
+// it serves), then the model's levels and its other options, each labelled; "No effort levels" when it has none.
+component ModelEffortColumn
+  props
+    data: Snapshot
+    stacked: bool
+    pick: action
+    move: action
+  view
+    column width=(stacked ? "100%" : "12rem") flex-shrink=0 min-height=0 max-height=(stacked ? "16rem" : "none") height=(stacked ? "auto" : "100%") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" border-left-width=(stacked ? 0 : 1) border-top-width=(stacked ? 1 : 0) border-right-width=0 border-bottom-width=0 background-color="light-dark(#fafafa66, #ffffff03)" testId="model-picker-effort"
+      column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" flex-shrink=0
+        row height="2.0625rem" margin-top=-1 padding-bottom="0.375rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)"
+          text data.composer.effortHeader font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #a1a1a1)" white-space="nowrap" flex-shrink=0 testId="model-effort-header"
+          text data.modelShortLabel margin-left="auto" min-width=0 line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #a1a1a1)" testId="model-effort-model"
+      // pt-2.5 puts the first level on the line of the first model.
+      scroll flex=1 min-height=0 width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.625rem" padding-bottom="0.375rem" box-sizing="border-box"
+        column gap="0.125rem" width="100%"
+          for group in data.composer.effortGroups key=group.key
+            if group.kind == "none"
+              row height="2rem" padding-left="0.5rem" padding-right="0.5rem" align-items="center" testId="model-effort-none"
+                text group.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #a1a1a1)"
+            if group.kind == "value"
+              column
+                text group.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #a1a1a1)"
+                text group.value font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)"
+            if group.kind == "control"
+              column gap="0.125rem" role="radiogroup" aria-label=group.label
+                if group.showLabel
+                  text group.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
+                // "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
+                if group.note != ""
+                  text group.note font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)" testId="effort-ultrathink-note"
+                for option in group.options key=option.key
+                  EffortLevel(row=option, pick=pick, move=move)
+
+// ColumnRow (h-8 rounded-sm px-2 text-sm, hover foreground/9%): the label, "Default" for the catalog's default and the
+// check, whose column is always reserved. The reasoning control's checked row holds the column's one tab stop; a row
+// with a description says it on hover (TooltipPopup side right, max-w-56), drawn by the window's hover layer.
+component EffortLevel
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    row: EffortRow
+    pick: action
+    move: action
+  state over = false
+  action hover(value: bool)
+    over = value
+    if row.description != ""
+      hoverTipAt(hoverTipAtFrame(`effort-tip-${row.index}`, "tip", row.description, [], "right", "center", frame(`model-effort-row-${row.index}`), min(14 * rem, row.description.length * 0.4 * rem + 1.125 * rem), `effort-tip-${row.index}`), "trigger", value)
+  view
+    button press=pick("model-option", row.descriptor, row.value) hover=hover key=move(row.index) disabled=row.disabled id=`model-effort-row-${row.index}` role="radio" aria-checked=row.selected aria-description=row.description tabindex=(row.selected and row.level ? 0 : -1) testId=`effort-${row.value}` class=Control justify-content="flex-start" width="100%" height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(row.disabled ? 0.64 : 1) background-color=(over and not row.disabled ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
+      text row.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)"
+      if row.isDefault
+        text "Default" font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" flex-shrink=0
+      box display="flex" flex-shrink=0 opacity=(row.selected ? 1 : 0) aria-hidden=true
+        CcIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+
+// ComposerPickerFooter (border-t, bg-muted/40, px-3 py-2, wrapping): the speed control, then Permissions at its end,
+// named for the mode and opening its menu one level deeper.
+component ModelPickerFooter
+  props
+    data: Snapshot
+    permissionsOpen: bool
+    pick: action
+    permissions: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  action toggle
+    permissions(not permissionsOpen)
+  derive ink = (over or permissionsOpen ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)")
+  view
+    row width="100%" flex-shrink=0 flex-wrap="wrap" align-items="center" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fafafa66, #ffffff03)" testId="model-picker-footer"
+      // SpeedControl (rounded-lg bg-input/40 p-0.5): Codex's service tiers, or Standard and Fast.
+      if data.composer.speedSegments.length > 0
+        row padding="0.125rem" border-radius="0.5rem" background-color="light-dark(#e4e4e766, #ffffff0b)" role="radiogroup" aria-label=data.composer.speedLabel testId="model-picker-speed"
+          for segment in data.composer.speedSegments key=segment.key
+            SpeedButton(segment=segment, cut=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)"), pick=pick)
+      button press=toggle hover=hover id="model-permissions-trigger" aria-label=`Permissions: ${data.composer.runtimeLabel}` aria-haspopup="menu" aria-expanded=permissionsOpen testId="model-picker-permissions" class=Control margin-left="auto" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.375rem" border-radius="0.375rem" background-color=(over or permissionsOpen ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") flex-shrink=0 title=""
+        CcIcon(name=data.composer.runtimeIcon, size=14, color=ink, weight=1.75)
+        text data.composer.runtimeLabel font-size="0.75rem" line-height="1rem" color=ink white-space="nowrap"
+        CcIcon(name="chevron-up", size=12, color=ink, weight=1.75)
+
+// SpeedSegment (h-6 px-2 text-xs, muted; checked bg-input/72 and the foreground; only the toggle's ends rounded), a
+// bolt before Fast and Ultrafast.
+component SpeedButton
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    segment: SpeedSegment
+    cut: string
+    pick: action
+  state over = false
+  action hover(value: bool)
+    over = value
+    if segment.description != ""
+      hoverTipAt(hoverTipAtFrame(`speed-tip-${segment.key}`, "tip", segment.description, [], "top", "center", frame(`model-speed-${segment.key}`), min(20 * rem, segment.description.length * 0.4 * rem + 1.125 * rem), `speed-tip-${segment.key}`), "trigger", value)
+  derive ink = (segment.checked or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)")
+  view
+    button press=pick("model-option", segment.descriptor, segment.value) hover=hover id=`model-speed-${segment.key}` role="radio" aria-checked=segment.checked aria-description=segment.description testId=`speed-${segment.value}` class=Control height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" border-top-left-radius=(segment.first ? "0.375rem" : "0px") border-bottom-left-radius=(segment.first ? "0.375rem" : "0px") border-top-right-radius=(segment.last ? "0.375rem" : "0px") border-bottom-right-radius=(segment.last ? "0.375rem" : "0px") background-color=(segment.checked ? "light-dark(#e4e4e7b8, #ffffff17)" : "#00000000") title=""
+      if segment.bolt != ""
+        FastBolt(ultra=(segment.bolt == "ultra"), cut=cut, testId=`speed-bolt-${segment.value}`)
+      text segment.label font-size="0.75rem" line-height="1rem" color=ink white-space="nowrap"
+
+// The footer's Permissions menu: ComposerPermissionsSection in a MenuPopup above its trigger's end. Left and Right move
+// between the segments, which touch; hovering or focusing one previews its mode's name and description.
+component PickerPermissions
+  props
+    data: Snapshot
+    // Its bottom edge, in points above the picker's: the sharing control's, the footer's 8pt and 28pt, and 4pt.
+    bottom: number
+    pick: action
+    dismiss: action
+  state preview = -1
+  action previewing(index: number, value: bool)
+    preview = value ? index : (preview == index ? -1 : preview)
+  action choose(mode: string)
+    pick("runtime", "", mode)
+    dismiss(false)
+  action segmentKey(index: number, name: string, e: KeyboardEvent)
+    if name == "ArrowRight" or name == "ArrowLeft"
+      let next = index + (name == "ArrowRight" ? 1 : -1)
+      preventDefault()
+      if next >= 0 and next < data.composer.runtimeCount
+        focus(`model-permission-${next}`)
+  derive shown = match first(data.composer.runtimes.filter((option) => option.index == preview)) { case some(option) => option, case none => match first(data.composer.runtimes.filter((option) => option.selected)) { case some(option) => option, case none => ComposerRuntime(mode="", label="", description="", icon="", selected=false, index=-1) } }
+  view
+    column position="absolute" right="0.8125rem" bottom=bottom z-index=2 width="18.625rem" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Permissions" testId="model-permissions-menu"
+      column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.375rem" box-sizing="border-box"
+        text "Permissions" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
+        row padding="0.125rem" border-radius="0.5rem" background-color="light-dark(#e4e4e766, #ffffff0b)" role="group" aria-label="Permissions"
+          for option in data.composer.runtimes key=option.mode
+            button press=choose(option.mode) hover=previewing(option.index) focus=previewing(option.index, true) blur=previewing(option.index, false) key=segmentKey(option.index) id=`model-permission-${option.index}` role="menuitemradio" aria-checked=option.selected aria-label=option.label aria-description=option.description testId=`picker-mode-${option.mode}` flex=1 height="1.5rem" padding=0 border-width=0 border-top-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-bottom-left-radius=(option.index == 0 ? "0.375rem" : "0px") border-top-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") border-bottom-right-radius=(option.index == data.composer.runtimeCount - 1 ? "0.375rem" : "0px") display="flex" align-items="center" justify-content="center" background-color=(option.selected ? "light-dark(#e4e4e7b8, #ffffff17)" : preview == option.index ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              CcIcon(name=option.icon, size=14, color=(option.selected or preview == option.index ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
+        column gap="0.125rem" aria-hidden=true
+          text shown.label font-size="0.875rem" line-height="1.25rem" color=(shown.selected ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)") testId="model-permissions-shown"
+          text shown.description font-size="0.75rem" line-height="1rem" min-height="2rem" color="light-dark(#71717a, #a1a1a1)"

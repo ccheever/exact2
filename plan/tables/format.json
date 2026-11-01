@@ -1122,7 +1122,10 @@
       "newwindow",
       "download",
       "capture",
-      "userpromptopened"
+      "userpromptopened",
+      "enterpictureinpicture",
+      "leavepictureinpicture",
+      "pictureinpictureerror"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -1790,6 +1793,12 @@
       "params": ["Entry", "string"],
       "returns": "SharedFiles",
       "_comment": "@ref LLP 1133.024 D3: the files a received share carried, by the token in the entry's `name` parameter: `{files: Picked[], dropped, pending}`, `pending` those still being copied. A token the host did not set this launch answers no files. The host sets the token by `set_shared`, so a read is not a pure function of its arguments: the runner re-evaluates its readers at every update."
+    },
+    {
+      "name": "fragment",
+      "params": ["Entry"],
+      "returns": "string",
+      "_comment": "@ref LLP 1153 D5: the entry's fragment, what its location had after `#` with the fragment percent-encode set applied, `\"\"` when none. It is no part of the screen's identity; a host scrolls to the element it names once the route's content has arrived."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

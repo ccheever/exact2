@@ -122,8 +122,13 @@ export async function terminalPanelLocal(client: T3Client, native: Native, op: s
   if (op === 'new') { await addTerminalSurface(client, native); return ''; }
   const terminalId = id.slice(id.lastIndexOf('|') + 1);
   const targetRef = parseScopedThreadKey(id.includes('|') ? id.slice(0, id.lastIndexOf('|')) : id);
-  if (targetRef && scopedThreadKey(targetRef) !== scopedThreadKey(ref)) return '';
-  const surface = state.surfaces.find(entry => entry.kind === 'terminal' && (terminalId ? entry.terminal?.terminalIds.includes(terminalId) : entry.id === state.active));
+  const elsewhere = !!targetRef && scopedThreadKey(targetRef) !== scopedThreadKey(ref);
+  // useChatTerminalActions closePanelTerminal: a close confirmed after the window moved to another thread closes the
+  // terminal on the thread that asked; every other op is the open thread's.
+  if (elsewhere && op !== 'close') return '';
+  const owner = elsewhere ? targetRef : ref, ownerState = elsewhere ? surfaceStore(client).panels.get(scopedThreadKey(targetRef)) : state;
+  if (!ownerState) return '';
+  const surface = ownerState.surfaces.find(entry => entry.kind === 'terminal' && (terminalId ? entry.terminal?.terminalIds.includes(terminalId) : entry.id === ownerState.active));
   const terminal = surface?.terminal;
   if (!surface || !terminal) return '';
   if (op === 'split' || op === 'split-vertical') {
@@ -137,9 +142,11 @@ export async function terminalPanelLocal(client: T3Client, native: Native, op: s
     let target = terminalId;
     if (op === 'exited') { try { target = str(obj(JSON.parse(value)).terminalId); } catch { return ''; } }
     if (!terminal.terminalIds.includes(target)) return '';
-    removePanelTerminal(state, surface, target); clearTerminalFocus(client);
-    terminalUiStore(client).getState().closeTerminal(ref, target); focusPanelTerminal(client);
-    await closeTerminalSession(client, native, ref, target);
+    removePanelTerminal(ownerState, surface, target);
+    if (!elsewhere) clearTerminalFocus(client);
+    terminalUiStore(client).getState().closeTerminal(owner, target);
+    if (!elsewhere) focusPanelTerminal(client);
+    await closeTerminalSession(client, native, owner, target);
   }
   return '';
 }

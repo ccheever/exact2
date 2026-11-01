@@ -245,7 +245,8 @@ component DatabaseRow
         button press=rest("storage-dismiss-database", `environment=${encodeURIComponent(notice.environmentId)}`) disabled=busy testId="storage-dismiss-database" display="flex" align-items="center" box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) id="storage-dismiss-database" data-focus-stop=(busy ? "" : "enabled page")
           text "Dismiss" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
 
-// A switch, or RetentionControl: [−][N days][+] when on, "Off" when off.
+// A switch, or RetentionControl: [−][N days][+] when on, "Off" when off. The days field is five characters wide
+// (NumberFieldInput size=5) whatever it holds, so typing does not move the controls.
 component StorageControl
   inject
     rem: number
@@ -266,7 +267,7 @@ component StorageControl
         row role="group" align-items="center" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" box-shadow="0 1px 2px #0000000a"
           button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`storage-decrease-${rule.key}` data-focus-stop=(busy ? "" : "enabled page")
             LucideMinus(size=16, color="light-dark(#18181b, #f5f5f5)")
-          input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=((draft.length * 8 + 19) * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id=`field-storage-days-${rule.key}` data-editable="yes" data-focus-stop=(busy ? "" : "enabled page")
+          input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=(59 * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id=`field-storage-days-${rule.key}` data-editable="yes" data-focus-stop=(busy ? "" : "enabled page")
           text "days" font-size="0.75rem" line-height="1rem" padding-right="0.5rem" color="light-dark(#18181b, #f5f5f5)" aria-hidden=true
           button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`storage-increase-${rule.key}` data-focus-stop=(busy ? "" : "enabled page")
             LucidePlus(size=16, color="light-dark(#18181b, #f5f5f5)")

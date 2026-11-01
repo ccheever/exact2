@@ -1,6 +1,6 @@
 // Every Browser tab's page as a partitioned `iframe` (LLP 1020.002; MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/browser/ElectronBrowserHost.tsx, BrowserSurfaceSlot.tsx; apps/desktop/src/preview/Manager.ts
-// `computeNavStatus`, `failed`, `refresh`, `hardReload`; BrowserSession.ts's partitions).
+// `computeNavStatus`, `failed`, `refresh`, `hardReload`, `openDevTools`; BrowserSession.ts's partitions).
 //
 // The reference mounts a `<webview>` per live preview session at the app root and positions the one a slot shows.
 // Here the window's frame layer (browser-frames.contract) mounts an `iframe` per live session with the session's
@@ -13,6 +13,7 @@
 // named by a hash of the environment and the profile, since a partition name is at most 64 of [A-Za-z0-9._-];
 // Incognito is an in-memory partition per environment. The framework derives the stores from the app and the name,
 // so they are not the stores the module kept before: a person signs in again once.
+import { emptyBrowserPip, type BrowserPipView } from './server-browser-pip';
 import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
 // The bake binds the package from its exact.json (`__exact_modules`); a bare tsc and Bun read the exact.json itself, so
@@ -55,7 +56,7 @@ export type FrameEntry = {
 };
 export type FramePrompt = { type: string; title: string; message: string; defaultValue: string };
 /** `window`: the window's own View command a preview chord fell through to, `reload()` (`flag`) or the zoom step `delta`. */
-export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | 'window' | ''; id: string; url: string; delta: number; flag: boolean };
+export type FrameCommand = { serial: number; kind: 'navigate' | 'traverse' | 'reload' | 'stop' | 'devtools' | 'window' | ''; id: string; url: string; delta: number; flag: boolean };
 const NO_COMMAND: FrameCommand = { serial: 0, kind: '', id: '', url: '', delta: 0, flag: false };
 
 type Waiter = { frameId: string; test: (entry: FrameEntry, event: string) => boolean; done: (ok: boolean) => void };
@@ -215,7 +216,7 @@ function settle(owner: object, waiter: Waiter, ok: boolean): void {
   if (frames(owner).waiters.delete(waiter)) waiter.done(ok);
 }
 
-// ── Commands (Manager.ts navigate / goBack / goForward / refresh / hardReload) ──────────────────
+// ── Commands (Manager.ts navigate / goBack / goForward / refresh / hardReload / openDevTools) ────
 export function enqueue(owner: object, command: Omit<FrameCommand, 'serial'>): void {
   const store = frames(owner);
   store.queue.push({ ...command, serial: ++store.serial });
@@ -234,7 +235,8 @@ export function navigateFrame(owner: object, runtimeId: string, url: string): bo
   enqueue(owner, { kind: 'navigate', id: entry.frameId, url, delta: 0, flag: false });
   return true;
 }
-/** back, forward, refresh, hard-reload and stop. Refresh restarts a load in flight and retries a failed one at its own URL
+/** back, forward, refresh, hard-reload, stop and devtools (the platform's inspector for the page, opened or brought
+ *  forward). Refresh restarts a load in flight and retries a failed one at its own URL
  *  (Electron's reload restarts the pending entry; Chromium's error page sits at the failed URL). */
 export function commandFrame(owner: object, runtimeId: string, name: string): boolean {
   const entry = frameEntry(owner, runtimeId);
@@ -252,6 +254,9 @@ export function commandFrame(owner: object, runtimeId: string, name: string): bo
       return true;
     case 'stop':
       enqueue(owner, { kind: 'stop', id: entry.frameId, url: '', delta: 0, flag: false });
+      return true;
+    case 'devtools':
+      enqueue(owner, { kind: 'devtools', id: entry.frameId, url: '', delta: 0, flag: false });
       return true;
   }
   return false;
@@ -318,10 +323,10 @@ export type BrowserFrameView = {
   /** The dialog it holds for the person (`FramePrompt`), "" when none. */
   promptType: string; promptTitle: string; promptMessage: string; promptDefault: string;
 };
-export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand };
+export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand; pip: BrowserPipView };
 export const EMPTY_FRAME: BrowserFrameView = { frameId: '', src: 'about:blank', partition: '', zoom: 1, colorScheme: 'system', environment: '', profile: '', place: '', pageWidth: 0, pageHeight: 0,
   held: false, heldWidth: 0, heldHeight: 0, promptType: '', promptTitle: '', promptMessage: '', promptDefault: '' };
-export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND });
+export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND, pip: emptyBrowserPip() });
 /** A hidden page that must keep drawing, and the size it last laid out at. */
 export type FrameHold = (runtimeId: string) => { width: number; height: number } | null;
 /** The layer's frames: the panel's tab placed in its slot (`panel`: its runtime id and fixed viewport, if it shows one), the
@@ -339,5 +344,5 @@ export function frameLayerView(owner: object, panel: { runtimeId: string; pageWi
     });
   }
   const namers = [...store.namers.keys()].map(partition => ({ ...EMPTY_FRAME, frameId: namerIdOf(partition), partition }));
-  return { frames: layer, namers, command: frameCommandView(owner) };
+  return { frames: layer, namers, command: frameCommandView(owner), pip: emptyBrowserPip() };
 }

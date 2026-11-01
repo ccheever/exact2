@@ -8,16 +8,17 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { closeThreadTerminals as cleanupCloseThreadTerminals } from '../../src/terminal/thread-terminal-cleanup';
+import { closeThreadTerminals as cleanupCloseThreadTerminals } from '../../src/sidebar/worktree-cleanup';
 import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from '../../src/terminal/terminal-drawer-view';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
-import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
+import { adoptTerminalPrefs, selectThreadTerminalUiState, terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent } from '../support/contract-action-fixture';
 import { terminalFrameId } from '../../src/terminal/terminal-frames';
+import { terminalPanelOps } from '../../src/terminal/terminal-panel';
 
 type Call = { method: string; payload: Obj };
-function fixture(options: { fail?: string[]; connected?: boolean; closing?: Promise<void> } = {}) {
+function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
   const calls: Call[] = [], native: Obj[] = [];
   const client = {
     scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
@@ -27,7 +28,6 @@ function fixture(options: { fail?: string[]; connected?: boolean; closing?: Prom
     async request(_native: Native, method: string, payload: Obj) {
       calls.push({ method, payload });
       if (options.fail?.includes(method)) throw new Error(`${method} refused`);
-      if (method === 'terminal.close') await options.closing;
       return {};
     },
     async call(_native: Native, request: Obj) {
@@ -183,21 +183,16 @@ describe('terminal drawer commands', () => {
     expect(calls[0]?.payload.terminalId).toBe('term-2');
   });
 
-  test('the installed thread-delete hook awaits closing every session with its history before forgetting its drawer', async () => {
-    let release!: () => void;
-    const closing = new Promise<void>(resolve => { release = resolve; });
-    const { client, calls } = fixture({ closing });
+  test('thread delete closes every session of the thread with its history, then forgets its drawer', async () => {
+    const { client, calls } = fixture();
     await run(client, 'toggle');
-    const cleanup = cleanupCloseThreadTerminals(client, {} as Native, 'thread-1');
+    await closeThreadTerminals(client, {} as Native, 'thread-1');
     expect(calls[1]).toEqual({ method: 'terminal.close', payload: { threadId: 'thread-1', deleteHistory: true } });
-    expect(terminalUiStore(client).getState().terminalUiStateByThreadKey['env-a:thread-1']).toBeDefined();
-    release();
-    await cleanup;
     expect(terminalUiStore(client).getState().terminalUiStateByThreadKey['env-a:thread-1']).toBeUndefined();
   });
 });
 
-test('the sidebar delete hook keeps the drawer registration after the import cycle completes', () => {
+test('the sidebar delete hook (worktree-cleanup) closes terminals through the drawer', () => {
   expect(cleanupCloseThreadTerminals).toBe(closeThreadTerminals);
 });
 
@@ -295,6 +290,14 @@ test('draft terminal reserves its send identity, worktree and session across fir
   expect(terminalOpen(client)).toBe(true);
   expect((await terminalDrawerView(client, null, 840, 0)).terminalId).toBe('term-1');
 });
+test('a drawer close confirmed after switching threads closes that terminal on its own thread', async () => {
+  const { client, raw, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  await run(client, 'toggle'); await run(client, 'split', 'env-a:thread-1|term-1');
+  raw.threadId = 'thread-2';
+  await run(client, 'close', 'env-a:thread-1|term-2');
+  expect(calls.at(-1)).toEqual({ method: 'terminal.close', payload: { threadId: 'thread-1', terminalId: 'term-2', deleteHistory: true } });
+  expect(selectThreadTerminalUiState(terminalUiStore(client).getState().terminalUiStateByThreadKey, ref).terminalIds).toEqual(['term-1']);
+});
 test('closing the last pane and hiding the drawer return composer focus; a remaining pane keeps focus', async () => {
   const { client } = fixture();
   await run(client, 'toggle'); await run(client, 'split', 'env-a:thread-1|term-1');
@@ -354,6 +357,27 @@ test('native toggle preserves composer-focus result and rejects obsolete scope',
   expect(terminalOpen(client)).toBe(false);
 });
 
+
+test('F6 and Shift-F6 in a terminal page hand the window the move out of its area (drawer: terminal, right panel: panel)', async () => {
+  const { client } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  // The 0.1.5 server's default bindings: the page forwards both chords, as they are bound whatever has the focus.
+  client.config.keybindings = [{ command: 'workspace.focusNext', shortcut: { key: 'f6' } }, { command: 'workspace.focusPrevious', shortcut: { key: 'f6', shiftKey: true } }];
+  expect(JSON.parse(terminalKeybindings(client))).toEqual(expect.arrayContaining([{ chord: 'F6', command: 'workspace.focusNext' }, { chord: 'Shift+F6', command: 'workspace.focusPrevious' }]));
+  terminalUiStore(client).getState().ensureTerminal(ref, 'term-1', { open: true });
+  const press = async (op: string, command: string, terminalId: string, surface: string) => {
+    const result = out();
+    await (op === 'terminallocal:message' ? terminalOps : terminalPanelOps).call(client, op, `env-a:thread-1|${terminalId}`, JSON.stringify({ type: 'command', command, ...ref, terminalId, surface }), 0, {} as Native, {} as Files, result);
+    return result.message;
+  };
+  expect(await press('terminallocal:message', 'workspace.focusNext', 'term-1', 'drawer')).toBe('terminal:workspace-focus:next:terminal');
+  expect(await press('terminallocal:message', 'workspace.focusPrevious', 'term-1', 'drawer')).toBe('terminal:workspace-focus:previous:terminal');
+  surfaceStore(client).panels.set('env-a:thread-1', { surfaces: [{ id: 'terminal:1', kind: 'terminal', path: '', line: 0, reveal: 0,
+    terminal: { terminalIds: ['term-9'], activeTerminalId: 'term-9', splitDirection: 'horizontal' } }], active: 'terminal:1', visible: true, userRevision: 1 });
+  expect(await press('terminalpanellocal:message', 'workspace.focusNext', 'term-9', 'terminal:1')).toBe('terminal:workspace-focus:next:panel');
+  // The drawer stays open, and a page of another thread moves nothing.
+  expect(terminalOpen(client)).toBe(true);
+  expect(await press('terminallocal:message', 'workspace.focusNext', 'term-1', 'drawer').then(() => press('terminallocal:message', 'workspace.focusNext', 'term-7', 'drawer'))).toBe('');
+});
 
 test('the page\'s focus reports update pane context without dispatching a terminal command', async () => {
   const { client, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };

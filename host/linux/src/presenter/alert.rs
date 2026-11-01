@@ -30,6 +30,12 @@ pub(super) struct Open {
     serial: u32,
     key: NodeKey,
     pub(super) restore: Option<NodeKey>,
+    /// Whether the invoker is a programmatic `source` (it invokes nothing
+    /// that targets this box), which stays exempt from light dismiss.
+    by_source: bool,
+    /// A popover's untransformed placement in viewport points, as the
+    /// runner's top layer reads it ([`Presenter::alert_popover_frame`]).
+    placed: Option<[f64; 4]>,
     title: Option<(String, Rect4)>,
     measured: Option<Inputs>,
     placement: top::area::History,
@@ -68,7 +74,21 @@ impl<D: DataSource> Presenter<D> {
             .and_then(|a| self.host.kernel().node_by_key(a.key))
             .map(|n| n.id)
     }
+    /// Whether the page under the open box takes input: not under a modal
+    /// dialog or an alert, and under a popover, as HTML's page stays live.
     pub(crate) fn alert_allows(&self, id: ViewId) -> bool {
+        !self.alert_inert() || self.alert_holds(id)
+    }
+    /// Whether the open box is modal, so the page under it is inert.
+    pub(crate) fn alert_inert(&self) -> bool {
+        self.alert.as_ref().is_some_and(|a| a.modal)
+    }
+    /// Whether the page is inert: under a modal box or a shape surface.
+    pub(crate) fn page_inert(&self) -> bool {
+        self.shape_surface_open() || self.alert_inert()
+    }
+    /// Whether `id` is the open box or inside it.
+    pub(crate) fn alert_holds(&self, id: ViewId) -> bool {
         let Some(open) = &self.alert else {
             return true;
         };
@@ -157,8 +177,12 @@ impl<D: DataSource> Presenter<D> {
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
-        if let Some(e) = self.set_focus(None, now) {
-            self.host.log(e);
+        // HTML's popover leaves the focus where it was (its focusing steps
+        // move it only to what autofocuses inside); a modal box takes it.
+        if modal {
+            if let Some(e) = self.set_focus(None, now) {
+                self.host.log(e);
+            }
         }
         // A surface presented by a synchronous blur handler owns focus and paint.
         if self.top_open() {
@@ -177,6 +201,15 @@ impl<D: DataSource> Presenter<D> {
             return false;
         }
         let serial = self.next_surface_serial();
+        let node = self.host.kernel().node(id);
+        let by_source = invoker
+            .and_then(|i| self.host.kernel().node(i))
+            .is_some_and(|n| {
+                exact_kernel::Invocation::of(self.host.kernel(), &n).is_none_or(|i| i.target != key)
+            });
+        // HTML runs the dialog focusing steps for a `dialog`, modal or a popover.
+        let dialog =
+            modal || node.is_some_and(|n| n.props.str(PropId::SemanticTag) == Some("dialog"));
         self.alert = Some(Open {
             kind,
             modal,
@@ -187,6 +220,8 @@ impl<D: DataSource> Presenter<D> {
             serial,
             key,
             restore,
+            by_source,
+            placed: None,
             title: None,
             measured: None,
             placement: top::area::History::default(),
@@ -210,7 +245,7 @@ impl<D: DataSource> Presenter<D> {
             .host
             .preorder()
             .into_iter()
-            .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+            .filter(|id| self.alert_holds(*id) && !self.alert_message(*id))
             .filter(|id| {
                 self.host
                     .kernel()
@@ -230,18 +265,23 @@ impl<D: DataSource> Presenter<D> {
         });
         let error = match autofocus {
             Some(id) => self.set_focus(Some(id), now),
-            None => self.move_focus_in(false, now, &boxed),
+            None if dialog => self.move_focus_in(false, now, &boxed),
+            None => None,
         };
         if let Some(e) = error {
             self.host.log(e);
         }
         // HTML's dialog focusing steps fall back to the dialog itself.
-        if self.focus.is_none() && self.alert.as_ref().is_some_and(|a| a.serial == serial) {
+        if dialog
+            && self.focus.is_none_or(|f| !self.alert_holds(f))
+            && self.alert.as_ref().is_some_and(|a| a.serial == serial)
+        {
             if let Some(e) = self.set_focus(Some(id), now) {
                 self.host.log(e);
             }
         }
         self.queue_toggle(key, true);
+        self.report_top_layer();
         self.back_changed();
         true
     }
@@ -252,6 +292,9 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         self.queue_surface_closed(open.key, open.modal);
+        if !open.modal {
+            self.report_top_layer();
+        }
         if let Err(e) = self.pointer_cancel(now) {
             self.host.log(e);
         }
@@ -281,8 +324,26 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.brush.alert = None;
+        // A popover gives the focus back only from inside it, and a manual
+        // one keeps nothing to give (HTML's hide popover steps); a modal box
+        // always does.
+        let inside = |p: &Self, id: ViewId| {
+            let k = p.host.kernel();
+            std::iter::successors(k.node(id), |n| n.parent.and_then(|q| k.node(q)))
+                .any(|n| n.key == open.key)
+        };
+        if !open.modal && self.focus.is_none_or(|id| !inside(self, id)) {
+            self.dirty = true;
+            self.back_changed();
+            return;
+        }
         if let Some(e) = self.set_focus(None, now) {
             self.host.log(e);
+        }
+        if self.manual_popover(&open) {
+            self.dirty = true;
+            self.back_changed();
+            return;
         }
         let restore = open
             .restore
@@ -300,6 +361,10 @@ impl<D: DataSource> Presenter<D> {
             return false;
         };
         let open = self.alert.as_ref().unwrap();
+        // A manual popover hears no close request: Back and Escape are the page's.
+        if self.manual_popover(open) {
+            return false;
+        }
         let (serial, modal) = (open.serial, open.modal);
         if self.host.kernel().node(root).is_some_and(|node| {
             if modal {
@@ -475,8 +540,23 @@ impl<D: DataSource> Presenter<D> {
             title,
             scrim,
         });
-        self.alert.as_mut().unwrap().measured = self.alert_inputs(id);
+        let measured = self.alert_inputs(id);
+        // The runner takes a block root's rectangle as its block, the root
+        // sitting in it by its frame (margins included): the border box
+        // then lands where it is drawn, before its own transform.
+        let (bw, bh, fx, fy) = match self.host.kernel().host_block_size(id) {
+            Some((w, h)) => (w, h, f.x, f.y),
+            None => (f.width, f.height, 0., 0.),
+        };
+        let placed = [origin.0 - fx, origin.1 - fy, bw, bh].map(f64::from);
+        let open = self.alert.as_mut().unwrap();
+        open.measured = measured;
+        // Reads see a popover where it is placed, before its own transform.
+        let moved = !modal && open.placed.replace(placed) != Some(placed);
         self.dirty = true;
+        if moved {
+            self.report_top_layer();
+        }
         Ok(())
     }
     fn alert_inputs(&self, id: ViewId) -> Option<Inputs> {
@@ -574,6 +654,12 @@ impl<D: DataSource> Presenter<D> {
         let Some(_) = self.alert_root() else {
             return false;
         };
+        // Under a popover the page is live: only Escape is the popover's
+        // (its close request); every other key takes the page's own path,
+        // shortcuts and Back included.
+        if !self.alert_inert() && (name != "Escape" || !self.alert_takes_back()) {
+            return false;
+        }
         let opening = self.alert.as_ref().unwrap().serial;
         let focus = self
             .focus
@@ -626,7 +712,7 @@ impl<D: DataSource> Presenter<D> {
             "Enter" | " " => {
                 if let Some(id) = self
                     .focus
-                    .filter(|id| self.alert_allows(*id) && !self.alert_message(*id))
+                    .filter(|id| self.alert_holds(*id) && !self.alert_message(*id))
                 {
                     self.invoke(id, now, false);
                 }
@@ -649,21 +735,113 @@ impl<D: DataSource> Presenter<D> {
             })
     }
     pub(super) fn alert_pointer(&mut self, x: f32, y: f32, now: f64) -> bool {
-        if self.alert.is_none() || self.hit(x, y).is_some() {
+        let Some(open) = &self.alert else {
+            return false;
+        };
+        let modal = open.modal;
+        let hit = self.hit(x, y);
+        if hit.is_some_and(|id| self.alert_holds(id)) {
+            return false;
+        }
+        // A popover's press outside it reaches the live page: one on its
+        // invoker leaves it to the invoker's toggle, any other dismisses it
+        // first (HTML's light dismiss), where an absorbed press would need a
+        // second one.
+        if !modal && hit.is_some_and(|id| self.alert_invoker_holds(id)) {
             return false;
         }
         if self.alert_light_dismiss() {
-            // The dismissing press is absorbed, including on the invoker:
-            // a second press opens it again (WinUI Flyout light dismiss).
             self.alert_close_request(now);
         }
-        true
+        modal
+    }
+    /// The open popover's root and placement, for the runner's top layer
+    /// (structural reads); none for a modal box, which reads count as open.
+    pub(super) fn alert_popover_frame(&self) -> Option<exact_runner::geometry::TopLayerFrame> {
+        let id = self.alert_root().filter(|_| !self.alert_inert())?;
+        Some((id, self.alert.as_ref()?.placed?, None))
+    }
+    /// Whether `id` is inside an open popover (a non-modal box).
+    pub(super) fn in_popover(&self, id: ViewId) -> bool {
+        self.alert.is_some() && !self.alert_inert() && self.alert_holds(id)
+    }
+    /// Whether Back would close the open box: not a manual popover's.
+    pub(crate) fn alert_takes_back(&self) -> bool {
+        self.alert.as_ref().is_some_and(|a| !self.manual_popover(a))
+    }
+    /// Whether `open` is a manual popover: no light dismiss, no close
+    /// request, no focus back. Read as its node is now.
+    fn manual_popover(&self, open: &Open) -> bool {
+        !open.modal
+            && (self.host.kernel().node_by_key(open.key))
+                .is_some_and(|n| n.props.str(PropId::Popover) == Some("manual"))
+    }
+    /// The sequential focus order, `(tabindex rank, tree position, view)`
+    /// entries already sorted, with an open popover's stops, in their own
+    /// order, right after where its invoker sorts, a stop or not (HTML's
+    /// popover focus scope). Unchanged with no popover, no invoker, or an
+    /// invoker inside the popover (Chromium's rule).
+    pub(super) fn alert_tab_order(
+        &self,
+        mut order: Vec<(i64, usize, ViewId)>,
+    ) -> Vec<(i64, usize, ViewId)> {
+        let Some(invoker) = self
+            .alert
+            .as_ref()
+            .filter(|a| !a.modal)
+            .and_then(|a| a.invoker)
+            .filter(|i| !self.alert_holds(*i))
+        else {
+            return order;
+        };
+        let Some(at) = self.host.preorder().iter().position(|id| *id == invoker) else {
+            return order;
+        };
+        let rank = (self.host.kernel().node(invoker))
+            .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()))
+            .filter(|&i| i > 0)
+            .unwrap_or(i64::MAX);
+        let inside: Vec<_> = order
+            .iter()
+            .copied()
+            .filter(|o| self.alert_holds(o.2))
+            .collect();
+        order.retain(|o| !self.alert_holds(o.2));
+        let after = order.partition_point(|o| (o.0, o.1) <= (rank, at));
+        order.splice(after..after, inside);
+        order
+    }
+    /// Whether `id` is inside the open popover's invoker or any button that
+    /// targets it, whose press is no light dismiss (HTML): its toggle acts.
+    fn alert_invoker_holds(&self, id: ViewId) -> bool {
+        let Some(open) = self.alert.as_ref() else {
+            return false;
+        };
+        let k = self.host.kernel();
+        use exact_kernel::invocation::Action;
+        // The button's current target, not what opened it; a programmatic
+        // `source` stays its invoker.
+        std::iter::successors(k.node(id), |n| n.parent.and_then(|p| k.node(p))).any(|n| {
+            open.by_source && Some(n.id) == open.invoker
+                || exact_kernel::Invocation::of(k, &n).is_some_and(|i| {
+                    i.target == open.key
+                        && matches!(i.action, Action::Show | Action::Hide | Action::Toggle)
+                })
+        })
     }
     /// The agent's `tap` on a node under the open box: a press outside it,
-    /// which dismisses it where a person's would and presses nothing.
+    /// which dismisses it where a person's would. Under a modal box it
+    /// presses nothing; under a popover it goes on to the page.
     pub(super) fn alert_outside_tap(&mut self, id: ViewId) -> Option<Result<String, String>> {
-        let serial = self.alert.as_ref()?.serial;
-        if self.alert_allows(id) || !self.alert_light_dismiss() {
+        let open = self.alert.as_ref()?;
+        let (serial, modal) = (open.serial, open.modal);
+        if self.alert_holds(id) || !self.alert_light_dismiss() {
+            return None;
+        }
+        // Under a popover the tap goes on to the live page: its press
+        // dismisses it where it lands outside it ([`Self::alert_pointer`]),
+        // and a page control the popover covers is not reached.
+        if !modal {
             return None;
         }
         self.alert_close_request(self.host.now());
@@ -684,7 +862,7 @@ impl<D: DataSource> Presenter<D> {
         let rows: Vec<_> = self
             .boxes
             .iter()
-            .filter(|b| self.alert_allows(b.id))
+            .filter(|b| self.alert_holds(b.id))
             .map(|b| serde_json::json!({"id":b.id,"rect":b.rect}))
             .collect();
         let open = self.alert.as_ref().unwrap();
@@ -695,6 +873,10 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "alert_input_tests.rs"]
 mod input_tests;
+
+#[cfg(test)]
+#[path = "alert_popover_tests.rs"]
+mod popover_tests;
 
 #[cfg(test)]
 #[path = "press_point_tests.rs"]

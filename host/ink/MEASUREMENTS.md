@@ -600,8 +600,22 @@ complete S2 replacement qualification.
 
 C6 runs on the physical NucBox: AMD Ryzen AI Max+ 395, Radeon 8060S,
 Windows 11 Pro 10.0.26200, display driver 32.0.23033.1002. The attached
-5120×1440 display runs at 60 Hz and 1× scaling. C: had 305,256,144,896
-bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
+5120×1440 display ran at 60 Hz and 1× scaling for C6 and every Windows
+row before G7. On 2026-10-31, after the DisplayPort connection and reboot,
+the console-session mode query at 11:20:32 PDT reports **5120×1440,
+120 Hz, 96 DPI (100%)**, 32-bit colour. The maximum enumerated refresh is
+**120 Hz**, including at 5120×1440. The GPU driver remains
+**32.0.23033.1002**. The display is Samsung C49RG9x; its 48 Hz adaptive
+lower bound is Charlie's hardware report, not measured by this mode query.
+Raw mode enumeration is `target/g7/mode.json` in the NucBox mirror; the
+local console-query copy is `target/g7/mode-ssh.log`. PresentMon verification
+of actual compositor cadence is affirmative: the retained egui G7 diagnostic
+records an 8.3374 ms median displayed interval and 8.5314 ms p99, with no
+lost ETW events. PresentMon reports composed and hardware-composed flip.
+Its focus losses exclude it from the cadence scoreboard; it establishes
+the active display rate, not a qualified five-round benchmark.
+
+For C6, C: had 305,256,144,896 bytes free before building. Rust is the repository's pinned 1.97.0 MSVC
 toolchain; Bun is 1.4.2. DXBC was compiled by Windows SDK 10.0.26100.0
 `fxc` during the build. No Direct3D shader source is compiled by the app.
 
@@ -2033,6 +2047,15 @@ S2.4's resize, DPI, caret, device-loss and sleep journeys are not rerun in
 this chunk; the earlier results remain their evidence. Lock/unlock and the
 other later S2 work remain outside this change.
 
+### Predictions against results
+
+| Prediction | Result |
+| --- | --- |
+| Zero failures in eight suites and ten journeys; byte-for-byte atlas parity | Met: all eighteen invocations pass, including D3D11's ordered `UpdateSubresource` path. |
+| DWM p50 about 140 ms and about 20 ms earlier | The absolute prediction misses in the excluded observations: after medians are 109.200–115.878 ms. No qualified result establishes a 20 ms saving. The historical 161 ms row uses a different fixture and refresh rate. |
+| DXGI p50 about 157 ms | Miss in the excluded observations: after medians are 106.286–111.463 ms. No qualified estimate. |
+| First-paint upload spans at most 2 ms, at least 80% lower | Unmeasured: Windows has no upload-span instrument, and this lane permits no renderer changes. Total paint time cannot establish the prediction. |
+
 ### Reproduction and retained evidence
 
 Build Shelf with `bun host/windows/build.mjs shelf`, with the Windows SDK's
@@ -3350,6 +3373,27 @@ bun bench/heavy-list/gpui/aggregate.mjs target/g0/silver-run-42d5066572/boot-mis
 
 ### Instrument and retained samples
 
+**Hook provenance correction, 2026-10-30.** The startup cohorts in this Stage 0b
+record used the pre-switch probe with its queue hook on: the development-Mac
+`warm-final/`, `miss-final/` and `retained-loaded/` cohorts, the silver Mac's
+`run-42d5066572/{boot-retained,boot-miss}/`, and chunk 4's
+`s0b4-trace/baseline/` and `s0b4-fixed/{retained,miss}/`, including their failed
+launches and diagnostic traces. That probe creates the system Metal device and
+a command queue in its constructor, before `main`. The 0.064 ms
+`MTLCreateSystemDefaultDevice` row below therefore reads an already-created
+device. Complete-screen times include that pre-main work, but device-phase
+comparisons do not represent uninstrumented device creation. C4–C6's separate
+headless harness is not this probe. Future boot cohorts must state hook state;
+both driver and probe now default off. G4m's native cold rows also used hook-on,
+loading Metal that the native app would never load, and are not comparable to
+future hook-off (a) cold rows.
+
+The silver cohorts' “quiet” qualification used load averages and compiler names.
+G4m/G5m and the later hook comparison's tasks plists expose sustained fleet/Claude
+and PerfPowerServices activity on that machine; these startup cohorts have no
+per-process quiet monitor to establish its absence. Preserve their measured
+results and the hook/background limits when comparing a later cohort.
+
 Apple M5 Max, 128 GiB, macOS 27.0.1 (26A434), Bun 1.4.2 and Cargo 1.97.0.
 `environment.json` retains the environment and base commit. The first carrier
 build in this worktree was cold; its build log is `checks/baseline-build.log`. The
@@ -4109,3 +4153,1608 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; fi
 test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 ```
+
+## M2b-Windows — Step demand
+
+2026-10-30, NucBox, release heavy-list with `BENCH_MOTION=caret` and
+`BENCH_LIVE=0`. Before is `1013a5a7c4`; after is `d15f40e145`, including the
+Stage 0 rebase onto `942b409559`. Three processes per device use the existing
+Windows driver without wheel posts. The existing frame log counts successful
+redraws in host time `[5000, 15000)` ms. PresentMon observes D3D11; the frame
+log covers both devices. Prediction: about 60 redraws/s before, 2/s after
+(20 ± 1 frames per ten seconds).
+
+| Device | Before, redraws/s | Before recount, redraws/s | After, redraws/s |
+| --- | --- | --- | --- |
+| D3D11 | 60.0, 60.0, 60.0 | 56.5, 60.0, 59.8 | 2.0, 2.0, 2.0 |
+| wgpu | 59.6, 60.0, 60.0 | 60.0, 60.0, 60.0 | 2.0, 2.0, 2.0 |
+
+The two-redraw prediction is met in all six after samples. Painter snapshots
+match successful frames in every process (after: 47/47/46 for D3D11,
+46/45/45 for wgpu); no paint walk continues between the step frames. All
+processes exit zero, with no focus loss or lost ETW events. These are redraw
+counts. They do not qualify a CPU comparison: the below-10% machine-CPU
+condition failed in 19/32, 28/33 and 16/33 observations in the three cohorts,
+respectively. Another build overlaps seven recount observations; neither the
+first before cohort nor the after cohort overlaps a compiler. The fixture's
+five app timer firings per second also prevent it qualifying M2's rest row.
+
+Raw logs, snapshots, PresentMon CSVs, process IDs and quiet observations are
+retained in this worktree's `target/m2b-fix/nucbox/{before-logged,before-final,after}/`.
+`target/m2b-fix/summarize-counts.py` reproduces `counts.json`; the prediction
+and adapted driver are beside it. The NucBox retains the same cohorts under
+`~/projects/exact2/target/m2b-fix/`, with both executables in `before-bin/` and
+`after-bin/` and the isolated source snapshot in `source/`. The shared
+mirror's pending edits were not overwritten.
+
+Both devices pass the S2.8b renderer suites and all six desktop journeys,
+including idle caret, two DPI round trips, forced device loss and sleep/wake.
+The ten fault fixtures also pass: 46 native commands, each with a positive
+passing test count. Shelf uses `gpu-dev`; the Linux test crate alone uses
+`profile.gpu-dev.package.exact-linux.opt-level=0`, as in S2.8b. DPI captures
+show correctly scaled text; Settings returns to 100%. Native logs and captures
+are under `target/m2b-fix/nucbox/native/`. `target/m2b-fix/CHECKS.txt` retains
+all result lines; `FULL-OUTPUT.txt` retains complete verbatim check output.
+
+
+## Stage 0b: G4q quiet boot cohorts, 2026-10-30
+
+The silver Mac retake uses source `d5429830d2`, with the hook and power sampling
+off. Retained cohorts alternate ten direct-Metal and ten wgpu launches,
+reversing their order each pair. Miss cohorts remove only the recorded Metal
+archive before each of ten launches, preserving a copy and each rebuilt
+archive. The boot-only probe records per-painter complete scenes, passive
+presented timestamps and the startup span union. Every launch, including first
+launches and tails, is retained. No background process is stopped.
+
+The predictions were committed before collection in G4q: 30/30 complete Ink
+screens; retained Metal phase p50 ≤8 ms and within 2 ms of 6.581 ms; complete
+Ink p50 no more than wgpu +5 ms; archive misses with zero boot-thread
+compilation, CPU first-pixel p50 ≤300 ms and complete Ink p50 ≤450 ms. No
+100 ms application-budget pass was predicted.
+
+Each cohort starts after a full passing minute of five-second observations:
+≤2 busy cores, ≤0.25 core for the largest non-benchmark process, no compilers
+and all load averages below 30. The continuous monitor covers collection and
+a terminal observation. Any failure excludes the whole cohort; its single
+retry needs a fresh passing minute. Passing per-launch endpoints alone do not
+qualify a cohort. Tables show all launches; milliseconds are p50 (min–max).
+
+### boot-retained-1 — excluded
+
+The gate waited **131.507 s**. Of the qualifying minute and
+collection's **16 observations, 1 fail**.
+Whole-machine CPU is **0.623–1.966 cores**;
+the largest non-benchmark process is `ScreensharingAgent` (PID 9846) at
+**0.283 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 5.969 (5.599–7.855) | 6.290 (6.024–232.594) |
+| First pixel, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 223.733 (182.126–253.811) | 263.722 (249.341–458.228) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 5.375 | 6.271 | 170.480 | 182.126 | 1 | — | True |
+| metal-10 | 9.391 | 6.480 | 201.031 | 216.902 | 1 | — | True |
+| metal-2 | 17.494 | 5.786 | 201.403 | 224.683 | 1 | — | True |
+| metal-3 | 17.460 | 5.740 | 230.611 | 253.811 | 1 | — | True |
+| metal-4 | 16.079 | 5.599 | 211.265 | 232.944 | 1 | — | False |
+| metal-5 | 17.183 | 6.153 | 215.326 | 238.663 | 1 | — | False |
+| metal-6 | 15.732 | 5.746 | 185.575 | 207.053 | 1 | — | False |
+| metal-7 | 17.228 | 5.604 | 220.666 | 243.498 | 1 | — | False |
+| metal-8 | 18.628 | 7.855 | 196.300 | 222.783 | 1 | — | False |
+| metal-9 | 15.578 | 6.697 | 183.020 | 205.295 | 1 | — | False |
+| wgpu-1 | 16.715 | 232.594 | 208.919 | 458.228 | 1 | — | True |
+| wgpu-10 | 13.724 | 6.096 | 230.189 | 250.010 | 1 | — | False |
+| wgpu-2 | 17.724 | 6.024 | 243.861 | 267.609 | 1 | — | True |
+| wgpu-3 | 16.568 | 6.248 | 251.012 | 273.829 | 1 | — | True |
+| wgpu-4 | 14.039 | 6.334 | 228.967 | 249.341 | 1 | — | False |
+| wgpu-5 | 17.885 | 6.347 | 249.038 | 273.269 | 1 | — | False |
+| wgpu-6 | 18.340 | 6.216 | 228.576 | 253.132 | 1 | — | False |
+| wgpu-7 | 17.257 | 6.331 | 242.979 | 266.567 | 1 | — | False |
+| wgpu-8 | 14.730 | 6.776 | 230.743 | 252.250 | 1 | — | False |
+| wgpu-9 | 16.458 | 6.206 | 238.214 | 260.878 | 1 | — | False |
+
+20 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+
+### boot-retained-2 — excluded
+
+The gate waited **60.742 s**. Of the qualifying minute and
+collection's **16 observations, 3 fail**.
+Whole-machine CPU is **0.484–2.144 cores**;
+the largest non-benchmark process is `(Heavy list)` (PID 35938) at
+**0.514 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal | wgpu |
+|---|---:|---:|
+| Launches | 10 | 10 |
+| Displayed | 10 | 10 |
+| Complete Ink screens | 10 | 10 |
+| Device/layer phase, ms | 6.540 (5.318–6.756) | 6.407 (6.119–7.022) |
+| First pixel, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| First CPU pixel, ms | — | — |
+| Complete CPU screen, ms | — | — |
+| Complete Ink screen, ms | 224.022 (191.142–247.024) | 259.248 (237.942–283.799) |
+| Worker compilation/serialization, ms | 0.000 (0.000–0.000) | 0.000 (0.000–0.000) |
+| Active or key windows | 0 | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 9.740 | 6.149 | 175.252 | 191.142 | 1 | — | False |
+| metal-10 | 17.722 | 5.318 | 223.984 | 247.024 | 1 | — | False |
+| metal-2 | 16.848 | 6.590 | 211.540 | 234.979 | 1 | — | False |
+| metal-3 | 13.280 | 6.536 | 215.004 | 234.820 | 1 | — | False |
+| metal-4 | 13.389 | 6.756 | 203.668 | 223.813 | 1 | — | False |
+| metal-5 | 17.610 | 6.698 | 200.029 | 224.338 | 1 | — | False |
+| metal-6 | 17.913 | 6.464 | 199.223 | 223.600 | 1 | — | False |
+| metal-7 | 16.717 | 6.732 | 200.782 | 224.231 | 1 | — | False |
+| metal-8 | 16.673 | 6.482 | 197.308 | 220.464 | 1 | — | False |
+| metal-9 | 16.317 | 6.544 | 184.620 | 207.481 | 1 | — | False |
+| wgpu-1 | 17.515 | 6.652 | 232.527 | 256.694 | 1 | — | False |
+| wgpu-10 | 12.482 | 6.411 | 242.908 | 261.802 | 1 | — | False |
+| wgpu-2 | 19.537 | 6.119 | 238.690 | 264.346 | 1 | — | False |
+| wgpu-3 | 18.545 | 6.193 | 240.593 | 265.331 | 1 | — | False |
+| wgpu-4 | 16.462 | 6.192 | 230.133 | 252.786 | 1 | — | False |
+| wgpu-5 | 16.723 | 6.811 | 260.265 | 283.799 | 1 | — | False |
+| wgpu-6 | 14.024 | 6.385 | 217.533 | 237.942 | 1 | — | False |
+| wgpu-7 | 13.258 | 7.022 | 232.890 | 253.170 | 1 | — | False |
+| wgpu-8 | 16.420 | 6.583 | 224.658 | 247.661 | 1 | — | False |
+| wgpu-9 | 16.984 | 6.403 | 242.990 | 266.377 | 1 | — | False |
+
+20 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### boot-miss-1 — excluded
+
+The gate waited **65.794 s**. Of the qualifying minute and
+collection's **14 observations, 1 fail**.
+Whole-machine CPU is **0.516–2.419 cores**;
+the largest non-benchmark process is `WindowServer` (PID 446) at
+**0.268 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.850 (0.731–1.442) |
+| First pixel, ms | 198.387 (162.417–215.706) |
+| First CPU pixel, ms | 198.387 (162.417–215.706) |
+| Complete CPU screen, ms | 206.274 (179.084–224.039) |
+| Complete Ink screen, ms | 360.441 (329.084–365.706) |
+| Worker compilation/serialization, ms | 198.057 (192.600–205.989) |
+| Active or key windows | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 6.073 | 0.731 | 322.280 | 329.084 | 4 | 162.417 / 179.084 | False |
+| metal-10 | 17.076 | 0.820 | 346.557 | 364.453 | 5 | 214.453 / 222.786 | False |
+| metal-2 | 11.858 | 0.852 | 346.205 | 358.916 | 5 | 192.249 / 200.582 | False |
+| metal-3 | 15.829 | 0.844 | 332.925 | 349.597 | 4 | 191.264 / 191.264 | False |
+| metal-4 | 14.517 | 0.884 | 347.456 | 362.858 | 4 | 204.524 / 221.191 | False |
+| metal-5 | 10.838 | 0.834 | 338.655 | 350.327 | 4 | 191.994 / 191.994 | False |
+| metal-6 | 16.025 | 0.864 | 347.954 | 364.843 | 5 | 206.509 / 214.843 | False |
+| metal-7 | 12.993 | 0.848 | 321.854 | 335.695 | 5 | 185.695 / 194.028 | False |
+| metal-8 | 17.693 | 0.889 | 347.124 | 365.706 | 4 | 215.706 / 224.039 | False |
+| metal-9 | 17.876 | 1.442 | 342.648 | 361.966 | 5 | 211.965 / 211.965 | False |
+
+10 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### boot-miss-2 — excluded
+
+The gate waited **60.740 s**. Of the qualifying minute and
+collection's **14 observations, 1 fail**.
+Whole-machine CPU is **0.635–2.331 cores**;
+the largest non-benchmark process is `WindowServer` (PID 446) at
+**0.247 core**. The whole cohort is excluded from quiet claims.
+
+GPU hook: off (gpuHookEnabled=false).
+
+| Metric | metal |
+|---|---:|
+| Launches | 10 |
+| Displayed | 10 |
+| Complete Ink screens | 10 |
+| Device/layer phase, ms | 0.844 (0.731–0.999) |
+| First pixel, ms | 199.441 (181.382–216.351) |
+| First CPU pixel, ms | 199.441 (181.382–216.351) |
+| Complete CPU screen, ms | 209.589 (181.382–224.684) |
+| Complete Ink screen, ms | 355.560 (339.715–366.351) |
+| Worker compilation/serialization, ms | 196.369 (191.982–202.331) |
+| Active or key windows | 0 |
+
+
+The disjoint durations below sum per launch before taking a median. The
+remaining duration is a residual, not a causal attribution. Displayed ordinal
+counts displayed drawables; endpoint quiet is weaker than the whole-cohort rule.
+
+| Launch | Pre-main, ms | Device/layer, ms | Remaining boot/presentation, ms | Complete Ink, ms | Ink displayed ordinal | First CPU / complete CPU, ms | Quiet endpoints |
+|---|---:|---:|---:|---:|---:|---:|---|
+| metal-1 | 9.820 | 0.731 | 329.164 | 339.715 | 4 | 181.382 / 181.382 | False |
+| metal-10 | 15.970 | 0.926 | 344.922 | 361.818 | 4 | 211.818 / 220.151 | False |
+| metal-2 | 18.319 | 0.823 | 336.036 | 355.178 | 5 | 196.845 / 205.178 | False |
+| metal-3 | 16.357 | 0.845 | 343.169 | 360.371 | 4 | 202.038 / 210.371 | False |
+| metal-4 | 19.008 | 0.900 | 346.443 | 366.351 | 4 | 216.351 / 224.684 | False |
+| metal-5 | 15.258 | 0.789 | 334.764 | 350.812 | 4 | 192.478 / 209.145 | False |
+| metal-6 | 16.323 | 0.999 | 335.757 | 353.079 | 4 | 186.413 / 203.080 | False |
+| metal-7 | 17.775 | 0.876 | 337.291 | 355.942 | 4 | 205.942 / 205.942 | False |
+| metal-8 | 16.558 | 0.844 | 348.283 | 365.685 | 4 | 207.351 / 224.018 | False |
+| metal-9 | 14.716 | 0.831 | 336.154 | 351.700 | 4 | 193.367 / 210.034 | False |
+
+10 exits, complete scenes, span sums, archive hashes, hook flags and passive windows verified; whole-cohort quiet = False.
+
+### Boot predictions beside the results
+
+Attempt 1 / attempt 2 are in that order. All sixty launches displayed a
+complete Ink screen, with zero dropped trace events, zero boot-thread
+compilation, nominal thermal endpoints and no active or key boot window.
+The per-launch span sums and archive hashes reproduce. No failed cohort is
+promoted by its passing launch endpoints or by a numeric prediction being met.
+
+| Prediction and instrument | Observed result, attempts 1 / 2 | Disposition |
+|---|---|---|
+| 30/30 complete Ink screens per three-arm cohort; boot probe | 30/30 / 30/30, including all retries | Completion prediction met |
+| Retained Metal phase p50 ≤8 ms; startup span union | 5.969 / 6.540 ms | Numerically met; retained cohorts excluded |
+| Retained Metal phase p50 within 2 ms of 6.581 ms; same trace | -0.612 / -0.041 ms | Numerically met; retained cohorts excluded |
+| Complete Metal screen p50 ≤wgpu +5 ms; per-launch complete-path sum | 223.733 vs 263.722; 224.022 vs 259.248 ms (-39.989 / -35.226) | Numerically met; no quiet D15 comparison |
+| Zero boot-thread compilation in misses; trace thread IDs | 0 / 0 spans | Met |
+| Miss CPU first pixel p50 ≤300 ms; presented timestamp | 198.387 / 199.441 ms | Numerically met; cohorts excluded / excluded |
+| Miss complete Ink screen p50 ≤450 ms; per-painter completeness | 360.441 / 355.560 ms | Numerically met; cohorts excluded / excluded |
+
+The 100 ms application obligation remains unmet. This carrier retake does not
+qualify the Caltrain/Shelf application gate. The retained comparison cannot
+replace chunk 4's result under the stronger whole-series quiet rule.
+
+Raw files are retained on silver under
+`target/g0/quiet-d5429830d2/boot-{retained,miss}-{1,2}/` and mirrored in this
+worktree beneath `target/g4q/silver/`. Each directory holds `runner.py`,
+`provenance.json`, `gate.json`, `quiet.jsonl`, `run.json`, `power-mode.json`,
+per-launch probe output, traces, window state, logs and archive copies. Local
+`target/g4q/audit-boot.py` reproduces `cohort-audit.json` and the per-launch
+tables. The complete timing-series gates and wait accounting are in
+[G4q](../../bench/heavy-list/gpui/RESULTS.md#g4q-the-quiet-baselines).
+
+```sh
+bun bench/heavy-list/gpui/aggregate.mjs target/g4q/silver/target/g0/quiet-d5429830d2/boot-retained-1 --boot --verify
+python3 target/g4q/audit-boot.py boot-retained-1
+```
+
+Repeat for the other retained attempt and both miss attempts. `--boot --table`
+prints each summary; `--boot` prints the trace-derived values and all samples.
+## Stage 1w — Windows text and the startup tail (2026-10-30)
+
+Work starts from `5fa5fcc2f3` on `lane/1149-001-s1w`. Predictions below precede
+implementation and measurement. The NucBox retains each attempt under
+`target/stage-1w/`; local verification uses this worktree's `target/`.
+
+| Prediction | Instrument and acceptance | Result |
+| --- | --- | --- |
+| A runner-to-layout stall over 50 ms produces one all-thread stack capture, with the application's PDB resolved when present. An ordinary launch produces none. | Inject one 200 ms hold between the existing boot phase marks; retain the capture and phase log. | Injected hold captured after two failed attempts; ordinary-series prediction missed: two logged stalls have no capture and one short interval produced a late capture. |
+| Moving device preparation after layout reduces runner-to-layout stalls over 50 ms from roughly 10/100 to at most 2/100. | 100 fresh Shelf processes per arm, alternating order, the S2 startup driver's phase logs; retain every attempt and report the full interval distributions. This tests the loader-lock hypothesis and predicts no first-screen improvement. | Entry 2/100, layout 0/100. The predicted baseline incidence missed. The marks bracket different work; 2/100 versus 0/100 is not support (two-sided Fisher p = 0.4975). Await corrected marks and a redesigned observer. |
+| DirectWrite natural advances agree with the shaper within 0.02 device pixels per glyph on the audited static outline faces at 100%, 125% and 150%. | Same font bytes, glyphs, sizes and variation coordinates; DirectWrite GetGlyphPlacements beside the shaper, retained per-glyph output. | Met for Inter and Segoe UI: maximum 0.0000019074 device pixels. Variable faces are refused. |
+| RichEdit keeps the Contract value and UTF-16 selection through type, select, cut, paste and undo, with no duplicate insertion. | Shelf search and Excord's fixture composer on the NucBox; native input and runner state after each operation. | Partial: native editor fixture and Shelf's photographed type/select/cut/paste/undo pass; the UIA journey fails and Excord is unrun. |
+
+D3.3's colour, synthesis, variation, gamma and motion cases remain separate
+admission conditions; no unmeasured case is admitted to the default rasterizer.
+D7's field remains a candidate until its native-input and accessibility
+conditions have evidence.
+
+Before the candidate parity run: the existing `pinned paint` band is
+mean <5/255 and <6% of pixels beyond 32. With
+`EXACT_INK_RASTERIZER=directwrite-audit`, static outline faces use raw
+DirectWrite grayscale coverage, while variable, colour and synthetic
+oblique faces stay on swash. Predict that the whole-app band holds and
+that the named geometry filters remain green. This does not predict
+acceptance of the rasterizer: the system smoothing settings, colour,
+synthesis and motion qualifications in D3.3 still decide admission.
+
+
+### Startup A/B and the instrument's limit
+
+The same Shelf executable (`9d2481fae1`, `gpu-dev` with PDB output enabled)
+runs 100 launches per arm, interleaved, reversing the starting arm each
+round. Each has a fresh isolated application store, a 1024×720 client and
+120 frames. Driver and OS caches remain warm. No build or other GPU test
+runs beside the series. `series-exe-hash.txt` identifies the executable.
+
+| Device preparation starts | n | Runner-ready to layout-ready, median [min–max] ms | Over 50 ms |
+| --- | --- | --- | --- |
+| At process entry | 100 | 3.826 [2.318–138.547] | 2 |
+| After layout-ready | 100 | 2.5525 [2.285–3.709] | 0 |
+
+The entry tails are `tail-081-entry.log` (81.570 → 220.117 ms, a
+138.547 ms interval) and `tail-097-entry.log` (75.950 → 153.668 ms,
+77.718 ms). Neither has a stack capture. The one ordinary capture,
+`tail-080-entry.stacks.txt`, triggered at 131.663 ms although that log's
+runner/layout marks are 69.045/71.691 ms. Its main-thread stack starts in
+`NtGdiDdDDICreateAllocation`. It is a late capture, not the blocking stack
+of either tail. The log took its timestamp before a synchronous write, then
+notified the watchdog, which took a new timestamp. The log therefore includes
+the runner-ready write in its interval; the watchdog includes the layout-ready
+write instead. A slow first write can produce an uncaptured logged tail; a slow
+second write can produce a capture after a short logged interval. A queued
+completion always wins the channel receive before its deadline is tested: it
+suppresses a capture, never delays one. This instrument is **not qualified
+for attributing an ordinary startup tail**. The 2/100 is not established as
+runner-to-layout work until the series runs again on corrected marks.
+
+The injected 200 ms hold is captured with application symbols in attempt
+3; the process snapshot takes 6.026 ms and includes `startup_watchdog::phase`
+on the main thread. Attempt 1 could not read the misaligned Windows
+CONTEXT; attempt 2 loaded symbols too late. Attempt 3 snapshots contexts
+and copy-on-write stack memory before loading the PDB. All attempts remain.
+The three-round stop rule leaves the ordinary-series miss open. The A/B
+has two logged tails against none. Two-sided Fisher's exact test gives
+p = 0.4975; that difference supplies no support for the after-layout arm.
+The arms also differ in every concurrent device-thread effect, not only the
+loader lock. They do not identify a cause or earn a startup fix.
+No device-start policy change is enabled by default.
+
+Raw records: NucBox `target/stage-1w/series/` (200 logs and the capture),
+`series.log`, `series.exit`, `series-exe-hash.txt`, `watchdog-1.log` through
+`watchdog-3.log`, and their capture directories. Local copies are retained
+under `target/stage-1w-nucbox/`; the derived 200-row summary is
+`target/stage-1w/startup-summary.json`. Reproduce with the native
+`exact-ink --lib` test executable and `INK_SHELF` naming the symbolized
+Shelf, `EXACT_INK_TEST_OUTPUT` a new directory, then
+`shelf_startup_tail_series --ignored --nocapture --test-threads=1`.
+`EXACT_STARTUP_STACKS` names one launch's capture. Fix chunk A restricts
+arming to the two startup instrument tests; ordinary S2 journeys and the
+Python driver do not arm it. The helper's executable is
+the same Shelf and its PDB is beside it; no symbol server is contacted.
+
+### M9: original observations — hinting mismatched
+
+The original audit hints swash and disables DirectWrite grid fitting. Its
+coverage rows therefore compare different hinting modes. The advance rows
+remain observations of the shaper and DirectWrite over the same retained
+font bytes. Fix chunk A makes both outline rasters unhinted. Five sizes (12, 14, 16, 20, 24), requested weights 400/600/700,
+scales 100/125/150% and four quarter-pixel phases produce 9,540 rows.
+Static-file weight requests do not supply a separate bold face; they do
+not qualify synthetic bold. The Latin string separates characters to
+avoid kerning and ligatures; every advance comparison first checks glyph
+IDs. The colour sample is one emoji. Raw coverage uses
+`IDWriteFactory2::CreateGlyphRunAnalysis`, natural measuring, no grid fit,
+and grayscale. No ClearType output enters the composition texture.
+
+| Face | Maximum advance difference, device px | Mean raw coverage difference /255 | Median swash / DirectWrite raster, µs | Default admission |
+| --- | ---: | ---: | ---: | --- |
+| Inter Regular | 0.0000019074 | 4.589 | 1.00 / 0.90 | Refused pending complete appearance/motion audit |
+| Segoe UI | 0 | 12.335 | 1.90 / 0.80 | Refused pending smoothing and native-reference audit |
+| Segoe UI Variable | 1.951172 | 38.706 | 3.40 / 0.80 | Refused: axes not mapped |
+| Roboto Flex | 1.265625 | 37.858 | 0.30 / 0.40 | Refused: axes not mapped |
+| Noto Color Emoji (CBDT) | 0 | Not comparable: colour versus mask | 176.15 / 0.40 | Refused: mask drops colour |
+
+Coverage means weight all pixels in the union of the paired glyph bounds;
+they are not whole-screen scores. Timing is one call per row, including
+space glyphs and each face's first cached-face creation. DirectWrite's column
+includes glyph-cache hits: two of three weight passes repeat the same raster
+for static faces. Every swash call rasterizes. This is a diagnostic cost
+distribution, not a frame-time saving. The faster empty monochrome
+emoji is not a replacement for the colour raster. System rendering
+parameters are gamma 1.8, enhanced contrast 0.5, ClearType level 1.0; the
+candidate records them but has not applied grayscale correction. The recorded
+contrast is the ClearType value; D2D applies gamma and grayscale enhanced
+contrast at blend time.
+COLR, sbix, synthetic bold/oblique, smoothing changes and a real monitor
+transition remain unqualified. Four subpixel phases and three scales do
+not alone qualify scrolling or a monitor change. No face is admitted to
+the default: swash remains the platform renderer.
+
+`EXACT_INK_RASTERIZER=directwrite-audit` exercises the static-outline
+candidate only. The refusal predicate keeps variable, colour and oblique
+faces on swash. Retained `target/stage-1w/audit-1/` on the NucBox (also
+copied locally under `target/stage-1w-nucbox/`) contains `glyphs.csv`, font
+bytes and paired 16 px, 400-weight, phase-zero masks with their placements.
+`audit-1.log` records the rendering parameters. Reproduce with the native
+`exact-linux --lib` test executable, `INK_TEXT_AUDIT` naming a new directory,
+`directwrite_audit --ignored --nocapture --test-threads=1`.
+
+
+### Field: what ran and what it scores
+
+`EXACT_INK_RICHEDIT=1` enables the candidate on D3D11 for plain, enabled,
+opaque, untransformed system-font text/search fields. Other hosts and
+unsupported fields retain the painted implementation. `fields.rs` owns
+editors on the window thread, sends raw keyboard and IMM messages to the
+editor first, and drains text/UTF-16 selection changes into the presenter
+outside callbacks. The field uses the active device's retained window,
+including after an asynchronous device handoff. Its texture is drawn in
+tree order under the paint walk's clips. Application value and selection
+updates go back to the editor; an active composition is not overwritten.
+The existing field chrome and placeholder paint remain the host's.
+
+The native editor fixture passes replace/undo/cut/paste over `A😀日本語`,
+including a selection spanning the surrogate pair, and retains text and
+selection through 100/125/150/100% sizing. The independent Shelf capture
+journey types `Piranesi`, selects all, cuts, pastes and undoes. The captured
+Library changes between one and three books, so the edits reach the
+Contract binding; the field does not double-insert. Two real 100→150→100%
+DPI round trips complete. Its first attempt used a DPI-virtualized test
+thread and timed out resizing at 150%; declaring the test thread per-monitor
+DPI-aware fixes the driver. Both attempts remain.
+
+| D7 criterion | Score | Evidence or limit |
+| --- | --- | --- |
+| Shelf value and standard type/select/cut/paste/undo | Pass for the photographed ASCII journey | `field-visual-2/field-{type,select,cut,paste,undo}-100.png`; the filtered Library follows the edits. |
+| Unicode and UTF-16 selection retention | Pass in native editor fixture only | `field-unit-1.log` and `final-field-unit.log`; no Excord product claim. |
+| Transparent text over the host's ground | Present, not full look parity | Shelf captures retain its background through the editor texture. |
+| Focus chrome beside WinUI TextBox | **Tell remains** | Shelf's full blue rounded outline differs from WinUI's bottom accent stroke. |
+| Placeholder and caret | Visually present at 100/150%; not a full platform score | The host paints the placeholder and caret from RichEdit geometry; settings/contrast variants remain unqualified. |
+| Native selection | Visible in Shelf | Blue selection is retained in `field-select-100.png`; no claim about every system accent/contrast setting. |
+| DPI changes | Pass for two real round trips; editor fixture also covers 125% | `field-visual-2.log`, captures and operator log. |
+| One UIA tree with RichEdit's text provider | **Unqualified: fixture fails** | Three `field-journey-*.log` attempts time out discovering the native fragment. Attempt 3 logs editor creation and successful registration, but enumeration also contains a `Search` child labelled `Unidentified Provider` from `combase.dll`, which the fixture does not recognize. |
+| Japanese IME, candidate position and reconversion | Unqualified | Japanese Microsoft IME is installed; no composed product journey passed. Unicode insertion is not IME evidence. |
+| Narrator: field, value and placeholder | Unqualified | Native provider discovery is unresolved. No listening result is claimed. |
+| Excord composer, focus traversal, growing/wrapping text | Unrun | The shared field path has not passed D7's Shelf accessibility gate. |
+| CPU composition and field recovery under device loss | Unqualified | The candidate is D3D11-only; ordinary desktop recovery below runs with it disabled. |
+
+The WinUI reference is the existing `host/windows/reference` app, built
+with its locked SDK, captured on the same NucBox in light and dark. Raw
+`reference/` is 100%; `reference-150-2/` is 150%. The first attempted 150%
+reference reported scale 1; the unpackaged custom entry now declares
+per-monitor DPI awareness before WinUI starts, and the repeated record
+reports 1.5. The comparison is a visible tell assessment, not a declared
+pixel band between different control boxes.
+The three-round limit stops UIA repairs; the painted field remains the
+default. The candidate is not an accepted D7 implementation.
+
+Retained NucBox paths: `target/stage-1w/field-journey-1/` through
+`field-journey-3/` (including UIA enumeration), `field-visual/`,
+`field-visual-2/`, `reference/`, `reference-150/`, `reference-150-2/`, their sibling logs,
+and `field-shelf/` through `field-shelf-4/` executables. Local
+copies are under `target/stage-1w-nucbox/`. Reproduce the visual journey
+with `INK_SHELF`, a new `EXACT_INK_TEST_OUTPUT`, the retained DPI operator and
+`shelf_native_field_visual --ignored --nocapture --test-threads=1`.
+The provider journey is `shelf_native_field`. Its detector requires a
+RichEdit class/provider name; attempt 3 instead enumerates `Search` through
+`Unidentified Provider (unmanaged:combase.dll)`. That makes provider identity
+and its Value/Text patterns unresolved by this fixture, not evidence that no
+native child exists. The three-round stop leaves that instrument correction
+and the rest of the UIA journey owed. Failed qualification is not a pass.
+
+
+### Native regressions and result lines
+
+The normal suites run with RichEdit disabled. The first wgpu caret journey
+failed twice, while the pre-field Shelf control passed. Guarding the new
+paint, input and accessibility paths at their opt-in entry restores the
+existing three-transition caret assertion on both devices. Fix chunk A
+also skips `fields::begin` and `end` before their TLS access. These runs
+establish the repair, not which individual no-op or clip transition caused
+the failure. Initial forced-device-loss runs were refused by DXCap's administrator check;
+the elevated scheduled task passes on both devices. The ordinary recovery
+journeys do not qualify a live RichEdit document through device loss.
+
+The S2.8b commands run on the signed-in desktop with
+`EXACT_INK_REQUIRED=1`, `WGPU_BACKEND=dx12`, `gpu-dev`; test builds keep
+`profile.gpu-dev.package.exact-linux.opt-level=0`, while Shelf does not.
+PDB output is enabled. DirectX 11 leaves the device at its default, wgpu
+sets `EXACT_INK_DEVICE=wgpu`. The audit arm adds
+`EXACT_INK_RASTERIZER=directwrite-audit`. Each pinned filter and `it image`
+runs separately. All result strings below are copied from retained logs.
+
+| Suite | DirectX 11 | wgpu |
+| --- | --- | --- |
+| exact-ink --lib | `test result: ok. 44 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 4.82s` | `test result: ok. 44 passed; 0 failed; 32 ignored; 0 measured; 0 filtered out; finished in 4.64s` |
+| exact-windows --lib | `test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s` | `test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s` |
+| pinned paint | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 17.23s` | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 86.24s` |
+| pinned borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.09s` | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 10.51s` |
+| pinned tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.71s` | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 3.25s` |
+| pinned backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.95s` | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 11.94s` |
+| pinned gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.55s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 2.03s` |
+| pinned visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 4.74s` | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 16.27s` |
+| pinned materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.58s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.80s` |
+| it image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.24s` | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 3.68s` |
+
+| DirectWrite candidate suite | Result |
+| --- | --- |
+| pinned paint | `test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 18.44s` |
+| pinned borders | `test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.10s` |
+| pinned tint | `test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.74s` |
+| pinned backdrop | `test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.96s` |
+| pinned gradients | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s` |
+| pinned visual | `test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 4.85s` |
+| pinned materials | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s` |
+| it image | `test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 127 filtered out; finished in 2.65s` |
+
+The candidate's whole-app score is mean 1.43/255, 1.09% beyond 32;
+the predicted <5/255 and <6% band holds. Geometry filters also pass.
+That band measures parity with swash. It does not measure parity with a
+Windows app over Mica, where D2D applies gamma and grayscale enhanced
+contrast at blend time. This is not admission under D3.3.
+
+| Desktop journey | DirectX 11 | wgpu |
+| --- | --- | --- |
+| Resize | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 6.23s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 7.76s` |
+| Minimize / restore | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 2.39s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 3.55s` |
+| DPI round trips | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 10.15s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 10.65s` |
+| Idle caret | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 2.69s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 4.04s` |
+| Forced device loss | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 7.14s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 9.07s` |
+| Sleep / wake | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 80.91s` | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 80.25s` |
+
+| Fixture | Result |
+| --- | --- |
+| Native field edit / scale | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.11s` |
+| Shelf visual input / DPI | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 11.26s` |
+| Shelf native UIA (third attempt) | `test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 74 filtered out; finished in 30.76s` |
+| DirectWrite audit | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1577 filtered out; finished in 0.56s` |
+| Injected startup hold | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 1.12s` |
+| 200-launch startup A/B | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 72 filtered out; finished in 452.58s` |
+| surfaces::window::tests | `test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1568 filtered out; finished in 0.68s` |
+| device::d3d11::composition::tests | `test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.77s` |
+| AccessKit native --lib | `test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s` |
+| shelf_both_late_devices_measure_the_first_pixel_trade | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.39s` |
+| shelf_device_preparation_overlaps_slow_configuration | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.44s` |
+| shelf_exhausted_devices_exit_with_both_refusals | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.30s` |
+| shelf_hardware_attach_refusal_uses_warp | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.01s` |
+| shelf_hardware_open_refusal_uses_warp | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.96s` |
+| shelf_hardware_recovers_while_startup_warp_is_pending | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.95s` |
+| shelf_quit_does_not_join_a_pending_shell_call | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.28s` |
+| shelf_refused_warp_waits_for_prepared_hardware | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 1.51s` |
+| shelf_slow_preparation_displays_cpu_before_hardware | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 3.46s` |
+| shelf_unavailable_mica_still_presents | `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 74 filtered out; finished in 0.72s` |
+
+Earlier failing logs are retained beside the passing runs. No result above
+counts an ignored test as a pass. Native field UIA and ordinary startup-tail
+capture remain unresolved qualifications despite the green baseline suites.
+
+The final native libraries and field fixture include the rebase onto
+`43e0d93b85`. The desktop runs use `field-shelf-3/`, except the repaired
+fallback caret runs, which use `field-shelf-4/`. That last build adds the
+early opt-in guards; it builds successfully and passes the failing product
+journey on both devices. The locked WinUI reference build also passes.
+
+### Mac verification and retained evidence
+
+All six checks ran after the rebase onto `43e0d93b85`; lint includes both
+Clippy and formatting. The root test command failed in the Apple executor's
+asynchronous-core suite because `workers_start_with_the_first_request`
+reported “the independent request never completed”. This is a failing
+full run. The isolated asynchronous-core suite passes on rerun. Logs and exit codes are
+`target/stage-1w/mac-*-3.log` and `mac-checks-3.json`.
+
+| Check | Exit | Elapsed seconds |
+| --- | ---: | ---: |
+| `cargo build --all-targets --keep-going` | 0 | 60.02 |
+| `cargo test --tests --no-fail-fast` | 101 | 439.38 |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | 38.12 |
+| `cargo fmt --all -- --check` | 0 | 10.18 |
+| `bun scripts/caps.mjs` | 0 | 4.87 |
+| `bun scripts/boot.mjs` | 0 | 0.04 |
+| `cargo check --workspace --all-targets --keep-going` | 0 | 148.20 |
+
+The first full run passed every check (`mac-checks-1.json`). The second
+failed wall-time assertions in SVG expansion, Tamber's multiply import
+and Tailwind import; each passed its isolated rerun. The separate
+`exact-linux` full run failed the agent exit deadline and one image-height
+assertion; both isolated reruns passed. These retained failures are not
+rewritten as green full runs. Verbatim isolated results:
+
+```text
+mac-svg-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 3.73s
+mac-tamber-import-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 213 filtered out; finished in 1.90s
+mac-tamber-tailwind-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 213 filtered out; finished in 5.75s
+mac-linux-exit-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1656 filtered out; finished in 1.02s
+mac-linux-image-2.log:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 129 filtered out; finished in 2.68s
+mac-tests-3.log (failed Apple library, outer suite):
+test result: FAILED. 563 passed; 1 failed; 18 ignored; 0 measured; 0 filtered out; finished in 22.24s
+mac-apple-4.log (isolated asynchronous-core rerun, inner and outer suites):
+test result: ok. 169 passed; 0 failed; 15 ignored; 0 measured; 398 filtered out; finished in 5.13s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 581 filtered out; finished in 5.16s
+```
+
+The NucBox evidence is also retained locally as
+`target/stage-1w/stage-1w-evidence.tgz` (8,834,459 bytes, SHA-256
+`ba02a798313370c79e714166fab9c6ab92c47238bdb05f566abc43dc830dcf7c`),
+extracted under `target/stage-1w-nucbox/`. It includes all attempts' logs,
+phase records, stack captures, font bytes, glyph rows, masks, screenshots
+and reference geometry. Executables and PDBs remain in the NucBox paths
+above; the archive omits those large binaries. Local
+`target/stage-1w/source-before-rebase.mbox` preserves the pre-rebase
+commits named by the measurements. No cited raw file was deleted.
+
+
+### Fix chunk A — predictions before the runs
+
+Source base: `f03a34f546`, rebased onto Stage 0 at `942b409559`.
+Evidence stays under `target/stage-1w-fix-a/`, with the NucBox copy retained
+locally. No startup A/B rerun is part of this chunk. Candidates stay disabled.
+
+- **Imports:** `dumpbin /imports` on the retained pre-fix Shelf executable
+  and the rebuilt Shelf executable should show zero eager imports of DbgHelp,
+  D2D1 and DWrite after lazy loading. Retain both complete outputs and hashes.
+  No process-entry load-time saving is predicted from the import count.
+- **M9:** the 9,540-row audit with both outline rasters unhinted should keep
+  static-face advance error below 0.02 device pixels and reduce mean coverage
+  error below the earlier 4.589/255 (Inter) and 12.335/255 (Segoe UI).
+  Variable axes and colour remain refused. Run once and retain every row.
+- **UIA:** the single Shelf discovery attempt should find the registered native
+  fragment within the fixture's 30-second bound after exposing embedded roots.
+  A miss retains the rejected tree and leaves the candidate unqualified.
+
+The cached rasterizer flag and early field guards remove per-miss environment
+reads and disabled per-frame TLS work. D2D, DWrite and DbgHelp entry points are
+loaded from System32 on use. The helper and x64 contexts require explicit
+startup arming; non-x64 refuses arming. Boot phase marks now notify the observer
+before writing and map that same monotonic timestamp to process age.
+
+### Fix chunk A — Mac checks
+
+All six checks pass on the rebased source. The full root test command passes
+with 7,211 tests, 68 ignored and no failures across 108 top-level binaries.
+Nested subprocess result lines are retained but excluded from that count.
+`workers_start_with_the_first_request` passes in the full command; no isolated
+`RUST_TEST_THREADS=2` rerun was needed.
+
+Each check starts with all load averages below 30 and no other compiler or
+Cargo process. Another Cargo process starts during the first root test run
+and one sample of Clippy. Both pass, then both whole commands run again;
+the repeated runs' recorded samples are all quiet. The other checks' samples
+are quiet. The five-second process/load observations, command arguments,
+exit codes and full output remain under `target/stage-1w-fix-a/mac/`,
+`mac-quiet-root/` and `mac-quiet-clippy/`. `result-lines.txt` in the parent
+directory copies every test result line, including nested subprocess output.
+
+| Command | Exit | Verbatim final output |
+| --- | ---: | --- |
+| `cargo build --all-targets --keep-going` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s`` |
+| `cargo test --tests --no-fail-fast` | 0 | Full output: `mac-quiet-root/tests.log`; the Apple suite's result is copied below. |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.01s`` |
+| `cargo fmt --all -- --check` | 0 | No output. |
+| `bun scripts/caps.mjs` | 0 | `All budgets within cap. 10 categories inspected.` |
+| `bun scripts/boot.mjs` | 0 | `Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.` |
+| `cargo check --workspace --all-targets --keep-going` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 07s`` |
+
+```text
+test result: ok. 564 passed; 0 failed; 18 ignored; 0 measured; 0 filtered out; finished in 6.14s
+```
+
+### Fix chunk A — shipping imports
+
+**Prediction met:** the rebuilt Shelf imports neither DbgHelp, D2D1 nor
+DWrite eagerly. The DLL list shrinks from 45 to 42, with no additions.
+No load-time saving is inferred from those counts, and no import load cost
+needs adding to S2.7's phase table. The optional entry points load on use.
+
+The before executable is the retained
+`target/stage-1w/field-shelf-4/Shelf.exe`; the after executable is
+`target/stage-1w-fix-a/shelf/Shelf.exe`, built from `3168305a59` in
+`target/stage-1w-fix-a/source/`, with its own `target/`. These paths are
+on the NucBox. Complete `dumpbin /imports` reports and executable hash
+records are copied locally under `target/stage-1w-fix-a/nucbox/`.
+The commands use VS 2022's x64 `dumpbin.exe /imports <Shelf.exe>`.
+
+Before SHA-256: `ea5068939cc8dce428c82a66ef85ac3ba2d939bfb40983e53259d119495fd411`.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+dbghelp.dll
+dwrite.dll
+d3d11.dll
+d2d1.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
+
+After SHA-256: `822a13b9281faada0507b7178f6b401c4326b561a4b4c83607823b6dffd3c91a`.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+d3d11.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
+
+### Fix chunk A — native verification in progress
+
+Shelf and the native test executables build from `3168305a59`. The standalone
+AccessKit build first refuses the nested mirror because Cargo discovers the
+outer checkout's workspace. It passes with a temporary empty `[workspace]`
+in the mirrored vendor manifest. The build script copies the original manifest
+back afterward. Both build logs remain. This changes the test workspace boundary, not its source.
+
+The first wgpu `pinned paint` process exits with `-1073741819` (`0xc0000005`)
+while running `paint::coverage::every_island_blend_matches_cpu_over_translucent_destination`.
+The Windows application-error event names `amdihk64.dll_unloaded`, version
+2.0.0.1788, offset `0x648d`. This identifies the faulting module, not its cause.
+The crash is not a passing suite. The native collection below reserves
+one candidate-off rerun for last, with immediate fault capture.
+The log, exit code and event are retained locally under
+`target/stage-1w-fix-a/nucbox/wgpu-pinned-paint*`.
+
+The native sequence becomes unreachable at 01:40 UTC on 2026-10-31
+(18:40 PDT on October 30). Tailscale reports the NucBox offline. The remaining
+results cannot be retrieved during chunk A. The native collection below
+recovers the field/embedded-provider fixtures and M9 rows after the reboot,
+then checks the current source. Native qualification remains open; the
+candidates stay disabled. The mirror and its retained outputs remain.
+
+### Fix chunk A — review dispositions
+
+The references below are to `target/review-sol-s1w.md` and
+`target/review-claude-s1w.md`, both reviewing `98cff0bdfa`.
+Runtime results that have not been collected are not passes.
+
+| Finding | Disposition |
+| --- | --- |
+| Sol 1; Claude 14 — per-miss environment lookup | `deeb054430`: `glyph/swash.rs` caches the rasterizer choice in `OnceLock`. |
+| Sol 2; Claude 2, 16 — eager libraries and hidden helper | `deeb054430`: `device/windows_library.rs`, `device/directwrite.rs`, `device/d3d11/rich_edit.rs` and `startup_watchdog/stacks.rs` load exports on use; `startup_watchdog.rs` gates the helper. `af9c3aef86` records the 45-to-42 import result. |
+| Claude 6, 12 — arming and architecture | `deeb054430`: `desktop_tests.rs` and `bench/heavy-list/egui/windows-measure.py` remove ordinary arming; the watchdog's snapshot module is x64-only and `start()` refuses other architectures. |
+| Sol 3; Claude 5 — field lifetime and device ownership | `3168305a59`: `fields.rs` guards retirement by owning-device identity; `host/windows/src/window.rs` clears fields on app teardown. The recovered chunk A lifetime fixture passes (native collection below). Disabled `begin`/`end` return before TLS in `deeb054430`. |
+| Sol 6; Claude 11 — embedded roots and hit-test fallback | `3168305a59`: vendored `node.rs` returns registered roots and falls back after a failed root cast or hit. `src/tests/embedded.rs`, included by `subclass.rs`, covers navigation, hit test, focus and removal. The recovered native fixtures pass; a fresh product UIA attempt remains pending (native collection below). |
+| Sol 10; Claude 17 — vendor provenance and tests | `3168305a59`: `EXACT-PATCHES.md` records the archive checksum, VCS revision, seven numbered hunks, their tests and the upstream removal condition. The new tests compile natively; the recovered native run passes all 15 tests (native collection below). |
+| Sol 8; Claude 1, 7, 8 — observer and causal claim | `deeb054430`: `host/linux/src/app.rs`, `device.rs` and `startup_watchdog.rs` use one monotonic phase timestamp before logging. `f2f2f1d4ce` corrects the record. QUEUE's “startup observer and corrected A/B” retains the redesign, loader-lock probe and rerun. No series was rerun here. |
+| Sol 9 — full Mac root check | `022a9fc236`: the whole command passes, including the Apple executor case; the quiet rerun and other six-check outputs are retained above. |
+| Claude 9, 13 — M9 pairing and interpretation | `3168305a59`: `host/linux/src/text/windows_audit.rs` disables swash hinting. `2c5a90bb55` corrects both RFCs and labels the original coverage rows. The recovered unhinted rows meet the advance and Segoe UI predictions but miss Inter's coverage prediction (native collection below). QUEUE's “M9 axis mapping” retains the design-space mapping work. |
+| Claude 3, 10 — pointer and key delivery | QUEUE: “native-field pointer delivery” and “app keys from native fields”. |
+| Claude 4 — TSF/IMM ownership | QUEUE: “composition ownership”. |
+| Sol 7 — UIA focus and accessible name | QUEUE: “UIA focus and accessible name”. |
+| Sol 4; Claude 15 — edit causes and message churn | QUEUE: “input event causes” and “field message and paint churn”. |
+| Sol 5 — selection direction | QUEUE: “selection direction”. |
+| Product qualification | QUEUE: “product qualification” retains Japanese IME, Narrator and Excord. The field and rasterizer remain off by default. |
+
+`host/linux/src/presenter/focus_disabled_tests.rs` receives only rustfmt's
+formatting, needed for the full format check after the rebase. The records
+also correct `bench/heavy-list/gpui/RESULTS.md` and both renderer RFCs.
+
+### Landing — rebase onto M2b and the instrument check
+
+Rebased the sixteen Stage 1w commits from `9f4caaa663` onto
+`origin/main` `41a959bf1e`. Two append conflicts required resolution:
+this file keeps main's M2b-Windows record before Stage 1w, and
+`bench/heavy-list/gpui/RESULTS.md` keeps main's instrument and M2b records
+before Stage 1w. No code conflict required manual resolution.
+
+The automatic merges retain all four `needs_animation_frame()` gates in
+`host/windows/src/window.rs` beside the field, IME and watchdog hooks.
+The shared presenter's sampled-motion and deadline changes remain beside
+`windows_field`; main's focus-test formatting is identical to this lane's.
+`Cargo.toml` keeps the AccessKit patch and main's patches and workspace
+exclusions. `Cargo.lock` retains the automatic merge; regeneration by the
+build from main's lockfile remains owed. Both renderer RFCs and both lanes'
+queue entries remain.
+
+**Prediction before verification:** zero failures in the six Mac checks,
+including Clippy and rustfmt, and in the shared Linux presenter suite.
+No performance improvement is predicted from this rebase. The native
+predictions remain chunk A's: zero eager optional DLL imports, static-face
+advance error below 0.02 device pixels, unhinted mean coverage error below
+4.589/255 for Inter and 12.335/255 for Segoe UI, and UIA discovery within
+30 seconds. New native results require the NucBox to answer its one SSH
+check; elapsed time or missing output cannot qualify a candidate.
+
+Rebase differences, the SSH output and quiet observations are retained under
+`target/stage-1w-landing/`.
+
+**Mac verification remains unrun.** The existing check runner's two-hour
+quiet wait expired before dependency installation or any check started.
+From 19:12:30 to 21:12:42 PDT on 2026-10-30, none of 238 observations met
+both conditions: all three load averages below 30 and no competing Cargo
+or compiler process. `mac/quiet.jsonl` retains every observation;
+`mac/verification.json` lists every unrun command. The waiter exits 1 with:
+
+```text
+quiet wait expired
+```
+
+| Command | Result on the rebased source |
+| --- | --- |
+| `cargo build --all-targets --keep-going` | Unrun; quiet wait expired. |
+| `cargo test --tests --no-fail-fast` | Unrun; quiet wait expired. |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | Unrun; quiet wait expired. |
+| `cargo fmt --all -- --check` | Unrun; quiet wait expired. |
+| `bun scripts/caps.mjs` | Unrun; quiet wait expired. |
+| `bun scripts/boot.mjs` | Unrun; quiet wait expired. |
+| `cargo check --workspace --all-targets --keep-going` | Unrun; quiet wait expired. |
+| `cargo test -p exact-linux --lib --tests --no-fail-fast` | Unrun; quiet wait expired. |
+
+The zero-failure prediction remains unverified. No test output or isolated
+flake rerun exists for this revision. Chunk A's passes above qualify its
+earlier source, not this rebase. The six checks, shared presenter suite and
+lockfile regeneration remain owed before landing.
+
+The single NucBox SSH check on 2026-10-30 returns exit 255:
+
+```text
+ssh: connect to host 100.103.120.64 port 22: Operation timed out
+```
+
+`nucbox-ssh.json` retains its command and UTC timestamps; `nucbox-ssh.log`
+retains the output. No retry or native launch follows. Both-device S2.8b
+suites, desktop and field journeys, the UIA attempt and tree, unhinted M9
+rows, and the wgpu pinned-paint rerun remain unrun on the rebased source.
+The native collection below recovers chunk A's outputs and records this
+revision's imports, M9 rows and qualification attempts. Its fault analysis
+also distinguishes the AMD-hook process crash from the later sleep/wake
+hang; the event alone does not establish their cause.
+
+### Native collection — predictions before the runs
+
+Source `f3ff290579`, branch `lane/1149-001-s1w-native`. The NucBox mirror is
+`projects/exact2-1149-001-s1w-native`, with its own `target/`. This chunk
+changes no Rust; Mac verification belongs to the mini. Raw commands, logs, captures and
+exit codes are retained under `target/stage-1w-native/` on both machines.
+
+| Prediction | Instrument |
+| --- | --- |
+| Zero eager imports of `dbghelp.dll`, `d2d1.dll` and `dwrite.dll` in this revision's Shelf. | Complete native `dumpbin /imports` output and executable SHA-256, candidates disabled. No startup saving is predicted. |
+| Zero failing S2.8b suites and desktop journeys on D3D11, and on wgpu except for the separately assessed paint crash. | Native `gpu-dev` executables, one test thread, required device flags; each named filter retains its result and exit. |
+| Native edit, selection and lifetime fixtures pass; Shelf type/select/cut/paste/undo retain their values at 100% and 150%. | Native fixtures and desktop captures with the RichEdit candidate enabled. |
+| One UIA attempt discovers the native fragment within 30 seconds. | The existing Shelf discovery fixture; a failure retains the rejected tree and provider identity. |
+| Static-face advance error stays below 0.02 device pixels; unhinted coverage means fall below 4.589/255 for Inter and 12.335/255 for Segoe UI. | One 9,540-row DirectWrite audit with both rasters unhinted, retained font bytes and per-glyph CSV. Axes and colour remain refused. |
+
+The final wgpu paint run has no pass prediction: chunk A's access violation
+in `amdihk64.dll_unloaded` and subsequent machine hang require an isolated
+candidate-off run, module inventory and immediate fault-event/WER capture.
+It runs last. A repeat of that fault ends collection without another paint
+attempt. No AMD setting is changed by this chunk.
+
+### Native collection — imports and build
+
+The import prediction is **met on this revision**: 42 eager DLL imports,
+with zero `dbghelp.dll`, `d2d1.dll` or `dwrite.dll`. The list is unchanged
+from chunk A's after-build list. The complete `dumpbin /imports` report is
+`target/stage-1w-native/nucbox/imports.txt`. Shelf's SHA-256 is
+`f309134f771c69ec077282f7e94956a2517e645ec5a200aa61dc505f0e2fc7e9`.
+No startup saving is inferred.
+
+```text
+kernel32.dll
+user32.dll
+gdi32.dll
+api-ms-win-core-synch-l1-2-0.dll
+bcryptprimitives.dll
+shell32.dll
+imm32.dll
+comctl32.dll
+xinput1_4.dll
+advapi32.dll
+ole32.dll
+shlwapi.dll
+combase.dll
+ws2_32.dll
+ntdll.dll
+crypt32.dll
+bcrypt.dll
+dwmapi.dll
+dcomp.dll
+d3d11.dll
+setupapi.dll
+dxgi.dll
+opengl32.dll
+icuuc.dll
+icuin.dll
+uiautomationcore.dll
+oleaut32.dll
+api-ms-win-core-winrt-l1-1-0.dll
+WINMM.dll
+uxtheme.dll
+MSVCP140.dll
+VCRUNTIME140.dll
+VCRUNTIME140_1.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+```
+
+The source archive is commit `9ec641c9a1`, whose Rust is `f3ff290579`;
+its SHA-256 is
+`2374479f2f6066448d69e2b4adb96dfa831d704b63408301bba3ff167269b8e8`.
+Shelf uses unmodified `gpu-dev` with PDB output enabled. The native tests
+use S2.8b's `exact-linux` optimization-level-zero override, native SDK
+`fxc`, required-device flags and one test thread. Every build uses this
+mirror's own `target/`. Candidates are disabled except in the named field
+fixtures and journeys. No Rust source is changed in this collection.
+
+### Native collection — suite results
+
+The D3D11 zero-failure prediction is met for the suites and startup/fallback
+fixtures below. The separate bakeoff's build overlapped this correctness
+run; these wall times are test output, not a performance comparison.
+The native Ink/Windows/Linux executables use `gpu-dev`; AccessKit's
+standalone test build uses `test`. Its temporary `[workspace]` boundary
+was restored after building, as in chunk A.
+
+Retained initial archive: `target/stage-1w-native/stage-1w-native-d3d11-suites.tgz`,
+SHA-256 `a706a4994aa65fca145953b4033df924039ea487875a2f3ba8ccd14ca88febdb`.
+Its logs are extracted under `target/stage-1w-native/nucbox/`. Each suite
+exits zero; ignored tests are not counted as passes.
+
+```text
+d3d11-composition: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.74s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 3.22s
+d3d11-ink: test result: ok. 48 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 8.33s
+d3d11-pinned-backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 1.03s
+d3d11-pinned-borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 2.33s
+d3d11-pinned-gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.61s
+d3d11-pinned-materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.56s
+d3d11-pinned-paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 20.60s
+d3d11-pinned-tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.78s
+d3d11-pinned-visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 5.45s
+d3d11-shelf_both_late_devices_measure_the_first_pixel_trade: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.41s
+d3d11-shelf_device_preparation_overlaps_slow_configuration: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.43s
+d3d11-shelf_exhausted_devices_exit_with_both_refusals: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.83s
+d3d11-shelf_hardware_attach_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.00s
+d3d11-shelf_hardware_open_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.94s
+d3d11-shelf_hardware_recovers_while_startup_warp_is_pending: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.94s
+d3d11-shelf_quit_does_not_join_a_pending_shell_call: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.28s
+d3d11-shelf_refused_warp_waits_for_prepared_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.53s
+d3d11-shelf_slow_preparation_displays_cpu_before_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.39s
+d3d11-shelf_unavailable_mica_still_presents: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.85s
+d3d11-surfaces: test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1620 filtered out; finished in 0.48s
+d3d11-windows: test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.28s
+```
+
+### Native collection — field fixtures and M9
+
+Chunk A's field, AccessKit and M9 outputs on `3168305a59` are recovered in
+`target/stage-1w-native/recovered-chunk-a.tgz` (SHA-256
+`88926f33d14da34bcd7f46a255a770f051ea0a64de0a99793471c10623533797`).
+The current-source audit also runs once, on `f3ff290579`'s Rust, retaining
+9,540 rows, font bytes and paired masks in
+`target/stage-1w-native/nucbox/audit-unhinted/`. Every non-timing CSV field
+and each font's bytes exactly match the recovered audit. The table below
+uses the current run; `summary.json` and `audit-reproduction.json` under
+`target/stage-1w-native/` retain its derivation and comparison.
+
+The headless audit ran while the desktop journeys waited for a separate
+bakeoff to finish. Its timings are diagnostic single-call distributions,
+not a quiet performance series.
+Both outline rasters are unhinted. The advance prediction is **met** for
+Inter and Segoe UI. The coverage prediction is **missed for Inter**:
+5.295/255 exceeds the predicted 4.589/255 bound. It is **met for Segoe UI**:
+5.473/255 is below 12.335/255. Correcting the hinting mismatch does not
+uniformly reduce coverage differences.
+
+| Face | Rows | Maximum advance difference, device px | Mean raw coverage difference /255 | Median swash / DirectWrite raster, µs | Default admission |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Inter Regular | 2,340 | 0.0000019074 | 5.295 | 1.10 / 0.90 | Refused pending appearance/motion audit |
+| Segoe UI | 2,340 | 0 | 5.473 | 1.00 / 0.80 | Refused pending smoothing/native-reference audit |
+| Segoe UI Variable | 2,340 | 1.951172 | 34.506 | 1.50 / 0.80 | Refused: axes not mapped |
+| Roboto Flex | 2,340 | 1.265625 | 38.079 | 0.30 / 0.40 | Refused: axes not mapped |
+| Noto Color Emoji (CBDT) | 180 | 0 | Not comparable: colour versus mask | 164.95 / 0.40 | Refused: mask drops colour |
+
+Coverage weights the union of paired glyph bounds. The timing column still
+includes DirectWrite cache hits from repeated static-face weight passes;
+it is not a saving estimate. D2D gamma/grayscale contrast, system smoothing,
+colour, synthesis and live motion remain unqualified. Swash stays default.
+The field and AccessKit fixtures pass on chunk A's source; these results
+do not resolve the product UIA discovery failure or qualify Japanese IME,
+Narrator or Excord.
+
+```text
+accesskit: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+field-unit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
+field-lifetime: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.14s
+audit-unhinted (chunk A): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1594 filtered out; finished in 0.54s
+audit-unhinted (current): test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1629 filtered out; finished in 0.54s
+```
+
+### Native collection — the prior fault and hang
+
+The retained WER report identifies an execution access violation
+(`0xc0000005`, exception data 8) in `amdihk64.dll_unloaded`, version
+2.0.0.1788, offset `0x648d`. The paint log was last written at 18:32:07 PDT.
+The run continued: its D3D11 device-loss log ends at 18:39:33 with a failed
+fixture, and `shelf_sleep_wake` starts at 18:39:46 without a returned-sleep
+line. The next boot is 19:33:20; Kernel-Power 41 records `BugcheckCode=0`
+and `SleepInProgress=5`. EventLog 6008 records an unclean shutdown, but its
+18:21:09 timestamp predates those test logs and does not date the hang.
+The evidence therefore leaves two questions: the AMD-hook process crash
+and the later sleep/wake hang. It does not establish a common cause.
+
+After reboot, `tasklist /m amdihk64.dll` finds the module in DWM, Explorer,
+Radeon Software and numerous other desktop processes. That is broad
+injection, not proof that every process loads it. The proposed remedy is
+to disable [AMD Software's In-Game Overlay](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html),
+check newly launched arms for the hook, and requalify paint. No setting is
+changed here, and this is not yet a demonstrated fix. QUEUE retains the
+machine setting and the separate sleep/wake investigation.
+
+The raw WER, application events, System event XML, module inventory and
+preceding test sequence are in `target/stage-1w-native/nucbox/prior-*`.
+
+### Native collection — offscreen wgpu results
+
+The nine offscreen suites below pass, each with exit zero. They run before
+the held desktop journeys because the NucBox is also serving an active
+`C:\bake\rounds\r35w` bakeoff. They change neither display scale nor focus.
+Their wall times are correctness-test output, not quiet performance data.
+Composition, native surfaces and startup fixtures that create visible
+windows remain separate from this collection. The paint filter is not run.
+
+```text
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.69s
+wgpu-ink: test result: ok. 48 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 4.73s
+wgpu-pinned-backdrop: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 3.43s
+wgpu-pinned-borders: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 98 filtered out; finished in 4.10s
+wgpu-pinned-gradients: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.07s
+wgpu-pinned-materials: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.04s
+wgpu-pinned-tint: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 1.26s
+wgpu-pinned-visual: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 96 filtered out; finished in 8.78s
+wgpu-windows: test result: ok. 39 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.12s
+```
+
+The combined evidence archive is
+`target/stage-1w-native/stage-1w-native-offscreen.tgz`, SHA-256
+`69b3cf9d5af9274405eda02fe0f843e8c0a9e818753987c4fab852880038819c`.
+It contains the earlier imports/D3D11 logs, the current unhinted audit,
+these wgpu logs and the recovered third UIA tree. Copies are extracted
+under `target/stage-1w-native/nucbox/`. `runs.jsonl` records the commands,
+executables, flags and UTC start times; `result-lines.txt` and `exits.json`
+record each completion. The native test build and executable paths are
+in `native-build.jsonl` and `executables.json`.
+
+The recovered UIA tree is earlier-source evidence, not a new attempt:
+
+```text
+name=Ok(Search) class=Ok() provider=Ok([pid:167640,providerId:0x0 Main(parent link):Unidentified Provider (unmanaged:combase.dll)])
+```
+
+Its full rejected enumeration is
+`target/stage-1w-native/nucbox/prior-uia/field-journey-3/field-uia.txt`.
+The fixture's class/provider-name check rejects that identity; it does
+not establish whether the child supports the required Value/Text patterns.
+
+### Native collection — remaining qualification
+
+The NucBox was not dedicated during this collection. Its separate
+`C:\bake\rounds\r35w` bakeoff built apps, drove clicks and keyboard input,
+and started new Codex agents at 22:13 PDT. Three five-minute observations
+still find active work. GPU reset, display-scale changes and sleep remain
+held to avoid interrupting it. The hold concerns the active bakeoff; no
+NucBox GO file is required. The import check and D3D11 suites ran first;
+the headless M9 audit and offscreen wgpu suites moved ahead of the held
+desktop work. No correctness-test wall time is promoted to a performance
+claim.
+
+| Prediction or required collection | Original collection and G7 follow-up |
+| --- | --- |
+| Zero eager imports of the three candidate DLLs | Met: all three absent from the complete 42-DLL list. |
+| Zero D3D11 suite and desktop-journey failures | Met for the 22 collected filters. G7 below adds five passing desktop journeys on `6d501215b7`; sleep/wake is skipped. |
+| Native field fixtures and type/select/cut/paste/undo at 100/150% | G7 below passes the edit/lifetime fixtures and both visual journeys on `6d501215b7`. |
+| UIA discovers the native fragment within 30 seconds | G7 below consumes the single attempt: discovery fails after 30 seconds; the complete rejected tree is retained. |
+| Static advance difference below 0.02 px | Met for Inter and Segoe UI. |
+| Inter coverage below 4.589/255 | Miss: 5.295/255. |
+| Segoe UI coverage below 12.335/255 | Met: 5.473/255. |
+| Zero non-paint wgpu suite and journey failures | Met for nine offscreen filters. G7 below adds passing surfaces, composition, ten startup/fallback filters and five desktop journeys; sleep/wake is skipped. |
+| Isolated candidate-off wgpu paint, with module and fault capture | G7 below passes 56 tests, with one measurement ignored. The hook loads in both the preflight arm and pinned process; the prior crash does not recur. |
+
+At the original collection's cutoff, resize, minimize/restore, idle caret,
+forced device loss, two DPI round trips and sleep/wake were held on each
+arm. G7 below collects the first five, the field/UIA attempt and paint;
+sleep/wake remains skipped. Both candidates remain disabled. This older
+mirror retains its native executables, Shelf/PDB and prepared scripts;
+G7 uses its own mirror and rebuilt executables.
+
+The final retained archive is
+`target/stage-1w-native/stage-1w-native-collected.tgz`, SHA-256
+`7195083f61351503adb37028f323dca4e38e8ff3545103c61ed0158c8c5dfb0c`.
+It adds all three availability observations (`bake-wait.jsonl`), the active
+process inventory at cutoff and the lane's completed-task states to the
+combined evidence above. This lane's three scheduled tasks were idle and
+removed; another task's processes and settings were not changed.
+
+### Native collection — caps
+
+`EXACT_CAPS_WASM=0 bun scripts/caps.mjs` exits zero:
+
+```text
+wasm32: skipped (EXACT_CAPS_WASM=0)
+All budgets within cap. 10 categories inspected.
+```
+
+The first unqualified caps invocation began its implicit Mac wasm build
+because the inherited branch differs from `origin/main` in Rust. It was
+interrupted (exit 130), and no check result is claimed from it. The scoped
+invocation skips that build under this chunk's no-Mac-check instruction;
+its complete outputs are `target/stage-1w-native/caps.log` and
+`target/stage-1w-native/caps-final.log`. No other Mac
+build or test is run. `git diff --check` passes.
+
+### Stage 1w desktop qualification at 120 Hz — predictions
+
+2026-10-31, source `6d501215b7`, `lane/1149-001-win120`. This collection
+uses its own NucBox mirror, `projects/exact2-1149-001-win120`, and retains
+commands, exits, captures and raw logs under `target/g7/` on both machines.
+No Rust change is planned. Candidates remain disabled outside field fixtures.
+
+Predict zero failures in both devices' resize, minimize/restore, idle-caret,
+forced-device-loss and DPI journeys, in the native field edit/lifetime
+fixtures and visual input journeys at 100/150%, and in wgpu surfaces,
+composition and the ten startup/fallback fixtures. The instrument is the
+existing native `gpu-dev` test binaries, required-device flags and one test
+thread. RichEdit journeys set `EXACT_INK_RICHEDIT=1`. The single UIA attempt
+is expected to repeat the 30-second discovery failure: its class/provider
+name detector has not changed. Retain its full rejected tree.
+
+Sleep/wake is deliberately skipped on both devices: the October 30 journey
+put the unattended machine to sleep without a successful wake. The wgpu
+pinned-paint suite runs last and alone, candidates off, with the prior fault
+event and `tasklist /m amdihk64.dll` captured before it and fault events
+captured immediately afterward. No pass is predicted for that unresolved
+access violation; a repeated AMD-hook fault ends the attempt without retry.
+No AMD setting is changed.
+
+### Stage 1w desktop qualification at 120 Hz — results
+
+The zero-failure prediction is met for the ten allowed desktop journeys,
+native edit/lifetime fixtures, both visual field journeys, wgpu surfaces,
+composition and ten startup/fallback filters. These filters can select
+devices internally; the `wgpu-` log prefix records the environment,
+not proof that every fixture path uses wgpu. These are correctness
+runs, some alongside release compilation; their wall times are not speed
+measurements. Shelf and the test executables were rebuilt on the NucBox
+from `6d501215b7`, using `gpu-dev` and this mirror's own `target/`.
+
+RichEdit is enabled only for the D3D11 field fixtures. The retained captures show
+`Piranesi`, its selection, an empty field after cut, restored text after
+paste and an empty field after undo, at 100% and 150%. Each capture was
+inspected. The DPI journeys return to 100%; the display remains 5120×1440
+at 120 Hz. Sleep/wake is skipped on both devices; QUEUE requires a verified
+wake timer and an independent recovery path before another unattended run.
+
+The single UIA discovery attempt fails as predicted, after 30.19 seconds.
+Its rejected Search node still reports
+`Unidentified Provider (unmanaged:combase.dll)` with an empty class name.
+The test never reaches its Value/Text-pattern assertions. This does not
+establish that a native fragment is absent: discovery by the existing
+class/provider-name detector remains unresolved. No retry is made. The
+full tree is `target/g7/nucbox/field-uia/field-uia.txt` locally.
+Both candidates remain disabled by default; IME, Narrator and Excord are
+not qualified by these field fixtures.
+
+Verbatim native result lines (the labels identify retained log names):
+
+```text
+d3d11-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.17s
+d3d11-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 11.51s
+d3d11-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 2.69s
+d3d11-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 2.09s
+d3d11-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 10.43s
+field-lifetime: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.12s
+field-uia: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 81 filtered out; finished in 30.19s
+field-unit: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.12s
+field-visual: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 11.48s
+wgpu-composition: test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.50s
+wgpu-shelf_both_late_devices_measure_the_first_pixel_trade: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.36s
+wgpu-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.65s
+wgpu-shelf_device_preparation_overlaps_slow_configuration: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.69s
+wgpu-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.84s
+wgpu-shelf_exhausted_devices_exit_with_both_refusals: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.30s
+wgpu-shelf_hardware_attach_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.89s
+wgpu-shelf_hardware_open_refusal_uses_warp: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.83s
+wgpu-shelf_hardware_recovers_while_startup_warp_is_pending: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.95s
+wgpu-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 3.71s
+wgpu-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 3.19s
+wgpu-shelf_quit_does_not_join_a_pending_shell_call: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.22s
+wgpu-shelf_refused_warp_waits_for_prepared_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.40s
+wgpu-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 6.97s
+wgpu-shelf_slow_preparation_displays_cpu_before_hardware: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.28s
+wgpu-shelf_unavailable_mica_still_presents: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 0.73s
+wgpu-surfaces: test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1627 filtered out; finished in 0.42s
+```
+
+
+The candidate-off wgpu pinned-paint suite ran **last and alone**, once.
+`tasklist /m amdihk64.dll` identifies the hook in the preflight Shelf arm
+(PID 22628) before the suite, and in the pinned test process (PID 61944)
+during it. The prior application fault was captured before launch. The
+suite passes with the hook loaded; the previous access violation does not
+recur. No pass was predicted for this unresolved failure.
+
+```text
+wgpu-pinned-paint: test result: ok. 56 passed; 0 failed; 1 ignored; 0 measured; 47 filtered out; finished in 48.06s
+```
+
+The ignored test is `paint::caltrain_ink_and_vello_frame_times`, an opt-in
+measurement. Immediate and follow-up Application-event queries find no new
+1000/1001 event; the follow-up covers 11:51:50–11:53:51 PDT. The collector's
+`Start-Process.ExitCode` read produces an empty file, so no numeric paint
+exit code is claimed: the verbatim harness summary is the passing evidence.
+The task completed and the process ended. No second attempt was made.
+
+Disabling [AMD Software's In-Game Overlay](https://www.amd.com/en/resources/support-articles/faqs/DH3-001.html)
+remains a proposed controlled diagnostic if the hook crash recurs. This pass
+with the hook loaded does not demonstrate an overlay remedy or establish
+the prior crash's cause. No AMD setting changed. The sleep/wake hang remains
+a separate, skipped qualification.
+
+The final local archive is `target/g7/final-evidence.zip`, SHA-256
+`f7609d5a6b970047f5085a2f79e583d40dc358aeb5f0dc00c0450c1caf96289c`,
+extracted at `target/g7/nucbox/`. The identical archive, build outputs and
+raw files remain in the own NucBox mirror. It includes `run.ps1`,
+`qualify.ps1`, the DPI operator, field driver, `paint.ps1`, the source/binary
+provenance, exact test result lines, preflight and pinned module inventories,
+the prior fault, event queries and UIA rejection tree. All app and test
+builds used this mirror's `target/`; no other checkout was touched. The
+lane's completed scheduled tasks were removed after collection; their
+states and the removal record are retained.
+
+### G7 checks and limits
+
+`EXACT_CAPS_WASM=0 bun scripts/caps.mjs` passes; the complete output is
+`target/g7/caps.log`:
+
+```text
+wasm32: skipped (EXACT_CAPS_WASM=0)
+All budgets within cap. 10 categories inspected.
+```
+
+`git diff --check` passes. All heavy builds and native suites ran on the
+NucBox. The Mac six-check gate and implicit wasm build were not run under
+this chunk's no-heavy-Mac-work instruction. The only source-file change is
+the existing Windows summary's refresh-rate option; its retained reproduction
+checks pass. The standalone heavy-list manifest adds the root's existing
+AccessKit patch so its release can build against this source.
+
+The incomplete work is the five-round 120 Hz fling series, stopped at the
+three-attempt foreground limit, and the explicitly skipped sleep/wake
+journeys. UIA discovery remains a failed qualification; the native field
+captures and passing paint suite do not admit either Stage 1w candidate.
+
+The branch rebases cleanly onto `c83a5c1d97`. Incoming main changes the
+kernel's table layout/style/schema; the measured binaries still come from
+`6d501215b7`. No timing or native-suite result is claimed for the rebased
+source. Final structural caps pass on the rebased tree, with the same wasm
+skip (`target/g7/caps-final.log`).
+
+## M10 cut 7 on Windows
+
+D3D11 and wgpu pass all requested runtime suites and five desktop journeys
+per device, including the atlas byte comparison. Startup has no qualified
+performance row: two complete collections violate the quiet rule, and the
+third attempt expires in preflight. No renderer code changed.
+
+### Predictions before collection
+
+Recorded before collection, 2026-10-31. Compare `origin/main` at
+`fd89454bd30235dee8b8742963f7cf1faac281cf` with cut 7 at
+`d008a448c7cbf2b547ea80c1e4f1d49a43da9644`, without renderer changes.
+The NucBox mirror is `projects/exact2-1149-001-atlas-win`; its own
+`target/m10-cut7-windows/` retains sources, commands, logs and captures,
+copied back to that path in this worktree.
+
+Predict zero failures in both devices' Ink, pinned, text and image suites,
+including the D3D11 serial-versus-batched atlas byte comparison, and the
+five desktop journeys per device (resize, minimize/restore, idle caret,
+device loss and DPI). Use the native test binaries with required-device
+flags and one test thread. A suite failure stops collection. Sleep/wake
+is excluded by the brief; lock/unlock lacks an unlock operator.
+
+Predict D3D11 first-screen DWM p50 near **140 ms**, about **20 ms earlier**
+than the historical 161 ms row, and DXGI p50 near **157 ms**. Run S2's
+Shelf startup recipe on both revisions, ten launches per size and arm,
+with DWM and DXGI endpoints, retained driver caches and fresh application
+stores. Keep the whole-series Windows quiet rule: five-second observations,
+CPU below 10% and no compiler. Report the actual display rate; the historical
+row used 60 Hz, while G7 reports 120 Hz.
+
+Predict first-paint upload spans at most **2 ms**, at least **80% lower**
+than before, using upload elapsed spans as on Metal. The existing Windows
+probe has no upload-span markers; its paint spans and glyph counters cannot
+measure that duration. With renderer code fixed, report this prediction as
+unmeasured unless an existing instrument supplies those spans. Total first
+paint is a separate diagnostic, not an upload-time substitute.
+
+### Windows runtime parity and desktop journeys
+
+Both devices pass Ink, the whole pinned suite (paint, text, borders, tint,
+backdrop, gradients, visual and materials), the text unit tests and image
+integration tests. The D3D11 atlas readback compares serial and batched
+alpha and RGBA masks, padding, a later dirty rectangle and overflow bytes.
+Its `UpdateSubresource` path passes byte for byte:
+
+```text
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+test atlas::upload::tests::wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+```
+
+All ten desktop journeys pass. D3D11 recovers through CPU composition and
+returns to hardware; wgpu retains its qualified CPU fallback. The captures
+show Shelf's three books after D3D11 recovery and in wgpu's fallback, and
+readable content at 150% DPI. Both DPI journeys return to 96 DPI. Sleep/wake
+is excluded; lock/unlock remains unrun without an unlock operator.
+
+The build uses SDK 10.0.26100.0's x64 `fxc`, Bun 1.4.2 and the pinned Rust
+MSVC toolchain. Shelf uses `gpu-dev` with debug level 1 on both revisions.
+Tests use the same profile, with only `exact-linux` at optimization level
+zero, following the prior Windows qualification. Every invocation sets
+`EXACT_REQUIRED=1`, `EXACT_INK_REQUIRED=1`, `WGPU_BACKEND=dx12` and one test
+thread. RichEdit and DirectWrite candidates stay off. Suite wall times are
+correctness-run durations, not performance comparisons.
+
+Verbatim suite result lines; each label names its retained log:
+
+```text
+d3d11-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 4.83s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.17s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.84s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.66s
+wgpu-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.19s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.05s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.98s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.58s
+d3d11-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.20s
+d3d11-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.00s
+d3d11-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.58s
+d3d11-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.17s
+d3d11-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 11.27s
+wgpu-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.48s
+wgpu-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.61s
+wgpu-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 3.40s
+wgpu-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.52s
+wgpu-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.59s
+```
+
+### Startup — retained excluded collections
+
+The NucBox reports 5120×1440 at 120 Hz and 96 DPI, driver
+`32.0.23033.1002`. Both revisions run Shelf's unchanged S2 startup test:
+ten fresh processes per painter and size, 120 frames per process, with
+`library-count` identifying the complete screen. CPU and D3D11 alternate
+within each revision; the complete before cohort precedes after. Application
+stores are fresh; driver and filesystem caches are retained. These are
+separate cohorts, not matched before/after pairs.
+
+Both tests pass in each of the first two collections, but both whole
+collections fail G6's quiet rule. Attempt 1 has 10 nonquiet observations of
+21, maximum 12.8% CPU; attempt 2 has 12 of 21, maximum 16.3%. Neither has a
+compiler observation. No launch is selected from either for a qualified
+performance row. A subsequent process snapshot records SearchIndexer,
+SearchProtocolHost and Defender activity; it does not attribute each loaded
+interval. No system service or other process was stopped.
+
+For the third and final attempt, preparation waits up to twenty minutes for
+two consecutive five-second observations below 5% CPU, seeking headroom for
+the unchanged below-10% collection rule. That stricter preparation condition
+never arrives. The wrapper exits 1 before launching a third startup suite;
+this is a preflight failure, not a native test failure. Collection stops at
+three attempts. `startup-3/preflight/quiet.jsonl` and `startup-3-task.log`
+retain the wait and timeout.
+
+Excluded D3D11 observations, milliseconds, median [minimum–maximum], ten
+launches in every cell:
+
+| Attempt | Pixels | Endpoint | Before | After |
+| --- | --- | --- | ---: | ---: |
+| 1 | 1024x720 | DWM proxy | 113.224 [105.053–276.893] | 109.200 [105.510–191.893] |
+| 1 | 1024x720 | DXGI display | 109.024 [102.052–273.104] | 106.286 [102.835–180.575] |
+| 1 | 1920x1080 | DWM proxy | 112.957 [105.520–131.699] | 113.841 [106.117–120.732] |
+| 1 | 1920x1080 | DXGI display | 109.673 [102.142–128.710] | 110.145 [103.340–116.917] |
+| 2 | 1024x720 | DWM proxy | 112.776 [105.590–123.252] | 115.116 [105.182–130.433] |
+| 2 | 1024x720 | DXGI display | 109.647 [106.236–113.446] | 111.463 [101.702–126.621] |
+| 2 | 1920x1080 | DWM proxy | 112.560 [108.535–129.943] | 115.878 [106.776–235.756] |
+| 2 | 1920x1080 | DXGI display | 108.843 [105.665–126.563] | 110.828 [103.946–231.362] |
+
+DWM synchronization and DXGI display are separate events; the latter can
+precede the proxy's return. Neither is an upload timer. The historical
+161 ms row is G6e's heavy list at 60 Hz, not this Shelf fixture at 120 Hz;
+this collection cannot establish a saving against that row.
+
+Verbatim startup-suite lines for the excluded collections:
+
+```text
+attempt-1-before: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 52.04s
+attempt-1-after: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.35s
+attempt-2-before: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.45s
+attempt-2-after: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.77s
+```
+
+### Predictions against results
+
+| Prediction | Result |
+| --- | --- |
+| Zero failures in eight suites and ten journeys; byte-for-byte atlas parity | Met: all eighteen invocations pass, including D3D11's ordered `UpdateSubresource` path. |
+| DWM p50 about 140 ms and about 20 ms earlier | The absolute prediction misses in the excluded observations: after medians are 109.200–115.878 ms. No qualified result establishes a 20 ms saving. The historical 161 ms row uses a different fixture and refresh rate. |
+| DXGI p50 about 157 ms | Miss in the excluded observations: after medians are 106.286–111.463 ms. No qualified estimate. |
+| First-paint upload spans at most 2 ms, at least 80% lower | Unmeasured: Windows has no upload-span instrument, and this lane permits no renderer changes. Total paint time cannot establish the prediction. |
+
+### Reproduction and retained evidence
+
+The source archives freeze `origin/main` at `fd89454bd3` and the candidate
+at `d008a448c7`; no fetch changes the baseline. Their SHA-256 hashes are
+`119dc72967c381bedd0c2108b492c81d8d2f4ce64e70d4b83b76b8b274a03618`
+and `a4b528c019b82165412b6bbe39051d460cc975076efbf21a83cc97b190e4941a`.
+Both remain under `target/m10-cut7-windows/` here and in the NucBox mirror.
+The built Shelf executables remain in that mirror's `before-shelf/` and
+`after-shelf/`; their hashes are
+`0e602a27248319958754288fe715a9ccd8597bdceebc29cad98bd11544dd54be`
+and `ea1379790c51e502e4176cef67d6c8642f3838644d5660e873991d629c428ce4`.
+All Cargo outputs use the mirror's own `target/`.
+
+`build.ps1` records the SDK path, dependencies, profile overrides and both
+Shelf builds. `native-build.jsonl` identifies the test executables;
+`run.ps1`, `runs.jsonl` and `result-lines.txt` retain the exact suite and
+journey invocations. `source-provenance.json` and
+`binary-and-source-hashes.json` identify their inputs. Tests and Shelf run
+in the console session through interactive scheduled tasks, without posted
+input or a foreground requirement. The DPI operator changes and restores
+scale through the existing journey handshake.
+
+The unchanged S2 instrument is
+`device::d3d11::desktop_tests::shelf_startup_series`, invoked with
+`--ignored --exact --nocapture --test-threads=1`, `EXACT_INK_DEVICE=d3d11`,
+`EXACT_AGENT_WINDOW_PROBE=on`, and `INK_SHELF` selecting each revision.
+`startup.py` retains the wrapper and the existing Windows monitor's
+whole-series qualification. Each collection retains child logs, suite logs,
+commands, environment, PIDs and five-second quiet observations. No renderer
+instrumentation or production source changed.
+
+Recompute the excluded rows from the copied raw logs:
+
+```sh
+python3 target/m10-cut7-windows/summarize.py target/m10-cut7-windows/nucbox startup
+python3 target/m10-cut7-windows/summarize.py target/m10-cut7-windows/nucbox startup-2
+```
+
+The reducer emits every sample with its source path and SHA-256, then counts,
+medians and ranges. The retained `startup-1-summary.json` and
+`startup-2-summary.json` include the interleaved CPU controls as well as
+D3D11. These summaries do not override the quiet exclusions.
+
+The final evidence archive is `target/m10-cut7-windows/evidence-final.tar.gz`,
+SHA-256 `9ff1a04e0abbf92b7208afa73610f9a6eec0a251ce077a5551fb772cb1a150ed`.
+It is retained on both machines and extracted locally at
+`target/m10-cut7-windows/nucbox/`. The earlier `evidence-1.tar.gz` also remains.
+Source archives and Shelf bundles are retained separately as named above;
+the evidence archive contains their provenance, all runtime logs and captures,
+both complete startup collections and the third preflight. The lane's five
+completed scheduled tasks were removed; their final states and removal record
+are in the archive. No retained file or other checkout was removed.
+
+Staged `bun scripts/caps.mjs` and `git diff --check` pass. Caps includes the
+wasm check; full output is `target/m10-cut7-windows/caps-final.log`:
+
+```text
+  wasm32: 29 crates and 1 binary the web apps link checked for wasm32-unknown-unknown (Cargo decides what changed), 0 errors
+All budgets within cap. 10 categories inspected.
+```
+
+The broader Mac six-check gate remains assigned to the Mac mini by the cut 7
+record. This lane changes only the two measurement records. The outstanding
+Windows qualifications are a quiet startup collection, upload duration that
+this probe cannot report, and the unrun sleep/wake and lock/unlock journeys;
+their reasons are stated above.
+
+Final renderer tip `c3ba9ab238`, tested from branch tip `46f6328874` on the
+NucBox on 2026-10-31, passes all eight requested suites, including both
+ordered atlas byte comparisons, and one Shelf launch per device reaches
+`library-count` readiness, meeting the prediction of zero failures:
+
+```text
+d3d11-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.39s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.35s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.82s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.71s
+wgpu-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.23s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.60s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.89s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.79s
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+test atlas::upload::tests::wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+```
+
+The source archive, commands, prediction, raw logs, exit codes and captures
+are retained under `target/m10-cut7-final-windows/` on both machines
+(local raw logs in `nucbox/`); the captures show the three-book library
+partly covered by Settings, and both complete-screen markers name the
+requested adapter.

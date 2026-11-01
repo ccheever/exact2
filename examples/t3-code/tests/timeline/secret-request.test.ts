@@ -6,6 +6,8 @@ import {
   secretRequestFailureMessage,
   type SecretRequestItem,
 } from "../../src/timeline/secret-request";
+import { contractComponent } from "../support/contract-action-fixture";
+import { appText } from "../support/app-files";
 
 const item = {
   id: "turn-item:secret-request:1",
@@ -70,5 +72,23 @@ describe("secretRequestFailureMessage", () => {
       "Could not answer the request. Try again.",
     );
     expect(secretRequestFailureMessage(undefined)).toBe("Could not answer the request. Try again.");
+  });
+});
+
+describe("SecretRequestCard", () => {
+  const card = contractComponent("secret-card.contract", "SecretRequestCard");
+  const press = (selection: string) => {
+    const focused: string[] = [];
+    const state = card.state();
+    card.call("selected", state, {}, [{ text: selection }]);
+    card.call("pressCard", state, { card: { id: "s1" }, focus: (id: string) => focused.push(id) }, []);
+    return focused;
+  };
+  it("a click on the card outside its controls focuses the field, unless it ends a text selection (#26151)", () => {
+    expect(press("")).toEqual(["secret-value-s1"]);
+    expect(press("https://example.com/very/long")).toEqual([]);
+  });
+  it("a long link in the reason wraps anywhere (#26145)", () => {
+    expect(appText("secret-card.contract")).toContain('text card.reason selectionchange=selected font-size="0.875rem" line-height="1.25rem" overflow-wrap="anywhere"');
   });
 });

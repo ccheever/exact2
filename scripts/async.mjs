@@ -177,6 +177,9 @@ export function checks(sha, since, selection = {}) {
     // their own in memory on a free port: never the origin app.ts names,
     // where a live server real people use listens on this machine.
     ['harmony', 'env', [...required, 'bun', 'scripts/memory-backend-test.mjs', 'apps/harmony/app']],
+    // Harmony's app crates compile in their own workspace, outside the root's members (LLP 1153 D2.4):
+    // the sixth check no longer sees them, so this step does, with the same flags.
+    ['harmony-check', 'cargo', ['check', '--manifest-path', 'apps/harmony/app/Cargo.toml', '--all-targets', '--keep-going']],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],

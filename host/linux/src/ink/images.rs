@@ -64,6 +64,9 @@ impl Images {
         if let Some((_, texture)) = self.bitmaps.get(&key) {
             return Ok(*texture);
         }
+        #[cfg(target_os = "macos")]
+        let _trace =
+            exact_ink::device::apple::Trace::with_value(c"picture upload", image.trace_source());
         let texture = if size == [image.width(), image.height()] {
             upload(device, image.pixels())?
         } else {

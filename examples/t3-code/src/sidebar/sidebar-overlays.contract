@@ -17,15 +17,18 @@ use SidebarDropVerb from "./sidebar-row.contract"
 use MiddleTruncate from "./sidebar-row.contract"
 use ShellView from "../shell/shell-shapes.contract"
 use SidebarEdgeTips from "./sidebar-control-tips.contract"
+use NavigationHistory from "./sidebar-shapes.contract"
 use SidebarWindowRail from "./sidebar-rail.contract"
 use PlacementProbes from "../details/project-scripts.contract"
-use LegacyDialogs from "./legacy-sidebar.contract"
 use SnoozeDateField from "./snooze-calendar.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
 use UpdateEverythingDialog from "./update-everything.contract"
 
 component SidebarOverlays
+  inject
+    rem: number
+    navigationHistory: NavigationHistory
   props
     data: Snapshot
     width: number
@@ -88,7 +91,7 @@ component SidebarOverlays
       PlacementProbes(probes=data.sidebar.probes)
     // The sidebar chrome's tooltips (rail, search row, footer), above the page.
     if open and dragId == ""
-      SidebarEdgeTips(width=width, hoverId=hoverId, newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.projectGroupCount > 1 ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)
+      SidebarEdgeTips(width=width, hoverId=hoverId, historyLeft=(data.controlsLeft + 1 + 2.4375 * rem + navigationHistory.brandWidth + 0.25 * rem), goBack=(navigationHistory.backKind == "" ? "" : navigationHistory.backTip), goForward=(navigationHistory.forwardKind == "" ? "" : navigationHistory.forwardTip), newThread=`New thread${shell.keyNewThread == "" ? "" : ` (${shell.keyNewThread})`}`, newThreadDetail=(data.sidebar.newThreadPicks ? `New thread in current project: Shift+click${shell.keyNewThreadLocal == "" ? "" : ` (${shell.keyNewThreadLocal})`}` : ""), pullRequests=pullRequests)
     if open and data.sidebar.scopeOpen
       button press=local("scope-open", "", "close") position="absolute" left=0 top=0 width="100%" height="100%" z-index=30 background-color="#00000000" border-width=0 aria-label="Close project filter" testId="scope-backdrop" title=""
       SidebarScopeMenu(data=data, width=width, local=local, run=run)
@@ -101,8 +104,6 @@ component SidebarOverlays
       SettingsConfirm(title=data.sidebar.dialogTitle, description=data.sidebar.dialogDescription, confirmLabel="Confirm", destructive=true, busy=busy, error="", dialogId="sidebar-delete-worktree", cancel=run("dialog-cancel", "", ""), confirm=run("dialog-confirm", "", ""))
     if data.sidebar.dialog == "snooze"
       SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)
-    // Rename project, Project grouping and the removal / archive confirms.
-    LegacyDialogs(data=data, busy=busy, local=local, run=run)
     // The footer's update pill asks before it updates (SidebarUpdatePill's UpdateEverythingDialog).
     DialogFinalFocus(open=data.sidebar.updateDialog.open, owner="update-everything-confirm")
     if data.sidebar.updateDialog.open
@@ -129,25 +130,49 @@ component SidebarScopeMenu
   action searchKey(k: string, e: KeyboardEvent)
     if k == "Enter" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
-      if data.sidebar.scopeFirst != ""
-        local("scope-toggle", "", data.sidebar.scopeFirst)
+      if highlighted != "" and highlighted != "\n"
+        local("scope-toggle", "", highlighted)
     else
       local("scope-key", "", k)
+  // A new query moves the highlight to its first match (Base UI autoHighlight), off a row the pointer rested on.
+  action queryInput(value: string)
+    hovered = "\n"
+    local("scope-query", "", value)
+  // Return picks the highlighted row; with none (several projects chosen, no query) it picks nothing.
+  action submitScope
+    if highlighted != "\n"
+      local("scope", "", highlighted)
+  // The highlighted row (Base UI's: the one under the pointer, else data.sidebar.scopeHighlight), whose pin shows; and
+  // the pin under the pointer. "\n" is no row: All projects' key is "".
+  state hovered = "\n"
+  state pinOver = ""
+  derive highlighted = hovered != "\n" ? hovered : data.sidebar.scopeHighlight
+  action rowHover(key: string, over: bool)
+    hovered = over ? key : (hovered == key ? "\n" : hovered)
+  action pinHover(key: string, over: bool)
+    pinOver = over ? key : (pinOver == key ? "" : pinOver)
+  // The thread pin shortcut pins the highlighted project here, ahead of the window's own (which pins the open thread).
+  action pinKey(k: string, e: KeyboardEvent)
+    let chord = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 ? k.toLowerCase() : k)].filter((part) => part != "").join("+")
+    if data.sidebar.scopePinChord != "" and chord.toLowerCase() == data.sidebar.scopePinChord.toLowerCase() and data.sidebar.scopes.filter((scope) => scope.key == highlighted and scope.canPin).length > 0
+      preventDefault()
+      stopPropagation()
+      run("project-pin", "", highlighted)
   view
-    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column keycapture=pinKey position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
             SidebarIcon(name="search", size=16, color="light-dark(#71717b8c, #a1a1a18c)")
           // ComboboxSearchInput keeps an input's intrinsic width (185pt), so the popup is content-sized past its anchor.
           DialogOpenFocus(target="scope-search")
-          input id="scope-search" value=data.sidebar.scopeQuery input=local("scope-query", "") key=searchKey submit=local("scope", "", data.sidebar.scopeFirst) autofocus=true placeholder="Search projects..." class=FieldPlaceholder aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f3f3f3)" autocorrect="off" data-editable="yes"
+          input id="scope-search" value=data.sidebar.scopeQuery input=queryInput key=searchKey submit=submitScope autofocus=true placeholder="Search projects..." class=FieldPlaceholder aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f3f3f3)" autocorrect="off" data-editable="yes"
       if data.sidebar.scopes.length == 0
         text "No matching projects." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #a1a1a1)"
       scroll flex-shrink=1 min-height=0 max-height="20rem"
         column padding="0.25rem" box-sizing="border-box" role="listbox"
           for scope in data.sidebar.scopes key=scope.key
-            button press=pick(scope.key) role="option" aria-selected=scope.selected aria-label=scope.label testId=`scope-${scope.all ? "all" : scope.label}` width="100%" min-height=(scope.all ? "1.75rem" : "2rem") padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 gap="0.5rem" display="flex" flex-direction="row" align-items="center" background-color="#00000000"
+            button press=pick(scope.key) hover=rowHover(scope.key) role="option" aria-selected=scope.selected aria-label=scope.label testId=`scope-${scope.all ? "all" : scope.label}` width="100%" min-height=(scope.all ? "1.75rem" : "2rem") padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 gap="0.5rem" display="flex" flex-direction="row" align-items="center" background-color=(highlighted == scope.key ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               // ProjectScopeRowIcon: the chosen mark sits on the icon's corner, ringed in the popup's colour.
               box position="relative" flex-shrink=0 display="flex"
                 if scope.all
@@ -159,6 +184,11 @@ component SidebarScopeMenu
                     svg width="0.5rem" height="0.5rem" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width=4 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                       path d="M20 6 9 17l-5-5"
               text scope.label flex=1 min-width=0 line-clamp=1 white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f3f3f3)" text-align="left"
+              // ProjectPinButton (icon-xs, ghost-muted): a pinned project shows its pin, PinOff under the pointer; an
+              // unpinned one only on the highlighted row. Out of the tab order: the shortcut is the keyboard's way.
+              if scope.canPin
+                button press=run("project-pin", "", scope.key) hover=pinHover(scope.key) tabindex=-1 aria-hidden=true title=scope.pinTitle testId=`scope-pin-${scope.label}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color=(pinOver == scope.key ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(scope.pinned or highlighted == scope.key ? 1 : 0) display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  SidebarIcon(name=(scope.pinned and pinOver == scope.key ? "pin-off" : "pin"), size=14, color=(pinOver == scope.key ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #a1a1a1)"))
               if not scope.all
                 button press=run("project-settings-group", "", scope.key) aria-label=`Project settings for ${scope.label}` title=`Project settings for ${scope.label}` testId=`scope-settings-${scope.label}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
                   SidebarIcon(name="settings", size=14, color="light-dark(#71717b, #a1a1a1)")

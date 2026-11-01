@@ -16,7 +16,7 @@ import { attachIncoming, cancelPreparingImage, type IncomingFiles } from './comp
 import { retryDraftUpload, runDraftUploads } from './composer-uploads';
 import { foldPaste, heldPaste } from './composer-editor-files';
 import { uuid } from '../transport/transport-wire';
-import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
+import { queueRowDrop } from '../sidebar/row-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, dismissFallbackNotice, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
@@ -28,6 +28,7 @@ import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanT
 import { loadHostResources } from './auto-balance';
 import { isProviderSubagent } from './composer-controls-subagent';
 import { announce } from '../shell/announce';
+import { forceStop } from './run-stop';
 
 /** A select row picks one of its options; a boolean row is On or Off (buildProviderOptionSelectionsFromDescriptors). */
 export function applyOptionChoice(descriptors: Obj[], current: Obj[], id: string, value: string): Obj[] {
@@ -134,14 +135,15 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     if (!runId && !heldQueue) throw new ClientError('There is nothing to resume.');
     if (runId) {
       const staged = stagedFor(client), key = client.draftKey;
+      // Resume continues on the model the composer shows (getSendContext().selectedModelSelection), read before the
+      // first await: the composer follows the open thread, so after a switch it holds the other thread's model.
+      const chosen = composerSelection(client, false);
+      const modelSelection = dispatchSelection(client, chosen.instanceId || client.providerId, chosen.entry ? chosen.model : client.modelId, client.modelOptions);
       for (const command of nextTurnCommands(obj(projection.thread), staged)) {
         const [commandId] = await access.ids(1);
         await access.dispatch(storage, { ...command, commandId, threadId }, 'Change mode');
       }
       const [commandId, messageId] = await access.ids(2);
-      // Resume continues on the model the composer shows (getSendContext().selectedModelSelection).
-      const chosen = composerSelection(client, false);
-      const modelSelection = dispatchSelection(client, chosen.instanceId || client.providerId, chosen.entry ? chosen.model : client.modelId, client.modelOptions);
       await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: 'Continue where you left off.', attachments: [],
         createdBy: 'user', creationSource: 'web', manualContinuationOfRunId: runId, modelSelection,
         dispatchMode: { type: 'start_immediately' } }, 'Resume thread');
@@ -206,6 +208,8 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'limit-resume' || op === 'limit-snooze') { await changeLimitRecovery(client, native, storage, op === 'limit-resume' ? 'resume' : 'snooze'); return ''; }
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
+  // useForceStopThread: the run that ignored Stop (the line's) goes with the request.
+  if (op === 'force-stop') { await forceStop(client, native, id); return ''; }
   if (op === 'stop-background') {
     // interruptThreadTurn: `thread.stop` when the server advertises threadStop; otherwise the active run, else the
     // latest one while background work is pending; with neither, a PR watch can still hold the thread (one that never

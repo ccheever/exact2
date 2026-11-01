@@ -273,6 +273,18 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_beneath(id), |_| 0)
         }
 
+        /// Where the platform's Back goes from the selected visit, UTF-8; empty for none. @ref LLP 1115.000 D5.5
+        #[no_mangle]
+        pub extern "C" fn exact_location_behind(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_behind(), |_| 0)
+        }
+
+        /// Where the platform's Forward goes, UTF-8; empty for none. @ref LLP 1115.000 D5.5
+        #[no_mangle]
+        pub extern "C" fn exact_location_ahead(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.location_ahead(), |_| 0)
+        }
+
         /// A retained visit's canonical location, UTF-8; empty when absent.
         #[no_mangle]
         pub extern "C" fn exact_visit_location(rt: u32, id: u64) -> u32 {

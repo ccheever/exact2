@@ -1,5 +1,5 @@
 // Version skew between this client and a connected server (T3 Code MIT, see LICENSE-T3;
-// reference 6d450a4284: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
+// reference 2359643cff: apps/web/src/versionSkew.ts, packages/shared/src/semver.ts).
 // Port changes: APP_VERSION is CLIENT_VERSION (the release this client mirrors) and
 // every resolver takes the client version as an optional argument; the dismissal
 // document lives in the client's preference file (shell-prefs.ts
@@ -9,8 +9,8 @@
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
-/** This client's T3 Code release: the stable release it mirrors (v0.1.5, 6d450a4284). */
-export const CLIENT_VERSION = '0.1.5';
+/** This client's T3 Code release: the stable release it mirrors (v0.1.6, 2359643cff). */
+export const CLIENT_VERSION = '0.1.6';
 
 export { manualServerUpdateCommand };
 export type { ServerInstallation };

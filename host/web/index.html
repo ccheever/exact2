@@ -53,9 +53,11 @@
      page but a `scroll document` one, where the document is the scroller and keeps the browser's own ends) stays put,
      as an app's window does: a list at its top does not pull the page to refresh, and a drag no scroller takes (on a
      bar, or over content that fits or is still loading) does not move the page and its bars. `contain` would still let
-     the page bounce, a local boundary default action (CSS Overscroll Behavior). */
+     the page bounce, a local boundary default action (CSS Overscroll Behavior). Only on y: on x the root's overscroll is
+     the browser's history swipe (Chrome's two-finger swipe Back and Forward), which `none` turns off (LLP 1115.000
+     D5.5). */
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior: none; }
+  html:not([data-scrolldocument]), html:not([data-scrolldocument]) body { overscroll-behavior-y: none; }
   #exact-root :is(button, a[href], input, select, textarea, summary, [data-exact-on~="press"]) { touch-action: manipulation; }
   /* LLP 1115.000 D4.14: a symbol, and an image in something pressable, is part of the control, not content: no long-press
      callout and no image drag (the navigation glue cancels the drag where the engine has no property for it). */
@@ -257,30 +259,27 @@
   #exact-root [data-exact-sidebar] > [role="tablist"] > button[role="tab"][aria-controls] > img { color: var(--exact-accent, AccentColor) !important; }
   #exact-root [data-exact-split="list"] { inset-inline-end: auto !important; box-sizing: border-box !important; width: var(--exact-split, 320px) !important; }
   #exact-root [data-exact-split="detail"] { inset-inline-start: var(--exact-split, 320px) !important; }
-  #exact-root [data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"]) { display: none !important; }
-  /* LLP 1116.006 D2: a split showing no detail fills the detail pane as an iPad's split view does: one quiet line,
-     centred, in the secondary label's colour (in English: the web host has no strings table of its own). A box of
+  /* LLP 1116.006 D2: a split showing no detail fills the detail pane with one quiet line, centred, in the secondary
+     label's colour, which asks for a choice as a web app's empty pane does, where an iPad's says "No Selection" (in
+     English: the web host has no strings table of its own; LLP 1115.000 D4.16). A box of
      the root route marked `navigationSplit="placeholder"`, the author's own, takes the pane instead: a centred
      column at the pane's width (the navigation glue sets it), its alignment the author's. The lowerer hides that box
      wherever no split shows it (a phone, a detail shown, a host that does not split). */
-  #exact-root [data-exact-split-empty]::before { content: "No Selection"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
+  #exact-root [data-exact-split-empty]::before { content: "Select an item"; position: absolute; inset: 0; inset-inline-start: var(--exact-split, 320px); display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--exact-secondary-label); font-size: 1.25rem; text-align: center; pointer-events: none; }
   #exact-root [data-exact-split-placeholder] { display: flex !important; position: absolute !important; inset-block: 0 !important; inset-inline: 100% auto !important; box-sizing: border-box !important; width: var(--exact-split-pane) !important; height: auto !important; margin: 0 !important; }
   :where(#exact-root [data-exact-split-placeholder]) { flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
   /* Explicit glass styles retain their material when disabled. */
   #exact-root button[data-button-style="prominent-glass"]:disabled { background-color: light-dark(#ffffffb3, #262629b3); }
   #exact-root button[data-button-style="prominent-clear-glass"]:disabled { background-color: light-dark(#ffffff26, #ffffff1a); }
-  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. */
-  :where(#exact-root [navigationkey] > header) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
+  /* A route's app bar keeps its document-scroll position and content inset. Its neutral paint is in neutral.css. A
+     header drawn as written is no app bar, here or there (LLP 1153 D8): a site's, which navigation.js marks
+     `data-exact-site` when it holds a `nav` or more than one link, and one whose author wrote `appearance: none`. */
+  :where(#exact-root [navigationkey] > header:where(:not([data-exact-site], [data-exact-said~="appearance"]))) { position: sticky; top: 0; min-height: 32px; padding: 6px 16px; }
   /* LLP 1116.000 D4: the Back control a pushed route's header holds is pressed through the Back its bar draws
      (navigation.js), which stands for it, so it is not shown. A tap the agent aims at it lands on that Back
      (agent-input.js `viewBox`), where the hit is the header holding it: the driver's check that no ancestor takes the
      press (scripts/agent.mjs, the tap's `why`) passes such a hit only for a target with `pointer-events: none`. */
   #exact-root [data-exact-bar-back] { display: none !important; pointer-events: none; }
-  /* The Back a route's bar draws (navigation.js), chevron and words, is its navigation root's accent. UIKit tints its
-     Back with the tint its navigation controller's view inherits from the navigation root's node, which holds that view
-     (NavigationIOS.swift): the accent that node or one around it says (SystemColor.swift `applyAccentTint`), else the
-     app's (AppAccentIOS.swift). An accent a route or its header says does not reach it, as none reaches UIKit's bar. */
-  #exact-root [navigationBack] { --exact-bar-accent: var(--exact-accent, AccentColor); }
   /* A dialog's padding is its author's (LLP 1115.000 D4.14): the user agent's own `1em` is a box the kernel does not
      know, so a plain `dialog` has none; the alert's is the page's, below. */
   :where(#exact-root dialog) { padding: 0; }
@@ -384,11 +383,12 @@
      scroller. Body and root grow with the content and the marked scroller is
      a plain block, so printing, #anchors, scroll restoration and a collapsing
      browser toolbar work, with JavaScript or without. The render host and
-     the runtimes mark `<html>` while an element is the page's scroller. */
+     the runtimes mark `<html>` while an element is the page's scroller; one
+     in a hidden route (`data-exact-offpage`) scrolls inside its bound. */
   html[data-scrolldocument] {
     & body { height: auto; min-height: 100%; }
     & #exact-root { height: auto; }
-    & [data-scrolldocument="true"] { overflow: visible !important; height: auto !important; max-height: none !important; }
+    & [data-scrolldocument="true"]:not([data-exact-offpage]) { overflow: visible !important; height: auto !important; max-height: none !important; }
   }
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */

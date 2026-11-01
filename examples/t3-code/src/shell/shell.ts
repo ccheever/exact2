@@ -20,7 +20,8 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import type { Files, Native } from '../client/protocol';
 import { shortcutInput } from '../settings/keybinding-settings';
 import { shortcutLabel } from '../settings/keybinding-view';
-import { snoozePresets } from '../sidebar/sidebar-presentation';
+import { snoozePresets, snoozePresetSettings } from '../sidebar/sidebar-presentation';
+import { canTurnIntoProject } from '../sidebar/sidebar-menu';
 import { canSnooze, effectiveSnoozed } from '../sidebar/sidebar-model';
 import { diffNotGit } from '../diff/diff';
 import { threadNotifications, notifyStatus, notificationSounds, notificationsWaiting, reportWindowFacts, type NotifyStatus } from './shell-notify';
@@ -30,6 +31,7 @@ import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
 import { availability, panelView, surfaceStore } from '../panel/panel-surfaces'; // the tabbed Files / Linked pull requests / Device surfaces
+import { sideChatSurfaceRows } from '../panel/side-chat'; // the launcher's Side chat row
 import { syncRightPanels } from '../panel/saved-panel'; // the right panels persist across launches
 import { revealWaiting } from '../panel/files-crumbs-mount'; // a Files reveal still missing a folder retries
 import { gitTicking } from '../details/git-actions'; // a running action's clock
@@ -193,6 +195,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
     row('device', 'Device', 'smartphone', 'M', can.device, 'Available from a thread.'),
+    ...sideChatSurfaceRows(client), // Side chat (S), where side chats are offered (side-chat.ts)
   ];
 }
 
@@ -213,6 +216,8 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
   const items: ShellMenuItem[] = [];
+  // ChatView offers Find in thread where the server can search (threadFindEnabled); it opens the find bar as ⌘F does.
+  if (client.config.threadFind === true) items.push(item('find', 'Find in thread', 'text-search', 'chatlocal:find-open', ''));
   if (branch) items.push(item('new-thread-on-branch', `New thread on ${branch}`, 'message-square-plus', 'ui:new-thread', client.projectId));
   const prefs = client.local.clientSettings, title = str(thread.title);
   if (caps.threadPinning === true) items.push(thread.pinnedAt ? confirmable(item('unpin', 'Unpin thread', 'pin-off', 'shell:unpin', id), prefs.confirmThreadUnpin === true, `Unpin thread "${title}"?`, 'This will move the thread out of your pinned section.') : item('pin', 'Pin thread', 'pin', 'shell:pin', id));
@@ -220,15 +225,17 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   if (caps.threadSnooze === true) {
     if (snoozed) items.push(item('unsnooze', 'Wake thread', 'clock', 'chat:unsnooze', id));
     else {
-      const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
+      // The environment's own options; a choice carries the wake it showed (chat-commands.ts picks it as Sidebar.snooze.ts does).
+      const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat, snoozePresetSettings(client.config));
       items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: !canSnooze(thread, now) });
-      for (const preset of presets) items.push({ ...item(`snooze:${preset.id}`, `${preset.label} (${preset.wakeLabel})`, '', 'chat:snooze', id, preset.until), submenu: 'snooze' });
-      items.push({ ...item('snooze:custom', 'Custom…', '', 'ui:custom-snooze', id), submenu: 'snooze', separated: true });
+      for (const preset of presets) items.push({ ...item(`snooze:${preset.id}`, `${preset.label} (${preset.wakeLabel})`, '', 'chat:snooze', id, `${preset.id}|${preset.until}`), submenu: 'snooze' });
+      items.push({ ...item('snooze:custom', 'Custom…', '', 'ui:custom-snooze', id), submenu: 'snooze', separated: presets.length > 0 });
     }
   }
   items.push({ ...item('rename', 'Rename thread', 'pencil', 'ui:rename', id), separated: true });
   if (caps.threadTitleRegeneration === true) items.push({ ...item('regenerate-title', regenerating ? 'Regenerating…' : 'Regenerate title', 'refresh', 'shell:regenerate-title', id), disabled: regenerating });
   items.push(item('mark-unread', 'Mark unread', 'mail-open', 'shell:mark-unread', id));
+  if (canTurnIntoProject(client, thread)) items.push({ ...item('turn-into-project', 'Turn into project', 'folder-plus', 'sidebar:turn-into-project', id), disabled: running });
   if (caps.threadAutoSettleOptOut === true) {
     items.push(item('auto-settle', 'Auto-settle behavior', 'timer', 'ui:submenu', 'auto-settle'));
     items.push({ ...item('auto-settle:enabled', 'Enabled', '', 'shell:auto-settle', id, 'true'), submenu: 'auto-settle', checked: autoSettle });
@@ -237,6 +244,7 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   items.push({ ...item('copy', 'Copy', 'copy', 'ui:submenu', 'copy'), separated: true });
   items.push({ ...item('copy-path', 'Path', 'folder', 'shelllocal:copy-path', id), submenu: 'copy' });
   if (branch) items.push({ ...item('copy-branch', 'Branch', 'git-branch', 'shelllocal:copy-branch', id), submenu: 'copy' });
+  items.push({ ...item('copy-thread', 'Thread', 'message-square', 'sidebar:copy-thread', id), submenu: 'copy' });
   items.push({ ...item('copy-thread-id', 'Thread ID', 'hash', 'shelllocal:copy-thread-id', id), submenu: 'copy' });
   items.push(item('project-settings', 'Project settings', 'settings', 'ui:project-settings', str(thread.projectId)));
   items.push({ ...confirmable(item('archive', 'Archive thread', 'archive', 'shell:archive', id), prefs.confirmThreadArchive === true, `Archive thread "${title}"?`, ''), disabled: running, separated: true });
@@ -285,7 +293,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     await reportWindowFacts(client, native, page.visible, page.focused);
     noteAutomationWindow(client, page.focused && page.visible); // browser-automation.ts: previewAutomation.focusHost's `focused`
     reportBrowserProfiles(client, native); // browser-profile-report.ts: server browsers keep this client's profiles and frame rate
-    updateEverythingPass(client, native, now);
+    updateEverythingPass(client, now);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await coordinateGuides(client, native, state.status, now);
     await threadNotifications(client, state.status, undefined, now); // every connected environment: the focus and the fleet (shell-notify.ts)

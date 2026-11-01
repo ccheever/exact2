@@ -95,10 +95,20 @@ function resolvedDefault(rule: { key: string; command: string; when?: string }):
 }
 /** A row's unsaved draft while another row is edited (settings-keybindings.contract KeybindingDraft). */
 export type HeldDraft = { row: string; command: string; key: string; when: string };
+/**
+ * The edited row's last valid When expression (WhenClauseControl's value: the builder hands up only expressions that
+ * parse). Closing the builder drops an unparsed draft and restores this one, so Save is enabled again.
+ */
+const lastValidWhen = { row: '', when: '' };
+export function keptWhen(draftRow: string, draftWhen: string, valid: boolean): string {
+  if (lastValidWhen.row !== draftRow) Object.assign(lastValidWhen, { row: draftRow, when: valid ? draftWhen : '' });
+  else if (valid) lastValidWhen.when = draftWhen;
+  return lastValidWhen.when;
+}
 export async function keybindingSettings(client: T3Client, native: Native | null | undefined, environmentId: string, query: string, active: boolean, draftRow = '', draftKey = '', draftWhen = '', draftCommand = '', drafts: HeldDraft[] = []) {
   const empty = { available: false, writable: false, notice: '', error: '', path: '', rows: [] as KeybindingRowView[], ids: [] as string[], groups: [] as KeybindingGroup[],
     commands: [] as { value: string; label: string; selected: boolean }[], draftConflict: '', draftValid: true, draftCommandLabel: '', draftKeyLabel: '',
-    held: [] as { row: string; conflict: string; valid: boolean; commandLabel: string }[], whenView: whenEditor(draftWhen) };
+    held: [] as { row: string; conflict: string; valid: boolean; commandLabel: string }[], whenView: { ...whenEditor(draftWhen), fallback: '' } };
   if (!active) return empty;
   try {
     // KeybindingsSettings.tsx: the representative environment's serverConfig (server.getConfig at connect, then
@@ -109,7 +119,8 @@ export async function keybindingSettings(client: T3Client, native: Native | null
     const config = connected ? client.config : {}, bindings = connected ? arr(config.keybindings) : keybindingDefaults.map(resolvedDefault);
     const writable = connected && can(client, 'settings:write');
     const listed = buildRows(bindings, ''), all = listed.map(row => ({ ...row, when: row.condition })), rows = query.trim() ? buildRows(bindings, query) : listed;
-    const when = whenEditor(draftWhen);
+    const when = { ...whenEditor(draftWhen), fallback: '' };
+    when.fallback = keptWhen(draftRow, draftWhen, !when.error);
     const draftKeyValue = draftKey.trim(), draftWhenValue = when.error ? '' : printWhen(parseWhen(draftWhen.trim()) || undefined);
     const conflict = draftRow || draftCommand ? conflictText(conflictLabels(all, { id: draftRow || 'new', key: draftKeyValue, when: draftWhenValue })) : '';
     // Each held draft reads as the edited one does (each row's own editor in the reference).

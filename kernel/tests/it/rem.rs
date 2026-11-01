@@ -279,3 +279,98 @@ fn continuation_resolves_inherited_em_before_the_next_phase() {
     assert_eq!(kernel.epoch(), epoch);
     assert_eq!(kernel.finish_document_commit().unwrap().epoch, epoch + 1);
 }
+
+/// A `rem` inside a calculation or a grid track is the root font size's at
+/// layout, and a new root size reaches it (CSS Values 4 §6.1.2). In a 400 px
+/// column: `repeat(auto-fill, minmax(8rem, 1fr))` holds three 133.33 px
+/// tracks at 16 px and two 200 px ones at 20; the responsive-columns form,
+/// `minmax(min(100%, 12rem), 1fr)`, two 200 px tracks at 16 and one 400 px
+/// at 20 (12rem is 240, more than half); `width: min(100%, 20rem)` is 320
+/// px, then 400.
+#[test]
+fn rem_in_a_calculation_or_a_grid_track_follows_the_root_size() {
+    let mut kernel = Kernel::with_monospace();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: style(&[(StyleId::Width, "400")]),
+        },
+    ];
+    let grids = [
+        (2, "repeat(auto-fill, minmax(8rem, 1fr))"),
+        (3, "repeat(auto-fill, minmax(min(100%, 12rem), 1fr))"),
+    ];
+    for (id, tracks) in grids {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+        ops.push(Op::SetStyle {
+            id,
+            patch: style(&[
+                (StyleId::Display, "grid"),
+                (StyleId::GridTemplateColumns, tracks),
+            ]),
+        });
+        let cells: Vec<u32> = (0..3).map(|i| id * 10 + i).collect();
+        for &cell in &cells {
+            ops.push(Op::CreateView {
+                id: cell,
+                node_type: NodeType::View,
+            });
+            ops.push(Op::SetStyle {
+                id: cell,
+                patch: style(&[(StyleId::Height, "10")]),
+            });
+        }
+        ops.push(Op::SetChildren {
+            id,
+            children: cells,
+        });
+    }
+    ops.extend([
+        Op::CreateView {
+            id: 4,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 4,
+            patch: style(&[(StyleId::Width, "min(100%, 20rem)"), (StyleId::Height, "1")]),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    kernel.apply(0, 1, &ops).unwrap();
+    let measure = |kernel: &mut Kernel| {
+        kernel
+            .compute_layout(1, Offer::definite(400.0, 844.0))
+            .unwrap();
+        let f = |id| kernel.node(id).unwrap().frame;
+        (
+            [f(20).width, f(21).x, f(22).y],
+            [f(30).width, f(31).y - f(3).y, f(3).height],
+            f(4).width,
+        )
+    };
+    let third = 400.0 / 3.0;
+    assert_eq!(
+        measure(&mut kernel),
+        ([third, third, 0.0], [200.0, 0.0, 20.0], 320.0),
+        "at 16 px"
+    );
+    kernel.set_root_font_size(20.0).unwrap();
+    let receipt = kernel.apply(0, 2, &[]).unwrap();
+    assert!(receipt.layout_invalidated);
+    assert_eq!(
+        measure(&mut kernel),
+        ([200.0, 200.0, 10.0], [400.0, 10.0, 30.0], 400.0),
+        "at 20 px"
+    );
+}

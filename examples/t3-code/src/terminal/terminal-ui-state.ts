@@ -1,4 +1,4 @@
-// Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminalUiStateStore.ts).
+// Copied from T3 Code 2359643cff (MIT reference, see LICENSE-T3: apps/web/src/terminalUiStateStore.ts).
 // Changes from the reference:
 // - Zustand's `create` + `persist` is the small `createStore` below with the same `getState`,
 //   `setState`, `subscribe` and `persist.clearStorage` surface; `set` keeps zustand's rule (an
@@ -460,9 +460,15 @@ function closeThreadTerminal(
   }
 
   const closedTerminalIndex = normalized.terminalIds.indexOf(terminalId);
+  const groupTerminalIds =
+    normalized.terminalGroups.find((group) => group.terminalIds.includes(terminalId))
+      ?.terminalIds ?? [];
+  const groupIndex = groupTerminalIds.indexOf(terminalId);
   const nextActiveTerminalId =
     normalized.activeTerminalId === terminalId
-      ? (remainingTerminalIds[Math.min(closedTerminalIndex, remainingTerminalIds.length - 1)] ??
+      ? (groupTerminalIds[groupIndex + 1] ??
+        groupTerminalIds[groupIndex - 1] ??
+        remainingTerminalIds[Math.min(closedTerminalIndex, remainingTerminalIds.length - 1)] ??
         remainingTerminalIds[0] ??
         "")
       : normalized.activeTerminalId;

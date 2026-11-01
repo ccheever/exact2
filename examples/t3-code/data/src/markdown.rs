@@ -16,6 +16,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "activityInteraction",
             "activityResumed",
             "snapshot",
+            "sideChatData",
             "snapshotSettings",
             "modelCatalog",
             "settings",
@@ -40,6 +41,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             // A draft image's upload, a stream that tells its bytes sent (src/composer/composer-uploads.ts).
             "composerUpload",
             "composerField",
+            "composerFieldWaiting",
             "composerFieldObserved",
             "composerFieldAcknowledged",
             "composerIntent",
@@ -94,6 +96,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "threadFind",
             "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
+            "navigationHistory", // the window's Back and Forward (sidebar-history.ts)
             "prList",
             "prDetail",
             "welcome",
@@ -161,6 +164,7 @@ impl DataSource for Markdown {
                 && kind != "workflow"
                 && kind != "plan"
                 && kind != "user"
+                && kind != "breaks"
                 && kind != "file"
                 && kind != "attachment"
                 && kind != "notebook"
@@ -202,6 +206,15 @@ impl DataSource for Markdown {
                 documents.push(user_document(id.clone(), &line_breaks(text), args.get(1)));
                 continue;
             }
+            // PullRequestMarkdown on a host whose own rendering breaks single newlines (`hardLineBreaks`).
+            if kind == "breaks" {
+                documents.push(document_with_skills(
+                    id.clone(),
+                    &line_breaks(text),
+                    args.get(1),
+                ));
+                continue;
+            }
             // A long plan carries its collapsed preview after U+0001 (timeline-plan.ts).
             let (shown, preview) = match text.split_once('\u{1}') {
                 Some((shown, preview)) if kind == "plan" => (shown, Some(preview)),
@@ -230,6 +243,7 @@ include!("markdown_headings.rs");
 include!("markdown_runs.rs");
 include!("markdown_direction.rs");
 include!("markdown_math.rs");
+include!("markdown_breaks.rs");
 include!("markdown_inert.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
@@ -348,56 +362,6 @@ fn chat_run(value: Value, link_start: bool) -> Value {
     fields.push(Value::str(kind));
     fields.push(Value::str(icon));
     Value::record(fields)
-}
-/// A private-use mark (never whitespace, so the parser's line trim keeps it).
-const LINE_BREAK: &str = "\u{e000}";
-
-/// Marks each single newline between two lines of prose (outside fences) so
-/// the paragraph keeps it as a line break.
-fn line_breaks(text: &str) -> String {
-    let lines: Vec<&str> = text.split('\n').collect();
-    // A pipe line outside a table is prose (remark-breaks keeps its newline).
-    let tables = table_lines(&lines);
-    let prose = |index: usize| {
-        prose_line(lines[index]) || (lines[index].trim().starts_with('|') && !tables[index])
-    };
-    let mut out = String::new();
-    let mut fenced = false;
-    for (index, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            fenced = !fenced;
-        }
-        out.push_str(line);
-        if index + 1 < lines.len() {
-            if !fenced && prose(index) && prose(index + 1) {
-                out.push_str(LINE_BREAK);
-            }
-            out.push('\n');
-        }
-    }
-    out
-}
-/// A line that continues a paragraph rather than starting another block.
-fn prose_line(line: &str) -> bool {
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let ordered = trimmed.split_once(['.', ')']).is_some_and(|(digits, _)| {
-        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
-    });
-    !(trimmed.starts_with('#')
-        || trimmed.starts_with('|')
-        || trimmed.starts_with('>')
-        || trimmed.starts_with("```")
-        || trimmed.starts_with("~~~")
-        || trimmed.starts_with("- ")
-        || trimmed.starts_with("* ")
-        || trimmed.starts_with("+ ")
-        || ordered
-        || trimmed == "---"
-        || trimmed == "***")
 }
 fn context_kind(kind: &str) -> &'static str {
     match kind {
@@ -1410,6 +1374,43 @@ mod tests {
             line_breaks("# Title\nText\n| a |\n|---|"),
             "# Title\nText\n| a |\n|---|"
         );
+    }
+
+    #[test]
+    fn pull_request_text_breaks_single_newlines_only_where_its_host_does() {
+        let body = |id: &str, kind: &str| {
+            Value::record(vec![
+                Value::str(id),
+                Value::str(kind),
+                Value::str(""),
+                Value::str("first line\nsecond line"),
+            ])
+        };
+        let Value::Record(result) = Markdown
+            .query(
+                "renderPullRequestMarkdown",
+                &[Value::list(vec![
+                    body("github", "breaks"),
+                    body("gitlab", "assistant"),
+                ])],
+            )
+            .unwrap()
+        else {
+            panic!("document record")
+        };
+        let Value::List(documents) = &result[0] else {
+            panic!("document list")
+        };
+        let blocks = |at: usize| {
+            let Value::Record(document) = &documents[at] else {
+                panic!("document")
+            };
+            let Value::List(blocks) = &document[1] else {
+                panic!("blocks")
+            };
+            blocks.len()
+        };
+        assert_eq!((blocks(0), blocks(1)), (2, 1));
     }
 
     #[test]

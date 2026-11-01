@@ -1,9 +1,9 @@
 // What a previewed file is (MIT reference, see LICENSE-T3: packages/shared/src/filePreview.ts with the parts of
 // mediaPreview.ts and video.ts it reads, delimitedPreview.ts filePreviewDelimiter, markdownFrontmatter.ts, and
 // components/files/filePreviewMode.ts isMarkdownPreviewFile and FilePreviewPanel.tsx's Mermaid and document tests;
-// T3 Code 7c3b3b3605ef). A sent attachment is classified by its MIME type, then its name; a workspace file by its literal
-// path, never a URL's query or fragment.
-import { videoMimeType } from '../composer/composer-video';
+// T3 Code 7c3b3b3605ef, filePreviewKind at 2359643cff). A sent attachment is classified by its MIME type, then its
+// name; a workspace file by its literal path, never a URL's query or fragment.
+import { GENERIC_MIME_TYPES, videoMimeType } from '../composer/composer-video';
 
 export type FilePreviewKind = 'image' | 'video' | 'audio' | 'pdf' | 'html' | 'markdown' | 'mermaid' | 'font' | 'archive' | 'sqlite'
   | 'docx' | 'xlsx' | 'pptx' | 'odt' | 'ods' | 'odp' | 'rtf' | 'epub' | 'ipynb' | 'text' | 'unsupported';
@@ -78,7 +78,8 @@ const TEXT_NAMES = /^(dockerfile|makefile|gemfile|rakefile|license|readme|\.giti
  *  Mermaid, fonts and documents out, as a surface without their viewers asks). */
 export function filePreviewKind(file: FileLike, options?: { readonly richDocuments?: boolean }): FilePreviewKind {
   const mime = mimeOf(file), name = file.name.toLowerCase(), extension = name.slice(name.lastIndexOf('.'));
-  const generic = !mime || mime === 'application/octet-stream' || mime === 'text/plain';
+  // macOS and Windows label TypeScript `.ts` files as MPEG transport streams (GENERIC_MIME_TYPES): the name decides.
+  const generic = !mime || GENERIC_MIME_TYPES.has(mime) || mime === 'text/plain';
   const richDocuments = options?.richDocuments !== false;
   const office = richDocuments ? officePreviewKind(file) : null;
   if (office) return office;
@@ -92,7 +93,7 @@ export function filePreviewKind(file: FileLike, options?: { readonly richDocumen
   // Linux's MIME database also assigns .otf to OpenDocument formula templates; the font check validates the bytes.
   if (richDocuments && extension === '.otf' && mime === 'application/vnd.oasis.opendocument.formula-template') return 'font';
   if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('video/') && !generic) return 'video';
   if (mime.startsWith('audio/')) return 'audio';
   if (generic) {
     if (extension === '.pdf') return 'pdf';

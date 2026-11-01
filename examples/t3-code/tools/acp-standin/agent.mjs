@@ -32,6 +32,13 @@
 //                                   replies with Markdown (MARKDOWN_SAMPLE): a Mermaid flowchart in one chunk, then,
 //                                   n seconds later (0 by default), a sequence diagram, a table and two display
 //                                   formulas, so a drive sees a closed fence drawn while the reply streams
+//   "Show the italic sample"        replies with emphasis (ITALIC_SAMPLE), so a font's italic face is drawn
+//   "Hold the turn"                 streams "Holding the turn." and keeps the turn running until `install.mjs
+//                                   release` writes `release` beside this file, or the server cancels the turn
+//                                   (`session/cancel`, as a steer or Stop does), then replies or stops "cancelled"
+//   "Which effort?"                 replies with the session's reasoning effort, so a drive reads back the choice
+// Each session advertises a reasoning effort select (`configOptions`, category `thought_level`; EFFORT), which the
+// server lists as the model's effort option and sets with `session/set_config_option`.
 // After `session/new` and `session/load` it advertises one skill, `$frontend-design`
 // (`available_commands_update`; T3 lists a `$` command as a skill), so the composer's `$` menu can
 // insert a skill chip.
@@ -45,7 +52,7 @@
 //   logout      whether it advertises sign-out (agentCapabilities.auth.logout)
 //
 // The terminal login (`--fixture-login`) prints a line, waits for Return and signs in.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -65,6 +72,12 @@ export const MARKDOWN_SAMPLE = [
     + "The energy of a body at rest:\n\n$$\nE = mc^2\n$$\n\nThe sum of the first n integers:\n\n\\[\n\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}\n\\]\n",
 ];
 
+/** "Show the italic sample": emphasis with both markers, in prose and in a list. */
+export const ITALIC_SAMPLE = "Italic in an answer: *the notes stay in one place*, and _each plan has an owner_.\n\n- A list item with *emphasis*\n- **Bold and *italic* together**\n";
+/** The reasoning effort select each session advertises: three levels drawn as bars, and Max, which is named. */
+export const EFFORT = { id: "reasoning_effort", name: "Reasoning effort", description: "How long the stand-in thinks", category: "thought_level", type: "select",
+  currentValue: "medium", options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }, { value: "high", name: "High" }, { value: "max", name: "Max" }] };
+
 if (process.argv.includes("--fixture-login")) {
   process.stdout.write("Fixture sign-in for the ACP stand-in (no account, nothing is sent anywhere).\nPress Return to finish: ");
   createInterface({ input: process.stdin }).once("line", () => { setSignedIn(true); process.stdout.write("Signed in.\n"); process.exit(0); });
@@ -80,6 +93,10 @@ if (process.argv.includes("--fixture-login")) {
   // After the reply, as an agent's advertisement follows the session it is for.
   const advertise = (sessionId) => setTimeout(() => update(sessionId, { sessionUpdate: "available_commands_update", availableCommands: COMMANDS }), 0);
   const sessions = new Map(); // session id → its directory (session/new's and session/load's `cwd`)
+  const efforts = new Map(); // session id → its reasoning effort
+  const cancelled = new Set(); // sessions whose running turn the server cancelled
+  const configOptions = (sessionId) => [{ ...EFFORT, currentValue: efforts.get(sessionId) ?? EFFORT.currentValue }];
+  const releaseFile = join(here, "release");
   const asked = new Map(); // id of a request to the client → its reply's resolver
   const request = (method, params) => new Promise((resolve) => { const id = `standin-${asked.size + 1}-${Date.now()}`; asked.set(id, resolve); send({ id, method, params }); });
   const editNotes = (cwd) => {
@@ -110,13 +127,18 @@ if (process.argv.includes("--fixture-login")) {
       const sessionId = `standin-${Date.now()}`;
       if (typeof cwd === "string") sessions.set(sessionId, cwd);
       advertise(sessionId);
-      return { sessionId };
+      return { sessionId, configOptions: configOptions(sessionId) };
     },
     "session/load": ({ sessionId, cwd }) => {
       if (methods.length > 0 && !signedIn()) throw authRequired;
       if (typeof cwd === "string") sessions.set(sessionId, cwd);
       advertise(sessionId);
-      return {};
+      return { configOptions: configOptions(sessionId) };
+    },
+    "session/set_config_option": ({ sessionId, configId, value }) => {
+      if (configId !== EFFORT.id || !EFFORT.options.some((option) => option.value === value)) throw { code: -32602, message: `Unknown option ${configId}=${value}` };
+      efforts.set(sessionId, value);
+      return { configOptions: configOptions(sessionId) };
     },
     "session/prompt": async ({ sessionId, prompt }) => {
       if (methods.length > 0 && !signedIn()) throw authRequired;
@@ -171,6 +193,18 @@ if (process.argv.includes("--fixture-login")) {
         update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: MARKDOWN_SAMPLE[0] } });
         await Bun.sleep(Number(seconds ?? 0) * 1000);
         text = MARKDOWN_SAMPLE[1];
+      } else if (/^show the italic sample/i.test(first)) {
+        text = ITALIC_SAMPLE;
+      } else if (/^which effort\?/i.test(first)) {
+        text = `Stand-in reply: effort ${efforts.get(sessionId) ?? EFFORT.currentValue}`;
+      } else if (/^hold the turn/i.test(first)) {
+        update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Holding the turn.\n\n" } });
+        cancelled.delete(sessionId);
+        rmSync(releaseFile, { force: true }); // a release left from an earlier hold is not this one's
+        while (!existsSync(releaseFile) && !cancelled.has(sessionId)) await Bun.sleep(200);
+        if (cancelled.delete(sessionId)) return { stopReason: "cancelled" };
+        rmSync(releaseFile, { force: true });
+        text = "Stand-in reply: released";
       } else if (/^fail the turn/i.test(first)) {
         throw { code: -32603, message: JSON.stringify({ error: { message: "The stand-in could not finish this turn.", code: "fixture_failure", status: 500 } }) };
       } else if (cwd && /^write \d+ notes?\b/i.test(first)) {
@@ -195,6 +229,7 @@ if (process.argv.includes("--fixture-login")) {
     let message;
     try { message = JSON.parse(line); } catch { return; }
     if (message.id !== undefined && typeof message.method !== "string") { asked.get(message.id)?.(message); asked.delete(message.id); return; } // a reply to the stand-in's request
+    if (message.method === "session/cancel") { cancelled.add(message.params?.sessionId); return; }
     if (message.id === undefined || typeof message.method !== "string") return; // notifications
     const handler = handlers[message.method];
     if (!handler) return send({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } });

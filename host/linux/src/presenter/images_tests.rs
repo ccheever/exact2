@@ -90,6 +90,13 @@ fn a_hidden_pictures_failed_download_is_asked_again_only_once_it_shows() {
 
 /// A server answering every request with a 400 by 400 PNG, counting them; its origin.
 fn picture_server(asked: Arc<AtomicUsize>) -> String {
+    picture_server_gated(asked, None)
+}
+
+fn picture_server_gated(
+    asked: Arc<AtomicUsize>,
+    mut gate: Option<std::sync::mpsc::Receiver<()>>,
+) -> String {
     let mut body = Vec::new();
     let mut encoder = png::Encoder::new(&mut body, 400, 400);
     encoder.set_color(png::ColorType::Rgba);
@@ -108,6 +115,11 @@ fn picture_server(asked: Arc<AtomicUsize>) -> String {
             while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
                 line.clear();
             }
+            if let Some(gate) = gate.take() {
+                if gate.recv().is_err() {
+                    return;
+                }
+            }
             let head = format!(
                 "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 body.len()
@@ -117,6 +129,37 @@ fn picture_server(asked: Arc<AtomicUsize>) -> String {
         }
     });
     origin
+}
+
+#[test]
+fn a_landed_picture_owes_one_paint_and_no_idle_deadline() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let origin = picture_server_gated(Arc::new(AtomicUsize::new(0)), Some(gate));
+    let source =
+        format!("component App\n  view\n    image \"{origin}/paint.png\" width=20 height=20\n");
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(&source),
+        (),
+        (40., 40.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.frame();
+    assert!(!p.pictures_need_paint());
+    release.send(()).unwrap();
+    assert!(p.wait_images(Duration::from_secs(30)));
+    assert!(p.pictures_need_paint());
+    assert!(p.dirty());
+    let pixels = p.frame();
+    assert_eq!(pixels.pixel(10, 10).unwrap().blue(), 200);
+    assert!(!p.pictures_need_paint());
+    assert!(!p.dirty());
+    assert!(!p.poll_images(), "no duplicate arrival");
+    assert!(!p.pictures_need_paint());
+    assert_eq!(p.wake_due_ms(), None, "no new idle wake");
 }
 
 #[test]

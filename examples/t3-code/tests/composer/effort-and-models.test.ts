@@ -27,11 +27,12 @@ describe('effort keys', () => {
     expect(reasoningStep({ ...base, reported: { instanceId: 'codex', model: 'a', options: [{ id: 'reasoningEffort', value: 'default' }] } })?.option?.value).toBe('high');
     expect(reasoningStep({ ...base, models: [{ slug: 'a' }] })).toBeNull();
   });
-  test('Ultrathink adds and removes the prefix with the caret, skips slash commands and locks body text', () => {
+  test('the step never lands on Ultrathink; a typed one keeps its place and leaves with the caret; body text locks', () => {
     const ultra = { ...effort, promptInjectedValues: ['ultrathink'], options: [...effort.options, { id: 'ultrathink', label: 'Ultrathink' }] };
     const input = { ...base, driver: 'claudeAgent', models: [{ slug: 'a', capabilities: { optionDescriptors: [ultra] } }], options: [{ id: 'reasoningEffort', value: 'high' }], cursor: 6 };
-    expect(composerReasoningStep(input)).toEqual({ prompt: 'Ultrathink:\nRead this', cursor: 18 });
+    expect(composerReasoningStep(input)).toEqual({ prompt: 'Read this', cursor: 6, option: { id: 'reasoningEffort', value: 'low' } });
     expect(composerReasoningStep({ ...input, prompt: 'Ultrathink:\nRead this', cursor: 18 })).toEqual({ prompt: 'Read this', cursor: 6, option: { id: 'reasoningEffort', value: 'low' } });
+    expect(composerReasoningStep({ ...input, prompt: 'Ultrathink:\nRead this', cursor: 18, direction: -1 })).toEqual({ prompt: 'Read this', cursor: 6, option: { id: 'reasoningEffort', value: 'high' } });
     expect(reasoningStep({ ...input, prompt: '/help' })).toEqual({ prompt: '/help', option: { id: 'reasoningEffort', value: 'low' } });
     expect(reasoningStep({ ...input, prompt: 'Please ultrathink about this' })).toBeNull();
   });
@@ -40,18 +41,19 @@ describe('effort keys', () => {
     const ultra = { ...effort, promptInjectedValues: ['ultrathink'], options: [...effort.options, { id: 'ultrathink', label: 'Ultrathink' }] };
     client.config.providers = [{ ...provider('codex'), models: [{ slug: 'model-a', capabilities: { optionDescriptors: [ultra] } }] }];
     client.modelOptions = [{ id: 'reasoningEffort', value: 'high' }];
-    client.local.drafts[client.draftKey] = 'Read this';
-    const later = native.later.bind(native), edits: unknown[] = [];
+    client.local.drafts[client.draftKey] = 'Ultrathink:\nRead this';
+    const later = native.later.bind(native), edits: unknown[] = [], stored: string[] = [];
     let apply = true;
     native.later = async input => {
       const request = obj(input);
-      if (request.op === 'editorState') return native.ok({ text: 'Read this', caret: 6 });
+      if (request.op === 'editorState') return native.ok({ text: 'Ultrathink:\nRead this', caret: 18 });
       if (request.op === 'editorEdit') { edits.push(request); if (apply) client.local.drafts[client.draftKey] = String(request.text); return native.ok({ applied: apply }); }
       return later(input);
     };
-    await stepReasoningEffort(client, native, 1, async () => {});
-    expect(edits[0]).toMatchObject({ expect: 'Read this', text: 'Ultrathink:\nRead this', caret: 18 });
-    expect(client.draft).toBe('Ultrathink:\nRead this');
+    await stepReasoningEffort(client, native, 1, async (id, value) => { stored.push(`${id}=${value}`); });
+    expect(edits[0]).toMatchObject({ expect: 'Ultrathink:\nRead this', text: 'Read this', caret: 6 });
+    expect(client.draft).toBe('Read this');
+    expect(stored).toEqual(['reasoningEffort=low']);
     apply = false;
     client.local.drafts[client.draftKey] = 'Read this plus new typing';
     await stepReasoningEffort(client, native, 1, async () => {});

@@ -150,8 +150,8 @@ export function groupToolPresentation(items: Obj[]): { toolIcon?: Obj; toolSurfa
 
 // ---- V2ItemInspector's search results and file changes ----
 export interface InspectorResult { id: string; kind: 'file' | 'web' | 'change'; label: string; href: string; preview: string }
-export interface InspectorExtras { results: InspectorResult[]; changePath: string; stats: boolean; additions: number; deletions: number; diffRunId: string; diffPath: string }
-export const NO_INSPECTOR_EXTRAS: InspectorExtras = { results: [], changePath: '', stats: false, additions: 0, deletions: 0, diffRunId: '', diffPath: '' };
+export interface InspectorExtras { results: InspectorResult[]; changePath: string; stats: boolean; additions: number; deletions: number }
+export const NO_INSPECTOR_EXTRAS: InspectorExtras = { results: [], changePath: '', stats: false, additions: 0, deletions: 0 };
 
 /** resolveExternalWebLinkHref: an http(s) URL (a scheme-relative one as https), else ''. */
 export function externalWebLinkHref(href: unknown): string {
@@ -165,8 +165,8 @@ export function externalWebLinkHref(href: unknown): string {
 /**
  * The inspector's structured parts. `relative` formats a path as filePathDisplay does. file_search:
  * each result's path, line and column over its preview. web_search: each result's title as a link
- * (with the external-link mark) over its snippet. file_change: the path, its +/- counts, Open diff
- * when the change belongs to a run, and each change of a multi-file edit.
+ * (with the external-link mark) over its snippet. file_change: the path, its +/- counts and each change
+ * of a multi-file edit.
  */
 export function inspectorExtras(item: Obj, relative: (path: string) => string): InspectorExtras {
   switch (item.type) {
@@ -181,7 +181,6 @@ export function inspectorExtras(item: Obj, relative: (path: string) => string): 
       const fileName = str(item.fileName);
       return { ...NO_INSPECTOR_EXTRAS, changePath: relative(fileName),
         stats: item.additions !== undefined || item.deletions !== undefined, additions: num(item.additions), deletions: num(item.deletions),
-        diffRunId: str(item.runId), diffPath: fileName,
         results: arr(item.changes).map((change, index) => {
           const types = [str(change.fileType), str(change.mimeType)].filter(Boolean);
           return { id: `${index}`, kind: 'change', href: '', preview: '',

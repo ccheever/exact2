@@ -227,6 +227,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }
     /// What `setAccessibilityHidden` last wrote (`Accessibility.swift`).
     var accessibilityHiddenWritten = false
+    var webArea: DialogWebArea? // served above it while it is a dialog drawn in the page (`dialogWebArea`)
     package var inert: Bool { inert(forAccessibility: false) }
     var accessibilityInert: Bool { inert(forAccessibility: true) }
     /// Inert by an `inert` attribute or a route behind a presentation, not by
@@ -417,9 +418,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard let presenter, presenter.macModalAccessibilityChildren?.contains(where: { $0 === self }) == true else { return nil }
         return presenter.viewport
     }
-    package override func accessibilityParent() -> Any? {
-        modalAccessibilityParent ?? super.accessibilityParent()
-    }
+    /// The parent the page's tree serves it in; a dialog's web area stands between (`dialogWebArea`).
+    var pageAccessibilityParent: Any? { modalAccessibilityParent ?? withoutWebArea { super.accessibilityParent() } }
+    package override func accessibilityParent() -> Any? { dialogWebArea ?? pageAccessibilityParent }
     /// A control's descendants with a role of their own, as the web keeps
     /// them: Chrome's `<button><h2>` is button › heading (X74). Nil when it
     /// holds only text and images, so it stays a leaf read once by its name.
@@ -436,7 +437,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
     }
     package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        if attribute == .parent, let parent = modalAccessibilityParent { return parent }
+        if attribute == .parent, let parent = dialogWebArea ?? modalAccessibilityParent { return parent }
         if attribute.rawValue == "AXLanguage" {
             let language = presenter?.documentLanguage ?? ""
             return language.isEmpty ? nil : language
@@ -463,7 +464,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// and original intrinsic geometry until a matching new backing is accepted.
     func loadImage(_ source: String) {
         let previousSource = imageSource, previousGeneration = loadGeneration
-        imageSource = source
+        imageSource = source; PictureInPictureHost.changed(self)
         loadGeneration += 1
         if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
         clearSymbol(); image = nil
@@ -497,7 +498,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
         raster = nil
-        imageSource = nil
+        imageSource = nil; PictureInPictureHost.gone(self)
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil
@@ -1223,7 +1224,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
             f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
+            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
             f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()

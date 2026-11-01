@@ -119,12 +119,60 @@ pub(super) fn push_style(
     }
     // CSS `tabular-nums` is the chosen face's own `tnum` feature, never a
     // substitute face; a face without it keeps its figures (LLP 1053 G4).
+    // `font-variant-ligatures` turns the face's ligature features on or off
+    // (CSS Fonts 4); HarfRust keeps its defaults for the kinds left unsaid.
+    let mut features = Vec::new();
     if run.font_variant_numeric & 1 != 0 {
+        features.push(parley::FontFeature::new(
+            parley::setting::Tag::new(b"tnum"),
+            1,
+        ));
+    }
+    for (tag, value) in ligature_features(run.font_variant_ligatures) {
+        features.push(parley::FontFeature::new(
+            parley::setting::Tag::new(tag),
+            value,
+        ));
+    }
+    if !features.is_empty() {
         builder.push(
-            StyleProperty::FontFeatures(parley::FontFeatures::from("\"tnum\" 1")),
+            StyleProperty::FontFeatures(parley::FontFeatures::List(features.into())),
             range,
         );
     }
+}
+
+/// The OpenType features `font-variant-ligatures`' bits set, 1 on and 0
+/// off: common ligatures are `liga` and `clig`, discretionary `dlig`,
+/// historical `hlig`, contextual alternates `calt` (CSS Fonts 4).
+fn ligature_features(bits: u8) -> Vec<(&'static [u8; 4], u16)> {
+    use exact_kernel::FontVariantLigatures as L;
+    let kinds: [(L, L, &[&'static [u8; 4]]); 4] = [
+        (
+            L::CommonLigatures,
+            L::NoCommonLigatures,
+            &[b"liga", b"clig"],
+        ),
+        (
+            L::DiscretionaryLigatures,
+            L::NoDiscretionaryLigatures,
+            &[b"dlig"],
+        ),
+        (L::HistoricalLigatures, L::NoHistoricalLigatures, &[b"hlig"]),
+        (L::Contextual, L::NoContextual, &[b"calt"]),
+    ];
+    let mut out = Vec::new();
+    for (on, off, tags) in kinds {
+        let value = if bits & on.keyword_bits() != 0 {
+            1
+        } else if bits & off.keyword_bits() != 0 {
+            0
+        } else {
+            continue;
+        };
+        out.extend(tags.iter().map(|tag| (*tag, value)));
+    }
+    out
 }
 
 /// A hard line: its text and its one shaped layout.

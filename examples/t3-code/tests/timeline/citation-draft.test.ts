@@ -4,6 +4,7 @@ import { T3Client } from '../../src/client/client';
 import { requestPresentation } from '../../src/composer/requests';
 import { value } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
+
 import { clearCitationDraft, noteCitationDraft, preserveCitationDraft, registerCitationDraft } from '../../src/timeline/citation-draft';
 import { parseAssistantCitationHref, serializeAssistantCitation } from '../../src/timeline/diff-citations';
 
@@ -98,7 +99,7 @@ test('the window retires its typed copy after a citation rewrite through a quest
   await composerEditorView(client, null);
   client.projection.runtimeRequests = [];
   const data = { requestKey: requestPresentation(client).requestKey, draft: client.draft };
-  const source = appText('app.contract');
+  const source = await appText('app.contract');
   const expression = /^  derive composerText = (.+)$/m.exec(source)?.[1];
   if (!expression) throw Error('composerText derive missing');
   const shown = value(expression, { draft, draftOwner, composerOwner, data });

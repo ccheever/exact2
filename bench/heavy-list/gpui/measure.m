@@ -48,12 +48,13 @@ static NSDictionary *waitResult(NSString *path, NSTask *app, BOOL startup) {
 
 static NSDictionary *waitFile(NSString *path, NSTask *app) { return waitResult(path, app, NO); }
 
-static void rejectStartup(NSTask *app, NSString *output, NSFileHandle *log) {
+static void rejectStartup(NSTask *app, NSString *output, NSFileHandle *log, BOOL hook) {
     if (app.running) [app terminate];
     [app waitUntilExit];
     appPID = 0;
     NSDictionary *result = @{@"accepted": @NO, @"reason": @"startup readiness failed",
-        @"exit": @(app.terminationStatus), @"pid": @(app.processIdentifier)};
+        @"exit": @(app.terminationStatus), @"pid": @(app.processIdentifier),
+        @"requestedGpuHookEnabled": @(hook)};
     [[NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:NULL]
         writeToFile:output atomically:YES];
     [log closeFile];
@@ -105,12 +106,17 @@ int main(int argc, const char **argv) {
         signal(SIGTERM, interrupted);
         signal(SIGINT, interrupted);
         if (argc < 5 || argc > 8) fail(@"measure <result-dir> <native-executable> <gpui-executable> <exact-wheel> [rounds=5] [first-round=1] [cold-only]; G3_PAINTED_BIN adds ink; G4_EGUI_BIN adds egui; BENCH_MOTION=bar|caret selects ten seconds without input or rest");
+        NSString *hook = NSProcessInfo.processInfo.environment[@"G1_GPU_HOOK"] ?: @"0";
+        if (![@[@"0", @"1"] containsObject:hook]) fail(@"measure: G1_GPU_HOOK must be 0 or 1 (empty is invalid)");
         NSString *motion = NSProcessInfo.processInfo.environment[@"BENCH_MOTION"];
         if (motion && ![@[@"bar", @"caret"] containsObject:motion]) fail(@"BENCH_MOTION must be bar or caret");
         NSString *workload = motion ?: @"fling";
         NSString *ink = NSProcessInfo.processInfo.environment[@"G3_PAINTED_BIN"];
         NSString *egui = NSProcessInfo.processInfo.environment[@"G4_EGUI_BIN"];
         BOOL onlyInk = [NSProcessInfo.processInfo.environment[@"G3_ONLY_INK"] boolValue];
+        NSString *onlyArm = NSProcessInfo.processInfo.environment[@"G1_ONLY_ARM"];
+        if (onlyArm && ![@[@"native", @"gpui", @"ink", @"egui"] containsObject:onlyArm])
+            fail(@"G1_ONLY_ARM must name native, gpui, ink or egui");
         if (onlyInk && !ink.length) fail(@"G3_ONLY_INK needs G3_PAINTED_BIN");
         if (!CGPreflightPostEventAccess()) fail(@"this terminal lacks Accessibility permission for CGEvent.postToPid");
         NSString *directory = [@(argv[1]) stringByStandardizingPath];
@@ -125,15 +131,21 @@ int main(int argc, const char **argv) {
             if (ink.length) [targets addObject:@"ink"];
             if (egui.length) [targets addObject:@"egui"];
             if (onlyInk) targets = [NSMutableArray arrayWithObject:@"ink"];
+            if (onlyArm) {
+                if (![targets containsObject:onlyArm]) fail(@"G1_ONLY_ARM executable missing");
+                targets = [NSMutableArray arrayWithObject:onlyArm];
+            }
             NSMutableArray *arms = [NSMutableArray array];
             for (NSUInteger i = 0; i < targets.count; i++) [arms addObject:targets[(round - 1 + i) % targets.count]];
             for (NSString *arm in arms) {
-              for (int attempt = 0; attempt < 2; attempt++) {
+              // A launch cohort gates each original separately; never substitute a retry.
+              for (int attempt = 0; attempt < (onlyArm ? 1 : 2); attempt++) {
                 NSString *name = [NSString stringWithFormat:@"%@-%d%@", arm, round, attempt ? @"-retry" : @""];
                 NSString *output = [directory stringByAppendingPathComponent:[name stringByAppendingString:@".json"]];
                 if ([files fileExistsAtPath:output] || [files fileExistsAtPath:[output stringByAppendingString:@".ready"]]) fail(@"use a fresh results directory");
                 NSMutableDictionary *env = [NSProcessInfo.processInfo.environment mutableCopy];
                 env[@"G1_OUTPUT"] = output; env[@"G1_ARM"] = arm; env[@"BENCH_LIVE"] = @"0";
+                env[@"G1_GPU_HOOK"] = hook;
                 env[@"EXACT_WINDOW_WIDTH"] = @"800";
                 env[@"EXACT_WINDOW_HEIGHT"] = [arm isEqual:@"ink"] ? @"768" : @"800";
                 [env removeObjectForKey:@"EXACT_AGENT"];
@@ -154,14 +166,14 @@ int main(int argc, const char **argv) {
                 fprintf(stdout, "%s pid=%d\n", name.UTF8String, app.processIdentifier); fflush(stdout);
                 activate(app);
                 if (!waitResult([output stringByAppendingString:@".window"], app, YES)) {
-                    rejectStartup(app, output, log);
+                    rejectStartup(app, output, log, hook.boolValue);
                     continue;
                 }
                 NSMutableArray *checks = [NSMutableArray array];
                 BOOL focused = focus(app, output, checks);
                 NSDictionary *ready = waitResult([output stringByAppendingString:@".ready"], app, YES);
                 if (!ready) {
-                    rejectStartup(app, output, log);
+                    rejectStartup(app, output, log, hook.boolValue);
                     continue;
                 }
                 if (motion && round == first && getenv("G5_CAPTURE") && focused && !lostFocus(output)) {
@@ -204,7 +216,8 @@ int main(int argc, const char **argv) {
                 if (!focused || lostFocus(output)) {
                     NSDictionary *losses = readJSON([output stringByAppendingString:@".focus-losses"]);
                     NSDictionary *rejected = @{@"accepted": @NO, @"reason": @"focus", @"focusChecks": checks,
-                        @"focusLosses": losses[@"events"] ?: @[], @"inputWindows": inputs};
+                        @"focusLosses": losses[@"events"] ?: @[], @"inputWindows": inputs,
+                        @"requestedGpuHookEnabled": @(hook.boolValue)};
                     [[NSJSONSerialization dataWithJSONObject:rejected options:NSJSONWritingPrettyPrinted error:NULL]
                         writeToFile:output atomically:YES];
                     fprintf(stdout, "%s discarded: %s\n", name.UTF8String, [(losses ?: checks.lastObject) description].UTF8String);
@@ -216,6 +229,7 @@ int main(int argc, const char **argv) {
                 }
                 kill(app.processIdentifier, SIGUSR2);
                 NSMutableDictionary *result = [waitFile(output, app) mutableCopy];
+                result[@"requestedGpuHookEnabled"] = @(hook.boolValue);
                 result[@"inputWindows"] = inputs;
                 result[@"focusChecks"] = checks;
                 BOOL accepted = [result[@"activeAtStart"] boolValue] && [result[@"activeAtEnd"] boolValue]

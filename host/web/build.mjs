@@ -5,14 +5,16 @@ import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/
 // what it refuses (a capability the runtime lacks, named) fails the build.
 // Games and `--wasm` use the wasm target. Shipping modules use `web` plus
 // wasm-opt; proofs may select `gpu-dev` without wasm-opt. The host stays `web`.
-// Usage: bun host/web/build.mjs [crate=caltrain-web]
+// Usage: bun host/web/build.mjs [crate=caltrain-web] [--out <dir>] [--render rust|js|none]
 // (`--js` is accepted and is the default.) `--wasm` is internal, for what the
 // retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
 // on the web"): conformance's reference, delivery's bake (the streams'
 // bundle, whose plan the JS web root compiles), the resident dev loop a
 // native client opens, `motionparity` and the smoke's plan fixtures.
 // `--render <rust|js|none>` passes to the JS target's build. A JS build's completion marker says
-// `target: 'js'`, so the dev loop, the agent and the smoke know which they got.
+// `target: 'js'`, so the dev loop, the agent and the smoke know which they got. `--out <dir>`
+// writes the JS target there instead of the app's target/web-dist, and ends by saying how a
+// static host serves it.
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
 // the dev loop does (LLP 1047 D7). Either target draws the neutral look
@@ -22,12 +24,13 @@ import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/
 import { grantOrigins } from './navigation.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
+import { builtSettings } from '../../js/bake/src/__exact_env.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webAppManifest, webDist, copyShaders, bakeOutput, bakeWatchEnv, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
@@ -36,7 +39,8 @@ import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { withLook } from './look.mjs';
-import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, hostingNotes, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { foreignBeside } from './generations.mjs';
 
 guardFlags('web-build', process.argv.slice(2));
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
@@ -50,25 +54,62 @@ process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm' && a !=
 // `--render <rust|js|none>`: the JS target's pages at build (host/web-js/build.mjs).
 const renderFlag = process.argv.indexOf('--render');
 const render = renderFlag < 0 ? [] : process.argv.splice(renderFlag, 2);
+// `--out <dir>`: the JS target's build written there, a site to host (LLP 1153 D3), in place of target/web-dist.
+const outFlag = process.argv.indexOf('--out');
+const outDir = outFlag < 0 ? null : process.argv.splice(outFlag, 2)[1];
+if (outFlag >= 0 && (!outDir || outDir.startsWith('--'))) { console.error('web-build: --out names a directory'); process.exit(2); }
 const app = resolveApp(process.argv[2]);
+const outRoot = outDir && outPath(outDir);
+/** `--out`'s directory, its links resolved, once it is one the build may replace whole: never the app, this checkout or
+ * a directory holding either; inside the app, `dist` or a path under `dist/` or `target/`, which no source scan reads,
+ * nor the builds kept beside it (`dist.gen`), and the scaffold's .gitignore lists; and, when it is there already, a
+ * web build. */
+function outPath(given) {
+  let at = resolve(given);
+  const rest = [];
+  while (!existsSync(at)) { rest.unshift(basename(at)); at = dirname(at); }
+  const path = resolve(realpathSync(at), ...rest), within = (dir, p) => p === dir || p.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+  const refuse = (why) => { console.error(`web-build: --out ${given}: ${why}`); process.exit(2); };
+  const appDir = realpathSync(app.dir), checkout = realpathSync(fileURLToPath(new URL('../..', import.meta.url)));
+  for (const [dir, what] of [[appDir, 'the app'], [checkout, 'this exact2 checkout']]) if (within(path, dir)) refuse(`it is or holds ${what} (${dir}), which the build would replace`);
+  const first = within(appDir, path) ? relative(appDir, path).split(sep)[0] : null;
+  if (first !== null && !['dist', 'target'].includes(first)) refuse('inside the app, the build goes in dist (or under dist/ or target/), which no source scan of the app reads');
+  if (existsSync(path) && !statSync(path).isDirectory()) refuse('it is not a directory');
+  if (existsSync(path) && readdirSync(path).length && !existsSync(resolve(path, '.exact-build.json'))) refuse('it holds files that are not a web build, which the build would replace: name a new or empty directory');
+  // And what a build there keeps beside it, which it would replace or reap: absent, or a build's own (generations.mjs).
+  const foreign = foreignBeside(path);
+  if (foreign) refuse(foreign);
+  return path;
+}
 // After resolveApp, which names `bun install` when the packages are missing.
 const [{ rolldown }, { minifySync }] = await Promise.all([import('rolldown'), import('rolldown/experimental')]);
 // A game's web build is the wasm target (Charlie, 2026-09-29: "Game runtime
 // is fine to be on wasm"; LLP 1071 §8). For an app the JS target is the web
 // build, and what it refuses is an error; `--wasm` is internal (below).
 const game = app.manifest.game !== undefined;
+if (outDir && (target === '--wasm' || game || bakeOnly)) { console.error('web-build: --out writes the JS target, an app\'s web build; a game\'s wasm build is target/web-dist'); process.exit(2); }
 if (target !== '--wasm' && !game && !bakeOnly) {
   // An app outside apps/ reaches it through EXACT_APP_DIR, as here. It builds in a stage of its own beside the
-  // output, which replaces the output only when complete (`replaceBuild`), so builds run at once never mix.
-  const dist = webDist();
+  // output, which replaces the output only when complete (`replaceBuild`), so builds run at once never mix, and the
+  // build replaced is kept by its generation while a page `serve` sent may still ask for its files.
+  const dist = outRoot || webDist();
+  // The JS build runs Cargo in an authored workspace in two cases (LLP 1153 D2.1): a web crate whose build script is
+  // the author's, and pages rendered by the app's own render entry (`--render rust`, the default when it has one).
+  // Its lock is checked before either, as every other build's is.
+  const authoredScript = (path) => existsSync(path) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(path, 'utf8'));
+  const renderEntry = ['linux', 'web'].some((dir) => existsSync(resolve(app.dir, dir, 'src/bin', `${app.name}-render.rs`)));
+  if (!app.generated && (authoredScript(resolve(app.dir, 'web/build.rs')) || (renderEntry && !render.some((r) => r === 'js' || r === 'none')))) app.rust();
   mkdirSync(dirname(dist), { recursive: true });
   let stage = mkdtempSync(`${dist}.stage-`);
   process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
   // What this build reads, and when, as it starts: the next check (webChanges) compares every input
   // changed since then, so a source changed or gone while it compiles, or a build published over it
-  // meanwhile, is a change, never taken as built.
-  const inputsAt = Date.now(), inputs = webInputDigests(app, true);
-  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  // meanwhile, is a change, never taken as built. A site to host is no drive's, and its marker names no source.
+  const inputsAt = Date.now(), inputs = outDir ? null : webInputDigests(app, true);
+  // A site to host is a release, as delivery builds one (`--production`): agent mode refused, the app's storage its id
+  // alone, its install pages a release's.
+  const release = outDir ? { flags: ['--production'], env: { EXACT_UPDATE_TRUST: 'production' } } : { flags: [], env: {} };
+  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render, ...release.flags], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir, ...release.env } });
   // What it says names the output, not the stage.
   const said = (text) => (text ?? '').replaceAll(stage, dist);
   js.stderr = said(js.stderr);
@@ -81,10 +122,26 @@ if (target !== '--wasm' && !game && !bakeOnly) {
     // the build rewrote them, are one line (LLP 1116.001 D4.5).
     for (const line of compiler) console.error(line);
     for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
+    // The receipt first, since what it records may come from the build's intermediates. `release`: a site to host
+    // (`--out`), built again (to the same directory, as a release) when what it was built from changes.
+    // `env`: each setting app.ts read, as inlined, and its source (LLP 1153 D4), for the drive's logs and `changedSettings`.
     writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt }) + '\n');
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), ...(inputs ? { inputs, inputsAt } : {}), ...builtSettings(stage), ...(outDir ? { release: true } : {}) }) + '\n');
+    // A site to host holds the site, not the build's intermediates (`.gen`, the app's captured sources among them;
+    // the receipt's file cards name no dot path), but for what `serve` renders a `render=request` or `cached` route's
+    // page with, when it has such a route: the server bundle (LLP 1153 D3.4) and the analyzed sheet a page selects
+    // its rules from (LLP 1048.007 D4).
+    if (outDir) {
+      const routes = JSON.parse(readFileSync(resolve(stage, 'routes.json'), 'utf8')).routes;
+      const kept = routes.some((r) => r.render === 'request' || r.render === 'cached')
+        ? ['server.js', 'page-style.json'].filter((name) => existsSync(resolve(stage, '.gen', name))).map((name) => [name, readFileSync(resolve(stage, '.gen', name))]) : [];
+      rmSync(resolve(stage, '.gen'), { recursive: true, force: true });
+      if (kept.length) mkdirSync(resolve(stage, '.gen'));
+      for (const [name, bytes] of kept) writeFileSync(resolve(stage, '.gen', name), bytes);
+    }
     replaceBuild(stage, dist);
     stage = null;
+    if (outDir) console.log(hostingNotes(dist, existsSync(resolve(app.dir, 'exact.mjs')) ? 'bun exact.mjs serve' : 'bun host/web/serve.mjs').join('\n'));
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
@@ -95,7 +152,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // check's file:line:col diagnostics, including paths with spaces, and its
   // refusals of package code (js/bake/src/typescript.mjs `capturedSources`).
   const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name|loads code from a string|uses the page's)|, (?:which is not installed|a native addon|which the checked capture did not resolve)|: not an npm package name and version| must be a constant the build reads without running|^(?:Error: )?two copies of /.test(l);
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b|import\.meta\.env/.test(l))
     // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
     .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
@@ -520,6 +577,8 @@ writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   files: await publicFileCards(stage).finally(closeFilesystemReader),
   // Content digests of what this build read: a staleness check compares bytes, not times.
   inputs: webInputDigests(app, false),
+  // Each setting its module inlined (LLP 1153 D4), from the paired module's receipt, as a JS build's marker says them.
+  ...builtSettings(stage),
 }) + '\n');
 // In place in one step where the system has one (serve.mjs `replaceBuild`).
 publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});

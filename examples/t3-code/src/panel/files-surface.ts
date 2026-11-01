@@ -68,6 +68,8 @@ export type FilesView = {
    *  stays a screen reader's alone while rows hold their place (`loadingQuiet`). */
   noMatches: boolean; emptySearch: boolean; loadingQuiet: boolean;
   rows: TreeRow[]; hasDirectories: boolean; allExpanded: boolean; explorer: boolean; showExplorer: boolean;
+  /** The explorer's saved width beside a file (FileExplorerPane, "t3code.fileExplorerWidth"); the view clamps it to the room. */
+  explorerWidth: number;
   /** The tree rows' one context popover (context-menu-actions.ts filesTreeMenuRows). */
   treeMenu: MenuRow[];
   /** The subheader shows: a file or folder, or the explorer the crumbs walked up to. */
@@ -80,7 +82,7 @@ export type FilesView = {
   // message (app.contract filesMarkdown; kind "file" when its task checkboxes may write the file), `md` its chips and
   // settings, `code` its fences' colours, `diagrams` its Mermaid fences, `mdUrls` its host-path media and `codeCopied` /
   // `codeCopyNonce` Copy code's check.
-  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[];
+  markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[]; mdUrls: { id: string; url: string }[];
   codeCopied: string; codeCopyNonce: number; editing: boolean; editorText: string; editPress: string; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
   /** A rendered page's frame source, or an audio file's signed URL. */
   url: string; media: MediaView;
@@ -137,6 +139,9 @@ export const PATH_SEARCH_LIMIT = 200;
 const EXPAND_ALL_CAP = 200;
 
 const prefsOf = (client: T3Client): FilesPrefs => filesPrefs(client);
+// FileExplorerPane: the explorer beside a file is 160 to 560 wide, 256 at first; the view also keeps 256 for the file.
+export const FILE_EXPLORER_WIDTH = 256, FILE_EXPLORER_MIN_WIDTH = 160, FILE_EXPLORER_MAX_WIDTH = 560;
+const explorerWidthOf = (width: number) => Math.round(Math.max(FILE_EXPLORER_MIN_WIDTH, Math.min(FILE_EXPLORER_MAX_WIDTH, width)));
 export function filesState(client: T3Client): FilesState {
   const { cwd } = workspaceOf(client), key = `${client.environmentId}|${cwd}`;
   let state = states.get(client);
@@ -441,6 +446,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     return '';
   }
   if (op === 'explorer') { preferences.explorer = !preferences.explorer; return ''; }
+  if (op === 'explorer-width') { const width = Number(value); if (value !== '' && Number.isFinite(width)) preferences.explorerWidth = explorerWidthOf(width); return ''; }
   if (op === 'render') {
     // FilePreviewPanel's toggle: it flips what shows, and turning rendering on answers a pending line request.
     const active = activeSurface(client), pressed = !renderedShown(client, state, id, active);
@@ -494,12 +500,11 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
  */
 export async function markdownFilePick(client: T3Client, native: Native, target: string, picked: string, context: FileLinkMenuContext & { lookup?: string } = {}): Promise<void> {
   if (!target) return;
-  const { environmentId: environment, threadId, draftKey } = client;
-  const cwd = context.cwd ?? workspaceOf(client).cwd;
-  const file = { path: splitPosition(target).path, workspace: { threadId, cwd } };
+  const environment = client.environmentId;
   await loadSshAliases(native);
   if (!markdownFileMenuRows(client, target, context).some(row => row.id === picked)) return;
   const editor = preferredEditor(availableEditorIds(client.config), lastEditor(client)) || null;
+  const cwd = context.cwd ?? workspaceOf(client).cwd;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
     try { await openMarkdownMediaPreview(client, native, target, cwd); }
@@ -510,9 +515,10 @@ export async function markdownFilePick(client: T3Client, native: Native, target:
   // openMarkdownFileInPreview: the file in a new Browser tab beside the thread (a draft gets its thread id first).
   if (picked === 'open-in-browser') {
     try {
-      if (!environment) throw new Error('Environment is not connected.');
-      const browserId = threadId || await ensureDraftThreadId(client, native, draftKey);
-      await openFileInPreview(client, native, { environmentId: environment, threadId: browserId }, file);
+      if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+      const ref = activeRef(client);
+      if (!ref) throw new Error('Environment is not connected.');
+      await openFileInPreview(client, native, ref, splitPosition(target).path, cwd);
     } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true }); }
     return;
   }
@@ -667,13 +673,15 @@ export function codeLines(path: string, contents: string, view: HighlightView | 
 
 /** FilePreviewPanel handleOpenInBrowser: the file in a new Browser tab; a failure is a stacked toast. */
 async function openInPreviewBrowser(client: T3Client, native: Native, path: string): Promise<void> {
-  const { environmentId, threadId, draftKey } = client;
   const { cwd } = workspaceOf(client);
-  if (!path || !cwd || !environmentId) return;
-  const file = { path: isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`, workspace: { threadId, cwd } };
+  if (!path || !cwd) return;
+  const absolute = isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`;
   try {
-    const browserId = threadId || await ensureDraftThreadId(client, native, draftKey);
-    await openFileInPreview(client, native, { environmentId, threadId: browserId }, file);
+    // The reference's draft has its thread id from the start; here it is allocated now (as the Browser surface does).
+    if (!client.threadId && !activeRef(client) && client.environmentId) await ensureDraftThreadId(client, native);
+    const ref = activeRef(client);
+    if (!ref) return;
+    await openFileInPreview(client, native, ref, absolute, cwd);
   } catch (error) {
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to open file in browser', description: error instanceof Error && error.message ? error.message : 'An error occurred.', stacked: true });
@@ -711,7 +719,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
     md: { ...markdownEnv(client), chips: withFileLinkMenus(client, messageChips({ text }, folder, [], `files:${absolute}`, scope, client)) }, // the owner names the document
-    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
+    code: messageCodeBlocks(text, 'shell', `file:${path}`), diagrams, mdUrls: urls,
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
@@ -739,9 +747,9 @@ export function fileDraftHoldsCommandEnter(client: T3Client): boolean {
 
 export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
-  explorer: true, showExplorer: true, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
+  explorer: true, showExplorer: true, explorerWidth: FILE_EXPLORER_WIDTH, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
   mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(), viewer: emptyViewerFrame(), fullFile: closedFullFile(),
 });
 
@@ -789,7 +797,8 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   // The explorer the crumbs walked up to opens the workspace folder in an editor.
   const absolute = path ? (isHost(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : crumbPath === '' ? cwd : '';
   // A rendered page waits for its signed URL, not for the read. Its URL carries the workspace revision, so a change
-  // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey).
+  // reloads it (WorkspaceBrowserPreview's revisionSuffix and documentKey); a PDF's carries the file's own when the server
+  // reports it.
   const revision = mutation ?? '';
   const minted = frame ? await htmlPage(client, native, cwd, absolute, revision, now) : { url: '', error: '' };
   const source = frame && minted.url ? (pdf ? { src: minted.url, error: '' } : await mediaFrameSource(minted.url)) : null;
@@ -828,7 +837,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const query = tree ? tree.query : state.query, searching = !tree && state.searching, ready = shown.dirs.has('');
   const noMatches = !!query.trim() && rows.length === 0 && (!!tree || !!state.search);
   const viewer = viewing ? await filesViewer(client, native, {
-    kind: pdf ? 'pdf' : fullFile ? 'full' : 'table', path: previewPath, absolute, name: previewPath.split(/[\\/]/).pop() || previewPath, revision, url: page.url, text,
+    kind: pdf ? 'pdf' : fullFile ? 'full' : 'table', path: previewPath, absolute, name: previewPath.split(/[\\/]/).pop() || previewPath, revision: pdf ? minted.revision ?? revision : revision, url: page.url, text,
     delimiter: table && rendered ? (/\.tsv$/i.test(previewPath) ? '\t' : ',') : null, revealLine: active.line > 0 ? active.line : null, revealRequestId: active.reveal,
     wrap: wrapOf(client, state, previewPath),
   }, now) : null;
@@ -845,7 +854,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     noMatches, emptySearch: noMatches && ready && !searching && !error, loadingQuiet: rows.length > 0 && !noMatches,
     // A host folder can be a home directory, so nothing walks it whole: no expand-all.
     hasDirectories: !tree && [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
-    allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, treeMenu: filesTreeMenuRows(client),
+    allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer, explorerWidth: explorerWidthOf(preferences.explorerWidth ?? FILE_EXPLORER_WIDTH), treeMenu: filesTreeMenuRows(client),
     subheader: crumbPath !== null, explorerToggle: !!previewPath && !isHost(previewPath),
     path, preview,
     previewError: frame ? page.error : viewer?.error ? viewer.error : read?.error && !folder && !document ? read.error : '',

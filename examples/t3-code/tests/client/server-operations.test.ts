@@ -1,5 +1,5 @@
-// The client operations a 0.1.5 server adds (server-operations.ts; T3 Code 6d450a4284, MIT, see LICENSE-T3:
-// packages/contracts preview.ts, server.ts, project.ts, pullRequest.ts, clientRpcPermissions.ts): each request's
+// The client operations 0.1.5 and 0.1.6 servers add (server-operations.ts; T3 Code 2359643cff, MIT, see LICENSE-T3:
+// packages/contracts preview.ts, server.ts, project.ts, pullRequest.ts, orchestrationV2.ts, clientRpcPermissions.ts): each request's
 // method and payload, the scope it needs, and the reference's sentence for each typed refusal.
 import { describe, expect, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
@@ -12,7 +12,7 @@ async function recording(scopes: string[], answer: (method: string) => Obj = () 
   context.client.scopes = scopes;
   context.native.later = async request => {
     const call = obj(request);
-    if (call.op === 'request' && ['preview.stopLocalServer', 'server.prepareTriage', 'projects.createFromThread', 'pullRequests.update'].includes(String(call.method))) {
+    if (call.op === 'request' && ['preview.stopLocalServer', 'server.prepareTriage', 'projects.createFromThread', 'pullRequests.update', 'orchestration.forceStopThread'].includes(String(call.method))) {
       calls.push({ method: call.method, payload: call.payload });
       return context.native.good(answer(String(call.method)));
     }
@@ -60,5 +60,25 @@ describe('the operations a 0.1.5 server adds', () => {
       "The server's processes could not be signaled.",
     ]);
     expect(failure({ _tag: 'Fail', error: { _tag: 'ServerPrepareTriageError' } }).message).toBe('Could not write the triage session files.');
+  });
+});
+
+describe('the operation a 0.1.6 server adds', () => {
+  test('Force stop names the thread and the run the user saw ignore Stop, and reads the outcome', async () => {
+    const { client, native, calls } = await recording(['orchestration:read', 'orchestration:operate'],
+      () => ({ outcome: 'shared', sharedWithThreadIds: ['t2', 7] }));
+    expect(await client.forceStopThread(native, 't1', 'r3')).toEqual({ outcome: 'shared', sharedWithThreadIds: ['t2'] });
+    await client.forceStopThread(native, 't1');
+    expect(calls).toEqual([{ method: 'orchestration.forceStopThread', payload: { threadId: 't1', runId: 'r3' } }, { method: 'orchestration.forceStopThread', payload: { threadId: 't1' } }]);
+  });
+
+  test('it needs orchestration operate; an unknown outcome is refused; the refusals read the reference sentences', async () => {
+    const read = await recording(['orchestration:read']);
+    await expect(read.client.forceStopThread(read.native, 't1')).rejects.toThrow('This connection requires orchestration:operate.');
+    expect(read.calls).toEqual([]);
+    const odd = await recording(['orchestration:read', 'orchestration:operate'], () => ({ outcome: 'vanished' }));
+    await expect(odd.client.forceStopThread(odd.native, 't1')).rejects.toThrow('The server did not say how the agent was stopped.');
+    const refusal = (error: Obj) => failure({ _tag: 'Fail', error: { _tag: 'OrchestrationV2ForceStopThreadError', threadId: 't1', ...error } }).message;
+    expect([refusal({ reason: 'superseded' }), refusal({})]).toEqual(['A new turn started, so nothing was force stopped.', 'Failed to force stop the agent.']);
   });
 });

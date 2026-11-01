@@ -83,10 +83,10 @@ describe('composer source edit rules', () => {
     for (const source of ['- [ ] ', '002) ', '> ']) expect(result(source, key(source, source.length, 'Enter', true))).toEqual({ source: '', start: 0, end: 0 });
     expect(key('- item', 6, 'Enter')).toEqual({ kind: 'send' });
   });
-  test('list Tab indents and keeps the source caret; ⇧Tab never outdents a list; ordinary Tab remains native', () => {
+  test('list Tab indents and keeps the source caret; ⇧Tab outdents a nested item only; ordinary Tab remains native', () => {
     expect(result('- item', key('- item', 6, 'Tab'))).toEqual({ source: '  - item', start: 8, end: 8 });
-    expect(key('  - item', 8, 'Tab', true)).toEqual({ kind: 'default' });
-    expect(key('- a\n  - b', 9, 'Tab', true)).toEqual({ kind: 'default' });
+    expect(result('  - item', key('  - item', 8, 'Tab', true))).toEqual({ source: '- item', start: 6, end: 6 });
+    expect(result('- a\n  - b', key('- a\n  - b', 9, 'Tab', true))).toEqual({ source: '- a\n- b', start: 7, end: 7 });
     expect(key('- item', 6, 'Tab', true)).toEqual({ kind: 'default' });
     expect(result('```\n  a\n```', key('```\n  a\n```', 7, 'Tab', true))).toEqual({ source: '```\na\n```', start: 5, end: 5 });
     expect(key('ordinary', 8, 'Tab')).toEqual({ kind: 'default' });

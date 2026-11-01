@@ -4,6 +4,7 @@ import { expect, test } from 'bun:test';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 import { appText } from '../support/app-files';
 
+
 test('a reload takes the standing serial as its baseline; only a newer one opens', () => {
   const root = contractComponent('app.contract', 'T3Code');
   const opened: string[] = [];

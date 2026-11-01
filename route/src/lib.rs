@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub use location::{
-    canonical, encode_uri_component, location_of, protocol_location_of, search_param,
+    canonical, encode_uri_component, fragment_id, fragment_of, location_of, protocol_location_of,
+    search_param,
 };
 pub use router::{back, depth, go, open, params, push, replace, select, stack, top};
 pub use table::encode_route_segment;
@@ -184,7 +185,7 @@ pub struct Destination {
     pub params: Params,
 }
 
-/// One visit to a screen. @ref LLP 1038 §3 — Entry.
+/// One visit to a screen. @ref LLP 1038 §3 — Entry; LLP 1153 D5.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     /// A monotone visit id, never reused.
@@ -197,6 +198,23 @@ pub struct Entry {
     pub tab: String,
     /// All the table's parameter names, unbound names empty.
     pub params: Params,
+    /// What the location that last named this visit had after its `#`,
+    /// fragment-encoded ([`fragment_of`]); `""` when none. It is no part of
+    /// the screen's identity: `url` is.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub fragment: String,
+}
+
+impl Entry {
+    /// The visit's location as written back to a host: its `url`, then
+    /// `#` and its fragment when it has one.
+    pub fn location(&self) -> String {
+        if self.fragment.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{}#{}", self.url, self.fragment)
+        }
+    }
 }
 
 /// A retained stack. @ref LLP 1038 §3 — Router.

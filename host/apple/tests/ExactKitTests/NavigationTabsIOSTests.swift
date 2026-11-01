@@ -184,7 +184,9 @@ final class NavigationTabsIOSTests: XCTestCase {
     /// The runtime covers the root tablist the bar replaces before the first
     /// layout, and the presenter holds that cover from its first batch; a
     /// restart's boot covers it again, and its first batch looks for it again.
-    func testTheBootsTablistCoverIsThePresentersAtEveryBoot() throws {
+    /// After the restart, as after the dev menu's Reload, the bar takes the
+    /// new tablist's place and the host hides it, though it has the old id.
+    func testEveryBootCoversAndHidesTheTablistTheBarReplaces() throws {
         let session = try fixture("boot-tablist")
         let navigation = session.presenter.navigation
         let covered = { () throws -> Bool in
@@ -195,15 +197,19 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(try covered())
         XCTAssertEqual(navigation.delivered[list.id], .whole)
         XCTAssertTrue(navigation.bootCoverSeen)
+        let old = list
         session.presenter.reset()
         XCTAssertFalse(navigation.bootCoverSeen, "a restart's first batch looks again")
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
-        spin(0.3)
         list = try node(session, "tabs")
+        XCTAssertEqual(list.id, old.id, "the restart's runner numbers its nodes from 1 again")
+        XCTAssertFalse(list === old)
         XCTAssertTrue(try covered())
         XCTAssertTrue(navigation.bootCoverSeen)
         XCTAssertEqual(navigation.delivered[list.id], .whole)
+        XCTAssertTrue(navigation.adopts(tablist: list))
+        XCTAssertTrue(list.isHidden, "the restarted tablist is hidden: its tabs do not draw at the window's origin")
     }
 
     /// A style that drops the tablist's `accent-color` (here one sent by

@@ -55,6 +55,23 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
     // Nor is the app's `.exact/`: an agent's evidence and runtime files (Depot).
     std::fs::create_dir_all(app.0.join(".exact/evidence")).unwrap();
     std::fs::write(app.0.join(".exact/evidence/results.json"), b"{}").unwrap();
+    // Nor a web build in `dist` and what it keeps beside it (`web-build --out dist`), each a tree of
+    // what the capture would otherwise take; a source whose name only starts so is still one.
+    for name in [
+        "dist",
+        "dist.gen/0123",
+        "dist.leases/0123",
+        "dist.previous",
+        "dist.stage-a1b2c3",
+    ] {
+        std::fs::create_dir_all(app.0.join(name)).unwrap();
+        std::fs::write(app.0.join(name).join("app.js"), b"built").unwrap();
+    }
+    for name in ["dist.gen.reaped", "dist.lock"] {
+        std::fs::write(app.0.join(name), b"0").unwrap();
+    }
+    assert!(super::beside::beside_dist("dist.gen") && !super::beside::beside_dist("dist.stage-"));
+    assert!(!super::beside::beside_dist("dist.config.ts"));
     let captured = sources(&app.0).unwrap();
     assert_eq!(captured.len(), inputs.len());
     for (name, bytes) in inputs {
@@ -201,6 +218,7 @@ fn captured_module_guard_uses_real_files_and_path_components() {
     std::fs::write(sibling.join("outside.ts"), "export const n = 2;").unwrap();
     std::fs::write(stage.join("__exact_config.mjs"), super::resident::CONFIG).unwrap();
     std::fs::write(stage.join("__exact_binding.mjs"), super::resident::BINDING).unwrap();
+    std::fs::write(stage.join("__exact_env.mjs"), super::resident::ENV).unwrap();
     let checked = exact_bake::bun()
         .args([
             "--input-type=module",
@@ -338,7 +356,7 @@ fn a_linked_bake_gives_the_archive_what_rust_compiles() {
 #[test]
 fn a_linked_module_leaves_its_bytecode_to_the_link() {
     let meta = serde_json::json!({"appId": "a", "grants": "", "module": {"sha256": "beef"}});
-    let linked = super::module_constants(&meta, false, "ios", true).unwrap();
+    let linked = super::module_constants(&meta, false, "ios", true, None).unwrap();
     assert!(
         !linked.contains("beef") && !linked.contains("app.hbc"),
         "{linked}"
@@ -347,9 +365,133 @@ fn a_linked_module_leaves_its_bytecode_to_the_link() {
         linked.contains("::exact_apple::baked::bytecode()"),
         "{linked}"
     );
-    let embedded = super::module_constants(&meta, false, "ios", false).unwrap();
+    let embedded = super::module_constants(&meta, false, "ios", false, None).unwrap();
     assert!(
         embedded.contains("REVISION: &str = \"beef\"") && embedded.contains("/app.hbc"),
         "{embedded}"
+    );
+}
+
+/// LLP 1154 D3: the one direct dependency whose `exact.json`, at its root,
+/// declares `native` fills the slot, whatever its `exports` "." names (here
+/// its TypeScript driver). On a native platform `module.rs` joins its shim
+/// by an absolute `#[path]` and writes the factory; the web gets neither; a
+/// second such dependency refuses the bake, naming both. Every package file
+/// the choice read is watched, and one it cannot read refuses the bake.
+#[test]
+fn a_package_declaring_native_writes_the_factory_and_a_second_refuses() {
+    let app = Scratch::new(&std::env::temp_dir()).unwrap();
+    let package = |name: &str, declaration: &str| {
+        let dir = app.0.join("node_modules").join(name);
+        std::fs::create_dir_all(dir.join("native")).unwrap();
+        std::fs::write(
+            dir.join("package.json"),
+            r#"{"exports": {".": "./driver.js"}}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("exact.json"), declaration).unwrap();
+        std::fs::write(dir.join("native/lib.rs"), "").unwrap();
+        dir
+    };
+    let vault = package(
+        "@fixture/vault",
+        r#"{"native": {"rust": "native/lib.rs", "class": "Vault", "library": {}}, "web": {"assets": []}}"#,
+    );
+    package("@fixture/plain", r#"{"kind": "interface", "names": []}"#);
+    let manifest = |deps: &str| {
+        std::fs::write(
+            app.0.join("package.json"),
+            format!(r#"{{"dependencies": {{{deps}}}}}"#),
+        )
+        .unwrap()
+    };
+    manifest(r#""@fixture/vault": "1.0.0", "@fixture/plain": "1.0.0""#);
+    let selection = contract::native::native_slot(&app.0).unwrap();
+    // Every declaration read is watched, the one without `native` too: adding
+    // it there asks for the choice again, and so for `bake-native-twice`.
+    let plain = app.0.join("node_modules/@fixture/plain");
+    for file in [
+        app.0.join("package.json"),
+        plain.join("package.json"),
+        plain.join("exact.json"),
+        vault.join("exact.json"),
+    ] {
+        let file = std::fs::canonicalize(file).unwrap();
+        assert!(
+            selection.watched.contains(&file),
+            "{} is not watched: {:?}",
+            file.display(),
+            selection.watched
+        );
+    }
+    let slot = selection.slot.unwrap();
+    assert_eq!(
+        (slot.package.as_str(), slot.class.as_str()),
+        ("@fixture/vault", "Vault")
+    );
+    let root = std::fs::canonicalize(vault.join("native/lib.rs")).unwrap();
+    assert_eq!(slot.root, root);
+    // The link reads the rest of `native` from the same declaration.
+    assert!(slot.native["library"].is_object(), "{:?}", slot.native);
+    let meta = serde_json::json!({"appId": "a", "grants": "", "module": {"sha256": "beef"}});
+    let linux = super::module_constants(&meta, false, "linux", false, Some(&slot)).unwrap();
+    assert!(
+        linux.contains(&format!("#[path = {:?}]\n", root.display().to_string()))
+            && linux.contains("mod exact_native_shim;")
+            && linux.contains("pub fn exact_native(_grants: &str) -> Box<dyn exact_js::NativeModule> {\n    Box::new(exact_native_shim::Vault::new(APP))\n}"),
+        "{linux}"
+    );
+    let web = super::module_constants(&meta, false, "web", false, Some(&slot)).unwrap();
+    assert!(!web.contains("exact_native"), "{web}");
+
+    package(
+        "second",
+        r#"{"native": {"rust": "native/lib.rs", "class": "Second"}}"#,
+    );
+    manifest(r#""@fixture/vault": "1.0.0", "second": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-twice: @fixture/vault and second each declare"),
+        "{refused}"
+    );
+
+    // What the choice cannot read it refuses, as it cannot watch a missing file.
+    manifest(r#""@fixture/vault": "1.0.0", "absent": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-missing: the app depends on absent, which is not installed: run bun install"),
+        "{refused}"
+    );
+    // A dependency with no exact.json declares nothing, and its directory is
+    // watched, where the file would appear.
+    let bare = package("bare", "{}");
+    std::fs::remove_file(bare.join("exact.json")).unwrap();
+    manifest(r#""@fixture/vault": "1.0.0", "bare": "1.0.0""#);
+    let selection = contract::native::native_slot(&app.0).unwrap();
+    assert_eq!(selection.slot.unwrap().package, "@fixture/vault");
+    let bare = std::fs::canonicalize(&bare).unwrap();
+    assert!(selection.watched.contains(&bare), "{:?}", selection.watched);
+    // One whose package.json exports an exact.json that is not there is refused.
+    let exporting = package("exporting", "{}");
+    std::fs::write(
+        exporting.join("package.json"),
+        r#"{"exports": {".": "./exact.json"}}"#,
+    )
+    .unwrap();
+    std::fs::remove_file(exporting.join("exact.json")).unwrap();
+    manifest(r#""@fixture/vault": "1.0.0", "exporting": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-declaration: exporting's package.json exports ")
+            && refused.ends_with("exact.json, which does not exist"),
+        "{refused}"
+    );
+    package("unread", r#"{"native": "#);
+    manifest(r#""@fixture/vault": "1.0.0", "unread": "1.0.0""#);
+    let refused = contract::native::native_slot(&app.0).unwrap_err();
+    assert!(
+        refused.starts_with("bake-native-declaration: unread's exact.json (")
+            && refused.contains("is not JSON: "),
+        "{refused}"
     );
 }

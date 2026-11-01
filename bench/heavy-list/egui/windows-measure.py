@@ -24,6 +24,7 @@ K = C.WinDLL('kernel32', use_last_error=True)
 U.SetProcessDpiAwarenessContext.argtypes = [W.HANDLE]
 U.SetProcessDpiAwarenessContext(W.HANDLE(-4))
 U.GetForegroundWindow.restype = W.HWND
+U.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
 U.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
 U.SetForegroundWindow.argtypes = [W.HWND]
 U.ShowWindow.argtypes = [W.HWND, C.c_int]
@@ -68,6 +69,20 @@ def dimensions(hwnd):
                 client=[client.right, client.bottom], dpi=U.GetDpiForWindow(hwnd))
 
 
+def foreground():
+    hwnd = U.GetForegroundWindow()
+    owner = W.DWORD()
+    U.GetWindowThreadProcessId(hwnd, C.byref(owner))
+    title = C.create_unicode_buffer(1024)
+    U.GetWindowTextW(hwnd, title, len(title))
+    try:
+        process = psutil.Process(owner.value).name()
+    except psutil.Error:
+        process = None
+    return dict(qpc=qpc(), hwnd=hwnd, pid=owner.value,
+                title=title.value, process=process)
+
+
 def snapshot(process, tid):
     cpu = process.cpu_times()
     thread = next(t for t in process.threads() if t.id == tid)
@@ -107,7 +122,7 @@ def wait_quiet(out):
     raise RuntimeError('quiet condition did not arrive within 20 minutes')
 
 
-def run(arm, number, out, full, presentmon, capture=False):
+def run(arm, number, out, full, presentmon, capture=False, *, binary=None, motion=None):
     name = f'{arm}-{number}'
     env = os.environ.copy()
     for key in list(env):
@@ -119,19 +134,25 @@ def run(arm, number, out, full, presentmon, capture=False):
                BENCH_DATA=str(ROOT/'bench/heavy-list/data'),
                EXACT_AGENT_WINDOW_PROBE='on', EXACT_AGENT_STORAGE='g6-'+arm,
                WGPU_BACKEND='dx12')
-    binary = ROOT/('target/release/egui-heavy-list.exe' if arm == 'egui' else
-                  'bench/heavy-list/exact-heavylist/dist-windows/Heavy list.exe')
+    binary = Path(binary) if binary else ROOT/(
+        'target/release/egui-heavy-list.exe' if arm == 'egui' else
+        'bench/heavy-list/exact-heavylist/dist-windows/Heavy list.exe')
+    if motion in ('bar', 'caret'):
+        env['BENCH_MOTION'] = motion
     if arm == 'wgpu':
         env['EXACT_INK_DEVICE']='wgpu'
+    env.pop('EXACT_STARTUP_STACKS', None)
     samples = dict(arm=arm, number=number, launchWallUnix=time.time(), binary=str(binary),
                    sha256=hashlib.sha256(binary.read_bytes()).hexdigest())
+    if motion:
+        samples['motion'] = motion
     log_path = out/(name+'.log')
     with log_path.open('wb') as log:
+        pm = None
         child = subprocess.Popen([str(binary)], env=env, cwd=binary.parent,
                                  stdout=log, stderr=subprocess.STDOUT)
         record(out/'pids.jsonl', dict(name=name, pid=child.pid))
         process = psutil.Process(child.pid)
-        pm = None
         try:
             deadline = time.monotonic()+30
             hwnd = None
@@ -174,6 +195,9 @@ def run(arm, number, out, full, presentmon, capture=False):
                 if pm and pm.poll() is not None:
                     raise RuntimeError(f'PresentMon exited {pm.returncode}')
                 U.SetForegroundWindow(hwnd)
+                samples['foregroundAtStart'] = foreground()
+                if samples['foregroundAtStart']['hwnd'] != hwnd:
+                    raise RuntimeError('foreground acquisition failed')
                 point = W.POINT(392,400)
                 U.ClientToScreen(hwnd,C.byref(point))
                 U.SetCursorPos(point.x,point.y)
@@ -183,7 +207,14 @@ def run(arm, number, out, full, presentmon, capture=False):
                 windows=[]
                 peak=process.memory_info().rss
                 focus=[]
-                for gesture in range(4):
+                focus_windows=[]
+                def observe_focus():
+                    current = U.GetForegroundWindow()
+                    if current != hwnd:
+                        focus.append(qpc())
+                        if not focus_windows or focus_windows[-1]['hwnd'] != current:
+                            focus_windows.append(foreground())
+                for gesture in range(0 if motion else 4):
                     while time.perf_counter()-begin < gesture*2.5:
                         time.sleep(.01)
                     start=qpc()
@@ -201,23 +232,26 @@ def run(arm, number, out, full, presentmon, capture=False):
                                               (point.y&65535)<<16 | (point.x&65535))
                         posts.append(dict(qpc=qpc(), delta=-delta,gesture=gesture))
                         sent=target
-                        if U.GetForegroundWindow()!=hwnd:
-                            focus.append(qpc())
+                        observe_focus()
                         peak=max(peak,process.memory_info().rss)
                         if elapsed>=1: break
                     windows.append([start,qpc()])
                 while time.perf_counter()-begin<10:
                     peak=max(peak,process.memory_info().rss)
+                    observe_focus()
                     time.sleep(.01)
                 samples['flingEnd']=snapshot(process,tid)
+                if motion:
+                    windows = [[samples['flingStart']['qpc'], samples['flingEnd']['qpc']]]
                 samples['sampledPeakFling']=peak
                 samples['posts'],samples['gestureWindows']=posts,windows
                 rest_end=time.perf_counter()+10
                 while time.perf_counter()<rest_end:
-                    if U.GetForegroundWindow()!=hwnd: focus.append(qpc())
+                    observe_focus()
                     time.sleep(.05)
                 samples['restEnd']=snapshot(process,tid)
                 samples['focusLosses']=focus
+                samples['focusWindows']=focus_windows
                 if capture:
                     ImageGrab.grab(bbox=tuple(samples['dimensions']['outer'])).save(out/(name+'-end.png'))
             samples['qpcFrequency']=freq.value
@@ -259,11 +293,18 @@ def main():
     parser.add_argument('--startup-only',action='store_true')
     parser.add_argument('--fling-only',action='store_true')
     parser.add_argument('--arm',choices=['d3d11','wgpu','egui'])
+    parser.add_argument('--motion',choices=['rest','bar','caret'])
+    parser.add_argument('--rounds',type=int)
+    parser.add_argument('--ink-binary',type=Path)
+    parser.add_argument('--egui-binary',type=Path)
     args=parser.parse_args()
     out=Path(args.out).resolve(); out.mkdir(parents=True,exist_ok=True)
     os.chdir(ROOT)
+    def selected(arm):
+        return args.egui_binary if arm == 'egui' else args.ink_binary
     if args.diagnostic:
-        run(args.arm or 'egui',0,out,True,True,True)
+        arm = args.arm or 'egui'
+        run(arm,0,out,True,True,True,binary=selected(arm),motion=args.motion)
         return
     wait_quiet(out)
     stop=threading.Event()
@@ -273,7 +314,8 @@ def main():
     observer=threading.Thread(target=monitor); observer.start()
     try:
         arms=[args.arm] if args.arm else ['d3d11','wgpu','egui']
-        for number in range(1,6 if args.fling_only else 11):
+        rounds = args.rounds if args.rounds is not None else (5 if args.fling_only else 10)
+        for number in range(1,rounds+1):
             offset=(number-1)%len(arms)
             order=arms[offset:]+arms[:offset]
             for arm in order:
@@ -282,7 +324,8 @@ def main():
                         subprocess.run(['powershell','-NoProfile','-ExecutionPolicy','Bypass','-File',
                             str(Path(__file__).with_name('windows-reset-cache.ps1'))],
                             stdout=reset_log,stderr=subprocess.STDOUT,check=True,timeout=30)
-                result=run(arm,number,out,number<=5 and not (args.cold or args.startup_only),True)
+                result=run(arm,number,out,number<=5 and not (args.cold or args.startup_only),True,
+                           binary=selected(arm),motion=args.motion)
                 print(arm,number,result['dwmMs'],flush=True)
                 if result.get('focusLosses'): raise RuntimeError('focus lost')
                 if args.cold or args.startup_only or number>5:

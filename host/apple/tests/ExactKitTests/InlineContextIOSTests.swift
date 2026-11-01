@@ -200,14 +200,14 @@ final class InlineContextIOSTests: XCTestCase {
         let interaction = try XCTUnwrap(node.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
         _ = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: point))
         _ = p.menus.context.menu(try XCTUnwrap(p.menus.context.open))
-        XCTAssertEqual(sample.count, 9)
-        guard sample.count == 9 else { return }
+        XCTAssertEqual(sample.count, 10)
+        guard sample.count == 10 else { return }
         XCTAssertEqual(try XCTUnwrap(Double(sample[0])), point.x - first.minX, accuracy: 0.01)
         XCTAssertEqual(try XCTUnwrap(Double(sample[1])), point.y - first.minY, accuracy: 0.01)
         XCTAssertGreaterThan(try XCTUnwrap(Double(sample[1])), last.height, "offsetY does not restart at each wrapped fragment")
         let client = p.client(node.convert(point, to: nil))
-        XCTAssertEqual(try XCTUnwrap(Double(sample[6])), client.x, accuracy: 0.01)
-        XCTAssertEqual(try XCTUnwrap(Double(sample[7])), client.y, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(Double(sample[7])), client.x, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(Double(sample[8])), client.y, accuracy: 0.01)
     }
 
     func testPlainAndInertRunsDoNotOpenTheInlineMenu() throws {
