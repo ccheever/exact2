@@ -9,6 +9,10 @@ pages can leave the reader inside that margin. A keyed intersection sentinel
 requests the next page after settlement, including on an empty feed. One ordinary
 native paging path passes. Empty and filtered-page timing remain unqualified.
 
+The history header also exposes the upstream "Load earlier activity" control while
+an automatic page is eligible. The keyed sentinel remains in place, so a manual
+press and an edge observation share the same request guard.
+
 Independent review found that Stop retired the client's history request while
 the presentation helper still reported it pending. The integrated regression
 holds the old response across Stop and a replacement request. Both owners must

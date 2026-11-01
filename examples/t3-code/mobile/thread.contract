@@ -62,6 +62,11 @@ component ThreadHistory
         if active and data.historyRequest != "" and data.historyError == ""
           for key in [data.historyRequest] key=key
             view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
+        if active and data.historyRequest != "" and data.historyError == "" and not data.historyLoading
+          button press=action("chatlocal:history-auto", data.historyRequest, "") min-height=31.5 padding=7 aria-label="Load earlier activity" testId="thread-history-load-earlier"
+            row align-items="center" gap=5.25
+              t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.iconSubtle width=12 height=12
+              text "Load earlier activity" font-size=14 line-height="19px" font-weight=500 color=colors.primary
         if data.historyError != ""
           text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
           button press=retry disabled=(not active or data.historyLoading or data.historyRequest == "") min-height=31.5 padding=7 aria-label="Retry loading earlier activity" testId="thread-history-retry"

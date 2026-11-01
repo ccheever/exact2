@@ -294,12 +294,16 @@ test('history chrome describes active loading and disables retry while offline',
   const scope = { data, active: true };
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('intersect=observe(key)', {}, scope)).toBe(true);
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
   data.historyRequest = '';
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
   data.historyError = 'Offline';
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
   expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(true);
   data.historyRequest = 'key';
   expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(false);
   data.historyError = ''; data.historyLoading = true;
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(true);
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
 });
