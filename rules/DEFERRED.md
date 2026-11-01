@@ -1590,6 +1590,17 @@ no inspect mode, no build channel. Charlie's waiver; no take is named. Still ref
 editing in release builds, a production inspect tier, layout and structure editing,
 captures of running apps, and a hosted relay.
 
+**Admitted (Charlie, 2026-10-30, "when you're happy with it, have astra implement it";
+LLP 1153 r2), development builds only, for a two-day experiment:** a Chrome DevTools
+inspection adapter in the Bun dev tooling, over the agent carrier (Stage 0) and the Tamber
+build channel (Stage 1), with one bounded read command on that channel and a one-instance
+outline; it shows the mounted tree, observed layout, style provenance and Contract
+locations through the stock frontend at a recorded version. Read-only, loopback,
+capability-attached; nothing in a release build. Still refused: source editing,
+JavaScript debugging, network capture, performance timelines, other hosts and production
+attachment. If Stage 0's fidelity gate fails (LLP 1153 §6), the admission lapses with the
+finding. Charlie's waiver; no take is named.
+
 **Agent API** — 10 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
