@@ -85,6 +85,7 @@ async function build() {
   const jobs = jobsFor(specs).filter(({ spec, arm }) => !(arm === 'exact' && coldSpecs.has(spec)));
   const coldJobs = jobsFor(specs).filter(({ spec, arm }) => arm === 'exact' && coldSpecs.has(spec));
   const slots = sims('bake-b').slice(0, Number(opt.parallel ?? 3));
+  if ((coldJobs.length || jobs.length) && !slots.length) throw new Error('no bake-b simulators found');
   const serverSpecs = new Set(['budget', 'board']);
   const doJob = (cold) => ({ spec, arm }) => async (sim) => {
     say(`build ${spec}-${arm}${cold ? ' (cold)' : ''} on ${sim}`);
@@ -94,10 +95,14 @@ async function build() {
     const r = await run('bun', argv, `${spec}-${arm}.build.txt`);
     say(`built ${r.out.trim().split('\n').pop()}`);
   };
+  const runExclusive = async (job, sim, cold) => {
+    const release = await hold(sim);
+    try { await doJob(cold)(job)(sim); } finally { release(); }
+  };
   // Cold builds run alone so they cannot warm a cache that another cold build is measuring.
-  for (const job of coldJobs) await doJob(true)(job)(slots[0]);
+  for (const job of coldJobs) await runExclusive(job, slots[0], true);
   // A spec's loopback server uses one stable port for both arms; serialize those two builds.
-  for (const job of jobs.filter(({ spec }) => serverSpecs.has(spec))) await doJob(false)(job)(slots[0]);
+  for (const job of jobs.filter(({ spec }) => serverSpecs.has(spec))) await runExclusive(job, slots[0], false);
   await pool(jobs.filter(({ spec }) => !serverSpecs.has(spec)).map((job) => doJob(false)(job)), slots);
 }
 
@@ -115,28 +120,31 @@ async function feel() {
   const probe = resolve(HERE, '../../host/apple/feel/probe.mjs');
   mkdirSync(resolve(ROUND, 'feel'), { recursive: true });
   const [sim] = sims('bake-feel');
+  if (specs.length && !sim) throw new Error('no bake-feel simulator found');
+  if (!sim) return;
   const release = await hold(sim);
-  spawnSync('xcrun', ['simctl', 'boot', sim]); // a reboot shuts every simulator down; the probe needs it running
-  for (const spec of specs) for (const arm of ['exact', pairs[spec].stack]) {
-    const recPath = recordPath(spec, arm);
-    if (!existsSync(recPath)) continue;
-    const rec = JSON.parse(readFileSync(recPath, 'utf8'));
-    if (!rec.app) continue;
-    const out = resolve(ROUND, 'feel', `${spec}-${arm}`);
-    if (!opt.redo && existsSync(resolve(out, 'feel.json'))) continue;
-    // Timing is only comparable on a quiet machine: wait (at most 20 minutes) for the load to fall under the core
-    // count, and keep the load each probe ran at beside its result.
-    for (const until = Date.now() + 20 * 60000; loadavg()[0] > availableParallelism() && Date.now() < until;) await new Promise((r) => setTimeout(r, 15000));
-    const load = Math.round(loadavg()[0]);
-    spawnSync('xcrun', ['simctl', 'install', sim, rec.app]);
-    const steps = (() => { try { return readFileSync(resolve(HERE, 'specs', spec, 'feel-steps.txt'), 'utf8').trim(); } catch { return ''; } })();
-    const r = await run('bun', [probe, '--udid', sim, '--app', rec.appId, '--out', out, ...(steps ? ['--steps', steps] : [])], `${spec}-${arm}.feel.txt`);
-    spawnSync('xcrun', ['simctl', 'uninstall', sim, rec.appId]);
-    mkdirSync(out, { recursive: true }); // a probe that failed early made none
-    writeFileSync(resolve(out, 'load.json'), JSON.stringify({ load, cores: availableParallelism() }) + '\n');
-    say(`feel ${spec}-${arm}: exit ${r.code} (load ${load})`);
-  }
-  release();
+  try {
+    spawnSync('xcrun', ['simctl', 'boot', sim]); // a reboot shuts every simulator down; the probe needs it running
+    for (const spec of specs) for (const arm of ['exact', pairs[spec].stack]) {
+      const recPath = recordPath(spec, arm);
+      if (!existsSync(recPath)) continue;
+      const rec = JSON.parse(readFileSync(recPath, 'utf8'));
+      if (!rec.app) continue;
+      const out = resolve(ROUND, 'feel', `${spec}-${arm}`);
+      if (!opt.redo && existsSync(resolve(out, 'feel.json'))) continue;
+      // Timing is only comparable on a quiet machine: wait (at most 20 minutes) for the load to fall under the core
+      // count, and keep the load each probe ran at beside its result.
+      for (const until = Date.now() + 20 * 60000; loadavg()[0] > availableParallelism() && Date.now() < until;) await new Promise((r) => setTimeout(r, 15000));
+      const load = Math.round(loadavg()[0]);
+      spawnSync('xcrun', ['simctl', 'install', sim, rec.app]);
+      const steps = (() => { try { return readFileSync(resolve(HERE, 'specs', spec, 'feel-steps.txt'), 'utf8').trim(); } catch { return ''; } })();
+      const r = await run('bun', [probe, '--udid', sim, '--app', rec.appId, '--out', out, ...(steps ? ['--steps', steps] : [])], `${spec}-${arm}.feel.txt`);
+      spawnSync('xcrun', ['simctl', 'uninstall', sim, rec.appId]);
+      mkdirSync(out, { recursive: true }); // a probe that failed early made none
+      writeFileSync(resolve(out, 'load.json'), JSON.stringify({ load, cores: availableParallelism() }) + '\n');
+      say(`feel ${spec}-${arm}: exit ${r.code} (load ${load})`);
+    }
+  } finally { release(); }
 }
 
 async function grade() {
@@ -146,7 +154,9 @@ async function grade() {
       ...(nativeRound ? ['--native', opt.native] : []), '--server-port', String(43000 + allSpecs.indexOf(spec))], `${spec}.grade.txt`);
     say(`graded ${r.out.trim().split('\n').pop()}`);
   });
-  await pool(jobs, sims('bake-g').slice(0, Number(opt.graders ?? 2)));
+  const slots = sims('bake-g').slice(0, Number(opt.graders ?? 2));
+  if (jobs.length && !slots.length) throw new Error('no bake-g simulators found');
+  await pool(jobs, slots);
 }
 
 function report() {

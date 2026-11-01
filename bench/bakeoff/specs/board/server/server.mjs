@@ -17,15 +17,28 @@ const move = (message) => {
   to.cards.splice(Math.max(0, Math.min(Number(message.index) || 0, to.cards.length)), 0, card);
   return true;
 };
+const edit = (message) => {
+  for (const column of board.columns) {
+    const card = column.cards.find((candidate) => candidate.id === message.cardId);
+    if (!card) continue;
+    for (const field of ['title', 'assignee', 'label']) if (typeof message[field] === 'string') card[field] = message[field];
+    return true;
+  }
+  return false;
+};
 const server = Bun.serve({ port, fetch(request, server) {
   const url = new URL(request.url);
-  if (url.pathname === '/simulate') { broadcast({ type: 'move', from: 'backlog', to: 'doing', cardId: board.columns[0].cards[0]?.id, index: 0 }); return new Response('ok'); }
-  if (url.pathname !== '/socket' || !server.upgrade(request, { data: {} })) return new Response('not found', { status: 404 });
+  if (url.pathname === '/simulate') {
+    const message = { type: 'move', from: 'backlog', to: 'doing', cardId: board.columns[0].cards[0]?.id, index: 0 };
+    if (move(message)) broadcast(message);
+    return new Response('ok');
+  }
+  if (!['/', '/socket'].includes(url.pathname) || !server.upgrade(request, { data: {} })) return new Response('not found', { status: 404 });
 }, websocket: {
   open(client) { clients.add(client); send(client, { type: 'board', board }); broadcast({ type: 'presence', count: clients.size - 1 }); },
   message(client, raw) { let message; try { message = JSON.parse(String(raw)); } catch { return; }
     if (message.type === 'move' && move(message)) broadcast({ type: 'move', ...message });
-    if (message.type === 'edit') broadcast(message);
+    if (message.type === 'edit' && edit(message)) broadcast(message);
   },
   close(client) { clients.delete(client); broadcast({ type: 'presence', count: Math.max(0, clients.size - 1) }); },
 } });
