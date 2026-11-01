@@ -53,9 +53,6 @@ component ThreadHistory
   action observe(key: string, entry: IntersectionObserverEntry)
     if entry.isIntersecting and active and key == data.historyRequest and key != "" and not data.historyLoading and data.historyError == ""
       action("chatlocal:history-auto", key, "")
-  action retry
-    if active and data.historyRequest != "" and not data.historyLoading and data.historyError != ""
-      action("chatlocal:history-retry", data.historyRequest, "")
   action loadEarlier
     if active and data.historyRequest != "" and not data.historyLoading
       action(data.historyError == "" ? "chatlocal:history-auto" : "chatlocal:history-retry", data.historyRequest, "")
