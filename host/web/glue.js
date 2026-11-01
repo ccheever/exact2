@@ -1004,7 +1004,7 @@ function log(line) {
 const INHERITED_CSS = {
   text_color: "color", font_family: "font-family", font_size: "font-size", font_weight: "font-weight",
   font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
-  font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align", widows: "widows", orphans: "orphans",
+  font_variant_numeric: "font-variant-numeric", font_variant_ligatures: "font-variant-ligatures", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align", widows: "widows", orphans: "orphans",
 };
 // A field's value as agent output shows it: a password's is the runner's fixed mark, whatever its length (#134).
 const shownValue = (el) => el.type === "password" && el.value ? "•••" : el.value;

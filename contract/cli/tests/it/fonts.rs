@@ -647,3 +647,41 @@ fn css_quoted_commas_do_not_alias_lists_and_family_matching_ignores_case() {
         .iter()
         .any(|f| plan.str(f.name) == "Comma, Family"));
 }
+
+#[test]
+fn font_variant_ligatures_reaches_text_and_fields_and_refuses_a_pair() {
+    let source = "component App\n  state off = true\n  view\n    column\n      text \"a://b\" testId=\"text\" font-variant-ligatures=(off ? \"none\" : \"normal\")\n      input testId=\"field\" value=\"a://b\" font-variant-ligatures=\"no-contextual\"\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let style = |id: &str| {
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .font_variant_ligatures
+    };
+    assert_eq!(
+        style("text"),
+        exact_kernel::FontVariantLigatures::bits("none").unwrap()
+    );
+    assert_eq!(
+        style("field"),
+        exact_kernel::FontVariantLigatures::NoContextual.keyword_bits()
+    );
+    let error = contract::compile(
+        "component App\n  view\n    text \"1\" font-variant-ligatures=\"contextual no-contextual\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-attr-value");
+    assert!(
+        error.message.contains("at most one of each pair"),
+        "{error}"
+    );
+}

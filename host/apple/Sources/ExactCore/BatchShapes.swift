@@ -216,7 +216,7 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
+            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric", "font_variant_ligatures",
                  "text_shadow", "text_stroke_width", "text_stroke_color", "visibility", "user_select",
                  "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
                 try style.set(key, r.value(), colorChannels: r.colorChannels)
@@ -324,6 +324,7 @@ extension InlineStyle {
         case "font_optical_sizing": run.variations = FontAxis.opticalSizing(try BatchFields.string(value), run.variations)
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
+        case "font_variant_ligatures": run.ligatures = Int(try BatchFields.number(value)) & 0xff
         case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
         case "user_select": selectsAll = try BatchFields.string(value) == "all"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)

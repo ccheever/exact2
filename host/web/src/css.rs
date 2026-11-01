@@ -355,6 +355,11 @@ fn css_text_in(
                 "font-variant-numeric:{};",
                 exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
             ),
+            (StyleId::FontVariantLigatures, _) => push_text!(
+                &mut out,
+                "font-variant-ligatures:{};",
+                exact_kernel::FontVariantLigatures::css(style.font_variant_ligatures)
+            ),
             (StyleId::GridAutoFlow, RowValue::Enum(flow)) => {
                 out.push_str("grid-auto-flow:");
                 out.push_str(flow);

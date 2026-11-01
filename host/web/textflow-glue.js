@@ -70,6 +70,7 @@ export function fontStyle(style, mac = false, lang = '') {
   const font = `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${style.fontSize} ${family}`;
   const extra = { fontKerning: style.fontKerning || 'auto', fontStretch: style.fontStretch || 'normal',
     fontVariantCaps: style.fontVariantCaps || 'normal', fontVariantNumeric: style.fontVariantNumeric || 'normal',
+    fontVariantLigatures: style.fontVariantLigatures || 'normal',
     textRendering: style.textRendering || 'auto',
     direction: style.direction || 'ltr', lang };
   const spacing = px(style.letterSpacing);
@@ -328,6 +329,7 @@ function paintContent(span, fragment, state, lineHeight) {
     piece.style.fontStretch = run.font.extra.fontStretch;
     piece.style.fontVariantCaps = run.font.extra.fontVariantCaps;
     piece.style.fontVariantNumeric = run.font.extra.fontVariantNumeric;
+    piece.style.fontVariantLigatures = run.font.extra.fontVariantLigatures;
     piece.style.fontFeatureSettings = run.font.fontFeatureSettings;
     piece.style.fontVariationSettings = run.font.fontVariationSettings;
     piece.exactFlowSourceStart = Math.max(run.start, fragment.paint_start);
@@ -606,10 +608,14 @@ export function createTextFlow({ views, request, advance, present, admitTimers =
       const key = JSON.stringify([snapshot.width, snapshot.height, snapshot.lineHeight, snapshot.maxLines, snapshot.align,
         snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions, snapshot.cut]);
       if (s.geometry === key && s.rendered) return { s, unchanged: true };
-      // Canvas has no font-variant-numeric: tabular figures cannot be measured
-      // for the walker, so such a paragraph keeps ordinary layout (LLP 1053 G4).
-      if ([snapshot.font, ...s.runs.map(r => r.font)].some(f => f.extra.fontVariantNumeric !== 'normal'))
+      // Canvas has no font-variant-numeric (LLP 1053 G4) or
+      // font-variant-ligatures: tabular figures and unjoined letters cannot be
+      // measured for the walker, so such a paragraph keeps ordinary layout.
+      const fonts = [snapshot.font, ...s.runs.map(r => r.font)];
+      if (fonts.some(f => f.extra.fontVariantNumeric !== 'normal'))
         return { s, skipped: 'font-variant-numeric cannot be measured by canvas; ordinary text retained' };
+      if (fonts.some(f => f.extra.fontVariantLigatures !== 'normal'))
+        return { s, skipped: 'font-variant-ligatures cannot be measured by canvas; ordinary text retained' };
       if (!prepare(snapshot)) return { ...snapshot, pending: true };
       registerShapes(snapshot.exclusions);
       const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));

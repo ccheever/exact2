@@ -44,6 +44,9 @@ package struct Run: Hashable {
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums`, the face's own
     /// `tnum` feature. It changes advances: a metric (LLP 1053 G4).
     package var numeric: Int = 0
+    /// CSS `font-variant-ligatures` as the kernel's `FontVariantLigatures`
+    /// bits: the face's ligature features on or off. A metric.
+    package var ligatures: Int = 0
     /// CSS `font-stretch`, percent of normal width: a metric (LLP 1019 D8).
     package var stretch: CGFloat = 100
     /// CSS `font-variation-settings`: a metric (LLP 1019 D9).
@@ -86,7 +89,7 @@ package struct Run: Hashable {
     package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
-              lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.stretch == rhs.stretch,
+              lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.ligatures == rhs.ligatures, lhs.stretch == rhs.stretch,
               lhs.variations == rhs.variations, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.underlineColor == rhs.underlineColor,
               lhs.strikeColor == rhs.strikeColor, lhs.href == rhs.href,
@@ -113,6 +116,7 @@ package struct Run: Hashable {
         hasher.combine(lineHeight)
         hasher.combine(letterSpacing)
         hasher.combine(numeric)
+        hasher.combine(ligatures)
         hasher.combine(stretch)
         hasher.combine(variations)
         hasher.combine(color)
@@ -131,7 +135,7 @@ package struct Run: Hashable {
         hasher.combine(hang)
         hasher.combine(box)
     }
-    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
+    package init(text: String, size: CGFloat, weight: Int, family: Int, italic: Bool, lineHeight: CGFloat?, letterSpacing: CGFloat, numeric: Int = 0, ligatures: Int = 0, stretch: CGFloat = 100, variations: [FontAxis] = [], color: [Double]? = nil, decoration: String = "", href: String = "", background: [Double]? = nil, hidden: Bool = false, fixedInk: Bool = false, shadow: [Double]? = nil, stroke: [Double]? = nil, indent: CGFloat = 0, hang: Bool = false) {
         self.text = text
         self.size = size
         self.weight = weight
@@ -140,6 +144,7 @@ package struct Run: Hashable {
         self.lineHeight = lineHeight
         self.letterSpacing = letterSpacing
         self.numeric = numeric
+        self.ligatures = ligatures
         self.stretch = stretch
         self.variations = variations
         self.color = color
@@ -730,19 +735,23 @@ package final class TextEngine {
     }
 
     package func font(_ run: Run) -> PlatformFont {
-        font(size: run.size, weight: run.weight, family: run.family, italic: run.italic, numeric: run.numeric, stretch: run.stretch,
-             variations: run.variations)
+        font(size: run.size, weight: run.weight, family: run.family, italic: run.italic, numeric: run.numeric,
+             ligatures: run.ligatures, stretch: run.stretch, variations: run.variations)
     }
 
     /// CSS `tabular-nums` is the chosen face's own OpenType `tnum` feature,
     /// never a substitute monospaced face; a face without it is unchanged.
-    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int, stretch: CGFloat = 100,
-                      variations: [FontAxis] = []) -> PlatformFont {
+    /// `ligatures` (CSS `font-variant-ligatures`) sets its ligature features
+    /// alike (`ligatureFeatures`).
+    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int, ligatures: Int = 0,
+                      stretch: CGFloat = 100, variations: [FontAxis] = []) -> PlatformFont {
         let base = font(size: size, weight: weight, family: family, italic: italic, stretch: stretch, variations: variations)
-        guard numeric & 1 != 0 else { return base }
-        let key = "\(family)/\(size)/\(weight)/\(italic)/\(stretch)/\(FontAxis.key(variations))/tnum"
+        let features = (numeric & 1 != 0 ? [("tnum", 1)] : []) + TextEngine.ligatureFeatures(ligatures)
+        guard !features.isEmpty else { return base }
+        let named = features.map { "\($0.0)=\($0.1)" }.joined(separator: ",")
+        let key = "\(family)/\(size)/\(weight)/\(italic)/\(stretch)/\(FontAxis.key(variations))/\(named)"
         if let f = fonts[key] { return f }
-        let settings = [[kCTFontOpenTypeFeatureTag: "tnum", kCTFontOpenTypeFeatureValue: 1]] as CFArray
+        let settings = features.map { [kCTFontOpenTypeFeatureTag: $0.0, kCTFontOpenTypeFeatureValue: $0.1] } as CFArray
         let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
         let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
         fonts[key] = f
@@ -1409,7 +1418,7 @@ package final class TextEngine {
     /// The paragraph a request describes, as the presenter paints it.
     package func requestSpec(_ request: ExactMeasureRequest) -> Spec {
         func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), ligatures: Int(run.font_variant_ligatures), stretch: CGFloat(run.font_stretch), variations: FontAxis.of(run))
         }
         var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map { r in
             var made = run(r)

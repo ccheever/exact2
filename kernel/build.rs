@@ -80,7 +80,8 @@ struct StyleRow {
     #[serde(default)]
     default: serde_json::Value,
     /// A `u8` row authored as CSS keywords: the named vocabulary's first value
-    /// is the empty set (0) and each later value `i` is bit `i - 1`.
+    /// is the empty set (0), a `none` is every `no-` value, and each other
+    /// value is one bit in vocabulary order (`build/codec.rs` `KEYWORD_BITS`).
     #[serde(default)]
     keywords: Option<String>,
     /// An `animations` row whose every animation must end (LLP 1063).

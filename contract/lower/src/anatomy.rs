@@ -51,6 +51,7 @@ fn holds(group: &str, id: StyleId) -> bool {
                 | FontWeight
                 | FontStyle
                 | FontVariantNumeric
+                | FontVariantLigatures
                 | LineHeight
                 | LetterSpacing
                 | TextAlign

@@ -450,6 +450,7 @@ impl Em<'_> {
                 writes
             }
             StyleId::FontVariantNumeric => one("font-variant-numeric", None),
+            StyleId::FontVariantLigatures => one("font-variant-ligatures", None),
             // SVG's transform grammar, restated as CSS's (kernel TransformList).
             StyleId::Transform => {
                 let t = self.uses.rt("svgTransform");

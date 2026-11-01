@@ -441,6 +441,37 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(advance(plain, "111"), advance(plain, "888"))
     }
 
+    func testFontVariantLigaturesSetsTheFacesLigatureFeatures() throws {
+        guard !TextEngine.installedFaces("Hoefler Text").isEmpty else { throw missing("fonts", "Hoefler Text unavailable") }
+        let engine = TextEngine(resolve: { _ in nil })
+        let family = Array("Hoefler Text".utf8)
+        family.withUnsafeBufferPointer { f in
+            var rows = [ExactFontFace()]
+            rows[0].family = f.baseAddress; rows[0].family_len = f.count; rows[0].stack = 8
+            rows.withUnsafeMutableBufferPointer { buffer in
+                var catalog = ExactFontCatalog()
+                catalog.faces = UnsafePointer(buffer.baseAddress); catalog.count = buffer.count
+                withUnsafePointer(to: &catalog) { engine.install($0) }
+            }
+        }
+        // The kernel's FontVariantLigatures bits: 1 common-ligatures,
+        // 2 no-common-ligatures, 0x80 no-contextual, 0xaa none.
+        func glyphs(_ ligatures: Int) -> Int {
+            let r = Run(text: "fifl", size: 16, weight: 400, family: 8, italic: false, lineHeight: nil, letterSpacing: 0, ligatures: ligatures)
+            return CTLineGetGlyphCount(engine.paragraph(spec([r]), width: .infinity).lines[0])
+        }
+        let joined = glyphs(0)
+        XCTAssertLessThan(joined, 4, "Hoefler Text joins fi and fl")
+        XCTAssertEqual(glyphs(0xaa), 4)
+        XCTAssertEqual(glyphs(0x02), 4)
+        XCTAssertEqual(glyphs(0x01), joined)
+        XCTAssertEqual(glyphs(0x80), joined)
+        let plain = Run(text: "fi", size: 16, weight: 400, family: 8, italic: false, lineHeight: nil, letterSpacing: 0)
+        var none = plain
+        none.ligatures = 0xaa
+        XCTAssertNotEqual(spec([plain]).geometry, spec([none]).geometry, "a metric identity")
+    }
+
     #if os(macOS)
     func testLinksAddressTheSourceWhileLinesAddressTheShapedText() throws {
         _ = NSApplication.shared

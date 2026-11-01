@@ -198,7 +198,7 @@ export function install(exact) {
   // (`dynamic` when a binding wrote it), an inherited one comes from the
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
-  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', font_variant_ligatures: 'font-variant-ligatures', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
   // The runner's names where CSS spells a row otherwise: a border side's
   // colour, style and width, a corner's radius, `position`, and Exact's own
   // custom properties for a symbol's tint and the pressed scale.
