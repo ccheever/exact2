@@ -305,5 +305,6 @@ test('history chrome describes active loading and disables retry while offline',
   expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(false);
   data.historyError = ''; data.historyLoading = true;
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(true);
-  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
+  expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(true);
 });

@@ -13,6 +13,9 @@ The history header also exposes the upstream "Load earlier activity" control whi
 an automatic page is eligible. The keyed sentinel remains in place, so a manual
 press and an edge observation share the same request guard.
 
+While a page is in flight, that control stays mounted with the upstream loading
+label and spinner and is disabled until the request settles.
+
 Independent review found that Stop retired the client's history request while
 the presentation helper still reported it pending. The integrated regression
 holds the old response across Stop and a replacement request. Both owners must
