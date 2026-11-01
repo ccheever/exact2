@@ -767,8 +767,8 @@ names: prop, children, slot, inject, provide, component
 
 A child `component` declares `props` as indented `name: type` lines (a type `action` takes a
 handler) and is used with named arguments, `Tag(label="Tea", pick=choose("Tea"))`. The root is
-the file's first component. A `slot` in a child and `children` in its view place the nodes the
-caller indents under the use. Props are read-only.
+the file's first component. A `slot` line in a child (after its `props`) and `children` in its view place the nodes
+the caller indents under the use, as `Card` does. Props are read-only.
 
 ```contract
 component App
@@ -777,8 +777,18 @@ component App
     chosen = t
   view
     column gap=8
-      Tag(label="Tea", pick=choose("Tea"))
+      Card(title="Drinks")
+        Tag(label="Tea", pick=choose("Tea"))
       text chosen testId="chosen"
+
+component Card
+  props
+    title: string
+  slot
+  view
+    column gap=4
+      text title font-weight=600
+      children
 
 component Tag
   props
