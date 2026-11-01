@@ -237,6 +237,8 @@ members T3Code
   state composerFieldAcked = 0
   state composerFieldEffects = 0
   state composerFieldFocusDone = 0
+  // The field composerFieldFocus is for (fieldSide when it was asked).
+  state composerFieldFocusSide = false
   state composerFieldFocus = ComposerFieldAcknowledgement(applied=false, reason="", value="", start=0, end=0, generation=-1, snapshotOwner="", owner="", seq=0, then="", send=false, focus="", removedImage="", inputSerial=-1)
   state composerFieldAdmitted = false
   state composerFieldTarget = ComposerFieldCommand(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, text="", selectionStart=0, selectionEnd=0, focus=false, then="", seq=0, ready=false, history=0, citation=0, completion=0)
@@ -270,6 +272,7 @@ members T3Code
           composerFieldEffects = result.seq
           if result.focus != ""
             composerFieldFocus = result
+            composerFieldFocusSide = fieldSide
           if result.send
             if result.value == fieldText
               fieldSubmit("")
@@ -284,7 +287,7 @@ members T3Code
     after(1, composerFieldFocusRun)
   action composerFieldFocusRun
     // A focus to restore that the field left asked for lapses with it, and leaves this field's cursor alone.
-    if composerFieldFocus.owner == fieldOwner
+    if composerFieldFocusSide == fieldSide
       composerFieldFocusDone = composerFieldFocus.seq
     if composerFieldFocusCurrent and fieldData.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0 and frame(composerFieldFocus.focus).width > 0
       focus(composerFieldFocus.focus)

@@ -195,15 +195,19 @@ component StashGlyph
 
 // ComposerStashBadge: a shoulder tab at the composer's top-right (22pt in),
 // whose last 17pt the card covers, beside the banners (app.contract puts it
-// at the end of their row). ⌘S's chord is its key binding.
+// at the end of their row). ⌘S's chord is its key binding, the window's
+// composer's only: a side chat's composer takes no composer.stash
+// (composerShortcutCommands), and the window's chat ignores the keys pressed
+// in the side chat's pane.
 component StashKey
   inject
     composerChords: bool // composer-controls.contract ModelTrigger
+    composerScope: string
   props
     stash: ComposerStash
     op: action
   view
-    button -exact-menu="none" press=op("stash", "", "") aria-keyshortcuts=(composerChords ? stash.keyStash : "") aria-label="Stash prompt" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-key"
+    button -exact-menu="none" press=op("stash", "", "") aria-keyshortcuts=(composerChords and composerScope == "" ? stash.keyStash : "") aria-label="Stash prompt" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-stash-key"
       text "composer-stash-key" font-size=1
 
 component StashBadge

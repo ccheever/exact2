@@ -91,6 +91,7 @@ describe('the window\'s editing engine serves the focused field', () => {
     f.run('fieldServeRun', [], { composerFieldAcked: 6, composerFieldOther: 0, composerFieldNext: { ready: false, seq: 0 }, pending: () => false });
     expect([f.state.fieldTarget, f.state.fieldSide, f.state.fieldSwitchWaiting, f.state.windowFieldAfter, f.state.windowFieldAcked, f.state.composerFieldAfter]).toEqual(['s1', true, false, 6, 6, 0]);
     // A focus to restore that the window's field asked for lapses, and leaves the side chat's cursor alone.
+    f.state.composerFieldFocusSide = false;
     f.run('composerFieldFocusRun', [], { composerFieldFocus: { seq: 9, owner: 'main-owner', focus: 'composer' } });
     expect(f.state.composerFieldFocusDone).toBe(0);
   });
@@ -183,6 +184,11 @@ describe('a composer chord acts on the composer that has the focus', () => {
     const pane = { sideRich: {}, sideRichOwner: '', sideQuestionMarkdown: { documents: [] }, sideTraceMarkdown: { documents: [] }, composerTarget: '', sideChatThread: 's1' };
     expect(thread.derives({}, { ...pane, sideKeys: true, fieldSide: true, fieldIntentNotice: 'n', fieldMenuActive: 2 })).toMatchObject({ composerChords: true, composerIntentNotice: 'n', composerMenuActive: 2 });
     expect(thread.derives({}, { ...pane, sideKeys: false, fieldSide: false, fieldIntentNotice: 'n', fieldMenuActive: 2 })).toMatchObject({ composerChords: false, composerIntentNotice: '', composerMenuActive: 0 });
+  });
+  test('⌘S stashes the window\'s prompt only: the side chat\'s composer declares no stash chord (composerShortcutCommands)', () => {
+    const stashKey = contractComponent('composer-editor.contract', 'StashKey');
+    const declared = (composerChords: boolean, composerScope: string) => stashKey.attribute('testId="composer-stash-key"', 'aria-keyshortcuts', {}, { composerChords, composerScope, stash: { keyStash: 'Meta+S' }, op: () => {} });
+    expect([declared(true, ''), declared(false, ''), declared(true, 'side-chat-')]).toEqual(['Meta+S', '', '']);
   });
   test('a dispatched effort step goes to the focused side chat, and to neither composer from elsewhere in its pane', () => {
     const f = sideFocused();

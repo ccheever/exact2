@@ -15,7 +15,9 @@ members T3Code
   derive composerScope = ""
   derive sideNow = wallTime.epochAtZero + max(liveNow, elapsed) // the timeline's clock (app-window.contract timelineNow)
   derive sideChatThread = shell.panel.open and shell.panel.sideChat.show and not shell.panel.sideChat.deleted ? shell.panel.sideChat.threadId : ""
-  resource sideChat = sideChatData(sideChatThread, data.revision, wallTime.epochAtZero + elapsed, viewport.displayMode, wallTime.formatLocale) as shape Snapshot
+  // The pane's stream is pinned by the shell's answer (panel-surfaces.ts pinThreads), whose bounded fetch changes no
+  // `data.revision`: its `loading` turning false asks again, as the window's thread arrives with the refresh its open awaited.
+  resource sideChat = sideChatData(sideChatThread, data.revision, wallTime.epochAtZero + elapsed, viewport.displayMode, wallTime.formatLocale, shell.panel.sideChat.loading) as shape Snapshot
   // Its answers wait on server replies as the window's do, so the tick publishes the transport's table as they start and end.
   task sideChatAnswered key=`${pending(sideChat)}${pending(sideAttachmentUrls)}${pending(sideEditor)}${pending(sideFilesAdded)}`
     after(1, transportPump)

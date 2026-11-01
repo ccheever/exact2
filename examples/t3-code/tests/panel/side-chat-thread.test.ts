@@ -225,3 +225,21 @@ test('an edit asked of the side chat\'s field while the engine serves the window
   // Asking does not deliver it: the engine's own read, once it serves the field, does.
   expect(composerFieldResource(scope, [snapshot, 0], owner)).toMatchObject({ ready: true, seq, text: ' ! ' });
 });
+
+test('the pane asks for the side chat\'s view again once the shell\'s pin has fetched its thread, with no clock tick (#1243)', async () => {
+  // The bounded fetch runs in the shell's answer (panel-surfaces.ts pinThreads) and changes no `data.revision`: before,
+  // a side chat that sent no event after it (one waiting on a question) showed "Loading messages..." until the clock moved.
+  const { sideChatView } = await import('../../src/panel/side-chat');
+  const { appText } = await import('../support/app-files');
+  const context = await opened();
+  const side = { ...thread('s1'), title: 'Side question', lineage: { parentThreadId: 't1', relationshipToParent: 'fork', sideChat: true } };
+  context.native.shell.threads = [...arr(context.native.shell.threads), side];
+  context.native.details.s1 = { snapshotSequence: 10, historyCursor: null, hasMoreHistory: false, latestLocalTurnOrdinal: 0,
+    projection: { ...obj(context.native.details.t1!.projection), thread: side, messages: [] } };
+  context.native.emit('shell', { kind: 'thread.updated', sequence: ++context.native.sequence, location: 'active', thread: side });
+  await context.client.refresh(context.native, context.disk.files);
+  expect(sideChatView(context.client, 't1', 's1').loading).toBe(true);
+  await pinThreads(context.client, context.native, 'sideChat', 's1');
+  expect(sideChatView(context.client, 't1', 's1').loading).toBe(false);
+  expect(appText('app.contract')).toContain('resource sideChat = sideChatData(sideChatThread, data.revision, wallTime.epochAtZero + elapsed, viewport.displayMode, wallTime.formatLocale, shell.panel.sideChat.loading)');
+});
