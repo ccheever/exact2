@@ -13,8 +13,9 @@
 //!   never ships the fallback (`tamber-unknown-token`, naming the design's
 //!   tokens of the kinds the row takes). The refused row is dropped, so the
 //!   passes after the loader say nothing more of it.
-//! - A component's argument that is one `var()` naming a token is that token,
-//!   as a row reads it once the component is expanded. Any other argument is
+//! - A component's argument, a `fn`'s result and a `derive`'s value that is
+//!   one `var()` naming a token is that token, as a row reads it once the
+//!   component is expanded or the call made. Any other argument is
 //!   left as written, since it may be text; where it reaches a style row, a
 //!   `var()` in it naming no token is refused there ([`carried`]).
 
@@ -113,7 +114,16 @@ pub fn rewrite(file: &mut File, tokens: &Tokens) -> Rewritten {
             rows(&mut frame.attrs, tokens, &mut out);
         }
     }
+    // A `fn`'s or a `derive`'s value that is one `var()` naming a token, through `?:` and `match`, is that token,
+    // as a component's argument is: what reaches a row by a call (`background-color=typeColor(t)`) names it there.
+    let mut refused = None;
+    for f in &mut file.fns {
+        value(&mut f.body, tokens, Mode::Whole, &mut out, &mut refused);
+    }
     for c in file.components.iter_mut().chain(file.members.as_mut()) {
+        for d in &mut c.derives {
+            value(&mut d.expr, tokens, Mode::Whole, &mut out, &mut refused);
+        }
         nodes(&mut c.view, tokens, &mut out);
     }
     out
