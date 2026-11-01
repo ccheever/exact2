@@ -194,3 +194,16 @@ test('a side chat field\'s edit is answered from its own source session (compose
   const members = (await import('../support/app-files')).appText('src/composer/composer-members.contract');
   expect(members).toContain('false, fieldRich.mode, fieldTarget)');
 });
+
+test('the module\'s field reads and edits reach the field of the client that asks (app.ts fieldNative)', async () => {
+  const { composerFieldNative, composerFieldObserved } = await import('../../src/composer/composer-field-bridge');
+  const { composerFieldOwner } = await import('../../src/composer/auto-balance-owner');
+  const { client } = await withSideChat();
+  const scope = threadScope(client, 's1');
+  const owner = composerFieldOwner(scope);
+  composerFieldObserved(scope, [{ generation: scope.generation, snapshotOwner: scope.snapshotOwner, owner, value: 'side text', start: 9, end: 9, composing: false, live: true, focused: true, inputSerial: 1 }, true], owner);
+  const module = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as unknown as Parameters<typeof composerFieldNative>[1];
+  const state = async (host: typeof client) => (await composerFieldNative(host, module, () => composerFieldOwner(host)).later({ op: 'editorState' })) as { value: Record<string, unknown> };
+  expect((await state(scope)).value.text).toBe('side text');
+  expect((await state(client)).value.text).not.toBe('side text');
+});

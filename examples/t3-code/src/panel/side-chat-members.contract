@@ -91,12 +91,18 @@ members T3Code
   derive composerChords = not sideKeys
   derive keyModelsChord = settings.keyModels
   action sideComposerFocus
-    fieldTarget = sideChatThread
-    fieldSide = sideChatThread != ""
+    fieldSwitch(sideChatThread)
     composerFocused = true
     composerComposing = false
     composerHeldMode = sideRich.mode
     modifierEditableFocus()
+  // Leaving the side chat's field hands the engine back to the window's, so what the window's field is asked meanwhile
+  // (a mention, a capture, ⌘S) reaches it; a remount's own blur keeps it (composer-members.contract composerRestore).
+  action sideComposerBlur
+    let remount = composerHeldMode != "" and composerHeldMode != sideRich.mode
+    composerBlur()
+    if not remount
+      fieldSwitch("")
   // A composer chord dispatched from the window's table (keyboard-dispatch.ts) that steps the composer's effort goes to
   // the side chat while its field has the focus.
   action dispatchCommand(op: string, id: string, value: string, n: number)

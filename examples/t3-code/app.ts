@@ -73,7 +73,7 @@ import { Transport } from './src/transport/transport';
 import { noteLayoutFrames } from './src/shell/layout-frames';
 import type { SecretStore } from './src/transport/transport-catalog';
 import { externalOpenRequest } from './src/client/external-open';
-import { scopedCommand, sideChatClient } from './src/panel/side-chat-thread'; // a side chat's own chat view: its snapshot and its presses
+import { scopedCommand, scopedOp, sideChatClient } from './src/panel/side-chat-thread'; // a side chat's own chat view: its snapshot and its presses
 
 export const appId = 'com.exact.t3code.macos';
 // The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
@@ -133,7 +133,11 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
 // hands its own scripted server. The disconnected answer is baked. Native work starts only when Exact reports
 // that the module is available, after its ordinary first-frame adoption.
 export async function answerClient(source: string, args: unknown[], _store: unknown, _storage: Files, native: Native | null | undefined) {
-  if (native?.available) native = composerFieldNative(client, letGoAware(native), () => composerFieldOwner(client));
+  // The module's field edits (editorState, editorEdit, editorInsert) reach the field of the client that asks: the
+  // window's, or a side chat's for what runs on its scope.
+  const module = native;
+  const fieldNative = (host: T3Client) => module?.available ? composerFieldNative(host, letGoAware(module), () => composerFieldOwner(host)) : module;
+  if (native?.available) native = fieldNative(client);
   adoptAppFiles(_storage); // the app's own files: Save's bytes, a draft's staged copy (save-file.ts)
   const storage = preferenceFiles(_storage);
   if (source === 'highlightAsk') return highlightAsk(); // the texts waiting for their tokens (app.contract highlightStep)
@@ -256,7 +260,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'terminalDrawer') return terminalDrawerView(client, native, Number(args[1]) || 0, Number(args[2]) || 0); // args[0] re-asks on each revision
   if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden', notifications: String(args[8] ?? '') }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown; args[8]: the notification permission
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
-  if (source === 'composerAttach') return sideChatClient(client, String(args[5] ?? '')).command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, native, storage);
-  if (source === 'command') return scopedCommand(client, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, native, storage); // `scope:<thread>|<op>` runs on a side chat (side-chat-thread.ts)
+  if (source === 'composerAttach') return sideChatClient(client, String(args[5] ?? '')).command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, fieldNative(sideChatClient(client, String(args[5] ?? ''))), storage);
+  if (source === 'command') { const scoped = scopedOp(String(args[0] || '')); return scopedCommand(client, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, scoped ? fieldNative(sideChatClient(client, scoped.threadId)) : native, storage); } // `scope:<thread>|<op>` runs on a side chat (side-chat-thread.ts)
   throw new Error(`Unknown T3 source: ${source}`);
 }

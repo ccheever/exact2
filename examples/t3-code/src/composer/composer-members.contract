@@ -124,8 +124,49 @@ members T3Code
     after(1, fieldTargetLapsed)
   action fieldTargetLapsed
     if fieldTarget != sideChatThread
-      fieldTarget = ""
-      fieldSide = false
+      fieldSwitch("")
+  // Each field's commands are numbered by its own queue (composer-field-commands.ts), so the engine's delivery cursors
+  // are the served field's: a switch parks the other field's and takes this one's back (a side chat's from zero when it
+  // is another thread than the one parked).
+  state windowFieldAfter = 0
+  state windowFieldAcked = 0
+  state windowFieldEffects = 0
+  state windowFieldFocusDone = 0
+  state sideFieldThread = ""
+  state sideFieldAfter = 0
+  state sideFieldAcked = 0
+  state sideFieldEffects = 0
+  state sideFieldFocusDone = 0
+  action fieldSwitch(thread: string)
+    let toSide = thread != ""
+    if toSide != fieldSide or thread != fieldTarget
+      let resume = toSide and not fieldSide and thread == sideFieldThread
+      let after = composerFieldAfter
+      let acked = composerFieldAcked
+      let effects = composerFieldEffects
+      let focusDone = composerFieldFocusDone
+      composerFieldAfter = toSide ? (resume ? sideFieldAfter : 0) : windowFieldAfter
+      composerFieldAcked = toSide ? (resume ? sideFieldAcked : 0) : windowFieldAcked
+      composerFieldEffects = toSide ? (resume ? sideFieldEffects : 0) : windowFieldEffects
+      composerFieldFocusDone = toSide ? (resume ? sideFieldFocusDone : 0) : windowFieldFocusDone
+      if fieldSide
+        sideFieldThread = fieldTarget
+        sideFieldAfter = after
+        sideFieldAcked = acked
+        sideFieldEffects = effects
+        sideFieldFocusDone = focusDone
+      else
+        windowFieldAfter = after
+        windowFieldAcked = acked
+        windowFieldEffects = effects
+        windowFieldFocusDone = focusDone
+      // Edits queued for the other field lapse with it, and say nothing in this one.
+      composerIntentQueue = []
+      composerIntentActive = 0
+      composerIntentPhase = ""
+      fieldIntentNotice = ""
+      fieldTarget = thread
+      fieldSide = toSide
   derive fieldData = fieldSide ? sideChat : data
   derive fieldRich = fieldSide ? sideRich : richComposer
   derive fieldOwner = fieldSide ? sideRichOwner : richComposerOwner
@@ -547,8 +588,7 @@ members T3Code
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
   action composerFocus
-    fieldTarget = "" // the window's field (side-chat-members.contract)
-    fieldSide = false
+    fieldSwitch("") // the window's field (side-chat-members.contract)
     composerFocused = true
     composerComposing = false
     composerHeldMode = richComposer.mode

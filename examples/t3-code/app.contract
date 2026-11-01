@@ -258,7 +258,7 @@ component T3Code
     sideOpenOptions
     sideNow
     sideComposerFocus
-    composerBlur
+    sideComposerBlur
     fieldSide
     fieldIntentNotice
     fieldMenuActive

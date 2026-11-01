@@ -535,7 +535,7 @@ component ComposerFooter
       ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel), traits=data.composer.effortWord, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
       if data.composer.attach
         box margin-right="0.5rem" display="flex" flex-shrink=0
-          AttachButton(disabled=(busy or not data.connected))
+          AttachButton(disabled=(busy or not data.connected or data.questions.filter((q) => q.responding).length > 0)) // an answer on its way takes no file
       row flex=1 min-width=0 gap="0.5rem" align-items="center" justify-content="flex-end"
         row flex=1 min-width=0 gap="0.125rem" align-items="center" justify-content="flex-end" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor=`${composerScope}controls`
           if data.composer.noProvider != ""

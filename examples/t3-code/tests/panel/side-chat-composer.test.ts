@@ -56,6 +56,34 @@ describe('the window\'s editing engine serves the focused field', () => {
     f.run('composerFocus', [], { modifierEditableFocus: () => {} });
     expect([f.state.fieldTarget, f.state.fieldSide, f.state.composerHeldMode]).toEqual(['', false, 'rich']);
   });
+  test('each field keeps its own delivery cursors: a switch parks one and takes the other back', () => {
+    const f = sideFocused();
+    const cursors = () => [f.state.composerFieldAfter, f.state.composerFieldAcked, f.state.composerFieldEffects, f.state.composerFieldFocusDone];
+    Object.assign(f.state, { fieldTarget: '', fieldSide: false, composerFieldAfter: 5, composerFieldAcked: 5, composerFieldEffects: 4, composerFieldFocusDone: 3 });
+    f.run('fieldSwitch', ['s1']);
+    expect([f.state.fieldTarget, f.state.fieldSide, ...cursors()]).toEqual(['s1', true, 0, 0, 0, 0]);
+    Object.assign(f.state, { composerFieldAfter: 2, composerFieldAcked: 2, composerFieldEffects: 2, composerFieldFocusDone: 1 });
+    f.run('fieldSwitch', ['']);
+    expect([f.state.fieldTarget, f.state.fieldSide, ...cursors()]).toEqual(['', false, 5, 5, 4, 3]);
+    f.run('fieldSwitch', ['s1']);
+    expect(cursors()).toEqual([2, 2, 2, 1]);
+    f.run('fieldSwitch', ['']);
+    f.run('fieldSwitch', ['s2']);
+    expect(cursors()).toEqual([0, 0, 0, 0]);
+    // An edit queued for the field left lapses, with no notice in the next one.
+    Object.assign(f.state, { composerIntentQueue: [{ serial: 1 }], composerIntentPhase: 'request', composerIntentActive: 1, fieldIntentNotice: 'x' });
+    f.run('fieldSwitch', ['']);
+    expect([f.state.composerIntentQueue, f.state.composerIntentPhase, f.state.composerIntentActive, f.state.fieldIntentNotice]).toEqual([[], '', 0, '']);
+  });
+  test('leaving the side chat\'s field hands the engine back to the window\'s, except a remount\'s blur', () => {
+    const f = sideFocused();
+    f.run('sideComposerBlur', [], { sideRich: { mode: 'rich' } });
+    expect([f.state.fieldTarget, f.state.fieldSide, f.state.composerFocused]).toEqual(['', false, false]);
+    const remount = sideFocused();
+    remount.state.composerHeldMode = 'rich';
+    remount.run('sideComposerBlur', [], { sideRich: { mode: 'literal' } });
+    expect([remount.state.fieldTarget, remount.state.fieldSide]).toEqual(['s1', true]);
+  });
   test('the field\'s names are the side chat\'s while it serves it, the window\'s otherwise', () => {
     const f = sideFocused();
     const side = derived({ ...f.scope, ...f.state }, 'fieldText', 'fieldOwner', 'fieldId');

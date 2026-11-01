@@ -112,7 +112,7 @@ component SideChatThread
     sideOpenOptions: action
     sideNow: number
     sideComposerFocus: action
-    composerBlur: action
+    sideComposerBlur: action
     fieldSide: bool
     fieldIntentNotice: string
     fieldMenuActive: number
@@ -186,7 +186,7 @@ component SideChatThread
   action focused
     sideComposerFocus()
   action blurred
-    composerBlur()
+    sideComposerBlur()
   // The shelf asks before removing a referenced image (app.contract titleMenuPick); here it removes it.
   action askRemove(target: string, id: string, op: string, title: string, body: string, destructive: bool)
     sideRemoveSnapshot(id)
