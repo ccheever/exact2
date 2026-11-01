@@ -5764,7 +5764,8 @@ requested adapter.
 
 ## Windows default — qualification (2026-11-01)
 
-Charlie selected ink as Windows' absent painter (LLP 1149 D12). This lane
+Charlie selected ink as the absent painter of a Windows app that is not a game
+(LLP 1149 D12; a game with no key keeps the CPU painter). This lane
 changes selection and qualifies it by existing suites and app drives;
 S2.5, S2.9, G6e and G7c remain the performance evidence. No series,
 quiet-machine gate or PresentMon collection runs here.
