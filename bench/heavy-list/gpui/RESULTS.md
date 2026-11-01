@@ -11814,6 +11814,7 @@ they are not filled from an unfocused run.
 
 The following 60 Hz values remain historical; the missing 120 Hz cells
 have no median or range. Source and refresh both differ from G6e/G6.
+G7c below records the next attempt to collect these “Uncollected” rows.
 
 | Arm / refresh | Displays / gesture s | Late intervals / s | p99, ms | Fling process / main CPU, ms/s | Peak working set, MiB |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -11918,3 +11919,98 @@ retry; a repeated loss to the same application stops collection. G7b's
 predictions above are unchanged. Raw evidence belongs under `target/g7c/`
 locally and in the reused `exact2-1149-001-win120b` NucBox mirror;
 `target/g7b/` is retained intact.
+
+**Visible-console prediction, before collection.** The orchestrator identifies
+the task's `conhost.exe --headless` launch as the foreground-acquisition
+problem and authorizes a task launched directly through visible
+`powershell.exe`, with the same interactive principal. Windows lists a
+foreground caller, or a caller started by the foreground process, among
+its [foreground eligibility conditions](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow).
+Predict successful foreground acquisition and zero focus losses in the
+five-round fling and separate static cohorts. The driver, schedules and
+performance predictions stay unchanged. This run waits until cold
+`series-3/complete.json` exists; no window is opened alongside that control.
+
+### G7c foreground and collection
+
+Both retained after binaries match G7b's receipts; neither is rebuilt.
+The console-session mode query at 01:43:09 PDT confirms 5120×1440,
+120 Hz and 96 DPI. The initial headless task fails D3D11 foreground
+acquisition before any wheel input or CPU endpoint; its one retry fails
+identically. Both identify HWND **65762**, PID **10200**, **explorer.exe**,
+with an empty title, at QPC **529004473523** and **529098467959** (10 MHz).
+ChatGPT is no longer the foreground owner. These are acquisition failures,
+not an application raising itself during a gesture. Both processes exit
+normally; each has four snapshots and four successful frames. All quiet
+observations pass, with maximum **9.4%** total CPU. The task stops at its
+allowed retry; its independent cold cohort then runs.
+
+After the third cold control's `complete.json`, the authorized visible
+PowerShell task starts with its own console in the foreground: PID
+**633812**, HWND **12518194**, title
+`Administrator: C:\windows\System32\WindowsPowerShell\v1.0\powershell.exe`.
+The same driver, binaries and schedule run beneath it. The retained task
+XML records the interactive SID principal and direct `powershell.exe`
+action. The headless task's failed attempts stay in `series-1`; the visible
+collection is `visible-1`.
+
+### G7c observer-off cold control
+
+G7's startup path runs with `full=False`, without a PresentMon process
+beside any launch. Each cohort has ten fresh processes per arm in rotating
+order, the after binaries and retained caches. All 90 launches finish
+normally. Every cohort first obtains six consecutive quiet observations;
+**none passes the complete-cohort gate**. No sample is selected from a
+failed cohort into another. Series 3 follows a five-minute pause and is
+the third and final attempt.
+
+The gate observes total CPU over five seconds, across 32 logical processors,
+and rejects any observation at or above 10% or with a compiler present.
+It includes background services and the measured processes. The six
+preflight observations measure the idle session before launching the arms;
+they do not prove that the following cohort will remain quiet. No compiler
+is recorded in these cohorts.
+
+| Cold cohort | Idle wait, observations | Idle CPU median [range], % | Cohort CPU median [range], % | Passing / total cohort observations | Verdict |
+| --- | ---: | ---: | ---: | ---: | --- |
+| series-1 | 8 | 9.05 [5.8–12.6] | 8.45 [6.0–12.6] | 27 / 34 | Excluded whole |
+| series-2 | 30 | 10.60 [6.3–15.1] | 9.50 [5.8–15.0] | 18 / 34 | Excluded whole |
+| series-3 | 6 | 6.60 [6.0–7.9] | 6.75 [5.4–10.1] | 33 / 34 | Excluded whole; final egui launch overlaps the 10.1% observation |
+
+The following medians [minimum–maximum] reproduce the excluded cohorts;
+they are diagnostics, not qualified startup rows. G7 and G7b's qualified
+carrier endpoints remain the comparison. G7b ran PresentMon before each
+launch, but its startup capture failed; G7 and these controls did not.
+
+| Endpoint, ms | G7, 120 Hz | G7b after, 120 Hz | G7c series-1, excluded | G7c series-2, excluded | G7c series-3, excluded |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D3D11 DWM proxy | 161.18 [146.55–175.67] | 192.98 [172.38–205.10] | 195.82 [173.54–462.77] | 200.21 [194.81–208.68] | 199.22 [186.61–227.43] |
+| D3D11 DXGI display | 167.03 [153.72–181.89] | 199.15 [178.38–209.76] | 201.95 [179.62–477.37] | 206.18 [200.86–215.20] | 205.68 [190.61–233.98] |
+| Ink/wgpu DWM proxy | 723.48 [687.45–834.75] | 730.36 [715.54–767.56] | 798.11 [726.09–952.56] | 764.10 [718.59–801.82] | 745.64 [729.66–758.27] |
+| egui DWM proxy | 239.05 [229.51–263.04] | 275.75 [264.68–280.11] | 286.04 [278.99–319.96] | 282.77 [270.07–316.94] | 279.80 [269.78–306.02] |
+
+Every excluded median **misses** its predicted band (D3D11 150–170, Ink/wgpu 690–730, egui 230–250 ms),
+but the prediction has no qualified test: none supplies the quiet control needed to attribute G7b's difference
+from G7. These observations establish neither the observer's cost nor a
+machine-state cause. D3D11's startup snapshots/frames are 38/38, 40/40 and
+40/40; these are separate from the five-fling invariant.
+
+Session-start/end process files give the following CPU differences for
+processes identifiable at both endpoints, plus processes born during the
+session and still present at its end. Values are CPU seconds divided by
+elapsed session seconds: one unit is one busy logical processor. Processes
+that exit between snapshots are absent, so this is not a complete CPU
+accounting or attribution of an individual slow launch.
+
+| Session | Elapsed, s | Largest retained process CPU rates, cores | ChatGPT.exe processes, start/end | Aggregate ChatGPT CPU, s |
+| --- | ---: | --- | ---: | ---: |
+| series-1 | 293.61 | SearchIndexer 0.382; WmiPrvSE 0.344; System 0.241; MsMpEng 0.135; SearchProtocolHost 0.109 | 15 / 15 | 5.67 |
+| series-2 | 323.92 | SearchIndexer 0.841; WmiPrvSE 0.319; System 0.245; SearchProtocolHost 0.179; MsMpEng 0.122 | 15 / 15 | 4.17 |
+| series-3 | 202.79 | WmiPrvSE 0.321; System 0.239; MsMpEng 0.126; WindowsService 0.036; dwm 0.025 | 15 / 15 | 2.73 |
+
+Series 1's session includes its two failed fling acquisitions; series 2
+and 3 contain only the cold control and its quiet wait. The Codex app
+remains present. These are this lane's own endpoint observations, not the
+orchestrator's five-second sample. Defender, indexing, power and display
+settings are unchanged. The clock crosses the daylight-saving transition;
+raw Unix/QPC times, rather than repeated local 01:xx labels, establish order.
