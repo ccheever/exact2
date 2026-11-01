@@ -220,17 +220,28 @@ export function renderer(dist) {
 /** A rendered page's first image, when it loads with the page (no `for` repeats it, LLP 1048.007 D5), is likely its
  * largest paint: it is fetched at high priority and preloaded ahead of the document, as web.dev's LCP guidance has a
  * hero image (HTML's `fetchpriority` and `<link rel="preload" as="image">`). A page whose first image is a lazy row's
- * opens with a list, and has none. Writes the priority into `out.root`; returns the preload link. */
+ * opens with a list, and has none. The first shown: a route the stack covers is `inert` and hidden, and what it holds
+ * is not the page's. Writes the priority into `out.root`; returns the preload link (host/render/src/page.rs `hero_image`). */
 function heroImage(out) {
-  for (const m of out.root.matchAll(/<img\b([^>]*)>/g)) {
-    const src = /\bsrc="([^"]+)"/.exec(m[1])?.[1];
-    if (!src || src.startsWith('data:')) continue;
-    if (/\bloading="lazy"/.test(m[1])) return '';
-    out.root = out.root.slice(0, m.index) + '<img fetchpriority="high"' + out.root.slice(m.index + 4);
-    return `<link rel="preload" as="image" href="${src}">`;
+  const tags = /<(\/?)([a-zA-Z][\w-]*)([^>]*)>/g, covered = [];
+  for (let m; (m = tags.exec(out.root));) {
+    const [, close, tag, attrs] = m, name = tag.toLowerCase();
+    if (close) { covered.pop(); continue; }
+    if (name === 'img') {
+      const src = /\bsrc="([^"]+)"/.exec(attrs)?.[1];
+      if (covered.includes(true) || !src || src.startsWith('data:')) continue;
+      if (/\bloading="lazy"/.test(attrs)) return '';
+      out.root = out.root.slice(0, m.index) + '<img fetchpriority="high"' + out.root.slice(m.index + 4);
+      return `<link rel="preload" as="image" href="${src}">`;
+    }
+    if (VOID.has(name) || attrs.endsWith('/')) continue;
+    // A style's or a script's text is not markup.
+    if (name === 'style' || name === 'script') { tags.lastIndex = Math.max(tags.lastIndex, out.root.indexOf(`</${name}`, tags.lastIndex)); }
+    covered.push(/\sinert(?=[\s=]|$)/.test(attrs) || /visibility:\s*hidden/.test(attrs));
   }
   return '';
 }
+const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css', '.mp4': 'video/mp4', '.plan': 'application/octet-stream' };
 

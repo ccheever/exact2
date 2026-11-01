@@ -1107,6 +1107,33 @@ component Page
   }, {}, {}, how);
 }, 180000);
 
+// A route the stack covers holds no hero: at a nested route, the image preloaded is the shown page's, though the covered
+// home's list of lazy rows comes first in the document.
+test('both document renderers preload the shown route\'s first image, not a covered one\'s', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+    detail "/detail" render=build
+
+component Pages
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0
+          if e.name == "home"
+            for id in ["a", "b"] key=id
+              image \`https://example.com/\${id}.png\` width=96 alt=id
+          if e.name == "detail"
+            image "https://example.com/hero.png" width=200 alt="Hero"
+`, (_, html) => {
+    const page = html('detail'), hero = page.match(/<img [^>]*hero\.png[^>]*>/)?.[0] ?? '';
+    expect([how, page.match(/<link rel="preload" as="image"[^>]*>/g), hero.includes('fetchpriority="high"')])
+      .toEqual([how, ['<link rel="preload" as="image" href="https://example.com/hero.png">'], true]);
+    expect([how, html('').match(/<link rel="preload" as="image"[^>]*>/g)]).toEqual([how, null]);
+  }, {}, {}, how);
+}, 180000);
+
 // A render's realm made ahead, while the server was idle, renders the page a fresh one does (LLP 1048.000 D10).
 test('a realm made ahead renders the page a fresh one does', async () => {
   await renderedPages(`routes nav

@@ -428,35 +428,72 @@ pub(crate) fn body_js(
     out
 }
 
-/// A page's first image, when it loads with the page (no `for` repeats it,
-/// LLP 1048.007 D5), is likely its largest paint: it is fetched at high
-/// priority and preloaded ahead of the document, as `render.mjs`
-/// `heroImage` does. Writes the priority into `root`; returns the preload.
+/// A page's first shown image, when it loads with the page (no `for`
+/// repeats it, LLP 1048.007 D5), is likely its largest paint: it is fetched
+/// at high priority and preloaded ahead of the document, as `render.mjs`
+/// `heroImage` does. A route the stack covers is `inert` and hidden, and
+/// what it holds is not the page's. Writes the priority into `root`;
+/// returns the preload.
 fn hero_image(root: &mut String) -> Option<String> {
+    const VOID: &[&str] = &[
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source",
+        "track", "wbr",
+    ];
+    let mut covered: Vec<bool> = Vec::new();
     let mut from = 0;
-    while let Some(at) = root[from..].find("<img").map(|i| from + i) {
+    while let Some(at) = root[from..].find('<').map(|i| from + i) {
         let end = at + root[at..].find('>')?;
-        let tag = &root[at + 4..end];
         from = end;
-        if !tag.starts_with([' ', '\n']) {
-            continue;
-        }
-        let Some(src) = tag
-            .split_once(" src=\"")
-            .and_then(|(_, rest)| rest.split_once('"'))
-            .map(|(src, _)| src)
-        else {
-            continue;
+        let inner = &root[at + 1..end];
+        let (close, inner) = match inner.strip_prefix('/') {
+            Some(rest) => (true, rest),
+            None => (false, inner),
         };
-        if src.starts_with("data:") {
+        let name_len = inner
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+            .unwrap_or(inner.len());
+        if name_len == 0 || !inner.starts_with(|c: char| c.is_ascii_alphabetic()) {
             continue;
         }
-        if tag.contains(" loading=\"lazy\"") {
-            return None;
+        let name = inner[..name_len].to_ascii_lowercase();
+        let attrs = &inner[name_len..];
+        if close {
+            covered.pop();
+            continue;
         }
-        let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
-        root.insert_str(at + 4, " fetchpriority=\"high\"");
-        return Some(link);
+        if name == "img" {
+            let Some(src) = attrs
+                .split_once(" src=\"")
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map(|(src, _)| src)
+            else {
+                continue;
+            };
+            if covered.contains(&true) || src.starts_with("data:") {
+                continue;
+            }
+            if attrs.contains(" loading=\"lazy\"") {
+                return None;
+            }
+            let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
+            root.insert_str(at + 4, " fetchpriority=\"high\"");
+            return Some(link);
+        }
+        if VOID.contains(&name.as_str()) || attrs.ends_with('/') {
+            continue;
+        }
+        // A style's or a script's text is not markup.
+        if name == "style" || name == "script" {
+            if let Some(i) = root[from..].find(&format!("</{name}")) {
+                from += i;
+            }
+        }
+        let inert = attrs
+            .match_indices(" inert")
+            .any(|(i, m)| matches!(attrs[i + m.len()..].chars().next(), None | Some(' ' | '=')));
+        covered.push(
+            inert || attrs.contains("visibility:hidden") || attrs.contains("visibility: hidden"),
+        );
     }
     None
 }
