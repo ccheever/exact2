@@ -36,8 +36,9 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(work).toContain('scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"');
   const markdown = appText('mobile/thread-markdown.contract');
   expect(markdown).toContain('button appearance="none" press=action("chatlocal:copy-code"');
-  expect(markdown).toContain('view overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-x" min-width=0 max-width="100%" box-sizing="border-box"');
-  expect(markdown).toContain('view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-x" box-sizing="border-box"');
+  expect(markdown).toContain('view overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" min-width=0 max-width="100%" box-sizing="border-box"');
+  expect(markdown).toContain('view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" box-sizing="border-box"');
+  expect(markdown).not.toContain('overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-x"');
   expect(home).toContain('view height=1 min-width=0 box-sizing="border-box" margin-left=17.5 margin-right=17.5');
   expect(home).toContain('view flex=1 min-width=0 height=1 box-sizing="border-box" background-color=colors.border');
   expect(home).toContain('if item.card and item.trailingDivider and not item.last and not sidebar');

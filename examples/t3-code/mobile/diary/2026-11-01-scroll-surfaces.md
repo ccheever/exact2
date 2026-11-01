@@ -116,3 +116,12 @@ their authored padding in the measured border box. Focused source tests pass;
 the normal source build succeeds. A runtime drive could not start because both
 available local simulators were owned by another workspace, so rendered motion,
 divider placement and any framework issue remain unqualified.
+
+The next source review removes `touch-action="pan-x"` from the Markdown code and
+table scrollports. UIKit intersects that restriction with the transcript feed,
+so a vertical drag beginning over a code block could be rejected before the
+feed saw it. The scrollports still own horizontal overflow, contain edge
+overscroll and hide incidental indicators, matching the existing file-preview
+pattern. Focused and full mobile tests pass; both local Duo targets were still
+owned by another workspace, so live frame pacing and rendered line placement
+remain unqualified.
