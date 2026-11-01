@@ -28,6 +28,14 @@ Targeted citation reads and non-mobile clients remain outside this producer
 boundary. The projection is still authoritative until a later reader-window
 unit proves rehydration and eviction.
 
+The first reader-window step now reopens one indexed older range after a live
+thread selection. It merges only while the route, environment, thread and
+subscription owner remain current; a stale response or cache failure leaves
+the subscribed server snapshot untouched. This restores accepted older rows
+without adding a scroll surface or evicting the display projection. Eviction,
+live-tail reconciliation, selection pinning and a device memory bound remain
+unqualified.
+
 The focused TypeScript adapter tests, standalone SQLite cache tests, and cache
 transport tests cover reopen, bidirectional reads, atomic metadata, stale tickets,
 clear, malformed input, and transfer framing. No TestFlight, performance, or

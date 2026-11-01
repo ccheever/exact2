@@ -10,6 +10,7 @@ import { mobileCacheFleetDisplays, mobileCacheFleetSync } from './mobile-client-
 import { mobileCacheCatalogCurrent } from './mobile-client-cache-catalog';
 import { mobileCacheReadRevision } from './mobile-client-cache';
 import { mobileOutboxDriveSnapshot } from './mobile-outbox-drive';
+import { mobileRehydrateThreadHistory } from './thread-history';
 
 const selections = new WeakMap<T3Client, number>();
 const stamp = (client: T3Client) => JSON.stringify([client.environmentId, client.origin, client.generation,
@@ -172,6 +173,9 @@ export async function mobileThreadSelection(client: T3Client, id: string, native
       const refusal = wasRefusal ? { refused: routeId, refusing: true,
         refusals: previous.refused === routeId ? previous.refusals + (previous.refusing ? 0 : 1) : 1 }
         : previous.refused === routeId ? { refusing: false } : {};
+      if (!result.message && client.environmentId === environmentId && client.threadId === threadId && client.threadSubscription === threadId)
+        void mobileRehydrateThreadHistory(client, native, () => selections.get(client) === serial
+          && client.environmentId === environmentId && client.threadId === threadId && client.threadSubscription === threadId);
       if (!result.message && (client.environmentId !== environmentId || client.threadId !== threadId
         || (requests > 0 || client.busy) && unopened(client, environmentId, threadId))) {
         retries.set(client, { ...previous, ...refusal, count: previous.count + 1, waiting: true, reopen: routeId });

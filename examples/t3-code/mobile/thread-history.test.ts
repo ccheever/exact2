@@ -3,7 +3,7 @@ import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import { ClientError, type Files, type Native } from './shared/protocol';
 import { letGoAware } from './shared/let-go';
-import { mobileThreadHistory } from './thread-history';
+import { mobileRehydrateThreadHistory, mobileThreadHistory } from './thread-history';
 import { chatLocal } from './shared/timeline-presentation';
 import { mobileThreadRows } from './thread';
 import { contractComponent } from '../tests/support/contract-action-fixture';
@@ -241,6 +241,44 @@ describe('automatic earlier activity', () => {
     expect(cache.map(request => request.action)).toEqual(['historyTicket', 'historyCommit']);
     expect(cache[1]).toMatchObject({ environmentId: 'env', threadId: 'thread', revision: 1, beforeCursor: null, hasMore: false });
     expect((cache[1]!.items as Obj[])[0]!.payload).toContain('Stored content');
+  });
+
+  test('reopen reads indexed rows behind the live snapshot and preserves the current owner', async () => {
+    const f = fixture(); f.client.historyStorageEnabled = true;
+    const current = { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: 'current-item',
+      item: { id: 'current-item', threadId: 'thread', type: 'assistant_message', text: 'Current content', streaming: false,
+        messageId: 'current-message', runId: null, nodeId: null, ordinal: 1, status: 'completed', startedAt: '2026-10-30T00:00:00Z', updatedAt: '2026-10-30T00:00:00Z' } };
+    const older = { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: 'older-item',
+      item: { id: 'older-item', threadId: 'thread', type: 'assistant_message', text: 'Stored older content', streaming: false,
+        messageId: 'older-message', runId: null, nodeId: null, ordinal: 0, status: 'completed', startedAt: '2026-10-29T00:00:00Z', updatedAt: '2026-10-29T00:00:00Z' } };
+    f.client.thread!.projection.visibleTurnItems = [current]; f.client.thread!.projection.turnItems = [current.item];
+    const native: Native = { ...f.native, async later(input) {
+      const request = obj(input);
+      if (request.action === 'historyRead') return { ok: true, generation: 1, value: { revision: 2, beforeCursor: null, afterCursor: null, hasMore: false,
+        items: [{ key: JSON.stringify(['thread', 'older-item']), ordinal: 0, payload: JSON.stringify(older) }] } };
+      return f.native.later(input);
+    } };
+    await mobileRehydrateThreadHistory(f.client, native, () => true);
+    expect(f.client.thread!.projection.visibleTurnItems.map((row: Obj) => obj(row.item).text)).toEqual(['Stored older content', 'Current content']);
+    expect(f.client.historyRevision).toBe(1);
+  });
+
+  test('reopen discards an indexed response after the route owner retires', async () => {
+    const f = fixture(); f.client.historyStorageEnabled = true; let current = true, resolve!: (value: unknown) => void;
+    const native: Native = { ...f.native, later(input) {
+      if (obj(input).action === 'historyRead') return new Promise(reply => { resolve = reply; });
+      return f.native.later(input);
+    } };
+    const older = { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: 'older-item',
+      item: { id: 'older-item', threadId: 'thread', type: 'assistant_message', text: 'Stale stored content', streaming: false,
+        messageId: 'older-message', runId: null, nodeId: null, ordinal: 0, status: 'completed', startedAt: '2026-10-29T00:00:00Z', updatedAt: '2026-10-29T00:00:00Z' } };
+    const pending = mobileRehydrateThreadHistory(f.client, native, () => current);
+    current = false;
+    resolve({ ok: true, generation: 1, value: { revision: 2, beforeCursor: null, afterCursor: null, hasMore: false,
+      items: [{ key: JSON.stringify(['thread', 'older-item']), ordinal: 0, payload: JSON.stringify(older) }] } });
+    await pending;
+    expect(f.client.historyRevision).toBe(0);
+    expect(f.client.projection.visibleTurnItems).toEqual([]);
   });
 
   test('departure suppresses old errors and returning to the same visit gives a fresh observation key', async () => {

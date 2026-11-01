@@ -1,13 +1,15 @@
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';
-import { arr, obj } from './shared/domain';
+import { arr, mergeHistory, obj } from './shared/domain';
 import { letGo } from './shared/let-go';
-import { mobileThreadHistoryCommit, mobileThreadHistoryLimits, mobileThreadHistoryTicket, type MobileThreadHistoryItem } from './mobile-thread-history-store';
+import { mobileThreadHistoryCommit, mobileThreadHistoryLimits, mobileThreadHistoryRead, mobileThreadHistoryTicket, type MobileThreadHistoryItem } from './mobile-thread-history-store';
 
 interface History {
   owner: string; route: string; error: string; pending: object | null; cursors: string[]; noProgress: number; attempt: number; acceptedSerial: number;
 }
 const histories = new WeakMap<T3Client, History>();
+const rehydrated = new WeakMap<T3Client, string>();
+const rehydrating = new WeakMap<T3Client, string>();
 const owner = (client: T3Client) => JSON.stringify([client.origin, client.environmentId, client.generation,
   client.projectId, client.threadId, client.threadEpoch, client.historyEpoch]);
 const requestKey = (client: T3Client, state: History) => JSON.stringify([state.owner, state.route, client.thread?.historyCursor, state.attempt]);
@@ -97,4 +99,50 @@ export async function mobileLoadThreadHistory(client: T3Client, native: Native, 
   } finally {
     if (current()) { state.pending = null; state.attempt++; }
   }
+}
+
+/**
+ * Reopens one indexed page behind the bounded server snapshot. The store is a
+ * display-cache aid: a stale read, malformed payload, or missing anchor cannot
+ * delay the live subscription or replace the server-owned snapshot.
+ */
+export async function mobileRehydrateThreadHistory(client: T3Client, native: Native, current: () => boolean): Promise<void> {
+  if (!client.historyStorageEnabled || !native.available || !client.environmentId || !client.threadId || !client.thread
+    || !client.thread.hasMore || !client.thread.historyCursor) return;
+  const identity = { environmentId: client.environmentId, threadId: client.threadId }, thread = client.thread;
+  const stamp = JSON.stringify([client.environmentId, client.threadId, client.threadEpoch]);
+  if (rehydrated.get(client) === stamp || rehydrating.get(client) === stamp) return;
+  rehydrating.set(client, stamp);
+  const rows = arr(thread.projection.visibleTurnItems);
+  let oldest: { key: string; ordinal: number } | null = null;
+  for (const row of rows) {
+    const ordinal = obj(row.item).ordinal;
+    if (!Number.isSafeInteger(ordinal) || Number(ordinal) < 0) continue;
+    const candidate = { key: rowKey(row), ordinal: Number(ordinal) };
+    if (!oldest || candidate.ordinal < oldest.ordinal || candidate.ordinal === oldest.ordinal && candidate.key < oldest.key) oldest = candidate;
+  }
+  try {
+    const range = await mobileThreadHistoryRead(native, identity, 'older', mobileThreadHistoryLimits.maxItems, oldest);
+    if (!current() || client.thread !== thread) return;
+    if (!range.items.length) { rehydrated.set(client, stamp); return; }
+    const items: Record<string, unknown>[] = [];
+    for (const entry of range.items) {
+      try {
+        const value = JSON.parse(entry.payload);
+        if (value && typeof value === 'object' && !Array.isArray(value)) items.push(value as Record<string, unknown>);
+      } catch { /* the adapter already checked JSON; retain the live snapshot if a host changes it */ }
+    }
+    if (!items.length) { rehydrated.set(client, stamp); return; }
+    const before = new Set(arr(thread.projection.visibleTurnItems).map(rowKey));
+    const next = mergeHistory(thread, { snapshotSequence: thread.sequence, nextCursor: range.beforeCursor,
+      hasMoreHistory: range.hasMore, items });
+    if (!current()) return;
+    const added = arr(next.projection.visibleTurnItems).some(row => !before.has(rowKey(row)));
+    client.thread = next;
+    if (added) client.historyRevision++;
+    client.revision++;
+    rehydrated.set(client, stamp);
+  } catch {
+    // Indexed history is optional. The subscribed server snapshot stays usable.
+  } finally { if (rehydrating.get(client) === stamp) rehydrating.delete(client); }
 }
