@@ -10,8 +10,9 @@ declare a shrinkable inline size and row dividers that extended to the edge.
 
 ### Lean in
 
-Both lists now declare `min-width=0`, allowing the route column to own their
-width. Home dividers have explicit horizontal margins in both card branches.
+Both lists and their virtualized row roots now declare `min-width=0`, allowing
+the route column to own their width. Home dividers have explicit horizontal
+margins in both card branches.
 The existing projection emits dividers only between adjacent rows, so no
 first-row or final-row separator was added. List-level horizontal clipping was
 rejected because Markdown and code blocks own their own horizontal scrollers.
@@ -27,5 +28,5 @@ worktree first.
 
 The focused Home/thread suite passes 152 tests and 1,112 assertions. Contract
 compilation, strict app TypeScript, boot and all ten caps categories pass.
-The change is pushed to PR216 as `98e425ba72`. No native build or performance
-claim is attached to this source-only unit.
+The first source commit was `98e425ba72`; the row-root correction is a follow-up
+source unit. No native build or performance claim is attached to this work.

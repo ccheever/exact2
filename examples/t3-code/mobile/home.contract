@@ -416,7 +416,7 @@ component HomeListItem
   derive rowStatusColor = item.status.length > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
   derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
   view
-    column padding-bottom=(item.last ? bottomClearance * (collapsing ? 1 - exitEase : 1) : 0)
+    column min-width=0 padding-bottom=(item.last ? bottomClearance * (collapsing ? 1 - exitEase : 1) : 0)
       height=(collapsing ? exitHeight * (1 - exitEase) : "auto") min-height=0 box-sizing="border-box" overflow=(exiting ? "hidden" : "visible") pointer-events=(exiting ? "none" : "auto")
       hatch="mobile-home-dismissal" data-mobile-swipe-owner=owner data-mobile-swipe-row=item.swipe.token data-mobile-dismissal-identity=item.dismissalIdentity
       if item.kind == "thread"
