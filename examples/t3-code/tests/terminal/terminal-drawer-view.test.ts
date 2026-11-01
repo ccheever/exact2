@@ -12,7 +12,7 @@ import { closeThreadTerminals as cleanupCloseThreadTerminals } from '../../src/s
 import { closeThreadTerminals, terminalRows, terminalKeybindings, terminalDrawerView, terminalMetadataEvent, terminalOps, terminalAvailable, terminalOpen, TERMINAL_METADATA_KEY } from '../../src/terminal/terminal-drawer-view';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
 import { focusedTerminal, recordTerminalFocus } from '../../src/terminal/terminal-focus';
-import { adoptTerminalPrefs, terminalUiStore } from '../../src/terminal/terminal-ui-state';
+import { adoptTerminalPrefs, selectThreadTerminalUiState, terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { contractComponent } from '../support/contract-action-fixture';
 import { terminalFrameId } from '../../src/terminal/terminal-frames';
 import { terminalPanelOps } from '../../src/terminal/terminal-panel';
@@ -289,6 +289,14 @@ test('draft terminal reserves its send identity, worktree and session across fir
   forgetDraftThreadId(client, draftKey);
   expect(terminalOpen(client)).toBe(true);
   expect((await terminalDrawerView(client, null, 840, 0)).terminalId).toBe('term-1');
+});
+test('a drawer close confirmed after switching threads closes that terminal on its own thread', async () => {
+  const { client, raw, calls } = fixture(), ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  await run(client, 'toggle'); await run(client, 'split', 'env-a:thread-1|term-1');
+  raw.threadId = 'thread-2';
+  await run(client, 'close', 'env-a:thread-1|term-2');
+  expect(calls.at(-1)).toEqual({ method: 'terminal.close', payload: { threadId: 'thread-1', terminalId: 'term-2', deleteHistory: true } });
+  expect(selectThreadTerminalUiState(terminalUiStore(client).getState().terminalUiStateByThreadKey, ref).terminalIds).toEqual(['term-1']);
 });
 test('closing the last pane and hiding the drawer return composer focus; a remaining pane keeps focus', async () => {
   const { client } = fixture();

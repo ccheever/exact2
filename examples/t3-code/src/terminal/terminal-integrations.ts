@@ -63,9 +63,10 @@ export function canRunShellCommand(language: string, code: string, streaming: bo
   return closedFence && !streaming && /^(?:sh|bash|zsh|fish|shell|powershell|pwsh)$/.test(language) && code.endsWith('\n') && command.length > 0 && !command.endsWith('\\') && !/[\p{Cc}\p{Cf}]/u.test(code.slice(0, -1));
 }
 export function buildExpiredTerminalContextToastCopy(count: number, variant: 'empty' | 'omitted') {
-  const noun = Math.max(1, Math.floor(count)) === 1 ? 'Expired terminal context' : 'Expired terminal contexts';
-  return variant === 'empty' ? { title: `${noun} won't be sent`, description: 'Remove it or re-add it to include terminal output.' } :
-    { title: `${noun} omitted from message`, description: 'Re-add it if you want that terminal output included.' };
+  const one = Math.max(1, Math.floor(count)) === 1;
+  const noun = one ? 'Expired terminal context' : 'Expired terminal contexts', pronoun = one ? 'it' : 'them';
+  return variant === 'empty' ? { title: `${noun} won't be sent`, description: `Remove ${pronoun} or re-add ${pronoun} to include terminal output.` } :
+    { title: `${noun} omitted from message`, description: `Re-add ${pronoun} if you want that terminal output included.` };
 }
 // Records are retained beside drafts; only references in the current prompt are sent.
 // This also preserves their payload when the prompt is stashed or restored.
