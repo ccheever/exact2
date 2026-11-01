@@ -1,4 +1,4 @@
-// The Browser tab's navigation aids (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// The Browser tab's navigation aids (T3 Code 2359643cff, MIT, see LICENSE-T3:
 // apps/web/src/components/preview/{PreviewView,PreviewEmptyState,PreviewRecentUrlCard,PreviewLocalServerCard,
 // PreviewMoreMenu,ZoomIndicator}.tsx, openDiscoveredPort.ts; apps/web/src/browser/{HostedBrowserWebview,
 // BrowserDeviceToolbar,useBrowserViewportResize}.tsx, useBrowserLayoutZoomFactor.ts (74541bab17); apps/web/src/routes/_chat.tsx and ChatView.tsx
@@ -19,7 +19,7 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../
 import { chordWinners, type DispatchAdd } from '../shell/keyboard-dispatch';
 import { panelState, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { readSnapshot, type PreviewNavStatus, type PreviewSessionSnapshot, type PreviewViewportSetting } from './browser-state';
-import { normalizePreviewUrl } from './browser-url';
+import { normalizePreviewUrl, PreviewUrlNormalizationError } from './browser-url';
 import { formatRelativeTimeLabel, recentUrlLabel } from './browser-history';
 import { recentHistory, recordPreviewTitles, recordVisit, removeVisit } from './browser-history-record';
 import { discoveredServers, getConfiguredPreviewUrls, preparedConnection, previewableServers, resolveDiscoveredServerUrl, watchDiscoveredServers } from './browser-targets';
@@ -197,6 +197,12 @@ const settleViewport = (client: T3Client, runtimeId: string) => { const state = 
 
 const DIRECTIONS: ReadonlySet<string> = new Set(['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']);
 const numbers = (value: string): number[] => value.split('|').map(Number);
+/** PreviewView handleSubmitUrl / handleOpenServerUrl: an address the tab cannot open says so. */
+export function reportAddressError(client: T3Client, error: unknown): '' {
+  pushToast(client, { kind: 'error', title: 'Could not open this address',
+    description: error instanceof PreviewUrlNormalizationError ? 'Enter an http or https URL.' : error instanceof Error ? error.message : 'An error occurred.' });
+  return '';
+}
 
 /** ⇧⌘J (togglePreviewPanel): a Browser panel closes (the dispatch row's panel-close); otherwise the thread's active tab shows, or a new one opens. */
 export async function showPreview(client: T3Client, native: Native, state: PanelState): Promise<string> {
@@ -231,7 +237,7 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       // handleOpenServerUrl (a Recently used row or a Local server): the server's address resolved for this environment; history keeps the requested one.
       const resolved = resolveDiscoveredServerUrl(ref.environmentId, value, preparedConnection(client));
       let url: string;
-      try { url = normalizePreviewUrl(resolved); } catch { return ''; }
+      try { url = normalizePreviewUrl(resolved); } catch (error) { return reportAddressError(client, error); }
       navigateFrame(client, runtimeId, url);
       browserHost(client).store.rememberUrl(ref, url);
       recordVisit(client, ref, value, navigationNow(client));
@@ -262,8 +268,14 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
       return '';
     }
     case 'viewport-size': {
-      // applyCustomSize: whole numbers within the bounds, and only a change.
-      const [width = Number.NaN, height = Number.NaN] = numbers(value);
+      // applyCustomSize: whole numbers within the bounds, and only a change. With the ratio locked, the field typed in
+      // (the third part) is resized at the ratio, so its typed value is clamped only now and the other side follows it.
+      const [typedWidth = Number.NaN, typedHeight = Number.NaN] = numbers(value);
+      const axis = value.split('|')[2] ?? '';
+      const typedValid = [typedWidth, typedHeight].every(side => Number.isInteger(side) && side >= 240 && side <= 3840);
+      const { width, height } = locked && typedValid && (axis === 'width' || axis === 'height')
+        ? resizeFreeformViewport({ width: typedWidth, height: typedHeight }, { x: 0, y: 0 }, 1, axis === 'height' ? 'south' : 'east', viewport.width / viewport.height)
+        : { width: typedWidth, height: typedHeight };
       const next: PreviewViewportSetting = { _tag: 'freeform', width, height };
       if (!isValidViewport(next) || (width === viewport.width && height === viewport.height)) { settleViewport(client, runtimeId); return ''; }
       await commitViewport(client, native, ref, tabId, runtimeId, next);
@@ -271,7 +283,11 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
     }
     case 'viewport-rotate': {
       // rotate: a valid typed size that differs is rotated as freeform; otherwise the setting itself (a preset stays one).
-      const [width = Number.NaN, height = Number.NaN] = numbers(value);
+      const [typedWidth = Number.NaN, typedHeight = Number.NaN] = numbers(value);
+      const axis = value.split('|')[2] ?? '';
+      const { width, height } = locked && (axis === 'width' || axis === 'height') && [typedWidth, typedHeight].every(side => Number.isInteger(side) && side >= 240 && side <= 3840)
+        ? resizeFreeformViewport({ width: typedWidth, height: typedHeight }, { x: 0, y: 0 }, 1, axis === 'height' ? 'south' : 'east', viewport.width / viewport.height)
+        : { width: typedWidth, height: typedHeight };
       const custom = isValidViewport({ _tag: 'freeform', width, height }) && (width !== viewport.width || height !== viewport.height);
       const source = custom ? { _tag: 'freeform' as const, width, height } : viewport;
       await commitViewport(client, native, ref, tabId, runtimeId, { ...source, width: source.height, height: source.width }, locked);

@@ -263,7 +263,7 @@ describe('the chrome row and the native host', () => {
     expect(browserTab(client, surface!).title).toBe('example.com');
   });
 
-  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse says so', async () => {
     const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
@@ -282,6 +282,8 @@ describe('the chrome row and the native host', () => {
     expect(frameCommandView(client).url).toBe('http://localhost:16651/');
     frameCommandDone(client, frameCommandView(client).serial);
     expect(frameCommandView(client).url).toBe(search);
+    // PreviewView's catch: the unsupported scheme toasts; empty input never submitted.
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not open this address', 'Enter an http or https URL.']]);
   });
 
   it('Back, Forward, Refresh, Hard reload and Open DevTools go to the tab\'s frame; Open in system browser opens its URL', async () => {
