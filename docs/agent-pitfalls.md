@@ -1714,6 +1714,27 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   platform` to see the sidebar and the split as a person does (the screenshot
   then captures the content column only). (Harmony, 2026-10-21.)
 
+## Websites
+
+- **`pages=` on a `render=build` route renders no pages in an app without a Rust render
+  entry.** A route `product "/product/:id" render=build pages=productPages()` compiles, and
+  `web-build --out dist` writes `/`, `/about` and `404.html` with no word about the product
+  pages: the JS target lists only unparameterised build routes (`host/web-js/src/emit.rs`,
+  `build_pages`), and the `pages=` source is asked only by the Rust render entry
+  (`exact_render::pages`), which an app `exact new` made has none of. A static host then
+  serves the shell for every product page. Until the JS build asks the source (QUEUE), make
+  the route `render=request`, which `serve` renders per request with its data, as the site
+  pattern's planet page is. (A web store from `pattern site`, 2026-11-01.)
+
+- **A link to the same route with a new query pushes a second entry.** A filter written as
+  `link href=(path("shop") + "?cat=" + c)` on the shop page reached `follow`, whose
+  `go(nav, url)` pushed `/?cat=dry` as a second `shop` entry, so a derive reading
+  `first(stack(nav).filter(e => e.name == "shop"))` kept the first entry's empty query and
+  the filter did nothing. `agent web … state` shows the stack. Read the last entry
+  (`.at(-1)`), or `replace` when the top is that route and the URL is its own:
+  `nav = top(nav).name == "shop" and (url == "/" or url.slice(0, 2) == "/?") ? replace(nav, url) : go(nav, url)`,
+  so Back leaves the shop rather than stepping through each filter. (The same store, 2026-11-01.)
+
 ## Working on exact2 itself
 
 - **A CDP adapter re-sends known children and Styles stays empty.**
