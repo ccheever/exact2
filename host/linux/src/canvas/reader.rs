@@ -4,7 +4,7 @@
 //! @ref LLP 1115.001 D15.1 (configuration changes are handled in place; an
 //! activity made again adopts the running host)
 
-use super::{colors, device, layer, pending, CanvasHost, Recorder};
+use super::{colors, device, layer, stream, CanvasHost, Recorder};
 use exact_runner::DataSource;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -42,9 +42,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// state, its routes and its scroll offsets are as they were.
     pub fn adopt(&mut self, size: (u32, u32), scale: f32) {
         self.p.reader_replaced(Box::new(Recorder::new()));
-        // Pictures announced to the last reader and never fetched: the new
-        // recorder numbers its own from one.
-        pending().clear();
+        stream::reader_replaced();
         layer::ALIVE.with(|a| a.borrow_mut().clear());
         self.tracks.clear();
         self.tracks_epoch = 0;
