@@ -1,4 +1,4 @@
-// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 74541bab17, the project menu at 2359643cff (MIT); see LICENSE-T3.
 // The empty main view, measured against the served reference
 // at 1280×840: DraftHeroHeadline's sentence and its project menu, and the
 // index landings (NoProjectsHero, DraftStartError and the hosted
@@ -9,6 +9,7 @@ use PgIcon from "../shared/pages-icons.contract"
 use dbStep from "../diff/diff.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use Tip from "../shell/shell-tip.contract"
+use SidebarIcon from "../sidebar/sidebar-icons.contract"
 
 shape HeroProject
   id: string
@@ -17,6 +18,10 @@ shape HeroProject
   ink: string
   surface: string
   selected: bool
+  // ProjectPinButton: offered where every checkout's server keeps a pin and this session may change it.
+  canPin: bool
+  pinned: bool
+  pinTitle: string
 shape HeroName
   id: string
 shape PagesHome
@@ -26,6 +31,8 @@ shape PagesHome
   // The name keyed by its text, so a new name mounts a fresh text (a reused one-line text keeps drawing the old string).
   projectNames: HeroName[]
   projects: HeroProject[]
+  // The thread pin shortcut as a chord ("Meta+Shift+p"), which pins the menu's highlighted row.
+  pinChord: string
   noProjectItem: bool
   scratchLine: bool
   scratchDraft: bool
@@ -188,7 +195,8 @@ component ScratchButton
 // the popup is open (hover:underline, data-popup-open:underline), and the combobox centred under it, 4pt below
 // (ComboboxPopup align="center", w-72). The search field takes the focus as the popup opens; the project in use is
 // lit, typing lights the first match (autoHighlight), ↓/↑ walk the rows (past either end back to none) and Return
-// picks the lit one. A pick gives the focus back to the trigger.
+// picks the lit one. A pick gives the focus back to the trigger. While it is open the rows keep the order they opened
+// in (useOrderWhileOpen), so a row a pin moves stays under the pointer; rows that arrive later join at the end.
 component HeroPicker
   props
     home: PagesHome
@@ -204,8 +212,11 @@ component HeroPicker
   state query = ""
   // The row the keys or the pointer lit since the last edit ("-" for none); "" leaves it to the query.
   state cursor = ""
+  state held: string[] = []
+  state pinOver = ""
+  derive ordered = open ? held.map((id) => home.projects.filter((project) => project.id == id)).flat().concat(home.projects.filter((project) => not held.includes(project.id))) : home.projects
   derive needle = query.trim().toLowerCase()
-  derive matches = home.projects.filter((project) => needle == "" or project.name.toLowerCase().includes(needle))
+  derive matches = ordered.filter((project) => needle == "" or project.name.toLowerCase().includes(needle))
   // "Add project" is an action, not a project: it trails only the unfiltered list.
   derive rowIds = matches.map((project) => project.id).concat(needle == "" ? ["add-project"] : [])
   derive current = home.projects.filter((project) => project.selected).map((project) => project.id).join("")
@@ -214,6 +225,7 @@ component HeroPicker
     over = value
   action toggled(e: ToggleEvent)
     open = e.newState == "open"
+    held = e.newState == "open" ? home.projects.map((project) => project.id) : []
     if open
       query = ""
       cursor = current
@@ -236,6 +248,15 @@ component HeroPicker
       command("pages:hero-project", id, "", 0)
   action hoverRow(id: string, on: bool)
     cursor = on ? id : (highlight == id ? "-" : highlight)
+  action pinHover(id: string, on: bool)
+    pinOver = on ? id : (pinOver == id ? "" : pinOver)
+  // isProjectPinShortcut: the thread pin shortcut pins the highlighted project, ahead of the window's own.
+  action pinKey(k: string, e: KeyboardEvent)
+    let chord = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 ? k.toLowerCase() : k)].filter((part) => part != "").join("+")
+    if home.pinChord != "" and chord.toLowerCase() == home.pinChord.toLowerCase() and matches.filter((project) => project.id == highlight and project.canPin).length > 0
+      preventDefault()
+      stopPropagation()
+      command("pageslocal:hero-pin", highlight, "", 0)
   view
     // min-w-0 max-w-full: a long name ends in an ellipsis at the heading's width, on one line (DraftProjectName singleLine).
     column position="relative" flex-shrink=1 min-width=0 max-width="100%"
@@ -246,7 +267,7 @@ component HeroPicker
           box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") background-color="light-dark(#18181b, #f5f5f5)"
       // Centred 4 pt below the project name, above it when the bottom does not fit. Escape closes it (light dismiss).
       column id="hero-project-menu" toggle=toggled popover="auto" position-area="bottom" position-try-fallbacks="flip-block" aria-modal=true position="absolute" margin-top="0.25rem" testId="hero-project-menu-layer"
-        column width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
+        column keycapture=pinKey width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
           // ComboboxSearchInput: the search glyph inside a 26pt field over a hairline.
           column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
             row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
@@ -265,6 +286,11 @@ component HeroPicker
                   ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
                   // DraftProjectName: up to two lines, broken anywhere.
                   text project.name flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=2 overflow-wrap="anywhere" min-width=0 text-align="left"
+                  // ProjectPinButton (icon-xs, ghost-muted): a pinned project shows its pin, PinOff under the pointer; an
+                  // unpinned one only on the highlighted row. Out of the tab order: the shortcut is the keyboard's way.
+                  if project.canPin
+                    button press=command("pageslocal:hero-pin", project.id, "", 0) hover=pinHover(project.id) tabindex=-1 aria-hidden=true title=project.pinTitle testId=`hero-project-pin-${project.id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color=(pinOver == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(project.pinned or highlight == project.id ? 1 : 0) display="flex" flex-direction="row" align-items="center" justify-content="center"
+                      SidebarIcon(name=(project.pinned and pinOver == project.id ? "pin-off" : "pin"), size=14, color=(pinOver == project.id ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #a1a1a1)"))
               if needle == ""
                 button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #a1a1a1)")

@@ -121,11 +121,15 @@ describe('the reply link menu hookup', () => {
     resetRemoteEditorsForTests();
     resetPullRequestLinksForTests();
     const owner = new T3Client();
-    owner.origin = 'http://127.0.0.1:41857'; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p'; owner.threadId = 't';
+    owner.origin = 'http://127.0.0.1:41857'; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p'; owner.threadId = 't'; owner.scopes = ['preview:operate'];
     const calls: Obj[] = [];
     const native: Native = { available: true, watch() {}, later: async (input: unknown) => { calls.push(obj(input)); return { ok: true, generation: 0, value: {} }; } };
     expect(shownRows(owner, native, files, 'https://example.test')).toEqual(['Open in integrated browser', 'Open in system browser', 'Copy Link']);
     expect(shownRows(owner, native, files, 'https://example.test', true)).toEqual(['Open in system browser', 'Copy Link']);
+    // canOpenLinksInApp: a session that may not operate the environment's browser (preview:operate) is not offered it.
+    owner.scopes = [];
+    expect(shownRows(owner, native, files, 'https://example.test')).toEqual(['Open in system browser', 'Copy Link']);
+    owner.scopes = ['preview:operate'];
     await owner.command('chatlocal:link-pick', '', 'copy-link\nhttps://example.test/docs', 0, native, files);
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['https://example.test/docs']);
     calls.length = 0;
@@ -160,7 +164,7 @@ const sandbox = { id: 'p1', title: 'sandbox', workspaceRoot: '/repos/sandbox', r
 function linking(over: Obj = {}, refusal = '') {
   const dispatched: Obj[] = [];
   const client = {
-    environmentId: 'env', origin: 'http://127.0.0.1:16360', connection: 'connected', statusMessage: '', scopes: [], threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, error: '',
+    environmentId: 'env', origin: 'http://127.0.0.1:16360', connection: 'connected', statusMessage: '', scopes: ['preview:operate'], threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, error: '',
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     local: { drafts: {} as Record<string, string>, composerControls: { contexts: {} } },
     config: { environment: { label: 'Lane A', capabilities: { pullRequests: true, threadPullRequests: true } }, settings: {} },

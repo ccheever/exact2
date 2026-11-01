@@ -34,6 +34,14 @@ describe('filePreviewKind (filePreview.test.ts)', () => {
     expect(filePreviewKind({ name: 'misleading.zip', mimeType: 'application/pdf' })).toBe('pdf');
     expect(binaryPreviewKind({ name: 'x.db', mimeType: 'text/csv' })).toBeNull();
   });
+  test('a TypeScript file labelled as an MPEG transport stream is text; a real transport stream is still a video', () => {
+    for (const mimeType of ['video/mp2t', 'video/vnd.dlna.mpeg-tts', 'binary/octet-stream', 'application/unknown']) {
+      expect(filePreviewKind({ name: 'src/main.ts', mimeType })).toBe('text');
+      expect(filePreviewKind({ name: 'download', mimeType })).toBe('unsupported');
+    }
+    expect(filePreviewKind({ name: 'clip.mp4', mimeType: 'video/mp2t' })).toBe('video');
+    expect(filePreviewKind({ name: 'clip.mov', mimeType: 'video/quicktime' })).toBe('video');
+  });
   test.each(['ttf', 'otf', 'woff', 'woff2'])('previews %s fonts', extension => {
     expect(filePreviewKind({ name: `sample.${extension}`, mimeType: 'application/octet-stream' })).toBe('font');
     expect(filePreviewKind({ name: 'download', mimeType: `font/${extension}` })).toBe('font');
