@@ -226,6 +226,9 @@ package final class CollectionHost {
         /// The platform's insets of the port when the batch began
         /// (`portInsets`): one that changed under it moved the port.
         var batchInsets: [Double]?
+        /// Where each mounted row showed along the list's axis when the batch
+        /// began: the rows a removal moves ride from there (`rideRemoval`).
+        var batchRows: [UInt32: CGFloat] = [:]
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -235,6 +238,12 @@ package final class CollectionHost {
     var contactEvent: AnyObject?
     var batchDepth = 0
     var correcting = false
+    #if os(iOS) || os(tvOS)
+    /// The exits under way when the batch began, and the lists whose rows
+    /// this batch's removal moves (`rideRemoval`).
+    private var batchLeaving = Set<UInt32>()
+    var riding = Set<UInt32>()
+    #endif
     private var dirty = Set<UInt32>()
     private(set) var budget = CollectionTurnBudget()
     /// Lists whose uncovered port a rescue reports first, whatever the
@@ -390,7 +399,17 @@ package final class CollectionHost {
         #endif
     }
     func beginBatch(_ batch: Batch) {
-        if batchDepth == 0 { for (view, entry) in entries { entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset } }
+        if batchDepth == 0 {
+            #if os(iOS) || os(tvOS)
+            batchLeaving = presenter.map { Set($0.leaving.keys) } ?? []
+            #endif
+            for (view, entry) in entries {
+                entry.batchInsets = portInsets(view); entry.batchStart = geometry(view)?.offset
+                #if os(iOS) || os(tvOS)
+                entry.batchRows = rowStarts(view)
+                #endif
+            }
+        }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -420,6 +439,10 @@ package final class CollectionHost {
         // clamp against this coherent extent and suppress correction notifications.
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
+            // A removal's rows move once, at the outermost batch's end
+            #if os(iOS) || os(tvOS)
+            if batchDepth == 1, removes(view, began: batchLeaving) { riding.insert(view) }
+            #endif
             let dimensions = [port.portCross, port.portMain, port.cross]
             let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
@@ -474,6 +497,9 @@ package final class CollectionHost {
                 #endif
                 correcting = false
             }
+            #if os(iOS) || os(tvOS)
+            if riding.remove(view) != nil { rideRemoval(view) }
+            #endif
             entry.batchStart = nil
             dirty.insert(view)
         }

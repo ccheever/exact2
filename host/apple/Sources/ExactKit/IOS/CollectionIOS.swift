@@ -292,7 +292,8 @@ extension CollectionHost {
         offsetDrivers[id] = driver
         driver.start()
     }
-    /// UIKit's batch-update and scroll timing, which Signal's transcript rides.
+    /// UIKit's scroll animation timing, which Signal's transcript rides; a
+    /// batch update's motion is a spring (`batchMotion`).
     static let smoothDuration: TimeInterval = 0.3
     /// `start`: where the port was when the batch began (`geometry`'s offset).
     func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false, from start: Double? = nil) {
@@ -328,19 +329,17 @@ extension CollectionHost {
             // model has already moved, and animating it would set it back and
             // forth in one turn, which the list reads as the reader scrolling
             // (filmed: the typing indicator's row dropped out until the next
-            // batch). Inside an animation (the keyboard's) the pull already
-            // rides that one.
+            // batch). A removal with an exit animation moves its rows itself
+            // (`rideRemoval`). Inside an animation (the keyboard's) the pull
+            // already rides that one.
             var shown = target
             if horizontal { shown.x = CGFloat(start) - insets.left + content.minX } else { shown.y = CGFloat(start) - insets.top + node.pageBand.top + content.minY }
             let gap = horizontal ? shown.x - target.x : shown.y - target.y
             if gap > 0.5, abs(scroll.contentOffset.x - target.x) + abs(scroll.contentOffset.y - target.y) < 0.5 {
                 if scroll.contentOffset != target { scroll.setContentOffset(target, animated: false) }
-                let motion = CABasicAnimation(keyPath: horizontal ? "bounds.origin.x" : "bounds.origin.y")
-                motion.fromValue = gap; motion.toValue = 0; motion.isAdditive = true
-                motion.duration = Self.smoothDuration
-                motion.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                if riding.contains(id) { return }
                 // Its own key: one already running goes on, and the two add up
-                scroll.layer.add(motion, forKey: "followed-end-\(CACurrentMediaTime())")
+                scroll.layer.add(Self.batchMotion(horizontal ? "bounds.origin.x" : "bounds.origin.y", from: gap), forKey: "followed-end-\(CACurrentMediaTime())")
                 return
             }
         }
@@ -371,6 +370,63 @@ extension CollectionHost {
         let reach = -insets.top...max(-insets.top, scroll.contentSize.height + insets.bottom - scroll.bounds.height)
         let y = min(reach.upperBound, max(reach.lowerBound, CGFloat(top) + content.minY - insets.top + node.pageBand.top))
         return (Self.reachable(CGPoint(x: scroll.contentOffset.x, y: y), in: scroll), reach)
+    }
+    /// A collection view's batch update moving a layer back by `gap` points,
+    /// additively: UIKit's spring for it, a response of 0.3 s and no bounce
+    /// (read in the iOS 27.0 simulator's UIKit).
+    private static func batchMotion(_ keyPath: String, from gap: CGFloat) -> CAAnimation {
+        let motion = CASpringAnimation(perceptualDuration: 0.3, bounce: 0)
+        motion.keyPath = keyPath
+        motion.fromValue = gap; motion.toValue = 0; motion.isAdditive = true
+        motion.duration = motion.settlingDuration
+        return motion
+    }
+    /// Whether this batch began the exit of one of the list's rows (a
+    /// deleted message fading in place); `began`: the exits under way before it.
+    func removes(_ id: UInt32, began: Set<UInt32>) -> Bool {
+        guard let presenter, let rows = entries[id]?.batchRows else { return false }
+        return presenter.leaving.keys.contains { !began.contains($0) && rows[$0] != nil }
+    }
+    /// Moves each row a removal shifted on the screen, the leaving ones too,
+    /// from where it showed to where it is, additively, as a collection
+    /// view's batch update moves them: rows after a removal at a followed
+    /// end stay put, and the rows before it come down over the gap with the
+    /// leaving row as it fades. A row the batch mounted moves as the row it
+    /// is nearest to. Inside an animation (the keyboard's) the rows already
+    /// ride that one.
+    func rideRemoval(_ id: UInt32) {
+        guard UIView.inheritedAnimationDuration == 0, let presenter, let entry = entries[id], let scroll = presenter.views[id]?.scroll else { return }
+        let horizontal = entry.snapshot.horizontal, key = "removal-\(CACurrentMediaTime())"
+        let offset = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
+        var shown = Set<UInt32>(), moves: [(at: CGFloat, by: CGFloat)] = [], mounted: [(view: UIView, at: CGFloat)] = []
+        for row in entry.batchRows.keys + entry.snapshot.rows.map(\.view) where shown.insert(row).inserted {
+            guard let view = presenter.views[row] ?? presenter.leaving[row]?.view, view.isDescendant(of: scroll) else { continue }
+            let at = span(view, in: scroll, horizontal: horizontal).lowerBound - offset
+            guard let showed = entry.batchRows[row] else { mounted.append((view, at)); continue }
+            moves.append((at, showed - at))
+            if abs(showed - at) > 0.5 { view.layer.add(Self.batchMotion(horizontal ? "position.x" : "position.y", from: showed - at), forKey: key) }
+        }
+        for (view, at) in mounted {
+            guard let nearest = moves.min(by: { abs($0.at - at) < abs($1.at - at) }), abs(nearest.by) > 0.5 else { continue }
+            view.layer.add(Self.batchMotion(horizontal ? "position.x" : "position.y", from: nearest.by), forKey: key)
+        }
+    }
+    /// Where each of a list's mounted rows, and each row still leaving it,
+    /// shows along its axis: its start in the scroll view less the scroll offset.
+    func rowStarts(_ id: UInt32) -> [UInt32: CGFloat] {
+        guard let presenter, let entry = entries[id], let scroll = presenter.views[id]?.scroll else { return [:] }
+        let horizontal = entry.snapshot.horizontal, offset = horizontal ? scroll.contentOffset.x : scroll.contentOffset.y
+        var starts: [UInt32: CGFloat] = [:], parent: UIView?
+        for row in entry.snapshot.rows {
+            guard let view = presenter.views[row.view] else { continue }
+            starts[row.view] = span(view, in: scroll, horizontal: horizontal).lowerBound - offset
+            parent = view.superview
+        }
+        // A row still leaving lies beside the mounted ones
+        for (row, leaving) in presenter.leaving where parent != nil && leaving.view.superview === parent {
+            starts[row] = span(leaving.view, in: scroll, horizontal: horizontal).lowerBound - offset
+        }
+        return starts
     }
     /// A row's frame in the scroll view, as a range along the list's axis.
     private func span(_ view: UIView, in scroll: UIScrollView, horizontal: Bool) -> ClosedRange<CGFloat> {

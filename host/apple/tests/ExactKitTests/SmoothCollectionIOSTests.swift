@@ -250,18 +250,61 @@ final class SmoothCollectionIOSTests: XCTestCase {
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 1652, "smooth": true], extent: 1952),
             ["op": "content", "id": 1, "w": 300.0, "h": 1952.0]]))
         XCTAssertEqual(scroll.contentOffset.y, 1652, accuracy: 0.5, "the port is at the new end")
-        let motions = { (scroll.layer.animationKeys() ?? []).compactMap { scroll.layer.animation(forKey: $0) as? CABasicAnimation } }
+        let motions = { (scroll.layer.animationKeys() ?? []).compactMap { scroll.layer.animation(forKey: $0) as? CASpringAnimation } }
         let motion = try XCTUnwrap(motions().first, "its layer moves")
         XCTAssertEqual(motion.keyPath, "bounds.origin.y")
         XCTAssertTrue(motion.isAdditive)
         XCTAssertEqual(try XCTUnwrap(motion.fromValue as? CGFloat), 48, accuracy: 0.5, "from where it showed")
         XCTAssertEqual(motion.toValue as? Int, 0)
-        XCTAssertEqual(motion.duration, CollectionHost.smoothDuration)
+        XCTAssertEqual(motion.perceptualDuration, 0.3, accuracy: 0.001, "on a batch update's spring")
+        XCTAssertEqual(motion.bounce, 0, accuracy: 0.001)
         XCTAssertFalse(p.collections.animating.contains(1), "no offset motion: the runner reads the port where it is")
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 1660, "smooth": true], extent: 1960),
             ["op": "content", "id": 1, "w": 300.0, "h": 1960.0]]))
         XCTAssertEqual(motions().count, 1, "a batch meanwhile keeps it")
         wait("the end it moved to") { abs(scroll.contentOffset.y - 1660) < 0.5 && !p.collections.animating.contains(1) }
+    }
+
+    /// A row that leaves with an exit animation at a followed end (a deleted
+    /// message fading) moves the rows as a collection view's batch update
+    /// does: each from where it showed, on the batch's spring. The rows
+    /// before it come down over the gap with it, a row the port's move
+    /// mounts above them comes down with them, and the row after it stays.
+    func testARemovalMovesItsRowsFromWhereTheyShowed() throws {
+        let p = presenter()
+        let rows = { (ids: [Int]) in ids.map { ["view": $0, "root": $0, "epoch": 1] } }
+        p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 1, "scrollSequence": 0, "count": 50, "totalExtent": 2000, "rows": rows([10, 12, 14]), "correction": NSNull()]]],
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 10, "kind": "view"], ["op": "create", "id": 12, "kind": "view"], ["op": "create", "id": 14, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [10, 12, 14]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 1880.0, "w": 300.0, "h": 40.0],
+            ["op": "frame", "id": 12, "x": 0.0, "y": 1920.0, "w": 300.0, "h": 40.0],
+            ["op": "frame", "id": 14, "x": 0.0, "y": 1960.0, "w": 300.0, "h": 40.0],
+            ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 2, "scrollSequence": 0, "count": 50, "totalExtent": 2000, "rows": rows([10, 12, 14]),
+            "correction": ["scrollSequence": "0", "offset": 1700, "smooth": false]]]]]))
+        XCTAssertEqual(scroll.contentOffset.y, 1700, accuracy: 0.5, "at its end")
+        let leaving = try XCTUnwrap(p.views[12]), seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([["op": "collections", "items": [["view": 1, "revision": 3, "scrollSequence": 0, "count": 49, "totalExtent": 1960, "rows": rows([8, 10, 14]),
+            "correction": ["scrollSequence": seq, "offset": 1660, "smooth": true]]]],
+            ["op": "exit", "id": 12],
+            ["op": "create", "id": 8, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [8, 10, 14]],
+            ["op": "frame", "id": 8, "x": 0.0, "y": 1840.0, "w": 300.0, "h": 40.0],
+            ["op": "frame", "id": 14, "x": 0.0, "y": 1920.0, "w": 300.0, "h": 40.0],
+            ["op": "content", "id": 1, "w": 300.0, "h": 1960.0]]))
+        XCTAssertEqual(scroll.contentOffset.y, 1660, accuracy: 0.5, "the port is at the new end")
+        let ride = { (view: UIView) in (view.layer.animationKeys() ?? []).compactMap { view.layer.animation(forKey: $0) as? CASpringAnimation }.first { $0.keyPath == "position.y" } }
+        XCTAssertTrue((scroll.layer.animationKeys() ?? []).isEmpty, "the rows move, not the port")
+        let above = try XCTUnwrap(ride(try XCTUnwrap(p.views[10])), "the row before it moves")
+        XCTAssertTrue(above.isAdditive)
+        XCTAssertEqual(try XCTUnwrap(above.fromValue as? CGFloat), -40, accuracy: 0.5, "from 40 points up, where it showed")
+        XCTAssertEqual(above.perceptualDuration, 0.3, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(ride(leaving)?.fromValue as? CGFloat), -40, accuracy: 0.5, "the leaving row comes down with it")
+        XCTAssertEqual(try XCTUnwrap(ride(try XCTUnwrap(p.views[8]))?.fromValue as? CGFloat), -40, accuracy: 0.5, "and the row the move mounted above it")
+        XCTAssertNil(ride(try XCTUnwrap(p.views[14])), "the row after it stays where it showed")
     }
 
     /// A smooth correction under half a point (a port rounded to a device
