@@ -64,14 +64,16 @@ members T3Code
   action frameMoved(w: number, h: number)
     layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("subagent", frame("provider-subagent-bar")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area")), layoutFrame("side-toolbar", frame("side-chat-frame-toolbar")), layoutFrame("side-card", frame("side-chat-composer-surface"))].filter((row) => row != "").join(";")
     if optionsOpen != ""
-      measureOptionsTrigger(optionsOpen)
-  action measureOptionsTrigger(name: string)
-    let trigger = frame(`${composerTarget == "" ? "" : "side-chat-"}${optionsTriggerId(name)}`) // a side chat's composer (side-chat-members.contract)
+      measureOptionsTrigger(optionsOpen, composerTarget != "")
+  // `side`: the menu is a side chat's composer's (side-chat-members.contract). The opening action passes it, since a
+  // call reads composerTarget as it stood before the opening action set it.
+  action measureOptionsTrigger(name: string, side: bool)
+    let trigger = frame(`${side ? "side-chat-" : ""}${optionsTriggerId(name)}`)
     optionsAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
     optionsAnchorWidth = trigger.unavailable ? 0 : trigger.width
   action openOptions(name: string)
     composerTarget = "" // the window's composer
-    measureOptionsTrigger(name)
+    measureOptionsTrigger(name, false)
     focus(optionsOpen == name ? "composer" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
     branchQuery = ""
@@ -120,16 +122,16 @@ members T3Code
       focus(`model-permission-${data.composer.runtimeSelected}`)
   // A model picked in the composer's picker keeps it open; once the new model's levels are drawn, the focus moves to
   // the checked one (handleInstanceModelChange's focusEffort("levels")). The model the picker opened on, or last
-  // moved the focus for, is `modelFocusedPick`.
+  // moved the focus for, is `modelFocusedPick`: the composer the picker serves, the window's or a side chat's.
   state modelFocusedPick = ""
-  task modelEffortFocusTask when modelsOpen and modelTarget.id == "" and not commandPending key=`${data.providerId}:${data.modelId}`
+  task modelEffortFocusTask when modelsOpen and modelTarget.id == "" and not commandPending key=`${composerTargetData.providerId}:${composerTargetData.modelId}`
     after(1, modelEffortFocused)
   action modelEffortFocused
-    let pick = `${data.providerId}:${data.modelId}`
+    let pick = `${composerTargetData.providerId}:${composerTargetData.modelId}`
     if pick != modelFocusedPick
       modelFocusedPick = pick
-      if data.composer.effortFocusLevel >= 0
-        focus(`model-effort-row-${data.composer.effortFocusLevel}`)
+      if composerTargetData.composer.effortFocusLevel >= 0
+        focus(`model-effort-row-${composerTargetData.composer.effortFocusLevel}`)
   // An effort, speed or permissions pick inside the model picker, which stays open until Escape or an outside press.
   action pickerPick(op: string, id: string, value: string)
     if not commandPending
@@ -227,7 +229,9 @@ members T3Code
           paletteTrailQueries = []
           paletteReturnQuery = ""
           paletteRestore = false
-          paletteCursor = -1
+          // New thread in… opens as a pushed view, whose highlight shows only once the arrows move it: Enter runs the
+          // first row, and the first Down highlights it (CommandPalette's highlightClearedRef).
+          paletteCursor = result.message == "sidebar:palette-new-thread" ? -2 : -1
           paletteScroll = 0
           modelsOpen = false
           optionsOpen = ""

@@ -226,4 +226,18 @@ describe('"Add panel surface" while the panel has no tab', () => {
       command: (...args: unknown[]) => done.push(['command', ...args]) }, ['new', '']);
     expect(done).toEqual([['showPopover', 'add-surface-menu', { source: 'panel-add-surface' }], ['focus', 'add-surface-browser']]);
   });
+  // RightPanelTabs handleAddSurfaceMenuKeyDown: the "+" menu's letters choose their surface and close the menu.
+  test('a letter in the "+" menu chooses its available surface; a chord, a composed key or an unavailable one does nothing', () => {
+    const menu = contractComponent('panel.contract', 'AddSurfaceMenu');
+    const surfaces = [{ id: 'diff', letter: 'd', shortcut: 'D', available: true }, { id: 'device', letter: 'm', shortcut: 'M', available: false }];
+    const press = (k: string, e: object = {}) => {
+      const done: unknown[][] = [];
+      menu.call('menuLetter', menu.state(), { surfaces, first: (xs: unknown[]) => xs[0], ui: (...args: unknown[]) => done.push(['ui', ...args]), hidePopover: (id: string) => done.push(['hide', id]),
+        preventDefault() {}, stopPropagation() {} }, [k, { metaKey: false, ctrlKey: false, altKey: false, isComposing: false, ...e }]);
+      return done;
+    };
+    expect(press('d')).toEqual([['hide', 'add-surface-menu'], ['ui', 'choose', 'diff']]);
+    expect(press('D')).toEqual([['hide', 'add-surface-menu'], ['ui', 'choose', 'diff']]);
+    expect([press('d', { metaKey: true }), press('d', { isComposing: true }), press('m'), press('x')]).toEqual([[], [], [], []]);
+  });
 });

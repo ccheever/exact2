@@ -323,12 +323,23 @@ component AddSurfaceMenu
         let openingTarget = kmTriggerTarget(menuItems, k)
         if openingTarget != ""
           focus(openingTarget)
+  // handleAddSurfaceMenuKeyDown (onKeyDownCapture): an available surface's letter, either case, chooses it and closes
+  // the menu, ahead of the menu's own type-ahead. A ⌘, ⌃ or ⌥ chord, or a key an input method composes, is not one.
+  action menuLetter(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.isComposing
+      match first(surfaces.filter((surface) => surface.available and surface.letter == k.toLowerCase()))
+        case some(surface)
+          preventDefault()
+          stopPropagation()
+          hidePopover("add-surface-menu")
+          ui("choose", surface.id)
+        case none
   view
     column position="relative" flex-shrink=0
       button popovertarget="add-surface-menu" key=triggerKey hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id="panel-add-surface"
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
       // MenuPopup align="start" side="bottom" sideOffset 6 (RightPanelTabs.tsx), flipping near an edge.
-      column id="add-surface-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="12rem" data-dialog-return="menu" focusin=dialogMenuEntered("add-surface-menu", "panel-add-surface")
+      column id="add-surface-menu" keycapture=menuLetter popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="12rem" data-dialog-return="menu" focusin=dialogMenuEntered("add-surface-menu", "panel-add-surface")
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
           KeyMenu(menuId="add-surface-menu-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             for surface in surfaces key=surface.id

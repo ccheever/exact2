@@ -13,7 +13,8 @@ import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { parseWhen } from '../../src/settings/keybinding-view';
 import { toasts } from '../../src/shell/toast';
-import { contractComponent, type Env } from '../support/contract-action-fixture';
+import { contractComponent, value, type Env } from '../support/contract-action-fixture';
+import { appText } from '../support/app-files';
 
 afterEach(() => fleet.entries.clear());
 const at = '2026-11-01T00:00:00.000Z';
@@ -155,5 +156,19 @@ describe('the root\'s new-thread chords', () => {
   test('New thread in current project (⇧⌘N) with no current project asks the client', () => {
     expect(press('newThread', '', false)).toEqual([['sidebar:new-thread-click', '', 'shift', 0]]);
     expect(press('newThread', 'p1', false)).toEqual([['new-thread', '', '', 0]]);
+  });  // A pushed view clears the typed highlight (CommandPalette.tsx highlightClearedRef): no row is drawn highlighted, Enter
+  // runs the first (autoHighlight "always"), and the first Down highlights that first row, not the second.
+  test('New thread in… opens with no row highlighted until the arrows move', () => {
+    const opened = (message: string) => {
+      const state: Env = { commandPending: true, noticeExit: '', routeKeyboard: '', modalError: '', pendingModal: '', renameAfterOp: '', paletteCursor: 5,
+        paletteOpen: false, paletteMode: '', palettePage: '', paletteQuery: '', paletteTrailPages: [], paletteTrailQueries: [], paletteReturnQuery: '', paletteRestore: true, paletteScroll: 0 };
+      root.call('commandCompleted', state, { changed: { message, relaunch: false, routeReorder: 0 }, data: { sidebar: { renameId: '' } }, focus() {}, routeKeyboardComplete: () => '', routeKeyboardOwned: false }, []);
+      return state;
+    };
+    expect(opened('sidebar:palette-new-thread')).toMatchObject({ paletteOpen: true, palettePage: 'new-thread-in', paletteCursor: -2 });
+    expect(opened('palette:pr-linked|https://github.com/o/r/pull/7')).toMatchObject({ paletteOpen: true, paletteCursor: -1 });
+    const highlight = appText('src/palette/palette-members.contract').match(/^  derive paletteHighlight = (.+)$/m)![1]!;
+    const view = { count: 5, autoHighlight: true, panel: 'list' };
+    expect([-2, -1].map(paletteCursor => value(highlight, { palette: view, paletteCursor, min: Math.min }))).toEqual([-1, 0]);
   });
 });

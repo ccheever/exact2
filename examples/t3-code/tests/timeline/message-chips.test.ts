@@ -245,6 +245,23 @@ describe('the chips and rows a context reference draws', () => {
     const button = (kind: string, target: string) => body.drawn('button press=local(', body.state(), { chip: { kind, target }, run: { id: '0' } });
     expect([button('image', 'att'), button('image', ''), button('file', ''), button('video', 'v')]).toEqual([true, false, false, true]);
   });
+  // PopoverPopup's initialFocus: opening a citation's or a terminal excerpt's details moves the focus to the popup's
+  // first tabbable, and the chip says it opens a dialog (VoiceOver: "dialog pop up").
+  test("a citation's and a terminal excerpt's details take the focus, and their chips say they open a dialog", async () => {
+    const { appText } = await import('../support/app-files');
+    const text = appText('markdown.contract');
+    for (const [name, focused] of [['CitationContextChip', 'testId="citation-context-source"'], ['TerminalContextChip', 'aria-label="Captured terminal output"']] as const) {
+      const body = text.slice(text.indexOf(`component ${name}`)), view = body.slice(0, body.indexOf('\ncomponent '));
+      expect(view.split('\n').find(line => line.includes('button popovertarget=popupId'))).toContain('aria-haspopup="dialog"');
+      expect(view.split('\n').find(line => line.includes(focused))).toMatch(/autofocus=/);
+    }
+  });
+  // ThreadContextChip renders a router Link: VoiceOver reads "link, Thread, …", as for any link in the message.
+  test("a thread chip is a link; the other chips stay buttons", async () => {
+    const { appText } = await import('../support/app-files');
+    const line = appText('markdown.contract').split('\n').find(entry => entry.includes('"chip-thread"), chip.target'))!;
+    expect(line).toContain('role=(chip.kind == "thread" ? "link" : "button")');
+  });
   test('a chip picture that fails to load tells the data module, which then draws the file chip', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const { appText } = await import('../support/app-files');

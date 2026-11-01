@@ -24,6 +24,8 @@ import { contractComponent, value } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 import { appFiles, appText } from '../support/app-files';
 
+// The composer the model picker serves: gpt-5.4 on codex, its checked level the third row.
+const chosen = { providerId: 'codex', modelId: 'gpt-5.4', composer: { effortFocusLevel: 2 } };
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
     { slug: 'astra', name: 'GPT-6-Astra' }] };
@@ -786,7 +788,7 @@ describe('model picker shortcut presses', () => {
     for (const target of ['', 'task-model:t1', 'source-control-writer-model:|ctx', 'review-guide-model:|ctx']) for (const commandPending of [false, true]) {
       const state: Obj = { commandPending, modelTarget: { id: target }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
       let took = false;
-      root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
+      root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false }, composerTargetData: chosen }, ['gpt-6', 'codex', false]);
       expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
     }
     // The rule names exactly the targets selectModel branches on, read from selectModel itself.
@@ -795,12 +797,25 @@ describe('model picker shortcut presses', () => {
     const prefixes = (code: string) => [...new Set([...code.matchAll(/modelTarget\.id\.startsWith\("([^"]+)"\)/g)].map(m => m[1]!))].sort();
     expect(prefixes(rule)).toEqual(prefixes(body));
   });
+  // handleInstanceModelChange focuses the checked level after every pick (ProviderModelPicker.tsx:177-186); a pick of
+  // the model already chosen draws no new levels for modelEffortFocused to wait on.
+  test("a pick of the composer's own model focuses its checked level at once; another model's waits for its levels", () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const focused: unknown[] = [];
+    const scope = { command: () => ({}), focus: (id: string) => focused.push(id), catalog: { multiple: false }, composerTargetData: chosen };
+    for (const [id, provider] of [['gpt-5.4', 'codex'], ['gpt-6', 'codex']]) {
+      const state: Obj = { commandPending: false, modelTarget: { id: '' }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
+      root.call('selectModel', state, scope, [id, provider, false]);
+      expect(state.modelsOpen).toBe(true);
+    }
+    expect(focused).toEqual(['model-effort-row-2', 'model-search']);
+  });
   // ModelPickerContent's announce blocks nothing (ModelPickerContent.tsx:779-795).
   test('an announcement waits for no command and refreshes only the shell: quick presses are each announced, and a pick right after is sent', () => {
     expect(appText('app.contract')).toContain('\n  mutation pickerAnnounced as shape Change queue refreshes shell //');
     const root = contractComponent('app.contract', 'T3Code');
     const sent: unknown[][] = [];
-    const scope = { command: (...args: unknown[]) => { sent.push(args); return {}; }, focus: () => {}, catalog: { multiple: false } };
+    const scope = { command: (...args: unknown[]) => { sent.push(args); return {}; }, focus: () => {}, catalog: { multiple: false }, composerTargetData: chosen };
     // Two quick ⇧⌘↓ while another command is in flight: both are announced, and the command keeps its guard.
     const busy: Obj = { commandPending: true };
     root.call('pickerAnnounce', busy, scope, ['cclocal:picker-provider-key', 'codex', '']);

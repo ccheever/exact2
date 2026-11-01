@@ -177,6 +177,7 @@ members T3Code
     modelAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
     modelAnchorWidth = trigger.unavailable ? 0 : trigger.width
     modelOpenTarget = ""
+    modelFocusedPick = `${sideChat.providerId}:${sideChat.modelId}`
   action sideOpenModels
     let open = modelsOpen and composerTarget == sideChatThread
     focus(open ? "side-chat-composer" : "model-search")
@@ -200,7 +201,7 @@ members T3Code
   action sideOpenOptions(name: string)
     let open = optionsOpen == name and composerTarget == sideChatThread
     composerTarget = sideChatThread
-    measureOptionsTrigger(name)
+    measureOptionsTrigger(name, true)
     focus(open ? "side-chat-composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${sideChat.composer.runtimeSelected}` : "composer-menu-item-0")
     optionsOpen = open ? "" : name
     modelsOpen = false

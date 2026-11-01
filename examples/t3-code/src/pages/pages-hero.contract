@@ -230,7 +230,7 @@ component HeroPicker
     open = e.newState == "open"
     held = e.newState == "open" ? home.projects.map((project) => project.id) : []
     pinOver = ""
-    if open
+    if e.newState == "open"
       query = ""
       cursor = current
   action search(next: string)
@@ -274,7 +274,7 @@ component HeroPicker
           box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") background-color="light-dark(#18181b, #f5f5f5)"
       // Centred 4 pt below the project name, above it when the bottom does not fit. Escape closes it (light dismiss).
       column id="hero-project-menu" toggle=toggled popover="auto" position-area="bottom" position-try-fallbacks="flip-block" aria-modal=true position="absolute" margin-top="0.25rem" testId="hero-project-menu-layer"
-        column keycapture=pinKey width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
+        column keycapture=pinKey width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
           // ComboboxSearchInput: the search glyph inside a 26pt field over a hairline.
           column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
             row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"

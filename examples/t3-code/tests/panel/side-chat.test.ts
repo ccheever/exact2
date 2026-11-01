@@ -9,8 +9,8 @@ import { initialShell } from '../../src/client/domain';
 import {
   bringBackBlockedReason, parseSideChatCommand, sideChatDisabledReason, sideChatSurfaceRows, sideChatTabState, sideChatView, sideChatsOffered, worktreePending,
 } from '../../src/panel/side-chat';
-import { openNewSideChat, panelState, panelView, surfaceCommand, surfaceLocal } from '../../src/panel/panel-surfaces';
-import { savedPanel } from '../../src/panel/saved-panel';
+import { openNewSideChat, panelState, panelView, surfaceCommand, surfaceLocal, surfaceStore } from '../../src/panel/panel-surfaces';
+import { savedPanel, syncRightPanels } from '../../src/panel/saved-panel';
 import { planNextReopen, type ClosedView, type ReopenOwner } from '../../src/panel/closed-views';
 import { toasts } from '../../src/shell/toast';
 import { contractComponent } from '../support/contract-action-fixture';
@@ -162,6 +162,20 @@ describe('the pane (SideChatPane)', () => {
     await surfaceCommand(refused.client, native, {} as never, 'side-chat-delete', 'side', '');
     expect(toasts(refused.client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not delete the side chat', 'thread.delete refused']]);
     expect(panelState(refused.client).surfaces).toHaveLength(1);
+  });
+  // A tab /side opened is no panel op of the person's, but its Delete is: the panels' save must drop it, or the next
+  // launch restores a tab reading "This side chat was deleted."
+  test('Delete of a side chat /side opened drops its tab from the saved panels', async () => {
+    const deleting = client([parent(), side()]);
+    const state = panelState(deleting.client);
+    state.surfaces.push({ id: 'side-chat:side', kind: 'side-chat', path: 'side', line: 0, reveal: 0 });
+    state.active = 'side-chat:side'; state.visible = true;
+    const owner = deleting.client as unknown as { local: object };
+    syncRightPanels(owner, surfaceStore(deleting.client).panels);
+    expect(Object.values((owner.local as { rightPanels?: Record<string, unknown> }).rightPanels ?? {})).toHaveLength(1);
+    await surfaceCommand(deleting.client, native, {} as never, 'side-chat-delete', 'side', '');
+    expect(syncRightPanels(owner, surfaceStore(deleting.client).panels)).toBe(true);
+    expect((owner.local as { rightPanels?: Record<string, unknown> }).rightPanels ?? {}).toEqual({});
   });
   test('Delete asks first while Confirm thread deletion is on', () => {
     const body = contractComponent('side-chat.contract', 'SideChatBody'), local = body.state(), calls: unknown[][] = [];

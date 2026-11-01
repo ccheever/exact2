@@ -217,17 +217,32 @@ describe('a composer menu follows its trigger (openOptions, frameMoved)', () => 
     const state: Env = { optionsAnchorX: -1, optionsAnchorWidth: 0, layoutFrames: '', composerTarget: '' };
     const scope = (): Env => ({ ...frames, optionsOpen, focus: () => {}, data: { composer: { runtimeSelected: 0 } },
       frame: (id: string) => boxes[id] ? { ...boxes[id], y: 0, height: 28, unavailable: false } : { x: 0, y: 0, width: 0, height: 0, unavailable: true },
-      measureOptionsTrigger: (name: string) => root.call('measureOptionsTrigger', state, scope(), [name]) });
+      measureOptionsTrigger: (name: string, side: boolean) => root.call('measureOptionsTrigger', state, scope(), [name, side]) });
     root.call(action, state, scope(), args);
     return state;
   };
   test('opening measures the trigger; a layout change while it is open measures it again', () => {
-    expect(run('measureOptionsTrigger', ['runtime'], '', { 'composer-runtime-trigger': { x: 410, width: 96 } })).toMatchObject({ optionsAnchorX: 410, optionsAnchorWidth: 96 });
+    expect(run('measureOptionsTrigger', ['runtime', false], '', { 'composer-runtime-trigger': { x: 410, width: 96 } })).toMatchObject({ optionsAnchorX: 410, optionsAnchorWidth: 96 });
     expect(run('frameMoved', [0, 0], 'runtime', { 'composer-runtime-trigger': { x: 330, width: 96 } })).toMatchObject({ optionsAnchorX: 330, optionsAnchorWidth: 96 });
     expect(run('frameMoved', [0, 0], '', { 'composer-runtime-trigger': { x: 330, width: 96 } })).toMatchObject({ optionsAnchorX: -1 });
   });
+  // ComposerMenus anchors to the trigger that was pressed: a side chat's Permissions chip opens its menu over that chip,
+  // whichever composer the picker served before.
+  test("a side chat's menu measures the side chat's trigger as it opens, and the window's the window's", () => {
+    const boxes = { 'composer-runtime-trigger': { x: 410, width: 96 }, 'side-chat-composer-runtime-trigger': { x: 1106, width: 112 } };
+    const opened = (action: string, composerTarget: string) => {
+      const state: Env = { optionsAnchorX: -1, optionsAnchorWidth: 0, layoutFrames: '', composerTarget, optionsOpen: '', modelsOpen: false, popoverSession: 0, branchQuery: '' };
+      const scope = (): Env => ({ ...frames, sideChatThread: 'side-1', focus: () => {}, data: { composer: { runtimeSelected: 0 } }, sideChat: { composer: { runtimeSelected: 0 } },
+        frame: (id: string) => boxes[id as keyof typeof boxes] ? { ...boxes[id as keyof typeof boxes], y: 0, height: 28, unavailable: false } : { x: 0, y: 0, width: 0, height: 0, unavailable: true },
+        measureOptionsTrigger: (name: string, side: boolean) => root.call('measureOptionsTrigger', state, scope(), [name, side]) });
+      root.call(action, state, scope(), ['runtime']);
+      return [state.composerTarget, state.optionsAnchorX];
+    };
+    expect(opened('sideOpenOptions', '')).toEqual(['side-1', 1106]);
+    expect(opened('openOptions', 'side-1')).toEqual(['', 410]);
+  });
   test('a trigger that is not laid out leaves the menu at the card\'s edge', () => {
-    expect(run('measureOptionsTrigger', ['more'], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
+    expect(run('measureOptionsTrigger', ['more', false], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
     expect(frames.optionsTriggerId!('more')).toBe('composer-more-trigger');
     expect(frames.optionsTriggerId!('context')).toBe('context-window-meter');
     expect(frames.optionsTriggerId!('implement')).toBe('implement-actions');

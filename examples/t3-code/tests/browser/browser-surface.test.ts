@@ -578,3 +578,15 @@ describe('Browser errors under frozen intrinsics', () => {
     } finally { Object.defineProperty(Error.prototype, 'name', original); }
   });
 });
+
+// The shell answers with the window's time: its own clock while a toast or a tick runs it, else the minute clock, so a
+// visit recorded from it (and Recently used's "Xm ago") is at most a minute old, not as old as the last toast.
+describe('the shell\'s time', () => {
+  it('is the later of the shell clock and the minute clock', async () => {
+    const { appText } = await import('../support/app-files');
+    const { value } = await import('../support/contract-action-fixture');
+    const time = appText('src/shell/shell-members.contract').match(/^  resource shell = shellView\(data\.revision, (.+?\)), toastDismissed/m)![1]!;
+    const at = (shellClock: number, elapsed: number) => value(time, { wallTime: { epochAtZero: 1_000 }, shellClock, elapsed, max: Math.max });
+    expect([at(500, 3_600_000), at(3_700_000, 3_600_000)]).toEqual([3_601_000, 3_701_000]);
+  });
+});

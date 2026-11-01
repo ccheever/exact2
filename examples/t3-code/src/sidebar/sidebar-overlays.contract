@@ -132,23 +132,38 @@ component SidebarScopeMenu
       preventDefault()
       if highlighted != "" and highlighted != "\n"
         local("scope-toggle", "", highlighted)
+    else if (k == "ArrowDown" or k == "ArrowUp") and not e.metaKey and not e.ctrlKey and not e.altKey and data.sidebar.scopes.length > 0
+      // Combobox's list navigation (loopFocus): from no row, Down takes the first and Up the last; the ends wrap.
+      preventDefault()
+      let keys = data.sidebar.scopes.map((scope) => scope.key)
+      let at = keys.indexOf(highlighted)
+      let next = at < 0 ? (k == "ArrowDown" ? 0 : keys.length - 1) : (at + (k == "ArrowDown" ? 1 : keys.length - 1)) % keys.length
+      hovered = "\n"
+      match keys.at(next)
+        case some(key)
+          keyed = key
+        case none
     else
       local("scope-key", "", k)
-  // A new query moves the highlight to its first match (Base UI autoHighlight), off a row the pointer rested on.
+  // A new query moves the highlight to its first match (Base UI autoHighlight), off a row the pointer or the arrows
+  // rested on.
   action queryInput(value: string)
     hovered = "\n"
+    keyed = "\n"
     local("scope-query", "", value)
   // Return picks the highlighted row; with none (several projects chosen, no query) it picks nothing.
   action submitScope
     if highlighted != "\n"
       local("scope", "", highlighted)
-  // The highlighted row (Base UI's: the one under the pointer, else data.sidebar.scopeHighlight), whose pin shows; and
-  // the pin under the pointer. "\n" is no row: All projects' key is "".
+  // The highlighted row (Base UI's: the one under the pointer, else the one the arrows moved to, else
+  // data.sidebar.scopeHighlight), whose pin shows; and the pin under the pointer. "\n" is no row: All projects' key is "".
   state hovered = "\n"
+  state keyed = "\n"
   state pinOver = ""
-  derive highlighted = hovered != "\n" ? hovered : data.sidebar.scopeHighlight
+  derive highlighted = hovered != "\n" ? hovered : (keyed != "\n" and data.sidebar.scopes.filter((scope) => scope.key == keyed).length > 0 ? keyed : data.sidebar.scopeHighlight)
   action rowHover(key: string, over: bool)
     hovered = over ? key : (hovered == key ? "\n" : hovered)
+    keyed = over ? key : keyed
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
   // The thread pin shortcut pins the highlighted project here, ahead of the window's own (which pins the open thread).

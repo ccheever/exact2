@@ -1141,9 +1141,11 @@ component T3Code
       pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
       send changed = command(modelTarget.id == "" ? (composerTarget == "" ? "model" : `scope:${composerTarget}|model`) : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       // The composer's picker stays open through a pick, and its focus goes to the new model's levels
-      // (composer-controls-members.contract modelEffortFocused).
+      // (composer-controls-members.contract modelEffortFocused); the model already chosen draws no new levels, so
+      // its checked level takes the focus now.
       modelsOpen = modelTarget.id == ""
-      focus(modelTarget.id == "" ? "model-search" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
+      let samePick = modelTarget.id == "" and not additive and id == composerTargetData.modelId and provider == composerTargetData.providerId and composerTargetData.composer.effortFocusLevel >= 0
+      focus(samePick ? `model-effort-row-${composerTargetData.composer.effortFocusLevel}` : modelTarget.id == "" ? "model-search" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
   // ModelPickerContent announces the tab or model its shortcut picked (composer-controls-commands.ts
   // announcePickerShortcut), and its announce blocks nothing: the announcement waits for no command in flight and
   // refreshes only the shell, whose live regions speak it, so a quick second press is announced too and a pick right

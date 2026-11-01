@@ -767,6 +767,9 @@ above.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
+- A sent citation's details read their Go to source as a button, where v0.1.6's is a link to the current page, and its
+  chip does not say whether the details are open ("collapsed"). A press with the pointer focuses Go to source without a
+  focus ring, as AppKit draws a ring only for keyboard focus; v0.1.6 rings it.
 - A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
   tooltip on hover only, where v0.1.6's opens on a keyboard focus.
 - A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
@@ -1364,6 +1367,92 @@ had seen no change from that button. After the origin/main merge, opening a
 thread, sending a message, the ⌘K palette (a query lists Threads and Settings results; Escape closes
 it) and Settings › Appearance behave as before.
 
+**Checked with real input (2026-11-02, the v0.1.6 follow round)** (the bundle of `ed3b4a1e52`, then this round's fixes;
+a lane copy on its own bundle id and `HOME`, launched with `-AppleEnableSwipeNavigateWithScrolls YES
+-AppleICUForce24HourTime YES`; `second` seeded with `--more-turns --pull-request --limits`, its `shared-notes` checked out
+on `feature/notes` with two commits; the v0.1.6 oracle paired with the same lane server and driven the same way).
+Presses, drags, wheel and phased scroll events, side buttons and keys came from the HID event source; each result was read
+back from the accessibility tree, the clipboard, the saved preferences or VoiceOver's caption panel. 9 rows, 56 checks:
+37 hold, 12 failed and are fixed, 1 failed and its fix is held back by a framework limit, 3 failed and are left, and 3
+are not reachable with these fixtures.
+
+Hold:
+
+- The model and effort picker: a press on an effort level picks it and keeps the picker open, a press on a model picks it,
+  Show more lists the older models and reads Show less, and Escape and a press outside close it (1 of 1 each). → moves from
+  the search to the levels and ← back (1 of 1). The oracle does the same.
+- Side chats: `/side` and `/btw` offer themselves at the start of a message, and Return on the highlighted row then a
+  question opens a side chat that answers it (1 of 1 each). "Ask before editing the notes" in it shows "Side chat needs
+  approval" with Open approval on the parent, which opens the side chat on its approval (1 of 1). Bring back says "Brought
+  back"; Delete asks `Delete side chat "…"?` and closes the tab (1 of 1 each). The oracle the same.
+- Projects: a project's pin in the sidebar filter and in the palette pins and unpins it, ⇧⌘P on the palette's highlighted
+  row pins it, and the rows keep their order until the menu closes (1 of 1 each). Settings › Projects › Archive marks the
+  project Archived, and it leaves the palette and the filter; Unarchive brings it back (1 of 1).
+- Back and forward: the header's arrows, ⌘[ and ⌘], and the mouse's buttons 3 and 4 step the history (2 of 2 each).
+- Stop and Force stop: with the stand-in's processes stopped, Stop reads "Stopping", then "Agent not responding to Stop"
+  with Force stop; Force stop ends the turn with "Run interrupted · Force stopped by user" (1 of 1). The oracle the same.
+- Messages: an image alone, a file alone (`sample.py`, "PY · 81 B") and a 39 KB paste ("Pasted text 38.5 KB") send and draw
+  as the oracle's; a 4 KB paste stays in the prompt and draws with Show full message; two notes sent while a turn runs show
+  the Steer label once and queue the second (1 of 1 each).
+- Panels: thread details' menu adds Usage limits and Context window, and Context reads "12k / 200k" as the oracle's; the
+  Diff pane's Commits lists the branch's commits ("No commits on this branch." on `main`) and picking one shows its diff;
+  the Files explorer's edge drags 100 pt wider; an invalid address ("mailto:…") shows "Could not open this address / Enter
+  an http or https URL."; Edit › Copy and Cut copy "selectme" and cut "cut" from a web-view tab's page; Open DevTools opens
+  the Web Inspector; Open separate preview window opens the floating preview (1 of 1 each).
+- Settings: a press on About's version copies "0.1.6" and shows "Copied!", and the Update track row shows Stable, as in
+  the oracle; timestamps read 05:45 with 24-hour time forced, as the oracle's do with `AppleICUForce24HourTime` (1 of 1 each).
+- A citation made with Cite and then Escape is removed from the prompt, in the clone as in the oracle (1 of 1 each).
+
+Failed, then fixed and checked again with real input (the rebuilt bundle, the same fixture):
+
+- Return on a focused effort level picked nothing (a Mac button takes Space only); it now picks the level, as v0.1.6's
+  web button does (`model-picker.contract` EffortLevel). Checked again: ↓ → ↓ Return picks Max (1 of 1).
+- Return on the model already chosen left the focus in the search; v0.1.6 moves it to the checked level after any pick.
+  It now goes there at once, as no new levels draw (`app.contract` selectModel). Checked again: ← Return focuses Max (1 of 1).
+- ⇧⌘M in a side chat focused the side chat's effort level, and its Permissions chip opened the menu over the window's
+  composer: both measured the window's composer. The picker now counts the side chat's model and the menu its own chip
+  (`composer-controls-members.contract`, `side-chat-members.contract`). Checked again: ⇧⌘M focuses Search models, and
+  the menu opens over the side chat's chip (1 of 1 each).
+- A side chat `/side` opened came back after a relaunch reading "This side chat was deleted.": its Delete was not counted
+  as the person's choice, so the saved panel kept the tab (`panel-surfaces.ts`). Checked again: after Delete and a
+  relaunch, the saved panel has no side chat tab (1 of 1).
+- New thread in… highlighted its first row as it opened, so ↓ went to the second; v0.1.6 opens it as a pushed view with
+  no highlight, and the first ↓ lights the first row (`composer-controls-members.contract`). Checked again (1 of 1).
+- The sidebar's project filter took no ↑ or ↓, so no unpinned row showed its pin without the pointer; the arrows now move
+  the highlight and wrap, as Base UI's list does (`sidebar-overlays.contract`). Checked again (1 of 1).
+- The draft hero's project menu opened with no row highlighted and no backdrop blur; it now highlights the current
+  project, whose pin then shows, over a blurred backdrop (`pages-hero.contract`). Checked again (1 of 1).
+- The panel's "+" menu took no letter; B, T, F, D, P, L, M and S now choose their surface, as v0.1.6's
+  `handleAddSurfaceMenuKeyDown` does (`panel.contract`). Checked again: S opens a side chat (1 of 1).
+- Recently used read a visit made minutes before as "1h ago": the shell's clock moved only while a toast or a tick ran, so
+  the visit was stamped late and the label read early. The shell now reads the window's minute clock too
+  (`shell-members.contract`). Checked again: a visit a minute old reads "1m ago" (1 of 1).
+- VoiceOver read a sent thread chip as "Thread, …, button"; the oracle reads "link, Thread, …" (ThreadContextChip is a
+  router Link). It is now a link (`markdown.contract`). Checked again in the accessibility tree (1 of 1).
+- VO-Space on a sent citation opened its details but left the focus on the chip, and the chip did not say it opens a
+  dialog; v0.1.6's PopoverPopup focuses Go to source. The citation's and the terminal excerpt's details now focus their
+  first tabbable, and both chips say "dialog pop up" (`markdown.contract`). Checked again: VO-Space reads "Quoted assistant
+  text: …, dialog, with 2 items, Go to source, button", and Escape returns to the chip (1 of 1).
+
+Failed, held back by the plan's size limit (exact2 `plan/src/bytes.rs` `MAX_COUNT`, 2^24): Return in the Browser's address
+bar goes to the page but leaves the field focused with its ring, where v0.1.6 leaves the field (AppKit selects a field's
+text again after its Return action, which undoes the blur). The fix takes the key in the field (`fieldKey`); with it the
+plan exceeds the limit by 1,908 (`invalid plan: BadCount(16779124)`), so it is not in this round.
+
+Failed, not fixed:
+
+- ⇧⌘P in the sidebar's project filter and in the draft hero's project menu pins nothing, with the row highlighted by the
+  pointer or the arrows (0 of 3); the oracle unpins the highlighted project (1 of 1). The palette's ⇧⌘P works. The cause
+  is not yet known.
+- A two-finger swipe (the previous round's phased scroll events, over the conversation, the header and the sidebar) stepped
+  nothing (0 of 11, both bundles); the oracle stepped back (1 of 1). The previous round saw it step on `1d0af5b92d`.
+- Return pressed 0.15 to 0.3 s after the window became active, with `/bt` and its menu open, inserted a newline instead
+  of picking `/btw` (3 of 4); sooner or later it picked it (8 of 8).
+
+Not reachable with these fixtures: a terminal excerpt in a sent message (the fixture makes none; the app tests cover its
+details), the fallback model notice (the stand-in reports no usage limits), and the narrow-window Merge row (the stand-in's
+pull request has a running check, so v0.1.6 offers no Merge; neither app shows one).
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1422,9 +1511,8 @@ menu, not TISSelectInputSource, before they judge IME rows.
 
 **Not checked yet:**
 
-- VO-Space on the citation and the thread chip, and a terminal excerpt's details as a chip's focus target: the second
-  2026-10-31 session ran out of its real-input time before them.
-- The fallback model notice and the narrow-window Merge rows (above, "Not reachable with these fixtures").
+- A terminal excerpt's details in a sent message, the fallback model notice and the narrow-window Merge row (above, the
+  2026-11-02 session's "Not reachable with these fixtures").
 
 **Out of scope** (decided 2026-10-17): the device player and the device menus, a tailnet, Screen
 Recording and other OS grants (FN24, the permission helper's real grant), provider installs and
@@ -1432,9 +1520,11 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 
 **Next real-input session:**
 
-- VO-Space on the citation and the thread chip, and a terminal excerpt's details.
+- ⇧⌘P in the project filter and the hero's project menu, and the two-finger swipe, once their causes are found.
+- The Browser address bar's Return, once the plan's size limit allows its fix.
+- A terminal excerpt's details, once a fixture sends one.
 - The fallback model notice, once a fixture provider reports usage limits.
-- The narrow-window Merge row, with a pull request thread whose branch is checked out in the lane.
+- The narrow-window Merge row, with a pull request whose checks have all finished.
 
 Open native context menus with a HID right-click, not `orca computer`'s. VoiceOver's keys need the modifier keys'
 own events (Control and Option down, then the key), not only the flags on the key's event, and ⌘F5 from the HID

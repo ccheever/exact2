@@ -415,8 +415,16 @@ component EffortLevel
     over = value
     if row.description != ""
       hoverTipAt(hoverTipAtFrame(`effort-tip-${row.index}`, "tip", row.description, [], "right", "center", frame(`model-effort-row-${row.index}`), min(14 * rem, row.description.length * 0.4 * rem + 1.125 * rem), `effort-tip-${row.index}`), "trigger", value)
+  // ColumnRow is a web button, which Return presses as Space does; a Mac button takes only Space.
+  action rowKey(name: string, e: KeyboardEvent)
+    if name == "Enter" and not e.isComposing and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      if not e.repeat and not row.disabled
+        pick("model-option", row.descriptor, row.value)
+    else
+      move(row.index, name, e)
   view
-    button press=pick("model-option", row.descriptor, row.value) hover=hover key=move(row.index) disabled=row.disabled id=`model-effort-row-${row.index}` role="radio" aria-checked=row.selected aria-description=row.description tabindex=(row.selected and row.level ? 0 : -1) testId=`effort-${row.value}` class=Control justify-content="flex-start" width="100%" height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(row.disabled ? 0.64 : 1) background-color=(over and not row.disabled ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
+    button press=pick("model-option", row.descriptor, row.value) hover=hover key=rowKey disabled=row.disabled id=`model-effort-row-${row.index}` role="radio" aria-checked=row.selected aria-description=row.description tabindex=(row.selected and row.level ? 0 : -1) testId=`effort-${row.value}` class=Control justify-content="flex-start" width="100%" height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.25rem" opacity=(row.disabled ? 0.64 : 1) background-color=(over and not row.disabled ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") title=""
       text row.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#18181b, #f5f5f5)"
       if row.isDefault
         text "Default" font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #a1a1a1b3)" flex-shrink=0

@@ -470,8 +470,10 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
 async function sideChatCommand(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op === 'bring-back') await bringBackSideChat(client, native, client.threadId, id);
   else if (op === 'delete') {
-    // On success the parent's panel closes the tab (rightPanelStore.closeSurface), with no delete of its own.
-    if (await deleteSideChat(client, native, id)) closeSurfaceIn(panelState(client), sideChatSurfaceId(id));
+    // On success the parent's panel closes the tab (rightPanelStore.closeSurface), with no delete of its own. The close
+    // is the person's (closeAction), so the saved panel drops the tab too, also one /side opened.
+    const state = panelState(client);
+    if (await deleteSideChat(client, native, id)) { closeSurfaceIn(state, sideChatSurfaceId(id)); state.userRevision++; }
   } else throw new ClientError(`Unknown side chat action: ${op}`);
   return '';
 }

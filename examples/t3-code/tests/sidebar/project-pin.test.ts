@@ -130,6 +130,25 @@ describe('the filter\'s keys', () => {
     expect(press('', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
     expect(press('g2', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
   });
+  // Base UI Combobox's list navigation (loopFocus): the arrows move the highlight from the row Base UI highlighted or the
+  // pointer rests on, and wrap at the ends; the shortcut then pins the row they reached.
+  test('the arrows move the highlight, from no row to the first or the last, and wrap', () => {
+    const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: true }], scopeHighlight: '' } };
+    const step = (state: Obj, key: string) => {
+      menu.call('searchKey', state, { data, local() {}, preventDefault() {} }, [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }]);
+      return menu.derives(state, { data }).highlighted;
+    };
+    const state: Obj = { hovered: '\n', keyed: '\n', pinOver: '' };
+    expect([step(state, 'ArrowDown'), step(state, 'ArrowDown'), step(state, 'ArrowDown'), step(state, 'ArrowUp')]).toEqual(['g1', 'g2', '', 'g2']);
+    expect(step({ hovered: '\n', keyed: '\n', pinOver: '' }, 'ArrowUp')).toBe('g2');
+    expect(step({ hovered: 'g1', keyed: 'g1', pinOver: '' }, 'ArrowDown')).toBe('g2');
+    const none = { sidebar: { ...data.sidebar, scopeHighlight: '\n' } }, fresh: Obj = { hovered: '\n', keyed: '\n', pinOver: '' };
+    menu.call('searchKey', fresh, { data: none, local() {}, preventDefault() {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }]);
+    expect(menu.derives(fresh, { data: none }).highlighted).toBe('');
+    const calls: unknown[][] = [];
+    menu.call('pinKey', state, { data, run: (...args: unknown[]) => calls.push(args), preventDefault() {}, stopPropagation() {} }, ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }]);
+    expect(calls).toEqual([['project-pin', '', 'g2']]);
+  });
   // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
   test('before the pointer moves, the shortcut pins the chosen project, which Base UI highlights on open', () => {
     const calls: unknown[][] = [];

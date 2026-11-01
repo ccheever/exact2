@@ -72,6 +72,8 @@ describe('the menu (HeroPicker)', () => {
     const scope = { home: home([row('a', true), row('b', false)]) };
     picker.call('toggled', state, scope, [{ newState: 'open' }]);
     expect(state.held).toEqual(['a', 'b']);
+    // Base UI highlights the chosen project as the popup opens, so its pin shows and the shortcut pins it.
+    expect([state.cursor, picker.derives(state, { size: 30, ...scope }).highlight]).toEqual(['b', 'b']);
     // b is pinned: the server now lists it first, and a new project arrives.
     const after = { size: 30, home: home([row('b', true), row('a', true), row('c', false)]) };
     expect((picker.derives(state, after).matches as Obj[]).map(project => project.id)).toEqual(['a', 'b', 'c']);

@@ -46,6 +46,40 @@ describe('the docked picker', () => {
     picker.call('searchKey', state, env, ['Enter', { isComposing: true, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false }]);
     expect(picks).toEqual([]);
   });
+  test('Return on a focused effort level picks it, as Space does; the arrows still move', () => {
+    const level = contractComponent('src/composer/model-picker.contract', 'EffortLevel');
+    const picks: unknown[] = [], moves: unknown[] = [];
+    const key = (name: string, extra: object = {}, row: object = {}) => level.call('rowKey', level.state(), {
+      row: { index: 2, descriptor: 'reasoningEffort', value: 'high', disabled: false, ...row }, rem: 16,
+      pick: (...args: unknown[]) => picks.push(args), move: (...args: unknown[]) => moves.push(args.slice(0, 2)), preventDefault: () => {},
+    }, [name, { isComposing: false, repeat: false, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...extra }]);
+    key('Enter');
+    key('Enter', { isComposing: true });
+    key('Enter', {}, { disabled: true });
+    key('ArrowDown');
+    expect(picks).toEqual([['model-option', 'reasoningEffort', 'high']]);
+    // A Return that confirms an input method's candidate is not a pick.
+    expect(moves).toEqual([[2, 'Enter'], [2, 'ArrowDown']]);
+  });
+});
+
+describe("the picker's focus after it opens", () => {
+  // ProviderModelPicker's handleInstanceModelChange moves the focus to the levels only after a pick; opening on a
+  // composer leaves it on the search. A side chat's picker counts the side chat's model, not the window's.
+  const root = contractComponent('app.contract', 'T3Code');
+  const window = { providerId: 'claude', modelId: 'opus', composer: { effortFocusLevel: 1 } };
+  const side = { providerId: 'standin', modelId: 'default', composer: { effortFocusLevel: 2 } };
+  test("a side chat's picker opens on its search, and a pick there focuses the side chat's checked level", () => {
+    const state: Record<string, unknown> = { modelAnchorX: -1, modelAnchorWidth: 0, modelOpenTarget: '', modelFocusedPick: 'claude:opus' };
+    root.call('sideModelMeasure', state, { frame: () => ({ unavailable: false, x: 900, width: 140 }), sideChat: side }, []);
+    expect(state.modelFocusedPick).toBe('standin:default');
+    const focused: string[] = [];
+    const scope = { data: window, sideChat: side, composerTargetData: side, focus: (id: string) => focused.push(id) };
+    root.call('modelEffortFocused', state, scope, []);
+    expect(focused).toEqual([]);
+    root.call('modelEffortFocused', state, { ...scope, composerTargetData: { ...side, modelId: 'other' } }, []);
+    expect([focused, state.modelFocusedPick]).toEqual([['model-effort-row-2'], 'standin:other']);
+  });
 });
 
 describe('the composer around it', () => {
