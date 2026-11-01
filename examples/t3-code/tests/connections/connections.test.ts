@@ -14,7 +14,7 @@ const STANDARD_SCOPE = encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES), LEGACY_SCO
 
 const host = (connection = 'connected', extra: Partial<ConnectionHost> = {}): ConnectionHost => ({
   connection, origin: 'http://127.0.0.1:14796', environmentId: 'env-a', statusMessage: 'Connected.', scopes: [...AUTH_STANDARD_CLIENT_SCOPES],
-  config: { environment: { label: 'Fixture A', platform: { machine: 'laptop' }, serverVersion: '0.1.5', capabilities: { environmentIcon: true } } }, ...extra,
+  config: { environment: { label: 'Fixture A', platform: { machine: 'laptop' }, serverVersion: '0.1.6', capabilities: { environmentIcon: true } } }, ...extra,
 });
 const entry = (key: string, extra: Partial<FleetEntry> = {}): FleetEntry => ({ key, origin: key.split('\n')[0]!, environmentId: key.split('\n')[1]!, phase: 'connected', message: '', traceId: '',
   generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [...AUTH_STANDARD_CLIENT_SCOPES], error: '', requested: true, ...extra });
@@ -99,7 +99,7 @@ test('every paired environment, a loopback one included, is a saved row under En
     ['Fixture A', 'http://127.0.0.1:14796/ · Connected', true, false, true, 'laptop'],
     ['Remote', 'https://remote.example.com/ · Connected · 0.0.40', true, false, false, 'desktop'],
     ['Off box', 'https://off.example.com/ · Off', false, true, false, 'cloud']]);
-  expect(page.environments[1]).toMatchObject({ tooltip: 'Connected\nUpdate available: 0.0.40 → 0.1.5', switchTip: 'Switch off', update: 'Copy relaunch command', updateNote: '', iconLock: '' });
+  expect(page.environments[1]).toMatchObject({ tooltip: 'Connected\nUpdate available: 0.0.40 → 0.1.6', switchTip: 'Switch off', update: 'Copy relaunch command', updateNote: '', iconLock: '' });
   expect(page.environments[2]).toMatchObject({ tooltip: 'Switched off', switchTip: 'Switch on', update: '', iconLock: 'Connect to this environment to change its icon.' });
   expect(page.environments[1]!.icons.map(icon => [icon.kind, icon.selected, icon.note])).toEqual([['server', false, ''], ['cloud', false, ''], ['linux', false, ''],
     ['desktop', true, 'detected'], ['laptop', false, ''], ['mac-mini', false, ''], ['mac-studio', false, '']]);

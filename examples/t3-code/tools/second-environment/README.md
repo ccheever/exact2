@@ -119,7 +119,7 @@ again and nothing reaches the Keychain. A background row's thread is
 `thread-fleet:<environment id>:<thread id>` (ids from `status`).
 
 `start --runtime <version>` runs another release than the pin: `examples/t3-code/.runtime-cache/t3-<version>-darwin-arm64.tar.gz`,
-which stage-runtime keeps (`--runtime 0.1.4-nightly.20261027.3770`, a server older than the client). A plain older
+which stage-runtime keeps (`--runtime 0.1.5`, a server older than the client). A plain older
 server has no self-update, so the update dialog lists it under "needs a manual update"; for one it offers to update, put
 the older-server stand-in in front (`../machines/`, `older`). `start --scratch` lets the server offer a folder for threads
 without a project: the fixture root is inside this checkout, a Git work tree, and the server refuses one there

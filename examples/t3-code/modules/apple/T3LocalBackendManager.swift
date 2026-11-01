@@ -47,9 +47,9 @@ final class T3LocalQueueClock: T3LocalClock {
 }
 
 /// `DesktopBackendBootstrap` (packages/contracts/src/desktopBootstrap.ts), as this app sends it:
-/// no OTLP endpoints and no telemetry fds. `shellEnvironmentPrepared`: the login shell's values are
-/// already in the server's environment (T3LocalShellEnvironment.serverEnvironment), so the server does
-/// not ask the shell again (os-jank.ts `fixPath`), as for the reference's macOS envelope.
+/// no OTLP endpoints and no telemetry fds. `shellEnvironmentPrepared`: a login shell returned a PATH, whose
+/// values are already in the server's environment (T3LocalShellEnvironment.serverEnvironment), so the server
+/// does not ask the shell again (os-jank.ts `fixPath`); false after a timed-out or empty probe, so it repairs PATH.
 struct T3LocalBootstrap: Codable, Equatable {
     var mode = "desktop"
     var noBrowser = true

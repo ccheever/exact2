@@ -5,7 +5,7 @@
 // "Subagent of <parent>" divider whose action opens the parent thread. It
 // reuses the timeline's system-divider row ("fork" kind: the pill selects its
 // target thread), and its nearest listed ancestor's row stays highlighted.
-import { obj, str, type Obj } from '../client/domain';
+import { isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import type { Message } from '../client/domain';
 import type { T3Client } from '../client/client';
 
@@ -32,15 +32,15 @@ export function subagentLead(client: T3Client): Message[] {
 }
 
 /**
- * Sidebar.logic.ts resolveSidebarRowThreadId: the row that stands for the open thread. A subagent has no row, so its
- * nearest ancestor that is not one stands in; a broken chain (a missing parent, a cycle) resolves to the thread
+ * Sidebar.logic.ts resolveSidebarRowThreadId: the row that stands for the open thread. A subagent or side chat has no
+ * row, so its nearest listed ancestor stands in; a broken chain (a missing parent, a cycle) resolves to the thread
  * itself, which then matches no row.
  */
 export function resolveSidebarRowThreadId(threadId: string, threads: readonly Obj[]): string {
   const find = (id: string) => threads.find(thread => thread.id === id);
   const visited = new Set<string>();
   let thread = find(threadId);
-  while (thread !== undefined && obj(thread.lineage).relationshipToParent === 'subagent') {
+  while (thread !== undefined && !isListedThreadLineage(thread.lineage)) {
     const parentId = obj(thread.lineage).parentThreadId;
     if (parentId == null || visited.has(str(thread.id))) return threadId;
     visited.add(str(thread.id));

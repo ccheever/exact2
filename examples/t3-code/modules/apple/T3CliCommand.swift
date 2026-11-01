@@ -128,7 +128,7 @@ extension T3LocalBackend {
         let executable = T3LocalRuntime.paths(home: home, version: version).entry.path
         return T3CliCommand(supported: !version.isEmpty && supported,
                             home: home, accountHome: accountHome, executable: executable,
-                            appExecutable: Bundle.main.executableURL?.path ?? "", path: (supported ? serverEnvironment(env) : env)["PATH"] ?? "") {
+                            appExecutable: Bundle.main.executableURL?.path ?? "", path: (supported ? serverEnvironment(env).env : env)["PATH"] ?? "") {
             switch runtime.ensure() {
             case .ready: return
             case let .missing(message), let .failed(message): throw T3Failure(kind: "CliCommand", message: message)

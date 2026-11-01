@@ -54,9 +54,9 @@ export function projectsByActivity(shell: Shell): Obj[] {
     .map(entry => entry.project);
 }
 
-/** The index landing's target: the most recently active project (IndexDraftLanding). */
+/** The index landing's target: the most recently active project that is not archived (IndexDraftLanding). */
 export function mostRecentProjectId(shell: Shell): string {
-  return str(projectsByActivity(shell)[0]?.id);
+  return str(projectsByActivity(shell).find(project => project.archivedAt == null)?.id);
 }
 
 /** useStartTriage's TRIAGE_CLI_COMMAND: triage from a terminal, which the triage hero and a failed start offer. */

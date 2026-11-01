@@ -4,23 +4,26 @@
 // (buildSidebarProjectSnapshots), sorts them by clientSettings
 // .sidebarProjectSortOrder (sortLogicalProjectsForSidebar; Manual keeps the
 // project order) and moves the contextual project's group first
-// (buildSidebarProjectPickerEntries). Each entry is one group: its target is the
+// (buildSidebarProjectPickerEntries) after the pinned ones; archived groups are left out
+// (pickableProjectGroups). Each entry is one group: its target is the
 // contextual member when the group holds it, else the group's representative,
 // and it is titled with the group's display name; `memberTitle` keeps the target's
 // own title (its ProjectFavicon's name) and `memberProjects` the group's members.
 // Both the Projects search group and the New thread in... page read this list.
 import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
-import { projectScopes } from '../sidebar/sidebar-view';
+import { pickableScopes } from '../sidebar/sidebar-view';
 
-/** The palette's projects: one per sidebar group, in Project order, the current project's group first. */
+/** The palette's projects: one per open sidebar group, pinned ones first, then the current project's group, then Project order. */
 export function pickerProjects(client: T3Client): Obj[] {
   const preferred = client.projectId;
-  const entries = projectScopes(client).flatMap(scope => {
+  const entries = pickableScopes(client).flatMap(scope => {
     const target = scope.members.find(member => str(member.id) === preferred) ?? scope.members[0];
-    return target ? [{ project: { ...target, title: scope.name || str(target.title), memberTitle: str(target.title), memberProjects: scope.members }, preferred: !!preferred && scope.ids.has(preferred) }] : [];
+    return target ? [{ project: { ...target, title: scope.name || str(target.title), memberTitle: str(target.title), memberProjects: scope.members }, preferred: !!preferred && scope.ids.has(preferred), pinned: scope.pinned }] : [];
   });
-  const at = entries.findIndex(entry => entry.preferred);
-  if (at > 0) entries.unshift(...entries.splice(at, 1));
-  return entries.map(entry => entry.project);
+  // The preferred project leads the unpinned ones; pinned projects stay first.
+  const lead = entries.find(entry => entry.preferred);
+  if (!lead || lead.pinned) return entries.map(entry => entry.project);
+  const rest = entries.filter(entry => entry !== lead), pinnedCount = rest.filter(entry => entry.pinned).length;
+  return [...rest.slice(0, pinnedCount), lead, ...rest.slice(pinnedCount)].map(entry => entry.project);
 }

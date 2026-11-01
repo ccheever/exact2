@@ -9,7 +9,7 @@ import type { T3Client } from '../client/client';
 import { composerPromptLink, promptLinkRepositoryOf } from '../prompt-links/copy-prompt-link';
 import { terminalProcessCount } from '../sidebar/sidebar-view';
 import { searchPullRequest } from '../sidebar/search-pull-request';
-import { arr, num, obj, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, num, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
 import { searchSettings, searchContext, breadcrumbLabel, searchTarget } from '../settings/settings-search';
 import { themeCards } from '../appearance/settings-appearance';
@@ -259,7 +259,7 @@ function severalEnvironments(client: T3Client): boolean {
 export function threadItems(client: T3Client, now: number, query: string, source: EnvironmentFleet = fleet): Item[] {
   const searchedLabels = severalEnvironments(client);
   const entries = new Map([...source.entries.values()].map(entry => [entry.environmentId, entry]));
-  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => obj(thread.lineage).relationshipToParent !== 'subagent').map(thread => {
+  return sortedThreads([...client.shell.threads, ...fleetThreads(source)]).filter(thread => isListedThreadLineage(thread.lineage)).map(thread => {
     const id = str(thread.id), ref = parseFleetThreadId(id), environmentId = ref?.environmentId ?? client.environmentId;
     // ThreadCommandSubtitle's environmentLabel: the thread's own environment's.
     const environmentLabel = projectLocation(client, environmentId, source).label;

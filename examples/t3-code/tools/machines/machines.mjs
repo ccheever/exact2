@@ -29,7 +29,7 @@ export const MANY_MACHINES = [...MACHINES, "fourth", "fifth", "sixth", "seventh"
  * server's + 40). The version is on the client's channel (stable): the update dialog skips a server on another
  * channel ("on the nightly channel", update-everything-logic.ts collectServerUpdateTargets).
  */
-export const OLDER = { name: "third", version: "0.1.4", portOffset: 40 };
+export const OLDER = { name: "third", version: "0.1.5", portOffset: 40 };
 
 /** Starts the older-server stand-in in front of a running environment (detached, recorded in its route.json); returns { pid, port }. */
 export async function startOlder(paths, server, { name = OLDER.name, version = OLDER.version, port = server.port + OLDER.portOffset } = {}) {

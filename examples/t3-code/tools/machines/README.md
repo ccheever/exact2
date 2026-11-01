@@ -36,7 +36,7 @@ rows are `run-on-<environment id>`.
 
 `bun machines.mjs up --older` also puts the older-server stand-in (`older-server.mjs`) in front of
 `third`, on its port + 40 (16551), and the drive pairs `third` through it. Everything passes
-through except the environment descriptor's version, which reads `0.1.4`
+through except the environment descriptor's version, which reads `0.1.5`
 (older than the client's `CLIENT_VERSION`, `version-skew.ts`, and on its channel: the update dialog skips a server on
 another channel) with the capabilities of a server
 under T3's service launcher (`serverSelfUpdate: "boot-service"`, with progress), and the update

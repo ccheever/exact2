@@ -5,7 +5,7 @@
 // (projectDisplayNameByKey: every member project reads its group's displayName).
 // Two checkouts of `acme/shared` named "shared" read "acme/shared", in the sidebar
 // rows' project label and the draft hero alike.
-import { obj, str, type Obj } from '../client/domain';
+import { obj, pickableProjectGroups, projectGroupOrganization, str, type Obj } from '../client/domain';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 
 type Grouping = { environmentId: string; shell: { projects: Obj[] }; local?: { groupingMode?: string; groupingOverrides?: Record<string, string> } };
@@ -74,9 +74,15 @@ export function cachedDisplayNames(client: Grouping & { revision: number }): Map
   return names;
 }
 
-/** buildSidebarProjectPickerEntries for the hero's menu: each group once (its first project in order), under its group's name. */
+/**
+ * buildSidebarProjectPickerEntries for the hero's menu: each group once (its first project in order), under its group's
+ * name, as pickableProjectGroups offers them (no archived group, pinned ones first).
+ */
 export function heroGroups<T extends { id: string; name: string }>(client: Grouping & { revision: number }, projects: T[]): T[] {
   const names = cachedDisplayNames(client), keys = projectGroupKeys(client), seen = new Set<string>();
-  return projects.filter(project => { const key = keys.get(project.id) ?? project.id; return !seen.has(key) && (seen.add(key), true); })
-    .map(project => ({ ...project, name: names.get(project.id) || project.name }));
+  const members = new Map<string, Obj[]>();
+  for (const project of client.shell.projects) { const key = keys.get(str(project.id)) ?? str(project.id); members.set(key, [...members.get(key) ?? [], project]); }
+  const entries = projects.filter(project => { const key = keys.get(project.id) ?? project.id; return !seen.has(key) && (seen.add(key), true); })
+    .map(project => ({ project: { ...project, name: names.get(project.id) || project.name }, ...projectGroupOrganization(members.get(keys.get(project.id) ?? project.id) ?? []) }));
+  return pickableProjectGroups(entries).map(entry => entry.project);
 }

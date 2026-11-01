@@ -50,14 +50,15 @@ export function canTurnIntoProject(client: T3Client, thread: Obj, source: Enviro
   return isScratch(projects.find(project => str(project.id) === projectId), scratchRootOf(true, config));
 }
 
-type Scope = { key: string; name: string; ids: Set<string> };
+type Scope = { key: string; name: string; ids: Set<string>; archived?: boolean };
 /** handleThreadContextMenu's state for one thread; `scopes` are the sidebar's project groups (projectScopes). */
 export function threadMenuState(client: T3Client, thread: Obj, header: boolean, scopes: Scope[], now: number): ThreadMenuState & { scope: Scope | undefined } {
   const caps = capabilities(rowConfig(client, thread)), prefs = sidebarPrefs(client);
   const scope = scopes.find(group => group.ids.has(str(thread.projectId)));
   const section = sectionOf(thread, caps, now, client.local.clientSettings?.sidebarWorkingShelfEnabled === true);
   return {
-    branch: str(thread.branch), projectFilter: header || !scope ? null : { label: scope.name, isActive: prefs.scopes.includes(scope.key) },
+    // An archived project is not a filter choice.
+    branch: str(thread.branch), projectFilter: header || !scope || scope.archived ? null : { label: scope.name, isActive: prefs.scopes.includes(scope.key) },
     isPinned: thread.pinnedAt != null, isSettled: caps.settlement && thread.settledOverride === 'settled' && section === 'settled',
     autoSettleEnabled: thread.autoSettleDisabledAt == null, isSnoozed: caps.snooze && effectiveSnoozed(thread, now),
     canSnoozeNow: canSnooze(thread, now), isRegeneratingTitle: thread.titleRegeneration != null || sidebarSession(client).regenerating.has(str(thread.id)),

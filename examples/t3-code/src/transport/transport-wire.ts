@@ -229,6 +229,8 @@ function typed(value: unknown): TransportFailure {
   // PreviewStopLocalServerError's and ServerPrepareTriageError's messages are getters (contracts preview.ts, server.ts).
   if (!message && tag === 'PreviewStopLocalServerError') message = STOP_LOCAL_SERVER_FAILURE_MESSAGES[field('reason')] ?? '';
   if (!message && tag === 'ServerPrepareTriageError') message = 'Could not write the triage session files.';
+  // So is OrchestrationV2ForceStopThreadError's (contracts orchestrationV2.ts).
+  if (!message && tag === 'OrchestrationV2ForceStopThreadError') message = field('reason') === 'superseded' ? 'A new turn started, so nothing was force stopped.' : 'Failed to force stop the agent.';
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;

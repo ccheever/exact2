@@ -13,7 +13,7 @@ import * as notificationsPackage from '@exact/notifications';
 import { noteSubagentRequests } from '../sidebar/subagent-requests';
 import type { T3Client } from '../client/client';
 import { pushToast } from './toast';
-import { obj, str, type Shell } from '../client/domain';
+import { isListedThreadLineage, obj, str, type Shell } from '../client/domain';
 import { bridgeReply, type Native } from '../client/protocol';
 import { sidebarStatus, latestRun } from '../sidebar/sidebar-model';
 import { fleet, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from '../connections/settings-b-fleet';
@@ -179,7 +179,7 @@ export function threadTransitions(environment: { shell: Shell }, previous: Map<s
   const transition = (id: string, kind: Transition['kind'], status: string) => transitions.push({ threadId: id, kind, status,
     title: kind === 'completion' ? 'Thread completed' : status === 'approval' ? 'Approval needed' : status === 'limited' ? 'Usage limit reached' : status === 'failed' ? 'Thread failed' : 'Input needed' });
   for (const thread of environment.shell.threads) {
-    if (obj(thread.lineage).relationshipToParent === 'subagent') continue;
+    if (!isListedThreadLineage(thread.lineage)) continue; // isShownUnderParent: subagents and side chats
     const id = str(thread.id);
     let status: string = sidebarStatus(thread);
     const run = latestRun(thread);

@@ -1,9 +1,9 @@
-// The client operations a 0.1.5 server adds (T3 Code 6d450a4284, MIT, see LICENSE-T3: packages/contracts/src/rpc.ts,
-// preview.ts, server.ts, project.ts, pullRequest.ts; apps/web/src/connection/clientMetadata.ts). Each sends one request
+// The client operations 0.1.5 and 0.1.6 servers add (T3 Code 2359643cff, MIT, see LICENSE-T3: packages/contracts/src/rpc.ts,
+// preview.ts, server.ts, project.ts, pullRequest.ts, orchestrationV2.ts; apps/web/src/connection/clientMetadata.ts). Each sends one request
 // on the focused connection; T3Client's methods of the same names call these. A refusal is the transport's typed
 // error (transport-wire.ts), whose message is the reference's sentence.
 import type { T3Client } from './client';
-import { str, type Obj } from './domain';
+import { obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { CLIENT_VERSION } from '../connections/version-skew';
 
@@ -29,6 +29,22 @@ export async function createProjectFromThread(client: T3Client, native: Native, 
   const projectId = str((await client.request(native, 'projects.createFromThread', { threadId }, client.generation, true)).projectId);
   if (!projectId) throw new ClientError('The server did not name the new project.');
   return projectId;
+}
+
+/** OrchestrationV2ForceStopThreadResult: how the thread's agent was stopped. */
+export interface ForceStopResult { outcome: 'killed' | 'released' | 'releasing' | 'shared'; sharedWithThreadIds: string[] }
+const FORCE_STOP_OUTCOMES: readonly ForceStopResult['outcome'][] = ['killed', 'released', 'releasing', 'shared'];
+
+/**
+ * orchestration.forceStopThread (0.1.6, capability `threadForceStop`): kills the agent of a turn that ignored Stop. `runId`
+ * names the run the user saw ignore it; the server refuses once a newer run has started (`superseded`).
+ */
+export async function forceStopThread(client: T3Client, native: Native, threadId: string, runId?: string): Promise<ForceStopResult> {
+  if (!threadId) throw new ClientError('Choose a thread.');
+  const result = obj(await client.request(native, 'orchestration.forceStopThread', runId ? { threadId, runId } : { threadId }, client.generation, true));
+  const outcome = FORCE_STOP_OUTCOMES.find(value => value === result.outcome);
+  if (!outcome) throw new ClientError('The server did not say how the agent was stopped.');
+  return { outcome, sharedWithThreadIds: Array.isArray(result.sharedWithThreadIds) ? result.sharedWithThreadIds.filter((id): id is string => typeof id === 'string') : [] };
 }
 
 /** pullRequests.update with maintainerCanModify alone: GitHub's "Allow edits by maintainers" (PullRequestActionsMenu). */

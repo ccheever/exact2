@@ -1,7 +1,7 @@
 // The composer's command menus (T3 ComposerCommandMenu.tsx and ChatComposer's
 // composerMenuItems): which rows a trigger offers and in what order. Pure, so
 // the ranking, labels and empty states are tested without the native editor.
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import { COMPOSER_CITATION } from './composer-source-chips';
 import { contextLinks, contextTarget, replaceLinks, type ContextLink } from './context-links';
 export { contextLinks } from './context-links';
@@ -229,13 +229,13 @@ export function pathRows(entries: Obj[]): MenuRow[] {
 
 /**
  * matchComposerThreadItems: this environment's threads matched and ranked as ⌘K ranks them (recency as of `now`, no
- * picks), five at most, without the open thread, archived threads or subagent threads. `environmentId` keys this
+ * picks), five at most, without the open thread, archived threads, subagent threads or side chats. `environmentId` keys this
  * client's own opens.
  */
 export function threadRows(threads: Obj[], excludeThreadId: string, query: string, now: number, environmentId = ''): MenuRow[] {
   const folded = foldSearchQuery(query);
   if (!folded) return [];
-  const candidates = threads.filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && obj(thread.lineage).relationshipToParent !== 'subagent');
+  const candidates = threads.filter(thread => str(thread.id) !== excludeThreadId && !thread.archivedAt && isListedThreadLineage(thread.lineage));
   return rankSearchItems(candidates, (thread, options) => scoreThreadSearch(folded, threadSearchSubject(thread, null, null, environmentId), now, { ...options, picks: false }))
     .slice(0, 5)
     .map(({ item: thread }) => row({ id: `thread:${str(thread.id)}`, type: 'thread', label: str(thread.title), description: 'Thread', icon: 'messages-square',

@@ -1,5 +1,5 @@
 // The embedded server's environment, after T3 Code's desktop
-// app (MIT, see LICENSE-T3; reference 7c3b3b3605ef: apps/desktop/src/shell/DesktopShellEnvironment.ts
+// app (MIT, see LICENSE-T3; reference 2359643cff: apps/desktop/src/shell/DesktopShellEnvironment.ts
 // `installPosixEnvironment`, backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`, and
 // packages/shared/src/shell.ts `buildEnvironmentCaptureCommand`, `readEnvironmentFromLoginShell`).
 //
@@ -89,8 +89,9 @@ enum T3LocalShellEnvironment {
         return candidates
     }
 
-    /// `installPosixEnvironment` for darwin, applied to `env`.
-    static func install(into env: inout [String: String], run: Runner) {
+    /// `installPosixEnvironment` for darwin, applied to `env`. True when a login shell returned a PATH: after a
+    /// timed-out or empty probe the server must repair PATH itself (the envelope's `shellEnvironmentPrepared`).
+    @discardableResult static func install(into env: inout [String: String], run: Runner) -> Bool {
         var shell: [String: String] = [:]
         for candidate in loginShellCandidates(env) {
             shell.merge(extract(run(candidate, ["-ilc", captureCommand(candidate, loginShellNames)], loginShellTimeout), loginShellNames)) { $1 }
@@ -117,16 +118,17 @@ enum T3LocalShellEnvironment {
             for name in localeNames { if let value = trimmed(shell[name]) { env[name] = value } }
             if localeNames.allSatisfy({ trimmed(env[$0]) == nil }) { env["LC_CTYPE"] = fallbackLcCtype }
         }
+        return trimmed(shell["PATH"]) != nil
     }
 
     /// The server's environment: the app's, the login shell's values, without the envelope's
-    /// variables, and with telemetry off (spec).
-    static func serverEnvironment(base: [String: String], run: Runner) -> [String: String] {
+    /// variables, and with telemetry off (spec); `prepared` is `install`'s answer.
+    static func serverEnvironment(base: [String: String], run: Runner) -> (env: [String: String], prepared: Bool) {
         var env = base
-        install(into: &env, run: run)
+        let prepared = install(into: &env, run: run)
         for name in backendEnvNames { env.removeValue(forKey: name) }
         env["T3CODE_TELEMETRY_ENABLED"] = "false"
-        return env
+        return (env, prepared)
     }
 
     /// The production runner (`readEnvironmentFromLoginShell`'s `detached: true, stdio: ["ignore", "pipe",

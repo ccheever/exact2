@@ -9,7 +9,7 @@
 // after they speak; `announce`'s messages wait for the focus to settle and are then spoken together, alternating
 // between two regions so the same message can be spoken twice in a row, and the pair keeps its text until the next.
 import type { T3Client } from '../client/client';
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import { activeRun } from '../client/protocol';
 import { pendingRequests } from '../composer/requests';
 import { latestExecutedRun } from '../composer/composer-controls';
@@ -295,8 +295,8 @@ function followBackgroundThreads(client: T3Client, state: Announcer, now: number
   for (const environment of notifyEnvironments(client, source)) {
     if (!environment.live) continue;
     for (const thread of environment.shell.threads) {
-      // Subagents have no row of their own; their requests surface on the parent.
-      if (thread.archivedAt != null || obj(thread.lineage).relationshipToParent === 'subagent') continue;
+      // Subagents and side chats have no row of their own; their requests surface on the parent.
+      if (thread.archivedAt != null || !isListedThreadLineage(thread.lineage)) continue;
       const runtime = shellRuntime(thread);
       snapshots.push({
         key: `${environment.environmentId}:${str(thread.id)}`, title: str(thread.title), ...resolveBackgroundThreadRequest(thread),

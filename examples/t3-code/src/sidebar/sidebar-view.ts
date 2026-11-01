@@ -4,7 +4,7 @@ import { instanceIconUrl } from '../providers/acp-icons';
 // paint order (collapsed shelves contribute only the open thread, as the
 // reference renders them, so thread.jump and prev/next follow the same list)
 // plus the sidebar's own view state. Pure over the client and `now`.
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, obj, pickableProjectGroups, projectGroupOrganization, str, type Obj } from '../client/domain';
 import { effectiveShortcut } from '../shell/shortcut-labels';
 import { PLATFORM } from '../settings/desktop-shell-favicon';
 import { machineKind } from '../connections/connections';
@@ -121,10 +121,11 @@ const timestamp = (value: unknown) => { const time = Date.parse(str(value)); ret
  * Project groups in the sidebar picker's order (sortSidebarV2ProjectGroups):
  * the Project order setting sorts by each group's latest user message (or its
  * threads' creation) with no-thread groups on their own stamps; Manual keeps
- * the source order, as an empty projectOrder does.
+ * the source order, as an empty projectOrder does. Each carries its organization (`pinned`, `archived`); the pickers
+ * and the project filter offer pickableScopes.
  */
 export const NO_PROJECT_SCOPE = '\0no-project';
-export function projectScopes(client: T3Client): { key: string; name: string; ids: Set<string>; time: number; members: Obj[] }[] {
+export function projectScopes(client: T3Client): { key: string; name: string; ids: Set<string>; time: number; members: Obj[]; pinned: boolean; archived: boolean }[] {
   const threads = [...client.shell.threads, ...fleetThreads()].filter(sidebarVisible);
   const order = projectSortOrder(client);
   const grouped = new Map<string, { key: string; members: Obj[]; name: string }>();
@@ -150,7 +151,8 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
     const own = threads.filter(thread => ids.has(str(thread.projectId)));
     const time = own.length ? Math.max(...own.map(thread => threadSortTime(thread, order)))
       : Math.max(...group.members.map(member => order === 'created_at' ? timestamp(member.createdAt) : timestamp(member.updatedAt ?? member.createdAt)));
-    return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members };
+    return { key: group.key, name: group.key === NO_PROJECT_SCOPE ? 'No project' : groupLabel(group.members) || group.name, ids, time, members: group.members,
+      ...projectGroupOrganization(group.members) };
   });
   // A saved physical scratch filter may precede the config that identifies its No project group.
   const prefs = sidebarPrefs(client), scratch = groups.find(group => group.key === NO_PROJECT_SCOPE);
@@ -162,10 +164,17 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
 }
 type ProjectScope = ReturnType<typeof projectScopes>[number];
-/** resolveSidebarProjectScopeKeys: the chosen project groups in list order; a stored key whose group is not loaded is skipped. */
+/** The groups the project filter and the project pickers offer (pickableProjectGroups): no archived one, pinned ones first. */
+export function pickableScopes(client: T3Client, scopes: ProjectScope[] = projectScopes(client)): ProjectScope[] {
+  return pickableProjectGroups(scopes);
+}
+/**
+ * resolveSidebarProjectScopeKeys: the chosen project groups in list order; a stored key whose group is not loaded is
+ * skipped, and an archived project's reads as all projects, matching the menu.
+ */
 export function chosenScopes(client: T3Client, scopes: ProjectScope[] = projectScopes(client)): ProjectScope[] {
   const keys = sidebarPrefs(client).scopes;
-  return keys.length ? scopes.filter(group => keys.includes(group.key)) : [];
+  return keys.length ? pickableScopes(client, scopes).filter(group => keys.includes(group.key)) : [];
 }
 /** The project ids the chosen groups hold, or null when the list shows every project. */
 export function scopedProjectIds(chosen: readonly ProjectScope[]): Set<string> | null {
@@ -463,9 +472,9 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
       // Several projects: the trigger overlaps the first two glyphs.
       scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
-      scopes: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity),
+      scopes: scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity),
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
-      scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, scopes, helpers.projectIdentity)[0]?.key ?? '',
+      scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)

@@ -12,7 +12,7 @@ import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar
 import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, projectScopes, renderedRows, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
+import { partition, pickableScopes, projectScopes, renderedRows, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
 import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
@@ -484,10 +484,10 @@ export async function sidebarLocal(client: T3Client, _native: Native, op: string
   // A pick shows that project alone ("All projects" every one); Shift+click or Shift+Enter adds or removes it, the menu
   // open. A selection made under one scope can hold threads the next one hides.
   else if (op === 'scope') {
-    prefs.scopes = projectScopes(client).some(group => group.key === value) ? [value] : [];
+    prefs.scopes = pickableScopes(client).some(group => group.key === value) ? [value] : [];
     session.scopeOpen = false; session.scopeQuery = ''; session.selection = []; session.anchor = '';
   } else if (op === 'scope-toggle') {
-    if (!projectScopes(client).some(group => group.key === value)) return '';
+    if (!pickableScopes(client).some(group => group.key === value)) return '';
     prefs.scopes = prefs.scopes.includes(value) ? prefs.scopes.filter(key => key !== value) : [...prefs.scopes, value];
     session.selection = []; session.anchor = '';
   }
@@ -558,15 +558,17 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'new-thread-click') {
     // routes/_chat.tsx chat.new; ⇧-click (`value` "shift", the press's own MouseEvent, app.contract sidebarNewThread)
     // creates at once.
-    // The picker opens when the sidebar holds several projects, across every environment (projectScopes).
-    if (value !== 'shift' && projectScopes(client).length > 1) return 'sidebar:palette-new-thread';
+    // shouldCreateNewThreadInCurrentProject: the picker opens unless there is one open project or none, across every
+    // environment (projectScopes); with every project archived it opens too, to pick one.
+    const scopes = projectScopes(client);
+    if (value !== 'shift' && pickableScopes(client, scopes).length !== 1 && scopes.length !== 0) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';
   }
   if (op === 'home') {
-    // The index route opens a draft for the most recently active project.
-    const latest = projectScopes(client)[0], member = latest ? client.shell.projects.find(project => latest.ids.has(str(project.id))) : undefined;
+    // The index route opens a draft for the most recently active project that is not archived.
+    const latest = projectScopes(client).find(group => !group.archived), member = latest ? client.shell.projects.find(project => latest.ids.has(str(project.id))) : undefined;
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, str(member?.id ?? client.projectId)); }
     catch (error) { toast(client, 'Could not open threads', error); return ''; }
     return 'sidebar:new-thread';

@@ -111,7 +111,7 @@ describe('what a 0.1.5 server adds', () => {
 
   test('the new environment capabilities leave a matching server current', () => {
     const capabilities = { localServerStop: true, triage: true, threadProjectFromScratch: true, desktopAppChannelSwitch: true, databaseMigration: 72 };
-    expect(resolveServerConfigVersionMismatch({ environment: { serverVersion: '0.1.5', capabilities } })).toBeNull();
+    expect(resolveServerConfigVersionMismatch({ environment: { serverVersion: '0.1.6', capabilities } })).toBeNull();
   });
 
   test('a headless preview tab opens', () => {
