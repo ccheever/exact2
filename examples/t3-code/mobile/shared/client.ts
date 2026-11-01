@@ -108,7 +108,7 @@ export class T3Client {
   // Mobile history ownership begin: no native handle, promise or transcript graph.
   historyEpoch = 0;
   historyRevision = 0;
-  private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean } | null = null;
+  private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean; throughEntryId: string } | null = null;
   private historyIdentity(): string {
     return JSON.stringify([this.origin, this.environmentId, this.generation, this.threadId, this.threadEpoch, this.thread?.historyCursor]);
   }
@@ -949,17 +949,17 @@ export class T3Client {
     if (op === 'delete-archived-thread') delete this.local.drafts[`${this.environmentId}:${id}`];
   }
 
-  async history(native: Native, visit = '', visitCurrent = () => true): Promise<string[] | null> {
+  async history(native: Native, visit = '', visitCurrent = () => true, throughEntryId = ''): Promise<string[] | null> {
     if (!this.thread?.hasMore || !this.thread.historyCursor || !visitCurrent()) return null;
     const identity = this.historyIdentity();
     if (this.historyLoading && this.historyRequest?.identity === identity
-      && this.historyRequest.visit === visit && this.historyRequest.visitCurrent()) return null;
-    const token = { identity, visit, visitCurrent }, id = this.threadId, cursor = this.thread.historyCursor, generation = this.generation;
+      && this.historyRequest.visit === visit && this.historyRequest.throughEntryId === throughEntryId && this.historyRequest.visitCurrent()) return null;
+    const token = { identity, visit, visitCurrent, throughEntryId }, id = this.threadId, cursor = this.thread.historyCursor, generation = this.generation;
     const current = () => this.historyRequest === token && this.historyIdentity() === identity && visitCurrent();
     this.historyRequest = token; this.historyLoading = true;
     try {
       const page = await this.http(this.ownedNative(native, current, true),
-        `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}`, generation);
+        `/api/orchestration/threads/${encodeURIComponent(id)}/history?cursor=${encodeURIComponent(cursor)}${throughEntryId ? `&throughEntryId=${encodeURIComponent(throughEntryId)}` : ''}`, generation);
       if (!current() || !this.thread) throw new ClientError('This history read was superseded.', 'superseded');
       const next = mergeHistory(this.thread, page);
       if (next.hasMore && !next.historyCursor) throw new ClientError('Earlier activity returned an invalid page boundary.', 'protocol');

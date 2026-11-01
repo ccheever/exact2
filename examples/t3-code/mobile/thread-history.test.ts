@@ -45,6 +45,15 @@ describe('older-history request ownership', () => {
     expect(f.client.projection.visibleTurnItems.map((row: Obj) => obj(row.item).text)).toEqual(['Older content']);
   });
 
+  test('targeted history reads carry the cited entry through to the server boundary', async () => {
+    const f = fixture(), pending = f.client.history(f.native, 'citation', () => true, 'target-message');
+    expect(f.requests[0]!.input).toMatchObject({
+      path: '/api/orchestration/threads/thread/history?cursor=older&throughEntryId=target-message',
+    });
+    f.page(0); await pending;
+    expect(f.client.historyLoading).toBe(false);
+  });
+
   test('an accepted page with no admitted older rows returns an empty array', async () => {
     const f = fixture(), pending = f.client.history(f.native);
     f.page(0, '', { items: [] });
