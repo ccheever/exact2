@@ -4420,7 +4420,9 @@ cap, as UIKit's `UIFontMetrics.scaledFont(for:maximumPointSize:)` holds one: for
 row of equal cells that must stay one line at the accessibility sizes (a week's
 day numbers, which UIKit's calendar caps at 31 points), never to shrink text. A weight or
 line height written on the node wins either way, and `layout` names each one's
-source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else.
+source (`style`, `heading`, `inherited`, `authored`). `font` takes nothing else
+but `inherit`, the common reset's: a control's text then takes every font
+longhand from the text around it.
 Bold Text (iOS's setting, Android's font weight adjustment) weights the system
 font one step heavier, a written weight included, as a hand-built app's text
 is, and leaves a family the app names alone: write the weight you mean, not one
