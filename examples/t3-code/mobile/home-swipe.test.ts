@@ -4,6 +4,7 @@ import { EnvironmentFleet, type FleetEntry } from './shared/settings-b-fleet';
 import { initialShell, obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
 import { mobileHomeView } from './home-state';
+import { mobileHome } from './home';
 import { contractComponent, type Env } from '../tests/support/contract-action-fixture';
 import { contractFns } from '../tests/support/contract-fn-fixture';
 import { mobileHomeActionsObserve as observe, mobileHomeMenu as menu, mobileHomeAction as action,
@@ -317,6 +318,26 @@ test('thread card separators appear between screen rows and never inside sidebar
     item.card = false;
     expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(false);
   }
+});
+
+test('Home separators stop at section boundaries and never become a first-row stroke', () => {
+  const source = fixture();
+  source.client.shell.threads = [
+    thread({ id: 'pinned', title: 'Pinned', pinnedAt: '2026-10-07T11:00:00Z' }),
+    thread({ id: 'active', title: 'Active' }),
+    thread({ id: 'active-2', title: 'Active 2' }),
+    thread({ id: 'settled', title: 'Settled', settledOverride: 'settled' }),
+  ];
+  const items = mobileHome(now, { workingEnabled: false, settledExpanded: true }, source.client, source.background).items;
+  const pinned = items.find(item => item.threadId === 'pinned');
+  const active = items.find(item => item.threadId === 'active');
+  const active2 = items.find(item => item.threadId === 'active-2');
+  const settled = items.find(item => item.threadId === 'settled');
+  expect(pinned).toMatchObject({ section: 'pinned', trailingDivider: false });
+  expect(active).toMatchObject({ section: 'active', trailingDivider: true });
+  expect(active2).toMatchObject({ section: 'active', trailingDivider: false });
+  expect(settled).toMatchObject({ section: 'settled', trailingDivider: false });
+  expect(items.filter(item => item.kind === 'thread').some(item => item.showPendingDivider)).toBe(false);
 });
 
 test('authored dismissal reaches the exact 220/180ms phase boundaries with cubic-out geometry', () => {

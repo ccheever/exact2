@@ -276,8 +276,13 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   });
   items.forEach((item, index) => {
     const next = items[index + 1];
+    // A stroke belongs between rows in one section. Section boundaries already
+    // have their own shelf/header treatment; drawing here would put a line at
+    // the end of one section and the start of the next.
     item.trailingDivider = ['thread', 'draft', 'pending'].includes(item.kind) && !!next
-      && (next.kind === 'thread' || ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider);
+      && next.section === item.section
+      && ((item.kind === 'thread' && next.kind === 'thread')
+        || (['draft', 'pending'].includes(item.kind) && ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider));
   });
   const selectedEnvironment = sources.find(source => source.environmentId === options.environmentId);
   const empty = query ? { title: 'No results', detail: `No threads matching "${options.query?.trim()}".` }

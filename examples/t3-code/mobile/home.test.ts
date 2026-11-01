@@ -175,7 +175,7 @@ test('Unsent drafts sit after active rows and before shelves, without thread ope
   const input = source('one', [thread('active'), thread('pin', { pinnedAt: at(-1) }), thread('settled', { settledOverride: 'settled' })], capabilities);
   const result = projectMobileHome([input], now, { drafts: [homeDraft('A'), homeDraft('B')], settledExpanded: true });
   expect(result.items.map(item => item.kind)).toEqual(['thread', 'thread', 'draft', 'draft', 'shelf', 'thread']);
-  expect(result.items.map(item => item.trailingDivider)).toEqual([true, false, true, false, false, false]);
+  expect(result.items.map(item => item.trailingDivider)).toEqual([false, false, true, false, false, false]);
   expect(result.counts).toEqual({ pinned: 1, active: 1, working: 0, snoozed: 0, settled: 1 });
   const drafts = result.items.filter(item => item.kind === 'draft');
   expect(drafts.map(item => item.showPendingDivider)).toEqual([true, false]);
