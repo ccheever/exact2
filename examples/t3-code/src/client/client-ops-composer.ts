@@ -36,6 +36,7 @@ import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments, draftFiles } from '../composer/composer-editor-files';
 import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals, questionAttachmentsStaging } from '../composer/requests';
 import { pushToast } from '../shell/toast';
+import { sideChatSend } from '../panel/side-chat-send';
 import { machineLabel, unreadableThreads } from '../composer/composer-thread-machines';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
@@ -103,6 +104,8 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request. A shown approval leaves it theirs too: the send declines it and
     // redirects the agent (declineForRedirect).
+    // `/side` beats an open question and a plan follow-up, which would send the text to main (useComposerSend).
+    if (op === 'send' && !annotation && !citation && await sideChatSend(this, native, value)) return true;
     const answering = op === 'send' && !!composerInput(this);
     if (answering && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (answering) await submitAnswers.call(this, native, storage, '', value);

@@ -2,6 +2,7 @@
 // thread details card, the device tools), by name: [x, top, width, height] in points. app.contract measures them with
 // `frame` whenever one of them changes size (`layoutFrames`) and hands the list to the sources that read it.
 import type { Obj } from '../client/domain';
+import { isThreadScope, windowClient } from '../client/scope-root';
 
 const frames = new WeakMap<object, { source: string; value: Obj }>();
 
@@ -19,7 +20,16 @@ export function noteLayoutFrames(client: object, source: unknown): void {
   frames.set(client, { source: text, value });
 }
 
-/** The boxes last measured, by name; a box not laid out is absent. */
+const scoped = new WeakMap<Obj, Obj>();
+/** The boxes last measured, by name; a box not laid out is absent. A thread scope's are its `side-` boxes, by their plain names. */
 export function layoutFrames(client: object): Obj {
-  return frames.get(client)?.value ?? {};
+  const value = frames.get(windowClient(client))?.value ?? {};
+  if (!isThreadScope(client)) return value;
+  let own = scoped.get(value);
+  if (!own) {
+    own = {};
+    for (const [key, box] of Object.entries(value)) if (key.startsWith('side-')) own[key.slice(5)] = box;
+    scoped.set(value, own);
+  }
+  return own;
 }

@@ -393,7 +393,7 @@ component SurfaceBody
     if panel.kind == "browser"
       BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
     if panel.kind == "side-chat"
-      SideChatBody(view=panel.sideChat, documents=filesDocuments, local=local, command=command, confirm=confirm, still=still)
+      SideChatBody(view=panel.sideChat, local=local, command=command, confirm=confirm, still=still)
 
 // ThreadPullRequestsPanel; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
 component LinkedPrsBody

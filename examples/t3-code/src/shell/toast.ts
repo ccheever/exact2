@@ -1,3 +1,4 @@
+import { windowClient } from '../client/scope-root';
 import type { T3Client } from '../client/client';
 
 // The app-wide toast queue (reference: apps/web/src/components/ui/toast.tsx and
@@ -18,13 +19,14 @@ export type Toast = { id: number; kind: ToastKind; title: string; description: s
   extra?: ToastAction | null };
 export type ToastDetail = { id: string; title: string; subtitle: string };
 
+// The window's queue: a toast raised on a thread scope (a side chat's composer) shows in its window.
 const queues = new WeakMap<T3Client, Toast[]>();
 let nextId = 1;
 
 export function pushToast(client: T3Client, toast: { kind: ToastKind; title: string; description?: string; action?: ToastAction; timeoutMs?: number;
   leading?: string; secondary?: ToastAction; actionVariant?: 'default' | 'outline' | 'destructive'; stacked?: boolean; hideCopy?: boolean; onClose?: () => void; key?: string;
   details?: ToastDetail[]; expandLabels?: { expand: string; collapse: string }; secondaryVariant?: 'outline' | 'ghost'; closeOnAction?: boolean; extra?: ToastAction }): number {
-  const queue = (queues.get(client) ?? []).filter(entry => !toast.key || entry.key !== toast.key);
+  const queue = (queues.get(windowClient(client)) ?? []).filter(entry => !toast.key || entry.key !== toast.key);
   const id = nextId++;
   queue.push({ id, kind: toast.kind, title: toast.title, description: toast.description ?? '', action: toast.action ?? null,
     timeoutMs: toast.timeoutMs ?? (toast.kind === 'loading' ? 0 : 5000),
@@ -33,7 +35,7 @@ export function pushToast(client: T3Client, toast: { kind: ToastKind; title: str
     ...(toast.hideCopy ? { hideCopy: true } : {}), ...(toast.onClose ? { onClose: toast.onClose } : {}), ...(toast.key ? { key: toast.key } : {}),
     ...(toast.details ? { details: toast.details } : {}), ...(toast.expandLabels ? { expandLabels: toast.expandLabels } : {}),
     ...(toast.secondaryVariant ? { secondaryVariant: toast.secondaryVariant } : {}), ...(toast.closeOnAction ? { closeOnAction: true } : {}), ...(toast.extra ? { extra: toast.extra } : {}) });
-  queues.set(client, queue.slice(-5));
+  queues.set(windowClient(client), queue.slice(-5));
   return id;
 }
 
@@ -43,13 +45,13 @@ export function pushToast(client: T3Client, toast: { kind: ToastKind; title: str
  * button; a changed timeout restarts its timer (shell.ts advanceToasts).
  */
 export function updateToast(client: T3Client, id: number, patch: Partial<Pick<Toast, 'title' | 'description' | 'details' | 'expandLabels' | 'action' | 'kind' | 'timeoutMs' | 'secondary' | 'hideCopy' | 'extra'>>): void {
-  queues.set(client, (queues.get(client) ?? []).map(toast => toast.id === id ? { ...toast, ...patch } : toast));
+  queues.set(windowClient(client), (queues.get(windowClient(client)) ?? []).map(toast => toast.id === id ? { ...toast, ...patch } : toast));
 }
 
 export function dismissToast(client: T3Client, id: number): void {
-  queues.set(client, (queues.get(client) ?? []).filter(toast => toast.id !== id));
+  queues.set(windowClient(client), (queues.get(windowClient(client)) ?? []).filter(toast => toast.id !== id));
 }
 
 export function toasts(client: T3Client): Toast[] {
-  return queues.get(client) ?? [];
+  return queues.get(windowClient(client)) ?? [];
 }

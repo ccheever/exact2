@@ -134,6 +134,8 @@ function scoreSlash(candidate: SlashCandidate, query: string): number | null {
 export type SlashInput = {
   query: string; atPromptStart: boolean; planModeUiEnabled: boolean; compactAvailable: boolean;
   driver: string; slashCommands: Obj[]; skills: Obj[]; showSkillsInSlashMenu: boolean;
+  /** `/side` and `/btw` (useSideChat's `available`), described by the reason they would be refused when there is one. */
+  sideChatAvailable?: boolean; sideChatDisabledReason?: string | null;
 };
 
 /** ChatComposer's slash rows: built-ins, the provider's commands, then skills. */
@@ -143,6 +145,10 @@ export function slashRows(input: SlashInput): MenuRow[] {
     ...(input.planModeUiEnabled ? [
       { row: row({ id: 'slash:plan', type: 'slash-command', label: '/plan', description: 'Switch this thread into plan mode' }), primary: 'plan', skill: null, tie: '0\u0000plan' },
       { row: row({ id: 'slash:default', type: 'slash-command', label: '/default', description: 'Switch this thread back to normal build mode' }), primary: 'default', skill: null, tie: '0\u0000default' },
+    ] : []),
+    ...(input.sideChatAvailable ? [
+      { row: row({ id: 'slash:side', type: 'slash-command', label: '/side', description: input.sideChatDisabledReason ?? 'Ask a side question in a new side chat' }), primary: 'side', skill: null, tie: '0\u0000side' },
+      { row: row({ id: 'slash:btw', type: 'slash-command', label: '/btw', description: input.sideChatDisabledReason ?? 'Same as /side' }), primary: 'btw', skill: null, tie: '0\u0000btw' },
     ] : []),
   ];
   const skills = input.showSkillsInSlashMenu ? dedupe(input.skills.filter(invocable)) : [];
@@ -162,7 +168,8 @@ export function slashRows(input: SlashInput): MenuRow[] {
       badge: SOURCE_LABEL[skillSourceKind(skill)]!, badgeIcon: SOURCE_ICON[skillSourceKind(skill)]!, insert: `$${str(skill.name)} ` }),
     primary: str(skill.name), skill, tie: `2\u0000${str(skill.name)}\u0000${input.driver}` }));
   const candidates = [...builtIns, ...commands, ...skillRows]
-    .filter(candidate => input.atPromptStart || candidate.row.type !== 'provider-slash-command');
+    // Provider commands, `/side` and `/btw` work only at the message start.
+    .filter(candidate => input.atPromptStart || (candidate.row.type !== 'provider-slash-command' && candidate.row.id !== 'slash:side' && candidate.row.id !== 'slash:btw'));
   const query = normalizeSearchQuery(input.query, /^\/+/);
   if (!query) return candidates.map(candidate => candidate.row);
   return ranked(candidates.flatMap(candidate => {

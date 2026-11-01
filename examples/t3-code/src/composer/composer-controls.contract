@@ -197,6 +197,7 @@ fn sendShadow(disabled: bool): string = disabled ? "none" : "0 1px 2px 0 light-d
 component ModelTrigger
   inject
     modelOpenTo: action
+    composerScope: string
     modelMeasure: action
   props
     data: Snapshot
@@ -214,9 +215,9 @@ component ModelTrigger
   // ComposerControl's ink: the name at foreground/80, the suffix muted (the bars too); the bolt keeps the icon ink.
   derive muted = (bright ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
   view
-    box position="relative" display="flex" flex-direction="row" min-width="3.25rem" flex-shrink=1 id="model-picker-trigger"
+    box position="relative" display="flex" flex-direction="row" min-width="3.25rem" flex-shrink=1 id=`${composerScope}model-picker-trigger`
       // Named by its model names (allModelNames, or the label it shows) and its effort, as ProviderModelPicker is.
-      button -exact-menu="none" press=pressed hover=hover class=Control aria-label=((data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) + (data.composer.modelDetail != "" ? `, ${data.composer.modelDetail}` : "")) aria-expanded=open aria-haspopup="dialog" aria-keyshortcuts=keyModels testId="model-picker" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 flex=1 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(bright and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      button -exact-menu="none" press=pressed hover=hover class=Control aria-label=((data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) + (data.composer.modelDetail != "" ? `, ${data.composer.modelDetail}` : "")) aria-expanded=open aria-haspopup="dialog" aria-keyshortcuts=keyModels testId=`${composerScope}model-picker` disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 flex=1 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(bright and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         // Several models (a multi-model draft): up to three overlapping marks, then "+N".
         if data.composer.fanout
           row flex-shrink=0 align-items="center" aria-hidden=true
@@ -291,6 +292,8 @@ component FastBolt
 // project's default (its icon then in the label's ink), or as a lone icon for a model without traits. It opens the
 // Permissions toggle; its tooltip names the mode and says what it allows.
 component RuntimeTrigger
+  inject
+    composerScope: string
   props
     label: string
     tip: string
@@ -306,8 +309,8 @@ component RuntimeTrigger
     over = value
   derive ink = (over or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181bcc, #f5f5f5cc)")
   view
-    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id="composer-runtime-trigger"
-      button -exact-menu="none" press=press hover=hover class=Control aria-label=`Permissions: ${label}` aria-expanded=open aria-keyshortcuts=keyMode testId="runtime-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id=`${composerScope}composer-runtime-trigger`
+      button -exact-menu="none" press=press hover=hover class=Control aria-label=`Permissions: ${label}` aria-expanded=open aria-keyshortcuts=keyMode testId=`${composerScope}runtime-mode` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=icon, size=16, color=(emphasized ? ink : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         if not iconOnly
           text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=ink line-clamp=1
@@ -334,6 +337,8 @@ component PlanToggle
 // CompactComposerControlsMenu's trigger, an icon-only
 // ComposerControl (Ellipsis) labelled "More composer controls".
 component OverflowTrigger
+  inject
+    composerScope: string
   props
     open: bool
     disabled: bool
@@ -343,8 +348,8 @@ component OverflowTrigger
   action hover(value: bool)
     over = value
   view
-    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id="composer-more-trigger"
-      button -exact-menu="none" press=press hover=hover class=Control aria-label="More composer controls" aria-haspopup="menu" aria-expanded=open aria-keyshortcuts=keys testId="composer-more-controls" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id=`${composerScope}composer-more-trigger`
+      button -exact-menu="none" press=press hover=hover class=Control aria-label="More composer controls" aria-haspopup="menu" aria-expanded=open aria-keyshortcuts=keys testId=`${composerScope}composer-more-controls` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717a, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
           circle cx=12 cy=12 r=1
           circle cx=19 cy=12 r=1
@@ -379,6 +384,7 @@ component SendGlyph
 component AttachButton
   inject
     chooseAttachments: action
+    composerScope: string
   props
     disabled: bool
   state over = false
@@ -386,7 +392,7 @@ component AttachButton
     over = value
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0
-      button press=chooseAttachments hover=hover disabled=disabled testId="attach-files" aria-label="Attach files" opacity=(disabled ? 0.64 : 1) width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      button press=chooseAttachments hover=hover disabled=disabled testId=`${composerScope}attach-files` aria-label="Attach files" opacity=(disabled ? 0.64 : 1) width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         CcIcon(name="paperclip", size=16, color="light-dark(#71717a, #a1a1a1)", weight=1.75)
       TipBubble(label="Attach files", side="top", align="center", offset=32, inset=0, shown=over)
 
@@ -396,6 +402,7 @@ component AttachButton
 // (composerSubmissionIntentForKey), which here is app.contract composerKeyEvent.
 component PrimaryActions
   inject
+    composerScope: string
     // ⌘ or Control held: Send shows the follow-up alternate.
     composerSendHeld: bool
     rem: number
@@ -427,7 +434,7 @@ component PrimaryActions
       // ContextWindowMeter (Settings › Context window indicator): a usage ring
       // whose details open above it (a PopoverTrigger: `aria-haspopup="dialog"`).
       if data.composer.contextShow
-        button press=openOptions("context") hover=hover("meter") id="context-window-meter" testId="context-window-meter" aria-label=data.composer.contextAria aria-haspopup="dialog" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "meter" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+        button press=openOptions("context") hover=hover("meter") id=`${composerScope}context-window-meter` testId=`${composerScope}context-window-meter` aria-label=data.composer.contextAria aria-haspopup="dialog" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "meter" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
           svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" rotate=-90 aria-hidden=true
             circle cx=12 cy=12 r=9.75 fill="none" stroke="light-dark(#71717a3d, #a1a1a13d)" stroke-width=3
             circle cx=12 cy=12 r=9.75 fill="none" stroke=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #a1a1a1b8)") stroke-width=3 stroke-linecap="round" stroke-dasharray=61.26 stroke-dashoffset=data.composer.contextOffset
@@ -436,7 +443,7 @@ component PrimaryActions
           button press=sendPress hover=hover("refine") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-refine" height="2rem" padding-left="1rem" padding-right="1rem" border-radius="1rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 background-color=(over == "refine" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(blocked ? "none" : "0 1px 2px 0 #1b4ed83d")
             text (busy ? "Sending..." : "Refine") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
         else
-          row align-items="center" flex-shrink=0 id="implement-actions" testId="implement-actions"
+          row align-items="center" flex-shrink=0 id=`${composerScope}implement-actions` testId=`${composerScope}implement-actions`
             button press=command("send", "", "", 0) hover=hover("implement") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-implement" height="2rem" padding-left="1rem" padding-right="1rem" border-top-left-radius="1rem" border-bottom-left-radius="1rem" border-top-right-radius=0 border-bottom-right-radius=0 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over == "implement" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)")
               text (busy ? "Sending..." : "Implement") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
             button press=openOptions("implement") hover=hover("menu") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-implement-menu" aria-label="Implementation actions" height="2rem" padding-left="0.5rem" padding-right="0.5rem" border-top-right-radius="1rem" border-bottom-right-radius="1rem" border-top-left-radius=0 border-bottom-left-radius=0 border-left-width=1 border-top-width=0 border-right-width=0 border-bottom-width=0 border-style="solid" border-color="#ffffff33" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over == "menu" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") title=""
@@ -444,7 +451,7 @@ component PrimaryActions
       else
         if data.canStop and not sendable and data.composer.queueEditing == ""
           StillRowTip(label="Interrupt", side="top", align="center", offset=36, shown=(over == "stop" and overThread == data.threadId), hover=hover("stop"))
-            button press=stop disabled=busy testId="stop" aria-label="Stop generation" width="2rem" height="2rem" border-radius="1rem" background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
+            button press=stop disabled=busy testId=`${composerScope}stop` aria-label="Stop generation" width="2rem" height="2rem" border-radius="1rem" background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
               svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
                 rect x=2 y=2 width=8 height=8 rx=1.5
         else
@@ -456,7 +463,7 @@ component PrimaryActions
             if data.composer.compactTokens != ""
               CompactChip(data=data, busy=busy, command=command)
             box position="relative" display="flex" flex-shrink=0 hover=hover("send")
-              button press=sendPress id="send-message" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : (sendable and data.composer.sendRunning) or data.composer.compactSend ? (composerSendHeld ? data.composer.sendHeldLabel : data.composer.sendLabel) : "Submit message") disabled=(busy or not sendable or data.composer.sendSpinner) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" background-color=sendFace(busy or not sendable, over == "send") box-shadow=sendShadow(busy or not sendable) title=""
+              button press=sendPress id=`${composerScope}send-message` testId=`${composerScope}send-message` aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : (sendable and data.composer.sendRunning) or data.composer.compactSend ? (composerSendHeld ? data.composer.sendHeldLabel : data.composer.sendLabel) : "Submit message") disabled=(busy or not sendable or data.composer.sendSpinner) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" background-color=sendFace(busy or not sendable, over == "send") box-shadow=sendShadow(busy or not sendable) title=""
                 SendGlyph(icon=(sendable ? (composerSendHeld ? data.composer.sendHeldIcon : data.composer.sendIcon) : "arrow"), spinner=data.composer.sendSpinner, ink=sendInk(busy or not sendable))
               TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
 
@@ -492,6 +499,7 @@ component CompactChip
 component ComposerFooter
   inject
     frameMoved: action
+    composerScope: string // the ids' prefix (composer.contract ComposerCard)
     rem: number
   props
     data: Snapshot
@@ -516,7 +524,7 @@ component ComposerFooter
   derive tipShift = (data.composer.toolbarRight > 0 ? max(0, sendCenter + data.composer.sendTipWidth / 2 - (viewportWidth - 5)) : 0)
   derive modeOut = data.composer.modeOverflow
   view
-    row width="100%" height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" position="relative" id="frame-toolbar" resize=frameMoved testId="composer-toolbar"
+    row width="100%" height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" align-items="center" position="relative" id=`${composerScope}frame-toolbar` resize=frameMoved testId=`${composerScope}composer-toolbar`
       // The labels' natural widths (composer-label-probes.contract), read by footerLayout.
       TextProbes(probes=data.composer.menuProbes)
       ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelShortLabel == "" ? "Choose model" : data.modelShortLabel), traits=data.composer.effortWord, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
@@ -524,7 +532,7 @@ component ComposerFooter
         box margin-right="0.5rem" display="flex" flex-shrink=0
           AttachButton(disabled=(busy or not data.connected))
       row flex=1 min-width=0 gap="0.5rem" align-items="center" justify-content="flex-end"
-        row flex=1 min-width=0 gap="0.125rem" align-items="center" justify-content="flex-end" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"
+        row flex=1 min-width=0 gap="0.125rem" align-items="center" justify-content="flex-end" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor=`${composerScope}controls`
           if data.composer.noProvider != ""
             ProviderUnavailable(label=data.composer.noProvider, disabled=(data.composer.providerSetupId == ""), press=openProviders(data.composer.providerSetupId))
           else

@@ -214,7 +214,7 @@ describe('the window keeps the menus\' highlights (composerMenuKey, composerStas
 describe('a composer menu follows its trigger (openOptions, frameMoved)', () => {
   const frames = contractFns('src/shell/layout-frames.contract', { floor: Math.floor });
   const run = (action: string, args: unknown[], optionsOpen: string, boxes: Record<string, { x: number; width: number }>) => {
-    const state: Env = { optionsAnchorX: -1, optionsAnchorWidth: 0, layoutFrames: '' };
+    const state: Env = { optionsAnchorX: -1, optionsAnchorWidth: 0, layoutFrames: '', composerTarget: '' };
     const scope = (): Env => ({ ...frames, optionsOpen, focus: () => {}, data: { composer: { runtimeSelected: 0 } },
       frame: (id: string) => boxes[id] ? { ...boxes[id], y: 0, height: 28, unavailable: false } : { x: 0, y: 0, width: 0, height: 0, unavailable: true },
       measureOptionsTrigger: (name: string) => root.call('measureOptionsTrigger', state, scope(), [name]) });

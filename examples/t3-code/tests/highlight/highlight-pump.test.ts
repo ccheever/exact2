@@ -28,7 +28,7 @@ describe('the highlight pump runs one round at a time and leaves an answer in fl
       highlightStore: (results: unknown) => sent.push(['highlightStore', results]) } };
   };
   const answers = (data: boolean, shell: boolean, palette = false) => ({ data: { name: 'data', highlightPending: data }, shell: { name: 'shell', highlightPending: shell },
-    palette: { name: 'palette', highlightPending: palette }, prDetail: { name: 'prDetail', highlightPending: false }, settingsCore: { name: 'settingsCore', highlightPending: false } });
+    palette: { name: 'palette', highlightPending: palette }, prDetail: { name: 'prDetail', highlightPending: false }, settingsCore: { name: 'settingsCore', highlightPending: false }, sideChat: { name: 'sideChat', highlightPending: false }, sideChatThread: '' });
 
   test('a round starts only when none of its three steps is in flight', () => {
     const step = (inFlight: string[]) => {

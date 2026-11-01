@@ -6,7 +6,7 @@ import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { appFiles, appPath } from '../support/app-files';
 
-const NONE = ['id="composer"', 'id="file-editor"', 'id=`server-browser-keys-', 'id="citation-comment-text"', 'id="prompt-font-preview"'];
+const NONE = ['id=`${composerScope}composer`', 'id="file-editor"', 'id=`server-browser-keys-', 'id="citation-comment-text"', 'id="prompt-font-preview"'];
 
 test('every textarea the reference draws with a grip says resize="vertical", and the others none', () => {
   const found: Array<[string, string]> = [];

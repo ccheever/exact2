@@ -1,48 +1,44 @@
 // A side chat tab (T3 Code 2359643cff, MIT, see LICENSE-T3: components/chat/SideChatPane.tsx): a 36pt header with the
 // side chat's title, Bring back (ghost xs, aria-disabled with its reason as the tooltip), Delete and Close (icon-xs), over
-// the side chat's conversation (side-chat.ts sideChatView): "Context from" its parent, its own messages, its pending
-// requests and a field that sends to it.
+// the side chat's own chat view (ChatView `embedded`): the window's timeline rows and composer, drawn from the side chat's
+// snapshot and pressing on its thread (side-chat-members.contract, side-chat-thread.ts).
 use SideChatPane from "./panel-shapes.contract"
-use SideChatRow from "./panel-shapes.contract"
-use SideChatRequest from "./panel-shapes.contract"
-use ChatDocument from "../timeline/markdown.contract"
-use ChatMarkdown from "../timeline/markdown.contract"
-use MarkdownEnv from "../timeline/markdown.contract"
+use Snapshot from "../shared/shapes.contract"
 use ShellIcon from "../shell/shell-icons.contract"
 use TipBubble from "../shell/shell-tip.contract"
+use TimelineRow from "../timeline/timeline.contract"
+use TranscriptMarkdown from "../timeline/markdown.contract"
+use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
+use ComposerCard from "../composer/composer.contract"
+use ComposerDock from "../composer/composer-controls.contract"
+use ComposerEditorView, ComposerEditorDock, ComposerDrawerLayer from "../composer/composer-editor.contract"
+use ComposerRichView from "../composer/composer-rich.contract"
+use RequestBanner, RequestActions from "../composer/requests.contract"
 
 component SideChatBody
+  inject
+    // Where the window's one SideChatLayer draws the chat view (side-chat-members.contract sideChatPlace).
+    sideChatPlace: action
   props
     view: SideChatPane
-    // app.contract's filesMarkdown: each message's document, `side-chat:<thread>:<row>`.
-    documents: ChatDocument[]
     local: action
     command: action
     confirm: action
-    still: bool // prefers-reduced-motion: the working dot stays still
+    still: bool // prefers-reduced-motion
   state hovered = ""
-  state text = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   action bringBack
     if not view.bringBackDisabled
       command("shell:surface-side-chat-bring-back", view.threadId, "", 0)
+  action placed(w: number, h: number)
+    let slot = frame("side-chat-slot")
+    sideChatPlace(slot.x, slot.y, slot.width, slot.height)
   action remove
     if view.confirmDelete
       confirm("ui:confirm:side-chat-delete", view.threadId, "shell:surface-side-chat-delete", view.deleteTitle, view.deleteBody, true)
     else
       command("shell:surface-side-chat-delete", view.threadId, "", 0)
-  action edit(value: string)
-    text = value
-  action send
-    if view.canSend and text.trim() != ""
-      command("shell:surface-side-chat-send", view.threadId, text, 0)
-      text = ""
-  // ChatComposer's Enter sends; Shift+Enter keeps the newline.
-  action keys(k: string, e: KeyboardEvent)
-    if k == "Enter" and not e.shiftKey and not e.altKey and not e.isComposing
-      preventDefault()
-      send()
   view
     column flex=1 min-height=0 width="100%" testId="side-chat-pane"
       row height="2.25rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.25rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
@@ -58,75 +54,170 @@ component SideChatBody
       if view.deleted
         text "This side chat was deleted." padding="0.75rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="side-chat-deleted"
       else
-        scroll flex=1 min-height=0 width="100%" scrollFollowEnd=true testId="side-chat-transcript"
-          column width="100%" padding="0.75rem" box-sizing="border-box" gap="0.75rem"
-            // MessagesTimeline's parent link: a side chat's inherited rows collapse into it.
-            row gap="0.375rem" align-items="center" testId="side-chat-context"
-              ShellIcon(name="messages-square", size=12, color="light-dark(#71717b, #a1a1a1)")
-              text "Context from" flex-shrink=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-              text view.contextFrom min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181bcc, #f5f5f5cc)"
-            for message in view.rows key=message.id
-              SideChatMessage(message=message, threadId=view.threadId, documents=documents, local=local, env=view.md)
-            for request in view.requests key=request.requestId
-              SideChatRequestCard(request=request, threadId=view.threadId, enabled=view.canSend, command=command)
-            if view.working
-              row gap="0.375rem" align-items="center" testId="side-chat-working"
-                box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#71717b, #a1a1a1)" animation=(still ? "none" : "sideChatPulse 1.2s ease-in-out infinite")
-                text "Working…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
-        column flex-shrink=0 padding="0.5rem" box-sizing="border-box"
-          row gap="0.5rem" align-items="flex-end" padding="0.5rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)"
-            textarea id=`side-chat-input-${view.threadId}` data-editable="yes" value=text input=edit key=keys disabled=(not view.canSend) rows=1 placeholder=view.placeholder aria-label="Message the side chat" autocorrect="off" testId="side-chat-input" flex=1 min-width=0 field-sizing="content" max-height="8rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" outline="none" resize="none"
-            if view.working and text.trim() == ""
-              button press=command("shell:surface-side-chat-stop", view.threadId, "", 0) aria-label="Stop" testId="side-chat-stop" width="1.75rem" height="1.75rem" padding=0 border-width=0 border-radius="0.875rem" background-color="light-dark(#18181b, #f5f5f5)" display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
-                box width="0.625rem" height="0.625rem" border-radius="0.125rem" background-color="light-dark(#ffffff, #18181b)"
-            else
-              button press=send disabled=(not view.canSend or text.trim() == "") aria-label="Send" testId="side-chat-send" width="1.75rem" height="1.75rem" padding=0 border-width=0 border-radius="0.875rem" opacity=(view.canSend and text.trim() != "" ? 1 : 0.5) background-color="light-dark(#18181b, #f5f5f5)" display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
-                ShellIcon(name="arrow-up", size=14, color="light-dark(#ffffff, #18181b)")
+        // The chat view is drawn once for the window over this box (SideChatLayer): the inline panel and the narrow
+        // window's sheet each hold the pane, and a plan inlines every use.
+        box id="side-chat-slot" flex=1 min-height=0 width="100%" resize=placed testId="side-chat-slot"
 
-keyframes sideChatPulse
-  from opacity=1
-  50% opacity=0.4
-  to opacity=1
-
-// A user message in its bubble, an answer as chat Markdown, a failed turn in the destructive tone, a tool or thinking row
-// as its muted title.
-component SideChatMessage
+// The side chat's chat view over its pane's slot, in window points: one instance for the window, under its overlays.
+component SideChatLayer
+  inject
+    sideChat: Snapshot
+    sideChatThread: string
+    sideChatX: number
+    sideChatY: number
+    sideChatWidth: number
+    sideChatHeight: number
   props
-    message: SideChatRow
-    threadId: string
-    documents: ChatDocument[]
-    local: action
-    env: MarkdownEnv
-  derive docId = `side-chat:${threadId}:${message.id}`
+    still: bool
   view
-    if message.kind == "user"
-      column align-self="flex-end" max-width="85%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.75rem" background-color="light-dark(#f4f4f5, #ffffff0f)" testId=`side-chat-user-${message.id}`
-        for document in documents.filter((entry) => entry.id == docId) key=document.id
-          ChatMarkdown(document=document, local=local, code=[], env=env)
-    else if message.kind == "assistant"
-      column width="100%" testId=`side-chat-assistant-${message.id}`
-        for document in documents.filter((entry) => entry.id == docId) key=document.id
-          ChatMarkdown(document=document, local=local, code=[], env=env)
-    else if message.kind == "error"
-      text message.text font-size="0.75rem" line-height="1rem" color="light-dark(#c10007, #ff6467)"
-    else
-      text message.text white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+    if sideChatThread != "" and sideChat.threadId == sideChatThread and sideChatWidth > 0 and sideChatHeight > 0
+      column position="absolute" left=sideChatX top=sideChatY width=sideChatWidth height=sideChatHeight testId="side-chat-layer"
+        SideChatThread(still=still)
 
-// A pending approval with the decisions the provider offers, or the open question with its options (the field answers
-// a question in words).
-component SideChatRequestCard
+// ChatView embedded: the side chat's timeline over its composer. The composer's components read the side chat's
+// names here (`provide`): its rich field, its keys, its attachments and its model picker, under the "side-chat-" ids.
+component SideChatThread
+  inject
+    rem: number
+    scheme: string
+    commandPending: bool
+    modelsOpen: bool
+    optionsOpen: string
+    composerTarget: string
+    inlineDocumentViewportWidth: number
+    sideChat: Snapshot
+    sideChatThread: string
+    sideMarkdown: TranscriptMarkdown
+    sideQuestionMarkdown: TranscriptMarkdown
+    sideTraceMarkdown: TranscriptMarkdown
+    sideAttachmentUrls: TimelineAttachmentUrls
+    sideEditor: ComposerEditorView
+    sideRich: ComposerRichView
+    sideRichOwner: string
+    sideText: string
+    sideCommand: action
+    sideLocal: action
+    sideWrite: action
+    sideSend: action
+    sideStop: action
+    sideInteraction: action
+    sideRemoveSnapshot: action
+    sideEditorOp: action
+    sideAttachFiles: action
+    sideChooseAttachments: action
+    sideFilesPicked: action
+    sideModelMeasure: action
+    sideOpenModels: action
+    sideModelOpenTo: action
+    sideOpenOptions: action
+    sideKey: action
+    sideMoved: action
+    sideMenuActive: number
+    sideMenuHover: action
+    sideNow: number
+    openProviderSettings: action
   props
-    request: SideChatRequest
-    threadId: string
-    enabled: bool
-    command: action
+    still: bool
+  derive composerScope = "side-chat-"
+  derive composerFieldInputSerial = 0
+  derive composerIntentNotice = ""
+  derive richComposer = sideRich
+  derive richComposerOwner = sideRichOwner
+  derive questionDocuments = sideQuestionMarkdown.documents
+  derive traceDocuments = sideTraceMarkdown.documents
+  derive composerMenuActive = sideMenuActive
+  action composerMoved(e: InputEvent)
+    sideMoved(e)
+  action composerBeforeInput(e: InputEvent)
+    quiet = 0
+  action composerKeyEvent(k: string, e: KeyboardEvent)
+    sideKey(k, e)
+  action composerKeyReleased(k: string, e: KeyboardEvent)
+    quiet = 0
+  action composerCopied
+    quiet = 0
+  action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
+    quiet = 0
+  action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
+    sideAttachFiles(origin, files, picked, asText, target)
+  action chooseAttachments
+    sideChooseAttachments()
+  action modelMeasure
+    sideModelMeasure()
+  action modelOpenTo(target: string)
+    sideModelOpenTo(target)
+  action composerMenuHover(index: number, over: bool)
+    sideMenuHover(index, over)
+  // The transcript's tooltips (ChatColumn tipEpoch): a scroll after one was shown closes it until the pointer moves.
+  state tipEpoch = 0
+  state tipArmed = false
+  action tipArm
+    tipArmed = true
+  action scrolled(left: number, top: number, e: ScrollEvent)
+    if tipArmed
+      tipEpoch = tipEpoch + 1
+      tipArmed = false
+  provide
+    tipEpoch
+    tipArm
+    composerScope
+    composerFieldInputSerial
+    composerIntentNotice
+    richComposer
+    richComposerOwner
+    questionDocuments
+    traceDocuments
+    composerMenuActive
+    composerMoved
+    composerBeforeInput
+    composerKeyEvent
+    composerKeyReleased
+    composerCopied
+    composerChipPress
+    attachFiles
+    chooseAttachments
+    modelMeasure
+    modelOpenTo
+    composerMenuHover
+  // The hovered row and its hovered tooltip part (ChatColumn rowHover, partHover).
+  state rowHover = ""
+  state partHover = ""
+  action hoverPart(row: string, part: string, over: bool)
+    rowHover = over ? row : (rowHover == row ? "" : rowHover)
+    partHover = over ? part : (partHover == part ? "" : partHover)
+  action seen(id: string, entry: IntersectionObserverEntry)
+    rowHover = rowHover
+  action earlier
+    sideCommand("chatlocal:history", "", "", 0)
+  action keyed(op: string, id: string, value: string)
+    sideCommand(`cc:${op}`, id, value, 0)
+  action dropped(op: string, id: string, vx: number, vy: number)
+    sideCommand(`cc:${op}`, id, "", 0)
+  action dismiss(notice: string, op: string, target: string)
+    sideCommand(op, target, "", 0)
+  action focused
+    quiet = 0
+  action blurred
+    quiet = 0
+  // The shelf asks before removing a referenced image (app.contract titleMenuPick); here it removes it.
+  action askRemove(target: string, id: string, op: string, title: string, body: string, destructive: bool)
+    sideRemoveSnapshot(id)
+  derive mine = composerTarget == sideChatThread
+  // What the window's composer does on these (selection and intent tracking, the field's focus) has no side chat part.
+  state quiet = 0
   view
-    column width="100%" padding="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" testId=`side-chat-request-${request.requestId}`
-      text request.title font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
-      if request.detail != ""
-        text request.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#71717b, #a1a1a1)"
-      if request.choices.length > 0
-        row gap="0.375rem" flex-wrap="wrap"
-          for choice in request.choices key=choice.value
-            button press=command("shell:surface-side-chat-answer", threadId, `${request.requestId}|${choice.value}`, 0) disabled=(not enabled) testId=`side-chat-choice-${choice.value}` height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" align-items="center"
-              text choice.label white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+    column flex=1 min-height=0 width="100%" position="relative" testId="side-chat-view"
+      input type="file" id="side-chat-attach-input" multiple=true display="none" change=sideFilesPicked
+      list appearance="none" virtualized=true scrollFollowEnd=true scroll=scrolled testId="side-chat-transcript" flex=1 min-height=0 width="100%" box-sizing="border-box" overflow-x="hidden"
+        for message in sideChat.messages key=message.id
+          TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
+      column flex-shrink=0 width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay"
+        column width="100%" max-width=sideChat.look.chatMax position="relative" box-sizing="border-box"
+          ComposerDock(data=sideChat, busy=commandPending, command=sideCommand, keyed=keyed, drop=dropped, urls=sideAttachmentUrls.items, exiting="", still=still, dismiss=dismiss)
+          RequestBanner(data=sideChat, command=sideCommand, maximumHeight=320)
+        column width="100%" max-width=sideChat.look.chatMax position="relative"
+          ComposerEditorDock(editor=sideEditor, dark=(scheme == "dark"), op=sideEditorOp)
+          ComposerCard(editor=sideEditor, data=sideChat, viewportWidth=inlineDocumentViewportWidth, text=sideText, busy=commandPending, keyModels="", modelsOpen=(modelsOpen and mine), optionsOpen=(mine ? optionsOpen : ""), write=sideWrite, send=sideSend, stop=sideStop, onFocus=focused, onBlur=blurred, openModels=sideOpenModels, openOptions=sideOpenOptions, removeSnapshot=sideRemoveSnapshot, askRemove=askRemove, interaction=sideInteraction, command=sideCommand, openProviders=openProviderSettings, contextOver=false, urls=sideAttachmentUrls.items)
+          if sideChat.requestMode == "question"
+            RequestActions(data=sideChat, command=sideCommand, busy=commandPending, scheme=scheme)
+      ComposerDrawerLayer(editor=sideEditor, dark=(scheme == "dark"), op=sideEditorOp)

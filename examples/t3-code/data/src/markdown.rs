@@ -16,6 +16,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "activityInteraction",
             "activityResumed",
             "snapshot",
+            "sideChatData",
+            "sideFieldObserved",
             "snapshotSettings",
             "modelCatalog",
             "settings",

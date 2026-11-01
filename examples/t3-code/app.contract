@@ -218,6 +218,48 @@ component T3Code
     optionsAnchorWidth
     navigationHistory // the window's Back and Forward (src/sidebar/sidebar-members.contract)
     historyGo
+    composerScope // the composer's ids' prefix (src/panel/side-chat-members.contract)
+    composerTarget
+    composerTargetData
+    sideChat // a side chat tab's own chat view (src/panel/side-chat-members.contract)
+    sideChatThread
+    sideChatPlace
+    sideChatX
+    sideChatY
+    sideChatWidth
+    sideChatHeight
+    sideMarkdown
+    sideQuestionMarkdown
+    sideTraceMarkdown
+    sideAttachmentUrls
+    sideEditor
+    sideRich
+    sideRichOwner
+    sideText
+    sideCommand
+    sideLocal
+    sideWrite
+    sideSend
+    sideStop
+    sideInteraction
+    sideRemoveSnapshot
+    sideEditorOp
+    sideAttachFiles
+    sideChooseAttachments
+    sideFilesPicked
+    sideModelMeasure
+    sideOpenModels
+    sideModelOpenTo
+    sideOpenOptions
+    sideKey
+    sideMoved
+    sideMenuActive
+    sideMenuHover
+    sideNow
+    openProviderSettings
+    modelsOpen
+    optionsOpen
+    commandPending
   members "./src/timeline/cite-members.contract"
   mutation balanceLoaded as shape Change queue refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time. Queued: its move to another machine holds `moving` across polls on its own timers, which a newer send would let go.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
@@ -312,7 +354,7 @@ component T3Code
   // ReasoningTraceContent: an open thought's trace is Markdown, its single newlines kept as UserMessageBody keeps them.
   resource traceMarkdown = renderFileMarkdown(data.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat(), false) as shape TranscriptMarkdown
   derive traceDocuments = traceMarkdown.documents
-  resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision, scheme) as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
+  resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision, scheme, "") as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
   // Its read also brings the open documents up to date (a theme change); what it queues for them reaches them with the
   // next snapshot, so a new post asks for one now instead of at the next minute tick.
   task inlineDocumentsPosted when attachmentUrls.posted > 0 key=attachmentUrls.posted
@@ -468,7 +510,7 @@ component T3Code
         send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
       if workspaceRetryKey == workspaceDiscovery.key and performanceNow() < workspaceRetryAt
         workspaceRetryWake = workspaceDiscovery.wake
-    if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling
+    if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling or (sideChatThread != "" and (sideChat.running or sideChat.subagentsLive)) // a side chat tab's run ticks too
       liveNow = performanceNow()
   task liveClock mount
     every(1000, liveTick)
@@ -520,7 +562,9 @@ component T3Code
       refresh prDetail
     if not pending(settingsCore) and settingsCore.highlightPending
       refresh settingsCore
-  task highlightPump when data.highlightPending or shell.highlightPending or palette.highlightPending or prDetail.highlightPending or settingsCore.highlightPending
+    if not pending(sideChat) and sideChat.highlightPending and sideChatThread != ""
+      refresh sideChat
+  task highlightPump when data.highlightPending or shell.highlightPending or palette.highlightPending or prDetail.highlightPending or settingsCore.highlightPending or (sideChatThread != "" and sideChat.highlightPending)
     every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
   derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light") // Palettes use the resolved Appearance scheme; viewport.prefersColorScheme is only the underlying system preference.
@@ -1047,6 +1091,7 @@ component T3Code
     else
       send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action openModels
+    composerTarget = "" // the window's composer
     focus(modelsOpen ? "composer" : "model-search")
     modelsOpen = not modelsOpen
     popoverSession = popoverSession + 1
@@ -1056,7 +1101,7 @@ component T3Code
     modelTarget = PickerTarget(id="", top=0, bottom=0, left=0)
   action closeModels
     modelsOpen = false
-    focus(modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
+    focus(modelTarget.id == "" ? (composerTarget == "" ? "composer" : "side-chat-composer") : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
   action searchModels(value: string)
     modelQuery = value
   action selectProvider(id: string)
@@ -1078,7 +1123,7 @@ component T3Code
     else if not commandPending and id != ""
       commandPending = true
       pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
-      send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
+      send changed = command(modelTarget.id == "" ? (composerTarget == "" ? "model" : `scope:${composerTarget}|model`) : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       // The composer's picker stays open through a pick, and its focus goes to the new model's levels
       // (composer-controls-members.contract modelEffortFocused).
       modelsOpen = modelTarget.id == ""
@@ -1176,6 +1221,7 @@ component T3Code
         commandPending = true
         send changed = command("chatlocal:history", "", "", 0)
   members "./src/shell/shell-members.contract"
+  members "./src/panel/side-chat-members.contract"
   state citeWaitAsked = 0
   state citeWaitDone = 0
   state citeDismissals = 0

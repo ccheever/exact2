@@ -36,6 +36,8 @@ describe('app.contract', () => {
     for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
     // The window's Back and Forward read the client's own history (sidebar-history.ts).
     exempt.add('navigationHistory');
+    // A side chat's Markdown and its rich field are its own renderer's and the module's, as the window's are.
+    for (const name of ['sideMarkdown', 'sideQuestionMarkdown', 'sideTraceMarkdown', 'sideRich', 'sideFieldChanged']) exempt.add(name);
     // A draft image's upload is a stream over HTTP that no socket reply ends (composer-uploads.ts).
     for (let slot = 0; slot < 6; slot++) exempt.add(`composerUpload${slot}`);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);

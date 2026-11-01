@@ -7,7 +7,7 @@
 import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { activeRun } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { childThreadInputs, childThreadInputsTitle } from '../sidebar/subagent-requests';
+import { childThreadInputs, childThreadInputsTitle, childThreadInputsWaiting } from '../sidebar/subagent-requests';
 import { pendingRequests } from './requests';
 import { providerGoal, presentProviderGoal, providerGoalWorking } from './provider-goal';
 import { presentBackgroundWork } from './composer-controls-view';
@@ -36,18 +36,20 @@ type Line = { id: string; icon: string; tone?: string; status?: string; title: s
   startedMs?: number };
 
 const blank = { icon: '', output: '', result: '', failed: false, timestamp: '' };
-const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ ...blank, id, label, body, status: targetId ? 'link' : 'text', targetId, tone: 'muted' });
+const segment = (id: string, label: string, targetId = '', body = ''): Activity => ({ ...blank, id, label, body, status: targetId ? 'link' : 'text', detail: '', targetId, tone: 'muted' });
 const action = (id: string, label: string, op: string, targetId: string, tone = '', ok = true): Activity => ({ ...blank, id, label, body: '', status: 'action', detail: op, targetId, tone, ok });
 
-/** childInputNowItem: subagents waiting on the user, unless this thread is itself waiting on them. */
+/** onOpenRelatedThread: a side chat of this thread opens in its tab (openSideChatTab), any other thread in the window. */
+const openChild = (child: { sideChat: boolean }) => child.sideChat ? 'shelllocal:surface-side-chat-open' : 'select-thread';
+/** childInputNowItem: subagents and side chats waiting on the user, unless this thread is itself waiting on them. */
 function childInput(client: T3Client): Line | null {
   const children = childThreadInputs(client.shell.threads, client.threadId), first = children[0];
   const shell = client.shell.threads.find(thread => thread.id === client.threadId), requests = pendingRequests(client.projection);
   const parentAwaiting = requests.approvals.length > 0 || requests.inputs.length > 0 || obj(shell?.pendingRuntimeRequest).kind === 'user_input';
   if (!first || parentAwaiting) return null;
   return { id: `child-input:${first.id}`, icon: first.approval ? 'shield-question' : 'message-circle', tone: 'info', status: 'alert', title: childThreadInputsTitle(children),
-    segments: children.map(child => segment(child.id, child.title, child.id)),
-    actions: [action('open', first.approval ? 'Open approval' : 'Open question', 'select-thread', first.id)] };
+    segments: children.map(child => ({ ...segment(child.id, child.title, child.id), detail: openChild(child) })),
+    actions: [action('open', first.approval ? 'Open approval' : 'Open question', openChild(first), first.id)] };
 }
 
 const epoch = (value: unknown) => { const ms = typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(ms) ? ms : null; };
@@ -234,5 +236,6 @@ export function threadEndRows(client: T3Client, before: Message[], status: Messa
 export function endSummary(client: T3Client): string {
   if (!client.threadId) return '';
   const queued = queueState(client.projection).queued.length;
-  return [childInput(client) ? 'Subagent waiting' : '', queued ? `${queued} queued` : ''].filter(Boolean).join(' · ');
+  const children = childInput(client) ? childThreadInputs(client.shell.threads, client.threadId) : [];
+  return [children.length ? childThreadInputsWaiting(children) : '', queued ? `${queued} queued` : ''].filter(Boolean).join(' · ');
 }

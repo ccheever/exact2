@@ -4,6 +4,7 @@ import { requestComposerField } from './composer-field-request';
 // picked file is copied into the device's staged files (composer-attach-stage.ts) and
 // its inline file chip goes in at the caret (insertAttachmentReferences); the send
 // uploads it and binds it like a folded paste (composer-editor-files.ts).
+import { isThreadScope } from '../client/scope-root';
 import { removeStaged } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
@@ -62,7 +63,8 @@ export async function insertFileChips(client: T3Client, native: Native, files: D
   if (!links.length) return true;
   if (owner && owner !== client.snapshotOwner) return false;
   const text = links.join(' '), key = files[0]?.draftKey ?? client.draftKey;
-  if (key === client.draftKey) {
+  // A side chat's field (thread-scope.ts) is not the one the module edits: its chips join its stored prompt.
+  if (key === client.draftKey && !isThreadScope(client)) {
     const release = holdDraftFiles(client.local, key);
     const reply = await requestComposerField(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }, { applied: release, refused: release }).catch(() => null);
     return reply?.accepted === true;

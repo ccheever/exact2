@@ -11,8 +11,8 @@ members T3Code
   state browseProvider = ""
   state modelQuery = ""
   state modelTarget = PickerTarget(id="", top=0, bottom=0, left=0) // a General model row's picker
-  resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
-  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed, layoutFrames) as shape ComposerEditorView // composer-editor.ts
+  resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id == "" and composerTarget != "" ? `side-chat:${composerTarget}` : modelTarget.id) as shape PickerCatalog // a side chat's composer reads its own (side-chat-members.contract)
+  resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed, layoutFrames, "") as shape ComposerEditorView // composer-editor.ts
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
   mutation chipObserved as shape ChipPopover queue refreshes chip
   mutation chipPressed as shape ChipPopover queue refreshes chip

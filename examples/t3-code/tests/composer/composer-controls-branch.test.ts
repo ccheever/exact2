@@ -270,6 +270,6 @@ describe('one Run on and Workspace keyboard order', () => {
     expect(workspace).not.toContain('focus(');
     expect(workspace).not.toContain('close(');
     const app = await appText('app.contract');
-    expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
+    expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus(composerTarget == "" ? "composer" : "side-chat-composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, n)');
   });
 });

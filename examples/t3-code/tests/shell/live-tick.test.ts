@@ -15,7 +15,7 @@ describe('the live tick leaves a data answer in flight alone', () => {
     root.call('liveTick', { workspaceNow: 0 }, {
       data, settingsOpen: false, pageCover: false, welcome: { show: false },
       workspaceDiscovery: { name: 'workspaceDiscovery', needed: false },
-      prDetail: { links: { polling: false } },
+      prDetail: { links: { polling: false } }, sideChatThread: '',
       wallTime: { epochAtZero: 0 }, liveNow: 0, performanceNow: () => 1000,
       pending: (answer: { name: string }) => inFlight.includes(answer.name),
       dispatchTimelineReads: () => dispatched.push('reads'),

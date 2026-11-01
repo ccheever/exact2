@@ -1,0 +1,171 @@
+// A side chat tab's own chat view (T3 Code 2359643cff, MIT, see LICENSE-T3: SideChatPane embeds ChatView for the side
+// chat's thread). `sideChat` is the window's snapshot read through the side chat (side-chat-thread.ts), so the pane draws
+// the window's timeline rows and composer from it (side-chat.contract SideChatThread). What it presses runs on the side
+// chat (`scope:<thread>|<op>`), and the composer's window-level popups (the model picker, the options menus) serve the
+// composer that opened them (`composerTarget`).
+use ComposerRichView, ComposerFieldObservation, ComposerFieldResult from "../composer/composer-rich.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use TranscriptMarkdown, MarkdownLabels, MarkdownSource from "../timeline/markdown.contract"
+use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
+use PickerTarget from "../composer/composer-shapes.contract"
+use Snapshot, Change from "../shared/shapes.contract"
+members T3Code
+  // The ids' prefix the composer's components read: the window's own composer has none (composer.contract ComposerCard).
+  derive composerScope = ""
+  derive sideNow = wallTime.epochAtZero + max(liveNow, elapsed) // the timeline's clock (app-window.contract timelineNow)
+  derive sideChatThread = shell.panel.open and shell.panel.sideChat.show and not shell.panel.sideChat.deleted ? shell.panel.sideChat.threadId : ""
+  resource sideChat = sideChatData(sideChatThread, data.revision, wallTime.epochAtZero + elapsed, viewport.displayMode, wallTime.formatLocale) as shape Snapshot
+  // Its answers wait on server replies as the window's do, so the tick publishes the transport's table as they start and end.
+  task sideChatAnswered key=`${pending(sideChat)}${pending(sideAttachmentUrls)}${pending(sideEditor)}${pending(sideFilesAdded)}`
+    after(1, transportPump)
+  resource sideMarkdown = renderMarkdown(sideChat.messages, sideChat.markdownSkills, "", "", 0, sideChat.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips)), data.look.math) as shape TranscriptMarkdown
+  resource sideQuestionMarkdown = renderQuestionMarkdown(sideChat.questions) as shape TranscriptMarkdown
+  resource sideTraceMarkdown = renderFileMarkdown(sideChat.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat(), false) as shape TranscriptMarkdown
+  resource sideAttachmentUrls = timelineAttachments(sideChat.threadId, wallTime.epochAtZero + elapsed, sideChat.revision, scheme, sideChatThread) as shape TimelineAttachmentUrls
+  resource sideEditor = composerEditor(sideChat.revision, wallTime.epochAtZero + elapsed, layoutFrames, sideChatThread) as shape ComposerEditorView
+  // The side chat's draft as its field last reported it, until the snapshot carries it (composerText's rule).
+  state sideDraft = ""
+  state sideDraftOwner = "__unset__"
+  state sideInputType = ""
+  derive sideRichOwner = `${sideChat.composerOwner}${sideChat.requestKey}`
+  derive sideText = sideDraftOwner == sideRichOwner ? sideDraft : sideChat.draft
+  resource sideRich = composerRich(sideChat.snapshotOwner, sideRichOwner, sideText, sideChat.revision, sideInputType, "composer", sideChatThread) as shape ComposerRichView
+  // The pane's slot, where SideChatLayer draws the chat view; a slot not laid out (the other of panel and sheet) says nothing.
+  state sideChatX = 0
+  state sideChatY = 0
+  state sideChatWidth = 0
+  state sideChatHeight = 0
+  action sideChatPlace(x: number, y: number, width: number, height: number)
+    if width > 0 and height > 0
+      sideChatX = x
+      sideChatY = y
+      sideChatWidth = width
+      sideChatHeight = height
+  // The composer the model picker and the options menus serve: a side chat's thread, or "" for the window's.
+  state composerTarget = ""
+  derive composerTargetData = composerTarget != "" and composerTarget == sideChatThread ? sideChat : data
+  // A command of the side chat's: the window's routing (app.contract command), on its thread.
+  action sideCommand(op: string, id: string, value: string, n: number)
+    let scoped = `scope:${sideChatThread}|${op}`
+    if sideChatThread != ""
+      if op == "draft" or op == "answer" or op == "choice" or op == "dismiss-error" or op.startsWith("editorlocal:") or op.startsWith("cclocal:") or op.startsWith("secretlocal:")
+        send localChanged = command(scoped, id, value, n)
+      else if op == "chatlocal:item-detail"
+        send timelineDisclosureChanged = command(scoped, id, value, n)
+      else if not commandPending
+        commandPending = true
+        send changed = command(scoped, id, value, n)
+  action sideLocal(op: string, id: string, value: string)
+    if sideChatThread != ""
+      send localChanged = command(`scope:${sideChatThread}|chatlocal:${op}`, id, value, 0)
+  // The field's value and caret as it reports them, which the side chat's command menu reads (composer-field-bridge.ts).
+  state sideInputSerial = 0
+  mutation sideFieldChanged as shape ComposerFieldResult queue refreshes sideEditor
+  action sideWrite(value: string, e: InputEvent)
+    let serial = sideInputSerial + 1
+    sideInputSerial = serial
+    sideDraft = value
+    sideDraftOwner = sideRichOwner
+    sideInputType = e.inputType
+    send sideFieldChanged = sideFieldObserved(ComposerFieldObservation(generation=sideRich.generation, snapshotOwner=sideChat.snapshotOwner, owner=sideRichOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=true, focused=true, inputSerial=serial), true, sideChatThread)
+    sideCommand("draft", "", value, 0)
+  action sideMoved(e: InputEvent)
+    if sideChatThread != ""
+      send sideFieldChanged = sideFieldObserved(ComposerFieldObservation(generation=sideRich.generation, snapshotOwner=sideChat.snapshotOwner, owner=sideRichOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=true, focused=true, inputSerial=sideInputSerial), false, sideChatThread)
+  // Send, Return and a question's answer, as the window's `submit` takes them.
+  action sideSend(held: string)
+    if not commandPending and sideChatThread != "" and (sideChat.requestMode == "question" or sideChat.composer.uploadBlock == "")
+      if sideChat.requestMode == "question" or (sideChat.canSend and (sideText != "" or sideChat.snapshotDrafts.length > 0))
+        commandPending = true
+        send changed = command(`scope:${sideChatThread}|send`, held == "" ? "" : `pointer:${held}`, sideText, 0)
+        sideDraftOwner = "__unset__"
+  action sideStop
+    sideCommand("stop", "", "", 0)
+  action sideInteraction(value: string)
+    sideCommand("interaction", "", value, 0)
+  action sideRemoveSnapshot(imageId: string)
+    sideCommand("remove-snapshot", imageId, "", 0)
+  action sideEditorOp(op: string, id: string, value: string)
+    sideDraftOwner = "__unset__"
+    sideCommand(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+  mutation sideFilesAdded as shape Change queue refreshes data then sideFilesAddedDone
+  action sideAttachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
+    if sideChatThread != ""
+      send sideFilesAdded = composerAttach(origin, files, picked, asText, target, sideChatThread)
+  // The files' chips joined the stored prompt, which the field shows from here, and the field keeps the focus.
+  action sideFilesAddedDone
+    sideDraftOwner = "__unset__"
+    focus("side-chat-composer")
+  action sideChooseAttachments
+    showPicker("side-chat-attach-input")
+  action sideFilesPicked(files: Picked[])
+    sideAttachFiles("pick", [], files, false, "")
+  // The window's model picker for the side chat's composer: its trigger's edges, then the picker (openModels).
+  action sideModelMeasure
+    let trigger = frame("side-chat-model-picker-trigger")
+    modelAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
+    modelAnchorWidth = trigger.unavailable ? 0 : trigger.width
+    modelOpenTarget = ""
+  action sideOpenModels
+    let open = modelsOpen and composerTarget == sideChatThread
+    focus(open ? "side-chat-composer" : "model-search")
+    composerTarget = sideChatThread
+    modelsOpen = not open
+    popoverSession = popoverSession + 1
+    browseProvider = ""
+    modelQuery = ""
+    optionsOpen = ""
+    modelTarget = PickerTarget(id="", top=0, bottom=0, left=0)
+  action sideModelOpenTo(target: string)
+    sideModelMeasure()
+    if not (modelsOpen and composerTarget == sideChatThread)
+      sideOpenModels()
+  action sideOpenOptions(name: string)
+    let open = optionsOpen == name and composerTarget == sideChatThread
+    composerTarget = sideChatThread
+    measureOptionsTrigger(name)
+    focus(open ? "side-chat-composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${sideChat.composer.runtimeSelected}` : "composer-menu-item-0")
+    optionsOpen = open ? "" : name
+    modelsOpen = false
+    popoverSession = popoverSession + 1
+  // Return sends (Shift+Return keeps the newline); the open command menu takes its keys as the window's does.
+  state sideMenuHighlight = 0
+  state sideMenuHighlightKey = ""
+  derive sideMenuActive = (sideMenuHighlightKey == sideEditor.menu.searchKey and sideMenuHighlight < sideEditor.menu.count ? sideMenuHighlight : 0)
+  action sideMenuHover(index: number, over: bool)
+    if over
+      sideMenuHighlight = index
+      sideMenuHighlightKey = sideEditor.menu.searchKey
+  action sideKey(k: string, e: KeyboardEvent)
+    let menuKey = sideEditor.menu.open and (k == "Escape" or (sideEditor.menu.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or (k == "Tab" and not e.shiftKey) or k == "Enter")))
+    if not e.isComposing and menuKey
+      preventDefault()
+      stopPropagation()
+      if k == "Escape"
+        sideEditorOp("dismiss", "", "")
+      else if k == "ArrowDown" or k == "ArrowUp"
+        sideMenuHighlight = (sideMenuActive + (k == "ArrowDown" ? 1 : -1) + sideEditor.menu.count) % max(1, sideEditor.menu.count)
+        sideMenuHighlightKey = sideEditor.menu.searchKey
+      else
+        match first(sideEditor.menu.rows.filter((row) => row.index == sideMenuActive))
+          case some(row)
+            sideEditorOp("pick", row.id, "")
+          case none
+    else if not e.isComposing and k == "Enter" and not e.shiftKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        sideSend("")
+  // A side chat's draft images join the window's upload queue (composer-uploads.ts): the window's pump lands them, and
+  // this starts the ones its own snapshot says wait.
+  task sideUploadsRun when sideChatThread != "" and sideChat.composer.uploads.pending != "" key=sideChat.composer.uploads.pending
+    after(1, sideUploadsStart)
+  action sideUploadsStart
+    if sideChatThread != "" and sideChat.composer.uploads.pending != ""
+      send uploadsChanged = command(`scope:${sideChatThread}|cclocal:uploads`, "", "", 0)
+  // A side chat's press kept while its images uploaded goes once they land (composer-uploads.ts), as the window's does.
+  task sideSendResume when sideChatThread != "" and sideChat.composer.sendResume != "" and not commandPending key=sideChat.composer.sendResume
+    after(1, sideSendResumeNow)
+  action sideSendResumeNow
+    if not commandPending and sideChatThread != "" and sideChat.composer.sendResume != ""
+      sideCommand("send-resume", sideChat.composer.sendResume, "", 0)

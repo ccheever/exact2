@@ -5,6 +5,7 @@
 // "Subagent of <parent>" divider whose action opens the parent thread. It
 // reuses the timeline's system-divider row ("fork" kind: the pill selects its
 // target thread), and its nearest listed ancestor's row stays highlighted.
+import { isThreadScope } from '../client/scope-root';
 import { isListedThreadLineage, obj, str, type Obj } from '../client/domain';
 import type { Message } from '../client/domain';
 import type { T3Client } from '../client/client';
@@ -21,14 +22,20 @@ export function parentThreadLink(client: T3Client): { id: string; label: string 
   return [{ id: parentId, label: str(parent?.title, 'Parent thread') }];
 }
 
+/**
+ * MessagesTimeline's parent link: a subagent's "Subagent of", or a side chat's "Context from", into which its inherited
+ * rows collapse (2359643cff). Embedded in its parent's side chat tab (a thread scope), the parent is the view around it,
+ * so the link opens nothing.
+ */
 export function subagentLead(client: T3Client): Message[] {
   const thread = client.shell.threads.find(entry => entry.id === client.threadId);
-  const lineage = obj(thread?.lineage), parentId = str(lineage.parentThreadId);
-  if (!thread || lineage.relationshipToParent !== 'subagent' || !parentId) return [];
-  const parent = client.shell.threads.find(entry => entry.id === parentId);
-  // TimelineSystemDivider: the bot glyph, "Subagent of" and the parent's title after a middle dot.
-  return [{ id: `subagent-of-${str(thread.id)}`, kind: 'fork', icon: 'bot', title: 'Subagent of', body: `Subagent of · ${str(parent?.title, 'Parent thread')}`, detail: str(parent?.title, 'Parent thread'),
-    actionLabel: 'Open parent thread', targetId: parentId, createdAt: str(thread.createdAt) } as Message];
+  const lineage = obj(thread?.lineage), parentId = str(lineage.parentThreadId), sideChat = lineage.sideChat === true;
+  if (!thread || (lineage.relationshipToParent !== 'subagent' && !sideChat) || !parentId) return [];
+  const parent = client.shell.threads.find(entry => entry.id === parentId), title = str(parent?.title, 'Parent thread');
+  const label = sideChat ? 'Context from' : 'Subagent of', open = !(sideChat && isThreadScope(client));
+  // TimelineSystemDivider: the bot (or messages) glyph, the label and the parent's title after a middle dot.
+  return [{ id: `${sideChat ? 'context-from' : 'subagent-of'}-${str(thread.id)}`, kind: 'fork', icon: sideChat ? 'messages-square' : 'bot', title: label, body: `${label} · ${title}`, detail: title,
+    actionLabel: open ? 'Open parent thread' : '', targetId: open ? parentId : '', createdAt: str(thread.createdAt) } as Message];
 }
 
 /**

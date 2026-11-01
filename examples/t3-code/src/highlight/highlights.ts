@@ -18,7 +18,7 @@ import { LEXER_IDS, TYPE_CLASSES } from './highlights-tables';
 /** A run of code text and its colour class (syntax-ink.contract synColor, synSlant, synWeight). */
 export interface Token { text: string; cls: string }
 /** The views that paint code, each answering through highlightView (app.ts). */
-export type HighlightView = 'data' | 'shell' | 'palette' | 'prDetail' | 'settingsCore';
+export type HighlightView = 'data' | 'shell' | 'palette' | 'prDetail' | 'settingsCore' | 'sideChat';
 
 /** @pierre/diffs' tokenizeMaxLineLength as the reference passes it: a longer line paints plain. */
 export const TOKENIZE_MAX_LINE_LENGTH = 1_000;

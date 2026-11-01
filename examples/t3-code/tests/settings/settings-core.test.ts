@@ -784,7 +784,7 @@ describe('model picker shortcut presses', () => {
     const root = contractComponent('app.contract', 'T3Code');
     const rule = appText('app.contract').match(/^  derive modelPickTaken = (.+)$/m)![1]!;
     for (const target of ['', 'task-model:t1', 'source-control-writer-model:|ctx', 'review-guide-model:|ctx']) for (const commandPending of [false, true]) {
-      const state: Obj = { commandPending, modelTarget: { id: target }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+      const state: Obj = { commandPending, modelTarget: { id: target }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
       let took = false;
       root.call('selectModel', state, { command: () => { took = true; return {}; }, restRaw: () => { took = true; }, focus: () => {}, catalog: { multiple: false } }, ['gpt-6', 'codex', false]);
       expect([target, commandPending, value(rule, { modelTarget: { id: target }, commandPending })]).toEqual([target, commandPending, took || state.taskModelPick !== '']);
@@ -808,7 +808,7 @@ describe('model picker shortcut presses', () => {
     expect([sent, busy.commandPending]).toEqual([[['cclocal:picker-provider-key', 'codex', '', 0], ['cclocal:picker-provider-key', 'claudeAgent', '', 0]], true]);
     // ⇧⌘↓, then Return before its announcement is answered: the pick is sent.
     sent.length = 0;
-    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, pendingModal: '', modelsOpen: true, taskModelPick: '' };
+    const idle: Obj = { commandPending: false, modelTarget: { id: '' }, composerTarget: '', pendingModal: '', modelsOpen: true, taskModelPick: '' };
     root.call('pickerAnnounce', idle, scope, ['cclocal:picker-provider-key', 'codex', '']);
     expect(idle.commandPending).toBe(false);
     root.call('selectModel', idle, scope, ['gpt-6', 'codex', false]);

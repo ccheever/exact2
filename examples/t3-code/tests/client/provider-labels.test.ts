@@ -25,7 +25,7 @@ function expression(marker: string, attribute: string): string {
 function trigger(client: T3Client) {
   const data = snapshot(client), component = contractComponent('src/composer/composer-controls.contract', 'ModelTrigger');
   const scope = { data, xs: false, open: false, label: true, keyModels: '', disabled: false, press: () => {} };
-  return { text: value(expression('testId="model-picker-label"', 'text '), scope), name: value(expression('testId="model-picker" ', 'aria-label='), scope),
+  return { text: value(expression('testId="model-picker-label"', 'text '), scope), name: value(expression('testId=`${composerScope}model-picker` ', 'aria-label='), scope),
     badge: component.drawn('testId="model-picker-unavailable"', component.state(), scope) };
 }
 

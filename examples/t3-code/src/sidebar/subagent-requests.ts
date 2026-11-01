@@ -1,11 +1,12 @@
-// A delegated subagent waiting on the user shows on the threads above it,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 6d450a4284:
+// A delegated subagent or a side chat waiting on the user shows on the threads above it,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 2359643cff:
 // packages/client-runtime/src/state/threadShell.ts (isChildRunLive,
-// subagentRequest, pendingSubagentRequestsByThread, childThreadInputsAtom,
-// childThreadInputsTitle). Subagent rows are hidden in the sidebar, so their
+// subagentRequest, sideChatRequest, pendingSubagentRequestsByThread, childThreadInputsAtom,
+// childThreadInputsTitle). Subagent and side chat rows are hidden in the sidebar, so their
 // parents carry the request: status, notifications, snooze and the composer.
 import { obj, str, type Obj } from '../client/domain';
 import { isProviderSubagent } from '../composer/composer-controls-subagent';
+import { pendingInput } from './sidebar-model';
 
 export type PendingSubagentRequest = 'approval' | 'user_input';
 
@@ -26,6 +27,17 @@ export function subagentRequest(thread: Obj): PendingSubagentRequest | null {
   return kind === 'user_input' ? 'user_input' : 'approval';
 }
 
+/**
+ * A side chat asks its user directly, so questions roll up to the parent as well as approvals, when its own row would
+ * show them.
+ */
+export function sideChatRequest(thread: Obj): PendingSubagentRequest | null {
+  const kind = thread.pendingRuntimeRequest == null ? undefined : str(obj(thread.pendingRuntimeRequest).kind);
+  if (kind === undefined || kind === 'auth_refresh' || obj(thread.lineage).sideChat !== true) return null;
+  if (kind !== 'user_input') return 'approval';
+  return pendingInput(thread) ? 'user_input' : null;
+}
+
 const byArray = new WeakMap<Obj[], Map<string, PendingSubagentRequest>>();
 /**
  * Threads above a subagent that waits on the user for an approval. Every
@@ -38,12 +50,17 @@ export function pendingSubagentRequestsByThread(threads: Obj[]): Map<string, Pen
   const requests = new Map<string, PendingSubagentRequest>();
   let byId: Map<string, Obj> | undefined;
   for (const child of threads) {
+    if (obj(child.lineage).sideChat === true) {
+      const parentId = str(obj(child.lineage).parentThreadId), request = sideChatRequest(child);
+      if (parentId && request && requests.get(parentId) !== 'approval') requests.set(parentId, request);
+      continue;
+    }
     const request = subagentRequest(child);
     if (request !== 'approval') continue;
     byId ??= new Map(threads.map(thread => [str(thread.id), thread]));
     const seen = new Set<string>([str(child.id)]);
     let current: Obj | undefined = child;
-    while (current && obj(current.lineage).relationshipToParent === 'subagent') {
+    while (current && (obj(current.lineage).relationshipToParent === 'subagent' || obj(current.lineage).sideChat === true)) {
       const parentId = str(obj(current.lineage).parentThreadId);
       if (!parentId || seen.has(parentId)) break;
       seen.add(parentId);
@@ -71,13 +88,13 @@ export function pendingSubagentRequest(thread: Obj): PendingSubagentRequest | nu
   return marks.get(thread) ?? null;
 }
 
-export type ChildInput = { id: string; title: string; approval: boolean };
-/** childThreadInputsAtom: the subagents below a thread (at any depth) that wait on the user, in shell order. */
+export type ChildInput = { id: string; title: string; approval: boolean; sideChat: boolean };
+/** childThreadInputsAtom: the subagents and side chats below a thread (at any depth) that wait on the user, in shell order. */
 export function childThreadInputs(threads: Obj[], threadId: string): ChildInput[] {
   const children = new Map<string, Obj[]>();
   for (const thread of threads) {
     const lineage = obj(thread.lineage), parent = str(lineage.parentThreadId);
-    if (!parent || lineage.relationshipToParent !== 'subagent') continue;
+    if (!parent || (lineage.relationshipToParent !== 'subagent' && lineage.sideChat !== true)) continue;
     children.set(parent, [...children.get(parent) ?? [], thread]);
   }
   const seen = new Set([threadId]), pending = [threadId], found: ChildInput[] = [];
@@ -86,8 +103,8 @@ export function childThreadInputs(threads: Obj[], threadId: string): ChildInput[
       const id = str(child.id);
       if (seen.has(id)) continue;
       seen.add(id); pending.push(id);
-      const request = subagentRequest(child);
-      if (request) found.push({ id, title: str(child.title, 'Subagent'), approval: request === 'approval' });
+      const sideChat = obj(child.lineage).sideChat === true, request = sideChat ? sideChatRequest(child) : subagentRequest(child);
+      if (request) found.push({ id, title: str(child.title, sideChat ? 'Side chat' : 'Subagent'), approval: request === 'approval', sideChat });
     }
   }
   return found;
@@ -97,5 +114,11 @@ export function childThreadInputs(threads: Obj[], threadId: string): ChildInput[
 export function childThreadInputsTitle(children: ChildInput[]): string {
   const approvals = children.filter(child => child.approval).length;
   const need = approvals === 0 ? 'input' : approvals === children.length ? 'approval' : 'you';
-  return children.length === 1 ? `Subagent needs ${need}` : `${children.length} subagents need ${need}`;
+  const sideChats = children.filter(child => child.sideChat).length;
+  const noun = sideChats === children.length ? 'side chat' : sideChats === 0 ? 'subagent' : 'thread';
+  return children.length === 1 ? `${noun === 'side chat' ? 'Side chat' : 'Subagent'} needs ${need}` : `${children.length} ${noun}s need ${need}`;
+}
+/** childInputNowItem's waitingLabel: what the scroll-to-end button names (ChatView scrollToEndSummary). */
+export function childThreadInputsWaiting(children: ChildInput[]): string {
+  return children.every(child => child.sideChat) ? 'Side chat waiting' : 'Subagent waiting';
 }

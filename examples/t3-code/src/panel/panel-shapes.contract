@@ -338,15 +338,14 @@ shape PanelView
   automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over
   sideChat: SideChatPane // the active side chat tab's pane (side-chat.ts)
 
-// A side chat tab's pane (side-chat.ts sideChatView): its header's state, its own messages (the Markdown of each is
-// filesMarkdown's `side-chat:<thread>:<row>` document), its pending requests and its field.
+// A side chat tab's pane (side-chat.ts sideChatView): its header's state; its chat view is the root's `sideChat`
+// (side-chat-members.contract).
 shape SideChatPane
   show: bool
   threadId: string
   title: string
   deleted: bool
   loading: bool
-  contextFrom: string
   bringBackDisabled: bool
   bringBackTip: string
   bringingBack: bool
@@ -354,23 +353,3 @@ shape SideChatPane
   confirmDelete: bool
   deleteTitle: string
   deleteBody: string
-  rows: SideChatRow[]
-  working: bool
-  requests: SideChatRequest[]
-  canSend: bool
-  placeholder: string
-  markdownSource: MarkdownSource[]
-  md: MarkdownEnv
-shape SideChatRow
-  id: string
-  kind: string // user, assistant, error or note (a tool or thinking row's title)
-  text: string
-shape SideChatRequest
-  requestId: string
-  kind: string // approval or input
-  title: string
-  detail: string
-  choices: SideChatChoice[]
-shape SideChatChoice
-  label: string
-  value: string

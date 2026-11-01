@@ -53,7 +53,7 @@ import { browserTabAudio, browserTabMute } from '../browser/browser-automation-t
 import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
 import { serverPdfLocal, serverPdfViewer, type PdfPlace } from '../browser/server-pdf-viewer'; // a server tab's PDF in the viewer page
 import type { ViewerFrameView } from './viewer-frames';
-import { emptySideChat, sideChatSurfaceId, sideChatTabState, sideChatTabTitle, sideChatView, startSideChat, deleteSideChatThread, bringBackSideChat, deleteSideChat, sendToSideChat, answerSideChat, stopSideChat, type SideChatView } from './side-chat'; // side chats beside the thread
+import { emptySideChat, sideChatSurfaceId, sideChatTabState, sideChatTabTitle, sideChatView, startSideChat, deleteSideChatThread, bringBackSideChat, deleteSideChat, type SideChatView } from './side-chat'; // side chats beside the thread
 import { pinThreads } from '../details/lineage-parent';
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser' | 'side-chat';
@@ -472,10 +472,7 @@ async function sideChatCommand(client: T3Client, native: Native, op: string, id:
   else if (op === 'delete') {
     // On success the parent's panel closes the tab (rightPanelStore.closeSurface), with no delete of its own.
     if (await deleteSideChat(client, native, id)) closeSurfaceIn(panelState(client), sideChatSurfaceId(id));
-  } else if (op === 'send') await sendToSideChat(client, native, id, value);
-  else if (op === 'answer') { const at = value.indexOf('|'); await answerSideChat(client, native, id, value.slice(0, at), value.slice(at + 1)); }
-  else if (op === 'stop') await stopSideChat(client, native, id);
-  else throw new ClientError(`Unknown side chat action: ${op}`);
+  } else throw new ClientError(`Unknown side chat action: ${op}`);
   return '';
 }
 

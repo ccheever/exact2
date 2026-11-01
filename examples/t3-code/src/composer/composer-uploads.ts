@@ -14,6 +14,7 @@
 // A press whose images have not all landed is kept with what it sends (useComposerSend's snapshot at the press), its
 // failed images go back to the queue, and the root sends it once they land (`sendResume`), whichever thread is shown.
 import type { T3Client } from '../client/client';
+import { windowClient } from '../client/scope-root';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { draftUpload } from '../snapshot/snapshot-upload';
@@ -46,7 +47,9 @@ type Uploads = {
 export type UploadEvent = { type: 'progress'; loaded: number; total: number } | { type: 'load'; status: number } | { type: 'error'; kind?: string };
 
 const state = new WeakMap<T3Client, Uploads>();
+// The window's: a side chat's draft images (thread-scope.ts) share its six upload resources and queue.
 function uploads(client: T3Client): Uploads {
+  client = windowClient(client);
   let entry = state.get(client);
   if (!entry) { entry = { slots: Array.from({ length: UPLOAD_SLOTS }, () => null), claimed: new Set(), minting: new Set(), queue: [], failed: new Map(), releases: [] }; state.set(client, entry); }
   return entry;

@@ -125,10 +125,10 @@ describe('the pane (SideChatPane)', () => {
     const { client: c } = client([parent(), side()]);
     expect(sideChatView(c, 'main', 'side')).toMatchObject({ title: 'Side question', bringBackDisabled: true, bringBackTip: 'Available after a finished reply.',
       deleteDisabled: false, confirmDelete: true, deleteTitle: 'Delete side chat "Side question"?', deleteBody: 'This permanently clears its conversation history.',
-      contextFrom: 'Main thread', loading: true });
+      loading: true });
   });
   test('a side chat the live shell no longer has reads as deleted', () => {
-    expect(sideChatView(client([parent()]).client, 'main', 'gone')).toMatchObject({ deleted: true, deleteDisabled: true, canSend: false });
+    expect(sideChatView(client([parent()]).client, 'main', 'gone')).toMatchObject({ deleted: true, deleteDisabled: true });
   });
   test('the tab: its title, and a dot with its state while it works or asks', async () => {
     const { client: c } = client([parent(), side({ status: 'running' })]);
@@ -163,20 +163,16 @@ describe('the pane (SideChatPane)', () => {
     expect(toasts(refused.client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not delete the side chat', 'thread.delete refused']]);
     expect(panelState(refused.client).surfaces).toHaveLength(1);
   });
-  test('Delete asks first while Confirm thread deletion is on; the field sends to the side chat', () => {
+  test('Delete asks first while Confirm thread deletion is on', () => {
     const body = contractComponent('side-chat.contract', 'SideChatBody'), local = body.state(), calls: unknown[][] = [];
     const view = { threadId: 'side', canSend: true, confirmDelete: true, deleteTitle: 'Delete side chat "S"?', deleteBody: 'Body', bringBackDisabled: false };
     const scope = { view, command: (...args: unknown[]) => calls.push(['command', ...args]), confirm: (...args: unknown[]) => calls.push(['confirm', ...args]) };
     body.call('remove', local, scope, []);
-    body.call('edit', local, scope, ['  hello ']);
-    body.call('send', local, scope, []);
     body.call('bringBack', local, scope, []);
     expect(calls).toEqual([
       ['confirm', 'ui:confirm:side-chat-delete', 'side', 'shell:surface-side-chat-delete', 'Delete side chat "S"?', 'Body', true],
-      ['command', 'shell:surface-side-chat-send', 'side', '  hello ', 0],
       ['command', 'shell:surface-side-chat-bring-back', 'side', '', 0],
     ]);
-    expect(local.text).toBe('');
   });
 });
 

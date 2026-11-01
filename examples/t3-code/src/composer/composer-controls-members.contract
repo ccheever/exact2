@@ -9,7 +9,7 @@ members T3Code
   derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
   derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
   derive richComposerOwner = `${composerOwner}${data.requestKey}`
-  resource richComposer = composerRich(data.snapshotOwner, richComposerOwner, composerText, data.revision, composerInputType, "composer") as shape ComposerRichView
+  resource richComposer = composerRich(data.snapshotOwner, richComposerOwner, composerText, data.revision, composerInputType, "composer", "") as shape ComposerRichView
   state promptPreviewText = promptPreviewSample()
   state promptPreviewInputType = ""
   state promptPreviewSerial = 0
@@ -19,7 +19,7 @@ members T3Code
   derive promptPreviewSnapshotOwner = data.snapshotOwner
   derive promptPreviewOwner = `${data.snapshotOwner}:prompt-preview`
   derive promptPreviewVisible = settingsOpen and settingsRoute == "appearance" and settingsCore.sections.filter((section) => section.rows.filter((row) => row.info == "preview-prompt").length > 0).length > 0
-  resource richPromptPreview = composerRich(data.snapshotOwner, promptPreviewOwner, promptPreviewText, data.revision, promptPreviewInputType, "preview") as shape ComposerRichView
+  resource richPromptPreview = composerRich(data.snapshotOwner, promptPreviewOwner, promptPreviewText, data.revision, promptPreviewInputType, "preview", "") as shape ComposerRichView
   action promptPreviewWrite(value: string, e: InputEvent)
     let serial = promptPreviewSerial + 1
     promptPreviewText = value
@@ -51,7 +51,7 @@ members T3Code
     observePromptPreview(value, 0, 0, false, serial)
   action closeOptions
     optionsOpen = ""
-    focus("composer")
+    focus(composerTarget == "" ? "composer" : "side-chat-composer")
   // The trigger a composer menu opens from, measured as it opens and again with the layout frames while it is open:
   // ComposerMenus aligns the menu to its start, or its end (the implement pill, the meter). -1 while the trigger is not
   // laid out (a shortcut for a control in the overflow).
@@ -62,14 +62,15 @@ members T3Code
   // measures them all again, so a box that only moves is measured with the box whose change of size moved it.
   state layoutFrames = ""
   action frameMoved(w: number, h: number)
-    layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("subagent", frame("provider-subagent-bar")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area"))].filter((row) => row != "").join(";")
+    layoutFrames = [layoutFrame("chat", frame("frame-chat")), layoutFrame("overlay", frame("frame-overlay")), layoutFrame("shoulder", frame("frame-shoulder")), layoutFrame("dock", frame("frame-dock")), layoutFrame("stack", frame("frame-stack")), layoutFrame("card", frame("composer-surface")), layoutFrame("subagent", frame("provider-subagent-bar")), layoutFrame("toolbar", frame("frame-toolbar")), layoutFrame("strip", frame("frame-strip")), layoutFrame("details-content", frame("frame-details-content")), layoutFrame("details-density-compact", frame("frame-details-density-compact")), layoutFrame("details-full-top", frame("frame-details-full-top")), layoutFrame("details-vcs", frame("frame-details-vcs")), layoutFrame("details-full-tail", frame("frame-details-full-tail")), layoutFrame("details-lineage", frame("frame-details-lineage")), layoutFrame("details-full-git", frame("frame-details-full-git")), layoutFrame("details-pr-list", frame("frame-details-pr-list")), layoutFrame("device-area", frame("frame-device-area")), layoutFrame("side-toolbar", frame("side-chat-frame-toolbar")), layoutFrame("side-card", frame("side-chat-composer-surface"))].filter((row) => row != "").join(";")
     if optionsOpen != ""
       measureOptionsTrigger(optionsOpen)
   action measureOptionsTrigger(name: string)
-    let trigger = frame(optionsTriggerId(name))
+    let trigger = frame(`${composerTarget == "" ? "" : "side-chat-"}${optionsTriggerId(name)}`) // a side chat's composer (side-chat-members.contract)
     optionsAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
     optionsAnchorWidth = trigger.unavailable ? 0 : trigger.width
   action openOptions(name: string)
+    composerTarget = "" // the window's composer
     measureOptionsTrigger(name)
     focus(optionsOpen == name ? "composer" : name == "effort" ? "composer-menu" : name == "runtime" ? `composer-menu-item-${data.composer.runtimeSelected}` : name == "branch" ? "branch-search" : name == "workspace" ? "composer-menu" : "composer-menu-item-0")
     optionsOpen = optionsOpen == name ? "" : name
@@ -78,10 +79,10 @@ members T3Code
     popoverSession = popoverSession + 1
   action menuCommand(op: string, id: string, value: string, n: number)
     optionsOpen = ""
-    focus("composer")
+    focus(composerTarget == "" ? "composer" : "side-chat-composer")
     if not commandPending
       commandPending = true
-      send changed = command(op, id, value, n)
+      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, n)
   action searchBranches(value: string)
     branchQuery = value
   action composerKey(op: string, id: string, value: string) // A composer control's key name (composer-controls-commands.ts).
@@ -97,6 +98,7 @@ members T3Code
   state modelAnchorX = -1
   state modelAnchorWidth = 0
   action modelMeasure
+    composerTarget = "" // the window's composer
     let trigger = frame("model-picker-trigger")
     modelAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
     modelAnchorWidth = trigger.unavailable ? 0 : trigger.width
@@ -132,13 +134,13 @@ members T3Code
   action pickerPick(op: string, id: string, value: string)
     if not commandPending
       commandPending = true
-      send changed = command(op, id, value, 0)
+      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, 0)
   action menuPick(op: string, id: string, value: string)
     optionsOpen = ""
-    focus("composer")
+    focus(composerTarget == "" ? "composer" : "side-chat-composer")
     if not commandPending
       commandPending = true
-      send changed = command(op, id, value, 0)
+      send changed = command(composerTarget == "" ? op : `scope:${composerTarget}|${op}`, id, value, 0)
   action commandCompleted
     noticeExit = ""
     match changed
@@ -250,7 +252,7 @@ members T3Code
       send localChanged = command(`sidebarlocal:${renameAfterOp}`, renameAfterId, "", 0)
       renameAfterOp = ""
   action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
-    send filesAdded = composerAttach(origin, files, picked, asText, target)
+    send filesAdded = composerAttach(origin, files, picked, asText, target, "")
   // ChatComposer's drop and Attach files focus the prompt; a sidebar row's drop opens its thread (handleThreadFileDrop).
   action filesAddedDone
     match filesAdded

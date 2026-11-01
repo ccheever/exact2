@@ -1,4 +1,6 @@
 import { composerInput } from './requests';
+import { isThreadScope } from '../client/scope-root';
+import { sideChatDisabledReason, sideChatsOffered } from '../panel/side-chat';
 import { contextLinks, replaceLinks } from './context-links';
 import { removeStaged } from './composer-staged-copies';
 import { rememberCopiedChips, stagedInUse } from './composer-copied-chips';
@@ -313,7 +315,8 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     rows = slashRows({ query: trigger.query, atPromptStart: trigger.start === 0, planModeUiEnabled: planModeUiEnabled(client),
       compactAvailable: compactAvailable(client, !!field && !`${field.value.slice(0, trigger.start)}${field.value.slice(trigger.end)}`.trim()), driver,
       slashCommands: workspaceValues(current, cwd, 'slashCommands'),
-      skills, showSkillsInSlashMenu: prefs(client).showSkillsInSlashMenu !== false });
+      skills, showSkillsInSlashMenu: prefs(client).showSkillsInSlashMenu !== false,
+      sideChatAvailable: sideChatsOffered(client) && client.shell.threads.some(thread => thread.id === client.threadId), sideChatDisabledReason: sideChatDisabledReason(client) });
   } else if (trigger.kind === 'skill') {
     rows = skillRows(skills, trigger.query, driver);
   } else if (trigger.kind === 'pull-request' && prAvailable && native?.available) {
@@ -382,7 +385,11 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     let focus = true;
     // /model opens the picker, /plan and /default set the mode: key buttons the editor presses after the edit.
     let then = '';
-    if (row.type === 'slash-command') { text = ''; focus = row.id !== 'slash:model'; then = row.id === 'slash:model' ? 'models' : row.id === 'slash:plan' ? 'mode-plan' : 'mode-default'; }
+    // `/side ` and `/btw ` stay in the prompt to be sent, unless side chats are refused here (ChatComposer onSelectCommandItem).
+    const side = row.id === 'slash:side' || row.id === 'slash:btw';
+    if (side && sideChatDisabledReason(client)) return '';
+    if (side) text = `/${row.id.slice(6)} `;
+    else if (row.type === 'slash-command') { text = ''; focus = row.id !== 'slash:model'; then = row.id === 'slash:model' ? 'models' : row.id === 'slash:plan' ? 'mode-plan' : 'mode-default'; }
     const usageLimits = row.type === 'provider-slash-command' && row.id.endsWith(':usage-limits');
     if (usageLimits) { text = ''; focus = false; }
     if (row.type === 'pull-request') {
@@ -399,6 +406,14 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     entry.rows = []; entry.trigger = null;
     // /usage-limits opens the composer's Usage limits banner (composer-controls-usage.ts).
     if (usageLimits) { entry.usageLimits += 1; openUsageLimits(client, n || 0); }
+    // A side chat's composer (thread-scope.ts) is not the field the module edits: the pick rewrites its draft, which its
+    // field shows, and /model, /plan and /default run as the commands their keys would.
+    if (isThreadScope(client)) {
+      const draft = client.draft, at = Math.min(range.start, draft.length), after = draft.slice(Math.min(range.end, draft.length));
+      client.local.drafts[client.draftKey] = `${draft.slice(0, at)}${text}${text.endsWith(' ') && after.startsWith(' ') ? after.slice(1) : after}`;
+      if (then === 'mode-plan' || then === 'mode-default') await client.command('interaction', '', then === 'mode-plan' ? 'plan' : 'default', 0, native, preferenceFiles());
+      return '';
+    }
     const result = await requestComposerField(native, { op: 'editorEdit', ...range, text, focus, then, extendSpace: text.endsWith(' ') });
     if (!result.accepted) throw new ClientError('The prompt changed before the suggestion was applied.');
     return '';
