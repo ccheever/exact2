@@ -205,6 +205,39 @@ component Moves
   }, {}, {}, renderer);
 }, 180000);
 
+// A page built ahead serves every query its path is opened at; opened at one it was not built at, its list's rows are
+// not the list's items, so the runtime builds afresh rather than keep the rows past its items (LLP 1048.000 D6).
+test('a page built ahead and opened at another query shows its own rows, not the built ones', async () => {
+  const source = `routes nav
+  home "/" render=build
+
+component Rows
+  derive kind = searchParam(top(nav), "kind")
+  derive shown = ["a1", "a2", "b1", "b2"].filter(x => kind == "" or x.startsWith(kind))
+  view
+    column testId="rows"
+      for x in shown key=x
+        text x
+`;
+  const rows = `document.querySelector('[data-testid="rows"]').textContent`;
+  for (const renderer of ['rust', 'js']) await renderedPages(source, async (_, html, dist) => {
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path.slice(1))));
+    } });
+    let browser;
+    try {
+      browser = await open({ host: 'web', url: server.url.href + '?kind=b' });
+      const journal = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, await browser.carrier.evaluate(rows), journal.some(l => /abandoned/.test(l))]).toEqual([renderer, 'b1b2', true]);
+      await browser.close(); browser = null;
+      browser = await open({ host: 'web', url: server.url.href });
+      const kept = await browser.carrier.evaluate('globalThis.exact.journal');
+      expect([renderer, await browser.carrier.evaluate(rows), kept.some(l => l.endsWith('adopted the document'))]).toEqual([renderer, 'a1a2b1b2', true]);
+    } finally { await browser?.close(); server.stop(true); }
+  }, {}, {}, renderer);
+}, 180000);
+
 // The parser's "in table" mode gives a row the table holds a `tbody` in either branch of a conditional
 // that makes a row in one and a row group in the other; the plan has one in each, so either adopts.
 test('a table rendered ahead adopts either branch of a conditional that makes rows', async () => {

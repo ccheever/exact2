@@ -640,7 +640,7 @@ export function cv(e) {
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
 // mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
-let Adopt = false;
+let Adopt = false, AdoptedLists = new Set(); // the parents whose rows a keyed list adopted: one holding rows past the list's (a page built ahead, opened at a query it was not built at) is no projection of this plan either (`mount`)
 class Mismatch extends Refusal {}
 // The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
@@ -1244,7 +1244,7 @@ export function each(p, list, key, row, pure) {
         if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
         else if (!b) {
           // Adopting: the row's elements are in place, in item order.
-          r = { item: sig(item), index: sig(i) };
+          r = { item: sig(item), index: sig(i) }; AdoptedLists.add(p);
           if (single && i && performance.now() > AdoptBy) {
             // Past the adoption's budget, a row of one element waits for a
             // slice (`lazy`); a press on it or any commit adopts it first.
@@ -1406,7 +1406,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  Booting = true; let booted = commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; let booted = commit(() => { scope(() => f(root)); for (const p of AdoptedLists) { let n = at(p); while (n && n.nodeType !== 1) n = n.nextSibling; if (n) throw new Mismatch("adoption: a list's document holds more rows than its items"); } built = true; }, adopting ? "adopt" : "boot"); AdoptedLists.clear();
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
