@@ -179,14 +179,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     private var naturals: [UInt32: (source: String, size: CGSize)] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
-    /// Tablists a tab container's bar has taken the place of, hidden here.
-    private var adoptedLists = Set<UInt32>()
+    /// The tablist a tab container's bar has taken the place of, hidden here.
+    private weak var adoptedList: NodeView?
     /// The last projection decision journaled per tablist, so each is said once.
     private var decisions: [UInt32: String] = [:]
-    /// LLP 1080.001 D3: the bar or control standing in for a tablist, and
-    /// the tabs and adopted lists hidden for it.
+    /// LLP 1080.001 D3: the bar or control standing in for a tablist, the
+    /// tabs hidden for it, and the tablist hidden for a tab container's bar.
     func inspectionOwns(_ view: UIView) -> Bool { bars.values.contains { $0 === view } || controls.values.contains { $0 === view } }
-    func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } || adoptedLists.contains(node.id) }
+    func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } || node === adoptedList }
     #if EXACT_INSPECT && os(iOS)
     /// The tab a point in `view` (a segmented control or tab bar standing in
     /// for a tablist) is over: inspect mode selects it (InspectIOS.swift).
@@ -501,11 +501,14 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             $0.props["accessibilityRole"] == "radiogroup" && $0.props["accessibilityOrientation"] != "vertical" &&
                 !($0.wrote("appearance") && $0.style["appearance"]?.string == "none")
         }
-        for list in presenter.carrying("role:tablist") {
-            let adopted = presenter.navigation.adopts(tablist: list)
-            guard adopted != adoptedLists.contains(list.id) else { continue }
-            if adopted { adoptedLists.insert(list.id) } else { adoptedLists.remove(list.id) }
-            list.hiddenByHost = adopted
+        // One tablist at most (`NavigationHost.adoptedTablist`), known by its view: after a restart the
+        // new tablist has the old one's id. The old one is shown again only while the presenter holds it:
+        // a leaving view keeps its look until its exit ends.
+        let adopted = presenter.carrying("role:tablist").first { presenter.navigation.adopts(tablist: $0) }
+        if adopted !== adoptedList {
+            if let old = adoptedList, presenter.views[old.id] === old { old.hiddenByHost = false }
+            adopted?.hiddenByHost = true
+            adoptedList = adopted
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) + Array(bars.keys) where !live.contains(id) { restore(owner: id) }
