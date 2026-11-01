@@ -692,12 +692,10 @@ component T3Window
     outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
     outsideDown = false
     // A mouse's back and forward buttons step the window's history at their release, as Chromium's do, where ⌘[ and
-    // ⌘] would: not under the palette or a dialog other than Settings. The release's preventDefault keeps the host from
-    // stepping the router for them too.
+    // ⌘] would (historyGo). The release's preventDefault keeps the host from stepping the router for them too.
     if e.button == 3 or e.button == 4
       preventDefault()
-      if not paletteOpen and (not modal or settingsOpen)
-        historyGo(e.button == 3 ? "back" : "forward")
+      historyGo(e.button == 3 ? "back" : "forward")
   // AssistantSelectionToolbar.tsx: the Cite an answer offers, drawn by the window above the timeline
   // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
   // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press

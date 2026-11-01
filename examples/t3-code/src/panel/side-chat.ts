@@ -117,7 +117,8 @@ export async function startSideChat(client: T3Client, native: Native, prompt: st
       } catch (error) { discard(); return fail(error, 'Could not send the side chat message.'); }
     }
     openTab(targetThreadId);
-    store.started++;
+    // Only a pane that shows now takes the focus; one opened behind another thread waits for no later visit.
+    if (client.threadId === parentId) store.started++;
     return true;
   } finally { store.pending = false; }
 }

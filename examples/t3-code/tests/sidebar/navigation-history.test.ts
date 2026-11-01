@@ -64,17 +64,20 @@ describe('the window history the sidebar buttons step', () => {
 
 describe('a step runs what ⌘[ and ⌘] run for its target', () => {
   const members = contractComponent('sidebar-members.contract', 'T3Code');
-  // The router as far as these actions use it: the selected tab's stack of locations.
+  // The router as far as these actions use it: the selected tab's stack of locations. As the runner's, a push lands on
+  // the selected tab whatever route it names, and `open` selects the location's own tab.
   type Router = { tab: string; stack: string[] };
   const tabOf = (location: string) => location.startsWith('/open') ? 'incoming' : location.startsWith('/notification') ? 'notification' : 'home';
-  const go = (r: Router, location: string): Router => r.stack.includes(location) ? { ...r, stack: r.stack.slice(0, r.stack.indexOf(location) + 1) } : { ...r, stack: [...r.stack, location] };
-  const router = { go, open: (r: Router, location: string): Router => ({ tab: tabOf(location), stack: [location] }), top: (r: Router) => ({ url: r.stack.at(-1), tab: tabOf(r.stack.at(-1) ?? '/') }) };
-  const run = (direction: string, kind: string, target: string, extra = '', hrefs: Record<string, string> = {}) => {
+  const go = (r: Router, location: string): Router => !location ? r : r.stack.includes(location) ? { ...r, stack: r.stack.slice(0, r.stack.indexOf(location) + 1) } : { ...r, stack: [...r.stack, location] };
+  const router = { go, open: (r: Router, location: string): Router => ({ tab: tabOf(location), stack: [location] }), top: (r: Router) => ({ url: r.stack.at(-1), tab: r.tab }),
+    stack: (r: Router) => r.stack.map(url => ({ url })) };
+  const shut = { paletteOpen: false, modal: false, settingsOpen: false };
+  const run = (direction: string, kind: string, target: string, extra = '', hrefs: Record<string, string> = {}, scope: Record<string, unknown> = {}) => {
     const calls: unknown[][] = [];
     const record = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); };
     const navigationHistory = { backKind: kind, backTarget: target, backExtra: extra, forwardKind: kind, forwardTarget: target, forwardExtra: extra, backHref: '', forwardHref: '', ...hrefs };
     const state = { promptLinks: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } as Router };
-    members.call('historyGo', state, { ...router, navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun') }, [direction]);
+    members.call('historyGo', state, { ...router, ...shut, navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun'), ...scope }, [direction]);
     return { calls, router: state.promptLinks };
   };
   test('each kind', () => {
@@ -93,14 +96,24 @@ describe('a step runs what ⌘[ and ⌘] run for its target', () => {
     expect(run('/visit/3', 'thread', 'b', '', { backHref: '/visit/1', forwardHref: '/visit/3' }).calls).toEqual([['selectThread', 'b']]);
     // A visit the history cannot show (an archived thread's: no step) leaves the router where it is.
     expect(run('/visit/1', 'thread', 'a')).toEqual({ calls: [], router: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } });
-    expect(run('/open?u=x', '', '')).toEqual({ calls: [], router: { tab: 'incoming', stack: ['/open?u=x'] } });
+    // A link opens its own tab, also while home has visits, and leaves them (open selects; home's stack is not its).
+    expect(run('/open?u=x', 'thread', 'a', '', { backHref: '/visit/1' })).toEqual({ calls: [], router: { tab: 'incoming', stack: ['/open?u=x'] } });
+    expect(run('/notification?t=a', '', '').router.tab).toBe('notification');
   });
-  test('each visit is mirrored onto the router', () => {
+  test('not under the palette or a dialog other than Settings, as ⌘[ and ⌘]; a link still opens', () => {
+    expect(run('back', 'thread', 'a', '', { backHref: '/visit/1' }, { paletteOpen: true, modal: true }).calls).toEqual([]);
+    expect(run('/visit/1', 'thread', 'a', '', { backHref: '/visit/1' }, { modal: true }).router.stack).toEqual(['/', '/visit/1', '/visit/2']);
+    expect(run('back', 'back', '', '', { backHref: '/visit/1' }, { modal: true, settingsOpen: true }).calls).toEqual([['closeModal']]);
+    expect(run('/open?u=x', '', '', '', {}, { paletteOpen: true, modal: true }).router.tab).toBe('incoming');
+  });
+  test('each visit is mirrored onto the router, a new one over the visit beneath it in the history', () => {
     const state = { promptLinks: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } as Router };
-    members.call('recordVisit', state, { ...router, navigationHistory: { here: '/visit/1' } }, []);
-    expect(state.promptLinks.stack).toEqual(['/', '/visit/1']);
-    members.call('recordVisit', state, { ...router, navigationHistory: { here: '/visit/4' } }, []);
-    expect(state.promptLinks.stack).toEqual(['/', '/visit/1', '/visit/4']);
+    const record = (here: string, backHref = '') => { members.call('recordVisit', state, { ...router, navigationHistory: { here, backHref } }, []); return state.promptLinks.stack; };
+    expect(record('/visit/1', '/')).toEqual(['/', '/visit/1']);
+    expect(record('/visit/4', '/visit/1')).toEqual(['/', '/visit/1', '/visit/4']);
+    expect(record('/visit/settings', '/visit/4')).toEqual(['/', '/visit/1', '/visit/4', '/visit/settings']);
+    // Settings closed and a new visit made in one turn: Settings is not left beneath it.
+    expect(record('/visit/5', '/visit/4')).toEqual(['/', '/visit/1', '/visit/4', '/visit/5']);
   });
 });
 
@@ -117,10 +130,5 @@ describe('a mouse\'s back and forward buttons', () => {
     expect(release(4)).toEqual(['prevented', 'forward']);
     expect(release(0)).toEqual([]);
     expect(release(1)).toEqual([]);
-  });
-  test('not under the palette or a dialog, but in Settings', () => {
-    expect(release(3, { paletteOpen: true })).toEqual(['prevented']);
-    expect(release(3, { modal: true })).toEqual(['prevented']);
-    expect(release(3, { modal: true, settingsOpen: true })).toEqual(['prevented', 'back']);
   });
 });
