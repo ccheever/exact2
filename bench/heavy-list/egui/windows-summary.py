@@ -27,7 +27,7 @@ def input_metrics(sample):
     for gesture in range(4):
         ticks=[r['qpc'] for r in sample['posts'] if r['gesture']==gesture]
         gaps.extend((b-a)*1000/sample['qpcFrequency'] for a,b in zip(ticks,ticks[1:]))
-    return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps),
+    return dict(posts=len(sample['posts']),maxPostGapMs=max(gaps,default=None),
                 latePostGaps=sum(gap>late_ms for gap in gaps))
 
 
@@ -38,7 +38,7 @@ def frames(sample,path):
         rows=list(csv.DictReader(f))
     times=sorted(float(r['QPCTime'])+float(r['msUntilDisplayed'])*frequency/1000
                  for r in rows if r['Dropped']=='0' and float(r['msUntilDisplayed'])>0)
-    if not times: return {}
+    if not times and (not sample.get('motion') or sample['arm']=='wgpu'): return {}
     start,end=sample['flingStart']['qpc'],sample['flingEnd']['qpc']
     spans=sample['gestureWindows']
     intervals=[]
@@ -49,10 +49,9 @@ def frames(sample,path):
         intervals.extend((y-x)*1000/frequency for x,y in zip(t,t[1:]))
     intervals.sort()
     seconds=sum(b-a for a,b in spans)/frequency
-    if not intervals: return {}
-    return dict(p50=intervals[min(int(.5*len(intervals)),len(intervals)-1)],
-                p95=intervals[min(int(.95*len(intervals)),len(intervals)-1)],
-                p99=intervals[min(int(.99*len(intervals)),len(intervals)-1)],
+    def percentile(p):
+        return intervals[min(int(p*len(intervals)),len(intervals)-1)] if intervals else None
+    return dict(p50=percentile(.5),p95=percentile(.95),p99=percentile(.99),
                 latePerSecond=sum(x>late_ms for x in intervals)/seconds,
                 gestureFps=count/seconds,phaseFps=sum(start<=v<=end for v in times)*frequency/(end-start),
                 restPresents=sum(end<v<=sample['restEnd']['qpc'] for v in times),
@@ -60,7 +59,7 @@ def frames(sample,path):
                 modes=sorted(set(r['PresentMode'] for r in rows)))
 
 report={}
-for phase in ['warm','warm-startup','cold']:
+for phase in ['warm','warm-startup','cold','rest','bar','caret']:
     directory=root/phase
     if not directory.exists(): continue
     quiet=[json.loads(line) for line in (directory/'quiet.jsonl').read_text().splitlines()]
