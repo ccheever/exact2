@@ -94,3 +94,17 @@ transcript. The focused source tests, full mobile suite, Contract build,
 strict TypeScript, caps, boot and normal no-install native build pass. The
 fresh A44 Duo was still occupied when the built artifact was ready, so live
 frame pacing and divider placement remain unqualified.
+
+The follow-up gives Home, the transcript, and nested work detail an explicit
+vertical touch axis so UIKit can reject competing horizontal pans before a
+scroll begins. Home's authored separator strokes are border-boxed and guarded
+against a last-row draw in the Contract as well as the projection. The focused
+scroll and Home suite passes; a clean device drive is still required before
+calling the motion buttery or confirming the rendered edge lines.
+
+The final source pass has a normal no-install iOS build with all 3,289 recorded
+inputs present and unchanged, a 92-file bundle inventory, and strict deep
+signature verification. The host's iOS tests already cover `pan-y` admission
+and native swipe precedence; no framework failure reproduced. Every local Duo
+target was occupied by another session, so this unit makes no runtime frame
+pacing or rendered-divider claim.

@@ -23,10 +23,11 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain"');
   expect(thread).not.toContain('border-bottom-width=(row.kind == "work"');
   expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
+  expect(home).toContain('scrollbar-width="none" touch-action="pan-y"');
   expect(home).toContain('box-sizing="border-box" overflow-x="hidden"');
-  expect(thread).toContain('overscroll-behavior="contain" virtualized=true');
+  expect(thread).toContain('overscroll-behavior="contain" touch-action="pan-y" virtualized=true');
   const homeRow = home.indexOf('button appearance="none" press=selectThread(item.id)');
-  const homeDivider = home.indexOf('if item.card and item.trailingDivider and not sidebar');
+  const homeDivider = home.indexOf('if item.card and item.trailingDivider and not item.last and not sidebar');
   expect(homeRow).toBeGreaterThanOrEqual(0);
   expect(homeDivider).toBeGreaterThan(homeRow);
   expect(home.slice(homeRow, homeDivider)).not.toContain('trailingDivider');
@@ -305,8 +306,11 @@ test('thread card separators appear between screen rows and never inside sidebar
   for (const surface of ['compact', 'sidebar']) {
     const f = authoredDismissal(false, fixture(), surface);
     const item = f.scope.item as ReturnType<typeof mobileHomeView>['items'][number];
-    item.trailingDivider = true;
+    item.last = false; item.trailingDivider = true;
     expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(surface === 'compact');
+    item.last = true;
+    expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(false);
+    item.last = false;
     item.trailingDivider = false;
     expect(dismissalRow.drawn('testId=`home-thread-divider-', f.state, f.scope)).toBe(false);
     item.trailingDivider = true;

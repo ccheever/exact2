@@ -318,7 +318,7 @@ component Home
               testId="home-add-environment"
               text "Add environment" color=colors.primaryForeground font-size=plainActionRole.size line-height=`${plainActionRole.line}px` font-weight=700
     else
-      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="on-drag" scrollbar-width="none" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
+      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         padding-left=(listId == "sidebar-list" ? 8 : 0)
         padding-right=(listId == "sidebar-list" ? 8 : trailingReservation)
         padding-top=(listId == "sidebar-list" ? 6 : 0)
@@ -454,7 +454,7 @@ component HomeListItem
         if item.showPendingDivider
           row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
             text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
-            view flex=1 min-width=0 height=1 background-color=colors.border
+            view flex=1 min-width=0 height=1 box-sizing="border-box" background-color=colors.border
         button appearance="none" press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
           hatch="mobile-home-row"
           data-mobile-home-menu=item.nativeMenu
@@ -491,8 +491,8 @@ component HomeListItem
                   text item.environmentLabel color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
                 if item.environmentLabel.length > 0 and item.machineSymbol.length > 0
                   t3-symbol symbol-name=item.machineSymbol symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
-          if item.trailingDivider and surface != "sidebar-list"
-            view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle
+          if item.trailingDivider and not item.last and surface != "sidebar-list"
+            view height=1 min-width=0 box-sizing="border-box" margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle
       else
         box position="relative" min-width=0 overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           if item.swipe.primary != ""
@@ -567,8 +567,8 @@ component HomeListItem
                   if item.queued
                     t3-symbol symbol-name="tray.and.arrow.up" symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                   text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
-        if item.card and item.trailingDivider and not sidebar
-          view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
+        if item.card and item.trailingDivider and not item.last and not sidebar
+          view height=1 min-width=0 box-sizing="border-box" margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
 
 
 component HomeProjectIcon

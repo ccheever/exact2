@@ -72,7 +72,7 @@ component ThreadToolRow
                 detail-text=activity.body detail-output=activity.output detail-result=activity.result detail-foreground=colors.foreground detail-muted=colors.muted
                 detail-result-foreground=colors.dangerForeground max-height=210 min-width=0 testId=`thread-work-detail-${activity.id}`
             else
-              scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none"
+              scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"
                 column padding-right=8
                   if activity.reasoning
                     ThreadMarkdown(blocks=activity.reasoningBlocks, user=false, action=action, colors=colors)
