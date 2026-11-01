@@ -6023,3 +6023,12 @@ and a game can mount its full-window canvas after Play. A launch-time canvas
 check would miss that case. The scaffold now leaves the painter absent, but
 the Windows game default has not yet been given its CPU exception. Do not
 land this branch until that exception and its tests are in place.
+
+The review repairs rebased onto `origin/main` at `a88bb1e534` (Contract list
+styling). Before rerunning the requested Mac checks on that base, predict
+zero failures in those checks; the unrelated scaffold launcher failure
+remains recorded above. The rebase does not qualify Windows runtime behavior.
+All requested post-rebase checks pass, matching that prediction. Their raw
+output is retained in `target/win-default/review/rebased/`, including the
+source revision, commands and exit statuses. The game exception and NucBox
+qualification remain open.
