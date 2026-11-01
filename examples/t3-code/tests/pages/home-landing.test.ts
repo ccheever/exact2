@@ -31,6 +31,12 @@ const remoteShell = shell([{ id: 'r', title: 'Remote', updatedAt: '2026-09-01T00
   [{ id: 't9', projectId: 'r', latestUserMessageAt: '2026-10-05T00:00:00Z' }, { id: 't8', projectId: 'r', latestUserMessageAt: '2026-10-09T00:00:00Z', archivedAt: '2026-10-09T01:00:00Z' }]);
 
 describe('sortScopedProjectsForSidebar over every environment', () => {
+  test('an archived project, however recent, is never the landing (_chat.index.tsx at 2359643cff)', () => {
+    const client = { environmentId: 'local', shell: focusedShell };
+    const archived = shell([{ ...remoteShell.projects[0]!, archivedAt: '2026-10-10T00:00:00Z' }], remoteShell.threads);
+    expect(scopedProjectsByActivity(client, fleetOf(entry('remote', archived)))).toEqual([{ environmentId: 'local', projectId: 'b' }, { environmentId: 'local', projectId: 'a' }]);
+    expect(homeTarget({ environmentId: 'local', shell: shell([]) }, fleetOf(entry('remote', archived)))).toBeNull();
+  });
   test('a background environment\'s more recent project leads; archived threads count for nothing', () => {
     const client = { environmentId: 'local', shell: focusedShell };
     expect(scopedProjectsByActivity(client, fleetOf(entry('remote', remoteShell)))).toEqual([
