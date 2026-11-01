@@ -30,8 +30,8 @@ import { settleLiveTraces } from '../client/protocol-reader'; // answered reques
 import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
-import { availability, panelView, surfaceStore } from '../panel/panel-surfaces';
-import { sideChatSurfaceRows } from '../panel/side-chat'; // the tabbed Files / Linked pull requests / Device surfaces
+import { availability, panelView, surfaceStore } from '../panel/panel-surfaces'; // the tabbed Files / Linked pull requests / Device surfaces
+import { sideChatSurfaceRows } from '../panel/side-chat'; // the launcher's Side chat row
 import { syncRightPanels } from '../panel/saved-panel'; // the right panels persist across launches
 import { revealWaiting } from '../panel/files-crumbs-mount'; // a Files reveal still missing a folder retries
 import { gitTicking } from '../details/git-actions'; // a running action's clock

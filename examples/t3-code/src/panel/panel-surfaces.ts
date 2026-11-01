@@ -248,7 +248,13 @@ export function openSideChatIn(client: T3Client, threadId: string): void {
   upsert(panelState(client), { id: sideChatSurfaceId(threadId), kind: 'side-chat', path: threadId, line: 0, reveal: 0 });
 }
 /** useSideChat.open from the "+" menu, the launcher or `/side` (the composer's `prompt`): true when it started. */
-export const openNewSideChat = (client: T3Client, native: Native, prompt = ''): Promise<boolean> => startSideChat(client, native, prompt, threadId => openSideChatIn(client, threadId));
+export function openNewSideChat(client: T3Client, native: Native, prompt = ''): Promise<boolean> {
+  const parentId = client.threadId, state = panelState(client);
+  return startSideChat(client, native, prompt, threadId => {
+    if (client.threadId === parentId) client.diffOpen = false;
+    upsert(state, { id: sideChatSurfaceId(threadId), kind: 'side-chat', path: threadId, line: 0, reveal: 0 });
+  });
+}
 
 /** Opens one surface kind as the reference's onAdd* handlers do; unavailable kinds are ignored. */
 export async function openSurface(client: T3Client, native: Native, value: string): Promise<string> {

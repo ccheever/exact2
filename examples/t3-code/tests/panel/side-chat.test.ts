@@ -96,6 +96,16 @@ describe('starting one (useSideChat.open)', () => {
     expect(await openNewSideChat(refused.client, native, 'hi')).toBe(false);
     expect([refused.client.error, panelState(refused.client).surfaces]).toEqual(['thread.fork refused', []]);
   });
+  test('moving to another thread before the fork returns still shows the tab on the parent\'s panel', async () => {
+    const { client: c } = client([parent(), parent({ id: 'other', title: 'Other' })]);
+    const parentPanel = panelState(c), access = c.restAccess(native) as unknown as { request: (method: string, payload: Obj) => Promise<unknown> };
+    const request = access.request;
+    access.request = async (method, payload) => { const answer = await request(method, payload); if (payload.type === 'thread.fork') c.threadId = 'other'; return answer; };
+    expect(await openNewSideChat(c, native, '')).toBe(true);
+    // Its tab is what deletes the empty side chat when closed, so it must not be lost.
+    expect([parentPanel.visible, parentPanel.surfaces.map(surface => surface.kind)]).toEqual([true, ['side-chat']]);
+    expect(panelState(c).surfaces).toEqual([]);
+  });
   test('a message the server refuses drops the empty side chat (onlyIfUnused)', async () => {
     const { client: c, requests } = client([parent()], { fail: ['message.dispatch'] });
     expect(await openNewSideChat(c, native, 'hi')).toBe(false);

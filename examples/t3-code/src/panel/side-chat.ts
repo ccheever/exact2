@@ -74,11 +74,11 @@ export function sideChatSurfaceRows(client: T3Client): { id: string; label: stri
   return [{ id: 'side-chat', label: 'Side chat', icon: 'messages-square', shortcut: 'S', letter: 's', available, reason: available ? '' : reason ?? 'Available after the first message.' }];
 }
 
-type Store = { starting: Set<string>; busy: Map<string, string>; mergeToast: number; detachToast: number; pending: boolean };
+type Store = { starting: Set<string>; busy: Map<string, string>; pending: boolean };
 const stores = new WeakMap<T3Client, Store>();
 export function sideChatStore(client: T3Client): Store {
   let store = stores.get(client);
-  if (!store) stores.set(client, store = { starting: new Set(), busy: new Map(), mergeToast: 0, detachToast: 0, pending: false });
+  if (!store) stores.set(client, store = { starting: new Set(), busy: new Map(), pending: false });
   return store;
 }
 
@@ -96,7 +96,8 @@ export async function deleteSideChatThread(client: T3Client, native: Native, thr
 /**
  * useSideChat.open: forks the open thread's latest stable point, sends `prompt` there, and shows the side chat's tab.
  * Resolves false when it did not start, or another one is still starting; a failure goes on the thread's error banner.
- * `openTab` adds and activates the tab on the parent's panel (panel-surfaces.ts openSideChatIn).
+ * `openTab` adds and activates the tab on the parent's panel, also when the window has moved to another thread since
+ * (panel-surfaces.ts openNewSideChat): an empty side chat is deleted only when its tab closes.
  */
 export async function startSideChat(client: T3Client, native: Native, prompt: string, openTab: (threadId: string) => void): Promise<boolean> {
   const store = sideChatStore(client);
@@ -122,7 +123,7 @@ export async function startSideChat(client: T3Client, native: Native, prompt: st
         await client.restAccess(native).request('orchestration.dispatchCommand', sendPayload(commandId, targetThreadId, messageId, text, [], launchTitle(text)), true);
       } catch (error) { discard(); return fail(error, 'Could not send the side chat message.'); }
     }
-    if (client.threadId === parentId) openTab(targetThreadId);
+    openTab(targetThreadId);
     return true;
   } finally { store.pending = false; }
 }
@@ -180,7 +181,7 @@ export async function sendToSideChat(client: T3Client, native: Native, threadId:
   const question = projection ? pendingRequests(projection).inputs[0] : undefined;
   const first = question?.questions[0];
   if (question && first && question.questions.length === 1) {
-    await dispatch(client, native, { type: 'runtime-request.respond', threadId, requestId: question.requestId, answers: { [first.id]: message } });
+    await dispatch(client, native, { type: 'runtime-request.respond', threadId, requestId: question.requestId, answers: { [first.id]: first.multiSelect ? [message] : message } });
     return;
   }
   const [commandId = '', messageId = ''] = await client.restAccess(native).ids(2);
