@@ -1,8 +1,45 @@
 # T3 Code clone handoff
 
-Updated October 31, 2026, Toronto time. Finish the one-to-one clone with pstack
+Updated November 1, 2026, Toronto time. Finish the one-to-one clone with pstack
 handling routine execution and review. The legacy scheduled coordinator stays
 disabled. Use this handoff when taking over the work.
+
+## Active handoff — November 1
+
+The coordinator worktree is clean at `fe882b504b` on
+`t3/coordinate-t3-ios-mini`. The branch is pushed to PR216's
+`feat(example)/t3-code-ios` destination. PR216 remains draft, unmerged and
+auto-merge disabled. Keep every future change on that destination; never merge
+PR216 or a child PR to `main`.
+
+The latest source unit fixes Home separator boundaries. `home.ts` now emits a
+trailing divider only when the adjacent visible row has the same section and a
+compatible row kind. The Contract still suppresses the final row and sidebar
+strokes. This removes a line that could read as both the end of one section and
+the start of the next without changing list keys, row padding or scroll
+ownership. The regression covers pinned/active/settled boundaries and adjacent
+rows within one section. The handoff diary is
+`examples/t3-code/mobile/diary/2026-11-01-scroll-surfaces.md`.
+
+Verification for this unit: focused Home/thread/scroll tests pass (64 tests,
+445 assertions), caps pass in all ten categories, and a normal signed iOS
+simulator build passes. The built app was installed and driven on local Duo
+`8AE91541-FA45-4707-89E1-43DB980A2985`; Home and thread flings kept content
+intact and showed no clipping in the captured trees/screenshots. Evidence is
+under `target/t3-scroll-evidence/`, including Home/thread screenshots and
+recordings. Simulator frame-health sampling is unavailable on iOS simulators,
+so do not claim a quantitative frame-rate win or “buttery” performance from
+this drive. No framework defect reproduced; do not file a framework issue
+without a new isolated reproduction.
+
+The prior integrated history, table, first-read, rail and Home units remain in
+the commit ancestry. Open parity gaps are live history errors/Retry, filtered
+continuation, selection and exact anchor preservation, bounded transcript
+residency, keyboard-visible Send under the Duo rail, fold/rotation, iPad split
+layouts, connected/reference pairing, oversized Markdown/table behavior and
+release qualification. Start the next unit from the clean branch, inspect the
+relevant decision document, add focused regression coverage, build and drive an
+owned simulator, then update this handoff and push only to PR216.
 
 ## Current state
 
