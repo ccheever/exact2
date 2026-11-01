@@ -43,10 +43,13 @@ same set.
 An app with no `host.windows.painter` uses ink on a DirectX 11 composition
 swap chain. `"cpu"` keeps the CPU painter and its `softbuffer` window;
 `"ink"` is also accepted. `EXACT_PAINTER` overrides either choice.
-`EXACT_INK_DEVICE=wgpu` selects ink's DirectX 12 device; `warp` selects
-software DirectX 11. Install the Windows SDK for build-time `fxc` compilation.
-The agent and smoke scripts explicitly select CPU unless `EXACT_PAINTER`
-is set; their headless screenshots do not qualify the window's composition path.
+`EXACT_INK_DEVICE=wgpu` selects ink's wgpu device (DirectX 12 with
+`WGPU_BACKEND=dx12`, as the measurements set); `warp` selects software
+DirectX 11. An Ink build requires the Windows SDK's `fxc`; without it,
+the build refuses and names the SDK and `"cpu"` remedies.
+`agent windows`, `test windows` and `verify windows` explicitly select CPU
+for their headless drives unless `EXACT_PAINTER` is set. Those screenshots
+do not qualify the window's composition path.
 A direct `EXACT_SMOKE=1` launch uses the app's painter choice.
 Linux and Android still opt into ink per platform; Android refuses it until
 its Vulkan presenter is implemented. Apple keeps the native host by default;

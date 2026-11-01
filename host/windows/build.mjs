@@ -15,15 +15,16 @@ import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp, wi
 const quote = (s) => `'${String(s).replaceAll("'", "''")}'`;
 const powershell = (command) => spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', command], { encoding: 'utf8', windowsHide: true });
 
-/** The directory of the Windows SDK's newest x64 `fxc.exe`, which ink's Direct3D 11 shaders compile with
- * (host/ink/build.rs) and a shell's PATH outside a Developer Command Prompt lacks; null when PATH has one or there is
- * no SDK. Without it the shaders are empty and an ink window refuses to open. */
-function sdkFxc() {
-  if (String(process.env.PATH ?? '').split(delimiter).some((dir) => dir && existsSync(resolve(dir, 'fxc.exe')))) return null;
-  const bin = resolve(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Windows Kits', '10', 'bin');
-  let versions = []; try { versions = readdirSync(bin).filter((v) => /^\d+(\.\d+)+$/.test(v)); } catch {}
-  const newest = versions.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).reverse().find((v) => existsSync(resolve(bin, v, 'x64', 'fxc.exe')));
-  return newest ? resolve(bin, newest, 'x64') : null;
+/** Locate the shader compiler before Cargo can bake empty DXBC into an Ink binary. */
+export function prepareShaders(manifest, env = process.env) {
+  const onPath = String(env.PATH ?? '').split(delimiter).find(dir => dir && existsSync(resolve(dir, 'fxc.exe')));
+  if (onPath) return;
+  const bin = resolve(env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Windows Kits', '10', 'bin');
+  let versions = []; try { versions = readdirSync(bin).filter(v => /^\d+(\.\d+)+$/.test(v)); } catch {}
+  const newest = versions.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).reverse().find(v => existsSync(resolve(bin, v, 'x64', 'fxc.exe')));
+  if (newest) env.PATH = `${resolve(bin, newest, 'x64')}${delimiter}${env.PATH ?? ''}`;
+  else if (manifest?.host?.windows?.painter !== 'cpu')
+    throw new Error('Windows Ink requires fxc.exe: install the Windows SDK, or select host.windows.painter: "cpu".');
 }
 
 /** Whether this process has no desktop of its own: an SSH session's windows are never shown. */
@@ -113,10 +114,7 @@ if (import.meta.main) {
   const outAt = args.indexOf('--out');
   if (outAt >= 0 && !args[outAt + 1]) throw new Error('--out needs a directory');
   const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && (outAt < 0 || i !== outAt + 1)));
-  const fxc = sdkFxc();
-  if (fxc) process.env.PATH = `${fxc}${delimiter}${process.env.PATH}`;
-  else if (app.manifest?.host?.windows?.painter !== 'cpu' && !String(process.env.PATH).split(delimiter).some((dir) => dir && existsSync(resolve(dir, 'fxc.exe'))))
-    console.error('warning: no fxc.exe on PATH or in the Windows SDK: the default ink painter cannot open its DirectX 11 window (install the Windows SDK, or select host.windows.painter "cpu"; headless drives explicitly use the CPU)');
+  prepareShaders(app.manifest);
   const target = bakeTarget('windows');
   const profile = args.includes('--release') ? 'release' : 'gpu-dev';
   const build = buildBake(app, 'windows', target, { profile, env: developmentBuildEnv(app) });

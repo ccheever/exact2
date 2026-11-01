@@ -1,5 +1,6 @@
 //! Product-window qualification, run in the signed-in desktop after building Shelf.
 //! @ref LLP 1149 S2.1, D7, D9; LLP 1115.004 D13.
+use crate::device::tests::{default_frame_is_ink, desktop_arm, desktop_launch};
 use std::{
     fs::{self, File},
     path::PathBuf,
@@ -58,6 +59,7 @@ struct Shelf {
     child: Child,
     hwnd: HWND,
     log: PathBuf,
+    device: String,
 }
 
 impl Shelf {
@@ -84,25 +86,15 @@ impl Shelf {
         let log = out().join(format!("{name}.log"));
         let file = File::create(&log).unwrap();
         let mut command = Command::new(exe);
-        let device = std::env::var("EXACT_INK_DEVICE").unwrap_or_else(|_| "d3d11".into());
+        let requested = std::env::var("EXACT_INK_DEVICE").ok();
+        let (selected_painter, device) = desktop_launch(painter, requested.as_deref());
+        if let Some(painter) = selected_painter {
+            command.env("EXACT_PAINTER", painter);
+        } else {
+            command.env_remove("EXACT_PAINTER");
+        }
         command
-            .env(
-                "EXACT_INK_DEVICE",
-                match painter {
-                    "default" | "cpu" => device.as_str(),
-                    "wgpu" => "wgpu",
-                    "warp" => "warp",
-                    _ => "d3d11",
-                },
-            )
-            .env(
-                "EXACT_PAINTER",
-                if matches!(painter, "wgpu" | "warp" | "richedit") {
-                    "ink"
-                } else {
-                    painter
-                },
-            )
+            .env("EXACT_INK_DEVICE", device)
             .env("EXACT_SIZE", size)
             .env("EXACT_AGENT_WINDOW_READY", "library-count")
             .env(
@@ -118,9 +110,6 @@ impl Shelf {
             .env_remove("EXACT_AGENT_WINDOW_FRAMES")
             .stdout(Stdio::from(file.try_clone().unwrap()))
             .stderr(Stdio::from(file));
-        if painter == "default" {
-            command.env_remove("EXACT_PAINTER");
-        }
         if painter == "richedit" {
             command.env("EXACT_INK_RICHEDIT", "1");
         }
@@ -140,6 +129,7 @@ impl Shelf {
             child,
             hwnd: HWND::default(),
             log,
+            device: device.to_owned(),
         };
         if fault == Some("slow-devices") {
             until("late-device window is visible", || {
@@ -163,6 +153,19 @@ impl Shelf {
             text.contains("process to first-screen compositor sync")
                 || text.contains("complete first screen submitted (probe off)")
         });
+        if painter == "default" {
+            until("default first frame", || {
+                app.alive();
+                app.text()
+                    .lines()
+                    .any(|line| line.starts_with("exact-windows: frame 1 "))
+            });
+            assert!(
+                default_frame_is_ink(&app.text()),
+                "default first frame was not Ink: {}",
+                app.text()
+            );
+        }
         until("Shelf HWND", || {
             app.hwnd = window_for(app.child.id());
             !app.hwnd.is_invalid()
@@ -176,8 +179,10 @@ impl Shelf {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         let exe = std::env::var("INK_SHELF").expect("INK_SHELF names the built Shelf.exe");
-        let painter = std::env::var("EXACT_PAINTER").unwrap_or_else(|_| "default".into());
-        let mut app = Self::launch(name, &exe, &painter, "1024x720", None, field);
+        let painter = std::env::var("EXACT_PAINTER").ok();
+        let device = std::env::var("EXACT_INK_DEVICE").ok();
+        let arm = desktop_arm(painter.as_deref(), device.as_deref());
+        let mut app = Self::launch(name, &exe, arm, "1024x720", None, field);
         app.place(1024, 720);
         app
     }
@@ -1025,16 +1030,18 @@ fn shelf_dpi_roundtrip() {
 #[test]
 #[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
 fn shelf_device_loss() {
-    let wgpu = std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu");
-    let painter = std::env::var("EXACT_PAINTER").unwrap_or_else(|_| "default".into());
+    let painter = std::env::var("EXACT_PAINTER").ok();
+    let requested = std::env::var("EXACT_INK_DEVICE").ok();
+    let arm = desktop_arm(painter.as_deref(), requested.as_deref());
+    let (_, device) = desktop_launch(arm, requested.as_deref());
     let mut app = Shelf::launch_fault(
         "device-loss",
         &std::env::var("INK_SHELF").unwrap(),
-        &painter,
+        arm,
         "1024x720",
         None,
         false,
-        (!wgpu).then_some("mica-recovery"),
+        (device != "wgpu").then_some("mica-recovery"),
     );
     app.capture("device-loss-before");
     let mut reset = Command::new("dxcap.exe").arg("-forcetdr").spawn().unwrap();
@@ -1045,7 +1052,7 @@ fn shelf_device_loss() {
     );
     // Force a changed extent so an otherwise idle app observes the removed device.
     app.place(1025, 720);
-    if std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu") {
+    if app.device == "wgpu" {
         until("wgpu loss presents the CPU fallback", || {
             app.alive();
             app.text().contains("painting on the CPU from here")

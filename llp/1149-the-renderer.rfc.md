@@ -1,7 +1,7 @@
 # LLP 1149: The renderer — the painter on the GPU, on every platform
 
 **Type:** RFC (a decision brief: each question carries a proposed answer; §5 lists the ones that are Charlie's)
-**Status:** Draft r4, 2026-10-28. S0 was built the same day (§4 has every chunk's numbers; the two D15 verdicts are earned; the code is on `lane/ink` at `e83558a4d6`). Charlie ruled on it that evening: "land after fixes"; the renderer is to be used "some of the time but not all of the time, depending on what you want", which D12 now states as a per-app choice on every platform with today's painters kept (D13 amended); S2 before S1; §5's proposed answers stand where the proposer is at least 80% confident, and the two where he is not (Q14, the boot rule; Q21, the thresholds) went to the panel blind: GPT-6 Astra (94 and 91) and Muse Wonder Full 1.0 (70 and 75) agree on both and are folded (`llp/reviews/rfc-2026-10-28-1149-r4.{astra,muse}.md`; Grok's run died on a permission prompt); D6.3, D15, §4 and §8 carry their answers, and §5 gains Q25 from Muse. Landing follows the second blind code review's fixes (C6f). Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5. Charlie ruled on 2026-11-01: "let's use ink by default on windows and optionally on macos and other platforms." D12 records the Windows default and the explicit CPU choice; D13 is unchanged.
+**Status:** Draft r4, 2026-10-28. S0 was built the same day (§4 has every chunk's numbers; the two D15 verdicts are earned; the code is on `lane/ink` at `e83558a4d6`). Charlie ruled on it that evening: "land after fixes"; the renderer is to be used "some of the time but not all of the time, depending on what you want", which D12 initially recorded as a per-app choice with the existing defaults (D13 amended; Windows' default changed on 2026-11-01 below); S2 before S1; §5's proposed answers stand where the proposer is at least 80% confident, and the two where he is not (Q14, the boot rule; Q21, the thresholds) went to the panel blind: GPT-6 Astra (94 and 91) and Muse Wonder Full 1.0 (70 and 75) agree on both and are folded (`llp/reviews/rfc-2026-10-28-1149-r4.{astra,muse}.md`; Grok's run died on a permission prompt); D6.3, D15, §4 and §8 carry their answers, and §5 gains Q25 from Muse. Landing follows the second blind code review's fixes (C6f). Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5. Charlie ruled on 2026-11-01: "let's use ink by default on windows and optionally on macos and other platforms." D12 records the Windows default and the explicit CPU choice; D13 is unchanged.
 **Systems:** a new crate, `host/ink` (`exact-ink`): the painter's GPU backend, its device trait, a wgpu device layer and direct ones where measured; `host/linux` (the paint walk and `paint/backend.rs`, unchanged in contract; `gpu.rs` gains kept rows as the control arm, then loses its platform branches as each passes; `raster.rs`, kept as the oracle and fallback; `text/catalog.rs`, the glyph rasterizers); `host/windows` (the window presents through a composition swap chain); a painted Apple carrier (new, S1, if S0 earns it); the build (`host/apple/build.mjs`, `host/windows/build.mjs`: shaders compiled at build); `scripts/app.schema.json` (`host.macos.presenter`, `host.ios.presenter`); LLP 1009 D1 (amended narrowly); `rules/DEFERRED.md` §Runtime (a replacement exception, §8)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-28; r2 and r3 the same day
@@ -574,21 +574,24 @@ The ruling changes the default without closing those boot obligations.
 [The 60 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored)
 and [the 120 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g7c-the-windows-120-hz-fling-rows-and-the-observer-off-cold-control)
 remain the performance record; S2.9 records both devices passing the six desktop journeys.
-`EXACT_INK_DEVICE=wgpu` selects ink's DirectX 12 device and `warp` forces
-DirectX 11's software device. S2.9b's ordinary Shelf launches reached the first
-screen at 859 ms through wgpu's shader translation, pipeline build, readback
-and `softbuffer` present, against 142 ms through DirectX 11 composition.
+`EXACT_INK_DEVICE=wgpu` selects ink's wgpu device: DirectX 12 with
+`WGPU_BACKEND=dx12`, as the measurements set. `warp` forces DirectX 11's
+software device. [G7b, Windows at 120 Hz with cut 7](../bench/heavy-list/gpui/RESULTS.md#g7b-cold-carrier-endpoints-beside-g6eg6-and-g7)
+records a DWM complete-screen proxy median of 192.98 ms for ink D3D11
+against 730.36 ms for ink wgpu, ten interleaved launches per arm in the
+same session. Those are carrier endpoints; PresentMon corroboration was
+unavailable.
 
 On Linux and Android an app opts in with `host.linux.painter: "ink"` or
 `host.android.painter: "ink"`. Without the key, Linux keeps vello or the CPU
 painter, and Android keeps its Canvas host or vello. Android refuses ink until
 S4 implements its Vulkan surface presenter.
 
-On Apple the native host stays the default — what an
-author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
-in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
-`host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
-value). **Distribution is refused** until the painted carrier exposes the accessibility
+On Apple the native host stays the default — what an author leaves unsaid
+is the platform's (LLP 1115). `host.macos.presenter: "painted"` builds the
+macOS benchmark carrier. The manifest reader refuses `host.ios.presenter`;
+there is no painted iOS carrier. **macOS distribution is refused** until the
+painted carrier exposes the accessibility
 tree through the kernel's roles, as the native host does (VoiceOver reads it), with text
 editing, the IME, keyboard navigation, focus and the app lifecycle: those are the shipping
 gate of a presenter an app may choose. S1's carrier is a **benchmark carrier** until that
@@ -597,7 +600,7 @@ the system's text input protocols on a hidden view (the shape LLP 1115.004 D7 ta
 Windows), the agent over the same socket the native host uses; its menus, dialogs and
 pickers the system's, as 1115.004 takes them on Windows.
 
-What "the same everywhere" promises an app that opts in: the same authored styling and the
+What "the same everywhere" promises an app using ink: the same authored styling and the
 same layout, verified against the web (LLP 1001); the platform's text rasterization (D3)
 and the platform's accessibility, editing and system surfaces, which differ by design. Not
 identical pixels.
@@ -1798,7 +1801,7 @@ control arm) were decided before S0 and stand on its numbers.
     regression and startup requirements, 91; M keep both verdicts on substance, restate D15
     before S3 reuses it, 75 (85 that it was under-specified). (r1: A predeclare them, 99; G
     within 10% means the device layers are not the performance work.)
-22. **What "the same everywhere" promises an app that opts in: the same styling and layout,
+22. **What "the same everywhere" promises an app using ink: the same styling and layout,
     the platform's text and accessibility?** Proposed (D12). *A:* 99.
 23. **The supported matrix of D5.3 (minima, the 11_0 floor, WARP for remote sessions, KMS
     only on Linux, Android 10 with Vulkan 1.1)?** Proposed. *A:* 98.

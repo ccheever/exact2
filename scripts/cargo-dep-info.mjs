@@ -193,3 +193,7 @@ export function unitDepInfo(message, workspace, metadata) {
   const searched = metadata ? `; searched target directory ${metadata.target_directory}${buildDir !== targetDir ? ` and build directory ${metadata.build_directory}` : ''}` : '';
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}${searched}; rebuild the stale Cargo unit or use a private target directory`);
 }
+
+/** Rust's canonical source and Cargo's package roots must use the same Windows spelling. */
+export const sourcePath = (path, platform = process.platform) => platform === 'win32'
+  ? path.replace(/^\\\\\?\\([A-Za-z]:\\)/, '$1').replace(/^\\\\\?\\UNC\\/i, '\\\\') : path;

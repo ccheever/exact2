@@ -47,7 +47,7 @@ impl PainterChoice {
             .as_deref()
         {
             Some("ink") => Self::Ink,
-            Some("cpu") => Self::Cpu,
+            Some("cpu") if cfg!(windows) => Self::Cpu,
             _ if cfg!(windows) => Self::Ink,
             _ => Self::Auto,
         }
@@ -636,7 +636,14 @@ mod tests {
             }
         );
         let cpu = PainterChoice::from_baked(r#"{"painter":"cpu"}"#);
-        assert_eq!(cpu, PainterChoice::Cpu);
+        assert_eq!(
+            cpu,
+            if cfg!(windows) {
+                PainterChoice::Cpu
+            } else {
+                PainterChoice::Auto
+            }
+        );
         for default in [cpu, PainterChoice::from_baked("{}")] {
             assert_eq!(default.with_override(None), default);
             assert_eq!(default.with_override(Some("ink")), PainterChoice::Ink);

@@ -5805,7 +5805,9 @@ byte. Default and CPU binaries and their SHA-256 receipts remain in the mirror.
 The initial Windows failure is
 `modal::tests::native_modal_and_carrier_deadlines_cancel_rearm_and_release`
 (`checks-initial/windows.log`): it selected the two-second deadline instead
-of the expected half-second deadline. No timer code or assertion was changed. The subsequent run uses the existing Windows recipe's
+of the expected half-second deadline. The cause is not established; the
+profile change does not explain it. No timer code or assertion was changed.
+The subsequent run uses the existing Windows recipe's
 explicit `--config profile.gpu-dev.package.exact-linux.opt-level=0`; an earlier
 package-profile environment variable had not selected that override. An
 unfinished text-suite compilation from that attempt was stopped, with its
@@ -5973,3 +5975,51 @@ and the desktop at 100%. The mirror remains at the tested runtime tip
 `a28244e3e5`; the final local commit only adds the qualification record,
 queue observation, diaries and guide clarification. It could not be copied
 to the unreachable mirror.
+
+### Blind-review repairs (2026-11-01)
+
+The review round runs on the Mac only. Before its suites, predict zero
+failures in the requested Linux, Ink, guide, formatting, caps and Clippy
+checks, and in the added script checks. No performance result is predicted.
+The NucBox is asleep and unreachable; no command is sent to it in this round.
+The reviewed runtime and desktop-harness changes invalidate the earlier
+Windows qualification for the new tip.
+
+After waking and cleaning the NucBox, the new tip still owes Shelf and
+Excord builds, the baked CPU Excord smoke, `exact-windows`, both Ink/pinned/
+text/image suites, native surfaces and the composition/windowless-field
+checks. Repeat resize, minimize/restore, caret, DPI and device loss on both
+devices with the painter absent and with `EXACT_PAINTER=ink`; test WARP arm
+selection too. Default journeys must now assert Ink in frame 1. Check that
+smoke, screenshot and explicit headless launches do not start the window's
+device workers. Repeat the CPU window override and Excord's desktop drive;
+RichEdit remains unqualified. Sleep/wake needs the existing recovery work
+before any new attempt. The exact cleanup tasks and process receipts are
+listed in `QUEUE.md`'s NucBox sleep/wake item.
+
+The zero-failure prediction missed: the first Linux invocation could not
+compile the new test because its helper imports were missing. Adding those
+imports fixes it; the complete rerun passes. The full scaffold suite reports
+23 passes and one failure: `scripts/exact.mjs` cannot find Bun when PATH is
+`/usr/bin:/bin` and the pinned home installation is absent. The launcher is
+byte-identical to `origin/main`; a direct invocation reproduces exit 127.
+The focused ordinary-app and new-game Windows scaffold tests both pass.
+Raw output is retained in `target/win-default/review/`.
+
+Caps first found `window.rs` one line over 1,500. Removing the now-redundant
+headless `drop(preparing)` brings it back within the cap: headless runs no
+longer start that preparation. The failure and rerun are retained separately.
+
+The final Mac results are Linux 1,705 passing unit tests and 296 passing
+integration tests, Ink 58, guides 5, manifest scripts 22 and the two focused
+scaffold tests. The ignored tests remain ignored; no native Windows test ran.
+Formatting, Clippy and staged caps pass. The complete suite result lines and
+commands are retained below `target/win-default/review/`; the full scaffold
+suite still has the launcher failure described above. This is not a passing
+zero-failure prediction.
+
+The game-path finding remains open. `run_composed` also serves ordinary apps,
+and a game can mount its full-window canvas after Play. A launch-time canvas
+check would miss that case. The scaffold now leaves the painter absent, but
+the Windows game default has not yet been given its CPU exception. Do not
+land this branch until that exception and its tests are in place.

@@ -469,7 +469,7 @@ test('a native verb names its platform, and the generated workspace follows app.
     assert.deepEqual(namePlatform(dir, 'android'), ['host.android'], 'no store for Android');
     // Windows's host refuses any store level but "0", and an absent key reads as "A" (LLP 1115.004 D15).
     assert.deepEqual(namePlatform(dir, 'windows'), ['host.windows', 'deploy.store.windows']);
-    assert.deepEqual([manifest().host.windows.painter, manifest().host.windows.window.width, manifest().deploy.store.windows], ['ink', 1024, '0']);
+    assert.deepEqual([manifest().host.windows.painter, manifest().host.windows.window.width, manifest().deploy.store.windows], [undefined, 1024, '0']);
     const windows = ensureShells(dir).workspace;
     assert.match(readFileSync(resolve(windows, 'windows/src/main.rs'), 'utf8'), /exact_windows::run_composed::<AppData>\("Field Log", window\(\), PLAN, COMPAT, composed\)/);
     assert.match(createApp(dir, { update: true, without: 'windows' }), /without windows \(removed host\.windows, deploy\.store\.windows\)/);
@@ -1052,4 +1052,16 @@ test('an app authored its workspace when its files say so, not because a directo
     writeFileSync(resolve(dir, 'Cargo.toml'), '[workspace]\nmembers = ["apple"]\n');
     assert.equal(authoredWorkspace(dir), dir);
   } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('naming Windows for a new game leaves the painter to the host', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'game-windows-painter-'));
+  try {
+    const path = resolve(dir, 'app.json');
+    writeFileSync(path, JSON.stringify({ game: { crate: 'world-logic', type: 'World' } }));
+    namePlatform(dir, 'windows');
+    const manifest = JSON.parse(readFileSync(path, 'utf8'));
+    assert.equal(manifest.host.windows.painter, undefined);
+    assert.equal(manifest.deploy.store.windows, '0');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

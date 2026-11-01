@@ -31,12 +31,12 @@ export function platformOf(verb, host = 'web') {
 }
 
 /** What `host.<platform>` holds when a verb names the platform: the scaffold's defaults for the two Apple platforms,
- * Shelf's for Windows (ink's composition swap chain, with Mica, LLP 1149 D12, and a desktop window's size), nothing
+ * a desktop window's size for Windows (the host chooses its painter, LLP 1149 D12), nothing
  * for the others (each key may be empty, scripts/app.schema.json). */
 const hostDefaults = (platform) => ({
   ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] },
   macos: { minimumOS: '14.0', window: { width: 900, height: 700 } },
-  windows: { painter: 'ink', window: { width: 1024, height: 720, minWidth: 360, minHeight: 500 } },
+  windows: { window: { width: 1024, height: 720, minWidth: 360, minHeight: 500 } },
 }[platform] ?? {});
 
 const readManifest = (dir) => JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
