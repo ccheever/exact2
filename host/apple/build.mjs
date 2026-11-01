@@ -165,6 +165,9 @@ export const iosTripleFor = (app, device, tv = false) =>
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
 export const moduleTripleFor = (app, ios, device = false, tv = false) =>
   ios ? iosTripleFor(app, device, tv) : `${macTriple}${deploymentTargets(app).macos}`;
+export function dropLeftoverCore(bin) {
+  for (const directory of [bin, resolve(bin, 'Modules')]) for (const name of ['ExactCore.swiftmodule', 'ExactCore.swiftdoc', 'ExactCore.abi.json', 'ExactCore.swiftsourceinfo', 'ExactCore.o']) rmSync(resolve(directory, name), { recursive: true, force: true });
+}
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
 export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false, optimize = 'speed' } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
@@ -834,7 +837,6 @@ async function main(args, lockHeld = false) {
   // framework yet ExactKit is left to the product build. A module an older build left goes here, through
   // this compiler's and arguments' answer file, and again before the product builds, from the products'
   // directory itself, which other arguments share.
-  const dropLeftoverCore = (bin) => { for (const name of ['ExactCore.swiftmodule', 'ExactCore.o']) rmSync(resolve(bin, name), { recursive: true, force: true }); };
   if (widgetCore && existsSync(binAnswer)) dropLeftoverCore(readFileSync(binAnswer, 'utf8'));
   const earlyEnv = (link = 'all') => ({ ...swiftEnv(expected.capture, expected.composition, link),
     ...(coreFrameworkBuilt ? { EXACT_CORE_FRAMEWORK: relative(pkg, widgetCore.xcframework) } : {}) });
