@@ -8,7 +8,7 @@ export const BROWSER_ENTITLEMENT = 'com.apple.developer.web-browser';
 
 /** Only the opted-in iOS app claims the managed browser role, and only when
  * its HTTP/HTTPS pair is included in this build. Apple must approve its profile. */
-export const browserEntitlements = (app, distributed = false) => app.manifest.host?.ios?.defaultBrowser === true
+export const browserEntitlements = (app, distributed = false) => app.manifest.host?.ios?.webBrowser === true
   && !app.widgetTV && !app.widgetHost && !app.widgetAppId && !app.clipParent
   && (app.manifest.protocol_handlers ?? []).some(h => isWebScheme(h.protocol) && (!h.distribution_only || distributed)) ? [BROWSER_ENTITLEMENT] : [];
 

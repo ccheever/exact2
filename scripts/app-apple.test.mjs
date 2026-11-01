@@ -850,7 +850,7 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
 test('only an opted-in iOS browser signs the managed role and registers the web pair', async () => {
   const { browserEntitlements, webRefusal, BROWSER_ENTITLEMENT: key } = await import('../host/apple/documents.mjs');
   const { allows, profile } = await import('../host/apple/devices.mjs');
-  const app = { id: 'dev.exact.browser', displayName: 'Browser', manifest: { host: { ios: { defaultBrowser: true } },
+  const app = { id: 'dev.exact.browser', displayName: 'Browser', manifest: { host: { ios: { webBrowser: true } },
     protocol_handlers: ['http', 'https', 'browser'].map(protocol => ({ protocol, url: '/open?u=%s' })) } };
   for (const plist of [entitlements(app, null, true, null, { simulator: true }), entitlements(app, 'TEAM', false)]) {
     assert.match(plist, /<key>com.apple.developer.web-browser<\/key><true\/>/);
@@ -868,7 +868,7 @@ test('only an opted-in iOS browser signs the managed role and registers the web 
     assert.doesNotMatch(infoPlist(app, false, options), /<string>https?<\/string>|Web site URL/);
   }
   assert.match(webRefusal(app, false, true), /tvOS registers neither/);
-  const ordinary = { ...app, manifest: { ...app.manifest, host: { ios: { defaultBrowser: false } } } };
+  const ordinary = { ...app, manifest: { ...app.manifest, host: { ios: { webBrowser: false } } } };
   assert.doesNotMatch(entitlements(ordinary), /com.apple.developer.web-browser/);
   assert.doesNotMatch(infoPlist(ordinary), /Web site URL/);
   assert.match(infoPlist(ordinary), /<string>browser<\/string>/);

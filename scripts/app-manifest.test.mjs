@@ -398,14 +398,14 @@ test('iOS browser opt-in requires a web-scheme pair and preserves ordinary apps'
   const save = (value) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(value));
   try {
     for (const flag of [true, false]) {
-      save({ ...base, host: { ios: { defaultBrowser: flag } }, protocol_handlers: pair });
-      assert.equal(readManifest(dir, 'browser').host.ios.defaultBrowser, flag);
+      save({ ...base, host: { ios: { webBrowser: flag } }, protocol_handlers: pair });
+      assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, flag);
     }
-    save({ ...base, host: { ios: { defaultBrowser: true } } });
-    assert.throws(() => readManifest(dir, 'browser'), /host.ios.defaultBrowser: declare http and https/);
-    save({ ...base, host: { ios: { defaultBrowser: 'true' } }, protocol_handlers: pair });
-    assert.throws(() => readManifest(dir, 'browser'), /host.ios.defaultBrowser: expected boolean, got string/);
-    save({ ...base, host: { ios: { defaultBrowser: false } } });
-    assert.equal(readManifest(dir, 'browser').host.ios.defaultBrowser, false);
+    save({ ...base, host: { ios: { webBrowser: true } } });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: declare http and https/);
+    save({ ...base, host: { ios: { webBrowser: 'true' } }, protocol_handlers: pair });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: expected boolean, got string/);
+    save({ ...base, host: { ios: { webBrowser: false } } });
+    assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, false);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
