@@ -25,7 +25,7 @@ public struct SessionFacts {
     public let epochAtZero: Double
     public let utcOffset: Double
     public let locale: String
-    /// The Region's format (`Locale.current`): `exactTime().formatLocale`.
+    /// The Region's format with a forced hour cycle (`currentFormatLocale`): `exactTime().formatLocale`.
     public let formatLocale: String
     public let timeZone: String
     public let seed: UInt64
@@ -34,7 +34,7 @@ public struct SessionFacts {
                 rootFontSize: Double = Double(defaultRootFontSize),
                 date: Date = Date(), clock: Double = 0, timeZone: TimeZone = .current,
                 locale: String = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47),
-                formatLocale: String = Locale.current.identifier(.bcp47),
+                formatLocale: String = SessionFacts.currentFormatLocale,
                 seed: UInt64 = UInt64(UInt32.random(in: .min ... .max)),
                 textResidencyBytes: Int = 2 * 1024 * 1024) {
         self.textResidencyBytes = max(0, textResidencyBytes)
@@ -54,5 +54,38 @@ public struct SessionFacts {
         runtime.setLaunchTime(epochAtZero: epochAtZero, utcOffset: utcOffset)
         try accept(runtime.setLaunchPlace(locale: locale, timeZone: timeZone, seed: seed, formatLocale: formatLocale))
         try accept(runtime.setPreferences(preferences.rawValue))
+    }
+}
+
+extension SessionFacts {
+    /// `exactTime().formatLocale` off the agent: the Region's format
+    /// (`Locale.current`; English in Korea is `en-KR`) with the hour cycle the
+    /// user forces (System Settings › General › Date & Time › 24-hour time on
+    /// the Mac, Settings › General › Date & Time › 24-Hour Time on iOS) as
+    /// `-u-hc-h23` or `-u-hc-h12`. Foundation's formatters honour that
+    /// setting, but `Locale.current.identifier` leaves it out. It is read from
+    /// the two defaults the setting writes, as T3 Code's desktop app reads them
+    /// beside Electron's `app.getSystemLocale()`. `Locale.current.hourCycle`
+    /// answers the global setting too, but not a launch argument
+    /// (`-AppleICUForce24HourTime YES`), which the defaults hear: a test sets
+    /// the cycle for one process that way, though Foundation's own
+    /// formatters in that process keep the global one.
+    public static var currentFormatLocale: String {
+        let defaults = UserDefaults.standard
+        let forced: Locale.HourCycle? = defaults.bool(forKey: "AppleICUForce24HourTime") ? .zeroToTwentyThree
+            : defaults.bool(forKey: "AppleICUForce12HourTime") ? .oneToTwelve : nil
+        return formatLocale(.current, hourCycle: forced)
+    }
+
+    /// `locale` as BCP 47, with `hourCycle` as its `hc` keyword when one is
+    /// given and the tag stays within the runner's 64 characters (a longer
+    /// one would refuse the whole place).
+    package static func formatLocale(_ locale: Locale, hourCycle: Locale.HourCycle?) -> String {
+        let tag = locale.identifier(.bcp47)
+        guard let hourCycle else { return tag }
+        var components = Locale.Components(identifier: tag)
+        components.hourCycle = hourCycle
+        let cycled = Locale(components: components).identifier(.bcp47)
+        return cycled.count <= 64 ? cycled : tag
     }
 }

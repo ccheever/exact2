@@ -2700,7 +2700,9 @@ in 1970, and one stored is meaningless after a relaunch. Anything stored or sent
 `epochAtZero` (Unix milliseconds when `performanceNow()` read zero), `utcOffset` (minutes east
 of UTC), `locale` (BCP 47, the first preferred language), `formatLocale` (BCP 47, the
 regional format the platform's own formatters use: macOS and iOS's Region, so English
-with a Korean region is `en-US` and `en-KR`; `locale` where a host keeps none apart),
+with a Korean region is `en-US` and `en-KR`, with the hour cycle the user forces as
+`-u-hc-h23` or `-u-hc-h12`, so `Intl.DateTimeFormat(time.formatLocale)` writes the time in
+the device's 12- or 24-hour cycle; `locale` where a host keeps none apart),
 `timeZone` (IANA), `resolvedLocale` (the language of
 the string table the app shows, `""` with no tables) and `seed` (a whole number
 below 2^32, drawn once per launch, so `%` and `>>> 0` take all of it; mix a round

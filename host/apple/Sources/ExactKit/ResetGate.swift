@@ -146,7 +146,7 @@ enum ResetGate {
         "commitPlan()": "a restart's own commit, before its reset",
         "startOnFrame(_:at:)": "a setting the session gives at boot, outside the hold",
         "setTime(epochAtZero:utcOffset:)": "the clock's epoch, told at boot and by the agent, outside the hold",
-        "setPlace(locale:timeZone:seed:formatLocale:)": "the place, told at boot and by the agent, outside the hold",
+        "setPlace(locale:timeZone:seed:formatLocale:)": "the place, told at boot, by the agent and when the Region or the hour cycle changes, outside the hold",
         "setLaunchPlace(locale:timeZone:seed:formatLocale:)": "the launch place, told at boot, outside the hold",
     ]
 
