@@ -289,7 +289,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
       && ((item.kind === 'thread' && next.kind === 'thread')
         || (['draft', 'pending'].includes(item.kind) && ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider));
   });
-  const selectedEnvironment = sourceByEnvironment.get(options.environmentId);
+  const selectedEnvironment = sourceByEnvironment.get(options.environmentId ?? '');
   const empty = query ? { title: 'No results', detail: `No threads matching "${options.query?.trim()}".` }
     : selectedProject ? { title: `No threads in ${selectedProject.title}`, detail: 'Choose another project or create a new task.' }
     : options.environmentId ? { title: `No threads in ${selectedEnvironment?.label || 'this environment'}`, detail: 'Choose another environment or create a new task.' }

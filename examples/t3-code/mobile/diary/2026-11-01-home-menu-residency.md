@@ -49,3 +49,9 @@ maps so a projection refresh does not scan every project for every row.
   completes; existing unrelated compiler warnings remain.
 - source profiling evidence: reference LegendList settings above; clone menu
   residency is measured directly from the authored Contract structure.
+
+The final iOS bake also keeps each virtualized Home item under one flow root while
+retaining the compact/sidebar branch, adapts the swipe-menu action to its child
+arity, and uses an explicit empty environment key for the map lookup. The signed
+iOS simulator build and the focused Home/thread/scroll suite pass after these
+compiler-boundary fixes.
