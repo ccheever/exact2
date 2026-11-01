@@ -384,11 +384,22 @@
      a plain block, so printing, #anchors, scroll restoration and a collapsing
      browser toolbar work, with JavaScript or without. The render host and
      the runtimes mark `<html>` while an element is the page's scroller; one
-     in a hidden route (`data-exact-offpage`) scrolls inside its bound. */
+     in a hidden route (`data-exact-offpage`) scrolls inside its bound.
+     What a native screen bounds by the window, the page lays out at least
+     the viewport tall and as tall as its content, so a background on the
+     page's frame reaches its end: the root is a grid row of both heights,
+     whose area a `height: 100%` root resolves against; the scroller's
+     ancestors, which the same hosts mark `data-exact-frame`, are in flow (a
+     route's page fills its stack, as its `inset: 0` did) and keep their
+     content's height, as the scroller does, where a `min-height: 0`
+     written for the bounded layout let a `flex: 1` box collapse to
+     nothing. */
   html[data-scrolldocument] {
     & body { height: auto; min-height: 100%; }
-    & #exact-root { height: auto; }
-    & [data-scrolldocument="true"]:not([data-exact-offpage]) { overflow: visible !important; height: auto !important; max-height: none !important; }
+    & #exact-root { height: auto; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(100vh, max-content); grid-template-rows: minmax(100svh, max-content); }
+    & [data-exact-frame] { position: relative !important; max-height: none !important; min-height: auto !important; }
+    & [data-exact-frame][navigationKey] { min-height: 100% !important; }
+    & [data-scrolldocument="true"]:not([data-exact-offpage]) { overflow: visible !important; height: auto !important; max-height: none !important; min-height: auto !important; }
   }
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */

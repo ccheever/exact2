@@ -999,6 +999,49 @@ component Pages
   }, {}, {}, how);
 }, 240000);
 
+// LLP 1048.003 D4: a route's page under `scroll document` is at least the viewport tall and as tall as its content, so a
+// background on its frame reaches its end, before startup and after (a short page and a long one).
+test('both document renderers lay out a page scroller\'s frame the viewport tall or its content\'s, whichever is more', async () => {
+  for (const how of ['rust', 'js']) await renderedPages(`routes nav
+  home "/" render=build activate=idle
+    detail "/detail" render=build activate=idle
+
+component Pages
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column" background-color="#fdd"
+          text "Header" height=40
+          scroll document flex=1 min-height=0 background-color="#dde" testId="page"
+            column height=(e.name == "home" ? 200 : 2000)
+`, async (_, html, dist) => {
+    const marks = path => html(path).match(/\sdata-exact-frame(?=[\s>=])/g)?.length ?? 0;
+    expect([how, marks(''), marks('detail')]).toEqual([how, 2, 2]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/detail' ? 'detail/index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      for (const javaScriptEnabled of [false, true]) {
+        const page = await browser.newPage({ viewport: { width: 390, height: 600 }, javaScriptEnabled });
+        const boxes = () => page.evaluate(() => {
+          const s = document.querySelector('[data-testid="page"]');
+          return [s.parentElement.getBoundingClientRect().height, s.getBoundingClientRect().height, document.documentElement.scrollHeight];
+        });
+        for (const [path, want] of [['/', [600, 560, 600]], ['/detail', [2040, 2000, 2040]]]) {
+          await page.goto(new URL(path, server.url).href);
+          if (javaScriptEnabled) await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+          expect([how, javaScriptEnabled, path, await boxes()]).toEqual([how, javaScriptEnabled, path, want]);
+        }
+        await page.close();
+      }
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
 // LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
 // back before its first render, so what it then shows is styled as on the shell.
 test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
