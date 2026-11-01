@@ -4,12 +4,16 @@
 // @ref LLP 1033 D1, LLP 1030 D2
 import { DOCUMENT_UTIS, isWebScheme, ownDocumentType } from '../../scripts/app.mjs';
 
-/** The URL types and handler templates (LLP 1038 D8; LLP 1030 D2). The web's
- *  own schemes (`isWebScheme`) are registered on macOS alone, as a URL type
- *  of their own named `Web site URL`, as Safari and Chrome name theirs, with
- *  the `Viewer` role.
- *  iOS refuses them: a default browser there needs Apple's managed
- *  `com.apple.developer.web-browser` entitlement. */
+export const BROWSER_ENTITLEMENT = 'com.apple.developer.web-browser';
+
+/** Only the opted-in iOS app claims the managed browser role, and only when
+ * its HTTP/HTTPS pair is included in this build. Apple must approve its profile. */
+export const browserEntitlements = (app, distributed = false) => app.manifest.host?.ios?.webBrowser === true
+  && !app.widgetTV && !app.widgetHost && !app.widgetAppId && !app.clipParent
+  && (app.manifest.protocol_handlers ?? []).some(h => isWebScheme(h.protocol) && (!h.distribution_only || distributed)) ? [BROWSER_ENTITLEMENT] : [];
+
+/** The URL types and handler templates (LLP 1038 D8; LLP 1030 D2). Web
+ * schemes register on macOS and opted-in iOS browsers as `Viewer`. */
 export function openingLinks(app, platform, development, distributed) {
   const handlers = registered(app, platform, distributed);
   const web = handlers.filter((h) => isWebScheme(h.protocol)).map((h) => h.protocol);
@@ -23,15 +27,15 @@ export function openingLinks(app, platform, development, distributed) {
 }
 
 /** The handlers a build for `platform` registers: a `distribution_only` one
- *  only when distributed, and the web's schemes only on macOS. */
+ *  only when distributed, and web schemes only for a browser. */
 const registered = (app, platform, distributed) => (app.manifest.protocol_handlers ?? [])
-  .filter((h) => (!h.distribution_only || distributed) && (platform === 'macos' || !isWebScheme(h.protocol)))
+  .filter((h) => (!h.distribution_only || distributed) && (platform === 'macos' || (platform === 'ios' && browserEntitlements(app, distributed).length) || !isWebScheme(h.protocol)))
   .map(({ protocol, url }) => ({ protocol, url }));
 
 /** What an iOS or tvOS build says when it leaves out the pair a Mac build
  *  of the same kind would register, or null. */
 export function webRefusal(app, distributed, tv) {
-  if (!(app.manifest.protocol_handlers ?? []).some((h) => isWebScheme(h.protocol) && (!h.distribution_only || distributed))) return null;
+  if ((!tv && browserEntitlements(app, distributed).length) || !(app.manifest.protocol_handlers ?? []).some((h) => isWebScheme(h.protocol) && (!h.distribution_only || distributed))) return null;
   return `host/apple: protocol_handlers http and https: ${tv ? 'tvOS' : 'iOS'} registers neither (a default browser there needs Apple's managed com.apple.developer.web-browser entitlement)`;
 }
 

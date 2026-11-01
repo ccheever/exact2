@@ -389,3 +389,23 @@ test('shortcuts reach manifest.json without the native bakes\' words, and a remo
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('iOS browser opt-in requires a web-scheme pair and preserves ordinary apps', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-ios-browser-'));
+  const base = { name: 'Browser', app: { id: 'dev.exact.browser', name: 'Browser' } };
+  const pair = ['http', 'https'].map(protocol => ({ protocol, url: '/open?u=%s' }));
+  const save = (value) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(value));
+  try {
+    for (const flag of [true, false]) {
+      save({ ...base, host: { ios: { webBrowser: flag } }, protocol_handlers: pair });
+      assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, flag);
+    }
+    save({ ...base, host: { ios: { webBrowser: true } } });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: declare http and https/);
+    save({ ...base, host: { ios: { webBrowser: 'true' } }, protocol_handlers: pair });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: expected boolean, got string/);
+    save({ ...base, host: { ios: { webBrowser: false } } });
+    assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

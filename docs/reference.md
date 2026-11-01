@@ -375,12 +375,13 @@ the app a web browser:
 | host | what the pair does |
 | --- | --- |
 | macOS | a second URL type, `Web site URL`, role `Viewer`, and a `Web page` document type (`public.html`, `public.xhtml`; `Viewer`, rank `Alternate`), without which macOS lists no browser. The person chooses the app in System Settings › Desktop & Dock › Default web browser; the app never asks to become the default. A link arrives at the template. An HTML file that Finder opens in the app arrives there too, as its `file:` URL (`/open?u=file%3A%2F%2F%2F…`), unless the app's own `file_handlers` accept it. The web-page type is not offered by the app's pickers and does not widen what `drop` accepts. |
-| iOS, tvOS | refused: the bundle registers neither, and the build says so. A default browser on iOS needs Apple's managed `com.apple.developer.web-browser` entitlement. |
+| iOS | With `host.ios.webBrowser: true`, registers the pair and signs Apple's managed `com.apple.developer.web-browser` entitlement. Apple must approve it for the app's ID; the selected provisioning profile must grant it. Without the opt-in, registers neither and says so. App Clips, widget extensions and the sample host never inherit the browser role. |
+| tvOS | Registers neither, regardless of the iOS opt-in. |
 | web | dropped from `manifest.json`: HTML's protocol handler safelist has neither. |
 | Linux, Windows, Android | not registered, as no protocol handler is there. |
 
 With `"distribution_only": true` on both entries, only an archive or a
-`--distribution` build is a browser. A local Mac build then registers neither
+`--distribution` build is a browser. A local Mac or opted-in iOS build then registers neither
 scheme, writes no `Web page` type, and does not join this Mac's browser list.
 
 A file chosen in the app's own picker (`showOpenFilePicker`,

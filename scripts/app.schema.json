@@ -426,7 +426,7 @@
     },
     "protocol_handlers": {
       "type": "array",
-      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s. `http` and `https` come as a pair with one template: on macOS they make the app a web browser the person can choose in System Settings, and an HTML file opened from Finder arrives at the same template as its file: URL. iOS and the web register neither.",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s. `http` and `https` come as a pair with one template: on macOS they make the app a web browser the person can choose in System Settings, and an HTML file opened from Finder arrives at the same template as its file: URL. iOS registers them only with host.ios.webBrowser and Apple approval; the web registers neither.",
       "items": {
         "type": "object",
         "required": ["protocol", "url"],
@@ -657,6 +657,10 @@
           "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "webBrowser": {
+              "type": "boolean",
+              "description": "Opt in to Apple's managed default-browser role for the iOS app. Requires http and https in protocol_handlers and Apple's approval of com.apple.developer.web-browser in its provisioning profile. Extensions, App Clips and tvOS never inherit this role. distribution_only on the pair also limits the entitlement to distributed builds. Absent or false: no browser entitlement and no HTTP/HTTPS registration on iOS."
+            },
             "icon": {
               "type": "string",
               "minLength": 1,

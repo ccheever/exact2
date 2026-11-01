@@ -2405,7 +2405,9 @@ installed app is registered.
 A Mac web browser declares `https` and `http` together, each with the same
 `url` and the same `distribution_only`: a web link, and an HTML file Finder
 opens in the app (as its `file:` URL), reach that template. The person makes
-the app the default browser in System Settings. iOS registers neither, and
+the app the default browser in System Settings. On iOS, `host.ios.webBrowser: true`
+registers the pair and signs the managed browser entitlement; Apple approval and
+a provisioning profile granting it are required. Without this opt-in iOS registers neither, and
 `host.<platform>.urlSchemes` refuses both
 ([reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 

@@ -141,9 +141,11 @@ Default web browser only when it also opens web pages. The pickers and
 `drop` ignore that type. An HTML file Launch Services brings arrives at the
 `https` template as its `file:` URL unless `file_handlers` accept it: one
 delivery path, as the 2026-10-08 ruling keeps. The app makes no call to
-become the default; the person chooses it in System Settings. iOS and tvOS
-refuse the pair (a default browser there needs Apple's managed
-`com.apple.developer.web-browser` entitlement), the web manifest drops it
+become the default; the person chooses it in System Settings. tvOS refuses
+the pair, and iOS does too unless `host.ios.webBrowser: true` (admitted
+2026-10-26, #1003): then the pair is registered and the build signs Apple's
+managed `com.apple.developer.web-browser` entitlement, failing by name when
+the profile does not grant it. The web manifest drops the pair
 (HTML's protocol handler safelist), and Linux, Windows and Android register
 no protocol handler. `host.macos.oneTimeCodeAutofill: "marked"` writes
 `NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac`; absent, the key is
