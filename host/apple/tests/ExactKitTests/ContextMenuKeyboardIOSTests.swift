@@ -123,7 +123,7 @@ final class ContextMenuKeyboardIOSTests: XCTestCase {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
             throw missing("scene", "a keyboard menu must present in a real window scene")
         }
-        XCTAssertFalse(ExactEnv.agentMode)
+        XCTAssertFalse(ExactEnv.agentPaints)
         let p = fixture(scene: scene), message = try XCTUnwrap(p.views[2])
         defer { p.menus.reset() }
         p.apply(wireBatch([

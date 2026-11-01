@@ -23,7 +23,7 @@ extension Presenter {
             let prevented = defaultPrevented
             defaultPrevented = false
             if prevented { return true }
-            let opened = ExactEnv.agentMode ? menus.agentContext(node) : menus.context.showKeyboard(node, at: point)
+            let opened = ExactEnv.agentPaints ? menus.agentContext(node) : menus.context.showKeyboard(node, at: point)
             return opened || handled
         }
         return false

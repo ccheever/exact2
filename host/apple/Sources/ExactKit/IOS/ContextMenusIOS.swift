@@ -344,7 +344,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// UIKit's public programmatic menu API. It presents the same authored
     /// actions as a long press, without lifting a preview for keyboard input.
     func showKeyboard(_ source: NodeView, at point: CGPoint) -> Bool {
-        guard !ExactEnv.agentMode, source.window != nil, let menus,
+        guard !ExactEnv.agentPaints, source.window != nil, let menus,
               menus.eligible(source, contextMenu: true), let name = source.props["contextPopover"],
               let pop = popover(named: name), !menus.isConfirmation(pop) else { return false }
         if let previous = open {

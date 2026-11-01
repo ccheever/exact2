@@ -103,7 +103,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
         source.openContext(LongPress())
         XCTAssertEqual(heard, [1], "the recognized long press runs its context action")
-        if ExactEnv.agentMode {
+        if ExactEnv.agentPaints {
             p.menus.reset()
             XCTAssertTrue(p.menus.agentContext(source))
             XCTAssertTrue(p.menus.isOpen(pop))
