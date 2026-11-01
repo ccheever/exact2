@@ -1191,20 +1191,20 @@ component CodeBlock
           text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
             for token in hl.tokens key=token.id
               if ms < 0
-                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
               else
-                text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                   MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color=ink
               for token in hl.tokens key=token.id
                 if ms < 0
-                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                  text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     FindToken(value=token.text, at=token.at, parts=block.findParts.slice(findFrom(block.findLines, token.line), findTo(block.findLines, token.lastLine)))
                 else
-                  text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
+                  text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
 // MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);

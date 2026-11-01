@@ -23,6 +23,9 @@ describe('plain-text fences and rules (index.css)', () => {
     expect(['', 'text', 'TXT', 'Plain', 'plaintext', 'ts', 'bash', 'texts'].map(language => plain(language))).toEqual([true, true, true, true, true, false, false, false]);
     const source = await Bun.file(appPath('markdown.contract')).text();
     expect(source).toContain('derive ink = plainFence(block.href) ? prose : "light-dark(#000000, #fafafa)"');
+    // A plain fence still gets one highlighted token run (cls ''), whose own colour would hide the prose ink.
+    expect(source.split('text color=(plainFence(block.href) ? ink : synColor(token.cls))').length - 1).toBe(4);
+    expect(source).not.toContain('text color=synColor(token.cls) font-style=synSlant(token.cls)');
   });
   test('a rule in dark mode takes the muted foreground, not the border colour (#22367)', async () => {
     const source = await Bun.file(appPath('markdown.contract')).text();
