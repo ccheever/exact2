@@ -95,7 +95,7 @@ async function build() {
     say(`built ${r.out.trim().split('\n').pop()}`);
   };
   // Cold builds run alone so they cannot warm a cache that another cold build is measuring.
-  for (const job of coldJobs) await doJob(true)(slots[0]);
+  for (const job of coldJobs) await doJob(true)(job)(slots[0]);
   // A spec's loopback server uses one stable port for both arms; serialize those two builds.
   for (const job of jobs.filter(({ spec }) => serverSpecs.has(spec))) await doJob(false)(job)(slots[0]);
   await pool(jobs.filter(({ spec }) => !serverSpecs.has(spec)).map((job) => doJob(false)(job)), slots);
