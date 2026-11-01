@@ -25,7 +25,7 @@ export class PreviewCaptureFailure extends Error {
   readonly _tag = 'PreviewCaptureFailure';
   constructor(readonly reason: PreviewCaptureFailureReason, readonly stage: PreviewCaptureFailureStage) {
     super(previewCaptureFailureMessage(reason, stage));
-    this.name = 'PreviewCaptureFailure';
+    Object.defineProperty(this, 'name', { value: 'PreviewCaptureFailure', configurable: true, writable: true }); // Error.prototype is frozen
   }
 }
 function previewCaptureFailureMessage(reason: PreviewCaptureFailureReason, stage: PreviewCaptureFailureStage): string {
@@ -39,7 +39,7 @@ function previewCaptureFailureMessage(reason: PreviewCaptureFailureReason, stage
 }
 export class BrowserRecordingError extends Error {
   readonly _tag: string;
-  constructor(tag: string, message: string) { super(message); this._tag = tag; this.name = tag; }
+  constructor(tag: string, message: string) { super(message); this._tag = tag; Object.defineProperty(this, 'name', { value: tag, configurable: true, writable: true }); }
 }
 export class BrowserRecordingUnavailableError extends BrowserRecordingError {
   constructor(readonly fields: { tabId: string }) { super('BrowserRecordingUnavailableError', `Browser recording is unavailable for tab ${fields.tabId}.`); }
@@ -82,7 +82,7 @@ const isOperationError = (error: unknown): error is BrowserRecordingOperationErr
 export const isBrowserRecordingStartCancelledError = (error: unknown): error is BrowserRecordingStartCancelledError => error instanceof BrowserRecordingStartCancelledError;
 /** AggregateError, which some runtimes lack: the errors and the first cause. */
 class RecordingAggregateError extends Error {
-  constructor(readonly errors: unknown[], message: string, options: { cause: unknown }) { super(message); this.name = 'AggregateError'; (this as { cause?: unknown }).cause = options.cause; }
+  constructor(readonly errors: unknown[], message: string, options: { cause: unknown }) { super(message); Object.defineProperty(this, 'name', { value: 'AggregateError', configurable: true, writable: true }); (this as { cause?: unknown }).cause = options.cause; }
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────────────────────────

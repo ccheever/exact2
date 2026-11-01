@@ -560,3 +560,21 @@ describe('Open DevTools', () => {
     expect([view(true, 'desktop'), view(true, 'server'), view(false, 'desktop')]).toEqual([true, false, false]);
   });
 });
+
+// The app's runtime freezes the intrinsics, so Error.prototype.name is read-only there and assigning a subclass's own
+// `name` throws; the Browser's errors define it instead (an invalid address's toast says "Enter an http or https URL.").
+describe('Browser errors under frozen intrinsics', () => {
+  it('construct with their names', async () => {
+    const { PreviewUrlNormalizationError } = await import('../../src/browser/browser-url');
+    const { PreviewCaptureFailure, BrowserRecordingError } = await import('../../src/browser/browser-recording');
+    const { TerminalLinkPreviewOpenError } = await import('../../src/browser/browser-links');
+    const original = Object.getOwnPropertyDescriptor(Error.prototype, 'name')!;
+    Object.defineProperty(Error.prototype, 'name', { ...original, writable: false });
+    try {
+      expect(new PreviewUrlNormalizationError({ inputLength: 3, reason: 'unsupported-protocol', protocol: 'ftp:' }).name).toBe('PreviewUrlNormalizationError');
+      expect(new PreviewCaptureFailure('unavailable' as never, 'capture' as never).name).toBe('PreviewCaptureFailure');
+      expect(new BrowserRecordingError('RecordingFailed', 'x').name).toBe('RecordingFailed');
+      expect(new TerminalLinkPreviewOpenError(threadRef, 'http://localhost:1', null).name).toBe('TerminalLinkPreviewOpenError');
+    } finally { Object.defineProperty(Error.prototype, 'name', original); }
+  });
+});

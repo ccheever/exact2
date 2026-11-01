@@ -203,7 +203,7 @@ export async function openTerminalLinkInPreview(input: {
 export class TerminalLinkPreviewOpenError extends Error {
   constructor(readonly threadRef: ScopedThreadRef, readonly targetOrigin: string, readonly cause: unknown) {
     super(`Failed to open terminal link ${targetOrigin} in preview for thread ${threadRef.threadId}.`);
-    this.name = 'TerminalLinkPreviewOpenError';
+    Object.defineProperty(this, 'name', { value: 'TerminalLinkPreviewOpenError', configurable: true, writable: true }); // Error.prototype is frozen
   }
 }
 
