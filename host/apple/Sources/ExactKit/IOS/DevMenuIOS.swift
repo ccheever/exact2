@@ -228,7 +228,7 @@ public enum DevMenu {
     static func show() {
         guard controller != nil else { return }
         #if os(iOS)
-        let menu = DevMenuController.navigation(contentSizeCategory: controller?.traitCollection.preferredContentSizeCategory ?? .large)
+        let menu = DevMenuController.navigation()
         sheet = menu
         present(menu)
         #else

@@ -14,7 +14,7 @@ final class FrameHealthInspectorController: UITableViewController {
         super.viewDidLoad()
         title = "Frame Health"
         view.accessibilityIdentifier = "exact.host.frame-health-inspector"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
         source.selectedSegmentIndex = 0
         source.addAction(UIAction { [weak self] _ in self?.refresh() }, for: .valueChanged)
         source.accessibilityLabel = "Frame health source"
@@ -83,8 +83,6 @@ extension DevMenu {
         guard let health = session?.frameHealth else { return }
         let navigation = UINavigationController(rootViewController: FrameHealthInspectorController(health: health))
         navigation.modalPresentationStyle = .pageSheet
-        navigation.sheetPresentationController?.detents = [.large()]
-        navigation.sheetPresentationController?.prefersGrabberVisible = true
         present(navigation)
     }
 }
