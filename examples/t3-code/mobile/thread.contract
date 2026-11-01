@@ -28,7 +28,7 @@ component ThreadFeed
           text data.emptyDetail text-align="center" font-family="DM Sans" font-size=14 line-height="21px" color=colors.secondary
     else
       column flex=1 min-height=0 justify-content="flex-end"
-        list id="thread-feed" max-height="100%" min-height=0 virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true scroll=historyScroll reachstart=loadEarlier reach-margin="100%"
+        list id="thread-feed" max-height="100%" min-height=0 min-width=0 virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true scroll=historyScroll reachstart=loadEarlier reach-margin="100%"
           padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
           for row in data.rows key=row.id
             column padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"

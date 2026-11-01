@@ -322,6 +322,7 @@ component Home
         padding-left=(listId == "sidebar-list" ? 8 : 0)
         padding-right=(listId == "sidebar-list" ? 8 : trailingReservation)
         padding-top=(listId == "sidebar-list" ? 6 : 0)
+        min-width=0
         virtualized=true
         estimated-item-height=72
         testId="home-thread-list"
@@ -491,7 +492,7 @@ component HomeListItem
                 if item.environmentLabel.length > 0 and item.machineSymbol.length > 0
                   t3-symbol symbol-name=item.machineSymbol symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
           if item.trailingDivider and surface != "sidebar-list"
-            view height=1 margin-left=17.5 background-color=colors.borderSubtle
+            view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle
       else
         box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           if item.swipe.primary != ""
@@ -548,7 +549,7 @@ component HomeListItem
                     if item.provider.visible
                       HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
                 if item.trailingDivider and not sidebar
-                  view height=1 margin-left=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
+                  view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
               else
                 row min-height=44
                   box-sizing="border-box"
