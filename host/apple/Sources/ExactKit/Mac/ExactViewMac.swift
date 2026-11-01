@@ -195,11 +195,12 @@ public final class ExactView: NSView {
         return session(in: content) === self
     }
 
-    /// The trackpad's swipe back from a pushed route (LLP 1115.000 D5.1,
-    /// `BackSwipe`): the page's scroll view passes a sideways gesture up
-    /// here when it is pinned for it and this says a swipe may be tracked.
+    /// The trackpad's swipe back from a pushed route, or forward to where
+    /// Back left (LLP 1115.000 D5.1, D5.5, `BackSwipe`): the page's scroll
+    /// view passes a sideways gesture up here when it is pinned for it and
+    /// this says a swipe may be tracked.
     public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
-        axis == .horizontal && session.presenter.navigation.canGoBack
+        axis == .horizontal && (session.presenter.navigation.canGoBack || session.presenter.navigation.canGoForward)
     }
     public override func scrollWheel(with event: NSEvent) {
         if !session.presenter.backSwipe.scroll(event) { super.scrollWheel(with: event) }
@@ -339,6 +340,9 @@ public final class ExactView: NSView {
                     source.pointerReleased(event)
                 }
                 guard self.session.presenter.hosts(event.window) else { return event }
+                // A window may hold several sessions: the one under the pointer steps its history.
+                if event.type == .otherMouseUp, event.window === self.window,
+                   self.bounds.contains(self.convert(event.locationInWindow, from: nil)) { self.session.presenter.historyButton(event) }
                 // A modifier pressed is a keydown on the web (`"Shift"`), and
                 // released a keyup (#140); to AppKit a flags change, which
                 // goes on to it either way.

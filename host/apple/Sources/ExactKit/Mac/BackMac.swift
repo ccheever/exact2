@@ -7,6 +7,11 @@
 // the root's `navigate` with the location beneath, or with no `navigate`
 // handler by the runner's own `back`. A sheet or modal route is not pushed:
 // its close and Escape are its own.
+//
+// Forward (LLP 1115.000 D5.5) goes where Back left, as a browser's does: Go ▸
+// Forward ⌘], the swipe the other way, and a mouse's forward button. The
+// mouse's back and forward buttons go Back and Forward at their release
+// unless a `pointerup` prevented it, which is Chrome's rule.
 #if os(macOS)
 import AppKit
 
@@ -133,6 +138,32 @@ extension NavigationHost {
         return (root, route)
     }
 
+    /// Where Forward goes (LLP 1115.000 D5.5): the nearest location Back
+    /// left on the selected stack, which the runner keeps as a browser's
+    /// session history does, and the navigation root that hears it.
+    private var ahead: (root: NodeView, location: String)? {
+        guard let selection, let root = presenter.views[selection.root],
+              let location = presenter.session?.runtime.locationAhead() else { return nil }
+        return (root, location)
+    }
+
+    /// Whether Forward goes now: somewhere ahead, and nothing modal over
+    /// the page (an alert, a dialog in the top layer, a sheet on the window).
+    var canGoForward: Bool {
+        presenter.alerts.modal == nil && presenter.dialogs.active == nil
+            && presenter.viewport.window?.attachedSheet == nil && ahead != nil
+    }
+
+    /// The platform's Forward, taken as the web host takes a browser's (LLP
+    /// 1038 D7): the root's `navigate` with the location ahead, else the
+    /// runner's own `go`.
+    @discardableResult func goForward() -> Bool {
+        guard canGoForward, let (root, location) = ahead else { return false }
+        if root.handlers.contains("navigate") { presenter.session?.navigate(location, at: root) }
+        else { presenter.session?.hostGo(location) }
+        return true
+    }
+
     /// The agent's `back` from a route (LLP 1116.006 D4): a pushed one's
     /// as ⌘[ takes it (`goBack`); a sheet's as iOS's swipe down does, which
     /// its `closedby="none"` refuses. nil with neither on top; the way, and
@@ -180,56 +211,91 @@ extension NavigationHost {
     }
 }
 
-/// Go ▸ Back ⌘[: the way back of the session in the key window, which the
-/// adapter that owns the windows keeps current (`DevMenu.session`); enabled
-/// only while that session has somewhere to go back to.
+/// Go ▸ Back ⌘[ and Forward ⌘]: the ways of the session in the key window,
+/// which the adapter that owns the windows keeps current (`DevMenu.session`);
+/// each enabled only while that session has somewhere to go.
 final class GoMenuTarget: NSObject, NSMenuItemValidation {
     @objc func back(_ sender: Any?) { DevMenu.session?.presenter.navigation.goBack() }
-    func validateMenuItem(_ item: NSMenuItem) -> Bool { DevMenu.session?.presenter.navigation.canGoBack == true }
+    @objc func forward(_ sender: Any?) { DevMenu.session?.presenter.navigation.goForward() }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard let navigation = DevMenu.session?.presenter.navigation else { return false }
+        return item.action == #selector(forward(_:)) ? navigation.canGoForward : navigation.canGoBack
+    }
 }
 
-/// The trackpad's swipe back. With two fingers it is AppKit's swipe
-/// tracking from scroll events, as Safari's is (`trackSwipeEvent`: the
+extension Presenter {
+    /// A mouse's back or forward button came up (`buttonNumber` 3 or 4): Back
+    /// or Forward, after the event's `pointerup` has run, unless one of its
+    /// handlers prevented it (LLP 1115.000 D5.5). Chrome steps history at
+    /// the release and lets a `mouseup` or `pointerup` cancel it; a press, a
+    /// `pointerdown` or an `auxclick` does not.
+    func historyButton(_ event: NSEvent) {
+        guard event.type == .otherMouseUp, [3, 4].contains(event.buttonNumber) else { return }
+        // A turn later: the window dispatches the up after this monitor.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.mouseChain.upPrevented !== event else { return }
+            if event.buttonNumber == 3 { self.navigation.goBack() } else { self.navigation.goForward() }
+        }
+    }
+}
+
+/// The trackpad's swipe back and forward. With two fingers it is AppKit's
+/// swipe tracking from scroll events, as Safari's is (`trackSwipeEvent`: the
 /// person's "Swipe between pages" setting, the direction lock, natural
 /// scrolling and the distance that completes or cancels it are all
-/// AppKit's); with three, when that is the setting, `swipe(with:)`. The
-/// page does not follow the fingers: this host shows a route change at once,
-/// a push too, so Back lands as the fingers lift.
+/// AppKit's); with three, when that is the setting, `swipe(with:)`, which is
+/// also how some mouse drivers send their side buttons. The page does not
+/// follow the fingers: this host shows a route change at once, a push too,
+/// so Back or Forward lands as the fingers lift.
+///
+/// Only a scroll nothing took arrives: a scroller that can move that way
+/// takes it, one whose `overscroll-behavior-x` is `contain` or `none` keeps
+/// it at its edge, and a `wheel` handler's `preventDefault()` stops it, as
+/// Chrome's history swipe is (LLP 1115.000 D5.5).
 final class BackSwipe {
     unowned let presenter: Presenter
     private(set) var tracking = false
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     /// AppKit's tracking of the rest of the gesture, calling back with its
-    /// amount, phase and whether it is over. A test's stands in for it.
-    var track: (NSEvent, @escaping (CGFloat, NSEvent.Phase, Bool) -> Void) -> Void = { event, handler in
-        event.trackSwipeEvent(options: .lockDirection, dampenAmountThresholdMin: -1, max: 1) { amount, phase, complete, _ in
+    /// amount, phase and whether it is over. Its bounds are -1 with a way
+    /// forward and 1 with a way back, 0 on a side with neither, where
+    /// AppKit damps the travel. A test's stands in for it.
+    var track: (NSEvent, CGFloat, CGFloat, @escaping (CGFloat, NSEvent.Phase, Bool) -> Void) -> Void = { event, min, max, handler in
+        event.trackSwipeEvent(options: .lockDirection, dampenAmountThresholdMin: min, max: max) { amount, phase, complete, _ in
             handler(amount, phase, complete)
         }
     }
 
-    /// Whether a scroll event starts a swipe back: a trackpad's gesture
-    /// (phased, not its momentum), more sideways than not, toward the page
-    /// before (content moving right, the direction as the person scrolls),
-    /// with swipe tracking on in System Settings and a way back.
-    static func begins(gesture: Bool, dx: CGFloat, dy: CGFloat, enabled: Bool, available: Bool) -> Bool {
-        gesture && enabled && available && dx > 0 && abs(dx) > abs(dy)
+    /// The way a scroll event starts a swipe, 1 back and -1 forward, or nil:
+    /// a trackpad's gesture (phased, not its momentum), more sideways than
+    /// not, with swipe tracking on in System Settings and somewhere to go
+    /// that way. Back is toward the page before: content moving right, the
+    /// direction as the person scrolls.
+    static func way(gesture: Bool, dx: CGFloat, dy: CGFloat, enabled: Bool, back: Bool, forward: Bool) -> CGFloat? {
+        guard gesture, enabled, abs(dx) > abs(dy) else { return nil }
+        return dx > 0 && back ? 1 : dx < 0 && forward ? -1 : nil
     }
 
     /// A scroll event the page's scroll view passed up (it does for a
     /// sideways gesture it is pinned for, `wantsScrollEventsForSwipeTracking`).
-    /// True when it began a swipe back, which AppKit then tracks. A script's
+    /// True when it began a swipe, which AppKit then tracks. A script's
     /// wheel is not a trackpad's stream of events, and is never tracked.
     func scroll(_ event: NSEvent, enabled: Bool = NSEvent.isSwipeTrackingFromScrollEventsEnabled && !ExactEnv.agentMode) -> Bool {
-        guard !tracking, Self.begins(gesture: !event.phase.isEmpty && event.momentumPhase.isEmpty, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
-                                     enabled: enabled, available: presenter.navigation.canGoBack) else { return false }
+        guard !tracking else { return false }
+        let navigation = presenter.navigation
+        let (back, forward) = (navigation.canGoBack, navigation.canGoForward)
+        guard Self.way(gesture: !event.phase.isEmpty && event.momentumPhase.isEmpty, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
+                       enabled: enabled, back: back, forward: forward) != nil else { return false }
         tracking = true
         // The side the gesture set out for: one that ends on the other side
         // (the fingers came back past where they started) goes nowhere.
         var side: CGFloat = 0
-        track(event) { [weak self] amount, phase, complete in
+        track(event, forward ? -1 : 0, back ? 1 : 0) { [weak self] amount, phase, complete in
             if side == 0, amount != 0 { side = amount < 0 ? -1 : 1 }
-            if phase == .ended, amount * side > 0 { self?.presenter.navigation.goBack() }
+            if phase == .ended, amount * side > 0 {
+                if side > 0 { self?.presenter.navigation.goBack() } else { self?.presenter.navigation.goForward() }
+            }
             if complete { self?.tracking = false }
         }
         return true
@@ -239,7 +305,7 @@ final class BackSwipe {
     /// positive toward the page before, as AppKit reports it for the
     /// person's scroll direction.
     func swiped(deltaX: CGFloat) -> Bool {
-        deltaX > 0 && presenter.navigation.goBack()
+        deltaX > 0 ? presenter.navigation.goBack() : deltaX < 0 && presenter.navigation.goForward()
     }
 }
 #endif

@@ -661,8 +661,9 @@ impl<D: DataSource> Presenter<D> {
         if self.shortcut(name, repeat, now_ms) {
             return;
         }
-        // Then a desktop's Back key (LLP 1115.000 D5.4), focus or none.
-        if self.back_key(name) {
+        // Then a desktop's Back or Forward key (LLP 1115.000 D5.4, D5.5),
+        // focus or none.
+        if self.back_key(name) || self.forward_key(name) {
             self.back_key_down(name, code, repeat, now_ms);
             return;
         }

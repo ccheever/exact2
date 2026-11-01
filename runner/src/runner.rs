@@ -102,6 +102,7 @@ mod queue;
 mod resource_inspection;
 mod world_origin;
 pub use queue::QUEUE_BOUND;
+mod history;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;

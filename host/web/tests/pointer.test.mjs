@@ -33,6 +33,8 @@ const page = `<!doctype html>
   const views = new Map();
   const h = createInputHandlers({ root, views, retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.log = []; window.records = [];
+  // The page stays for the back and forward buttons: Chrome steps history at their release.
+  addEventListener('pointerup', e => { if (e.button === 3 || e.button === 4) e.preventDefault(); });
   for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid', 'hoverbox', 'tapkid', 'lid', 'mover', 'panbox']) {
     const el = document.getElementById(id);
     el.exactHandlers = id === 'mover' ? ['pointermove'] : ['pointerdown', 'pointerup', 'press', ...(id === 'mic' || id === 'hoverbox' ? ['pointermove'] : [])];
@@ -98,22 +100,30 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
     const [down, held, up] = await records();
     const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
-    expect([...down.slice(2, 6), down[8]]).toEqual(['1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
-    expect([+down[6], +down[7]]).toEqual(mic);
+    expect([...down.slice(2, 7), down[9]]).toEqual(['0', '1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
+    expect([+down[7], +down[8]]).toEqual(mic);
     expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
-    expect([+held[6], +held[7]]).toEqual([500, 800]); // the viewport point (LLP 1094 D11)
-    expect(held.slice(2, 5)).toEqual(['1', '0.5', 'mouse']);
-    expect(up.slice(2, 4)).toEqual(['0', '0']);
+    expect([+held[7], +held[8]]).toEqual([500, 800]); // the viewport point (LLP 1094 D11)
+    expect(held.slice(2, 6)).toEqual(['-1', '1', '0.5', 'mouse']); // a move changes no button
+    expect(up.slice(2, 5)).toEqual(['0', '0', '0']);
     // A free pointer moving over it: its move, no button down.
     await mouse('mouseMoved', mic, 'none', 0);
     await frame();
     expect(await log()).toEqual(['mic move']);
-    expect((await records())[0].slice(2, 5)).toEqual(['0', '0', 'mouse']);
+    expect((await records())[0].slice(2, 6)).toEqual(['-1', '0', '0', 'mouse']);
     // The secondary button's too, as the DOM's (studio diary R22): `buttons` says which.
     await mouse('mousePressed', mic, 'right');
     await mouse('mouseReleased', mic, 'right');
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
-    expect((await records())[0][2]).toBe('2');
+    expect((await records())[0].slice(2, 4)).toEqual(['2', '2']);
+    // A mouse's back and forward buttons, DOM's `button` 3 and 4 and `buttons` 8 and 16
+    // (LLP 1115.000 D5.5); the browser, not the glue, steps history at the release.
+    for (const [button, number, bit] of [['back', '3', 8], ['forward', '4', 16]]) {
+      await mouse('mousePressed', mic, button, bit);
+      await mouse('mouseReleased', mic, button, 0);
+      expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
+      expect((await records()).map(r => r.slice(2, 4))).toEqual([[number, `${bit}`], [number, '0']]);
+    }
     // A disabled node hears nothing.
     const off = await centre('off');
     await mouse('mousePressed', off);
@@ -165,7 +175,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await records();
     await evaluate("window.dispatchEvent(new Event('blur'))");
     expect(await log()).toEqual(['tapkid down', 'hoverbox down', 'tapkid up', 'hoverbox up']);
-    expect((await records()).map(r => [+r[6], +r[7]])).toEqual([[500, 800], [500, 800]]);
+    expect((await records()).map(r => [+r[7], +r[8]])).toEqual([[500, 800], [500, 800]]);
     await mouse('mouseReleased', [500, 800]);
     // A pan that takes its contact takes nothing from the pointer events:
     // its ancestor hears the down and the up (Charlie, 2026-10-15).

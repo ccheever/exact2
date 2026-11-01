@@ -270,8 +270,8 @@ final class ContextMenuMacTests: XCTestCase {
         while !heard.contains("pick 4") && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertTrue(tracked)
         XCTAssertEqual(heard, ["key ContextMenu", "context", "pick 4"])
-        XCTAssertEqual(sample.prefix(4).compactMap(Double.init), [60, 15, 0, 0])
-        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
+        XCTAssertEqual(sample.prefix(5).compactMap(Double.init), [60, 15, 0, 0, 0])
+        XCTAssertEqual(sample.dropFirst(7).prefix(2).compactMap(Double.init), [80, 35])
     }
 
     /// A picked item presses its row in the turn its menu closed, as AppKit
@@ -593,7 +593,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, [1])
         XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [20, 9])
-        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [140, 29])
+        XCTAssertEqual(sample.dropFirst(7).prefix(2).compactMap(Double.init), [140, 29])
     }
 
     func testContextMenuKeepsFieldEditingAndCompositionWithTheirOwner() throws {
@@ -626,7 +626,7 @@ final class ContextMenuMacTests: XCTestCase {
         p.onClipboard = { _, _, line in sample = line.components(separatedBy: ",") }
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [60, 15])
-        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init), [110, 35])
+        XCTAssertEqual(sample.dropFirst(7).prefix(2).compactMap(Double.init), [110, 35])
     }
 
     func testContextMenuFallsBackInsideItsSessionWhenTheKeyHandlerRemovesFocus() throws {
@@ -793,14 +793,14 @@ final class ContextMenuMacTests: XCTestCase {
         // menu raises, so it is asked only where it offers show menu.
         if try offered(links[0]).contains("AXShowMenu") { XCTAssertTrue(links[0].accessibilityPerformShowMenu()) }
         XCTAssertEqual(heard, [1, 82])
-        XCTAssertEqual(samples.first?.prefix(4).compactMap(Double.init), [60, 15, 0, 0], "the node's middle, no button held")
-        XCTAssertEqual(samples.first?.dropFirst(6).prefix(2).compactMap(Double.init), [80, 35])
+        XCTAssertEqual(samples.first?.prefix(5).compactMap(Double.init), [60, 15, 0, 0, 0], "the node's middle, no button held")
+        XCTAssertEqual(samples.first?.dropFirst(7).prefix(2).compactMap(Double.init), [80, 35])
         let rect = links[0].accessibilityFrame(), window = try XCTUnwrap(windows.last)
         let middle = p.client(window.convertFromScreen(NSRect(x: rect.midX, y: rect.midY, width: 0, height: 0)).origin)
         if samples.count > 1 {
-            XCTAssertEqual(Double(samples[1][6]) ?? 0, Double(middle.x), accuracy: 1, "the run's middle")
-            XCTAssertEqual(Double(samples[1][7]) ?? 0, Double(middle.y), accuracy: 1)
-            XCTAssertEqual(samples[1][2...3].compactMap(Double.init), [0, 0])
+            XCTAssertEqual(Double(samples[1][7]) ?? 0, Double(middle.x), accuracy: 1, "the run's middle")
+            XCTAssertEqual(Double(samples[1][8]) ?? 0, Double(middle.y), accuracy: 1)
+            XCTAssertEqual(samples[1][3...4].compactMap(Double.init), [0, 0])
         }
         p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"]]]))
         XCTAssertEqual(try offered(source), ["AXPress"], "a disabled node hears no contextmenu")
@@ -859,17 +859,17 @@ final class ContextMenuMacTests: XCTestCase {
         if try offered(list).contains("AXShowMenu") { XCTAssertTrue(list.accessibilityPerformShowMenu()) }
         if try offered(docs).contains("AXShowMenu") { XCTAssertTrue(docs.accessibilityPerformShowMenu()) }
         XCTAssertEqual(heard, [20, 8, 102])
-        XCTAssertEqual(samples.first?.prefix(4).compactMap(Double.init), [60, 20, 0, 0], "the button's middle in its row, no button held")
-        XCTAssertEqual(samples.first?.dropFirst(6).prefix(2).compactMap(Double.init), [240, 40])
+        XCTAssertEqual(samples.first?.prefix(5).compactMap(Double.init), [60, 20, 0, 0, 0], "the button's middle in its row, no button held")
+        XCTAssertEqual(samples.first?.dropFirst(7).prefix(2).compactMap(Double.init), [240, 40])
         // The run's middle, where Chrome's request lands on an inline element.
         func middle(_ element: NSAccessibilityElement) -> NSPoint {
             let rect = element.accessibilityFrame()
             return p.client(window.convertFromScreen(NSRect(x: rect.midX, y: rect.midY, width: 0, height: 0)).origin)
         }
         for (sample, element) in zip(samples.dropFirst(), [list, docs]) where sample.count > 7 {
-            XCTAssertEqual(Double(sample[6]) ?? 0, Double(middle(element).x), accuracy: 1, "the run's middle")
-            XCTAssertEqual(Double(sample[7]) ?? 0, Double(middle(element).y), accuracy: 1)
-            XCTAssertEqual(sample[2...3].compactMap(Double.init), [0, 0])
+            XCTAssertEqual(Double(sample[7]) ?? 0, Double(middle(element).x), accuracy: 1, "the run's middle")
+            XCTAssertEqual(Double(sample[8]) ?? 0, Double(middle(element).y), accuracy: 1)
+            XCTAssertEqual(sample[3...4].compactMap(Double.init), [0, 0])
         }
         // The ContextMenu key at the focused link run takes the same walk.
         heard = []; samples = []
@@ -877,7 +877,7 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(key))
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, [102], "the span run's, as on the web")
-        XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(docs).x), accuracy: 1)
+        XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(docs).x), accuracy: 1)
         // The key at a link run whose paragraph answers runs the paragraph's
         // at the run's middle, as Chrome's at the focused element's box (it
         // was the paragraph's middle, x 220 here).
@@ -886,8 +886,8 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(mail))
         XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
         XCTAssertEqual(heard, [8], "the paragraph's")
-        XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(list).x), accuracy: 1, "the run's middle")
-        XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(list).y), accuracy: 1)
+        XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(list).x), accuracy: 1, "the run's middle")
+        XCTAssertEqual(Double(samples.first?[8] ?? "") ?? 0, Double(middle(list).y), accuracy: 1)
         heard = []
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["disabled": "true"]]]))
         XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"])
@@ -1005,7 +1005,7 @@ final class ContextMenuMacTests: XCTestCase {
             return heard
         }
         XCTAssertEqual(try controlClick(21), ["contextmenu 20"], "the link's, from its title; no press")
-        XCTAssertEqual(sample.prefix(3).compactMap(Double.init), [50, 15, 1], "at the click's point in the link, the primary button held")
+        XCTAssertEqual(sample.prefix(4).compactMap(Double.init), [50, 15, 0, 1], "at the click's point in the link, the primary button held")
         XCTAssertEqual(sample.last, "Control+")
         XCTAssertEqual(try controlClick(23), ["contextmenu 22"], "a drawn button's")
         XCTAssertEqual(try controlClick(24), ["menu Pin"], "a box's contextPopover")
@@ -1167,9 +1167,9 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(try secondary(82), ["contextmenu 82"], "the link run's own; not its paragraph's")
         XCTAssertEqual(Double(sample[0]) ?? -1, Double(list.point.x - list.line.minX), accuracy: 0.01, "from the run's first line")
         XCTAssertEqual(Double(sample[1]) ?? -1, Double(list.point.y - list.line.minY), accuracy: 0.01)
-        XCTAssertEqual(sample[2], "2", "the secondary button held")
+        XCTAssertEqual(sample[2...3], ["2", "2"], "the secondary button, held")
         XCTAssertEqual(try secondary(82, control: true), ["contextmenu 82"], "a Control-click is the same, and follows no link")
-        XCTAssertEqual(sample[2], "1", "the primary button held")
+        XCTAssertEqual(sample[2...3], ["0", "1"], "the primary button, held")
         XCTAssertEqual(sample.last, "Control+")
         let team = try middle(84)
         XCTAssertEqual(try secondary(84), ["contextmenu 8"], "a run with none: the paragraph's")

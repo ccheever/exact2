@@ -537,6 +537,10 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
  * for a route with no authored Back control. Not a batch. */
 uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115.000 D5.5: where the platform's Forward goes, the nearest
+ * location Back left on the selected stack, UTF-8 in exact_out; length 0
+ * when nothing is ahead. Not a batch. */
+uint32_t exact_location_ahead(ExactRuntime rt);
 /* A retained visit's canonical location, UTF-8 in exact_out; 0 when absent. */
 uint32_t exact_visit_location(ExactRuntime rt, uint64_t id);
 /* Return from source to an earlier destination in the selected stack, one commit. A batch. */
@@ -573,8 +577,8 @@ uint32_t exact_share_land(ExactRuntime rt);
  * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
  *      cancelled contact releases at 0,0; LLP 1057 §10.6);
  * 29 = pointerdown, 30 = pointerup, 31 = pointermove (UTF-8
- *      offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY:
- *      content-box CSS px, DOM's buttons bits, 0 to 1, mouse|pen|touch, then
+ *      offsetX,offsetY,button,buttons,pressure,pointerType,pointerId,clientX,clientY:
+ *      content-box CSS px, DOM's button and buttons bits, 0 to 1, mouse|pen|touch, then
  *      the viewport point; LLP 1056 §3 stage 3, LLP 1094 D11);
  * 40 = a text field's input, 41 its change, 42 its select (UTF-8
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then

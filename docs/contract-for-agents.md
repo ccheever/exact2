@@ -2725,11 +2725,14 @@ they do not admit arbitrary frame callbacks or a second app-state graph.
 
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
-node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`, and
-`clientX`/`clientY` from the viewport, `frame()`'s space), on any
-node, a canvas included; set `touch-action="none"` on a drawing surface. Any
-button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action may
-take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
+node's content box, `button` and `buttons`, `pressure`, `pointerType`,
+`pointerId`, and `clientX`/`clientY` from the viewport, `frame()`'s space), on
+any node, a canvas included; set `touch-action="none"` on a drawing surface.
+Any button goes down, numbered as the DOM's: `button` 0 primary, 1 middle, 2
+secondary, 3 back, 4 forward (-1 on a move), `buttons` bits 1, 4, 2, 8, 16. A
+`contextmenu` action may take the same record, where the click was. The back
+and forward buttons go Back and Forward at their release, as a browser's do,
+unless a `pointerup` handler calls `preventDefault()`. `wheel` hands a `WheelEvent` (deltas,
 modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keeps
 the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of any type, a folder's included, and takes a file drag over a field
@@ -2900,7 +2903,7 @@ On the root, `-exact-menu-remove="show-tab-bar autofill close-all"` removes
 selected standard items. Its whitespace-separated list must be literal; unknown
 ids and non-root use are refused. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `forward` (Go ▸ Forward), `develop` (the
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
 *App* Help), `actual-size`, `zoom-in`, `zoom-out`.

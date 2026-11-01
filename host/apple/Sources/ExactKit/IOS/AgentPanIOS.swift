@@ -204,7 +204,7 @@ extension Agent {
         let local = node.convert(window, from: nil), box = node.contentBox(), client = presenter.client(window)
         return PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
             buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2,
-            clientX: Double(client.x), clientY: Double(client.y), held: held)
+            clientX: Double(client.x), clientY: Double(client.y), held: held, button: kind == .move ? -1 : 0)
     }
 
     private func panPointer(_ contact: AgentPan, _ kind: PointerKind) {

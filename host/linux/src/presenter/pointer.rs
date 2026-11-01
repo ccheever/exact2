@@ -84,12 +84,14 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The record of a viewport point as `view` sees it, from its content
-    /// box, and the viewport point itself (`clientX`, LLP 1094 D11).
+    /// box, and the viewport point itself (`clientX`, LLP 1094 D11): the
+    /// button that changed (DOM's number, -1 for none) and those held.
     fn pointer_record(
         &mut self,
         view: ViewId,
         x: f32,
         y: f32,
+        button: i8,
         buttons: u8,
     ) -> Option<PointerEvent> {
         let (ox, oy, _, _) = self.rect_of(view)?;
@@ -97,7 +99,7 @@ impl<D: DataSource> Presenter<D> {
         let (left, top, _, _) = exact_kernel::svg::scene::content_box(kernel, &kernel.node(view)?);
         let (kind, id) = self.pointer_kind.wire();
         let mut record = PointerEvent::parse(&format!(
-            "{},{},{},{},{kind},{id},{x},{y}",
+            "{},{},{button},{},{},{kind},{id},{x},{y}",
             x - ox - left,
             y - oy - top,
             buttons,
@@ -170,7 +172,7 @@ impl<D: DataSource> Presenter<D> {
                 continue;
             }
             let view = node.id;
-            let Some(record) = self.pointer_record(view, x, y, buttons) else {
+            let Some(record) = self.pointer_record(view, x, y, dom_button(buttons), buttons) else {
                 continue;
             };
             let failed = self.pointer_dispatch(
@@ -217,7 +219,7 @@ impl<D: DataSource> Presenter<D> {
             }
             None => return None,
         };
-        let record = self.pointer_record(view, x, y, buttons)?;
+        let record = self.pointer_record(view, x, y, -1, buttons)?;
         self.pointer_dispatch(
             view,
             EventKind::Pointermove,
@@ -226,12 +228,22 @@ impl<D: DataSource> Presenter<D> {
         )
     }
 
-    /// A secondary or middle button over no canvas: the first button down
-    /// with none held is a `pointerdown`, the last up a `pointerup`, and a
-    /// chord changes the held buttons the moves report.
-    pub(crate) fn aux_pointer(&mut self, before: u32, after: u32, x: f32, y: f32, now_ms: f64) {
+    /// A button other than the primary over no canvas: the first button
+    /// down with none held is a `pointerdown`, the last up a `pointerup`,
+    /// and a chord changes the held buttons the moves report. True when a
+    /// `pointerup` handler prevented its default (a back or forward
+    /// button's history step, LLP 1115.000 D5.5).
+    pub(crate) fn aux_pointer(
+        &mut self,
+        before: u32,
+        after: u32,
+        x: f32,
+        y: f32,
+        now_ms: f64,
+    ) -> bool {
         let primary = self.pointer_buttons & 1;
         let buttons = primary | after as u8;
+        let mut prevented = false;
         let error = if self.pointer_held.is_none() && before == 0 && after != 0 {
             // Any button's press outside a popover light-dismisses it (HTML).
             if self.alert.is_some() && !self.alert_inert() {
@@ -239,7 +251,10 @@ impl<D: DataSource> Presenter<D> {
             }
             self.pointer_pressed_with(x, y, after as u8, now_ms)
         } else if self.pointer_held.is_some() && buttons == 0 {
-            self.pointer_lifted(Some((x, y)), now_ms)
+            let error;
+            (error, prevented) =
+                self.pointer_lifted_by(Some((x, y)), dom_button((before & !after) as u8), now_ms);
+            error
         } else {
             if self.pointer_held.is_some() {
                 self.pointer_buttons = buttons;
@@ -249,16 +264,41 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
+        prevented
     }
 
     /// The held pointer lifted, or its contact was cancelled: `pointerup`
     /// for every node that held it still in the tree, innermost first.
     pub(super) fn pointer_lifted(&mut self, at: Option<(f32, f32)>, now_ms: f64) -> Option<String> {
-        self.pointer_held.take()?;
+        self.pointer_lifted_by(at, 0, now_ms).0
+    }
+
+    /// [`Self::pointer_lifted`] by `button` (DOM's number): its error, and
+    /// whether a handler prevented the up's default.
+    fn pointer_lifted_by(
+        &mut self,
+        at: Option<(f32, f32)>,
+        button: i8,
+        now_ms: f64,
+    ) -> (Option<String>, bool) {
+        if self.pointer_held.take().is_none() {
+            return (None, false);
+        }
         self.pointer_buttons = 0;
         let path = std::mem::take(&mut self.pointer_path);
-        let (x, y) = at.or(self.contact_position()).or(self.pointer)?;
+        let Some((x, y)) = at.or(self.contact_position()).or(self.pointer) else {
+            return (None, false);
+        };
         let mut error = None;
+        // Only the up's own `preventDefault()` counts: one its down or a
+        // move queued may still wait for the loop's commands.
+        let prevents = |p: &Self| {
+            p.commands
+                .iter()
+                .filter(|c| c.name == "preventDefault")
+                .count()
+        };
+        let earlier = prevents(self);
         // The caller retires the contact after the up's walk.
         let outer = std::mem::replace(&mut self.pointer_walking, true);
         self.stopped();
@@ -266,7 +306,7 @@ impl<D: DataSource> Presenter<D> {
             let Some(view) = self.host.kernel().node_by_key(key).map(|n| n.id) else {
                 continue;
             };
-            let Some(record) = self.pointer_record(view, x, y, 0) else {
+            let Some(record) = self.pointer_record(view, x, y, button, 0) else {
                 continue;
             };
             let failed =
@@ -277,7 +317,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.pointer_walking = outer;
-        error
+        (error, prevents(self) > earlier)
     }
 
     /// DOM's `wheel` at a viewport point (studio diary R3): every enabled
@@ -296,7 +336,7 @@ impl<D: DataSource> Presenter<D> {
         let outer = std::mem::replace(&mut self.pointer_walking, true);
         self.stopped();
         for view in path {
-            let Some(point) = self.pointer_record(view, x, y, 0) else {
+            let Some(point) = self.pointer_record(view, x, y, -1, 0) else {
                 continue;
             };
             let wheel = exact_runner::WheelEvent {
@@ -328,3 +368,16 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "touch_tests.rs"]
 mod touch_tests;
+
+/// DOM's `MouseEvent.button` for the lowest of `buttons`' bits (UI Events):
+/// primary 1 is 0, auxiliary 4 is 1, secondary 2 is 2, back 8 is 3 and
+/// forward 16 is 4.
+pub(crate) fn dom_button(buttons: u8) -> i8 {
+    match buttons & buttons.wrapping_neg() {
+        2 => 2,
+        4 => 1,
+        8 => 3,
+        16 => 4,
+        _ => 0,
+    }
+}

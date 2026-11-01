@@ -77,6 +77,9 @@ pub trait Routing {
     fn take_refusals(&self) -> Vec<String>;
     /// The pending change, once.
     fn take_change(&mut self) -> Option<RouterChange>;
+    /// The location a native host's Forward goes to, the nearest of the
+    /// visits Back left (`history.rs`; LLP 1115.000 D5.5).
+    fn ahead(&self) -> Option<&str>;
     /// Whether `location` names a declared route pattern (LLP 1038 §7).
     fn matches_pattern(&self, location: &str) -> bool;
     /// Set what `sharedFiles` answers for a share's token (LLP 1133.024 D3);
@@ -117,6 +120,9 @@ pub struct RouterContext {
     fragment: Option<(u64, String, u64)>,
     /// The activations made so far.
     activations: u64,
+    /// The locations of the visits Back left, the nearest last: where a
+    /// native host's Forward goes (`history.rs`).
+    ahead: Vec<String>,
     /// What each `open`, `push`, `replace` or `go` to a location with a
     /// fragment returned in the commit being made, with the visit and
     /// fragment it left on top: an explicit navigation, which scrolls even
@@ -202,6 +208,7 @@ impl RouterContext {
             pending: None,
             fragment: None,
             activations: 0,
+            ahead: Vec::new(),
             navigations: RefCell::new(Vec::new()),
             refusals: RefCell::new(Vec::new()),
             reads: RefCell::new(None),
@@ -695,6 +702,10 @@ impl Routing for RouterContext {
             })
         });
         self.navigations.borrow_mut().clear();
+        if let Some(after) = self.router(&value) {
+            let before = self.committed.as_ref().and_then(|v| self.router(v));
+            super::history::step(before.as_ref(), &after, &mut self.ahead);
+        }
         self.committed = Some(value);
         if let Some(mut change) = change {
             if let Some(pending) = self.pending.take() {
@@ -752,6 +763,10 @@ impl Routing for RouterContext {
 
     fn take_refusals(&self) -> Vec<String> {
         std::mem::take(&mut *self.refusals.borrow_mut())
+    }
+
+    fn ahead(&self) -> Option<&str> {
+        self.ahead.last().map(String::as_str)
     }
 
     fn take_change(&mut self) -> Option<RouterChange> {
@@ -959,6 +974,16 @@ impl<D: DataSource> Runner<D> {
             let at = tab.stack.iter().position(|e| e.id == id)?;
             at.checked_sub(1).map(|below| tab.stack[below].url.clone())
         })
+    }
+
+    /// Where the platform's own Forward goes, or `None` (no router, or
+    /// nothing ahead): the nearest location Back left on the selected
+    /// stack, as a browser's session history keeps it. A native host
+    /// delivers it as the web host delivers a Forward (LLP 1038 D7): to the
+    /// navigation root's `navigate`, else by [`Runner::host_go`] (LLP
+    /// 1115.000 D5.5).
+    pub fn location_ahead(&self) -> Option<String> {
+        self.router.as_deref()?.ahead().map(String::from)
     }
 
     /// The platform's own Back from the selected visit `id`, for a route

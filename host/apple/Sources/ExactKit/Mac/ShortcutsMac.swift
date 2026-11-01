@@ -234,6 +234,7 @@ final class ShortcutMenu: NSMenu {
         switch item.action.map(NSStringFromSelector) {
         case "performClose:": return "close-window"
         case "back:": return "back"
+        case "forward:": return "forward"
         case "showHelp:": return "app-help"
         case "actualSize:": return "actual-size"
         case "zoomIn:": return "zoom-in"
@@ -507,11 +508,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             let routed = presenter?.carrying("navigationBack").isEmpty == false
             for item in own { setHidden(item, !routed || replaced.contains { $0 === item }) }
             // History commands precede destinations regardless of where the
-            // toolbar sits in the authored tree; destinations keep tree order.
+            // toolbar sits in the authored tree, each beside the host's item
+            // it may stand in for, so Back reads before Forward as Safari's
+            // and Finder's do; destinations keep tree order.
             let history = navigation.filter { $0.keyEquivalentModifierMask == .command && ["[", "]"].contains($0.keyEquivalent) }
-            navigation = history.sorted { $0.keyEquivalent < $1.keyEquivalent }
-                + navigation.filter { item in !history.contains(where: { $0 === item }) }
-            place(navigation, in: navigationMenu, at: own.count)
+            let chord = { (key: String) in own.filter { Self.hostChord($0) == key } + history.filter { $0.keyEquivalent == key } }
+            let rest = own.filter { item in Self.hostChord(item) == nil }
+            navigation = chord("[") + chord("]") + rest + navigation.filter { item in !history.contains(where: { $0 === item }) }
+            place(navigation, in: navigationMenu, at: 0)
         }
         for menu in [fileMenu, applicationMenu, navigationMenu, editMenu, viewMenu, windowMenu, helpMenu] {
             (menu as? ShortcutMenu)?.removeStandardItems(removals)
@@ -680,6 +684,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             return ["=", "+"].contains(chord.0) && chord.1.intersection([.command, .option, .control]) == .command
         }
         return !key.isEmpty && same((key.lowercased(), mask), (chord.0.lowercased(), chord.1))
+    }
+    /// The chord of the host's Go ▸ Back or Forward, whether or not a command took it.
+    private static func hostChord(_ item: NSMenuItem) -> String? {
+        guard item.target is GoMenuTarget else { return nil }
+        return item.action == #selector(GoMenuTarget.forward(_:)) ? "]" : "["
     }
     private func place(_ items: [NSMenuItem], in menu: NSMenu, at start: Int) {
         for (offset, item) in items.enumerated() {

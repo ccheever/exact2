@@ -1257,7 +1257,7 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn clear_raw_motion(&mut self) {
         self.surfaces.motion = None;
     }
-    /// The secondary or middle button at a viewport point: the canvas
+    /// The secondary, middle, back or forward button at a viewport point: the canvas
     /// holding the contact, else the one under the pointer, sees it as the
     /// web does — the first button held is a down, the last released an up.
     pub fn pointer_aux(&mut self, bit: u32, down: bool, x: f32, y: f32, at: f64) {
@@ -1271,19 +1271,30 @@ impl<D: DataSource> Presenter<D> {
         let captured = self.surfaces.aux_canvas.filter(|_| before != 0);
         let target = held.or(captured).or_else(|| self.hover_canvas(x, y));
         self.surfaces.aux_canvas = target.filter(|_| after != 0);
-        let Some(view) = target else {
+        let prevented = match target {
             // No canvas: the node under it holds the pointer for this button
-            // too, as in a browser, `buttons` 2 or 4 (review b5-b 1).
-            self.aux_pointer(before, after, x, y, at);
-            return;
+            // too, as in a browser, `buttons` 2, 4, 8 or 16 (review b5-b 1).
+            None => self.aux_pointer(before, after, x, y, at),
+            Some(view) => {
+                let primary = u32::from(held.is_some());
+                let phase = match (before | primary, after | primary) {
+                    (0, _) => "down",
+                    (_, 0) => "up",
+                    _ => "move",
+                };
+                self.send_canvas_pointer(view, phase, after | primary, x, y, at);
+                false
+            }
         };
-        let primary = u32::from(held.is_some());
-        let phase = match (before | primary, after | primary) {
-            (0, _) => "down",
-            (_, 0) => "up",
-            _ => "move",
-        };
-        self.send_canvas_pointer(view, phase, after | primary, x, y, at);
+        // A back or forward button's release steps history unless its
+        // `pointerup` was prevented, as Chrome's does (LLP 1115.000 D5.5).
+        let released = before & !after;
+        if !prevented && released & 8 != 0 {
+            self.system_back(at);
+        }
+        if !prevented && released & 16 != 0 {
+            self.system_forward(at);
+        }
     }
     /// A cancelled pointer (Escape, a lost device, a dropped report) holds no
     /// button: the canvas that heard the secondary or middle press hears a

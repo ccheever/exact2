@@ -13,7 +13,7 @@ pub(super) fn dispatch<D: DataSource>(
 ) -> Result<(), String> {
     if !matches!(
         event,
-        InputEvent::Key { .. } | InputEvent::Pad { .. } | InputEvent::Back | InputEvent::Cancel
+        InputEvent::Key { .. } | InputEvent::Pad { .. } | InputEvent::Cancel
     ) && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
@@ -50,11 +50,6 @@ pub(super) fn dispatch<D: DataSource>(
         }
         InputEvent::Aux(bit, down) => p.pointer_aux(bit, down, pointer.0, pointer.1, now_ms),
         InputEvent::Cancel => p.pointer_lost(now_ms)?,
-        // A mouse's back button (LLP 1115.000 D5.4): Back, in the presenter's
-        // order. With nowhere to go back to a desktop app stays as it is.
-        InputEvent::Back => {
-            p.system_back(now_ms);
-        }
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
         // The report's own time, as the read converted it.
         InputEvent::Pad {
@@ -129,8 +124,9 @@ mod tests {
             .unwrap()
     }
     /// LLP 1115.000 D5.4: a desktop's ways Back as evdev reports them, a
-    /// mouse's back button, Alt (56) around Left (105), and KEY_BACK (158),
-    /// each popping a pushed route that says nothing about Back.
+    /// mouse's back button (at its release, D5.5), Alt (56) around Left
+    /// (105), and KEY_BACK (158), each popping a pushed route that says
+    /// nothing about Back. The forward button returns to it (D5.5).
     #[test]
     fn the_back_button_and_the_back_keys_pop_a_pushed_route() {
         let plan = contract::compile(
@@ -177,7 +173,7 @@ component App
         };
         let mut at = (20., 40.);
         let ways = [
-            vec![InputEvent::Back],
+            vec![InputEvent::Aux(8, true), InputEvent::Aux(8, false)],
             vec![
                 key(56, true),
                 key(105, true),
@@ -200,6 +196,17 @@ component App
             }
             assert!(find(&p, "open").is_some());
         }
+        // The forward button goes where Back left, at its release.
+        let mut forward = |p: &mut Presenter<()>, down| {
+            dispatch(p, &mut at, (400., 500.), 1., InputEvent::Aux(16, down), 30.).unwrap();
+        };
+        forward(&mut p, true);
+        assert!(!on_detail(&p), "not at the press");
+        forward(&mut p, false);
+        assert!(on_detail(&p), "forward");
+        forward(&mut p, true);
+        forward(&mut p, false);
+        assert!(on_detail(&p), "nothing further ahead");
     }
     #[test]
     fn relative_and_absolute_display_events_release_or_escape_once() {
