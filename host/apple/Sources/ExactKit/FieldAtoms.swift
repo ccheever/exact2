@@ -96,7 +96,6 @@ extension TextArea {
         for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
-        watchAtomLook(!frames.isEmpty)
         guard changed, let owner else { return }
         owner.accessibilityElements = atomElements.isEmpty ? nil : [self] + atomElements
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
@@ -307,14 +306,6 @@ extension TextArea {
         } else if !on, let (_, tap) = atomTap {
             removeGestureRecognizer(tap)
             atomTap = nil
-        }
-    }
-    /// A pill is a picture drawn for one appearance: drawn again for
-    /// another (light or dark, Increase Contrast).
-    func watchAtomLook(_ on: Bool) {
-        guard on, atomLook == nil else { return }
-        atomLook = registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (field: TextArea, _: UITraitCollection) in
-            if field.markup != nil { field.owner?.restyleMarkup() }
         }
     }
 }

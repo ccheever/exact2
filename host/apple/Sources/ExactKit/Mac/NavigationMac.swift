@@ -30,6 +30,8 @@ final class NavigationHost {
     /// host's views name them (`NavigationTabs`) and the tab whose stack
     /// holds the route it shows: what the sidebar reads (SidebarMac.swift).
     private(set) var root: (node: NodeView, tabs: NavigationTabs?, at: Int?)?
+    /// Whether that root has no routes, in any of its stacks (BackMac.swift `routerRoot`).
+    private(set) var routeless = false
     /// @ref LLP 1115.002 D7.1 — the ground under each modal route that
     /// paints none of its own, by the route's id (`ModalGround`).
     private var grounds: [UInt32: ModalGround] = [:]
@@ -61,7 +63,7 @@ final class NavigationHost {
     /// The page's ground changed colour: the grounds are painted again.
     func groundChanged() { for ground in grounds.values { ground.needsDisplay = true }; split.groundChanged() }
     func reset() {
-        refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil; barRoute = false; root = nil
+        refused.removeAll(); gates.removeAll(); panels.removeAll(); shown.removeAll(); selection = nil; barRoute = false; root = nil; routeless = false
         sheets = []; keptSheets.removeAll(); split.reset()
         for ground in grounds.values { ground.removeFromSuperview() }
         grounds.removeAll()
@@ -120,6 +122,7 @@ final class NavigationHost {
         selection = nil
         barRoute = false
         root = nil
+        routeless = false
         for nav in roots {
             // @ref LLP 1075.003 §3.7 — with tabs, each panel is a stack.
             let tabs = NavigationTabs.of(nav, presenter)
@@ -152,7 +155,7 @@ final class NavigationHost {
                 sheets = sheeted
             }
             for routes in stacks { ground(routes, grounded: &grounded) }
-            if nav === roots.first { root = (nav, tabs, tabs == nil ? nil : found) }
+            if nav === roots.first { root = (nav, tabs, tabs == nil ? nil : found); routeless = stacks.allSatisfy(\.isEmpty) }
             guard let at = found else {
                 managed.formUnion((tabs?.panels ?? []).map(\.id))
                 continue

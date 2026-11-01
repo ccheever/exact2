@@ -8,6 +8,8 @@ final class DevMenuController: UITableViewController {
         let symbol: String
         let detail: String?
         let action: (() -> Void)?
+        /// Why the command is unavailable and how to make it available: the row is dimmed, and a tap explains
+        var unavailable: (title: String, message: String)? = nil
     }
     private(set) var groups: [[Command]] = []
 
@@ -39,27 +41,27 @@ final class DevMenuController: UITableViewController {
         #if EXACT_WIDGET_GALLERY
         if WidgetGallery.available { project.append(Command(title: "Widgets…", symbol: "square.grid.2x2", detail: nil, action: WidgetGallery.show)) }
         #endif
-        var diagnostics: [Command] = []
-        let visible = DevMenu.session?.frameHealth.hudVisible ?? false
-        let toggle: (() -> Void)? = DevMenu.frameHealthContainer == nil ? nil : {
-            DevMenu.frameHealthOverlay()?.setVisible(!visible)
-        }
-        diagnostics.append(Command(title: visible ? "Hide Frame Health" : "Show Frame Health", symbol: "waveform.path.ecg",
-            detail: toggle == nil ? "This host has no frame-health overlay container" : "Draggable callback timing readout", action: toggle))
-        diagnostics.append(Command(title: "Frame Health Details…", symbol: "chart.xyaxis.line", detail: "Timing distributions and coverage", action: DevMenu.showFrameHealthDetails))
-        diagnostics.append(Command(title: "Share Frame Health…", symbol: "doc.text", detail: "Recent hitches · at most 4 KB", action: DevMenu.shareFrameHealth))
+        var diagnostics = [Self.frameHealth(DevMenu.session?.frameHealth, container: DevMenu.frameHealthContainer != nil)]
         if FrameSampler.measured { diagnostics.append(Command(title: "Save Trace", symbol: "square.and.arrow.up", detail: nil, action: DevMenu.saveTrace)) }
         groups = [project, diagnostics, [Command(title: "Build Information", symbol: "info.circle", detail: nil, action: {})]]
         tableView.reloadData()
+    }
+
+    /// The one frame-health command: Show or Hide, dimmed where the card cannot read, with a tap that says why.
+    static func frameHealth(_ health: FrameHealth?, container: Bool) -> Command {
+        let visible = health?.hudVisible ?? false
+        let unavailable = !container ? (title: "Frame Health Is Unavailable",
+            message: "This app's host gives the developer menu no place for the frame-health card. A host that embeds Exact passes a container view as frameHealthContainer to DevMenu.install.")
+            : health?.unavailableExplanation
+        return Command(title: visible ? "Hide Frame Health" : "Show Frame Health", symbol: "waveform.path.ecg",
+            detail: unavailable == nil ? "Frame timing card, with Details and Share" : "Unavailable. Tap to see why.",
+            action: { DevMenu.frameHealthOverlay()?.setVisible(!visible) }, unavailable: unavailable)
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int { groups.count }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { groups[section].count }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
         ["Project", "Diagnostics", "About"][section]
-    }
-    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        section == 1 ? "Frame health measures Exact callbacks and applies. Native-scroll deadlines are experimental. Presentation is unobserved." : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -70,11 +72,13 @@ final class DevMenuController: UITableViewController {
         content.secondaryText = command.detail
         content.image = UIImage(systemName: command.symbol)
         content.textProperties.numberOfLines = 0
-        content.textProperties.color = command.action == nil ? .secondaryLabel : .label
+        let enabled = command.action != nil && command.unavailable == nil
+        content.textProperties.color = enabled ? .label : .secondaryLabel
         content.secondaryTextProperties.numberOfLines = 0
         cell.contentConfiguration = content
         cell.isUserInteractionEnabled = command.action != nil
-        cell.accessibilityTraits = command.action == nil ? [.button, .notEnabled] : [.button]
+        cell.accessibilityTraits = enabled ? [.button] : [.button, .notEnabled]
+        cell.accessibilityHint = command.unavailable == nil ? nil : "Explains why it is unavailable."
         cell.accessoryType = indexPath.section == 2 ? .disclosureIndicator : .none
         cell.accessibilityIdentifier = "exact.host.dev-menu.\(command.symbol)"
         return cell
@@ -84,6 +88,10 @@ final class DevMenuController: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         if indexPath.section == 2 {
             navigationController?.pushViewController(BuildInformationController(), animated: true)
+        } else if let unavailable = groups[indexPath.section][indexPath.row].unavailable {
+            let alert = UIAlertController(title: unavailable.title, message: unavailable.message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
         } else {
             guard let action = groups[indexPath.section][indexPath.row].action else { return }
             dismiss(animated: true, completion: action)

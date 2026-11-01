@@ -1628,6 +1628,17 @@ no inspect mode, no build channel. Charlie's waiver; no take is named. Still ref
 editing in release builds, a production inspect tier, layout and structure editing,
 captures of running apps, and a hosted relay.
 
+**Admitted (Charlie, 2026-10-30, "when you're happy with it, have astra implement it";
+LLP 1155 r2), development builds only, for a two-day experiment:** a Chrome DevTools
+inspection adapter in the Bun dev tooling, over the agent carrier (Stage 0) and the Tamber
+build channel (Stage 1), with one bounded read command on that channel and a one-instance
+outline; it shows the mounted tree, observed layout, style provenance and Contract
+locations through the stock frontend at a recorded version. Read-only, loopback,
+capability-attached; nothing in a release build. Still refused: source editing,
+JavaScript debugging, network capture, performance timelines, other hosts and production
+attachment. If Stage 0's fidelity gate fails (LLP 1155 §6), the admission lapses with the
+finding. Charlie's waiver; no take is named.
+
 **Agent API** — 10 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
@@ -1694,9 +1705,11 @@ one selected node's provenance; a general provenance explorer stays refused.
 **Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** admit bounded local
 frame-health counters, native menus and cards, and human/agent readouts. The menu and
 card follow platform presentation and accessibility. The request "Let’s target 4KB"
-admits recent-hitch capture in fixed memory and explicit Share/Copy or agent reports
-capped at 4000 bytes, without automatic persistence or uploads; the card's own Copy
-may add a picture of the card outside that cap (user, 2026-10-30). "Let’s do it all"
+admits recent-hitch capture in fixed memory and explicit Share or agent reports
+capped at 4000 bytes, without automatic persistence or uploads; the card's Share may
+also give a text summary within that size and an image of the card outside that cap
+(user, 2026-10-30), and the card holds Details and Share itself, so the menus offer
+only Show and Hide (user, 2026-10-31). "Let’s do it all"
 also admits live-clock scheduling, cursor reads, the development-only passive
 native-scroll experiment and macOS card/inspector controls. Production default-on
 requires measured adapter qualification. No production inspection endpoint or

@@ -11,9 +11,9 @@ enum FrameHealthPublication {
 
     static func update(_ health: FrameHealth) {
         guard Thread.isMainThread else { return }
-        for reader in readers where reader.health?.handle == 0 || (reader.health?.changed == nil && reader.health?.inspected == nil) { reader.health = nil }
+        for reader in readers where reader.health?.handle == 0 || reader.health?.changed == nil { reader.health = nil }
         if readers.allSatisfy({ $0.health == nil }) { next = 0 }
-        guard health.enabled, health.changed != nil || health.inspected != nil,
+        guard health.enabled, health.changed != nil,
               !readers.contains(where: { $0.health === health }) else { return }
         readers.first(where: { $0.health == nil })?.health = health
     }
@@ -27,10 +27,7 @@ enum FrameHealthPublication {
             for reader in readers {
                 guard let health = reader.health, health.publicationDirty else { continue }
                 health.publicationDirty = false
-                autoreleasepool {
-                    health.changed?()
-                    health.inspected?()
-                }
+                autoreleasepool { health.changed?() }
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())

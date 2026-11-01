@@ -1716,6 +1716,21 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
 
 ## Working on exact2 itself
 
+- **A CDP adapter re-sends known children and Styles stays empty.**
+  `DOM.setChildNodes` replaces the frontend's node objects. Repeating it for
+  children already introduced can leave the selected object different from
+  the DOM model's current object of the same id; the matched-style result is
+  then discarded. Introduce children once per document, and invalidate ids on
+  `DOM.documentUpdated`. Source-linked styles also need property ranges inside
+  their style range, or the frontend hides their declarations. Verified with
+  stock Chrome 156.0.8078.74 in LLP 1155's stub gate (2026-10-30).
+
+- **The Mac agent carrier is not exported by `agent-launch.mjs`.**
+  Use `open` from `agent.mjs`, or its underlying `openStdio` from
+  `agent-stdio.mjs`; the session's `op` sends a wire request. `agent-launch.mjs`
+  contains shared helpers and the browser's `Cdp` client, not `launch`/`send`
+  exports. LLP 1155's implementation brief named the wrong module.
+
 - **Bundling `host/web-js/rt.js` alone reports missing imports.** Its
   `./navigation.js` and other relative imports are supplied beside it by the
   web build, so `bun build host/web-js/rt.js` is not a valid host build. Use

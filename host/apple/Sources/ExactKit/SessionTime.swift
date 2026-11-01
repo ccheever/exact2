@@ -1,6 +1,7 @@
 // The date a session tells its runner (LLP 1027.000.000): at boot, before
 // the first settle, and whenever the zone's offset or the drive's clock moves.
 import Foundation
+import ExactCore
 
 extension ExactSession {
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
@@ -61,5 +62,23 @@ extension ExactSession {
         runtime.setLaunchTime(epochAtZero: date.epoch, utcOffset: date.offset)
         runtime.setLaunchPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed, formatLocale: launchPlace.formatLocale)
         runtime.liveClock(clock == nil)
+    }
+    /// The Region or the hour cycle the user forces changed (Foundation
+    /// posts `NSLocale.currentLocaleDidChangeNotification` for either):
+    /// `formatLocale` is read again and told, as a notice. The agent's is the drive's.
+    func observeFormatLocale() -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.formatLocaleChanged()
+        }
+    }
+    func formatLocaleChanged() {
+        guard launchPlace.epoch == nil, state != .destroyed else { return }
+        let read = SessionFacts.currentFormatLocale
+        guard read != launchPlace.formatLocale else { return }
+        launchPlace.formatLocale = read
+        guard booted else { return } // `primeTime` tells the first boot
+        let place = launchPlace
+        let tell: (Runtime) -> Batch = { $0.setPlace(locale: place.locale, timeZone: place.timeZone, seed: place.seed, formatLocale: place.formatLocale) }
+        if dataPreparing, !Owner.shared.isServingMain { tellSoon([tell]) } else { apply(tell(runtime)) }
     }
 }

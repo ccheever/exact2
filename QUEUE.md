@@ -1,5 +1,6 @@
 # Queue
 
+- **`formatLocale` carries a forced hour cycle on Apple only** (2026-11-02, LLP 1027.000.000). Android's shell reads the person's 24-hour setting for date controls (`Device.kt`, `DateFormat.is24HourFormat`) but tells `formatLocale` empty; `Settings.System.TIME_12_24` (`"12"`, `"24"`, or unset for the locale's own) is the forced cycle, to tell as the device's locale with `-u-hc-h12` or `-u-hc-h23`. Windows tells no place at all (the runner's `en-US` and `UTC`): `GetUserDefaultLocaleName` is the format locale, and `GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_SSHORTTIME)` against the same with `LOCALE_NOUSEROVERRIDE` shows a time format the person changed (`H` for 24-hour, `h` for 12).
 - **Cargo reuses a unit compiled for another Apple deployment target** (2026-10-31, a fresh worktree's duo-lab build). rustc takes the target from `MACOSX_DEPLOYMENT_TARGET`, `IPHONEOS_DEPLOYMENT_TARGET` or `TVOS_DEPLOYMENT_TARGET` and writes it into each object's `LC_BUILD_VERSION`, but not into its dep-info, so Cargo's fingerprint never sees it ([rust-lang/rust#129432](https://github.com/rust-lang/rust/issues/129432), open; [#129342](https://github.com/rust-lang/rust/pull/129342), which would have written it, was closed unmerged on 2026-09-27). Repro, with rustc 1.97.0 and Xcode 27.1: a crate with `crate-type = ["staticlib"]` and one `#[no_mangle] pub extern "C" fn`; `IPHONEOS_DEPLOYMENT_TARGET=26.0 cargo build --target aarch64-apple-ios-sim -v`, then the same with `17.0`, which reports the crate `Fresh`; `xcrun vtool -show-build` reads `minos 26.0` on its objects, and linking the library into a C `main` with `xcrun --sdk iphonesimulator clang -target arm64-apple-ios17.0-simulator` warns "was built for newer 'iOS-simulator' version (26.0) than being linked (17.0)", which `build.mjs` refuses ("refused mixed Apple deployment targets"). Exact meets it in two ways. (1) A target directory that has compiled nothing starts from the machine's kept crates (`host/apple/crates.mjs`), which another app may have compiled: an app outside the repository (iOS 26.0) gave `hashbrown` and `foldhash` objects at 26.0 to duo-lab (iOS 17.0), and its link was refused. 865f010838, on ide/exact2's `chat/messages-1123` and not on main, keys the store by the three variables. (2) Not seen in an app, but it follows from the repro: a target directory keeps its units when its app's `minimumOS` changes, so a lower one is refused until the directory is deleted. The deployment target is an input to every unit, so the fix for both is to name it where Cargo hashes a unit: a `--cfg` carrying the targets in the Apple triples' rustflags (`--config target.<triple>.rustflags=[…]`, as `scripts/app.mjs` passes the wasm flags). In the repro, `RUSTFLAGS='--cfg=apple_deployment_target="<target>"'` gave the 26.0 and 17.0 units different hashes, kept side by side, and a build at 26.0 again was `Fresh`.
 - **A restart keeps per-node state that a new node with the same id then picks up** (2026-10-31, found with #1228). Booting a booted session again (`ExactSession.boot` calls `resetHeld`: the dev menu's Reload, a development plan or connection reload, an update) keeps the `Presenter` and its hosts and clears them through `Presenter.reset` (`PresenterIOS.swift`, `PresenterMac.swift`), a list kept by hand that differs from what a node's destroy clears (`release(id)`, `stickies.forget`). The restarted runner numbers its nodes from 1 again, so a host's state keyed by node id outlives its node and is read for the new node with that id. #1228 fixed one case: `SegmentHost` remembered the adopted tablist by id, and the restarted tablist drew its tabs at the window's top left. Found by reading, not yet reproduced: (1) `StickyHost` (iOS, tvOS, macOS) forgets a record only on a destroy, so a header whose `position: sticky` a restart removed still sticks (`Sticky.swift`, `PixelGridIOS.swift`); (2) on macOS `SplitHost.reset` never releases `BlockHost.shown`, so text selection can meet an old and a new paragraph with one id and trap in `Dictionary(uniqueKeysWithValues:)` (`TextSelectionMac.swift`); (3) `SvgHost`'s maps survive, so a new svg can take an old scene's layer and a press can reach an old scene (`SvgScene.swift`, `PointerIOS.swift`); (4) smaller: `Canvas2DHost` keeps an old layer and `born`, `Presenter.controlNodes` and the macOS `hoverMoves` keep entries, and `ModalHost.refusedRoute` and the macOS `SegmentHost.decisions` can each drop a journal line. A browser's reload builds a new document in the same window, and nothing of the old document's state carries over unless the window holds it. The same for Exact would make a restart build a new `Presenter` and hosts, and carry over only what belongs to the session or its view, each named, so no per-node state can outlive its document and `reset` stops being a list to keep. Numbering nodes per session rather than per runner would also stop anything that does carry over from matching a new node.
 - **The render host keeps a waiting page's answers inline** (2026-10-31, LLP 1048.007 D10): the JavaScript render server names a waiting request page's answers past 1 KB (`/.exact/checkpoint/<hash>.json`) and keeps them; `host/render` (`page.rs`) still writes them into the page. Mirror it there, its server answering the path, with the document-render test run for both renderers.
@@ -1715,14 +1716,31 @@ and the Linux headless CPU renderer without claiming display frame timing.
   sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
   after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
   `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
-- **G7 Windows cadence needs foreground qualification** (2026-10-31,
-  LLP 1149.001). The display is 5120×1440 at 120 Hz, verified by PresentMon,
-  but two egui diagnostics each record 683 focus losses after the native DPI
-  journeys. Minimizing Settings and the native field driver's input-attachment
-  fallback do not grant foreground ownership; the third diagnostic stops
-  before its timed fling. The three-round repair limit is reached. Resolve
-  foreground acquisition, then collect all three arms' five quiet rounds;
-  do not promote the unfocused diagnostics into 120 Hz cadence or CPU rows.
+- **G7c Windows displayed cadence needs a working PresentMon capture**
+  (2026-11-01, LLP 1149.001). A visible PowerShell task resolves foreground
+  acquisition with the unchanged driver. The post-readiness captures still
+  lose ETW events and produce no CSV, on D3D11 and egui as well as Ink/wgpu.
+  Establish zero-loss captures before reporting 120 Hz fling cadence,
+  late intervals, p99, rest displays or bar/caret display rates. Retained
+  CPU, memory, foreground and snapshot observations are in G7c's RESULTS.
+  Bar also needs a quiet cohort: all three attempts fail one of 15 load
+  observations, with maxima 10.9%, 10.9% and 11.0%; collection stops at three.
+- **G7c observer-off cold control needs a quiet cohort** (2026-11-01,
+  LLP 1149.001). All three ten-launch-per-arm cohorts pass the initial six
+  idle observations but fail the complete-cohort gate: 7/34, 16/34 and
+  1/34 observations reach at least 10% total CPU. Their excluded DWM
+  medians remain above the prediction without PresentMon. A qualified
+  control is still needed to distinguish observer cost from machine state;
+  the session process files do not establish a cause.
+- **G7b Windows startup PresentMon capture remains unqualified**
+  (2026-11-01, LLP 1149.001). Three configurations produce no CSV and lose
+  ETW events: start before launch and close at readiness, retain the process
+  through capture, and PID-filter immediately after process creation.
+  Repair stops at three configurations; exact archives and raw failures
+  remain in `target/g7b/`. Establish a zero-loss trace with app-owned startup
+  presents before claiming PresentMon corroboration. The quiet native
+  DWM/DXGI endpoint comparison is recorded as such, not as a successful
+  PresentMon startup capture.
 - **NucBox sleep/wake needs a verified wake-timer design** (2026-10-31,
   LLP 1149.001 G7). The unattended October 30 sleep journey never woke;
   G7 skips sleep/wake on both devices. Before another unattended attempt,

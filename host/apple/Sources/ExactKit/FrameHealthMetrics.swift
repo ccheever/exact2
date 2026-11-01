@@ -125,7 +125,7 @@ enum FrameHealthMetrics {
             "coverage": ["presentation": "unobserved", "coreAnimationCommit": "unobserved", "inputLatency": "unobserved", "GPU": "unobserved",
                 "nativeScrolling": health.nativeCoverage, "nativeUpdateSamplesLost": String(health.nativeSampleLoss), "liveAgent": ExactEnv.agentMode ? "visual-scheduling-audited; other agent overrides remain" : "ordinary-app"],
             "capture": ["agentLeaseRemainingMs": max(0, ((health.agentCaptureUntil - CACurrentMediaTime()) * 1000).rounded()),
-                "hud": health.hudVisible, "inspector": health.inspectorCapture],
+                "hud": health.hudVisible],
             "cursor": sample.cursor]
         guard let data = try? JSONSerialization.data(withJSONObject: result), data.count < 4000 else {
             return ["format": format, "available": false, "error": "metrics-budget", "reason": "The metrics exceeded the 4000-byte carrier budget. Use a matching Exact reader."]
@@ -168,9 +168,8 @@ enum FrameHealthMetrics {
     }
 }
 
-/// Retain at most eleven snapshots for a roughly five-second view, without a polling timer.
-/// Readers that keep history in the process: cards and Details inspectors. At most four keep it at
-/// once, which holds them, with the collectors, within LLP 1079.000 §5.2's storage budget.
+/// Readers that keep history in the process: the cards. At most four keep it at once, which holds
+/// them, with the collectors, within LLP 1079.000 §5.2's storage budget.
 enum FrameHealthReaders {
     private static var open = 0
     static let full = "Four other frame health readers are open; close one to read here"
@@ -180,40 +179,6 @@ enum FrameHealthReaders {
         return true
     }
     static func release() { open -= 1 }
-}
-
-/// The Details inspector's rolling window: up to eleven snapshots over five seconds, kept while an
-/// inspector shows this source and freed when it closes.
-final class FrameHealthWindow {
-    private var samples: [FrameHealthMetrics.Sample] = []
-    private var cached: FrameHealthMetrics.Sample?
-    private var claimed = false
-    func invalidate() { cached = nil }
-    /// Free the history and its place among the readers.
-    func close() {
-        if claimed { FrameHealthReaders.release() }
-        claimed = false
-        samples = []
-        cached = nil
-    }
-    deinit { if claimed { FrameHealthReaders.release() } }
-    /// Nil when four other readers keep history.
-    func reply(_ health: FrameHealth, now: Double = CACurrentMediaTime()) -> [String: Any]? {
-        if !claimed { claimed = FrameHealthReaders.claim() }
-        guard claimed else { return nil }
-        let instant = FrameHealth.nanoseconds(now)
-        let current: FrameHealthMetrics.Sample
-        if let cached, instant >= cached.read, instant - cached.read < 500_000_000 { current = cached }
-        else { current = FrameHealthMetrics.read(health, now: now); cached = current }
-        if samples.last?.snapshot.generation != current.snapshot.generation { samples.removeAll(keepingCapacity: true) }
-        let baseline = samples.first
-        if samples.last.map({ current.read >= $0.read && current.read - $0.read >= 500_000_000 }) ?? true {
-            samples.append(current)
-            if samples.count > 11 { samples.removeFirst() }
-            while samples.count > 1, current.read - samples[1].read > 5_000_000_000 { samples.removeFirst() }
-        }
-        return FrameHealthMetrics.reply(current, health: health, cursor: baseline?.cursor)
-    }
 }
 
 extension FrameHealth {
@@ -229,5 +194,4 @@ extension FrameHealth {
         expireCapture(at: CACurrentMediaTime())
         return FrameHealthMetrics.reply(FrameHealthMetrics.read(self), health: self, cursor: cursor)
     }
-    func rollingMetrics() -> [String: Any]? { window.reply(self) }
 }

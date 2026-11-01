@@ -1,5 +1,6 @@
 import Foundation
 import CExact
+import ExactCore
 
 #if os(iOS) || os(tvOS)
 extension ExactSession {
@@ -21,8 +22,9 @@ struct LaunchPlace: Equatable {
     let locale: String
     let timeZone: String
     let seed: UInt64
-    /// The Region's format (`Locale.current`; English in Korea is `en-KR`), else empty (the locale).
-    let formatLocale: String
+    /// The Region's format with a forced hour cycle (`SessionFacts.currentFormatLocale`), else
+    /// empty (the locale); read again when either changes (`formatLocaleChanged`).
+    var formatLocale: String
     /// Under the agent, the Unix milliseconds at the clock's zero (LLP
     /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
     let epoch: Double?
@@ -38,7 +40,7 @@ struct LaunchPlace: Equatable {
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
             seed = UInt64(UInt32.random(in: .min ... .max))
-            formatLocale = Locale.current.identifier(.bcp47)
+            formatLocale = SessionFacts.currentFormatLocale
         }
     }
 }

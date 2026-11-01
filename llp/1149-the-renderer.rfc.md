@@ -1125,6 +1125,68 @@ passes 56 tests with the AMD hook loaded; the prior fault does not recur.
 See [G7's predictions, rows and retained
 evidence](../bench/heavy-list/gpui/RESULTS.md#g7-windows-at-120-hz).
 
+**G7b, Windows, 2026-11-01:** cut 7's before/after comparison at 120 Hz
+uses `5dc29e7bb2` and `5892f92d5a`, ten interleaved fresh processes per arm
+and revision, caches retained. The repeat passes all 109 quiet observations
+(maximum 9.5% CPU); the first cohort is excluded whole for background load.
+The table gives **carrier endpoints only**: startup PresentMon loses events
+and produces no CSV in three capture configurations. G7b starts PresentMon
+before each launch; G7 did not, so their absolute difference is not isolated.
+Paired D3D11 savings are **2.37 ms DWM / 2.28 ms DXGI**, below prediction.
+Five quiet first-paint pairs give **8.13 → 6.81 ms** on D3D11 and
+**36.93 → 16.88 ms** on Ink/wgpu; every after process records two glyph-page
+copies. D3D11's predicted 10–20 ms paint saving misses. Its complete-screen
+DXGI median remains above the 100 ms obligation.
+
+G7c's final column below contains **excluded diagnostics**, ordered
+series-1 / series-2 / series-3; it supplies no qualified cold-control row.
+
+| Windows cold endpoint, median ms | 60 Hz G6e/G6 | 120 Hz G7 | 120 Hz G7b before | 120 Hz G7b after | G7c observer-off, all excluded |
+| --- | ---: | ---: | ---: | ---: | --- |
+| D3D11 DWM proxy | 160.78 | 161.18 | 194.10 | 192.98 | 195.82 / 200.21 / 199.22 |
+| D3D11 DXGI display | 177.66 | 167.03 | 199.96 | 199.15 | 201.95 / 206.18 / 205.68 |
+| Ink/wgpu DWM proxy | 716.21 | 723.48 | 758.66 | 730.36 | 798.11 / 764.10 / 745.64 |
+| egui DWM proxy | 248.76 | 239.05 | 278.20 | 275.75 | 286.04 / 282.77 / 279.80 |
+
+The first fling and its one retry fail foreground acquisition before wheel
+input: both identify **ChatGPT.exe**, title **ChatGPT**, PID 22076. Collection
+stops. Its five-round 120 Hz fling and separate rest/bar/caret rows are
+uncollected; G7c below resumes them. No carrier cadence limit is established
+and no presentation policy changes. See [G7b's predictions, failures and retained
+comparison](../bench/heavy-list/gpui/RESULTS.md#g7b-windows-at-120-hz-with-cut-7).
+
+**G7c, Windows, 2026-11-01:** the after binaries match G7b's receipts and
+are not rebuilt. Directly launching the interactive task with visible
+PowerShell resolves foreground acquisition; the unchanged driver keeps
+focus. The repeat's five-round fling cohort passes **71/71** quiet
+observations (maximum **9.8%** CPU); the first is excluded at **11.2%**.
+D3D11 records **2,405 snapshots / 2,405 successful frames**. D3D11's process
+CPU median and both egui medians miss the predicted ±25% bands low; wgpu's
+medians pass but its ranges include low misses. All peak-memory ranges
+pass ±10%. These CPU rows do not prove parity of displayed cadence.
+
+| Windows fling | 60 Hz process / main CPU, ms/s | 120 Hz process / main CPU, ms/s | 60 → 120 Hz lifetime peak, MiB |
+| --- | ---: | ---: | ---: |
+| D3D11 | 84.08 / 62.31 | 125.36 / 102.32 | 153.18 → 154.52 |
+| Ink/wgpu | 121.41 / 112.02 | 191.82 / 181.37 | 324.75 → 328.51 |
+| egui | 24.91 / 24.91 | 37.18 / 35.63 | 181.74 → 181.53 |
+
+Rest uses **2/1/0 process CPU ticks** on D3D11/Ink-wgpu/egui and passes
+its quiet gate, as does caret. All three bar cohorts fail one of 15 quiet
+observations (maxima 10.9%, 10.9%, 11.0%); no bar CPU row qualifies.
+PresentMon loses events and produces no CSV
+for every arm, so displayed fling/rest/bar/caret cadence is unavailable;
+this does not establish a carrier rate limit. No presentation policy changes.
+
+All three observer-off cold cohorts complete ten launches per arm after six
+quiet idle observations, then fail the complete-cohort gate: **27/34, 18/34
+and 33/34** observations pass, with maxima **12.6%, 15.0% and 10.1%**. Their
+DWM medians miss the predicted 150–170 / 690–730 / 230–250 ms bands, but these
+excluded controls cannot attribute G7b's difference from G7. Session-end
+process files show background service CPU and 15 surviving ChatGPT.exe
+processes in each session; no machine setting or unrelated process changes.
+See [G7c's predictions, qualification and raw evidence](../bench/heavy-list/gpui/RESULTS.md#g7c-the-windows-120-hz-fling-rows-and-the-observer-off-cold-control).
+
 **G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
 visibility, focus, resize and DPI events clear presentation backoff; successful
 presents retry transient Mica refusal, bounded to three attempts. Clean redraws

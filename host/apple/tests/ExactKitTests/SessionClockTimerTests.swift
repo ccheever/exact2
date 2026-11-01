@@ -6,6 +6,7 @@ import XCTest
 import AppKit
 #endif
 @testable import ExactKit
+import ExactCore
 
 // Exercise the production decoder even when a fixture is written as JSON values.
 func batchFixture(ops: [[String: Any]], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) -> Batch {
@@ -47,7 +48,7 @@ final class SessionClockTimerTests: XCTestCase {
         // the locale); off the agent, `Locale.current`.
         XCTAssertEqual(defaults.formatLocale, "")
         XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1", "EXACT_AGENT_FORMAT_LOCALE": "en-KR"]).formatLocale, "en-KR")
-        XCTAssertEqual(LaunchPlace(environment: [:]).formatLocale, Locale.current.identifier(.bcp47))
+        XCTAssertEqual(LaunchPlace(environment: [:]).formatLocale, SessionFacts.currentFormatLocale)
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         let launch = session.launchPlace
@@ -55,6 +56,55 @@ final class SessionClockTimerTests: XCTestCase {
         session.tellTime()
         session.tellTime()
         XCTAssertEqual(session.launchPlace, launch)
+    }
+
+    /// The hour cycle the user forces (`AppleICUForce24HourTime`,
+    /// `AppleICUForce12HourTime`) is the format locale's `hc` keyword, told
+    /// again when Foundation says the locale changed. The argument domain
+    /// stands in for the setting.
+    func testTheFormatLocaleCarriesAForcedHourCycle() throws {
+        let region = Locale(identifier: "en_US@rg=gbzzzz")
+        XCTAssertEqual(SessionFacts.formatLocale(region, hourCycle: nil), "en-US-u-rg-gbzzzz")
+        XCTAssertEqual(SessionFacts.formatLocale(region, hourCycle: .oneToTwelve), "en-US-u-hc-h12-rg-gbzzzz")
+        XCTAssertEqual(SessionFacts.formatLocale(Locale(identifier: "en_KR"), hourCycle: .zeroToTwentyThree), "en-KR-u-hc-h23")
+        XCTAssertEqual(SessionFacts.formatLocale(Locale(identifier: "en_US@hours=h11"), hourCycle: .zeroToTwentyThree), "en-US-u-hc-h23")
+        let defaults = UserDefaults.standard, arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defer {
+            defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil) // any live session reads it back
+        }
+        func force(_ hours: Int?) {
+            var domain = arguments
+            domain["AppleICUForce24HourTime"] = hours == 24
+            domain["AppleICUForce12HourTime"] = hours == 12
+            defaults.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
+        }
+        let h23 = SessionFacts.formatLocale(.current, hourCycle: .zeroToTwentyThree)
+        force(nil)
+        XCTAssertEqual(SessionFacts.currentFormatLocale, Locale.current.identifier(.bcp47))
+        force(12)
+        XCTAssertEqual(SessionFacts.currentFormatLocale, SessionFacts.formatLocale(.current, hourCycle: .oneToTwelve))
+        force(24)
+        XCTAssertEqual(SessionFacts.currentFormatLocale, h23)
+        XCTAssertEqual(LaunchPlace(environment: ["EXACT_AGENT": "1"]).formatLocale, "")
+        #if os(macOS)
+        force(nil)
+        let source = "shape Time\n  formatLocale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text time.formatLocale testId=\"format\"\n"
+        let session = ExactSession(app: ExactApp.shared, label: "format-locale", launchPlace: LaunchPlace(environment: [:]))
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try TableFixture.plan(source), size: CGSize(width: 390, height: 844)).error)
+        func shows(_ tag: String) -> Bool { session.agent("{\"op\":\"tree\"}").contains("\"\(tag)\"") }
+        func wait(for tag: String) -> Bool {
+            let deadline = Date().addingTimeInterval(10)
+            while !shows(tag), Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05)) }
+            return shows(tag)
+        }
+        XCTAssertTrue(wait(for: Locale.current.identifier(.bcp47)))
+        force(24)
+        NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil)
+        XCTAssertTrue(wait(for: h23), "the running app reads the forced cycle")
+        XCTAssertEqual(session.launchPlace.formatLocale, h23)
+        #endif
     }
 
     func testTargetedLayoutDigestStaysWithEachSessionsNode() throws {

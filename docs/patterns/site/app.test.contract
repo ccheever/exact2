@@ -53,3 +53,21 @@ test "an id no planet has says so, with a way home"
   tap "missing-home"
   clock settle
   expect tree has "planet-1"
+
+test "the kind chosen filters the table and is the location's query"
+  clock data
+  type "kind" "Gas giant"
+  clock settle
+  expect state kind == "Gas giant"
+  expect state shown.length == 2
+  type "kind" ""
+  clock settle
+  expect state shown.length == 8
+
+test "a path no route matches is the not-found page, with a way home"
+  at "/no/such/page"
+  clock data
+  expect tree has "notfound-home"
+  tap "notfound-home"
+  clock settle
+  expect tree has "planet-1"

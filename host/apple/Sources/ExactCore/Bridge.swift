@@ -665,6 +665,13 @@ package final class Runtime {
             return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    /// Where the platform's Back goes from the selected visit, `nil` at the stack's root (LLP 1115.000 D5.5).
+    package func locationBehind() -> String? {
+        on(busy: nil) {
+            let len = exact_location_behind(rt)
+            return len == 0 ? nil : String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
+        }
+    }
     /// Where the platform's Forward goes, `nil` with nothing ahead (LLP 1115.000 D5.5).
     package func locationAhead() -> String? {
         on(busy: nil) {

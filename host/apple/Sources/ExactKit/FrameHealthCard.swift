@@ -26,6 +26,8 @@ final class FrameHealthCardReader {
         reading = false
         samples = []
         previous = nil
+        overdue = 0
+        stale = false
     }
 
     deinit { if reading { FrameHealthReaders.release() } }
@@ -47,14 +49,17 @@ final class FrameHealthCardReader {
         var fps: Double? { counts.fps }
     }
 
-    /// Counts a window adds from its samples.
+    /// Counts a window adds from its samples. Thirty seconds of them fit 32 bits, which keeps the
+    /// card within its memory budget (LLP 1079.000 §5.2); only the time observed needs 64.
     struct Counts {
-        var frames: UInt64 = 0, activeNs: UInt64 = 0, held: UInt64 = 0, changes: UInt64 = 0, epochs: UInt64 = 0, unclassified: UInt64 = 0
-        var requested: UInt64 = 0, missed: UInt64 = 0, restricted: UInt64 = 0, worked: UInt64 = 0, late: UInt64 = 0
+        var activeNs: UInt64 = 0
+        var frames: UInt32 = 0, callbacks: UInt32 = 0, held: UInt32 = 0, changes: UInt32 = 0, epochs: UInt32 = 0
+        var unclassified: UInt32 = 0, outOfOrder: UInt32 = 0, skipped: UInt32 = 0
+        var requested: UInt32 = 0, missed: UInt32 = 0, restricted: UInt32 = 0, worked: UInt32 = 0, late: UInt32 = 0
         var fps: Double? { activeNs == 0 ? nil : Double(frames) * 1e9 / Double(activeNs) }
         mutating func add(_ c: Counts) {
-            frames += c.frames; activeNs += c.activeNs; held += c.held; changes += c.changes; epochs += c.epochs
-            unclassified += c.unclassified
+            activeNs += c.activeNs; frames += c.frames; callbacks += c.callbacks; held += c.held; changes += c.changes
+            epochs += c.epochs; unclassified += c.unclassified; outOfOrder += c.outOfOrder; skipped += c.skipped
             requested += c.requested; missed += c.missed; restricted += c.restricted; worked += c.worked; late += c.late
         }
     }
@@ -70,15 +75,18 @@ final class FrameHealthCardReader {
         var refreshes = [UInt32](repeating: 0, count: 32), lateBy = [UInt32](repeating: 0, count: 32)
         var valid = true
 
-        var frames: UInt64 { counts.frames }
+        var frames: UInt64 { UInt64(counts.frames) }
         var fps: Double? { counts.fps }
     }
 
     private(set) var samples: [Sample] = []
     private var previous: FrameHealthMetrics.Sample?
+    /// At the newest read, as the collector's own reply takes them: frames past their deadline still
+    /// pending, and whether a running source has sent nothing for a second
+    private(set) var overdue: UInt64 = 0, stale = false
 
     /// Forget every sample: on Hide, a new generation or a reset.
-    func reset() { samples.removeAll(keepingCapacity: true); previous = nil }
+    func reset() { samples.removeAll(keepingCapacity: true); previous = nil; overdue = 0; stale = false }
 
     /// Read the collector once at least half a second has passed. The first read after a reset is
     /// only a baseline, and its maxima cover time the card did not watch. A new generation discards
@@ -97,11 +105,14 @@ final class FrameHealthCardReader {
         }
         let a = previous.snapshot, b = current.snapshot
         var s = Sample(from: Double(previous.read) / 1e9, read: now, running: b.running != 0, periodNs: b.period_ns)
-        s.counts = Counts(frames: b.intervals &- a.intervals, activeNs: b.active_ns &- a.active_ns, held: b.held &- a.held,
-            changes: b.pacing_changes &- a.pacing_changes, epochs: b.schedule_epochs &- a.schedule_epochs,
-            unclassified: b.unclassified_intervals &- a.unclassified_intervals,
-            requested: b.requested_slots &- a.requested_slots, missed: b.missed_frames &- a.missed_frames,
-            restricted: b.restricted_intervals &- a.restricted_intervals, worked: b.worked &- a.worked, late: b.late &- a.late)
+        func delta(_ path: KeyPath<ExactFrameHealthSnapshot, UInt64>) -> UInt32 { UInt32(clamping: b[keyPath: path] &- a[keyPath: path]) }
+        s.counts = Counts(activeNs: b.active_ns &- a.active_ns, frames: delta(\.intervals), callbacks: delta(\.callbacks),
+            held: delta(\.held), changes: delta(\.pacing_changes), epochs: delta(\.schedule_epochs),
+            unclassified: delta(\.unclassified_intervals), outOfOrder: delta(\.out_of_order), skipped: delta(\.skipped_refreshes),
+            requested: delta(\.requested_slots), missed: delta(\.missed_frames), restricted: delta(\.restricted_intervals),
+            worked: delta(\.worked), late: delta(\.late))
+        overdue = UInt64(health.pendingFrames(at: Double(current.read) / 1e9).overdue)
+        stale = b.running != 0 && b.last_arrival_ns != 0 && current.read > b.last_arrival_ns + 1_000_000_000
         s.longest = Double(maxima.longest_ns) / 1e6
         s.slowest = Double(maxima.slowest_ns) / 1e6
         s.budget = Double(maxima.budget_ns) / 1e6
@@ -144,7 +155,7 @@ final class FrameHealthCardReader {
     }
 }
 
-/// The card's figures, words and copy text, shared by iOS and macOS. Numbers follow LLP 1079.000
+/// The card's figures, words and the text Share sends, common to iOS and macOS. Numbers follow LLP 1079.000
 /// §7.2: no space before a unit, no "<", "average" or middots, and "—" where there is no value.
 enum FrameHealthCardText {
     struct Display { var name: String, detail: String, maximumHz: Double, adaptiveSync: Bool }
@@ -164,7 +175,7 @@ enum FrameHealthCardText {
 
     struct Figures { var fps, missed, median, maxWork, late, lateBy, maxFrame, changes: String }
 
-    /// The figures for one window. `count` abbreviates large counts on the card; the copy gives them in full.
+    /// The figures for one window. `count` abbreviates large counts on the card; the shared text gives them in full.
     static func figures(_ t: FrameHealthCardReader.Window, rates: Rates, adaptiveSync: Bool,
                         count: (UInt64) -> String = abbreviated) -> Figures {
         // Each figure has its own population: a window can hold misses or late work without a
@@ -172,13 +183,13 @@ enum FrameHealthCardText {
         let c = t.counts, lateness = FrameHealthAssessment.deadlinesObserved
         return Figures(
             fps: t.fps.map { "\(Int($0.rounded())) FPS" } ?? "—",
-            missed: c.requested > 0 ? count(c.missed) : "—",
+            missed: c.requested > 0 ? count(UInt64(c.missed)) : "—",
             median: t.valid ? medianWork(t) : "—",
             maxWork: t.slowest > 0 ? duration(t.slowest, .nearest) : "—",
-            late: c.worked > 0 && lateness ? count(c.late) : "—",
+            late: c.worked > 0 && lateness ? count(UInt64(c.late)) : "—",
             lateBy: lateness && t.valid ? durationText(lateLayout, FrameHealthMetrics.bin(t.lateBy, fraction: 0.5)) : "—",
             maxFrame: t.longest > 0 ? duration(t.longest, .nearest) : "—",
-            changes: c.frames > 0 && !adaptiveSync ? count(c.changes) : "—")
+            changes: c.frames > 0 && !adaptiveSync ? count(UInt64(c.changes)) : "—")
     }
 
     /// The median work time: its bin's upper bound, but never more than the exact maximum it cannot
@@ -192,10 +203,10 @@ enum FrameHealthCardText {
     }
 
     /// A window's name: its nominal span, or the span it actually covers when that differs by more
-    /// than a tenth.
+    /// than a tenth and the window has frames whose figures the span qualifies.
     static func window(_ t: FrameHealthCardReader.Window, nominal: Double) -> String {
         let span = t.read - t.from
-        guard t.read > 0, abs(span - nominal) > nominal / 10 else { return nominal < 1 ? "Last 0.5s" : "Last \(Int(nominal))s" }
+        guard t.read > 0, t.frames > 0, abs(span - nominal) > nominal / 10 else { return nominal < 1 ? "Last 0.5s" : "Last \(Int(nominal))s" }
         return "Last " + (span < 10 ? String(format: "%.1fs", span) : "\(Int(span.rounded()))s")
     }
 
@@ -219,7 +230,7 @@ enum FrameHealthCardText {
         // Refresh counts from different schedules convert to no single time, and an interval across a
         // change has none: the verdict says the schedule changed, with the frames across the change
         let changed = t.counts.epochs > 0 || t.counts.unclassified > 0 || rates.periodMs == 0
-        let verdict = "Schedule changed" + (t.counts.unclassified > 0 ? ", \(count(t.counts.unclassified)) frames across" : "")
+        let verdict = "Schedule changed" + (t.counts.unclassified > 0 ? ", \(count(UInt64(t.counts.unclassified))) frames across" : "")
         guard let most = held.first else { return (verdict, "") }
         // The last bin holds every frame over 31 refreshes
         func time(_ i: Int) -> String {
@@ -252,25 +263,92 @@ enum FrameHealthCardText {
             rates.limited ? "system limit \(Int(rates.scheduleHz.rounded())) FPS" : "no limit")
     }
 
-    /// The copy's text: every figure with its window, leaving out windows without one.
-    static func summary(reader: FrameHealthCardReader, rates: Rates, display: Display, paused: Bool) -> String {
+    /// The shared summary, in the parts the image draws too.
+    struct Summary {
+        var title: String, context: [String], figures: [String], results: [String], notes: [String]
+        var text: String { ([title] + context + figures + results + notes).joined(separator: "\n") }
+    }
+
+    /// The shared summary: every figure with its window, leaving out windows without one, then the
+    /// results Details gives.
+    static func summary(reader: FrameHealthCardReader, rates: Rates, display: Display, paused: Bool, health: FrameHealth) -> Summary {
         let windows = [(0.5, reader.window(0.5)), (5, reader.window(5)), (30, reader.window(30))]
             .map { (window($0.1, nominal: $0.0).lowercased(), $0.1) }
         let figures = windows.map { figures($0.1, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) }) }
         let (verdict, detail) = pacing(windows[1].1, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) })
-        var lines = ["Frame health, \(paused ? "paused" : "live")",
-            rates.requestedHz > 0
-                ? "Requested rate: \(Int(rates.requestedHz.rounded())) FPS" + (rates.limited ? ", limited by the system to \(Int(rates.scheduleHz.rounded())) FPS" : "")
-                : "Requested rate: none",
-            "Display: \(display.name), \(display.detail)", deadline(rates, varied: windows[2].1.counts.epochs > 0),
-            "Pacing (\(windows[1].0)): " + [verdict, detail].filter { !$0.isEmpty }.joined(separator: "; ")]
-        for (name, key) in rows {
-            let values = zip(figures, windows).filter { $0.0[keyPath: key] != "—" }.map { "\($0.0[keyPath: key]) (\($0.1.0))" }
-            lines.append("\(name): " + (values.isEmpty ? "—" : values.joined(separator: ", ")))
+        return Summary(title: "Frame health, \(paused ? "paused" : "live")",
+            context: [rates.requestedHz > 0
+                    ? "Requested rate: \(Int(rates.requestedHz.rounded())) FPS" + (rates.limited ? ", limited by the system to \(Int(rates.scheduleHz.rounded())) FPS" : "")
+                    : "Requested rate: none",
+                "Display: \(display.name), \(display.detail)", deadline(rates, varied: windows[2].1.counts.epochs > 0),
+                "Pacing (\(windows[1].0)): " + [verdict, detail].filter { !$0.isEmpty }.joined(separator: "; ")],
+            figures: rows.map { name, key in
+                let values = zip(figures, windows).filter { $0.0[keyPath: key] != "—" }.map { "\($0.0[keyPath: key]) (\($0.1.0))" }
+                return "\(name): " + (values.isEmpty ? "—" : values.joined(separator: ", "))
+            },
+            results: results(reader: reader, health: health),
+            notes: ["Frames (\(windows[2].0)): \(windows[2].1.frames)",
+                "Not measured: when pictures appeared on screen, Core Animation's commit, compositor and GPU time, input latency"])
+    }
+
+    /// A row of Details: a result with its reason, or a count.
+    struct Detail { var name: String, value: String, reason: String? = nil }
+
+    /// Details: the collector's three results over the last 5s, each with its reason, by the
+    /// collector's own rules (`FrameHealthAssessment`), then the counts behind them.
+    static func details(reader: FrameHealthCardReader, health: FrameHealth) -> [Detail] {
+        let t = reader.window(5), c = t.counts
+        // The deltas the collector's reply assesses, laid out as `FrameHealthMetrics.Sample.values`
+        var delta = [UInt64](repeating: 0, count: 17)
+        for (index, value) in [(0, c.callbacks), (1, c.held), (2, c.frames), (6, c.worked), (7, c.late), (11, c.requested), (12, c.missed),
+                               (13, c.restricted), (14, c.skipped), (15, c.unclassified), (16, c.outOfOrder)] { delta[index] = UInt64(value) }
+        delta[3] = c.activeNs
+        let reply = FrameHealthAssessment.reply(.init(delta, scheduledPeriodNs: t.periodNs, running: t.running, overdue: reader.overdue,
+            stale: reader.stale), health: health)
+        let results = [("Cadence", "cadence"), ("Target rate", "target"), ("Content latency", "contentLatency")].map { name, key in
+            let r = reply[key] as? [String: Any] ?? [:]
+            return Detail(name: name, value: result(r["result"] as? String), reason: reason(r["reason"] as? String))
         }
-        lines.append("Frames (\(windows[2].0)): \(windows[2].1.frames)")
-        lines.append("Not measured: when pictures appeared on screen, Core Animation's commit, compositor and GPU time, input latency")
-        return lines.joined(separator: "\n")
+        // Where deadlines carry no information, lateness is unknown, not zero
+        let late = FrameHealthAssessment.deadlinesObserved ? String(c.late) : "—"
+        return results + [("Frames", String(c.frames)), ("Requested slots", String(c.requested)), ("Missed frames", String(c.missed)),
+            ("Skipped refreshes", String(c.skipped)), ("Late frames", late), ("Limited by the system", String(c.restricted))]
+            .map { Detail(name: $0, value: $1) }
+    }
+
+    /// Details' caption: the window its rows cover, and what Exact does not observe.
+    static func detailsCaption(reader: FrameHealthCardReader) -> String {
+        window(reader.window(5), nominal: 5) + ". Exact does not observe presentation, compositor or GPU time, or input latency."
+    }
+
+    /// Each result with its window, as the shared text gives them.
+    static func results(reader: FrameHealthCardReader, health: FrameHealth) -> [String] {
+        let span = window(reader.window(5), nominal: 5).lowercased()
+        return details(reader: reader, health: health).prefix(3).map { "\($0.name) (\(span)): \($0.value)" + ($0.reason.map { ", " + $0 } ?? "") }
+    }
+
+    /// A result in the card's words: the collector's "proxy-pass" reads "Pass by proxy", and every
+    /// result short of evidence "Not enough evidence".
+    private static func result(_ code: String?) -> String {
+        switch code {
+        case "proxy-pass": "Pass by proxy"
+        case "fail": "Fail"
+        case "restricted": "Limited"
+        case "not-applicable": "Not applicable"
+        default: "Not enough evidence"
+        }
+    }
+
+    private static func reason(_ code: String?) -> String? {
+        switch code {
+        case "unknown": "cause unknown"
+        case "content-lateness-unobserved": "not observed"
+        case "no-callbacks": "no frames"
+        case "no-rate-request": "no rate requested"
+        case "stale": "no recent frames"
+        case let code?: code.replacingOccurrences(of: "-", with: " ")
+        case nil: nil
+        }
     }
 
     /// The definitions sheet: each figure and what Exact does not measure.
@@ -318,7 +396,7 @@ enum FrameHealthCardText {
 }
 
 /// What the card shows, built once per refresh from the reader and used for its drawing,
-/// accessibility and Copy alike, on iOS and macOS.
+/// accessibility and Share alike, on iOS and macOS.
 struct FrameHealthCardPresentation {
     typealias T = FrameHealthCardText
     var status = FrameHealthCardFace.Status.idle
@@ -328,12 +406,18 @@ struct FrameHealthCardPresentation {
     var input: FrameHealthCardDrawing.Input?
     var columns: [String] = [], table: [(String, [String])] = [], caption = ""
     var rateSummary = "Frame rate", timeSummary = "Frame time"
+    var details: [T.Detail] = [], detailsCaption = ""
 
     init() {}
 
+    /// `details` asks for Details' rows too, which only a card that shows them needs.
     init(reader: FrameHealthCardReader, rates: T.Rates, display: T.Display, status: FrameHealthCardFace.Status,
-         unavailable: String?) {
+         unavailable: String?, health: FrameHealth, details: Bool = false) {
         let now = reader.window(0.5), five = reader.window(5), thirty = reader.window(30)
+        if details {
+            self.details = T.details(reader: reader, health: health)
+            detailsCaption = T.detailsCaption(reader: reader)
+        }
         self.status = status
         request = unavailable.map { ($0, "") } ?? T.request(rates)
         self.display = "\(display.name) · \(display.detail)"
@@ -363,19 +447,31 @@ struct FrameHealthCardPresentation {
     }
 }
 
+/// What Share offers, each alone, so every app takes it the same way; each holds everything,
+/// whichever view the card shows.
+enum FrameHealthShare: CaseIterable {
+    case report, summary, image
+    var title: String {
+        switch self {
+        case .report: "Agent Report"
+        case .summary: "Summary"
+        case .image: "Image"
+        }
+    }
+}
+
 extension FrameHealthCardText {
-    /// The clipboard's text and picture, from the same reader the card shows (frozen while paused).
-    static func copy(reader: FrameHealthCardReader, chart: FrameHealthChart, rates: Rates, display: Display, paused: Bool,
-                     palette: FrameHealthCardDrawing.Palette) -> (text: String, picture: Data?) {
-        let text = summary(reader: reader, rates: rates, display: display, paused: paused)
-        let lines = text.components(separatedBy: "\n")
+    /// The shared image, from the same reader the card shows (frozen while paused): the summary's
+    /// context, both charts, every figure and the results.
+    static func picture(reader: FrameHealthCardReader, chart: FrameHealthChart, rates: Rates, display: Display, paused: Bool,
+                        health: FrameHealth, palette: FrameHealthCardDrawing.Palette) -> Data? {
+        let summary = summary(reader: reader, rates: rates, display: display, paused: paused, health: health)
         let windows = [(reader.window(0.5), 0.5), (reader.window(5), 5.0), (reader.window(30), 30.0)]
         let all = windows.map { figures($0.0, rates: rates, adaptiveSync: display.adaptiveSync, count: { String($0) }) }
         let table = [[""] + windows.map { window($0.0, nominal: $0.1) }]
             + rows.map { name, key in [name] + all.map { $0[keyPath: key] } }
         let input = FrameHealthCardDrawing.Input(reader: reader, rates: rates, displayMaximumHz: display.maximumHz)
-        let picture = FrameHealthCardDrawing.picture(title: lines[0], context: Array(lines[1...4]), input: input, chart: chart,
-            table: table, notes: Array(lines.suffix(2)), palette: palette)
-        return (text, picture)
+        return FrameHealthCardDrawing.picture(title: summary.title, context: summary.context, input: input, chart: chart,
+            table: table, results: summary.results, notes: summary.notes, palette: palette)
     }
 }
