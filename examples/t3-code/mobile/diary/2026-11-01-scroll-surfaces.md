@@ -52,6 +52,7 @@ The first source commit was `98e425ba72`; the row-root correction is a follow-up
 source unit. No native build or performance claim is attached to this work.
 
 The sampled-clock correction passes its source-focused run (138 tests, 854
-assertions), Contract compilation, and a normal no-install iOS build. A runtime
-scroll drive remains pending because the assigned Duo is held by another device
-session; no framework defect is claimed.
+assertions), the full mobile suite (4,238 passed, 2 optional skips, 37,663
+assertions), Contract compilation, strict TypeScript, caps, boot, and a normal
+no-install iOS build. A runtime scroll drive remains pending because the
+assigned Duo is held by another device session; no framework defect is claimed.
