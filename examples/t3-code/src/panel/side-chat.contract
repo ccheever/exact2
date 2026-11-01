@@ -19,6 +19,7 @@ component SideChatBody
   inject
     // Where the window's one SideChatLayer draws the chat view (side-chat-members.contract sideChatPlace).
     sideChatPlace: action
+    sidePaneFocus: action
   props
     view: SideChatPane
     local: action
@@ -40,7 +41,7 @@ component SideChatBody
     else
       command("shell:surface-side-chat-delete", view.threadId, "", 0)
   view
-    column flex=1 min-height=0 width="100%" testId="side-chat-pane"
+    column flex=1 min-height=0 width="100%" testId="side-chat-pane" focusin=sidePaneFocus(true) focusout=sidePaneFocus(false)
       row height="2.25rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.25rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
         text view.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" testId="side-chat-title"
         box position="relative" flex-shrink=0 hover=hover("bring-back")
@@ -67,11 +68,12 @@ component SideChatLayer
     sideChatY: number
     sideChatWidth: number
     sideChatHeight: number
+    sidePaneFocus: action
   props
     still: bool
   view
     if sideChatThread != "" and sideChat.threadId == sideChatThread and sideChatWidth > 0 and sideChatHeight > 0
-      column position="absolute" left=sideChatX top=sideChatY width=sideChatWidth height=sideChatHeight testId="side-chat-layer"
+      column position="absolute" left=sideChatX top=sideChatY width=sideChatWidth height=sideChatHeight testId="side-chat-layer" focusin=sidePaneFocus(true) focusout=sidePaneFocus(false)
         SideChatThread(still=still)
 
 // ChatView embedded: the side chat's timeline over its composer. The composer's components read the side chat's
@@ -117,6 +119,8 @@ component SideChatThread
     fieldIntentNotice: string
     fieldMenuActive: number
     sideKeys: bool
+    sideComposerFocusWithin: action
+    sideChipPress: action
     keyModelsChord: string
     openProviderSettings: action
   props
@@ -131,9 +135,8 @@ component SideChatThread
   derive questionDocuments = sideQuestionMarkdown.documents
   derive traceDocuments = sideTraceMarkdown.documents
   derive composerMenuActive = fieldSide ? fieldMenuActive : 0
-  // A pill's details are the window's composer's (composer-chip-popover.ts reads the window's field).
   action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
-    quiet = 0
+    sideChipPress(owner, value, serial, start, end, source, comment)
   action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
     sideAttachFiles(origin, files, picked, asText, target)
   action chooseAttachments
@@ -191,14 +194,13 @@ component SideChatThread
   action askRemove(target: string, id: string, op: string, title: string, body: string, destructive: bool)
     sideRemoveSnapshot(id)
   derive mine = composerTarget == sideChatThread
-  state quiet = 0
   view
     column flex=1 min-height=0 width="100%" position="relative" testId="side-chat-view"
       input type="file" id="side-chat-attach-input" multiple=true display="none" change=sideFilesPicked
       list appearance="none" virtualized=true scrollFollowEnd=true scroll=scrolled testId="side-chat-transcript" flex=1 min-height=0 width="100%" box-sizing="border-box" overflow-x="hidden"
         for message in sideChat.messages key=message.id
           TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
-      column flex-shrink=0 width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay"
+      column flex-shrink=0 width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay" focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)
         column width="100%" max-width=sideChat.look.chatMax position="relative" box-sizing="border-box"
           ComposerDock(data=sideChat, busy=commandPending, command=sideCommand, keyed=keyed, drop=dropped, urls=sideAttachmentUrls.items, exiting="", still=still, dismiss=dismiss)
           RequestBanner(data=sideChat, command=sideCommand, maximumHeight=320)

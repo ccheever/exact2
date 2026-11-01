@@ -42,6 +42,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             // A draft image's upload, a stream that tells its bytes sent (src/composer/composer-uploads.ts).
             "composerUpload",
             "composerField",
+            "composerFieldWaiting",
             "composerFieldObserved",
             "composerFieldAcknowledged",
             "composerIntent",

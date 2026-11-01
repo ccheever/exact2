@@ -13,7 +13,22 @@ members T3Code
   state modelTarget = PickerTarget(id="", top=0, bottom=0, left=0) // a General model row's picker
   resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id == "" and composerTarget != "" ? `side-chat:${composerTarget}` : modelTarget.id) as shape PickerCatalog // a side chat's composer reads its own (side-chat-members.contract)
   resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed, layoutFrames, "") as shape ComposerEditorView // composer-editor.ts
-  resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
+  // A chip's details popover (composer-chip-popover.ts) for the composer whose pill was pressed last: the window's (""),
+  // or a side chat's (its thread). The two number their presses from one sequence (composer-chip-store.ts).
+  state chipTarget = ""
+  derive chipSide = chipTarget != "" and chipTarget == sideChatThread
+  derive chipData = chipSide ? sideChat : data
+  derive chipRich = chipSide ? sideRich : richComposer
+  derive chipOwner = chipSide ? sideRichOwner : richComposerOwner
+  derive chipText = chipSide ? sideText : composerText
+  derive chipLive = not modal and chipData.requestMode != "approval" and not chipData.composer.subagent
+  resource chip = composerChip(data.revision, chipTarget) as shape ChipPopover
+  // The side chat it served closed or changed: the window's composer has the details again.
+  task chipTargetLapse when chipTarget != "" and chipTarget != sideChatThread key=`${chipTarget}|${sideChatThread}`
+    after(1, chipTargetLapsed)
+  action chipTargetLapsed
+    if chipTarget != sideChatThread
+      chipTarget = ""
   mutation chipObserved as shape ChipPopover queue refreshes chip
   mutation chipPressed as shape ChipPopover queue refreshes chip
   // A chip's close and actions queue on their own send: on `localChanged` a press's other local op in the same
@@ -32,17 +47,20 @@ members T3Code
     chipComplete(item, focused)
   action chipComplete(item: ComposerChipFinish, focused: string)
     let preview = item.surface == "preview"
-    let target = preview ? "prompt-font-preview" : "composer"
+    let target = preview ? "prompt-font-preview" : chipSide ? "side-chat-composer" : "composer"
     // Settings is itself a route dialog (AppRouteModal, `settings-dialog`); a dialog over it covers the sample.
     let covered = preview ? connecting or projectsOpen or paletteOpen or providerDialog != "" or restEditor != "" or welcome.show or querySelectorAll("[data-dialog-focus~=\"open\"]").filter((id) => id != "settings-dialog").length > 0 : modal
-    if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : richComposer.generation) and item.snapshotOwner == data.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : composerFieldLive and item.owner == richComposerOwner and item.value == composerText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
+    if not covered and item.seq == chip.finish.seq and item.generation == (preview ? richPromptPreview.generation : chipRich.generation) and item.snapshotOwner == chipData.snapshotOwner and (preview ? promptPreviewVisible and item.owner == promptPreviewOwner and item.value == promptPreviewText and item.inputSerial == promptPreviewSerial and not promptPreviewComposing : chipLive and item.owner == chipOwner and item.value == chipText and item.inputSerial == composerFieldInputSerial and not composerComposing) and frame(target).width > 0
       // After an outside press the focus comes back only if the press left it nowhere: on no element, on the window's root
       // (`t3-code`, which a press on the page's ground focuses, as Chromium leaves the body), or on the closed popup's own
       // (a focus event names what the press focused, the dialog included).
       if item.focus == "after" or item.focus == "select" or ((item.focus == "outside" or item.focus == "return") and (focused == "" or focused == "t3-code" or frame(focused).unavailable))
         focus(target)
         setSelectionRange(target, item.focus == "select" or item.focus == "return" ? item.start : item.end, item.end)
-      if item.send and not preview and not commandPending and data.canSend and data.requestMode != "question"
+      if item.send and not preview and chipSide and not commandPending and sideChat.canSend and sideChat.requestMode != "question"
+        sideCommand("send-citation", `${item.seq}`, "", 0)
+        sideDraftOwner = "__unset__"
+      else if item.send and not preview and not chipSide and not commandPending and data.canSend and data.requestMode != "question"
         commandPending = true
         send changed = command("send-citation", `${item.seq}`, "", 0)
         composerTyping = false
@@ -108,23 +126,27 @@ members T3Code
   // A reference's pill pressed (`comment`: a citation's comment, which the reference's chip opens from its pencil). The
   // pill anchors the popover.
   action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
+    chipTarget = ""
     let preview = surface == "preview"
     let current = preview ? richPromptPreview : richComposer
     if (preview ? promptPreviewVisible and serial == promptPreviewSerial and owner == promptPreviewOwner and value == promptPreviewText : composerFieldLive and serial == composerFieldInputSerial and owner == richComposerOwner and value == composerText and not composerComposing) and current.owner == owner and current.value == value and current.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
       let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
-        send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
+        send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds), "")
   // The field the editing engine below serves: the window's composer (""), or a side chat's from when its field takes
   // the focus until the window's does (side-chat-members.contract). Only one field has the focus, and each of the
   // engine's steps checks the field's owner and value, so a step meant for the other field lapses.
   state fieldTarget = ""
   state fieldSide = false
-  // A side chat that closes or changes hands the engine back to the window's field.
-  task fieldTargetLapse when fieldSide and fieldTarget != sideChatThread key=`${fieldTarget}|${sideChatThread}`
-    after(1, fieldTargetLapsed)
-  action fieldTargetLapsed
-    if fieldTarget != sideChatThread
-      fieldSwitch("")
+  // The field the engine moves to without a focus change, a tick later (fieldServeRun): the one a switch waited for while
+  // a delivery was confirmed; the window's once the side chat closes or changes; with neither field focused, the other
+  // field once it has an edit waiting (composerFieldOther, both answers current). "-" is none.
+  derive fieldServeNext = fieldSwitchWaiting and composerFieldAfter == composerFieldAcked ? fieldSwitchTo : fieldSide and fieldTarget != sideChatThread ? "" : composerFieldOther > 0 and not pending(composerFieldOther) and not pending(composerFieldNext) and not composerFocused and composerFieldAfter == composerFieldAcked and not (composerFieldNext.ready and composerFieldNext.seq > composerFieldAfter) ? (fieldSide ? "" : sideChatThread) : "-"
+  task fieldServe when fieldServeNext != "-" key=`${fieldServeNext}|${fieldTarget}|${composerFieldAcked}|${composerFieldOther}`
+    after(1, fieldServeRun)
+  action fieldServeRun
+    if fieldServeNext != "-"
+      fieldSwitch(fieldServeNext)
   // Each field's commands are numbered by its own queue (composer-field-commands.ts), so the engine's delivery cursors
   // are the served field's: a switch parks the other field's and takes this one's back (a side chat's from zero when it
   // is another thread than the one parked).
@@ -137,36 +159,49 @@ members T3Code
   state sideFieldAcked = 0
   state sideFieldEffects = 0
   state sideFieldFocusDone = 0
+  // An edit delivered and not yet confirmed is confirmed for the field it went to first (composerFieldConfirm, a tick
+  // later), and the switch waits for it (fieldServe): the confirm reads the served field's cursors and target.
+  state fieldSwitchWaiting = false
+  state fieldSwitchTo = ""
   action fieldSwitch(thread: string)
     let toSide = thread != ""
-    if toSide != fieldSide or thread != fieldTarget
-      let resume = toSide and not fieldSide and thread == sideFieldThread
-      let after = composerFieldAfter
-      let acked = composerFieldAcked
-      let effects = composerFieldEffects
-      let focusDone = composerFieldFocusDone
-      composerFieldAfter = toSide ? (resume ? sideFieldAfter : 0) : windowFieldAfter
-      composerFieldAcked = toSide ? (resume ? sideFieldAcked : 0) : windowFieldAcked
-      composerFieldEffects = toSide ? (resume ? sideFieldEffects : 0) : windowFieldEffects
-      composerFieldFocusDone = toSide ? (resume ? sideFieldFocusDone : 0) : windowFieldFocusDone
-      if fieldSide
-        sideFieldThread = fieldTarget
-        sideFieldAfter = after
-        sideFieldAcked = acked
-        sideFieldEffects = effects
-        sideFieldFocusDone = focusDone
-      else
-        windowFieldAfter = after
-        windowFieldAcked = acked
-        windowFieldEffects = effects
-        windowFieldFocusDone = focusDone
-      // Edits queued for the other field lapse with it, and say nothing in this one.
-      composerIntentQueue = []
-      composerIntentActive = 0
-      composerIntentPhase = ""
-      fieldIntentNotice = ""
-      fieldTarget = thread
-      fieldSide = toSide
+    if composerFieldAfter > composerFieldAcked
+      fieldSwitchWaiting = true
+      fieldSwitchTo = thread
+    else
+      fieldSwitchWaiting = false
+      if toSide != fieldSide or thread != fieldTarget
+        let resume = toSide and not fieldSide and thread == sideFieldThread
+        let after = composerFieldAfter
+        let acked = composerFieldAcked
+        let effects = composerFieldEffects
+        let focusDone = composerFieldFocusDone
+        composerFieldAfter = toSide ? (resume ? sideFieldAfter : 0) : windowFieldAfter
+        composerFieldAcked = toSide ? (resume ? sideFieldAcked : 0) : windowFieldAcked
+        composerFieldEffects = toSide ? (resume ? sideFieldEffects : 0) : windowFieldEffects
+        composerFieldFocusDone = toSide ? (resume ? sideFieldFocusDone : 0) : windowFieldFocusDone
+        if fieldSide
+          sideFieldThread = fieldTarget
+          sideFieldAfter = after
+          sideFieldAcked = acked
+          sideFieldEffects = effects
+          sideFieldFocusDone = focusDone
+        else
+          windowFieldAfter = after
+          windowFieldAcked = acked
+          windowFieldEffects = effects
+          windowFieldFocusDone = focusDone
+        // Edits queued for the other field lapse with it, and say nothing in this one.
+        composerIntentQueue = []
+        composerIntentActive = 0
+        composerIntentPhase = ""
+        fieldIntentNotice = ""
+        fieldTarget = thread
+        fieldSide = toSide
+  // With neither field focused, an edit asked of the field the engine does not serve (a stash row or an image's remove
+  // pressed in the side chat, a mention or capture for the window's) moves the engine to it (fieldServe), as the
+  // reference applies the edit to its editor at once. A focused field keeps the engine.
+  resource composerFieldOther = composerFieldWaiting(fieldSide or sideChatThread != "", fieldSide ? windowFieldAfter : (sideFieldThread == sideChatThread ? sideFieldAfter : 0), fieldSide ? "" : sideChatThread, fieldData.revision) as shape number
   derive fieldData = fieldSide ? sideChat : data
   derive fieldRich = fieldSide ? sideRich : richComposer
   derive fieldOwner = fieldSide ? sideRichOwner : richComposerOwner
@@ -248,7 +283,9 @@ members T3Code
   task composerFieldRestoreFocus when composerFieldFocus.seq > composerFieldFocusDone and (not composerFieldFocusCurrent or fieldData.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0) key=composerFieldFocus.seq
     after(1, composerFieldFocusRun)
   action composerFieldFocusRun
-    composerFieldFocusDone = composerFieldFocus.seq
+    // A focus to restore that the field left asked for lapses with it, and leaves this field's cursor alone.
+    if composerFieldFocus.owner == fieldOwner
+      composerFieldFocusDone = composerFieldFocus.seq
     if composerFieldFocusCurrent and fieldData.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0 and frame(composerFieldFocus.focus).width > 0
       focus(composerFieldFocus.focus)
   derive composerRichCurrent = fieldRich.owner == fieldOwner and fieldRich.value == fieldText
@@ -489,13 +526,16 @@ members T3Code
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
         else
           format(fieldId, k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
-    else if not composing and not fieldSide and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
+    else if not composing and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
       // ⇧⇥ just after a citation reaches its comment (ComposerPromptEditorTiptap handleKeyDown), before plan mode's.
       preventDefault()
       stopPropagation()
       match first(fieldRich.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart))
         case some(c)
-          composerChipPress("composer", fieldOwner, fieldText, composerFieldInputSerial, c.start, c.end, c.source, true)
+          if fieldSide
+            sideChipPress(fieldOwner, fieldText, composerFieldInputSerial, c.start, c.end, c.source, true)
+          else
+            composerChipPress("composer", fieldOwner, fieldText, composerFieldInputSerial, c.start, c.end, c.source, true)
         case none
     else if not composing and k == "Tab" and e.shiftKey and fieldData.composer.planVisible and not composerInCode and not (composerInNestedList and not fieldEditor.menu.open and not e.altKey and not (e.metaKey or e.ctrlKey))
       // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), on a top-level list item or with a

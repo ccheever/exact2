@@ -207,3 +207,21 @@ test('the module\'s field reads and edits reach the field of the client that ask
   expect((await state(scope)).value.text).toBe('side text');
   expect((await state(client)).value.text).not.toBe('side text');
 });
+
+test('an edit asked of the side chat\'s field while the engine serves the window\'s says it waits (composerFieldWaiting)', async () => {
+  const { composerFieldNative, composerFieldObserved, composerFieldResource, composerFieldWaiting } = await import('../../src/composer/composer-field-bridge');
+  const { composerFieldOwner } = await import('../../src/composer/auto-balance-owner');
+  const { client } = await withSideChat();
+  const scope = threadScope(client, 's1');
+  const owner = composerFieldOwner(scope);
+  const snapshot = { generation: scope.generation, snapshotOwner: scope.snapshotOwner, owner, value: 'side text', start: 9, end: 9, composing: false, live: true, focused: false, inputSerial: 1 };
+  composerFieldObserved(scope, [snapshot, true], owner);
+  const module = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as unknown as Parameters<typeof composerFieldNative>[1];
+  expect(composerFieldWaiting(scope, [true, 0], owner)).toBe(0);
+  const admitted = (await composerFieldNative(scope, module, () => owner).later({ op: 'editorInsert', text: '!', start: 9, end: 9 })) as { value: { seq: number } };
+  const seq = admitted.value.seq;
+  expect(seq).toBeGreaterThan(0);
+  expect([composerFieldWaiting(scope, [true, 0], owner), composerFieldWaiting(scope, [false, 0], owner), composerFieldWaiting(scope, [true, seq], owner)]).toEqual([seq, 0, 0]);
+  // Asking does not deliver it: the engine's own read, once it serves the field, does.
+  expect(composerFieldResource(scope, [snapshot, 0], owner)).toMatchObject({ ready: true, seq, text: ' ! ' });
+});

@@ -22,7 +22,7 @@ import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } f
 import { composerRichSource } from './src/composer/composer-rich-source';
 import { uploadSource } from './src/composer/composer-uploads'; // a draft image's upload, a stream that tells its bytes sent
 import { composerFieldOwner } from './src/composer/auto-balance-owner';
-import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource } from './src/composer/composer-field-bridge';
+import { composerFieldAcknowledged, composerFieldNative, composerFieldObserved, composerFieldResource, composerFieldWaiting } from './src/composer/composer-field-bridge';
 import { composerIntentAnswer } from './src/composer/composer-intent-source';
 import { chipPopoverView } from './src/composer/composer-chip-popover'; // a skill chip's details popover
 import { composerChipObserved, composerChipPressed } from './src/composer/composer-chip-events';
@@ -73,7 +73,7 @@ import { Transport } from './src/transport/transport';
 import { noteLayoutFrames } from './src/shell/layout-frames';
 import type { SecretStore } from './src/transport/transport-catalog';
 import { externalOpenRequest } from './src/client/external-open';
-import { scopedCommand, scopedOp, sideChatClient } from './src/panel/side-chat-thread'; // a side chat's own chat view: its snapshot and its presses
+import { chipScopedOp, noteChipTarget, scopedCommand, scopedOp, sideChatClient } from './src/panel/side-chat-thread'; // a side chat's own chat view: its snapshot and its presses
 
 export const appId = 'com.exact.t3code.macos';
 // The server connections (src/transport/transport.ts): servers are named at run time (a pairing link, a learned
@@ -189,12 +189,13 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerRich') return composerRichSource(sideChatClient(client, String(args[6] ?? '')), { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' }); // args[6]: a side chat's composer
   // The composer field the editing engine serves: the window's, or a side chat's (its thread, the last argument).
   if (source === 'composerField') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldResource(host, args, composerFieldOwner(host), native); }
+  if (source === 'composerFieldWaiting') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldWaiting(host, args, composerFieldOwner(host), native); } // args: whether it asks, the parked cursor, the field (its thread or '')
   if (source === 'composerFieldObserved') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(host, args, composerFieldOwner(host)); }
   if (source === 'composerFieldAcknowledged') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldAcknowledged(host, args, composerFieldOwner(host), native); }
   if (source === 'composerIntent') return composerIntentAnswer(sideChatClient(client, String(args[13] ?? '')), args); // the field's source session: a side chat's is its scope's
-  if (source === 'composerChip') return chipPopoverView(client);
+  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return chipPopoverView(sideChatClient(client, String(args[1] ?? ''))); } // args[1]: the composer it serves, a side chat's thread or ''
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
-  if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);
+  if (source === 'composerChipPressed') return composerChipPressed(sideChatClient(client, String(args[1] ?? '')), args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);
   const scoped = PROJECT_SCOPED_PAGES.has(source) ? settingsPageClient(client, native, args) : { client, args }; // a background environment's project (projects-fleet.ts)
   const pageClient = scoped.client; args = scoped.args;
@@ -261,6 +262,6 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'shellView') { noteNow(client, Number(args[1]) || 0); return highlightView('shell', () => shellView(client, native, storage, Number(args[1]) || 0, String(args[2] || ''), args[3] === true, args[4] === true, { focused: args[5] !== false, visible: args[6] !== 'hidden', notifications: String(args[8] ?? '') }, args[7] !== false)); } // args[5..6]: exactPage().hasFocus and visibilityState (exact2 #219); args[7]: the chat view is shown; args[8]: the notification permission
   // A drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles): composer-controls-attach.ts.
   if (source === 'composerAttach') return sideChatClient(client, String(args[5] ?? '')).command('cclocal:attach-files', String(args[0] || ''), JSON.stringify({ files: (Array.isArray(args[1]) ? args[1] : []).map(String), picked: Array.isArray(args[2]) ? args[2] : [], asText: args[3] === true, target: String(args[4] ?? '') }), 0, fieldNative(sideChatClient(client, String(args[5] ?? ''))), storage);
-  if (source === 'command') { const scoped = scopedOp(String(args[0] || '')); return scopedCommand(client, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, scoped ? fieldNative(sideChatClient(client, scoped.threadId)) : native, storage); } // `scope:<thread>|<op>` runs on a side chat (side-chat-thread.ts)
+  if (source === 'command') { const op = chipScopedOp(client, String(args[0] || '')), scoped = scopedOp(op); return scopedCommand(client, op, String(args[1] || ''), String(args[2] || ''), Number(args[3]) || 0, scoped ? fieldNative(sideChatClient(client, scoped.threadId)) : native, storage); } // `scope:<thread>|<op>` runs on a side chat (side-chat-thread.ts)
   throw new Error(`Unknown T3 source: ${source}`);
 }

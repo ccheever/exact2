@@ -16,9 +16,12 @@ const copy = (press: ComposerChipPress): ComposerChipPress => ({ ...press, frame
 const actions = new Set(['mention', 'thread', 'citation', 'pull-request', 'image', 'file', 'video', 'pr-open', 'pr-draft', 'pr-merged', 'pr-closed']);
 
 /** Product presses retain source identity and measured geometry. The shared
- *  field still owns selection, source edits and undo. */
+ *  field still owns selection, source edits and undo. `numbers` issues the press
+ *  sequence; the window's composer and its side chats' share one, so a press in
+ *  either field is newer than every press before it in both. */
 export class ComposerChipPresses {
   private sequence = 0;
+  constructor(private readonly numbers: { last: number } = { last: 0 }) {}
   private interaction = 0;
   private active: Active | null = null;
   get latest(): number { return this.sequence; }
@@ -60,8 +63,9 @@ export class ComposerChipPresses {
       this.active = null;
       return null;
     }
-    if (!Number.isSafeInteger(this.sequence + 1)) return null;
-    const press: ComposerChipPress = { seq: ++this.sequence, open: details, surface, owner: snapshot.snapshotOwner, fieldOwner: snapshot.owner,
+    if (!Number.isSafeInteger(this.numbers.last + 1)) return null;
+    this.sequence = ++this.numbers.last;
+    const press: ComposerChipPress = { seq: this.sequence, open: details, surface, owner: snapshot.snapshotOwner, fieldOwner: snapshot.owner,
       kind, act: action, start: chip.start, end: chip.end, link: chip.source, label: chip.label,
       name: chip.kind === 'skill' ? chip.name : chip.label, path: chip.kind === 'mention' ? chip.path : '', context: chip.kind === 'context' ? chip.contextId : '',
       frame: [...frame], anchor: options.sourceFrame ? 'source' : 'chip', anchorFrame: [...(options.sourceFrame ?? frame)], removeOnCancel: fresh !== undefined };

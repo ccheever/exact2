@@ -263,6 +263,9 @@ component T3Code
     fieldIntentNotice
     fieldMenuActive
     sideKeys
+    sidePaneFocus
+    sideComposerFocusWithin
+    sideChipPress
     composerChords
     keyModelsChord
     dispatchCommand
@@ -1101,7 +1104,7 @@ component T3Code
     if op == "chip-act" and chip.act == "citation"
       send citationShown = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // a chip's View source
     else if op.startsWith("chip-")
-      send chipChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+      send chipChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // on the composer the chip serves (side-chat-thread.ts chipScopedOp)
     else
       send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
   action openModels

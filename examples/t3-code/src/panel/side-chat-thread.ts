@@ -4,7 +4,7 @@
 // What the pane presses goes back as `scope:<thread id>|<op>`, which runs the window's command on the scope.
 import type { T3Client } from '../client/client';
 import type { Files, Native } from '../client/protocol';
-import { threadScope } from '../client/thread-scope';
+import { threadScope, windowClient } from '../client/thread-scope';
 
 export const SCOPE_PREFIX = 'scope:';
 
@@ -33,3 +33,15 @@ export function scopedCommand(client: T3Client, op: string, id: string, value: s
 
 /** The client a resource asked for `threadId` reads: the side chat's scope, or the window's for ''. */
 export const sideChatClient = (client: T3Client, threadId: string): T3Client => threadScope(client, threadId);
+
+/** The composer a chip's details popover serves (the root's `chipTarget`, as the `composerChip` resource last asked). */
+const chipTargets = new WeakMap<T3Client, string>();
+export function noteChipTarget(client: T3Client, threadId: string): void { chipTargets.set(windowClient(client), threadId); }
+/**
+ * A chip details' op the window draws (its close, View instructions, a citation's comment, a chip's action) runs on the
+ * composer it serves: a side chat's scope. The image and file previews are the window's overlays.
+ */
+export function chipScopedOp(client: T3Client, op: string): string {
+  const target = chipTargets.get(windowClient(client)) ?? '', chip = op.startsWith('editorlocal:') ? op.slice('editorlocal:'.length) : '';
+  return target && (chip === 'chip-close' || chip === 'chip-instructions' || chip === 'chip-act' || chip.startsWith('chip-cite-')) ? `${SCOPE_PREFIX}${target}|${op}` : op;
+}

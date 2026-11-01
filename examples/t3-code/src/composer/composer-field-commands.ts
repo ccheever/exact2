@@ -65,6 +65,13 @@ export class ComposerFieldCommands {
     return this.empty(after, identity);
   }
 
+  /** The next command `wait` would deliver after `after` (its seq; 0 for none), without delivering it. */
+  waiting(after: number): number {
+    const snapshot = this.snapshot;
+    if (this.disposed || !snapshot?.live) return 0;
+    return this.available(after, snapshot)?.command.seq ?? 0;
+  }
+
   generatedInputSerial(seq: number): number { return this.requests.find(item => item.command.seq === seq)?.inputSerial ?? -1; }
   awaitingInput(seq: number): boolean { return this.requests.some(item => item.command.seq === seq && item.delivered && !item.observedInput); }
 

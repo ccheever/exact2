@@ -8,6 +8,7 @@ use ComposerEditorView from "../composer/composer-editor.contract"
 use TranscriptMarkdown, MarkdownLabels, MarkdownSource from "../timeline/markdown.contract"
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
 use PickerTarget from "../composer/composer-shapes.contract"
+use ComposerChipRequest from "../composer/composer-chip-popover.contract"
 use Snapshot, Change from "../shared/shapes.contract"
 members T3Code
   // The ids' prefix the composer's components read: the window's own composer has none (composer.contract ComposerCard).
@@ -85,10 +86,18 @@ members T3Code
   // the side chat's).
   derive composerMenuActive = fieldSide ? 0 : fieldMenuActive
   derive composerIntentNotice = fieldSide ? "" : fieldIntentNotice
-  // ChatView `embedded` (useChatShortcuts): the composer chords pressed in a side chat's composer are its own; the
-  // window's controls declare them otherwise.
-  derive sideKeys = fieldSide and composerFocused
-  derive composerChords = not sideKeys
+  // ChatView `embedded` (useChatShortcuts): the composer chords pressed anywhere in a side chat's composer (its field,
+  // its controls, its queued messages) are its own; the window's chat ignores the keys pressed in the side chat's pane
+  // (isInSideChatPane), and its controls declare them everywhere else. The pane's and the composer's `focusin` and
+  // `focusout` say where the focus is: a move inside either sends its `focusout` before its `focusin`.
+  state sidePaneFocused = false
+  state sideComposerFocused = false
+  action sidePaneFocus(within: bool)
+    sidePaneFocused = within
+  action sideComposerFocusWithin(within: bool)
+    sideComposerFocused = within
+  derive sideKeys = sideChatThread != "" and sideComposerFocused
+  derive composerChords = not (sideChatThread != "" and (sidePaneFocused or sideComposerFocused))
   derive keyModelsChord = settings.keyModels
   action sideComposerFocus
     fieldSwitch(sideChatThread)
@@ -104,12 +113,21 @@ members T3Code
     if not remount
       fieldSwitch("")
   // A composer chord dispatched from the window's table (keyboard-dispatch.ts) that steps the composer's effort goes to
-  // the side chat while its field has the focus.
+  // the side chat while the focus is in its composer, and to no composer from elsewhere in its pane.
   action dispatchCommand(op: string, id: string, value: string, n: number)
     if sideKeys and op == "effort-step"
       sideCommand(op, id, value, n)
-    else
+    else if composerChords or op != "effort-step"
       command(op, id, value, n)
+  // A pill pressed in the side chat's field (composer-members.contract composerChipPress): the window's details popover
+  // serves the side chat's composer from here (`chipTarget`), anchored to the pill.
+  action sideChipPress(owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
+    let live = not modal and sideChat.requestMode != "approval" and not sideChat.composer.subagent
+    if sideChatThread != "" and live and serial == composerFieldInputSerial and owner == sideRichOwner and value == sideText and not composerComposing and sideRich.owner == owner and sideRich.value == value and sideRich.chips.filter((chip) => chip.start == start and chip.end == end and chip.source == source).length == 1
+      let bounds = rangeFrame("side-chat-composer", start, end)
+      if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
+        chipTarget = sideChatThread
+        send chipPressed = composerChipPressed(ComposerChipRequest(generation=sideRich.generation, snapshotOwner=sideChat.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface="composer", comment=comment, frame=bounds), sideChatThread)
   // Send, Return and a question's answer, as the window's `submit` takes them.
   action sideSend(held: string)
     sideSubmit(held == "" ? "" : `pointer:${held}`)

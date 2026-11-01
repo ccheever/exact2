@@ -2,6 +2,7 @@ import type { ComposerFieldSnapshot } from './composer-field-commands';
 import { ComposerChipPresses } from './composer-chip-state';
 import { ComposerCitationReceipts, type ComposerCitationCompletion } from './composer-citation-receipts';
 import type { ComposerChip } from './composer-source-chips';
+import { windowClient } from '../client/scope-root';
 
 export type ComposerChipPreview = ComposerFieldSnapshot & { inputSerial: number };
 export type ComposerChipFinish = {
@@ -11,9 +12,17 @@ export type ComposerChipFinish = {
 export const NO_CHIP_FINISH: ComposerChipFinish = { seq: 0, generation: -1, snapshotOwner: '', owner: '', value: '', inputSerial: 0, surface: 'composer', start: 0, end: 0, focus: 'none', send: false, interaction: -1 };
 type Entry = { presses: ComposerChipPresses; citations: ComposerCitationReceipts; preview: ComposerChipPreview | null; finish: ComposerChipFinish | null };
 const entries = new WeakMap<object, Entry>();
+/** The press numbers of a window's composers: its own and its side chats' (thread scopes). */
+const numbering = new WeakMap<object, { last: number }>();
 export function composerChipStore(owner: object): Entry {
   let state = entries.get(owner);
-  if (!state) { state = { presses: new ComposerChipPresses(), citations: new ComposerCitationReceipts(), preview: null, finish: null }; entries.set(owner, state); }
+  if (!state) {
+    const root = windowClient(owner);
+    let numbers = numbering.get(root);
+    if (!numbers) numbering.set(root, numbers = { last: 0 });
+    state = { presses: new ComposerChipPresses(numbers), citations: new ComposerCitationReceipts(), preview: null, finish: null };
+    entries.set(owner, state);
+  }
   return state;
 }
 
