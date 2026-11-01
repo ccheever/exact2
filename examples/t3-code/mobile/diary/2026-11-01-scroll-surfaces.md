@@ -25,6 +25,12 @@ horizontal overflow and contains edge pans. The thread feed contains edge pans
 while leaving its existing horizontal overflow behavior unchanged for the
 Markdown and code scrollers it contains. Neither setting adds a second scroll
 surface or changes row keys.
+The app's scroll-facing snapshots now use sampled clocks instead of reading
+`performanceNow()` in resource arguments. Idle views use the existing minute
+sample, while an active thread uses its one-second agent sample for elapsed
+work labels. This prevents Home, thread data, archive and related projections
+from re-running every frame while a person scrolls; command timestamps and
+native animation clocks keep their live timestamps.
 The existing projection emits dividers only between adjacent rows, so no
 first-row or final-row separator was added. List-level horizontal clipping was
 rejected for the thread because Markdown and code blocks own their own
@@ -44,3 +50,8 @@ The focused Home/thread suite passes 223 tests and 1,595 assertions. Contract
 compilation, strict app TypeScript, boot and all ten caps categories pass.
 The first source commit was `98e425ba72`; the row-root correction is a follow-up
 source unit. No native build or performance claim is attached to this work.
+
+The sampled-clock correction passes its source-focused run (138 tests, 854
+assertions), Contract compilation, and a normal no-install iOS build. A runtime
+scroll drive remains pending because the assigned Duo is held by another device
+session; no framework defect is claimed.

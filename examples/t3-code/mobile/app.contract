@@ -108,7 +108,7 @@ component App
       incomingShareState = incomingShare.state
       if incomingShare.location != ""
         nav = push(nav, incomingShare.location)
-  resource outbox = outboxView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape MobileOutboxDrive
+  resource outbox = outboxView(data.revision, wallTime.epochAtZero + elapsed) as shape MobileOutboxDrive
   mutation outboxChanged as shape Change refreshes data, threadData, outbox
   mutation outboxEdited as shape MobileOutboxEdit then didEditOutbox
   action didEditOutbox
@@ -268,7 +268,7 @@ component App
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
   resource snapshotRead = snapshotRead() as shape SnapshotRead
-  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + max(elapsed, performanceNow())) as shape Snapshot
+  resource data = snapshot(appearance.scheme, appearance.themeId, snapshotRead.serial, wallTime.epochAtZero + elapsed) as shape Snapshot
   resource keyboard = keyboardSnapshot(`${top(nav).id}`, top(nav).url, data.revision) as shape MobileKeyboardSnapshot
   mutation keyboardCopied as shape MobileKeyboardResult refreshes keyboard
   mutation keyboardDismissed as shape MobileKeyboardResult refreshes keyboard
@@ -330,7 +330,7 @@ component App
   state automationRefresh = 0
   state automationElapsed = 0
   state automationCreditToken = ""
-  resource scheduledClockTime = scheduledClockTime(top(nav).name == "settingsScheduledTasks", `${top(nav).id}`, automationElapsed, top(nav).name == "settingsScheduledTasks" ? wallTime.epochAtZero + performanceNow() : 0) as shape ScheduledClockTime
+  resource scheduledClockTime = scheduledClockTime(top(nav).name == "settingsScheduledTasks", `${top(nav).id}`, automationElapsed, top(nav).name == "settingsScheduledTasks" ? wallTime.epochAtZero + automationElapsed : 0) as shape ScheduledClockTime
   resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, top(nav).name == "settingsScheduledTasks" ? scheduledClockTime.now : wallTime.epochAtZero + max(elapsed, automationElapsed), data.revision, automationRefresh, top(nav).name == "settingsUsageAccount" ? `${top(nav).id}` : "", stack(nav).filter(entry => entry.name == "settingsUsageAccount").map(entry => `${entry.id}`).join("|")) as shape AutomationPrepared
   resource automationData = automationSnapshot(automationPrepared, pending(automationChanged), automationCreditToken, pending(automationCreditConfirmed), pending(automationPrepared), failed(automationPrepared)) as shape AutomationData
   resource scheduledHeader = scheduledHeader(preferences.serialized, data.environments, `${top(nav).id}`, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), automationData.scheduled.canCreate, settingsVisit.visitToken) as shape ScheduledHeader
@@ -451,7 +451,7 @@ component App
   state sidebarProject = ""
   state sidebarSettledCount = 10
   resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
-  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", data.catalogLoaded) as shape HomeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "sidebar", data.catalogLoaded) as shape HomeView
   mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
   action sidebarChromeEvent(value: string)
     send sidebarEvent = homeChromeEvent(value)
@@ -631,7 +631,7 @@ component App
       if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and threadData.rows.filter(row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey).length > 0
         mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
         nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
-  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, top(nav).name.startsWith("thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + max(elapsed, agentsElapsed), appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, top(nav).name.startsWith("thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
   mutation queuePrepared as shape Change refreshes queueData
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
@@ -814,7 +814,7 @@ component App
         terminalSelection = terminalSelection
   resource gitLook = gitColors(appearance.scheme, appearance.themeId) as shape GitColors
   state gitFeedbackPreviousPhase = "idle"
-  resource gitFeedback = gitFeedback(wallTime.epochAtZero + max(agentsElapsed, performanceNow()), data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
+  resource gitFeedback = gitFeedback(wallTime.epochAtZero + agentsElapsed, data.revision, workspaceRouteReady) as shape MobileGitFeedbackSnapshot
   mutation gitFeedbackChanged as shape MobileGitFeedbackResult refreshes gitFeedback
   task gitFeedbackClock when gitFeedback.visible and gitFeedback.phase == "running"
     every(1000, tickAgents)
@@ -830,7 +830,7 @@ component App
     gitFeedbackPreviousPhase = gitFeedback.phase
   action pressGitFeedback(owner: string, id: string)
     send gitFeedbackChanged = gitFeedbackAction(owner, id, "press", wallTime.epochAtZero + performanceNow())
-  resource gitData = gitSnapshot(wallTime.epochAtZero + max(elapsed, performanceNow()), data.revision) as shape MobileGitSnapshot
+  resource gitData = gitSnapshot(wallTime.epochAtZero + elapsed, data.revision) as shape MobileGitSnapshot
   resource gitBranchesData = gitBranchesSnapshot(data.revision) as shape MobileGitBranchesSnapshot
   state gitForm = GitForm(message="", branch="", worktreeBase="", worktreeBranch="")
   mutation gitPrepared as shape MobileGitSnapshot refreshes gitData, data
@@ -1036,7 +1036,7 @@ component App
     send audioChanged = audioAction(documentData.identifier, value)
   resource mediaViewerData = attachmentNativePreview(mediaUi.nativeSource) as shape MediaPreviewSnapshot
   derive mediaRouteKey = `${top(nav).id}:${mediaUi.readVersion}`
-  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + max(elapsed, performanceNow()) : 0) as shape AttachmentDocumentSnapshot
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaUi.rendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaUi.readAt > 0 ? mediaUi.readAt : wallTime.epochAtZero, taskGuardOwner, taskGuardRoute, htmlRenderContext.context, htmlRenderContext.key, appearance.themeId, mediaUi.nativeOpen, htmlRenderContext.full ? wallTime.epochAtZero + elapsed : 0) as shape AttachmentDocumentSnapshot
   resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
   mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
   action documentAction(value: string)
@@ -1079,7 +1079,7 @@ component App
     mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
   derive attachmentMenuActive = top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskData.canSelect) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
-  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + performanceNow(), `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
+  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + elapsed, `${top(nav).id}`, top(nav).url, attachmentMenuActive) as shape ComposerAttachmentsSnapshot
   mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
   task prepareComposerPreviews when (top(nav).name == "thread" or top(nav).name == "newTaskDraft" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and composerAttachments.previewRequest != "" and not pending(composerPreviewsPrepared) key=`${composerAttachments.contentOwner}:${composerAttachments.previewRequest}`
     after(1, loadComposerPreviews)
@@ -1123,7 +1123,7 @@ component App
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
   derive newTaskActive = top(nav).name.startsWith("newTask")
   derive newTaskSession = match first(stack(nav).filter(route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or top(nav).name.startsWith("addProject"), data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or top(nav).name.startsWith("addProject"), data.revision, wallTime.epochAtZero + elapsed, incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
@@ -1274,7 +1274,7 @@ component App
   resource archiveChrome = archiveChrome(top(nav).name == "archive" ? `${top(nav).id}` : "", viewport.width, layout.safeBottom, layout.liquidGlass, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, archiveData.environments) as shape ArchiveChromeSnapshot
   resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
   resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
-  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, performanceNow()), archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
+  resource archiveData = archiveView(wallTime.epochAtZero + elapsed, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).query, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).environment, archiveVisitFilters(archiveVisits, workspaceEntries, `${top(nav).id}`).sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
   task expireArchive when stack(nav).filter(entry => entry.name == "archive").length == 0
     after(300000, tick)
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
@@ -1317,8 +1317,8 @@ component App
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
   resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", data.catalogLoaded) as shape HomeView
-  resource arrangement = homeArrangeView(top(nav).name == "homeArrange", data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), shelves.workingEnabled) as shape HomeArrangementData
+  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode, `${top(nav).id}`, top(nav).name == "home" or top(nav).name == "homeArrange", workspace.usesSplitView and workspace.sidebarVisible, data.environments, "compact", data.catalogLoaded) as shape HomeView
+  resource arrangement = homeArrangeView(top(nav).name == "homeArrange", data.revision, wallTime.epochAtZero + elapsed, shelves.workingEnabled) as shape HomeArrangementData
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)
