@@ -15,6 +15,7 @@ impl Ink {
                 t
             }
         };
+        self.glyphs.flush(&mut self.device)?;
         let frame = self.encoder.take_frame();
         self.device.render(&frame, target, self.draw_clear.take())?;
         self.layer_ms += started.elapsed().as_secs_f64() * 1000.;

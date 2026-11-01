@@ -2047,6 +2047,15 @@ S2.4's resize, DPI, caret, device-loss and sleep journeys are not rerun in
 this chunk; the earlier results remain their evidence. Lock/unlock and the
 other later S2 work remain outside this change.
 
+### Predictions against results
+
+| Prediction | Result |
+| --- | --- |
+| Zero failures in eight suites and ten journeys; byte-for-byte atlas parity | Met: all eighteen invocations pass, including D3D11's ordered `UpdateSubresource` path. |
+| DWM p50 about 140 ms and about 20 ms earlier | The absolute prediction misses in the excluded observations: after medians are 109.200–115.878 ms. No qualified result establishes a 20 ms saving. The historical 161 ms row uses a different fixture and refresh rate. |
+| DXGI p50 about 157 ms | Miss in the excluded observations: after medians are 106.286–111.463 ms. No qualified estimate. |
+| First-paint upload spans at most 2 ms, at least 80% lower | Unmeasured: Windows has no upload-span instrument, and this lane permits no renderer changes. Total paint time cannot establish the prediction. |
+
 ### Reproduction and retained evidence
 
 Build Shelf with `bun host/windows/build.mjs shelf`, with the Windows SDK's
@@ -5507,3 +5516,245 @@ kernel's table layout/style/schema; the measured binaries still come from
 `6d501215b7`. No timing or native-suite result is claimed for the rebased
 source. Final structural caps pass on the rebased tree, with the same wasm
 skip (`target/g7/caps-final.log`).
+
+## M10 cut 7 on Windows
+
+D3D11 and wgpu pass all requested runtime suites and five desktop journeys
+per device, including the atlas byte comparison. Startup has no qualified
+performance row: two complete collections violate the quiet rule, and the
+third attempt expires in preflight. No renderer code changed.
+
+### Predictions before collection
+
+Recorded before collection, 2026-10-31. Compare `origin/main` at
+`fd89454bd30235dee8b8742963f7cf1faac281cf` with cut 7 at
+`d008a448c7cbf2b547ea80c1e4f1d49a43da9644`, without renderer changes.
+The NucBox mirror is `projects/exact2-1149-001-atlas-win`; its own
+`target/m10-cut7-windows/` retains sources, commands, logs and captures,
+copied back to that path in this worktree.
+
+Predict zero failures in both devices' Ink, pinned, text and image suites,
+including the D3D11 serial-versus-batched atlas byte comparison, and the
+five desktop journeys per device (resize, minimize/restore, idle caret,
+device loss and DPI). Use the native test binaries with required-device
+flags and one test thread. A suite failure stops collection. Sleep/wake
+is excluded by the brief; lock/unlock lacks an unlock operator.
+
+Predict D3D11 first-screen DWM p50 near **140 ms**, about **20 ms earlier**
+than the historical 161 ms row, and DXGI p50 near **157 ms**. Run S2's
+Shelf startup recipe on both revisions, ten launches per size and arm,
+with DWM and DXGI endpoints, retained driver caches and fresh application
+stores. Keep the whole-series Windows quiet rule: five-second observations,
+CPU below 10% and no compiler. Report the actual display rate; the historical
+row used 60 Hz, while G7 reports 120 Hz.
+
+Predict first-paint upload spans at most **2 ms**, at least **80% lower**
+than before, using upload elapsed spans as on Metal. The existing Windows
+probe has no upload-span markers; its paint spans and glyph counters cannot
+measure that duration. With renderer code fixed, report this prediction as
+unmeasured unless an existing instrument supplies those spans. Total first
+paint is a separate diagnostic, not an upload-time substitute.
+
+### Windows runtime parity and desktop journeys
+
+Both devices pass Ink, the whole pinned suite (paint, text, borders, tint,
+backdrop, gradients, visual and materials), the text unit tests and image
+integration tests. The D3D11 atlas readback compares serial and batched
+alpha and RGBA masks, padding, a later dirty rectangle and overflow bytes.
+Its `UpdateSubresource` path passes byte for byte:
+
+```text
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+test atlas::upload::tests::wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+```
+
+All ten desktop journeys pass. D3D11 recovers through CPU composition and
+returns to hardware; wgpu retains its qualified CPU fallback. The captures
+show Shelf's three books after D3D11 recovery and in wgpu's fallback, and
+readable content at 150% DPI. Both DPI journeys return to 96 DPI. Sleep/wake
+is excluded; lock/unlock remains unrun without an unlock operator.
+
+The build uses SDK 10.0.26100.0's x64 `fxc`, Bun 1.4.2 and the pinned Rust
+MSVC toolchain. Shelf uses `gpu-dev` with debug level 1 on both revisions.
+Tests use the same profile, with only `exact-linux` at optimization level
+zero, following the prior Windows qualification. Every invocation sets
+`EXACT_REQUIRED=1`, `EXACT_INK_REQUIRED=1`, `WGPU_BACKEND=dx12` and one test
+thread. RichEdit and DirectWrite candidates stay off. Suite wall times are
+correctness-run durations, not performance comparisons.
+
+Verbatim suite result lines; each label names its retained log:
+
+```text
+d3d11-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 4.83s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.17s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.84s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.66s
+wgpu-ink: test result: ok. 52 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.19s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.05s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.98s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.58s
+d3d11-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.20s
+d3d11-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.00s
+d3d11-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.58s
+d3d11-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.17s
+d3d11-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 11.27s
+wgpu-shelf_resize: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.48s
+wgpu-shelf_minimize_restore: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 2.61s
+wgpu-shelf_idle_caret: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 3.40s
+wgpu-shelf_device_loss: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.52s
+wgpu-shelf_dpi_roundtrip: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 6.59s
+```
+
+### Startup — retained excluded collections
+
+The NucBox reports 5120×1440 at 120 Hz and 96 DPI, driver
+`32.0.23033.1002`. Both revisions run Shelf's unchanged S2 startup test:
+ten fresh processes per painter and size, 120 frames per process, with
+`library-count` identifying the complete screen. CPU and D3D11 alternate
+within each revision; the complete before cohort precedes after. Application
+stores are fresh; driver and filesystem caches are retained. These are
+separate cohorts, not matched before/after pairs.
+
+Both tests pass in each of the first two collections, but both whole
+collections fail G6's quiet rule. Attempt 1 has 10 nonquiet observations of
+21, maximum 12.8% CPU; attempt 2 has 12 of 21, maximum 16.3%. Neither has a
+compiler observation. No launch is selected from either for a qualified
+performance row. A subsequent process snapshot records SearchIndexer,
+SearchProtocolHost and Defender activity; it does not attribute each loaded
+interval. No system service or other process was stopped.
+
+For the third and final attempt, preparation waits up to twenty minutes for
+two consecutive five-second observations below 5% CPU, seeking headroom for
+the unchanged below-10% collection rule. That stricter preparation condition
+never arrives. The wrapper exits 1 before launching a third startup suite;
+this is a preflight failure, not a native test failure. Collection stops at
+three attempts. `startup-3/preflight/quiet.jsonl` and `startup-3-task.log`
+retain the wait and timeout.
+
+Excluded D3D11 observations, milliseconds, median [minimum–maximum], ten
+launches in every cell:
+
+| Attempt | Pixels | Endpoint | Before | After |
+| --- | --- | --- | ---: | ---: |
+| 1 | 1024x720 | DWM proxy | 113.224 [105.053–276.893] | 109.200 [105.510–191.893] |
+| 1 | 1024x720 | DXGI display | 109.024 [102.052–273.104] | 106.286 [102.835–180.575] |
+| 1 | 1920x1080 | DWM proxy | 112.957 [105.520–131.699] | 113.841 [106.117–120.732] |
+| 1 | 1920x1080 | DXGI display | 109.673 [102.142–128.710] | 110.145 [103.340–116.917] |
+| 2 | 1024x720 | DWM proxy | 112.776 [105.590–123.252] | 115.116 [105.182–130.433] |
+| 2 | 1024x720 | DXGI display | 109.647 [106.236–113.446] | 111.463 [101.702–126.621] |
+| 2 | 1920x1080 | DWM proxy | 112.560 [108.535–129.943] | 115.878 [106.776–235.756] |
+| 2 | 1920x1080 | DXGI display | 108.843 [105.665–126.563] | 110.828 [103.946–231.362] |
+
+DWM synchronization and DXGI display are separate events; the latter can
+precede the proxy's return. Neither is an upload timer. The historical
+161 ms row is G6e's heavy list at 60 Hz, not this Shelf fixture at 120 Hz;
+this collection cannot establish a saving against that row.
+
+Verbatim startup-suite lines for the excluded collections:
+
+```text
+attempt-1-before: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 52.04s
+attempt-1-after: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.35s
+attempt-2-before: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.45s
+attempt-2-after: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 51.77s
+```
+
+### Predictions against results
+
+| Prediction | Result |
+| --- | --- |
+| Zero failures in eight suites and ten journeys; byte-for-byte atlas parity | Met: all eighteen invocations pass, including D3D11's ordered `UpdateSubresource` path. |
+| DWM p50 about 140 ms and about 20 ms earlier | The absolute prediction misses in the excluded observations: after medians are 109.200–115.878 ms. No qualified result establishes a 20 ms saving. The historical 161 ms row uses a different fixture and refresh rate. |
+| DXGI p50 about 157 ms | Miss in the excluded observations: after medians are 106.286–111.463 ms. No qualified estimate. |
+| First-paint upload spans at most 2 ms, at least 80% lower | Unmeasured: Windows has no upload-span instrument, and this lane permits no renderer changes. Total paint time cannot establish the prediction. |
+
+### Reproduction and retained evidence
+
+The source archives freeze `origin/main` at `fd89454bd3` and the candidate
+at `d008a448c7`; no fetch changes the baseline. Their SHA-256 hashes are
+`119dc72967c381bedd0c2108b492c81d8d2f4ce64e70d4b83b76b8b274a03618`
+and `a4b528c019b82165412b6bbe39051d460cc975076efbf21a83cc97b190e4941a`.
+Both remain under `target/m10-cut7-windows/` here and in the NucBox mirror.
+The built Shelf executables remain in that mirror's `before-shelf/` and
+`after-shelf/`; their hashes are
+`0e602a27248319958754288fe715a9ccd8597bdceebc29cad98bd11544dd54be`
+and `ea1379790c51e502e4176cef67d6c8642f3838644d5660e873991d629c428ce4`.
+All Cargo outputs use the mirror's own `target/`.
+
+`build.ps1` records the SDK path, dependencies, profile overrides and both
+Shelf builds. `native-build.jsonl` identifies the test executables;
+`run.ps1`, `runs.jsonl` and `result-lines.txt` retain the exact suite and
+journey invocations. `source-provenance.json` and
+`binary-and-source-hashes.json` identify their inputs. Tests and Shelf run
+in the console session through interactive scheduled tasks, without posted
+input or a foreground requirement. The DPI operator changes and restores
+scale through the existing journey handshake.
+
+The unchanged S2 instrument is
+`device::d3d11::desktop_tests::shelf_startup_series`, invoked with
+`--ignored --exact --nocapture --test-threads=1`, `EXACT_INK_DEVICE=d3d11`,
+`EXACT_AGENT_WINDOW_PROBE=on`, and `INK_SHELF` selecting each revision.
+`startup.py` retains the wrapper and the existing Windows monitor's
+whole-series qualification. Each collection retains child logs, suite logs,
+commands, environment, PIDs and five-second quiet observations. No renderer
+instrumentation or production source changed.
+
+Recompute the excluded rows from the copied raw logs:
+
+```sh
+python3 target/m10-cut7-windows/summarize.py target/m10-cut7-windows/nucbox startup
+python3 target/m10-cut7-windows/summarize.py target/m10-cut7-windows/nucbox startup-2
+```
+
+The reducer emits every sample with its source path and SHA-256, then counts,
+medians and ranges. The retained `startup-1-summary.json` and
+`startup-2-summary.json` include the interleaved CPU controls as well as
+D3D11. These summaries do not override the quiet exclusions.
+
+The final evidence archive is `target/m10-cut7-windows/evidence-final.tar.gz`,
+SHA-256 `9ff1a04e0abbf92b7208afa73610f9a6eec0a251ce077a5551fb772cb1a150ed`.
+It is retained on both machines and extracted locally at
+`target/m10-cut7-windows/nucbox/`. The earlier `evidence-1.tar.gz` also remains.
+Source archives and Shelf bundles are retained separately as named above;
+the evidence archive contains their provenance, all runtime logs and captures,
+both complete startup collections and the third preflight. The lane's five
+completed scheduled tasks were removed; their final states and removal record
+are in the archive. No retained file or other checkout was removed.
+
+Staged `bun scripts/caps.mjs` and `git diff --check` pass. Caps includes the
+wasm check; full output is `target/m10-cut7-windows/caps-final.log`:
+
+```text
+  wasm32: 29 crates and 1 binary the web apps link checked for wasm32-unknown-unknown (Cargo decides what changed), 0 errors
+All budgets within cap. 10 categories inspected.
+```
+
+The broader Mac six-check gate remains assigned to the Mac mini by the cut 7
+record. This lane changes only the two measurement records. The outstanding
+Windows qualifications are a quiet startup collection, upload duration that
+this probe cannot report, and the unrun sleep/wake and lock/unlock journeys;
+their reasons are stated above.
+
+Final renderer tip `c3ba9ab238`, tested from branch tip `46f6328874` on the
+NucBox on 2026-10-31, passes all eight requested suites, including both
+ordered atlas byte comparisons, and one Shelf launch per device reaches
+`library-count` readiness, meeting the prediction of zero failures:
+
+```text
+d3d11-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.39s
+d3d11-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 27.35s
+d3d11-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.82s
+d3d11-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.71s
+wgpu-ink: test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.23s
+wgpu-pinned: test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.60s
+wgpu-text: test result: ok. 216 passed; 0 failed; 1 ignored; 0 measured; 1420 filtered out; finished in 3.89s
+wgpu-image: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.79s
+test atlas::upload::tests::d3d11_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+test atlas::upload::tests::wgpu_batches_identical_masks_and_padding_then_only_the_new_rectangle ... ok
+```
+
+The source archive, commands, prediction, raw logs, exit codes and captures
+are retained under `target/m10-cut7-final-windows/` on both machines
+(local raw logs in `nucbox/`); the captures show the three-book library
+partly covered by Settings, and both complete-screen markers name the
+requested adapter.

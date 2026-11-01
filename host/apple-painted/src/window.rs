@@ -1,11 +1,12 @@
 use exact_ink::counters;
-use exact_ink::device::apple::{trace_mark, DisplayLink, Layer, Trace};
+use exact_ink::device::apple::{trace_mark, BootTicks, DisplayLink, Layer, Trace};
 use exact_linux::{
     app::{self, Config},
     Presenter,
 };
 use exact_runner::DataSource;
 use std::{
+    cell::RefCell,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -40,6 +41,7 @@ struct App<D: DataSource> {
     layer: Option<Layer>,
     display: Option<DisplayLink>,
     presenter: Option<Presenter<D>>,
+    first_frame: Option<exact_linux::presenter::SubmittedAppleFrame>,
     agent: Option<super::agent::Agent>,
     started: Instant,
     tick_pending: Arc<AtomicBool>,
@@ -54,6 +56,9 @@ struct App<D: DataSource> {
     wheel_phases: [u64; 2],
     scrolling: Scrolling,
     benchmark_complete: bool,
+    boot_frame_settled: bool,
+    booting: bool,
+    boot_retry: BootRetry,
     service_causes: u8,
 }
 
@@ -134,7 +139,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     exact_linux::set_event_waker(Some(Arc::new(move || {
         let _ = wake.send_event(Event::Wake);
     })));
-    let mut state = App::<D> {
+    let state = Rc::new(RefCell::new(App::<D> {
         name: name.into(),
         config,
         live,
@@ -143,6 +148,7 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         layer: None,
         display: None,
         presenter: None,
+        first_frame: None,
         agent: None,
         started,
         tick_pending: Default::default(),
@@ -157,13 +163,55 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
         wheel_phases: [0; 2],
         scrolling: Scrolling::default(),
         benchmark_complete: false,
+        boot_frame_settled: false,
+        booting: true,
+        boot_retry: BootRetry::default(),
         service_causes: 0,
-    };
+    }));
     drop(entry_trace);
-    if let Err(error) = events.run_app(&mut state) {
+    let weak = Rc::downgrade(&state);
+    let boot_ticks = match BootTicks::new(move || {
+        let Some(state) = weak.upgrade() else {
+            return false;
+        };
+        let Ok(mut app) = state.try_borrow_mut() else {
+            return true;
+        };
+        if !app.booting
+            || app
+                .layer
+                .as_ref()
+                .is_some_and(Layer::complete_frame_presented)
+        {
+            app.booting = false;
+            if let Some(p) = &mut app.presenter {
+                p.finish_boot_images();
+            }
+            return false;
+        }
+        if app.tick_pending.swap(false, Ordering::AcqRel) {
+            trace_mark(c"boot tick delivered", || 0.);
+            if let Err(error) = app.tick() {
+                eprintln!("exact-apple-painted: {error}");
+                app.failed = true;
+                let _ = app.proxy.send_event(Event::Closed);
+                return false;
+            }
+        }
+        true
+    }) {
+        Ok(observer) => observer,
+        Err(error) => {
+            eprintln!("{error}");
+            return 1;
+        }
+    };
+    if let Err(error) = events.run_app(&mut Handler(state.clone())) {
         eprintln!("{error}");
-        state.failed = true;
+        state.borrow_mut().failed = true;
     }
+    drop(boot_ticks);
+    let mut state = state.borrow_mut();
     exact_linux::set_event_waker(None);
     if state.frames > 0 {
         eprintln!(
@@ -179,13 +227,101 @@ pub fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &
     i32::from(state.failed)
 }
 
+struct Handler<D: DataSource>(Rc<RefCell<App<D>>>);
+impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for Handler<D> {
+    fn new_events(&mut self, events: &ActiveEventLoop, cause: StartCause) {
+        self.0.borrow_mut().new_events(events, cause);
+    }
+    fn resumed(&mut self, events: &ActiveEventLoop) {
+        self.0.borrow_mut().resumed(events);
+    }
+    fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
+        self.0.borrow_mut().user_event(events, event);
+    }
+    fn window_event(&mut self, events: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.0.borrow_mut().window_event(events, id, event);
+    }
+    fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        self.0.borrow_mut().about_to_wait(events);
+    }
+}
+
 impl<D: DataSource + Default + 'static> App<D> {
+    fn tick(&mut self) -> Result<(), String> {
+        if counters::enabled() {
+            self.service_causes |= counters::LINK;
+        }
+        trace_mark(c"display wake", || 0.);
+        if self.hidden {
+            return Ok(());
+        }
+        let unshown = self.awaiting_first_present();
+        if (unshown || self.booting) && !self.boot_retry.tick() {
+            self.booting = false;
+            self.first_frame = None;
+            return Ok(());
+        }
+        if !unshown {
+            self.first_frame = None;
+        }
+        if unshown
+            && (self.first_frame.is_some()
+                || self
+                    .presenter
+                    .as_ref()
+                    .is_some_and(|p| p.pictures_need_paint()))
+        {
+            let before = self.frames;
+            self.draw()?;
+            if self.frames != before {
+                return Ok(());
+            }
+        }
+        if let Some(frame) = &self.first_frame {
+            if self.layer.as_ref().is_some_and(Layer::begin_repeat) {
+                // With no new paint, repeat the latest submitted pixels.
+                let _trace = Trace::new(c"first frame repeat");
+                match self.presenter.as_mut().unwrap().repeat_apple_frame(frame) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        self.layer.as_ref().unwrap().cancel_repeat();
+                        self.first_frame = None;
+                    }
+                    Err(e) => {
+                        self.layer.as_ref().unwrap().cancel_repeat();
+                        return Err(e);
+                    }
+                }
+            }
+            return Ok(());
+        }
+        let dirty = self
+            .presenter
+            .as_ref()
+            .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
+        self.scrolling.tick(dirty);
+        if dirty {
+            if unshown {
+                // GPU completion does not prove the compositor showed a frame.
+                self.presenter.as_mut().unwrap().repaint();
+            }
+            if self.booting {
+                self.draw()?;
+            } else if let Some(window) = &self.window {
+                trace_mark(c"display requests redraw", || 0.);
+                window.request_redraw();
+            }
+        }
+        Ok(())
+    }
+
     fn awaiting_first_present(&self) -> bool {
         self.frames > 0
+            && self.boot_retry.active()
             && self
                 .layer
                 .as_ref()
-                .is_some_and(|layer| layer.presented_painter().is_none())
+                .is_some_and(|layer| !layer.complete_frame_presented())
     }
 
     fn fail(&mut self, events: &ActiveEventLoop, error: impl std::fmt::Display) {
@@ -199,9 +335,18 @@ impl<D: DataSource + Default + 'static> App<D> {
             return;
         };
         let size = window.inner_size();
+        let old_scale = self.scale;
         self.scale = window.scale_factor();
         if size.width == 0 || size.height == 0 {
             return;
+        }
+        let viewport = (
+            size.width as f32 / self.scale as f32,
+            size.height as f32 / self.scale as f32,
+        );
+        if old_scale != self.scale || p.host().viewport() != viewport {
+            self.first_frame = None;
+            self.boot_retry.rearm();
         }
         layer.resize([size.width, size.height], self.scale);
         if let Some(e) = p.resize_scaled(
@@ -225,9 +370,25 @@ impl<D: DataSource + Default + 'static> App<D> {
         }
     }
     fn draw(&mut self) -> Result<(), String> {
+        self.draw_once()?;
+        if self.awaiting_first_present() && !self.hidden {
+            let p = self.presenter.as_mut().unwrap();
+            // A first walk can outlast a decode. Consume its slot now, before
+            // returning to AppKit; a later arrival remains for the next tick.
+            p.poll_images();
+            if p.pictures_need_paint() {
+                self.draw_once()?;
+            }
+        }
+        Ok(())
+    }
+    fn draw_once(&mut self) -> Result<(), String> {
         let _trace = Trace::new(c"carrier draw");
         if self.hidden {
             return Ok(());
+        }
+        if !self.awaiting_first_present() {
+            self.first_frame = None;
         }
         let Some(p) = &mut self.presenter else {
             return Ok(());
@@ -240,34 +401,45 @@ impl<D: DataSource + Default + 'static> App<D> {
         let started = Instant::now();
         counters::service(counters::DRAW);
         let service_trace = Trace::with_value(c"draw service", f64::from(counters::DRAW) + 1.);
-        p.pump(now);
-        if self.live {
-            p.animation_frame(now);
-        }
-        p.run_commands(D::default);
-        p.hatch_turn();
-        p.poll_images();
+        prepare_draw(p, now, self.live)?;
         drop(service_trace);
-        p.set_pointer(None);
-        p.tick(now);
-        p.poll_apple_painter()?;
+        if !p.apple_painter_can_draw() {
+            self.first_frame = None;
+        }
         if p.dirty() && p.apple_painter_can_draw() {
+            // Painting replaces the compose target (or the CPU startup device).
+            // Only a successful submission below may become the next repeat.
+            self.first_frame = None;
+            let settled = !p.images().pending();
+            self.boot_frame_settled = settled;
+            self.benchmark_complete = settled && !p.images().has_refusals();
+            if let Some(layer) = &self.layer {
+                layer.begin_frame(settled);
+            }
+            let mut offset = 0.;
             if std::env::var_os("G1_OUTPUT").is_some() {
-                self.benchmark_complete = !p.images().pending() && !p.images().has_refusals();
                 let target = std::env::var("EXACT_BENCH_SCROLL_TARGET")
                     .unwrap_or_else(|_| "messages".into());
                 let k = p.host().kernel();
-                let offset = k
+                offset = k
                     .find_by_test_id(&target)
                     .first()
                     .and_then(|key| k.node_by_key(*key))
                     .map_or(0., |node| p.scroll_of(node.id).1);
-                exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
             }
-            p.apple_window_frame()?;
+            exact_ink::device::apple::benchmark_frame(self.benchmark_complete, offset);
+            let frame = p.apple_window_frame()?;
             self.paint_ms += started.elapsed().as_secs_f64() * 1000.;
             let submitted = p.last_frame_succeeded();
             self.frames += u64::from(submitted);
+            if self.boot_retry.active()
+                && self
+                    .layer
+                    .as_ref()
+                    .is_some_and(|layer| !layer.complete_frame_presented())
+            {
+                self.first_frame = frame;
+            }
             if submitted && self.frames == 1 {
                 eprintln!("exact-apple-painted: first submission {:.3} ms; device {:.3}, shaders {:.3} ms; {}x{} at {}x (not a displayed timestamp)", self.started.elapsed().as_secs_f64() * 1000., p.painter.device_ms, p.painter.shaders_ms, p.viewport().0, p.viewport().1, self.scale);
             }
@@ -323,6 +495,27 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 size.width as f32 / self.scale as f32,
                 size.height as f32 / self.scale as f32,
             );
+            let proxy = self.proxy.clone();
+            let layer = Layer::new(
+                window.clone(),
+                [size.width, size.height],
+                self.scale,
+                move || {
+                    let _ = proxy.send_event(Event::Wake);
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            let early_layer = layer.clone();
+            let early_window = window.clone();
+            self.config.painted_boot = Some(Box::new(move |plan| {
+                if let Some(color) =
+                    Config::initial_window_background(plan, early_layer.dark_appearance())
+                {
+                    early_layer.set_background(color);
+                    early_window.set_visible(true);
+                    trace_mark(c"boot window shown", || 0.);
+                }
+            }));
             let presenter_trace = Trace::new(c"boot presenter");
             let (mut p, warning) = if self.config.painter()
                 == exact_linux::presenter::PainterChoice::Ink
@@ -337,24 +530,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             } else {
                 app::boot_presenter::<D>(&mut self.config, viewport)?
             };
+            self.config.painted_boot = None;
             drop(presenter_trace);
             if let Some(warning) = warning {
                 return Err(warning);
             }
+            p.set_system_scheme(layer.dark_appearance());
             p.host_mut().runner_mut().set_row_reuse(true);
             if self.live {
                 p.set_live_clock(Some(exact_linux::presenter::wall_since(self.started)));
             }
-            let proxy = self.proxy.clone();
-            let layer = Layer::new(
-                window.clone(),
-                [size.width, size.height],
-                self.scale,
-                move || {
-                    let _ = proxy.send_event(Event::Wake);
-                },
-            )
-            .map_err(|e| e.to_string())?;
             p.attach_apple_layer(layer.clone())?;
             trace_mark(c"boot layer attached", || 0.);
             trace_mark(c"boot device milliseconds", || p.painter.device_ms);
@@ -367,6 +552,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     f64::from(active.load(Ordering::Acquire))
                 });
                 if active.load(Ordering::Acquire) && !pending.swap(true, Ordering::AcqRel) {
+                    trace_mark(c"display tick posted", || 0.);
                     let _ = proxy.send_event(Event::Tick);
                 }
             })
@@ -380,8 +566,15 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             self.layer = Some(layer);
             self.presenter = Some(p);
             self.window = Some(window.clone());
-            window.set_visible(true);
-            trace_mark(c"boot window shown", || 0.);
+            // A pending tick can run at the next run-loop entry, before AppKit's
+            // first display cycle. The observer never reenters this borrow.
+            self.display_active.store(true, Ordering::Release);
+            self.display
+                .as_mut()
+                .unwrap()
+                .set_running(true)
+                .map_err(|e| e.to_string())?;
+            self.draw()?;
             window.request_redraw();
             if self.config.agent {
                 let ready = serde_json::json!({"ready":true,"boot":self.started.elapsed().as_secs_f64()*1000.,"views":self.presenter.as_ref().unwrap().node_count(),"error":null,"benchmarkCarrier":true}).to_string();
@@ -396,25 +589,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
     fn user_event(&mut self, events: &ActiveEventLoop, event: Event) {
         match event {
             Event::Tick => {
-                if counters::enabled() {
-                    self.service_causes |= counters::LINK;
-                }
-                trace_mark(c"display wake", || 0.);
-                self.tick_pending.store(false, Ordering::Release);
-                let unshown = self.awaiting_first_present();
-                let dirty = self
-                    .presenter
-                    .as_ref()
-                    .is_some_and(|p| display_needed(p, self.live, self.hidden, unshown));
-                self.scrolling.tick(dirty);
-                if dirty {
-                    if unshown {
-                        // GPU completion does not prove the compositor showed a frame.
-                        self.presenter.as_mut().unwrap().repaint();
-                    }
-                    if let Some(window) = &self.window {
-                        trace_mark(c"display requests redraw", || 0.);
-                        window.request_redraw();
+                // The boot observer may already have consumed this queued tick.
+                if self.tick_pending.swap(false, Ordering::AcqRel) {
+                    if let Err(error) = self.tick() {
+                        self.fail(events, error);
                     }
                 }
             }
@@ -441,6 +619,9 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 if let Some(p) = &mut self.presenter {
                     let request: serde_json::Value =
                         serde_json::from_str(&line).unwrap_or_default();
+                    if !matches!(request["op"].as_str(), Some("state" | "tree" | "logs")) {
+                        self.first_frame = None;
+                    }
                     if request["op"] == "state" && request["counters"] == true {
                         let _ = reply.send(exact_linux::ink::counter_state().to_string());
                         return;
@@ -451,6 +632,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                     ) {
                         if let Some(layer) = &self.layer {
                             layer.resume_retries();
+                            self.boot_retry.rearm();
                         }
                     }
                     if request["platform"] == true && request.get("wheel").is_some() {
@@ -500,6 +682,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         ) {
             if let Some(layer) = &self.layer {
                 layer.resume_retries();
+                self.boot_retry.rearm();
             }
         }
         match event {
@@ -651,13 +834,29 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
         }
     }
     fn about_to_wait(&mut self, events: &ActiveEventLoop) {
+        if let (Some(window), Some(layer)) = (&self.window, &self.layer) {
+            if window.is_visible() == Some(false) && layer.drawable_ready() {
+                if let Some(p) = &self.presenter {
+                    layer.set_background(Some(p.chrome().background));
+                }
+                window.set_visible(true);
+                trace_mark(c"boot window shown", || 0.);
+            }
+        }
         let unshown = self.awaiting_first_present();
         let _trace = Trace::new(c"winit dispatch");
         let Some(p) = &mut self.presenter else {
             return;
         };
-        if self.layer.as_ref().is_some_and(Layer::retry_requested) {
-            p.repaint();
+        if let Some(layer) = &self.layer {
+            if retry_needs_paint(
+                layer.retry_requested(),
+                layer.first_present_dropped(),
+                self.first_frame.is_some(),
+            ) {
+                self.first_frame = None;
+                p.repaint();
+            }
         }
         let now = if !self.live {
             p.host().now()
@@ -670,21 +869,18 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
             0
         };
         service(p, now, self.live, D::default, causes);
-        if p.apple_painter_retry_deadline()
-            .is_some_and(|due| Instant::now() >= due)
+        if self.first_frame.is_none()
+            && p.apple_painter_retry_deadline()
+                .is_some_and(|due| Instant::now() >= due)
         {
             if let Err(e) = p.poll_apple_painter() {
                 self.fail(events, e);
                 return;
             }
         }
-        // Offscreen metadata can finish after the last visible image. Submit a
-        // complete scene for the probe even when that completion owes no damage.
-        if std::env::var_os("G1_OUTPUT").is_some()
-            && !self.benchmark_complete
-            && !p.images().pending()
-            && !p.images().has_refusals()
-        {
+        // A terminal image refusal can settle boot without supplying pixels.
+        // Submit that settled scene so its positive callback can retire boot.
+        if self.booting && !self.boot_frame_settled && !p.images().pending() {
             p.repaint();
         }
         if self.live {
@@ -708,6 +904,44 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<Event> for App<D> {
                 .map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         );
     }
+}
+
+fn retry_needs_paint(requested: bool, dropped: bool, retained: bool) -> bool {
+    requested && !(dropped && retained)
+}
+
+#[derive(Default)]
+struct BootRetry {
+    ticks: u16,
+}
+impl BootRetry {
+    fn active(&self) -> bool {
+        self.ticks < 120
+    }
+    fn tick(&mut self) -> bool {
+        self.ticks = self.ticks.saturating_add(1);
+        self.active()
+    }
+    fn rearm(&mut self) {
+        self.ticks = 0;
+    }
+}
+
+fn prepare_draw<D: DataSource + Default>(
+    p: &mut Presenter<D>,
+    now: f64,
+    live: bool,
+) -> Result<(), String> {
+    p.pump(now);
+    if live {
+        p.animation_frame(now);
+    }
+    p.run_commands(D::default);
+    p.hatch_turn();
+    p.poll_images();
+    p.set_pointer(None);
+    p.tick(now);
+    p.poll_apple_painter()
 }
 
 fn display_needed<D: DataSource>(
@@ -788,6 +1022,80 @@ fn service<D: DataSource>(
 mod tests {
     use super::*;
     use exact_linux::presenter::PainterChoice;
+
+    #[test]
+    fn acquisition_and_cpu_blit_failures_replace_a_retained_frame() {
+        // Both refusals set Retry::requested without a dropped drawable callback.
+        for _failure in ["nextDrawable nil", "CPU blit size mismatch"] {
+            assert!(retry_needs_paint(true, false, true));
+        }
+        assert!(!retry_needs_paint(true, true, true));
+        assert!(retry_needs_paint(true, true, false));
+        assert!(!retry_needs_paint(false, false, true));
+    }
+
+    #[test]
+    fn boot_retries_stop_without_positive_callbacks_and_rearm_on_exposure() {
+        let mut retry = BootRetry::default();
+        for _ in 0..119 {
+            assert!(retry.tick());
+        }
+        assert!(!retry.tick());
+        assert!(!retry.active());
+        retry.rearm();
+        assert!(retry.active());
+        // Hidden windows return before ticking, preserving this budget.
+        assert_eq!(retry.ticks, 0);
+    }
+
+    #[test]
+    fn the_first_frame_after_layout_matches_the_display_tick_frame() {
+        let plan = contract::compile(
+            r##"component App
+  view
+    scroll width=160 height=120 background-color="#23394f"
+      column width=160 gap=8 padding=8
+        text "First frame" color="#f3e7ca" font-size=18
+        box width=75 height=35 background-color="#e83a5b" border-radius=7
+        text "Kept rows 012345" color="white"
+        box width=100 height=60 background-color="#4488cc"
+"##,
+        )
+        .unwrap()
+        .encode();
+        for choice in [PainterChoice::Cpu, PainterChoice::Ink] {
+            let make = || {
+                let (mut p, warning) =
+                    Presenter::boot_with(&plan, (), (160., 120.), 2., ".".into(), choice).unwrap();
+                assert!(warning.is_none(), "{warning:?}");
+                p.host_mut().runner_mut().set_row_reuse(true);
+                p
+            };
+            let mut early = make();
+            prepare_draw(&mut early, 0., false).unwrap();
+            let first = early.frame();
+            assert!(early.last_frame_succeeded());
+
+            let mut on_tick = make();
+            service(&mut on_tick, 0., false, || (), 0);
+            assert!(display_needed(&on_tick, false, false, false));
+            prepare_draw(&mut on_tick, 0., false).unwrap();
+            let expected = on_tick.frame();
+            assert!(on_tick.last_frame_succeeded());
+            assert_eq!(first.data(), expected.data(), "{choice:?}: first frame");
+            assert!(first
+                .data()
+                .chunks_exact(4)
+                .any(|p| p != &first.data()[..4]));
+            early.repaint();
+            prepare_draw(&mut early, 0., false).unwrap();
+            assert_eq!(
+                early.frame().data(),
+                expected.data(),
+                "{choice:?}: unshown retry"
+            );
+        }
+    }
 
     #[test]
     fn an_unshown_boot_keeps_display_demand_after_two_completed_drawables() {

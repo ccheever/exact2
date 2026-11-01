@@ -226,6 +226,9 @@ impl Lowerer<'_> {
     /// resolved now. A runtime expression stays a string for the host to
     /// resolve (LLP 1019 D2, 2026-10-11).
     pub(super) fn family_stacks(&mut self, value: &Expr) -> Result<Expr, LowerError> {
+        if matches!(value, Expr::Str(s, _) if family_clear(s)) {
+            return Ok(value.clone());
+        }
         let mut folded = value.clone();
         fold_constant_families(&mut folded);
         let mut bundled = None;
@@ -407,11 +410,17 @@ pub(crate) fn font_use(
     Ok(uses)
 }
 
+/// `font-family="inherit"` (or `unset`), as a reset writes it: a written
+/// clear, which names no family and passes a control's start (LLP 1104 D4).
+fn family_clear(s: &str) -> bool {
+    ["inherit", "unset"].contains(&s.trim().to_ascii_lowercase().as_str())
+}
+
 /// Visit the literal family names for validation, including ones beside
 /// runtime arms; the remaining string is resolved when it changes.
 fn family_arms(e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
     match e {
-        Expr::Str(name, _) if name.trim().is_empty() => Ok(()),
+        Expr::Str(name, _) if name.trim().is_empty() || family_clear(name) => Ok(()),
         Expr::Str(name, span) => {
             for member in family_names(name, *span)? {
                 visit(&member, *span);
@@ -554,7 +563,7 @@ fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
                 return err("lower-font-family-generic", format!("CSS generic family `{name}` has no native mapping in exact2; supported generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif, ui-monospace, monospace and ui-rounded"), span);
             }
             if !quoted && ["inherit", "initial", "unset", "revert", "revert-layer"].contains(&name.to_ascii_lowercase().as_str()) {
-                return err("lower-font-family-wide", format!("CSS-wide font-family value `{name}` is not represented by plan stack ids; omit the row for normal inheritance, or name an explicit family list"), span);
+                return err("lower-font-family-wide", format!("CSS-wide font-family value `{name}` is not represented by plan stack ids; `inherit` alone takes the surrounding text's family, or name an explicit family list"), span);
             }
             // The run-time rule (runner `runtime_family_members`) and the browser's.
             if !quoted && !exact_plan::is_css_family_name(name) {

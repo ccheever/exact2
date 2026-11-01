@@ -17,9 +17,9 @@ use cssparser::{
 /// holds.
 pub(crate) mod refusal {
     pub(crate) const RELATIVE: &str =
-        "rem and em are not supported inside calc(), min(), max() or clamp(); write px";
+        "em is not supported inside calc(), min(), max() or clamp(); write rem or px";
     pub(crate) const UNITLESS: &str = "a number where a length goes inside calc(), min(), max() or clamp() takes a unit, as CSS requires, zero too: 0px, 15px";
-    pub(crate) const NOT_A_LENGTH: &str = "calc(), min(), max() and clamp() take px (or in, cm, mm, q, pt, pc, ch, lh) lengths, percentages, env(safe-area-inset-*), env(viewport-segment-* x y), env(titlebar-area-*), viewport lengths (vw, vh, vmin, vmax, svh, lvh, dvh, …), numbers and e, pi, infinity and NaN";
+    pub(crate) const NOT_A_LENGTH: &str = "calc(), min(), max() and clamp() take px (or rem, in, cm, mm, q, pt, pc, ch, lh) lengths, percentages, env(safe-area-inset-*), env(viewport-segment-* x y), env(titlebar-area-*), viewport lengths (vw, vh, vmin, vmax, svh, lvh, dvh, …), numbers and e, pi, infinity and NaN";
     pub(crate) const FUNCTION: &str =
         "inside a length the functions are calc(), min(), max(), clamp() and env()";
     pub(crate) const NONE: &str =
@@ -142,7 +142,8 @@ pub(crate) fn parse(text: &str) -> Result<Option<Dimension>, Refused> {
 }
 
 /// Grid's length-percentage calculations use the same grammar and limits,
-/// without viewport or environment dependencies. Canonical CSS can add
+/// without viewport or environment dependencies; a `rem` is the root font
+/// size's, which the arena's environment carries. Canonical CSS can add
 /// parentheses, so the wire checks author limits on the simplified tree.
 pub(crate) fn grid(text: &str, canonical: bool) -> Option<super::Comparison> {
     let tree = super::simplify::simplify(calculation(text, !canonical, true).ok()?);
@@ -317,9 +318,10 @@ impl Calc {
         let token = p.next()?.clone();
         let text = p.slice_from(start);
         if self.grid
-            && matches!(&token, Token::Dimension { unit, .. } if !unit.eq_ignore_ascii_case("px"))
+            && matches!(&token, Token::Dimension { unit, .. }
+                if !unit.eq_ignore_ascii_case("px") && !unit.eq_ignore_ascii_case("rem"))
         {
-            return why(p, "grid calculations take only px and %");
+            return why(p, "grid calculations take only px, rem and %");
         }
         match token {
             Token::Function(name) => {
@@ -374,7 +376,9 @@ impl Calc {
                 } else if let Some(unit) = ViewportUnit::ALL.into_iter().find(|u| u.name() == lower)
                 {
                     Ok((Node::Value(n, Unit::Viewport(unit)), Ty::Length))
-                } else if lower == "em" || lower == "rem" {
+                } else if lower == "rem" {
+                    Ok((Node::Value(n, Unit::Rem), Ty::Length))
+                } else if lower == "em" {
                     why(p, refusal::RELATIVE)
                 } else {
                     why(p, refusal::NOT_A_LENGTH)

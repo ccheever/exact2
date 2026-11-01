@@ -24,10 +24,24 @@ test('health windows use finalized cursors and preserve the source without start
   await perfOp(s, ['frames', 'health', 'scroll', 'during', 'tap list'], 'perf frames health scroll during "tap list"', async op => { operations.push(op); });
   expect(operations).toEqual(['tap list']);
   expect(requests).toEqual([{ op: 'perf', frames: true, health: true, source: 'scroll' }, { op: 'perf', frames: true, health: true, source: 'scroll', cursor }]);
-  const text = renderFrameHealthMetrics({ source: 'app', status: 'observing', callbacks: { count: '2', comparableIntervals: '1', perSecond: 120, p99BoundsNs: [8000000, 8500000] }, apply: { count: '1', targetOverruns: '0' } });
-  expect(text).toContain('120.00 callbacks/s');
+  const stale = renderFrameHealthMetrics({ source: 'app', status: 'stale', observationAgeNs: '2000000000' }).split('\n')[0];
+  expect(stale).toBe('frame health · app · stale · observation age 2000.0 ms · unqualified');
+  expect(renderFrameHealthMetrics({ source: 'app', status: 'inactive', observationAgeNs: null })).toContain('observation age unknown');
+  const text = renderFrameHealthMetrics({ source: 'app', status: 'observing', frames: { callbacks: '3', held: '1', intervals: '1', perSecond: 120,
+    missedFrames: '1', requestedSlots: '3', p99BoundsNs: [8000000, 8500000] }, work: { records: '1', late: null, latenessUnknown: 'simulator-deadlines', pending: 1, overdue: null } });
+  expect(text).toContain('late unknown (simulator-deadlines) · in flight 1, overdue unknown');
+  expect(text).toContain('held 1 · frame intervals 1 · 120.00 FPS · missed 1 of 3 requested slots');
   expect(text).toContain('p99 8.00–8.50 ms');
-  expect(text).toContain('Presentation, input latency and GPU execution remain unmeasured');
+  expect(text).toContain('Core Animation commits, input latency and GPU execution remain unmeasured');
+  expect(text).toContain('assessments unavailable');
+  const assessed = renderFrameHealthMetrics({ source: 'app', assessments: { policy: 'exact-frame-health-policy/2',
+    cadence: { result: 'fail', reason: 'skipped-refreshes', evidence: 'callback-and-owner-work-proxies', predicates: { frameIntervals: '240', skippedRefreshes: '3', lateFrames: '1', overdueFrames: '0', unclassifiedIntervals: '0' } },
+    target: { result: 'restricted', reason: 'unknown', evidence: 'callback-proxy', predicates: { requestedSlots: '480', missedFrames: '240', restrictedIntervals: '12' }, context: ['simulator'] },
+    contentLatency: { result: 'insufficient-evidence', reason: 'content-lateness-unobserved', evidence: 'unavailable' } } }).split('\n');
+  expect(assessed.slice(1, 4)).toEqual([
+    'cadence fail · skipped-refreshes (callback-and-owner-work-proxies evidence) · frame intervals 240, skipped refreshes 3 · late frames 1, overdue 0 · across schedule changes 0',
+    'target rate restricted · unknown (callback-proxy evidence) · requested slots 480, missed 240 · restricted intervals 12 · at read: simulator',
+    'content latency insufficient-evidence · content-lateness-unobserved (unavailable evidence)']);
   requests.length = 0;
   const unobserved = { op: async request => {
     requests.push(request);
@@ -55,14 +69,14 @@ test('Apple live windows use a host-side wait and release their lease on errors'
 });
 
 test('compact reports expose measured stages and preserve unknown evidence', () => {
-  const report = { format: 'exact.frame-health/1', available: true, qualification: 'unqualified', scope: { armed: true },
+  const report = { format: 'exact.frame-health/2', available: true, qualification: 'unqualified', scope: { armed: true },
     retention: { overwrittenSinceClear: '7', expiredAtRead: 2 },
-    columns: ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
-      'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
-      'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
-      'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'],
-    hitches: [['12', '1', '0', 1000000, 17, 8000000, 8000000, 8000000, 24000000, 1000000, 8000000, 500000, null, null, null,
-      -10000000, -9000000, -5000000, -3000000, -3000000, -1000000, 0, 40]] };
+    columns: ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
+      'before_gap_us', 'before_callback_us', 'after_offset_us', 'after_gap_us', 'after_callback_us',
+      'owner_queued_offset_us', 'owner_began_offset_us', 'owner_finished_offset_us', 'main_landed_offset_us',
+      'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations'],
+    hitches: [['12', '1', '0', 1000, 17, 8000, 8000, 8000, 24000, 1000, 8000, 500, null, null, null,
+      -10000, -9000, -5000, -3000, -3000, -1000, 0, 40]] };
   const text = renderFrameHealthReport(report);
   expect(text).toContain('overwritten 7');
   expect(text).toContain('last observed apply ended 1.000 ms before event');
@@ -75,6 +89,9 @@ test('compact reports expose measured stages and preserve unknown evidence', () 
   powered.hitches[0][4] += 2 ** 23 + 2 ** 16 + 2 ** 33 + 2 ** 34 + 2 ** 36;
   expect(renderFrameHealthReport(powered)).toContain('workload motion · thermal serious · low power true');
   expect(renderFrameHealthReport({ ...report, time: { clamped: true } })).toContain('Timing values were clamped');
+  const packed = structuredClone(report);
+  packed.hitches[0][4] += 64;
+  expect(renderFrameHealthReport(packed)).toContain('owner queue unknown · owner wall unknown');
   expect(renderTrace(report)).toBe(text);
   expect(render('perf', report)).toBe(text);
   expect(() => renderFrameHealthReport({ ...report, hitches: Array(17).fill(report.hitches[0]) })).toThrow();

@@ -183,3 +183,89 @@ fn cpu_written_textures_use_shared_storage() {
     d.upload_texture(id, [0, 0], [2, 2], &[41; 16]).unwrap();
     assert_eq!(d.readback(id).unwrap(), [41; 16]);
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn four_atlas_batches_retire_a_busy_slot_and_trim_releases_the_ring() {
+    use crate::device::TextureUpload;
+    use std::sync::mpsc;
+    let (release, blocked) = mpsc::channel();
+    let (queued, ready) = mpsc::channel();
+    let owner = std::thread::spawn(move || {
+        let mut d = Metal::new().unwrap();
+        let texture = d.create_texture(TextureDesc::rgba(8, 8)).unwrap();
+        let worker = Rc::new(crate::present::Thread::new().unwrap());
+        worker
+            .send(move || {
+                let _ = blocked.recv();
+            })
+            .unwrap();
+        d.thread = Some(worker);
+        let mut last = Submission(0);
+        let mut first = None;
+        for n in 0..4 {
+            last = d
+                .upload_textures(&[TextureUpload {
+                    texture,
+                    origin: [n, 0],
+                    size: [1, 1],
+                    data: vec![31 + n as u8; 4],
+                }])
+                .unwrap();
+            if n == 0 {
+                first = Some(d.atlas_buffers[0].as_ref().unwrap().raw.clone());
+            }
+        }
+        let retired = d.retired_buffers.len();
+        let busy_replaced = !std::ptr::eq(
+            &*d.atlas_buffers[0].as_ref().unwrap().raw,
+            &**first.as_ref().unwrap(),
+        );
+        let floor = d
+            .atlas_buffers
+            .iter()
+            .all(|b| b.as_ref().unwrap().raw.length() == 65536);
+        queued
+            .send((retired, busy_replaced, floor, d.done))
+            .unwrap();
+        d.wait(last).unwrap();
+        assert!(d.retired_buffers.is_empty());
+        let pixels = d.readback(texture).unwrap();
+        assert_eq!(
+            &pixels[..16],
+            &[31, 31, 31, 31, 32, 32, 32, 32, 33, 33, 33, 33, 34, 34, 34, 34]
+        );
+        // Slots 1, 2 and 0 each see a larger, still sub-64-KiB batch.
+        let slots: Vec<_> = d
+            .atlas_buffers
+            .iter()
+            .map(|b| b.as_ref().unwrap().raw.clone())
+            .collect();
+        for n in 0..3 {
+            let s = d
+                .upload_textures(&[TextureUpload {
+                    texture,
+                    origin: [0, 0],
+                    size: [2 + n, 2],
+                    data: vec![71; ((2 + n) * 2 * 4) as usize],
+                }])
+                .unwrap();
+            d.wait(s).unwrap();
+        }
+        for (b, old) in d.atlas_buffers.iter().zip(&slots) {
+            assert!(std::ptr::eq(&*b.as_ref().unwrap().raw, &**old));
+        }
+        d.trim().unwrap();
+        assert!(d.atlas_buffers.iter().all(Option::is_none));
+        d.completed().unwrap();
+        assert!(d.retired_buffers.is_empty());
+    });
+    let observed = ready.recv_timeout(std::time::Duration::from_secs(10));
+    release.send(()).unwrap();
+    owner.join().unwrap();
+    let (retired, busy_replaced, floor, done) =
+        observed.expect("batches must enqueue without waiting");
+    assert_eq!(retired, 1);
+    assert!(busy_replaced && floor);
+    assert_eq!(done, Submission(0));
+}

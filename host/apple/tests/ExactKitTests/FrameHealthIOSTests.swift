@@ -5,6 +5,17 @@ import XCTest
 @testable import ExactKit
 
 final class FrameHealthIOSTests: XCTestCase {
+    /// A window for an overlay: the card reads only while it can be seen.
+    private func hosted(_ overlay: FrameHealthOverlay, in scene: UIWindowScene, size: CGSize) -> UIWindow {
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.makeKeyAndVisible()
+        overlay.frame = CGRect(origin: .zero, size: size)
+        window.rootViewController?.view.addSubview(overlay)
+        addTeardownBlock { window.isHidden = true }
+        return window
+    }
+
     func testPresentedMenuAndCardKeepAppGeometryAndSupportAccessibilityType() throws {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
             throw missing("scene", "the developer sheet and frame-health card in a real host window")
@@ -39,6 +50,17 @@ final class FrameHealthIOSTests: XCTestCase {
         let shown = expectation(description: "native developer sheet presented")
         root.present(navigation, animated: false) { shown.fulfill() }
         wait(for: [shown], timeout: 5)
+        // Attached to the bottom edge in regular height, where a sheet can rest at the medium detent
+        if window.traitCollection.horizontalSizeClass == .compact && window.traitCollection.verticalSizeClass == .regular,
+           let sheet = navigation.sheetPresentationController {
+            XCTAssertGreaterThan(navigation.view.frame.height, window.bounds.height * 0.8, "the sheet opens at full height, not half")
+            sheet.selectedDetentIdentifier = .medium
+            // UIKit moves the sheet at a later layout pass
+            let deadline = Date().addingTimeInterval(5)
+            while navigation.view.frame.height >= window.bounds.height * 0.7, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            XCTAssertLessThan(navigation.view.frame.height, window.bounds.height * 0.7, "and rests at half height too")
+            sheet.selectedDetentIdentifier = .large
+        }
         let menu = try XCTUnwrap(navigation.viewControllers.first as? DevMenuController)
         menu.tableView.layoutIfNeeded()
         XCTAssertEqual(menu.groups[1].first?.title, "Hide Frame Health")
@@ -48,8 +70,8 @@ final class FrameHealthIOSTests: XCTestCase {
         light.name = "Developer menu — native sheet"
         light.lifetime = .keepAlways
         add(light)
-        let handlePoint = overlay.handle.convert(CGPoint(x: 22, y: 22), to: window)
-        XCTAssertFalse(window.hitTest(handlePoint, with: nil)?.isDescendant(of: overlay) == true,
+        let cardPoint = overlay.card.convert(CGPoint(x: 160, y: 100), to: window)
+        XCTAssertFalse(window.hitTest(cardPoint, with: nil)?.isDescendant(of: overlay) == true,
             "the sheet and its dismissal surface take precedence over dragging")
 
         navigation.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: .accessibilityExtraExtraExtraLarge), forChild: menu)
@@ -66,7 +88,7 @@ final class FrameHealthIOSTests: XCTestCase {
         root.overrideUserInterfaceStyle = .dark
         overlay.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
         overlay.setNeedsLayout(); overlay.layoutIfNeeded()
-        XCTAssertLessThanOrEqual(overlay.values.convert(overlay.values.bounds, to: overlay).maxY, overlay.card.frame.maxY)
+        XCTAssertTrue(overlay.bounds.contains(overlay.card.frame))
         let card = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         })
@@ -74,7 +96,7 @@ final class FrameHealthIOSTests: XCTestCase {
         card.lifetime = .keepAlways
         add(card)
         XCTAssertEqual(app.frame, before)
-        overlay.close.sendActions(for: .touchUpInside)
+        overlay.hideReadout()
         XCTAssertFalse(overlay.desiredVisible)
         overlay.setVisible(true)
         session.destroy()
@@ -82,47 +104,63 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertNil(overlay.superview, "destroying the session removes its host readout")
     }
 
-    func testReadoutUsesExistingClockPassesBodyTouchesAndPreservesItsPosition() throws {
+    func testCardUsesExistingClockTakesTouchesWithinItsBoundsAndPreservesItsPosition() throws {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
         let links = FrameClock.shared.linksMade
         let overlay = FrameHealthOverlay(health: health)
-        overlay.frame = CGRect(x: 0, y: 0, width: 430, height: 900)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        _ = hosted(overlay, in: scene, size: CGSize(width: 430, height: 900))
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
         XCTAssertEqual(FrameClock.shared.linksMade, links, "showing the readout never starts a sampler")
         XCTAssertFalse(overlay.card.frame.isEmpty)
         XCTAssertTrue(overlay.bounds.contains(overlay.card.frame))
         XCTAssertEqual(overlay.accessibilityIdentifier, "exact.host.frame-health-overlay")
-        let grip = overlay.handle.convert(CGPoint(x: 22, y: 22), to: overlay)
-        let close = overlay.close.convert(CGPoint(x: 22, y: 22), to: overlay)
-        let body = overlay.values.convert(CGPoint(x: 10, y: 10), to: overlay)
-        XCTAssertNotNil(overlay.hitTest(grip, with: nil))
-        XCTAssertNotNil(overlay.hitTest(close, with: nil))
-        XCTAssertNil(overlay.hitTest(body, with: nil), "reading the card does not consume the app's touches")
-        XCTAssertGreaterThanOrEqual(overlay.handle.bounds.height, 44)
-        XCTAssertGreaterThanOrEqual(overlay.close.bounds.width, 44)
-        XCTAssertTrue(overlay.values.adjustsFontForContentSizeCategory)
-        XCTAssertTrue(overlay.values.text?.contains("FPS avg: Idle") == true)
+        // The card is opaque: it takes the touches within its bounds, and the rest reach the app
+        let body = overlay.card.convert(CGPoint(x: 160, y: 100), to: overlay)
+        XCTAssertTrue(overlay.hitTest(body, with: nil) === overlay.card)
+        let outside = CGPoint(x: overlay.card.frame.maxX + 20, y: overlay.card.frame.maxY + 20)
+        XCTAssertNil(overlay.hitTest(outside, with: nil), "outside the card, touches reach the app")
+        let layout = FrameHealthCardFace.Layout(width: overlay.card.bounds.width)
+        for (control, rect) in [(FrameHealthCardFace.Control.close, layout.close), (.title, layout.title), (.status, layout.status),
+                                (.copy, layout.copy)] {
+            // Each button's touch target is 44 points tall and at least as wide
+            XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX, y: rect.midY - 21)), control)
+            XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX + 18, y: rect.midY)), control)
+        }
+        XCTAssertEqual(overlay.card.state.status, .idle)
+        XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"], "no figure without data")
 
-        let action = try XCTUnwrap(overlay.handle.accessibilityCustomActions?.first { $0.name == "Move down" })
-        let old = overlay.card.frame.origin
-        _ = overlay.perform(try XCTUnwrap(action.selector))
-        XCTAssertEqual(overlay.card.frame.minY, old.y + 44, accuracy: 0.1)
+        let elements = overlay.card.accessibilityElements?.compactMap { $0 as? UIAccessibilityElement } ?? []
+        XCTAssertEqual(elements.first?.accessibilityLabel, "Close frame health", "Close comes first, in its corner")
+        let title = try XCTUnwrap(elements.first { $0.accessibilityLabel == "Frame health" })
+        XCTAssertTrue(title.accessibilityTraits.contains(.button), "the title opens the definitions")
+        // The card rests in a corner; moving it down takes it to the bottom one, where it stays
+        let action = try XCTUnwrap(title.accessibilityCustomActions?.first { $0.name == "Move down" })
+        let bottom = overlay.bounds.inset(by: overlay.safeAreaInsets).maxY - 8
+        XCTAssertTrue(action.actionHandler?(action) == true)
+        XCTAssertEqual(overlay.card.frame.maxY, bottom, accuracy: 0.5)
         overlay.setVisible(false)
         XCTAssertNil(health.changed)
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
-        XCTAssertEqual(overlay.card.frame.minY, old.y + 44, accuracy: 0.1)
+        XCTAssertEqual(overlay.card.frame.maxY, bottom, accuracy: 0.5)
         overlay.frame.size = CGSize(width: 250, height: 400)
         overlay.layoutIfNeeded()
         XCTAssertTrue(overlay.bounds.contains(overlay.card.frame), "resizing clamps the card into its own window")
-        overlay.close.sendActions(for: .touchUpInside)
+        XCTAssertTrue(overlay.card.compact, "where the whole card does not fit, it leaves out its charts")
+        overlay.hideReadout()
         XCTAssertFalse(overlay.desiredVisible)
         XCTAssertFalse(health.hudVisible)
     }
 
     func testPublicationIsBoundedAndIdleReloadVirtualAndDisabledStayExplicit() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
         var publications = 0
@@ -155,53 +193,74 @@ final class FrameHealthIOSTests: XCTestCase {
         disabled.record(arrival: 1, target: 2, period: 1, finished: 1.1)
         XCTAssertEqual(disabled.snapshot().callbacks, 0)
         let overlay = FrameHealthOverlay(health: disabled)
+        _ = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852))
         overlay.setVisible(true)
         XCTAssertFalse(disabled.enabled, "showing the UI cannot override collection policy")
-        XCTAssertTrue(overlay.values.text?.contains("disabled") == true)
+        XCTAssertTrue(overlay.card.state.request.0.contains("disabled"))
     }
 
-    func testChartRendersLiveHistoryWithoutStartingAFrameSource() {
+    func testChartsRenderTheReadersSamplesWithoutStartingAFrameSource() throws {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
+        health.requestedRate(120)
         let made = FrameClock.shared.linksMade
-        let start = CACurrentMediaTime() - 6
-        for bucket in 0..<10 {
-            for index in 0..<60 {
-                let hitch = bucket > 5 || bucket == 5 && index == 59 ? 0.060 : 0
-                let time = start + Double(bucket) * 0.5 + Double(index) / 120 + hitch
-                health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.001)
-            }
-            _ = health.window.reply(health, now: start + Double(bucket) * 0.5 + 0.6)
-        }
         let overlay = FrameHealthOverlay(health: health)
-        overlay.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        _ = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852))
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
+        let start = CACurrentMediaTime()
+        var time = start
+        for bucket in 1...10 {
+            while time < start + Double(bucket) * 0.5 {
+                // One 60 ms hitch in the sixth half second
+                if bucket == 6, time - start > 2.7, time - start < 2.71 { time += 0.060 }
+                health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + 0.002)
+                time += 1.0 / 120
+            }
+            overlay.refresh(now: start + Double(bucket) * 0.5 + 0.001)
+        }
         XCTAssertEqual(FrameClock.shared.linksMade, made)
-        XCTAssertTrue(overlay.chart.points.contains { ($0.slowest ?? 120) < 20 })
-        XCTAssertTrue(overlay.chart.accessibilityValue?.contains("120 hertz") == true)
-        XCTAssertTrue(overlay.values.text?.contains("FPS avg:") == true)
+        XCTAssertEqual(overlay.card.state.status, .live)
+        XCTAssertEqual(overlay.card.state.rows[0].1, "120")
+        XCTAssertEqual(overlay.card.state.pacing.0, "Uneven", "the hitch is in the last 5 seconds")
+        // A pause freezes the figures: later frames change nothing until it resumes
+        overlay.card.activate?(.status)
+        XCTAssertEqual(overlay.card.state.status, .paused)
+        health.record(arrival: time, target: time + 0.1, period: 0.1, finished: time + 0.001)
+        overlay.refresh(now: start + 6)
+        XCTAssertEqual(overlay.card.state.rows[0].1, "120")
+        overlay.card.activate?(.status)
+        XCTAssertEqual(overlay.card.state.status, .live)
+        // Hidden, the card reads nothing and releases what it drew from
+        overlay.setVisible(false)
+        XCTAssertNil(overlay.card.presentation.input)
         let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: overlay.card.bounds).image { context in
             overlay.card.layer.render(in: context.cgContext)
         })
-        attachment.name = "Frame health — callback chart with a hitch"
+        attachment.name = "Frame health — charts with a hitch"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
 
-    func testScrollingKeepsTheAppChartLiveAndPublishesInTrackingMode() {
+    func testScrollingKeepsTheAppChartLiveAndPublishesInTrackingMode() throws {
         let health = FrameHealth(enabled: true)
         let scroll = FrameHealth(enabled: true, source: "native-scroll-ui-update")
         health.nativeHealth = scroll
         defer { health.destroy() }
         let overlay = FrameHealthOverlay(health: health)
-        overlay.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window for the frame-health card")
+        }
+        _ = hosted(overlay, in: scene, size: CGSize(width: 393, height: 852))
         overlay.setVisible(true)
         health.nativeScrollActive = true
         var published = false
         health.changed = {
             overlay.refresh()
-            published = overlay.chart.points.last?.average != nil
+            published = overlay.card.state.rows[0].1 != "—"
         }
         CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(rawValue: RunLoop.Mode.tracking.rawValue as CFString))
         let ticks = Timer(timeInterval: 1 / 120, repeats: true) { _ in
@@ -214,7 +273,6 @@ final class FrameHealthIOSTests: XCTestCase {
         let end = Date().addingTimeInterval(5)
         while !published, Date() < end { RunLoop.main.run(mode: .tracking, before: end) }
         XCTAssertTrue(published, "the app chart refreshes before tracking ends, even with an active unknown-cadence scroll observer")
-        XCTAssertFalse(overlay.values.text?.contains("Unknown") == true)
     }
 
     func testInspectorHeaderFitsNarrowAndAccessibilityWidths() {
@@ -235,7 +293,6 @@ final class FrameHealthIOSTests: XCTestCase {
                 XCTAssertGreaterThanOrEqual(source.minX, 0)
                 XCTAssertLessThanOrEqual(source.maxX, width)
                 XCTAssertGreaterThanOrEqual(source.height, 44)
-                XCTAssertLessThanOrEqual(controller.chart.frame.maxY, controller.tableView.tableHeaderView?.bounds.height ?? 0)
                 XCTAssertFalse(controller.source.hasAmbiguousLayout)
             }
         }
@@ -262,7 +319,6 @@ final class FrameHealthIOSTests: XCTestCase {
         menu.tableView(menu.tableView, didSelectRowAt: IndexPath(row: 0, section: 2))
         XCTAssertTrue(navigation.viewControllers.last?.view is UITextView)
         XCTAssertEqual(navigation.viewControllers.last?.title, "Build Information")
-        XCTAssertEqual(navigation.sheetPresentationController?.widthFollowsPreferredContentSizeWhenEdgeAttached, false)
     }
 }
 #endif

@@ -764,7 +764,7 @@ Declared deviations, and beside each what is CSS's own:
 **CSS grid's supported grammar follows Chrome's.** Track templates preserve
 named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
 percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
-maxima. `calc()`, `min()`, `max()` and `clamp()` over px and % are lengths in
+maxima. `rem`, and `calc()`, `min()`, `max()` and `clamp()` over px, `rem` and %, are lengths in
 ordinary tracks, `minmax()` and valid repetitions. The dimension parser and
 resolver supply their arithmetic, narrowing and zero floor; percentages use
 the grid's content box in that axis, with CSS's intrinsic-sizing treatment
@@ -1028,8 +1028,11 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   (wire kind 24, `env()` tags 36–39). `tests/titlebar.rs`.
 - **Comparisons** (2026-10-07; approved by Charlie 2026-10-06).
   Dimension rows accept `calc()`, `min()`, `max()` and `clamp()` over absolute
-  lengths, `ch`/`lh`, percentages, viewport units, safe-area insets and viewport
-  segments. Functions can nest; multiplication and division take a numeric
+  lengths, `ch`/`lh`, `rem`, percentages, viewport units, safe-area insets and viewport
+  segments. A `rem` resolves at layout against the root font size, which the
+  environment carries (`Env::root_font_size`); a new root size restyles every
+  node whose calculation or grid track holds one. `em` stays refused there: it
+  would need each element's font size at layout. Functions can nest; multiplication and division take a numeric
   factor or divisor. For example,
   `bottom="calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px)"`.
   CSS orders the bounds as `clamp(MIN, VAL, MAX)`; MIN wins when it exceeds MAX.

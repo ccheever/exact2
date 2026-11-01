@@ -49,9 +49,9 @@ final class AgentCheckIOSTests: XCTestCase {
         window.rootViewController?.view.addSubview(overlay)
         overlay.setVisible(true)
         overlay.layoutIfNeeded()
-        // The button under the card's drag handle, wherever the window's safe area puts the card (below the
+        // The button under the card's title, wherever the window's safe area puts the card (below the
         // status bar on a phone, so no fixed point lies on it)
-        let at = overlay.handle.convert(CGPoint(x: overlay.handle.bounds.midX, y: overlay.handle.bounds.midY), to: window)
+        let at = overlay.card.convert(CGPoint(x: 60, y: 22), to: window)
         session.presenter.apply(wireBatch([["op": "frame", "id": 1, "x": Double(at.x) - 50, "y": Double(at.y) - 22, "w": 100.0, "h": 44.0]]))
         session.presenter.viewport.layoutIfNeeded()
         XCTAssertTrue(window.hitTest(at, with: nil)?.isDescendant(of: overlay) == true)

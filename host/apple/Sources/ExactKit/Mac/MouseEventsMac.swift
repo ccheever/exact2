@@ -194,9 +194,10 @@ extension Presenter {
         }
         let windowPoint = converted(to: node.window)
         let local = node.local(windowPoint), box = node.contentBox(), client = self.client(converted(to: viewport.window))
+        // A secondary click's menu is that button's; a Control-click's and a key's, the primary's.
         let sample = PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
-                                   clientX: Double(client.x), clientY: Double(client.y))
+                                   clientX: Double(client.x), clientY: Double(client.y), button: click?.type == .rightMouseDown ? 2 : 0)
         return node.dispatchContextMenu(at: node.convert(windowPoint, from: nil), sample: sample,
                                         bubbled: source.map { $0 !== node } ?? false, click: click)
     }

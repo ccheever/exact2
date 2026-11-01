@@ -141,9 +141,12 @@ fn validate(schema: &Schema) {
                 "schema: keywords apply to u8 rows defaulting to 0 (`{}`)",
                 row.field
             );
+            // The first value and a `none` take no bit; eight bits are left.
             assert!(
-                schema.enums.get(name).is_some_and(|e| e.values.len() <= 9),
-                "schema: style `{}` keywords `{name}` must name an enum of at most 9 values",
+                schema.enums.get(name).is_some_and(|e| {
+                    e.values.len() - e.values[1..].iter().filter(|v| *v == "none").count() <= 9
+                }),
+                "schema: style `{}` keywords `{name}` must name an enum of at most 8 values besides the first and `none`",
                 row.field
             );
         }

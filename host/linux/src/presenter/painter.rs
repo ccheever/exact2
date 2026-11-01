@@ -2,6 +2,10 @@
 //! boots from, and opening it.
 use super::*;
 
+/// Keep CPU pixels or the painter's compose target until first display.
+#[cfg(target_os = "macos")]
+pub struct SubmittedAppleFrame(Option<Arc<Pixmap>>);
+
 /// Which backend paints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PainterChoice {
@@ -394,9 +398,44 @@ impl<D: DataSource> Presenter<D> {
 
     /// Submit either a CPU startup frame or a complete ink frame to the same layer.
     #[cfg(target_os = "macos")]
-    pub fn apple_window_frame(&mut self) -> Result<(), String> {
-        self.apple_frame_for(crate::paint::FrameTarget::Window)
-            .map(|_| ())
+    pub fn apple_window_frame(&mut self) -> Result<Option<SubmittedAppleFrame>, String> {
+        let pixels = self.apple_frame_for(crate::paint::FrameTarget::Window)?;
+        Ok(self
+            .last_frame_succeeded
+            .then_some(SubmittedAppleFrame(pixels)))
+    }
+
+    /// Re-present before any further paint, resize or painter poll changes the source.
+    #[cfg(target_os = "macos")]
+    pub fn repeat_apple_frame(&mut self, frame: &SubmittedAppleFrame) -> Result<bool, String> {
+        if let Some(pixels) = &frame.0 {
+            let boot = self
+                .surfaces
+                .apple_boot
+                .as_mut()
+                .ok_or("no CPU presentation device")?;
+            let preparing = boot
+                .preparing
+                .as_mut()
+                .ok_or("CPU presentation device changed")?;
+            match preparing.present_cpu(pixels.clone()) {
+                Ok(accepted) => {
+                    if !accepted {
+                        if let Some(layer) = &self.surfaces.apple_layer {
+                            layer.cancel_repeat();
+                        }
+                    }
+                    Ok(true)
+                }
+                Err(error) => {
+                    boot.refused(error, std::time::Instant::now());
+                    self.repaint();
+                    Ok(false)
+                }
+            }
+        } else {
+            self.brush.repeat_apple_frame().map(|_| true)
+        }
     }
     pub(crate) fn painter_state(&self) -> serde_json::Value {
         #[cfg(windows)]
@@ -763,6 +802,8 @@ mod tests {
         ] {
             OPENED.with(|n| n.set(0));
             let mut config = crate::app::Config {
+                #[cfg(target_os = "macos")]
+                painted_boot: None,
                 content_region: None,
                 launch: "/".into(),
                 plan: selected.into(),

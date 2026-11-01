@@ -8,32 +8,58 @@ import subprocess
 import threading
 import time
 
-BUSY_LIMIT = 2.0
+BUSY_LIMIT = 1.0
 PROCESS_LIMIT = 0.25
 COMPILERS = {'cargo', 'rustc', 'swiftc', 'swift-frontend', 'clang', 'clang++', 'xcodebuild', 'metal', 'ld'}
 
 
+def system_process(command):
+    """System daemons count toward total load, without a per-process ceiling."""
+    return command.startswith(('/System/', '/usr/libexec/', '/sbin/'))
+
+
 def quiet_series(rows):
-    """WindowServer is benchmark work; bounded daemon bursts are allowed per series."""
-    if not rows:
-        return False
-    crossings = 0
-    for row in rows:
-        if max(row['load']) >= 30 or row['compilers'] or row['busyCores'] > BUSY_LIMIT:
-            return False
-        over = [p for p in row['topNonBenchmark'] if Path(p['command']).name != 'WindowServer'
-                and p['cpuCores'] > PROCESS_LIMIT]
-        crossings += bool(over)
-        if any(p['cpuCores'] > 1.0 or not p['command'].startswith(
-                ('/System/Library/', '/usr/libexec/', '/usr/sbin/', '/sbin/')) for p in over):
-            return False
-    return crossings / len(rows) <= 0.1
+    """M10 cut 1b: at most one non-benchmark core and 0.25 core per user process."""
+    return bool(rows) and all(
+        max(row['load']) < 30 and not row['compilers']
+        and row['nonBenchmarkBusyCores'] <= BUSY_LIMIT
+        and all(p['cpuCores'] <= PROCESS_LIMIT for p in row['topUserProcesses'])
+        for row in rows)
+
+
+def launch_quiet(row):
+    """Cut 1d: gate before launch; launch-induced daemon work is reported only."""
+    return (row['nonBenchmarkBusyCores'] < BUSY_LIMIT
+            and all(p['cpuCores'] <= PROCESS_LIMIT for p in row['topUserProcesses'])
+            and not row['compilers'] and row.get('powerAbsent', True))
+
+
+def launch_gate(monitor, seconds=300):
+    start = len(monitor.rows)
+    deadline, quiet_seconds = time.monotonic() + seconds, 0
+    monitor.observe()
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        row = monitor.observe()
+        quiet_seconds = quiet_seconds + row['intervalSeconds'] if launch_quiet(row) else 0
+        if quiet_seconds >= 10:
+            return dict(passed=True, seconds=quiet_seconds, observations=[start, len(monitor.rows)])
+    return dict(passed=False, seconds=quiet_seconds, observations=[start, len(monitor.rows)])
+
+
+def launch_load(rows):
+    """Keep maxima even when a launch itself crosses the prelaunch limits."""
+    return dict(observations=len(rows),
+                nonBenchmarkBusyCores=max((r['nonBenchmarkBusyCores'] for r in rows), default=None),
+                userProcessCores=max((p['cpuCores'] for r in rows for p in r['topUserProcesses']), default=0),
+                wholeMachineBusyCores=max((r['busyCores'] for r in rows), default=None))
 
 
 class QuietMonitor:
     def __init__(self, output, benchmark_paths):
         self.output = output
         self.benchmark_paths = set(map(str, benchmark_paths))
+        self.benchmark_pid = os.getpid()
         self.quartz = ctypes.CDLL('/System/Library/Frameworks/QuartzCore.framework/QuartzCore')
         self.quartz.CACurrentMediaTime.restype = ctypes.c_double
         self.mach = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
@@ -65,29 +91,60 @@ class QuietMonitor:
         busy = os.cpu_count() * (sum(delta) - delta[2]) / sum(delta)
         elapsed = now - self.previous_time
         self.previous, self.previous_time = current, now
-        lines = subprocess.check_output(['/bin/ps', '-axo', 'pid=,pcpu=,comm='], text=True)
+        lines = subprocess.check_output(['/bin/ps', '-ww', '-axo', 'pid=,ppid=,pcpu=,comm='], text=True)
         processes = []
         for line in lines.splitlines():
-            pid, pcpu, command = line.strip().split(None, 2)
-            processes.append(dict(pid=int(pid), cpuCores=float(pcpu)/100, command=command))
+            pid, parent, pcpu, command = line.strip().split(None, 3)
+            processes.append(dict(pid=int(pid), parent=int(parent), cpuCores=float(pcpu)/100, command=command))
         builds = [p for p in processes if Path(p['command']).name in COMPILERS]
-        largest = sorted((p for p in processes if p['command'] not in self.benchmark_paths
-                          and Path(p['command']).name != 'WindowServer'),
-                         key=lambda p: p['cpuCores'], reverse=True)[:5]
+        benchmark, other = self.partition(processes)
+        non_benchmark_busy = sum(p['cpuCores'] for p in other)
+        largest = sorted(other, key=lambda p: p['cpuCores'], reverse=True)[:5]
+        users = sorted((p for p in other if not system_process(p['command'])),
+                       key=lambda p: p['cpuCores'], reverse=True)[:5]
         load = list(os.getloadavg())
         row = dict(wall=time.time(), time=now, intervalSeconds=elapsed, load=load,
-                   busyCores=busy, topNonBenchmark=largest, compilers=builds,
+                   busyCores=busy, nonBenchmarkBusyCores=non_benchmark_busy,
+                   benchmark=benchmark, topNonBenchmark=largest, topUserProcesses=users, compilers=builds,
+                   quietRule="m10-cut1b-user-processes",
                    busyLimit=BUSY_LIMIT, nonBenchmarkLimit=PROCESS_LIMIT,
-                   quiet=max(load) < 30 and not builds and busy <= BUSY_LIMIT
-                   and largest[0]['cpuCores'] <= PROCESS_LIMIT)
+                   quiet=max(load) < 30 and not builds and non_benchmark_busy <= BUSY_LIMIT
+                   and (not users or users[0]['cpuCores'] <= PROCESS_LIMIT))
         self.rows.append(row)
         with self.output.open('a') as stream:
             stream.write(json.dumps(row) + '\n')
         return row
 
-    def monitor(self):
+    def partition(self, processes):
+        # ps's per-process shares are summed directly, never subtracted from
+        # host tick deltas with a different sampling interval.
+        pids = {self.benchmark_pid}
+        for p in processes:
+            if p['command'] in self.benchmark_paths or Path(p['command']).name in {'WindowServer', 'caffeinate'}:
+                pids.add(p['pid'])
+        while True:
+            descendants = {p['pid'] for p in processes if p['parent'] in pids}
+            if descendants <= pids:
+                break
+            pids |= descendants
+        return ([p for p in processes if p['pid'] in pids],
+                [p for p in processes if p['pid'] not in pids])
+
+    def begin_launch(self):
+        self.stop.clear()
+        self.thread = threading.Thread(target=self.monitor, args=(0.25,))
+        self.thread.start()
+
+    def end_launch(self):
+        self.stop.set()
+        self.thread.join()
+        if self.error:
+            raise self.error
+        self.observe()
+
+    def monitor(self, interval=5):
         try:
-            while not self.stop.wait(5):
+            while not self.stop.wait(interval):
                 self.observe()
         except BaseException as error:
             self.error = error
@@ -132,9 +189,7 @@ def main():
         for round_number, config in runs:
             assert monitor.error is None, monitor.error
             if not args.single:
-                # The daemon allowance is assessed over the complete series.
-                assert all(max(row['load']) < 30 and not row['compilers']
-                           and row['busyCores'] <= BUSY_LIMIT for row in monitor.rows), 'loaded observations retained; stop series'
+                assert quiet_series(monitor.rows), 'loaded observations retained; stop series'
                 env['G1_GPU_HOOK'] = '0' if config == 'a' else '1'
             folder = out/'sample' if args.single else out/config/'series/fling'
             folder.mkdir(parents=True, exist_ok=True)

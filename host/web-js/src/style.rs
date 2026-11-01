@@ -1347,6 +1347,7 @@ pub fn style_row(id: u16, written: bool) -> Result<(String, String), String> {
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
+            | StyleId::FontVariantLigatures
             // One `vertical-align`, a keyword or a length (LLP 1011.002 D3).
             | StyleId::VerticalAlign
             | StyleId::BaselineShift

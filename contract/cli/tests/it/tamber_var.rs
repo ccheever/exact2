@@ -18,7 +18,7 @@ fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
     dir.join("app.contract")
 }
 
-const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when density=compact: light-dark(#222222, #dddddd)\n  paper = #ffffff  scheme=fixed\n  space.row = 12px\n    when density=compact: 8px\n  faded: number = 0.5\n  type.body = -exact-body/1.35 \"InterVariable\"\n  face = \"InterVariable\", system-ui\n  shadow.card: box-shadow = 0 1px 3px ink\n  glow: text-shadow = 0 0 2px #ff0000\n  duration.fast = 150ms\n  easing.standard = cubic-bezier(0.2, 0, 0, 1)\n";
+const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when density=compact: light-dark(#222222, #dddddd)\n  paper = #ffffff  scheme=fixed\n  space.row = 12px\n    when density=compact: 8px\n  card.min = 9.5rem\n  faded: number = 0.5\n  type.body = -exact-body/1.35 \"InterVariable\"\n  face = \"InterVariable\", system-ui\n  shadow.card: box-shadow = 0 1px 3px ink\n  glow: text-shadow = 0 0 2px #ff0000\n  duration.fast = 150ms\n  easing.standard = cubic-bezier(0.2, 0, 0, 1)\n";
 
 /// One view, its tokens spelled by `t`: as the token's name, or as `var()`.
 fn view(t: &dyn Fn(&str) -> String) -> String {
@@ -219,4 +219,39 @@ fn a_token_of_another_kind_is_refused_as_its_name_is() {
         "component App\n  view\n    column padding=\"var(--ink)\"\n      text \"a\"\n",
     );
     assert_eq!(e.id, "tamber-kind", "{e:?}");
+}
+
+/// A length token in a grid track list is its value, as a browser writes in
+/// a `var()` before it parses the tracks; a token that varies by app mode is
+/// no track.
+#[test]
+fn a_length_token_in_grid_tracks_is_its_value() {
+    let grid = |tracks: &str| {
+        let path = app(
+            "grid",
+            &[
+                ("app.tamber", DESIGN),
+                ("app.contract", &format!("component App\n  view\n    view display=\"grid\" grid-template-columns=\"{tracks}\"\n      text \"a\"\n")),
+            ],
+        );
+        contract::compile_path(&path)
+            .map(|p| p.encode())
+            .map_err(|e| e.to_string())
+    };
+    let written = b"repeat(auto-fill, minmax(min(100%, 9.5rem), 1fr))";
+    for tracks in [
+        "repeat(auto-fill, minmax(min(100%, var(--card.min)), 1fr))",
+        "repeat(auto-fill, minmax(min(100%, card.min), 1fr))",
+    ] {
+        let plan = grid(tracks).unwrap_or_else(|e| panic!("{tracks}: {e}"));
+        assert!(
+            plan.windows(written.len()).any(|w| w == written),
+            "{tracks}"
+        );
+    }
+    let varies = grid("repeat(2, var(--space.row))").unwrap_err();
+    assert!(
+        varies.contains("with one value in every app mode"),
+        "{varies}"
+    );
 }

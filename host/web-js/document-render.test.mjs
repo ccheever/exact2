@@ -1007,7 +1007,8 @@ component Page
 }, 240000);
 
 // LLP 1048.007 D5: an image a `for` repeats loads as its row comes into view, as a platform list's cells load theirs.
-test('both document renderers lazy-load the images a for repeats, and load a lone one at once', async () => {
+// The page's own first image, likely its largest paint, is preloaded ahead of the document at high priority.
+test('both document renderers lazy-load the images a for repeats, and load a lone one at once, first', async () => {
   for (const how of ['js', 'rust']) await renderedPages(`routes nav
   home "/" render=build
 
@@ -1022,7 +1023,11 @@ component Page
             image \`https://example.com/\${id}.png\` width=96 alt=id
 `, (_, html) => {
     // A page's own image, though a stack's `for` and a page-keying `for [e]` hold it, is no row.
-    expect([how, html('').match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
+    const page = html('');
+    expect([how, page.match(/<img [^>]*>/g)?.map(img => /loading="([^"]*)"/.exec(img)?.[1] ?? null)]).toEqual([how, [null, 'lazy', 'lazy']]);
+    expect([how, page.match(/<img [^>]*>/g)?.map(img => img.includes('fetchpriority="high"'))]).toEqual([how, [true, false, false]]);
+    const preload = page.indexOf('<link rel="preload" as="image" href="https://example.com/hero.png">');
+    expect([how, preload > 0 && preload < page.indexOf('<div id="exact-root"')]).toEqual([how, true]);
   }, {}, {}, how);
 }, 180000);
 

@@ -227,8 +227,9 @@ impl GridTracks {
         }
     }
 
-    /// Parse the CSS grammar Taffy can lay out. `subgrid`, non-pixel CSS
-    /// lengths and calculated `fit-content()` limits remain unsupported.
+    /// Parse the CSS grammar Taffy can lay out. `subgrid`, CSS lengths
+    /// other than px and `rem`, and calculated `fit-content()` limits remain
+    /// unsupported.
     pub fn parse(text: &str) -> Option<Self> {
         Self::parse_with(text, false)
     }
@@ -336,16 +337,35 @@ impl GridTracks {
         tracks_valid(&self.components, &self.line_names, &self.css)
     }
 
+    /// Whether a track's calculation holds a `rem`.
+    pub(crate) fn reads_rem(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        return false;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.components.iter().any(|c| match c {
+            GridTrackComponent::Single(t) => track_reads_rem(*t),
+            GridTrackComponent::Repeat(r) => r.tracks.iter().copied().any(track_reads_rem),
+        })
+    }
+
     /// `count` equal `1fr` tracks.
     pub fn equal(count: usize) -> Self {
         Self::from_tracks(vec![GridTrack::Fr(1.0); count.min(MAX_GRID_TRACKS)])
     }
 
-    pub(crate) fn taffy_components(&self) -> Vec<TaffyComponent<String>> {
+    /// The engine's tracks, a calculation without a percentage resolved
+    /// under `env` (a `rem`, against its root font size).
+    pub(crate) fn taffy_components(&self, env: &super::Env) -> Vec<TaffyComponent<String>> {
         #[cfg(target_arch = "wasm32")]
-        return Vec::new();
+        return {
+            let _ = env;
+            Vec::new()
+        };
         #[cfg(not(target_arch = "wasm32"))]
-        self.components.iter().map(component_to_taffy).collect()
+        self.components
+            .iter()
+            .map(|c| component_to_taffy(c, env))
+            .collect()
     }
 
     pub(crate) fn line_names(&self) -> Vec<Vec<String>> {
@@ -401,16 +421,18 @@ fn tracks_valid(components: &[GridTrackComponent], line_names: &[Vec<String>], c
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn component_to_taffy(value: &GridTrackComponent) -> TaffyComponent<String> {
+fn component_to_taffy(value: &GridTrackComponent, env: &Env) -> TaffyComponent<String> {
     match value {
-        GridTrackComponent::Single(track) => TaffyComponent::Single(track_to_taffy(*track)),
+        GridTrackComponent::Single(track) => TaffyComponent::Single(track_to_taffy(*track, env)),
         GridTrackComponent::Repeat(repeat) => TaffyComponent::Repeat(TaffyRepeat {
             count: match repeat.count {
                 GridRepeatCount::Count(n) => TaffyRepeatCount::Count(n),
                 GridRepeatCount::AutoFill => TaffyRepeatCount::AutoFill,
                 GridRepeatCount::AutoFit => TaffyRepeatCount::AutoFit,
             },
-            tracks: repeat.tracks.iter().copied().map(track_to_taffy).collect(),
+            tracks: (repeat.tracks.iter())
+                .map(|t| track_to_taffy(*t, env))
+                .collect(),
             line_names: repeat.line_names.clone(),
         }),
     }
@@ -587,6 +609,17 @@ fn track_is_fixed(value: GridTrack) -> bool {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn track_reads_rem(value: GridTrack) -> bool {
+    let min = |m| matches!(m, GridTrackMin::Calc(c) if c.reads_rem());
+    let max = |m| matches!(m, GridTrackMax::Calc(c) if c.reads_rem());
+    match value {
+        GridTrack::Calc(c) => c.reads_rem(),
+        GridTrack::MinMax(lo, hi) => min(lo) || max(hi),
+        _ => false,
+    }
+}
+
 fn track_finite(value: GridTrack) -> bool {
     match value {
         GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v.is_finite(),
@@ -703,27 +736,27 @@ fn max_nonnegative(value: GridTrackMax) -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn track_to_taffy(value: GridTrack) -> TrackSizingFunction {
+fn track_to_taffy(value: GridTrack, env: &Env) -> TrackSizingFunction {
     match value {
         GridTrack::Fr(v) => fr(v),
         GridTrack::Points(v) => length(v),
         GridTrack::Percent(v) => percent(v / 100.0),
-        GridTrack::Calc(c) => Dimension::Compare(c).floor_lpa(&Env::default()).into(),
+        GridTrack::Calc(c) => Dimension::Compare(c).floor_lpa(env).into(),
         GridTrack::Auto => auto(),
         GridTrack::MinContent => min_content(),
         GridTrack::MaxContent => max_content(),
         GridTrack::FitContent(GridFitContent::Points(v)) => fit_content(length(v)),
         GridTrack::FitContent(GridFitContent::Percent(v)) => fit_content(percent(v / 100.0)),
-        GridTrack::MinMax(min, max) => minmax(min_track(min), max_track(max)),
+        GridTrack::MinMax(min, max) => minmax(min_track(min, env), max_track(max, env)),
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn min_track(value: GridTrackMin) -> MinTrackSizingFunction {
+fn min_track(value: GridTrackMin, env: &Env) -> MinTrackSizingFunction {
     match value {
         GridTrackMin::Points(v) => length(v),
         GridTrackMin::Percent(v) => percent(v / 100.0),
-        GridTrackMin::Calc(c) => Dimension::Compare(c).floor_lpa(&Env::default()).into(),
+        GridTrackMin::Calc(c) => Dimension::Compare(c).floor_lpa(env).into(),
         GridTrackMin::Auto => auto(),
         GridTrackMin::MinContent => min_content(),
         GridTrackMin::MaxContent => max_content(),
@@ -731,12 +764,12 @@ fn min_track(value: GridTrackMin) -> MinTrackSizingFunction {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn max_track(value: GridTrackMax) -> MaxTrackSizingFunction {
+fn max_track(value: GridTrackMax, env: &Env) -> MaxTrackSizingFunction {
     match value {
         GridTrackMax::Fr(v) => fr(v),
         GridTrackMax::Points(v) => length(v),
         GridTrackMax::Percent(v) => percent(v / 100.0),
-        GridTrackMax::Calc(c) => Dimension::Compare(c).floor_lpa(&Env::default()).into(),
+        GridTrackMax::Calc(c) => Dimension::Compare(c).floor_lpa(env).into(),
         GridTrackMax::Auto => auto(),
         GridTrackMax::MinContent => min_content(),
         GridTrackMax::MaxContent => max_content(),

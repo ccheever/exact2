@@ -1225,6 +1225,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                     MouseButton::Left => 1,
                     MouseButton::Right => 2,
                     MouseButton::Middle => 4,
+                    MouseButton::Back => 8,
+                    MouseButton::Forward => 16,
                     _ => 0,
                 };
                 let released = !down && self.buttons & bit != 0;
@@ -1252,6 +1254,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler<crate::accessibility:
                         }
                     }
                     MouseButton::Middle => p.pointer_aux(4, down, x, y, now),
+                    // XBUTTON1 and XBUTTON2: Back and Forward at the release,
+                    // as Chrome's (LLP 1115.000 D5.5).
+                    MouseButton::Back => p.pointer_aux(8, down, x, y, now),
+                    MouseButton::Forward => p.pointer_aux(16, down, x, y, now),
                     _ => {}
                 }
             }

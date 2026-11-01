@@ -712,8 +712,8 @@ function renderTrack(r) {
 
 export function renderPerf(r) {
   if (r.format === 'exact.frame-health.track/1' || ((r.track === false || r.track === true) && r.sites === undefined)) return renderTrack(r);
-  if (r.format === 'exact.frame-health.metrics/1') return renderFrameHealthMetrics(r);
-  if (r.format === 'exact.frame-health/1') return renderFrameHealthReport(r);
+  if (r.format === 'exact.frame-health.metrics/2') return renderFrameHealthMetrics(r);
+  if (r.format === 'exact.frame-health/2') return renderFrameHealthReport(r);
   if (typeof r.capture === 'boolean') return `frame capture ${r.capture ? 'armed' : 'paused'}${r.reason ? `: ${r.reason}` : ''}${r.agentLeaseRemainingMs ? ` · agent lease ${r.agentLeaseRemainingMs} ms` : ''}`;
   if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
     ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
@@ -768,9 +768,9 @@ export async function readTrace(file, locate = () => [], plan = null) {
   if (file.endsWith('.frame-health.json') && statSync(file).size > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
   const bytes = readFileSync(file, 'utf8');
   const t = JSON.parse(bytes);
-  if (['exact.frame-health/1', 'exact.frame-health.metrics/1'].includes(t.format)) {
+  if (['exact.frame-health/2', 'exact.frame-health.metrics/2'].includes(t.format)) {
     if (Buffer.byteLength(bytes, 'utf8') > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
-    if (t.format === 'exact.frame-health/1') renderFrameHealthReport(t);
+    if (t.format === 'exact.frame-health/2') renderFrameHealthReport(t);
     else renderFrameHealthMetrics(t);
     return t;
   }
@@ -884,8 +884,8 @@ export function phoneTrace(ph, a, run = spawnSync) {
  * each late frame beside the journal lines stamped in its interval and the
  * transactions it carried (D4: juxtaposition, never a cause), the sites. */
 export function renderTrace(t) {
-  if (t.format === 'exact.frame-health.metrics/1') return renderFrameHealthMetrics(t);
-  if (t.format === 'exact.frame-health/1') return renderFrameHealthReport(t);
+  if (t.format === 'exact.frame-health.metrics/2') return renderFrameHealthMetrics(t);
+  if (t.format === 'exact.frame-health/2') return renderFrameHealthReport(t);
   const id = t.identity ?? {};
   // A web trace names the checkout's commit at export; a native one its host binary's build (LLP 1142 D2).
   const hb = id.hostBuild ?? {};
@@ -943,20 +943,29 @@ export function renderTrace(t) {
   return out.join('\n');
 }
 
-/** Quantiles are bounds from finalized populations; callback rates never certify presentation. */
+/** Quantiles are bounds from finalized populations; frame rates from callbacks never certify presentation. */
 export function renderFrameHealthMetrics(report) {
   if (report.error) return `frame health unavailable: ${report.error} · ${report.reason ?? 'read a fresh baseline'}`;
   if (Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000) throw new Error('Frame health metrics exceed the 4 KB limit. Request a fresh snapshot with a matching Exact reader.');
-  const callbacks = report.callbacks ?? {}, apply = report.apply ?? {}, window = report.window ?? {};
+  const frames = report.frames ?? {}, work = report.work ?? {}, window = report.window ?? {};
   const bounds = value => Array.isArray(value) && value.length === 2 ? `${(Number(value[0]) / 1e6).toFixed(2)}–${value[1] == null ? '∞' : (Number(value[1]) / 1e6).toFixed(2)} ms` : 'unknown';
-  return [`frame health · ${report.source ?? 'unknown source'} · ${report.status ?? 'unknown'} · ${report.qualification ?? 'unqualified'}`,
-    `generation ${window.generation ?? '?'} · ${window.kind ?? '?'} · interval finalized ${window.intervalFromNs ?? '?'}..${window.intervalThroughNs ?? '?'} ns · apply finalized ${window.applyFromNs ?? '?'}..${window.applyThroughNs ?? '?'} ns`,
-    `callbacks ${callbacks.count ?? '?'} · comparable ${callbacks.comparableIntervals ?? '?'} · ${callbacks.perSecond == null ? 'rate unknown' : `${callbacks.perSecond.toFixed(2)} callbacks/s`} · cadence changes ${callbacks.cadenceChanges ?? '?'}`,
-    `callback gap p50 ${bounds(callbacks.p50BoundsNs)} · p95 ${bounds(callbacks.p95BoundsNs)} · p99 ${bounds(callbacks.p99BoundsNs)}`,
-    `applies ${apply.count ?? '?'} · targeted ${apply.withTarget ?? '?'} · late ${apply.targetOverruns ?? '?'} · callback target overruns ${callbacks.synchronousTargetOverruns ?? '?'}`,
-    `apply p50 ${bounds(apply.p50BoundsNs)} · p95 ${bounds(apply.p95BoundsNs)} · p99 ${bounds(apply.p99BoundsNs)}`,
+  const { policy, cadence, target, contentLatency } = report.assessments ?? {};
+  const verdict = (name, a, facts = '') => `${name} ${a?.result ?? 'unknown'} · ${a?.reason ?? 'no reason'} (${a?.evidence ?? 'unknown'} evidence)${facts}`;
+  const c = cadence?.predicates ?? {}, t = target?.predicates ?? {};
+  // Age of the newest callback at the read; null when no callback has arrived
+  const age = report.observationAgeNs == null ? 'unknown' : `${(Number(report.observationAgeNs) / 1e6).toFixed(1)} ms`;
+  const assessed = policy ? [
+    verdict('cadence', cadence, ` · frame intervals ${c.frameIntervals ?? '?'}, skipped refreshes ${c.skippedRefreshes ?? '?'} · late frames ${c.lateFrames ?? 'unknown'}, overdue ${c.overdueFrames ?? 'unknown'} · across schedule changes ${c.unclassifiedIntervals ?? '?'}`),
+    verdict('target rate', target, ` · requested slots ${t.requestedSlots ?? '?'}, missed ${t.missedFrames ?? '?'} · restricted intervals ${t.restrictedIntervals ?? '?'}${target?.context?.length ? ` · at read: ${target.context.join(', ')}` : ''}`),
+    verdict('content latency', contentLatency)] : ['assessments unavailable: the app was built before exact-frame-health-policy/2; rebuild it from this checkout'];
+  return [`frame health · ${report.source ?? 'unknown source'} · ${report.status ?? 'unknown'} · observation age ${age} · ${report.qualification ?? 'unqualified'}`,
+    ...assessed,
+    `generation ${window.generation ?? '?'} · ${window.kind ?? '?'} · intervals finalized ${window.intervalFromNs ?? '?'}..${window.intervalThroughNs ?? '?'} ns · work finalized ${window.workFromNs ?? '?'}..${window.workThroughNs ?? '?'} ns`,
+    `callbacks ${frames.callbacks ?? '?'} · held ${frames.held ?? '?'} · frame intervals ${frames.intervals ?? '?'} · ${frames.perSecond == null ? 'rate unknown' : `${frames.perSecond.toFixed(2)} FPS`} · missed ${frames.missedFrames ?? '?'} of ${frames.requestedSlots ?? '?'} requested slots`,
+    `frame time median ${bounds(frames.medianBoundsNs)} · p99 ${bounds(frames.p99BoundsNs)} · pacing changes ${frames.pacingChanges ?? '?'} · schedule changes ${frames.cadenceChanges ?? '?'}`,
+    `work records ${work.records ?? '?'} · late ${work.late ?? `unknown${work.latenessUnknown ? ` (${work.latenessUnknown})` : ''}`} · in flight ${work.pending ?? '?'}, overdue ${work.overdue ?? 'unknown'} · median ${bounds(work.medianBoundsNs)} · p99 ${bounds(work.p99BoundsNs)} · maximum ${bounds(work.maximumBoundsNs)}`,
     `coverage ${JSON.stringify(report.coverage ?? {})}`,
-    'Percentile bounds include the lower value and exclude the upper value. Presentation, input latency and GPU execution remain unmeasured.'].join('\n');
+    'Bounds include the lower value and exclude the upper value. A frame is a callback that started frame work, timed from the display link; presentation, Core Animation commits, input latency and GPU execution remain unmeasured, so a proxy pass covers callbacks and Exact\'s own work only.'].join('\n');
 }
 
 /** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
@@ -967,10 +976,10 @@ export function renderFrameHealthReport(report) {
       Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
     throw new Error('Frame health report has an invalid structure or exceeds 4 KB. Export it again from Exact.');
   }
-  const expected = ['sequence', 'capture', 'generation', 'age_ns', 'flags', 'target_offset_ns', 'period_ns', 'requested_period_ns', 'gap_ns', 'callback_ns',
-    'before_gap_ns', 'before_callback_ns', 'after_offset_ns', 'after_gap_ns', 'after_callback_ns',
-    'owner_queued_offset_ns', 'owner_began_offset_ns', 'owner_finished_offset_ns', 'main_landed_offset_ns',
-    'apply_began_offset_ns', 'apply_finished_offset_ns', 'work_target_offset_ns', 'operations'];
+  const expected = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
+    'before_gap_us', 'before_callback_us', 'after_offset_us', 'after_gap_us', 'after_callback_us',
+    'owner_queued_offset_us', 'owner_began_offset_us', 'owner_finished_offset_us', 'main_landed_offset_us',
+    'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations'];
   if (expected.some((name, index) => name !== columns[index])) throw new Error('Frame health report has unknown timing columns. Use a reader from the same Exact version.');
   const out = [`frame health · ${report.identity?.app ?? 'app'} · callback/apply proxies · ${report.qualification ?? 'unqualified'}`,
     `retained ${hitches.length} · overwritten ${report.retention?.overwrittenSinceClear ?? '?'} · expired ${report.retention?.expiredAtRead ?? '?'} · omitted for budget ${report.retention?.omittedForBudget ?? '?'} · capture ${report.scope?.armed ? 'armed' : 'paused'}`];
@@ -979,24 +988,26 @@ export function renderFrameHealthReport(report) {
   out.push(`build ${identity.build ?? 'unknown'}${identity.buildDirty ? ' (dirty)' : ''} · app build ${identity.appBuild ?? 'unknown'} · ${identity.buildKind ?? 'unknown build kind'} · ${identity.simulator === true ? 'simulator' : identity.simulator === false ? 'physical device' : 'unknown device type'}`,
     `${identity.device ?? 'unknown device'} · ${identity.os ?? 'unknown OS'} · display maximum ${identity.displayMaximumHz ?? '?'} Hz · live-agent parity ${report.scope?.liveAgentParity ?? 'unknown'}`);
   if (report.time?.clamped) out.push('Timing values were clamped; exact durations are unavailable beyond the integer range.');
-  const ms = value => value == null ? 'unknown' : `${(value / 1e6).toFixed(3)} ms`;
+  const ms = value => value == null ? 'unknown' : `${(value / 1e3).toFixed(3)} ms`;
   for (const row of hitches) {
     if (!Array.isArray(row) || row.length !== columns.length || row.slice(0, 3).some(value => typeof value !== 'string' || !/^\d{1,20}$/.test(value)) ||
         row.slice(3).some(value => value !== null && !Number.isSafeInteger(value))) {
       throw new Error('Frame health report contains invalid timing values or integers that JSON cannot represent exactly. Export it again from Exact.');
     }
     const event = Object.fromEntries(columns.map((name, index) => [name, row[index]]));
-    const elapsed = (end, start) => event[end] == null || event[start] == null ? null : event[end] - event[start];
-    const applyEnd = event.apply_finished_offset_ns;
+    // A clamped boundary (flag 6) did not fit its field, so a difference taken from it would be invented
+    const clamped = Math.floor(event.flags / 64) % 2 === 1;
+    const elapsed = (end, start) => clamped || event[end] == null || event[start] == null ? null : event[end] - event[start];
+    const applyEnd = event.apply_finished_offset_us;
     const ended = applyEnd == null ? 'end unknown' : `ended ${ms(Math.abs(applyEnd))} ${applyEnd > 0 ? 'after event start' : 'before event'}`;
     const bit = number => Math.floor(event.flags / 2 ** number) % 2 === 1;
     const workload = bit(23) ? ['motion', 'spatial', 'canvas', 'frame tasks', 'fill pending', 'tick pending', 'hatch frames'].filter((_, index) => bit(index + 16)).join(', ') || 'none at observation' : 'unknown';
     const thermal = ['nominal', 'fair', 'serious', 'critical'][Math.floor(event.flags / 2 ** 32) % 4];
     const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
-    out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_ns)} ago · ${reasons.join(', ') || 'timing event'}`,
-      `  gap ${ms(event.gap_ns || null)} / scheduled ${ms(event.period_ns || null)} · requested ${ms(event.requested_period_ns || null)} · callback ${ms(event.callback_ns || null)} · target offset ${ms(event.target_offset_ns)}`,
-      `  ${event.flags & 32 ? 'largest interval apply' : 'last observed apply'} ${ended} · owner queue ${ms(elapsed('owner_began_offset_ns', 'owner_queued_offset_ns'))} · owner wall ${ms(elapsed('owner_finished_offset_ns', 'owner_began_offset_ns'))} · main wait ${ms(elapsed('main_landed_offset_ns', 'owner_finished_offset_ns'))} · apply ${ms(elapsed('apply_finished_offset_ns', 'apply_began_offset_ns'))} · operations ${event.operations ?? 'unknown'}`,
-      `  preceding gap/work ${ms(event.before_gap_ns || null)} / ${ms(event.before_callback_ns || null)} · following gap/work ${ms(event.after_gap_ns)} / ${ms(event.after_callback_ns)}`,
+    out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${reasons.join(', ') || 'timing event'}`,
+      `  gap ${ms(event.gap_us || null)} / scheduled ${ms(event.period_us || null)} · requested ${ms(event.requested_period_us || null)} · callback ${ms(event.callback_us || null)} · target offset ${ms(event.target_offset_us)}`,
+      `  ${event.flags & 32 ? 'largest interval apply' : 'last observed apply'} ${ended} · owner queue ${ms(elapsed('owner_began_offset_us', 'owner_queued_offset_us'))} · owner wall ${ms(elapsed('owner_finished_offset_us', 'owner_began_offset_us'))} · main wait ${ms(elapsed('main_landed_offset_us', 'owner_finished_offset_us'))} · apply ${ms(elapsed('apply_finished_offset_us', 'apply_began_offset_us'))} · operations ${event.operations ?? 'unknown'}`,
+      `  preceding gap/work ${ms(event.before_gap_us || null)} / ${ms(event.before_callback_us || null)} · following gap/work ${ms(event.after_gap_us)} / ${ms(event.after_callback_us)}`,
       `  workload ${workload} · thermal ${thermal} · low power ${bit(34)} · HUD ${bit(35)}${bit(36) ? ' (dragging)' : ''}`);
   }
   out.push('Work context is temporal evidence, not causal attribution. Elapsed time includes descheduling.',

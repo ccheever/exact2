@@ -198,6 +198,8 @@ if (devReload) writeFileSync(resolve(gen, 'rt.js'), withInspectHooks(readFileSyn
 const canvas2d = existsSync(resolve(gen, 'canvas2d.flag'));
 if (canvas2d && !rust && !ts) { console.error(`${app}: a Canvas 2D surface with no data source to draw it`); process.exit(1); }
 cpSync(resolve(here, 'canvas2d.js'), resolve(gen, 'canvas2d.js'));
+// An image's pictures in the browser's floating window, loaded on first use (commands.js, LLP 1042 §9).
+cpSync(resolve(here, 'picture-in-picture.js'), resolve(gen, 'picture-in-picture.js'));
 const tsDraws = canvas2d && ts && /export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(readFileSync(resolve(appDir, 'app.ts'), 'utf8'));
 // The checked capture of app.ts and what it imports (typecheck, below): the
 // page and its server render bundle it, never the app's own directory.

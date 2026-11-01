@@ -779,7 +779,7 @@ final class MacShortcutTests: XCTestCase {
         let shown = { go.items.filter { !$0.isHidden } }
         XCTAssertEqual(shown().map(\.title), ["Back", "Home"])
         XCTAssertTrue(shown()[0].target is ShortcutHost)
-        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), [""])
+        XCTAssertEqual(go.items.filter { $0.target is GoMenuTarget }.map(\.keyEquivalent), ["", "]"], "Forward keeps ⌘], which nothing claims")
         XCTAssertEqual(shown()[1].state, .on)
         XCTAssertFalse(file.items.contains { $0.keyEquivalent == "," || $0.keyEquivalent == "[" })
         XCTAssertNotNil(app.items.first { $0.action == #selector(NSApplication.hideOtherApplications(_:)) })

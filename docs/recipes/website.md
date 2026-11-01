@@ -11,13 +11,13 @@ A route's `render` says when its page is made:
 | Policy | Made | Fits |
 |---|---|---|
 | `render=build` | by `web-build` | what the build has: docs, a landing page, a list in app.ts |
-| `render=request` | by `serve`, per request | a live API's data |
+| `render=request` | by `serve`, per request | a live API's data, at each visit |
 | `render=cached` | by `serve`, kept 60 s | an API's answer every reader may share for a while |
-| `render=client`, the default | in the browser | one reader's own, behind a sign-in |
+| `render=client`, the default | in the browser, after its script | one reader's own, behind a sign-in |
 
 The starter's planet page is `render=request`: its figures are the API's, which change after
 the build, and a build makes a parameterised route's pages only from a `pages=` list, which
-an API's data cannot give. `serve` renders that page with its data, so it arrives whole; a
+an API's data cannot give. `serve` sends that page whole, with its data; a
 static host serves its shell, and the browser draws it once the data comes.
 
 ## Serving

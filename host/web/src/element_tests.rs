@@ -623,3 +623,22 @@ fn a_live_region_says_whether_it_is_announced_whole() {
     assert_eq!(out.get("aria-live").map(String::as_str), Some("polite"));
     assert_eq!(out.get("aria-atomic").map(String::as_str), Some("true"));
 }
+
+/// @ref LLP 1020.002 D5 — every frame grants its guest fullscreen, sandboxed
+/// or not; no other element is told.
+#[test]
+fn a_frame_grants_its_guest_fullscreen() {
+    let sandboxed = written(
+        NodeType::WebView,
+        PropId::Sandbox,
+        PropValue::Str("allow-scripts".into()),
+    );
+    assert_eq!(
+        sandboxed.get("allow").map(String::as_str),
+        Some("fullscreen *")
+    );
+    assert_eq!(
+        written(NodeType::Video, PropId::Src, PropValue::Str("a.mp4".into())).get("allow"),
+        None
+    );
+}

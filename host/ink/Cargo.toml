@@ -24,8 +24,8 @@ objc2-metal = { version = "0.3.2", default-features = false, features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 raw-window-handle = "0.6"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSApplication", "NSEvent", "objc2-quartz-core"] }
-objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSAppearance", "NSResponder", "NSView", "NSColor", "objc2-core-foundation", "objc2-core-graphics", "NSWindow", "NSApplication", "NSEvent", "objc2-quartz-core"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes", "CFRunLoop", "block2"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "CALayer", "CAMetalLayer", "CATransaction", "objc2-metal", "objc2-core-graphics"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGColorSpace", "CGDirectDisplay"] }
 

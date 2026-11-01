@@ -272,6 +272,8 @@ public enum DevMenu {
         // ⌘[ command stands in for it, and an app with no navigation has
         // no Go menu (`ShortcutHost.sync`).
         go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
+        // Forward ⌘], where Back left (D5.5).
+        go.addItem(withTitle: "Forward", action: #selector(GoMenuTarget.forward(_:)), keyEquivalent: "]").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
         let window = ShortcutMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")

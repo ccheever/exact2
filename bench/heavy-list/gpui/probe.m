@@ -15,6 +15,9 @@
 #include <sys/sysctl.h>
 #include <mach-o/dyld.h>
 
+static const char *callerName(void *address);
+#include "first-present.m"
+
 static double processStart, loaded, firstDrawable, firstComplete;
 static BOOL tracing;
 static struct rusage constructorUsage;
@@ -89,12 +92,14 @@ static void commitBuffer(id<MTLCommandBuffer> buffer, SEL selector) {
 }
 
 static void presentDrawable(id buffer, SEL selector, id drawable) {
+    fpSubmit(drawable, @"command-buffer present request");
     objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(buffer, @selector(g1_present), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     IMP original = class_getMethodImplementation(object_getClass(buffer), @selector(g1_presentDrawable:));
     ((void (*)(id, SEL, id))original)(buffer, selector, drawable);
 }
 static void presentDrawableAtTime(id buffer, SEL selector, id drawable, double time) {
+    fpSubmit(drawable, @"timed command-buffer present request");
     objc_setAssociatedObject(drawable, @selector(g1_bufferPresent), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(buffer, @selector(g1_present), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     SEL saved = selector == @selector(presentDrawable:atTime:)
@@ -278,6 +283,7 @@ static void interval(const char *name, double start, double end, double value, c
     pthread_mutex_unlock(&traceLock);
 }
 void g1_interval(const char *name, double start, double end, double value) {
+    fpMark(name, value);
     if (tracing && !strcmp(name, "boot main") &&
         proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&mainRusage)) abort();
     interval(name, start, end, value, NULL);
@@ -412,6 +418,7 @@ static void recordPresented(double time, BOOL ready, int painter) {
 // GPUI's transaction path commits, waits until scheduled, then presents directly.
 // Retain both events so that the same-thread preceding-commit join is inspectable.
 static void directPresentMark(id drawable) {
+    fpSubmit(drawable, @"drawable present request");
     if (objc_getAssociatedObject(drawable, @selector(g1_bufferPresent))) return;
     double now = CACurrentMediaTime();
     g1_interval("probe direct present request", now, now, 0);
@@ -454,6 +461,7 @@ static id nextDrawable(id layer, SEL selector) {
     static IMP original;
     if (!original) original = class_getMethodImplementation([CAMetalLayer class], @selector(g1_originalDrawable));
     id<MTLDrawable> drawable = ((id (*)(id, SEL))original)(layer, selector);
+    fpAcquire(layer, (id<CAMetalDrawable>)drawable);
     if (drawable && tracing) watchDrawable(drawable);
     int painter = atomic_load(&painterKind);
     if (!painter) atomic_store(&cpuSubmitted, true);
@@ -596,7 +604,8 @@ static void saveTrace(void) {
     NSDictionary *trace = @{@"identity": @{@"host": @"apple-painted", @"app": @"exact-heavylist",
         @"trust": @"benchmark", @"pid": @(getpid()), @"savedAt": @([NSDate.date timeIntervalSince1970] * 1000)},
         @"proxies": @{@"interval": @"MTLDrawable.presentedTime", @"phases": @"inclusive spans on CACurrentMediaTime; overlaps are not additive"},
-        @"traceEvents": events, @"presented": times, @"mainThread": @(mainThread), @"dropped": @(dropped)};
+        @"traceEvents": events, @"presented": times, @"mainThread": @(mainThread), @"dropped": @(dropped),
+        @"firstPresentDiagnosis":fpSnapshot()};
     writeJSON(trace, [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"trace-pid-%d.json", getpid()]]);
     NSString *suffix = traceSaves++ == 0 ? @".trace.json" : [NSString stringWithFormat:@".trace-%u.json", traceSaves];
     writeJSON(trace, [output stringByAppendingString:suffix]);
@@ -751,6 +760,7 @@ static NSData *signature(NSView *view) {
 }
 - (void)tick:(CADisplayLink *)link {
     double now = CACurrentMediaTime();
+    fpAll(@"probe display callback", @{@"paused":@(link.paused), @"timestamp":@(link.timestamp), @"targetTimestamp":@(link.targetTimestamp)});
     firstBootTick();
     if (!NSApp.active || !self.window.keyWindow || !self.hadFocus) [self observeFocus];
     if (self.phase == 0) {
@@ -1031,6 +1041,7 @@ __attribute__((constructor)) static void initialize(void) {
                     }
                 }];
         }
+        fpInit();
         configureGPUHook();
         {
             Method method = class_getInstanceMethod(CAMetalLayer.class, @selector(nextDrawable));

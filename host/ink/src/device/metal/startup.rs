@@ -379,7 +379,7 @@ struct CpuFrame {
     command: Retained<ProtocolObject<dyn MTLCommandBuffer>>,
     layer: RenderLayer,
     pixels: Arc<tiny_skia::Pixmap>,
-    benchmark: (bool, f32),
+    benchmark: crate::device::apple::Scene,
     shown: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
     transaction: bool,
@@ -406,6 +406,9 @@ impl CpuFrame {
             self.command.waitUntilScheduled();
         } else {
             self.command.waitUntilCompleted();
+        }
+        if result.is_err() || self.command.status() == MTLCommandBufferStatus::Error {
+            self.layer.cancel_repeat(self.benchmark);
         }
         if self.command.status() == MTLCommandBufferStatus::Error {
             return Err(Error::DeviceLost(format!(

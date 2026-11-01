@@ -751,3 +751,45 @@ fn a_right_to_left_dds_start_margin_is_its_right() {
     restyle(&mut k, 3, 5, &[(StyleId::MarginLeft, "12")]);
     assert_eq!(frame(&k, 5)[0..3], [12.0, 26.0, 348.0], "beside the end's");
 }
+
+/// A cell's content is in its middle, the UA's `vertical-align` for a row
+/// group, unless the cell says otherwise; any other keyword aligns it at
+/// the cell's baseline (CSS 2.1 §17.5.4), its first line at the top of the
+/// content box. Beside a 30 px cell, a 10 px box sits 1 + 10 px down its
+/// 32 px cell in the middle, 1 px (the padding) at the baseline.
+#[test]
+fn a_cells_vertical_align_places_its_content() {
+    for (align, down) in [
+        (None, 11.0),
+        (Some("middle"), 11.0),
+        (Some("baseline"), 1.0),
+        (Some("text-bottom"), 1.0),
+    ] {
+        // 2 table, 3 tr, 4 td, 5 box, 6 td, 7 box.
+        let mut k = lay_out(tag(
+            "table",
+            vec![tag(
+                "tr",
+                vec![cell(&[], 20.0, 30.0), cell(&[], 20.0, 10.0)],
+            )],
+        ));
+        if let Some(align) = align {
+            let mut patch = StyleProps::default();
+            patch
+                .set_dynamic(StyleId::VerticalAlign, &StyleValue::Text(align.into()))
+                .unwrap();
+            k.apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 6,
+                    patch: Box::new(patch),
+                }],
+            )
+            .unwrap();
+            k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
+        }
+        assert_eq!(frame(&k, 6)[3], 32.0, "the row's height");
+        assert_eq!(frame(&k, 7)[1] - frame(&k, 6)[1], down, "{align:?}");
+    }
+}

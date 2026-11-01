@@ -45,6 +45,11 @@ impl Pixels {
     }
 }
 impl Bitmap {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn trace_source(&self) -> f64 {
+        self._source.as_ref().map_or(0., |source| source.id as f64)
+    }
+
     #[cfg(test)]
     pub(crate) fn new(pixels: Pixmap, natural: (u32, u32), charge: AllocationCharge) -> Self {
         Self {

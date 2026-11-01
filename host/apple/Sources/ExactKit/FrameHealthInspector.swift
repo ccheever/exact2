@@ -6,7 +6,6 @@ import UIKit
 final class FrameHealthInspectorController: UITableViewController {
     weak var health: FrameHealth?
     let source = UISegmentedControl(items: ["App", "Scroll"])
-    let chart = FrameHealthChart()
     private let header = UIView()
     private var lines: [String] = []
     init(health: FrameHealth) { self.health = health; super.init(style: .insetGrouped) }
@@ -15,18 +14,12 @@ final class FrameHealthInspectorController: UITableViewController {
         super.viewDidLoad()
         title = "Frame Health"
         view.accessibilityIdentifier = "exact.host.frame-health-inspector"
-        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
+        navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) })
         source.selectedSegmentIndex = 0
         source.addAction(UIAction { [weak self] _ in self?.refresh() }, for: .valueChanged)
         source.accessibilityLabel = "Frame health source"
         source.translatesAutoresizingMaskIntoConstraints = false
-        let legend = UILabel()
-        legend.text = "Callback cadence · last 30 s\nBlue: average · Orange: slowest gap bound\n120 Hz reference. Actual presentation is unmeasured."
-        legend.font = .preferredFont(forTextStyle: .caption1)
-        legend.adjustsFontForContentSizeCategory = true
-        legend.numberOfLines = 0
-        legend.textColor = .secondaryLabel
-        let content = UIStackView(arrangedSubviews: [source, chart, legend])
+        let content = UIStackView(arrangedSubviews: [source])
         content.axis = .vertical
         content.spacing = 12
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -37,9 +30,8 @@ final class FrameHealthInspectorController: UITableViewController {
             content.bottomAnchor.constraint(equalTo: header.layoutMarginsGuide.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: header.layoutMarginsGuide.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: header.layoutMarginsGuide.trailingAnchor),
-            source.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-            chart.heightAnchor.constraint(equalToConstant: 144)])
-        header.frame.size = CGSize(width: tableView.bounds.width, height: 280)
+            source.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)])
+        header.frame.size = CGSize(width: tableView.bounds.width, height: 72)
         tableView.tableHeaderView = header
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 44
@@ -71,7 +63,6 @@ final class FrameHealthInspectorController: UITableViewController {
         source.setEnabled(health.nativeHealth != nil, forSegmentAt: 1)
         let chosen = source.selectedSegmentIndex == 1 ? health.nativeHealth ?? health : health
         lines = FrameHealthReadout.detail(chosen).components(separatedBy: "\n")
-        chart.update(chosen)
         tableView.reloadData()
     }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { lines.count }
@@ -92,8 +83,6 @@ extension DevMenu {
         guard let health = session?.frameHealth else { return }
         let navigation = UINavigationController(rootViewController: FrameHealthInspectorController(health: health))
         navigation.modalPresentationStyle = .pageSheet
-        navigation.sheetPresentationController?.detents = [.large()]
-        navigation.sheetPresentationController?.prefersGrabberVisible = true
         present(navigation)
     }
 }

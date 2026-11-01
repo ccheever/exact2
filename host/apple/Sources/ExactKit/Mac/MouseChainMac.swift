@@ -229,6 +229,9 @@ final class MouseChain {
     /// it keeps the focus where it is, places no caret and starts no
     /// selection; its press still fires (LLP 1005 §3, as Chrome).
     weak var prevented: NSEvent?
+    /// The button's up whose `pointerup` an action prevented: a mouse's back
+    /// or forward button then steps no history (`historyButton`).
+    weak var upPrevented: NSEvent?
     /// The left button's contact had its `pointerdown` prevented: its drags
     /// extend no selection. Said again at each left down (`pointerPressed`),
     /// the only way to a left drag.
@@ -424,6 +427,7 @@ extension NodeView {
         let path = presenter.pointerPath
         presenter.pointerHeld = nil
         presenter.pointerPath = []
+        presenter.defaultPrevented = false
         presenter.propagating {
             for id in path {
                 guard let node = presenter.views[id], node.handlers.contains("pointerup") else { continue }
@@ -431,6 +435,8 @@ extension NodeView {
                 if presenter.propagationStopped { break }
             }
         }
+        if presenter.defaultPrevented { presenter.mouseChain.upPrevented = event ?? NSApp.currentEvent }
+        presenter.defaultPrevented = false
     }
     /// A drag of the held pointer: its node's `pointermove`. AppKit
     /// coalesces drags to one a frame.
@@ -481,22 +487,45 @@ extension NodeView {
         // that opened the menu ends its hold (MenusMac.swift `track`).
         let pen = e.map { Self.subtyped.contains($0.type) && $0.subtype == .tabletPoint } ?? false
         // The event's own button too: a synthesized one (the agent's) moves
-        // no hardware state.
-        var buttons = NSEvent.pressedMouseButtons
+        // no hardware state. AppKit's first five bits are DOM's. An other
+        // button made by `NSEvent.mouseEvent` says 0: the middle's.
+        var buttons = NSEvent.pressedMouseButtons & 0x1f
+        let other = max(e.map { Self.subtyped.contains($0.type) ? $0.buttonNumber : 2 } ?? 2, 2)
         switch e?.type {
         case .leftMouseDown?, .leftMouseDragged?: buttons |= 1
         case .rightMouseDown?, .rightMouseDragged?: buttons |= 2
-        case .otherMouseDown?, .otherMouseDragged?: buttons |= 4
+        case .otherMouseDown?, .otherMouseDragged?: buttons |= Self.domButtons(other)
         case .mouseMoved?, .mouseEntered?: buttons = 0
         default: break
         }
         if lifted { buttons = 0 }
+        let button: Int
+        switch e?.type {
+        case .leftMouseDown?, .leftMouseUp?: button = 0
+        case .rightMouseDown?, .rightMouseUp?: button = 2
+        case .otherMouseDown?, .otherMouseUp?: button = Self.domButton(other)
+        default: button = -1
+        }
         let pressure = lifted || buttons == 0 ? 0 : pen ? Double(e?.pressure ?? 0) : 0.5
         let client = e.flatMap { e in presenter.map { $0.client(Self.point(e, in: $0.viewport.window)) } } ?? .zero
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: buttons,
                              pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1,
-                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []))
+                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(e?.modifierFlags ?? []), button: button)
     }
+    /// DOM's `MouseEvent.button` for AppKit's `buttonNumber` (UI Events):
+    /// AppKit counts left, right, middle, back, forward; DOM primary,
+    /// auxiliary, secondary, back, forward. A button past the fifth, which
+    /// DOM does not name, is the auxiliary's, as it was before.
+    static func domButton(_ number: Int) -> Int {
+        switch number {
+        case 0: return 0
+        case 1: return 2
+        case 3, 4: return number
+        default: return 1
+        }
+    }
+    /// DOM's `buttons` bit for AppKit's `buttonNumber`: 1, 2, 4, 8, 16.
+    static func domButtons(_ number: Int) -> Int { [1, 4, 2, 8, 16][domButton(number)] }
     /// The events whose `subtype` can be read: a button's, a move, a drag.
     static let subtyped: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
         .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]

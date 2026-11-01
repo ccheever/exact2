@@ -1355,7 +1355,7 @@ impl StyleProps {
         };
 
         s.grid_auto_flow = engine::grid_auto_flow(self.grid_auto_flow);
-        s.rare = engine::rare(self);
+        s.rare = engine::rare(self, env);
         s
     }
 }

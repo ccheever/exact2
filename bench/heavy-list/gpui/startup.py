@@ -1,4 +1,4 @@
-"""M10 startup cohorts and phase tables, using the existing probe and quiet monitor."""
+"""M10 startup cohorts: ten quiet seconds before each launch; during-launch load is reported."""
 import argparse
 import ctypes
 import hashlib
@@ -92,7 +92,9 @@ def run(args):
     out.mkdir(parents=True, exist_ok=False)
     provenance = read(base / 'provenance.json')
     provenance['startupDriverSha256'] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    arms = ['egui', 'ink', 'gpui']
+    arms = args.arms.split(',')
+    if args.scoreboard:
+        arms = ['native', 'gpui', 'ink', 'egui']
     paths = [provenance[a]['executable'] for a in arms]
     write(out / 'provenance.json', provenance)
     write(out / 'power-mode.json', {
@@ -112,46 +114,86 @@ def run(args):
             row['quiet'] = row['quiet'] and absent
             row['powerAbsent'] = absent
             return row
-    monitor = StartupQuiet(out / 'quiet.jsonl', paths)
+    monitor = StartupQuiet(out / 'quiet.jsonl', paths + [base / 'measure', base / 'exact-wheel'])
     wait_for_lane(out)
-    consecutive = 0
-    gate_deadline = time.monotonic() + args.gate_seconds
-    while time.monotonic() < gate_deadline and consecutive < 12:
-        time.sleep(5)
-        observation = monitor.observe()
-        consecutive = consecutive + 1 if observation['quiet'] else 0
-        print('QUIET', consecutive, observation['busyCores'], flush=True)
-    write(out / 'gate.json', dict(passed=consecutive == 12, consecutive=consecutive))
-    if consecutive != 12:
-        raise RuntimeError('sixty-second quiet gate not met; no launches')
-    first_sample = len(monitor.rows)
-    monitor.thread.start()
+    # Five prior amendments admitted no startup cohort: launches wake XProtect
+    # and other daemons. Gate before each launch and retain load during it.
     schedule = []
     child = None
     try:
         for round_number in range(1, args.rounds + 1):
-            order = arms[(round_number-1) % 3:] + arms[:(round_number-1) % 3]
+            order = arms[(round_number-1) % len(arms):] + arms[:(round_number-1) % len(arms)]
+            if args.scoreboard:
+                for arm in order:
+                    wait_for_lane(out)
+                    gate = quiet.launch_gate(monitor, args.gate_seconds)
+                    write(out / f'{arm}-{round_number}.gate.json', gate)
+                    assert gate['passed'], 'ten-second prelaunch quiet gate not met'
+                    env = {k: v for k, v in os.environ.items()
+                           if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
+                    env.update(G1_GPU_HOOK='0', EXACT_INK_DEVICE='metal', G1_ONLY_ARM=arm,
+                               G3_PAINTED_BIN=provenance['ink']['executable'],
+                               G4_EGUI_BIN=provenance['egui']['executable'])
+                    command = [str(base / 'measure'), str(out), provenance['native']['executable'],
+                               provenance['gpui']['executable'], str(base / 'exact-wheel'),
+                               '1', str(round_number), 'cold-only']
+                    first_sample = len(monitor.rows)
+                    record = dict(arm=arm, round=round_number, cohort='cold', trace=False,
+                                  start=monitor.now(), gate=gate,
+                                  output=str(out / f'{arm}-{round_number}.json'))
+                    schedule.append(record)
+                    write(out / 'schedule.json', schedule)
+                    monitor.begin_launch()
+                    try:
+                        with (out / f'driver-{arm}-{round_number}.log').open('w') as log:
+                            child = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
+                            record['pid'] = child.pid
+                            record['exit'] = child.wait(timeout=300)
+                        child = None
+                        output = Path(record['output'])
+                        record['accepted'] = output.exists() and read(output).get('accepted') is True
+                        if record['exit'] != 0 or not record['accepted']:
+                            record.update(accepted=False, error='original launch failed; retained without replacement')
+                    except Exception as error:
+                        record.update(accepted=False, error=str(error))
+                    finally:
+                        if child and child.poll() is None:
+                            child.terminate()
+                            try:
+                                child.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                child.kill()
+                                child.wait()
+                        child = None
+                        record['end'] = monitor.now()
+                        monitor.end_launch()
+                        record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
+                        write(out / 'schedule.json', schedule)
+                    print('SCOREBOARD', arm, round_number, flush=True)
+                continue
             for arm in order:
                 for cohort in ['cold', 'warm']:
                     wait_for_lane(out)
                     assert subprocess.run(['pgrep', '-x', 'powermetrics'], capture_output=True).returncode == 1, 'power sampler started'
-                    assert monitor.error is None, monitor.error
-                    assert all(max(r['load']) < 30 and not r['compilers']
-                               and r['busyCores'] <= quiet.BUSY_LIMIT
-                               for r in monitor.rows[first_sample:]), 'loaded cohort retained; stop'
                     name = f'{arm}-{round_number}-{cohort}'
+                    gate = quiet.launch_gate(monitor, args.gate_seconds)
+                    write(out / f'{name}.gate.json', gate)
+                    assert gate['passed'], 'ten-second prelaunch quiet gate not met'
+                    first_sample = len(monitor.rows)
                     output = out / f'{name}.json'
                     env = {k: v for k, v in os.environ.items()
                            if not k.startswith(('EXACT_', 'G1_', 'G3_', 'G4_', 'G5_', 'BENCH_', 'DYLD_'))}
-                    env.update(G1_OUTPUT=str(output), G1_ARM=arm, G1_COLD_ONLY='1',
+                    probe_arm = arm.split('-')[0]
+                    env.update(G1_OUTPUT=str(output), G1_ARM=probe_arm, G1_COLD_ONLY='1',
                                G1_GPU_HOOK='0', BENCH_LIVE='0', EXACT_INK_DEVICE='metal',
                                DYLD_PRINT_STATISTICS='1', DYLD_PRINT_STATISTICS_DETAILS='1',
-                               EXACT_WINDOW_WIDTH='800', EXACT_WINDOW_HEIGHT='768' if arm == 'ink' else '800')
+                               EXACT_WINDOW_WIDTH='800', EXACT_WINDOW_HEIGHT='768' if probe_arm == 'ink' else '800')
                     if not args.no_trace:
                         env['G1_TRACE'] = '1'
                     record = dict(arm=arm, round=round_number, cohort=cohort,
-                                  trace=not args.no_trace, start=monitor.now(), output=str(output))
+                                  trace=not args.no_trace, start=monitor.now(), output=str(output), gate=gate)
                     schedule.append(record)
+                    monitor.begin_launch()
                     with (out / f'{name}.log').open('w') as log:
                         child = subprocess.Popen([provenance[arm]['executable']], env=env,
                                                  stdout=log, stderr=subprocess.STDOUT)
@@ -191,17 +233,26 @@ def run(args):
                                 trace = read(Path(str(output) + '.trace.json'))
                                 assert trace['dropped'] == 0
                                 names = {e['name'] for e in trace['traceEvents']}
-                                assert names & {'probe present commit', 'probe direct present preceding commit'}, 'presentation commit not observed'
+                                assert names & {'probe present commit', 'probe direct present request'}, 'presentation request not observed'
                                 assert 'probe presented' in names
                             record['accepted'] = True
-                        except BaseException as error:
+                        except Exception as error:
                             record.update(accepted=False, error=str(error))
-                            raise
                         finally:
+                            if child.poll() is None:
+                                child.terminate()
+                                try:
+                                    child.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    child.kill()
+                                    child.wait()
+                            record['exit'] = child.returncode
                             record['end'] = monitor.now()
+                            monitor.end_launch()
+                            record['duringLoad'] = quiet.launch_load(monitor.rows[first_sample:])
                             write(out / 'schedule.json', schedule)
                     child = None
-                    print('LAUNCH', name, result['coldMs'], flush=True)
+                    print('LAUNCH', name, 'complete' if record['accepted'] else 'failed', flush=True)
     finally:
         if child and child.poll() is None:
             child.terminate()
@@ -210,18 +261,14 @@ def run(args):
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
-        # Complete the observation that contains the final launch.
-        time.sleep(5)
-        monitor.stop.set()
-        monitor.thread.join()
-        write(out / 'run.json', dict(launches=len(schedule), expectedLaunches=args.rounds * 6,
-              quiet=quiet.quiet_series(monitor.rows[first_sample:])
-                    and all(r['powerAbsent'] for r in monitor.rows[first_sample:]),
-              firstSeriesObservation=first_sample,
+        write(out / 'run.json', dict(launches=len(schedule),
+              qualification='m10-cut2-prelaunch',
+              arms=arms, cohorts=['cold'] if args.scoreboard else ['cold', 'warm'],
+              expectedLaunches=args.rounds * len(arms) * (1 if args.scoreboard else 2),
+              quiet=bool(schedule) and all(r['gate']['passed'] for r in schedule),
+              powerAbsent=all(r['powerAbsent'] for r in monitor.rows),
               monitorError=str(monitor.error) if monitor.error else None))
-    assert monitor.error is None, monitor.error
-    assert quiet.quiet_series(monitor.rows[first_sample:]), 'loaded observations; no qualified table'
-    assert all(r['powerAbsent'] for r in monitor.rows[first_sample:]), 'power sampler overlapped cohort'
+    assert all(r['powerAbsent'] for r in monitor.rows), 'power sampler overlapped cohort'
 
 
 def distribution(values):
@@ -230,10 +277,12 @@ def distribution(values):
 
 def sample(path, traced=True):
     result = read(path)
+    assert result.get('accepted') is not False, f'{path}: rejected original launch'
     if not traced:
         return dict(file=str(path), milestones={'constructor': result['preMainMs'],
-                    'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']},
-                    exclusive={}, inclusive={}, startup={}, arm=result['arm'])
+                    'first presented': result.get('firstDrawableMs'), 'complete screen': result['coldMs']},
+                    exclusive={}, inclusive={}, startup=result.get('startup', {}),
+                    clocks=launch_clocks(result.get('startup', {})), arm=result['arm'])
     trace = read(Path(str(path) + '.trace.json'))
     assert trace['dropped'] == 0
     start = result['startup']['processStart'] * 1000
@@ -244,6 +293,16 @@ def sample(path, traced=True):
         values = [e['end' if finish else 'start'] - start for e in events
                   if e['name'] == name and start <= e['start'] <= end]
         return min(values) if values else None
+    present_commit = min((v for v in [first('probe present commit', True),
+                         first('probe direct present preceding commit', True)] if v is not None), default=None)
+    if result['arm'] == 'ink' and first('probe direct present request') is not None:
+        # The copy commits on the worker; the direct present is on main. Its
+        # thread-local preceding-commit marker can name the earlier compose pass.
+        encodes = [e for e in events if e['name'] == 'present encode' and start <= e['start'] <= end]
+        encode = min(encodes, key=lambda e: e['start'], default=None)
+        present_commit = min((e['end'] - start for e in events if encode
+            and e['thread'] == encode['thread'] and encode['end'] <= e['start'] <= end
+            and e['name'] in {'probe command commit', 'probe present commit'}), default=None)
     milestones = {'constructor': result['preMainMs'], 'main': first('boot main'), 'host entry': first('boot host entry'),
                   'AppKit finished launching': first('AppKit did finish launching'),
                   'window created': first('boot window created'),
@@ -261,24 +320,12 @@ def sample(path, traced=True):
                   'window show returned': first('boot window shown'),
                   'first paint record': first('paint walk'),
                   'first paint record completed': first('paint walk', True),
-                  'first present committed': min((v for v in [first('probe present commit', True),
-                       first('probe direct present preceding commit', True)] if v is not None), default=None),
+                  'first present committed': present_commit,
+                  'first drawable present request': min((v for v in [first('probe present commit', True),
+                       first('probe direct present request')] if v is not None), default=None),
                   'first presented': result['firstDrawableMs'], 'complete screen': result['coldMs']}
     startup = result['startup']
-    clocks = {}
-    for phase, lower, upper in [('process to constructor', None, 'constructor'),
-                                ('process to main', None, 'main'),
-                                ('main to complete callback', 'main', 'complete'),
-                                ('constructor to complete callback', 'constructor', 'complete'),
-                                ('process to complete callback', None, 'complete')]:
-        if any(prefix + suffix not in startup for prefix in [lower, upper] if prefix
-               for suffix in ['CpuSeconds', 'Cycles', 'Instructions']):
-            continue
-        def delta(suffix):
-            return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
-        cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
-        clocks[phase] = dict(cpuMs=cpu*1000, cycles=cycles, instructions=instructions,
-                             effectiveGHz=cycles/cpu/1e9, ipc=instructions/cycles)
+    clocks = launch_clocks(startup)
     milestones['complete callback observed'] = startup['completeObserved'] * 1000 - start if startup.get('completeObserved') else None
     # The main-thread intervals nest. Divide at every boundary and charge each
     # slice to the innermost interval; off-thread work is kept in its own table.
@@ -303,20 +350,46 @@ def sample(path, traced=True):
                 startup=startup, clocks=clocks, arm=result['arm'])
 
 
+def launch_clocks(startup):
+    clocks = {}
+    for phase, lower, upper in [('process to constructor', None, 'constructor'),
+                                ('process to main', None, 'main'),
+                                ('main to complete callback', 'main', 'complete'),
+                                ('constructor to complete callback', 'constructor', 'complete'),
+                                ('process to complete callback', None, 'complete')]:
+        if any(prefix + suffix not in startup for prefix in [lower, upper] if prefix
+               for suffix in ['CpuSeconds', 'Cycles', 'Instructions']):
+            continue
+        def delta(suffix):
+            return startup[upper + suffix] - (startup[lower + suffix] if lower else 0)
+        cpu, cycles, instructions = delta('CpuSeconds'), delta('Cycles'), delta('Instructions')
+        clocks[phase] = dict(cpuMs=cpu*1000, cycles=cycles, instructions=instructions,
+                             effectiveGHz=cycles/cpu/1e9, ipc=instructions/cycles)
+    return clocks
+
+
 def summarize(args):
     directory = args.directory.resolve()
     schedule = read(directory / 'schedule.json')
     run_record = read(directory / 'run.json')
     assert run_record['quiet'] and not run_record['monitorError'], 'cohort is not quiet'
     assert len(schedule) == run_record['launches'] == run_record['expectedLaunches'], 'incomplete cohort'
-    expected = {(arm, cohort, r) for arm in ['ink', 'gpui', 'egui']
-                for cohort in ['cold', 'warm'] for r in range(1, len(schedule) // 6 + 1)}
+    arms = run_record.get('arms', ['ink', 'gpui', 'egui'])
+    cohorts = run_record.get('cohorts', ['cold', 'warm'])
+    expected = {(arm, cohort, r) for arm in arms
+                for cohort in cohorts for r in range(1, len(schedule) // (len(arms) * len(cohorts)) + 1)}
     assert {(r['arm'], r['cohort'], r['round']) for r in schedule} == expected, 'unbalanced cohort'
-    assert all(r.get('accepted') and r.get('exit') == 0 for r in schedule), 'failed attempts retained; incomplete cohort'
-    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), cohort=r['cohort'], round=r['round']) for r in schedule]
+    successes = [r for r in schedule if r.get('accepted') and r.get('exit') == 0]
+    failures = [r for r in schedule if r not in successes]
+    if run_record.get('qualification') != 'm10-cut2-prelaunch':
+        assert not failures, 'failed attempts retained; incomplete cohort'
+    if run_record.get('qualification') in ['m10-cut1d-prelaunch', 'm10-cut2-prelaunch']:
+        assert run_record['powerAbsent'], 'power sampler overlapped cohort'
+        assert all(r['gate']['passed'] and r['gate']['seconds'] >= 10 and r['duringLoad']['observations'] for r in schedule)
+    samples = [dict(sample(directory / Path(r['output']).name, r['trace']), arm=r['arm'], cohort=r['cohort'], round=r['round'], duringLoad=r.get('duringLoad')) for r in successes]
     tables = {}
-    for arm in ['ink', 'gpui', 'egui']:
-        for cohort in ['cold', 'warm']:
+    for arm in arms:
+        for cohort in cohorts:
             selected = [s for s in samples if s['arm'] == arm and s['cohort'] == cohort]
             tables[f'{arm} {cohort}'] = {
                 kind: {name: distribution([s[kind].get(name, 0) for s in selected
@@ -332,16 +405,21 @@ def summarize(args):
             tables[f'{arm} {cohort}']['clocks'] = {
                 phase: {metric: distribution([s['clocks'][phase][metric] for s in selected])
                         for metric in selected[0]['clocks'][phase]}
-                for phase in selected[0].get('clocks', {})}
+                for phase in (selected[0].get('clocks', {}) if selected else {})}
     paired = {}
-    for arm in ['ink', 'gpui', 'egui']:
+    for arm in arms if 'warm' in cohorts else []:
         cold = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'cold'}
         warm = {s['round']: s for s in samples if s['arm'] == arm and s['cohort'] == 'warm'}
         paired[arm] = {name: distribution([cold[r]['milestones'][name]-warm[r]['milestones'][name]
-                                          for r in cold if cold[r]['milestones'][name] is not None
+                                          for r in cold.keys() & warm.keys() if cold[r]['milestones'][name] is not None
                                           and warm[r]['milestones'][name] is not None])
-                       for name in cold[next(iter(cold))]['milestones']}
-    write(directory / 'summary.json', dict(samples=samples, tables=tables, coldMinusWarm=paired))
+                       for name in (cold[next(iter(cold))]['milestones'] if cold else {})}
+    write(directory / 'summary.json', dict(samples=samples, failures=failures, tables=tables, coldMinusWarm=paired))
+    for failure in failures:
+        print('Failed launch (retained):', failure['arm'], failure['round'], failure['cohort'], failure.get('error'))
+    for row in samples:
+        if row.get('duringLoad'):
+            print('During-launch load (cores):', row['arm'], row['round'], row['cohort'], json.dumps(row['duringLoad']))
     for name, table in tables.items():
         print('\n' + name + '\n\n| Process age, ms | p50 | min–max | n |\n| --- | ---: | ---: | ---: |')
         for phase, value in table['milestones'].items():
@@ -358,6 +436,8 @@ if __name__ == '__main__':
     launch.add_argument('--rounds', type=int, default=10)
     launch.add_argument('--gate-seconds', type=int, default=300)
     launch.add_argument('--no-trace', action='store_true', help='same-launch-path observer control')
+    launch.add_argument('--arms', default='egui,ink,gpui', help='provenance keys; ink-* are paired Ink variants')
+    launch.add_argument('--scoreboard', action='store_true', help='measure.m cold-only, native/GPUI/Ink/egui')
     analyze = commands.add_parser('summarize')
     analyze.add_argument('directory', type=Path)
     args = parser.parse_args()

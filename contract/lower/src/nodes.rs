@@ -186,11 +186,11 @@ impl Lowerer<'_> {
             }
         }
         if let Some(a) = expanded.iter().find(|a| a.name == "vertical-align") {
-            if !inline_image {
+            if !inline_image && !matches!(tag.as_str(), "th" | "td") {
                 return err(
                     "lower-attr-tag",
                     format!(
-                        "`vertical-align` aligns an `image` in a paragraph's text, not `{tag}`"
+                        "`vertical-align` aligns an `image` in a paragraph's text or a table cell's content, not `{tag}`"
                     ),
                     a.span,
                 );
@@ -233,7 +233,7 @@ impl Lowerer<'_> {
         let authored_children = children;
         let children: &[Node] = face.as_deref().unwrap_or(authored_children.as_slice());
         controls::check_nesting(tag, parent_tag, *span)?;
-        crate::tables::check(tag, parent_tag, expanded, children, *span)?;
+        crate::tables::check(tag, parent_tag, self.in_dl_group, expanded, children, *span)?;
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;

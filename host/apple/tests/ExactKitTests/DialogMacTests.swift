@@ -240,7 +240,7 @@ class DialogMacTests: XCTestCase {
         let clip = try XCTUnwrap(target.presenter?.viewport.contentView), client = clip.convert(point, from: nil)
         let sample = line.components(separatedBy: ",")
         XCTAssertEqual(sample.prefix(2).compactMap(Double.init), [Double(local.x), Double(local.y)], file: file, line: lineNumber)
-        XCTAssertEqual(sample.dropFirst(6).prefix(2).compactMap(Double.init),
+        XCTAssertEqual(sample.dropFirst(7).prefix(2).compactMap(Double.init),
                        [Double(client.x - clip.bounds.minX), Double(client.y - clip.bounds.minY)], file: file, line: lineNumber)
     }
 

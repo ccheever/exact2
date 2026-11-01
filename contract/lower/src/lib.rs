@@ -277,6 +277,8 @@ pub(crate) struct Lowerer<'a> {
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
+    /// The node's parent is a `div` (`view`, `column`, `row`) in a `dl`: one of its groups.
+    pub(crate) in_dl_group: bool,
     /// The element whose attributes are lowered has element children, which
     /// inherit its text rows (stage 6 C: no type token that varies there).
     pub(crate) element_children: bool,
@@ -429,6 +431,7 @@ fn lower_with_sites(
             .collect(),
         fn_depth: 0,
         svg_depth: 0,
+        in_dl_group: false,
         element_children: false,
         row_depth: 0,
         parent_positioned: true,
@@ -1028,6 +1031,8 @@ impl<'a> Lowerer<'a> {
                 };
                 let row_depth = std::mem::replace(&mut self.row_depth, below);
                 let site_parent = self.site_parent.replace(step.id.0);
+                let group = parent_tag == Some("dl") && tables::is_div(step.tag);
+                let in_dl_group = std::mem::replace(&mut self.in_dl_group, group);
                 let lowered = self.nodes(
                     step.children.as_ref(),
                     Some(step.id),
@@ -1037,6 +1042,7 @@ impl<'a> Lowerer<'a> {
                     Some(step.tag),
                 );
                 self.site_parent = site_parent;
+                self.in_dl_group = in_dl_group;
                 self.parent_horizontal_flex = parent_axis;
                 self.nav_place = nav_place;
                 self.row_depth = row_depth;
@@ -1349,10 +1355,10 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
-                // @ref LLP 1121 D3 — a duration or easing token is written
-                // into its `transition` or `animation` before the codec reads it.
-                // (The loader wrote a literal's in; this is an expansion's.)
-                let motion = rows
+                // @ref LLP 1121 D3 — a duration or easing token is written into its `transition` or
+                // `animation` before the codec reads it (the loader wrote a literal's in; this is an
+                // expansion's), and a length token into grid tracks.
+                let written = rows
                     .iter()
                     .any(|r| {
                         matches!(
@@ -1369,8 +1375,9 @@ impl<'a> Lowerer<'a> {
                             &crate::theme::motion_tokens(),
                         )
                     })
-                    .flatten();
-                let a = motion.as_ref().map_or(a, |m| &m[0]);
+                    .flatten()
+                    .or_else(|| values::grid_tokens(a, rows).map(|g| vec![g]));
+                let a = written.as_ref().map_or(a, |m| &m[0]);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
@@ -1388,7 +1395,7 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Prop(prop) => {
                 let glass;
-                let aria_disabled = values::aria_disabled_literal(prop, &a.value);
+                let aria_bool = values::aria_bool_literal(&a.name, prop, &a.value);
                 let value = if prop == exact_kernel::PropId::GlassGroup {
                     glass = values::glass_group(&a.value)?;
                     &glass
@@ -1406,7 +1413,7 @@ impl<'a> Lowerer<'a> {
                     glass = role;
                     &glass
                 } else {
-                    aria_disabled.as_ref().unwrap_or(&a.value)
+                    aria_bool.as_ref().unwrap_or(&a.value)
                 };
                 let (mut asm, mut depth) = (Asm::new(), locals);
                 let mut ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;

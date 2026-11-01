@@ -77,6 +77,11 @@ impl Glyphs {
         Ok(())
     }
 
+    /// Submit newly cached masks before a pass samples their atlas entries.
+    pub fn flush(&mut self, device: &mut impl Device) -> Result<()> {
+        Atlas::flush(&mut [&mut self.alpha, &mut self.color], device)
+    }
+
     pub fn stats(&self) -> (Stats, Stats) {
         (self.alpha.stats(), self.color.stats())
     }
@@ -147,6 +152,8 @@ impl Glyphs {
         #[cfg(not(windows))]
         let image: Option<swash::scale::image::Image> = None;
         let image = image.or_else(|| {
+            #[cfg(target_os = "macos")]
+            let _trace = crate::device::apple::Trace::new(c"glyph swash");
             let mut scaler = self
                 .scale
                 .builder_with_id(face, font.id)
@@ -366,6 +373,7 @@ mod tests {
                     )
                     .unwrap();
             }
+            glyphs.flush(&mut device).unwrap();
             device
                 .render(&encoder.finish(), target, Some([0.; 4]))
                 .unwrap();

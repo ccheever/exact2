@@ -78,6 +78,11 @@ pub trait Backend {
     ) -> Result<exact_ink::device::Info, String> {
         Err("this painter cannot present to a CAMetalLayer".into())
     }
+    /// Copy the last compose target, without another paint or resize in between.
+    #[cfg(target_os = "macos")]
+    fn repeat_apple_frame(&mut self) -> Result<(), String> {
+        Err("this painter has no retained Metal frame".into())
+    }
     /// A lost device whose carrier can present CPU pixels without that device.
     fn lost_device_needs_cpu(&self) -> bool {
         false
@@ -278,8 +283,8 @@ pub trait Backend {
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
     /// Complete a paint for its consumer. `Pixels` requires an image; `Window`
-    /// permits `None` only after successful presentation. `Geometry` may omit
-    /// pixels, but must not present. CPU backends can keep their ordinary path.
+    /// permits `None` after submission. `Geometry` updates only geometry.
+    /// CPU backends return pixels.
     fn finish_for(&mut self, _target: FrameTarget) -> Result<Option<Pixmap>, String> {
         self.finish().map(Some)
     }
@@ -365,6 +370,10 @@ impl super::Painter {
         layer: exact_ink::device::apple::Layer,
     ) -> Result<exact_ink::device::Info, String> {
         self.backend.attach_apple_layer(layer)
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn repeat_apple_frame(&mut self) -> Result<(), String> {
+        self.backend.repeat_apple_frame()
     }
     pub(crate) fn lost_device_needs_cpu(&self) -> bool {
         self.backend.lost_device_needs_cpu()

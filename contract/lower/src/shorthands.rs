@@ -340,14 +340,20 @@ fn columns_longhand(name: &str, text: &str, span: Span) -> Result<Expr, LowerErr
     }
 }
 
-/// `font`: a platform text style only (LLP 1115 D3): a `normal` style and
-/// the style's size, which the kernel reads from the platform's ramp at the
-/// root font size. Its weight and leading are the style's on each platform
+/// `font`: a platform text style only (LLP 1115 D3), or a clear
+/// ([`font_clear`]): a `normal` style and the style's size, which the kernel
+/// reads from the platform's ramp at the root font size. Its weight and leading are the style's on each platform
 /// (LLP 1115.000 D12.2): the node is marked `fontShorthand`, so the kernel
 /// gives them as the shorthand resets them, beating an inherited value. The
 /// family stays what it was.
 fn font(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
     use exact_kernel::{style::relative::text_style, TEXT_STYLES};
+    if let Some(keyword) = font_clear(text) {
+        return Ok([
+            Expr::Str(keyword.into(), span),
+            Expr::Str(keyword.into(), span),
+        ]);
+    }
     let Some(id) = text_style(text) else {
         let names: Vec<String> = TEXT_STYLES
             .iter()
@@ -365,6 +371,30 @@ fn font(text: &str, span: Span) -> Result<[Expr; 2], LowerError> {
         Expr::Str(format!("-exact-{}", style.name), span),
     ])
 }
+
+/// `font="inherit"` (or `unset`, the same on these inherited rows): every longhand
+/// the shorthand sets or resets takes its parent's value (CSS Fonts 4 §2.8,
+/// CSS Cascade 4 §7.3), as the common reset's `button { font: inherit }` has a
+/// control's text match the text around it. A platform control's start stops
+/// only rows the author did not write (LLP 1104 D4).
+fn font_clear(text: &str) -> Option<&'static str> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "inherit" => Some("inherit"),
+        "unset" => Some("unset"),
+        _ => None,
+    }
+}
+
+const FONT_LONGHANDS: &[StyleId] = &[
+    StyleId::FontStyle,
+    StyleId::FontWeight,
+    StyleId::FontStretch,
+    StyleId::FontSize,
+    StyleId::LineHeight,
+    StyleId::FontFamily,
+    StyleId::FontVariationSettings,
+    StyleId::FontOpticalSizing,
+];
 
 /// `text-box` (`normal`, or a trim and an edge in either order, each
 /// optional, Inline Layout 3 §4) or `text-box-edge` (`auto`, `text`, or an
@@ -482,6 +512,27 @@ impl Lowerer<'_> {
         font: &[FontUse],
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
+        if let (true, Expr::Str(text, span)) = (a.name == "font", &a.value) {
+            if let Some(keyword) = font_clear(text) {
+                let clear = Attr {
+                    value: Expr::Str(keyword.into(), *span),
+                    ..a.clone()
+                };
+                let (code, ty) = self.typed_code(&clear.value, scope, locals)?;
+                values::check_style_value(
+                    &clear,
+                    FONT_LONGHANDS,
+                    &ty,
+                    font,
+                    scope,
+                    &self.types.shapes,
+                )?;
+                for row in FONT_LONGHANDS {
+                    bindings.push(crate::style_row(*row, code, a.written));
+                }
+                return Ok(());
+            }
+        }
         // Type tokens write only their longhands (stage 6 C).
         if a.name == "font" && self.type_font(a, scope, locals, font, bindings)? {
             return Ok(());

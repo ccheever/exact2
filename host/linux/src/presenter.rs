@@ -145,6 +145,8 @@ pub use device::{touch_only, Device, Pointing};
 pub use hosted::action as field_action;
 use painter::cpu_info;
 pub(crate) use painter::PainterBoot;
+#[cfg(target_os = "macos")]
+pub use painter::SubmittedAppleFrame;
 pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
 pub(crate) use palette::reported_accent;
 pub use palette::{material, ContrastPalette, Material, Palette, MATERIAL_ROLES};
@@ -259,6 +261,7 @@ pub struct Presenter<D: DataSource> {
     /// The fields `rangeFrame` reads, as painted beside `boxes`.
     ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
+    pub(crate) image_paint_pending: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
@@ -403,6 +406,10 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
+        #[cfg(target_os = "macos")]
+        let painted_boot = matches!(plan, PlanBytes::Painted(..));
+        #[cfg(not(target_os = "macos"))]
+        let painted_boot = false;
         let decoded =
             crate::traced(c"boot plan decode", || plan.decode()).map_err(HostError::Plan)?;
         #[cfg(any(windows, target_os = "macos"))]
@@ -426,6 +433,8 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Painter)?;
         #[cfg(not(windows))]
         let (backend, painter) = painter.open().map_err(HostError::Painter)?;
+        let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         let (mut host, error) = Host::boot_decoded(
             decoded,
             data,
@@ -437,6 +446,7 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
             Some(text.clone()),
+            (painted_boot && !assets.is_selected()).then_some((&mut images, scale)),
         )?;
         // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
         let error = error.or(host.set_display_scale(f64::from(scale)));
@@ -446,8 +456,6 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(HostError::Painter)?,
             None => opened.expect("synchronous painter"),
         };
-        let mut images = Images::with_assets(assets.clone());
-        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -531,6 +539,7 @@ impl<D: DataSource> Presenter<D> {
             boxes_serial: 0,
             ranges: Default::default(),
             dirty: true,
+            image_paint_pending: false,
             deferred_collections: None,
             live_clock: None,
             native_timers: false,

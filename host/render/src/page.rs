@@ -401,6 +401,7 @@ pub(crate) fn body_js(
         let have = crate::page_style::tokens(&(root.clone() + &shell[js.at.root..]));
         crate::page_style::select(rules, &have)
     });
+    let hero = hero_image(&mut root);
     let mut out = body_open_js(
         shell,
         js,
@@ -410,6 +411,10 @@ pub(crate) fn body_js(
         marked,
         style.as_deref().map_or(Sheet::Whole, Sheet::Own),
     );
+    // Before the root's open tag, which `body_open_js` ends with.
+    if let Some(link) = hero {
+        out.insert_str(out.len() - (js.at.root_open - js.at.root), &link);
+    }
     out.reserve(root.len() + rendered.checkpoint.len() + shell.len() - js.at.root);
     out.push_str(&root);
     out.push_str(&body_close_js(
@@ -421,6 +426,39 @@ pub(crate) fn body_js(
         &rendered.checkpoint,
     ));
     out
+}
+
+/// A page's first image, when it loads with the page (no `for` repeats it,
+/// LLP 1048.007 D5), is likely its largest paint: it is fetched at high
+/// priority and preloaded ahead of the document, as `render.mjs`
+/// `heroImage` does. Writes the priority into `root`; returns the preload.
+fn hero_image(root: &mut String) -> Option<String> {
+    let mut from = 0;
+    while let Some(at) = root[from..].find("<img").map(|i| from + i) {
+        let end = at + root[at..].find('>')?;
+        let tag = &root[at + 4..end];
+        from = end;
+        if !tag.starts_with([' ', '\n']) {
+            continue;
+        }
+        let Some(src) = tag
+            .split_once(" src=\"")
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(src, _)| src)
+        else {
+            continue;
+        };
+        if src.starts_with("data:") {
+            continue;
+        }
+        if tag.contains(" loading=\"lazy\"") {
+            return None;
+        }
+        let link = format!("<link rel=\"preload\" as=\"image\" href=\"{src}\">");
+        root.insert_str(at + 4, " fetchpriority=\"high\"");
+        return Some(link);
+    }
+    None
 }
 
 /// Which sheet a page's rest carries when the build analyzed the shell's

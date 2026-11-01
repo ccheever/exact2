@@ -114,6 +114,9 @@ int main(int argc, const char **argv) {
         NSString *ink = NSProcessInfo.processInfo.environment[@"G3_PAINTED_BIN"];
         NSString *egui = NSProcessInfo.processInfo.environment[@"G4_EGUI_BIN"];
         BOOL onlyInk = [NSProcessInfo.processInfo.environment[@"G3_ONLY_INK"] boolValue];
+        NSString *onlyArm = NSProcessInfo.processInfo.environment[@"G1_ONLY_ARM"];
+        if (onlyArm && ![@[@"native", @"gpui", @"ink", @"egui"] containsObject:onlyArm])
+            fail(@"G1_ONLY_ARM must name native, gpui, ink or egui");
         if (onlyInk && !ink.length) fail(@"G3_ONLY_INK needs G3_PAINTED_BIN");
         if (!CGPreflightPostEventAccess()) fail(@"this terminal lacks Accessibility permission for CGEvent.postToPid");
         NSString *directory = [@(argv[1]) stringByStandardizingPath];
@@ -128,10 +131,15 @@ int main(int argc, const char **argv) {
             if (ink.length) [targets addObject:@"ink"];
             if (egui.length) [targets addObject:@"egui"];
             if (onlyInk) targets = [NSMutableArray arrayWithObject:@"ink"];
+            if (onlyArm) {
+                if (![targets containsObject:onlyArm]) fail(@"G1_ONLY_ARM executable missing");
+                targets = [NSMutableArray arrayWithObject:onlyArm];
+            }
             NSMutableArray *arms = [NSMutableArray array];
             for (NSUInteger i = 0; i < targets.count; i++) [arms addObject:targets[(round - 1 + i) % targets.count]];
             for (NSString *arm in arms) {
-              for (int attempt = 0; attempt < 2; attempt++) {
+              // A launch cohort gates each original separately; never substitute a retry.
+              for (int attempt = 0; attempt < (onlyArm ? 1 : 2); attempt++) {
                 NSString *name = [NSString stringWithFormat:@"%@-%d%@", arm, round, attempt ? @"-retry" : @""];
                 NSString *output = [directory stringByAppendingPathComponent:[name stringByAppendingString:@".json"]];
                 if ([files fileExistsAtPath:output] || [files fileExistsAtPath:[output stringByAppendingString:@".ready"]]) fail(@"use a fresh results directory");

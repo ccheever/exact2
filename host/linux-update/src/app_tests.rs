@@ -113,6 +113,8 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         hatches: None,
         packages: Vec::new(),
         clock_started: None,
+        #[cfg(target_os = "macos")]
+        painted_boot: None,
     };
     config.use_updates(Box::new(Updates::from_client(client).unwrap()), baked);
     config
@@ -178,6 +180,8 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         hatches: None,
         packages: Vec::new(),
         clock_started: None,
+        #[cfg(target_os = "macos")]
+        painted_boot: None,
     };
     let size = config.size;
     let (presenter, error) = boot_presenter::<Named>(&mut config, size).unwrap();
@@ -251,6 +255,8 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         hatches: None,
         packages: Vec::new(),
         clock_started: None,
+        #[cfg(target_os = "macos")]
+        painted_boot: None,
     };
     config.use_updates(Box::new(updates), &baked);
     assert_eq!(&*config.plan, b"EXPL");

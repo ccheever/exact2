@@ -302,6 +302,9 @@ impl<D: DataSource> Presenter<D> {
             self.queue_collections();
         }
         self.dirty = self.collection.pending();
+        if self.last_frame_succeeded {
+            self.image_paint_pending = false;
+        }
         if let Some(e) = self.sync_images() {
             self.host.log(e);
         }

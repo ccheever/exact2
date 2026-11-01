@@ -1802,13 +1802,19 @@ the latest. None of them takes anything from `press`, `pan` or scrolling, so
 a drawing surface sets `touch-action="none"`, as on the web, or a touch
 that scrolls is cancelled.
 
+A mouse's back and forward buttons go Back and Forward at their release, as
+Chrome's do, after their `pointerdown` and `pointerup` (`button` 3 and 4); a
+`pointerup` handler's `preventDefault()` keeps the page where it is
+([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md) D5.5).
+
 An action that takes one more parameter than the binding captures gets a
 `PointerEvent` (DOM's names, [LLP 1056](../llp/1056-canvas-2d.rfc.md) §8.6):
 
 | Field | Meaning |
 | --- | --- |
 | `offsetX`, `offsetY` | The point from the node's content box, CSS px (DOM measures from the target's padding edge; a canvas draws in its content box) |
-| `buttons` | DOM's bits: 1 primary, a touch or a pen in contact; 2 secondary; 4 auxiliary; 0 on `pointerup` and a hover |
+| `button` | The button that went down or came up, DOM's number: 0 primary, a touch or a pen's contact; 1 auxiliary; 2 secondary; 3 back; 4 forward; -1 on a move |
+| `buttons` | DOM's bits: 1 primary, a touch or a pen in contact; 2 secondary; 4 auxiliary; 8 back; 16 forward; 0 on `pointerup` and a hover |
 | `pressure` | 0 to 1: a pen's or a pressed touch's force where the platform measures one, else 0.5 while down and 0 while not |
 | `pointerType` | `mouse`, `pen` or `touch` |
 | `pointerId` | 1 for the mouse; a touch or pen has its own while down |
@@ -2420,7 +2426,7 @@ the virtual clock).
   ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`,
   `enter-full-screen`, `minimize`, `zoom`, `bring-all-to-front`,
   `show-previous-tab`, `show-next-tab`, `move-tab-to-new-window`,
-  `merge-all-windows`, `back` (Go ▸ Back), `develop` (the Develop menu),
+  `merge-all-windows`, `back` (Go ▸ Back), `forward` (Go ▸ Forward), `develop` (the Develop menu),
   `paste-and-match-style`, `find`, `spelling-and-grammar`, `substitutions`,
   `transformations`, `app-help` (Help ▸ *App* Help), `actual-size`, `zoom-in`
   and `zoom-out`, and `status-quit` (the host's Quit ending a status item's

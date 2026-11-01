@@ -767,8 +767,8 @@ names: prop, children, slot, inject, provide, component
 
 A child `component` declares `props` as indented `name: type` lines (a type `action` takes a
 handler) and is used with named arguments, `Tag(label="Tea", pick=choose("Tea"))`. The root is
-the file's first component. A `slot` in a child and `children` in its view place the nodes the
-caller indents under the use. Props are read-only.
+the file's first component. A `slot` line in a child (after its `props`) and `children` in its view place the nodes
+the caller indents under the use, as `Card` does. Props are read-only.
 
 ```contract
 component App
@@ -777,8 +777,18 @@ component App
     chosen = t
   view
     column gap=8
-      Tag(label="Tea", pick=choose("Tea"))
+      Card(title="Drinks")
+        Tag(label="Tea", pick=choose("Tea"))
       text chosen testId="chosen"
+
+component Card
+  props
+    title: string
+  slot
+  view
+    column gap=4
+      text title font-weight=600
+      children
 
 component Tag
   props
@@ -1033,7 +1043,7 @@ and ignore the hint. The agent taps the button. A root
 `-exact-menu-remove="show-tab-bar autofill close-all"` removes selected
 standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `forward` (Go ▸ Forward), `develop` (the
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
 *App* Help), `actual-size`, `zoom-in`, `zoom-out`, and `status-quit` (the

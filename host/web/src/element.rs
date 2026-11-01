@@ -799,6 +799,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     {
         out.insert("data-exact-textfield".into(), String::new());
     }
+    // @ref LLP 1020.002 D5 — a frame's guest may take the screen, as a
+    // top-level page may. `*`, not the bare feature: Firefox and WebKit grant
+    // `allow="fullscreen"` (the `src` origin) to no opaque sandboxed guest.
+    if node.node_type == NodeType::WebView {
+        out.insert("allow".into(), "fullscreen *".into());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }

@@ -9,6 +9,7 @@ struct Delayed {
     done: Submission,
     textures: HashMap<TextureId, Submission>,
     uploads: HashMap<TextureId, Submission>,
+    upload_calls: Vec<(TextureId, [u32; 2], [u32; 2])>,
     retired: Vec<(TextureId, Submission)>,
 }
 impl Device for Delayed {
@@ -31,8 +32,8 @@ impl Device for Delayed {
     fn upload_texture(
         &mut self,
         id: TextureId,
-        _: [u32; 2],
-        _: [u32; 2],
+        origin: [u32; 2],
+        size: [u32; 2],
         _: &[u8],
     ) -> Result<Submission> {
         assert!(
@@ -42,6 +43,7 @@ impl Device for Delayed {
         self.submitted.0 += 1;
         self.textures.insert(id, self.submitted);
         self.uploads.insert(id, self.submitted);
+        self.upload_calls.push((id, origin, size));
         Ok(self.submitted)
     }
     fn last_use(&self, id: TextureId) -> Result<Submission> {
@@ -322,4 +324,89 @@ fn direct_device_selection_is_shared_by_carrier_painter_and_recovery() {
     for name in ["wgpu", "metal", "invalid"] {
         assert_eq!(super::direct_d3d11(Some(name)), None);
     }
+}
+
+#[test]
+fn a_cold_glyph_fill_batches_pages_and_a_warm_frame_uploads_nothing() {
+    let mut d = Delayed::default();
+    let mut alpha = Atlas::glyphs();
+    let mut color = Atlas::colors();
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    for n in 0..250 {
+        alpha.insert(&mut d, vec![n], [8, 8], &[73; 64]).unwrap();
+    }
+    color.insert(&mut d, vec![1], [8, 8], &[181; 256]).unwrap();
+    assert!(d.upload_calls.is_empty());
+    // A geometry-only walk may end before it needs any pixels.
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    assert!(alpha.contains(&[249]) && color.contains(&[1]));
+    Atlas::flush(&mut [&mut alpha, &mut color], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 2);
+    assert_eq!(d.upload_calls[0].2, [510, 50]);
+    assert_eq!(d.upload_calls[1].2, [10, 10]);
+    alpha.begin(&mut d).unwrap();
+    color.begin(&mut d).unwrap();
+    Atlas::flush(&mut [&mut alpha, &mut color], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 2);
+    // Earlier uploads remain incomplete. They are ordered, not a reason to wait
+    // or allocate another page when no draw has sampled it.
+    alpha.insert(&mut d, vec![250], [8, 8], &[211; 64]).unwrap();
+    Atlas::flush(&mut [&mut alpha], &mut d).unwrap();
+    assert_eq!(d.upload_calls.len(), 3);
+    assert_eq!(d.upload_calls[2].2, [10, 10]);
+    assert_eq!(d.upload_calls[2].0, d.upload_calls[0].0);
+}
+
+#[test]
+fn clean_atlas_page_visit_measurement() {
+    let mut d = Delayed::default();
+    let mut atlases = [Atlas::glyphs(), Atlas::colors()];
+    for (kind, atlas) in atlases.iter_mut().enumerate() {
+        atlas.begin(&mut d).unwrap();
+        let size = if kind == 0 { 510 } else { 254 };
+        let channels = if kind == 0 { 1 } else { 4 };
+        for n in 0..16 {
+            atlas
+                .insert(
+                    &mut d,
+                    vec![n],
+                    [size, size],
+                    &vec![73; (size * size * channels) as usize],
+                )
+                .unwrap();
+        }
+        Atlas::flush(&mut [atlas], &mut d).unwrap();
+    }
+    let before: Vec<_> = atlases.iter().map(|a| a.dirty_page_visits).collect();
+    let uploads = d.upload_calls.len();
+    for atlas in &mut atlases {
+        atlas.begin(&mut d).unwrap();
+    }
+    for _ in 0..3 {
+        Atlas::flush(&mut atlases.iter_mut().collect::<Vec<_>>(), &mut d).unwrap();
+    }
+    let mut visits = [0; 2];
+    for (a, before) in atlases.iter().zip(before) {
+        for i in 0..2 {
+            visits[i] += a.dirty_page_visits[i] - before[i];
+        }
+    }
+    println!(
+        "clean atlas page visits: begin={}, flush={} (three boundaries); uploads={}",
+        visits[0],
+        visits[1],
+        d.upload_calls.len() - uploads
+    );
+    assert_eq!(visits, [0, 0]);
+    assert_eq!(
+        atlases.iter().map(|a| a.stats().bytes).sum::<u64>(),
+        16 << 20
+    );
+    println!(
+        "retained atlas bytes: {} (8 MiB GPU + 8 MiB CPU shadows)",
+        atlases.iter().map(|a| a.stats().bytes).sum::<u64>()
+    );
+    assert_eq!(d.upload_calls.len(), uploads);
 }

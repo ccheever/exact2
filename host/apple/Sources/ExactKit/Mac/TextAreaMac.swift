@@ -499,7 +499,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
-            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
+            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
         f.textColor = fieldInk
         f.insertionPointColor = caretColor
         (f as? TextArea)?.placeholderColor = placeholderColor

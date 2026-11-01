@@ -27,8 +27,9 @@ final class TextSpecs {
     var headroom: Float?
     var raster: CGImage?
     var rasterLayer: CALayer?
-    /// The layer at the paragraph's place that holds `rasterLayer` (`NodeView.placeTextRaster`).
-    var rasterBox: CALayer?
+    /// The layer at the paragraph's place (`NodeView.placeTextRaster`), whose
+    /// lines hold `rasterLayer` (`NodeView.makeTextBox`).
+    var rasterBox: TextBoxLayer?
     /// What the shown pixels answer for in the paragraph's box, whether they
     /// are a band of it, the ink they were painted from (`TextRasterImage.ink`)
     /// and the room they serve (`TextRasterKey.room`).
@@ -216,7 +217,7 @@ extension NodeView {
     var cachedTextHeadroom: Float? { get { specs?.headroom } set { if newValue != nil || specs != nil { textMore.headroom = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
-    var textBoxLayer: CALayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
+    var textBoxLayer: TextBoxLayer? { get { specs?.rasterBox } set { if newValue != nil || specs != nil { textMore.rasterBox = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }

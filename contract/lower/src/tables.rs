@@ -62,9 +62,17 @@ fn holds(parent: &str) -> Option<(&'static [&'static str], &'static str)> {
         ),
         "thead" | "tbody" | "tfoot" => (&["tr"], "`tr`s"),
         "tr" => (&["th", "td"], "`th` and `td`"),
-        "dl" => (&["dt", "dd"], "`dt` and `dd`"),
+        "dl" => (
+            &["dt", "dd", "view", "column", "row"],
+            "groups of `dt` then `dd`, or a `view`, `column` or `row` around each group",
+        ),
         _ => return None,
     })
+}
+
+/// The tags HTML writes as a `div`, which can wrap a group in a `dl`.
+pub(crate) fn is_div(tag: &str) -> bool {
+    matches!(tag, "view" | "column" | "row")
 }
 
 fn content_id(tag: &str) -> &'static str {
@@ -81,11 +89,23 @@ fn content_id(tag: &str) -> &'static str {
 pub(crate) fn check(
     tag: &str,
     parent: Option<&str>,
+    in_dl_group: bool,
     attrs: &[Attr],
     children: &[Node],
     span: Span,
 ) -> Result<(), LowerError> {
-    if let Some((parents, said)) = belongs(tag) {
+    if in_dl_group {
+        if !matches!(tag, "dt" | "dd") {
+            return err(
+                "lower-dl-content",
+                format!(
+                    "a `{}` in a `dl` holds one group, `dt` then `dd`, not `{tag}`",
+                    parent.unwrap_or("view")
+                ),
+                span,
+            );
+        }
+    } else if let Some((parents, said)) = belongs(tag) {
         if !parent.is_some_and(|p| parents.contains(&p)) {
             return err(content_id(tag), format!("`{tag}` belongs in {said}"), span);
         }
@@ -103,6 +123,10 @@ pub(crate) fn check(
         attribute(tag, a)?;
     }
     if tag == "dl" {
+        divided(children)?;
+        grouped(children)?;
+    }
+    if parent == Some("dl") && is_div(tag) {
         grouped(children)?;
     }
     Ok(())
@@ -272,6 +296,26 @@ fn rows(n: &Node) -> bool {
         Node::Match { some, none, .. } => all(&some.1) && all(none),
         _ => false,
     }
+}
+
+/// A `dl` holds its groups bare or each in a `div`, not both (HTML §4.4.9).
+fn divided(children: &[Node]) -> Result<(), LowerError> {
+    let tags = || {
+        children.iter().filter_map(|n| match n {
+            Node::Element { tag, span, .. } => Some((tag.as_str(), *span)),
+            _ => None,
+        })
+    };
+    if tags().any(|(t, _)| is_div(t)) {
+        if let Some((t, span)) = tags().find(|(t, _)| !is_div(t)) {
+            return err(
+                "lower-dl-content",
+                format!("a `dl` whose groups are each in a `view`, `column` or `row` holds no bare `{t}`: put it in a group too"),
+                span,
+            );
+        }
+    }
+    Ok(())
 }
 
 /// HTML's groups in a `dl` (HTML §4.4.9): one or more `dt`, then one or

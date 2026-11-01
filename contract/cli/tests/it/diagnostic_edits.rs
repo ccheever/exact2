@@ -196,6 +196,25 @@ const CASES: &[Case] = &[
         leads: "put the `role` on a node beside the button",
         fixed: &[("", "text \"Card\" role=\"heading\" aria-level=2\nbutton press=go buttonStyle=\"bordered\" aria-label=\"Front\"\n  text \"Front\"")],
     },
+    // The Pokédex benchmark's type badge and hand-bulleted list (LLP 1048.007).
+    Case {
+        wrote: ("", "row gap=4\n  text \"Fire\" display=\"inline-block\" padding=\"0 8px\""),
+        id: "lower-attr-value",
+        leads: "`display=\"inline-block\"` is not a `display` here",
+        fixed: &[("", "row gap=4\n  text \"Fire\" padding=\"0 8px\"")],
+    },
+    Case {
+        wrote: ("", "view role=\"list\"\n  text role=\"listitem\" display=\"list-item\" \"a\""),
+        id: "lower-attr-value",
+        leads: "`display=\"list-item\"` is not a `display` here",
+        fixed: &[("", "view role=\"list\"\n  row role=\"listitem\" gap=4\n    text \"•\"\n    text \"a\"")],
+    },
+    Case {
+        wrote: ("", "view role=\"list\" list-style=\"none\"\n  text role=\"listitem\" \"a\""),
+        id: "lower-unknown-attr",
+        leads: "`view` has no attribute `list-style`; a list here draws no marker",
+        fixed: &[("", "view role=\"list\"\n  text role=\"listitem\" \"a\"")],
+    },
 ];
 
 #[test]

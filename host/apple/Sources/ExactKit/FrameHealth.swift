@@ -49,7 +49,17 @@ final class FrameHealth {
     var requestedPeriodNs: UInt64 = 0
     var requestedHertz: Float = 0
     var hudDragging = false
+    /// Work a frame started that finishes later: owner work, which finishes when it lands, and a
+    /// canvas render that drew nothing, as without its drawable, which finishes when it draws
+    /// (LLP 1079.000 §4.6).
+    static let tick: UInt8 = 1, advance: UInt8 = 2, canvas: UInt8 = 4
+    /// A frame's work: what it started and has not finished, and whether its callback has returned.
+    private struct Pending { var start, deadline, finished: Double; var waiting: UInt8; var returned: Bool }
+    /// Each kind is in flight one at a time, so at most three frames wait.
+    private var pending = [Pending?](repeating: nil, count: 3)
     var changed: (() -> Void)? { didSet { FrameHealthPublication.update(self) } }
+    /// A card's charts while it reads, fed by each frame (LLP 1079.000 §7.2)
+    weak var chart: FrameHealthChart?
     var ended: (() -> Void)?
     var hudVisible = false
     var hudEffectiveVisible = false
@@ -92,14 +102,99 @@ final class FrameHealth {
         #endif
     }
 
-    func record(arrival: Double, target: Double, period: Double, finished: Double, flags: UInt64 = 0) {
-        guard enabled, arrival.isFinite, target.isFinite, period.isFinite, finished.isFinite,
-              arrival > 0, target > 0, period >= 0, finished > 0 else { return }
-        expireCapture(at: arrival)
-        exact_frame_health_record(handle, Self.nanoseconds(arrival), Self.nanoseconds(target),
-            Self.nanoseconds(period), Self.nanoseconds(finished), flags)
+    /// Record one callback. `sent` is the owner work this frame sent, whose landing finishes it;
+    /// `ran` says it did frame work of its own, and `held` that frame work waited on earlier work
+    /// in flight. A callback that started no frame work is not a frame (LLP 1079.000 §4.6).
+    func record(arrival: Double, target: Double, period: Double, finished: Double,
+                held: Bool = false, ran: Bool = true, sent: UInt8 = 0, flags: UInt64 = 0) {
+        guard enabled else { return }
+        // The collector rejects the same observations, as it does one whose timestamp went backwards;
+        // a rejected callback is no frame, so the work it registered has nothing to finish
+        let valid = arrival.isFinite && target.isFinite && period.isFinite && finished.isFinite
+            && arrival > 0 && target > 0 && period >= 0 && target >= period && finished >= arrival
+        let outcome: UInt32 = sent != 0 ? 1 : ran ? 0 : held ? 2 : 3
+        if valid { expireCapture(at: arrival) }
+        let accepted = valid && exact_frame_health_record(handle, Self.nanoseconds(arrival), Self.nanoseconds(target),
+            Self.nanoseconds(period), Self.nanoseconds(finished), outcome, flags) != 0
+        // The card's charts take the frame before the work it finished within its callback
+        if let chart {
+            // A rejected or idle callback ends the run; a held one is no frame
+            if !accepted || outcome == 3 { chart.endRun() }
+            else if outcome != 2, period > 0 { chart.frame(at: target - period, finished: outcome == 0 ? finished : nil, deadline: target) }
+        }
+        // Work not yet returned was registered during this callback; any other is left from one that
+        // was never recorded
+        for index in pending.indices {
+            guard var work = pending[index], !work.returned else { continue }
+            guard accepted, outcome == 1, work.deadline == target else { pending[index] = nil; continue }
+            // What it started may already have finished, during the callback
+            work.returned = true
+            work.finished = max(work.finished, finished)
+            pending[index] = work
+            finish(index)
+        }
+        guard valid else { return }
         running = true
         (publicationOwner ?? self).publicationDue(at: finished)
+    }
+
+    /// Work of `kind` is about to start for the frame starting at `start`. Owner work is registered
+    /// before it is sent, since it can land before the callback returns.
+    func sending(_ kind: UInt8, start: Double, deadline: Double) {
+        guard enabled, start.isFinite, deadline.isFinite else { return }
+        if let index = pending.firstIndex(where: { $0?.deadline == deadline && $0?.returned == false }) {
+            pending[index]?.waiting |= kind
+            return
+        }
+        let frame = Pending(start: start, deadline: deadline, finished: 0, waiting: kind, returned: false)
+        // A free slot remains unless a finish was lost; then the oldest frame gives way
+        let oldest = pending.indices.min { (pending[$0]?.deadline ?? 0) < (pending[$1]?.deadline ?? 0) } ?? 0
+        pending[pending.firstIndex { $0 == nil } ?? oldest] = frame
+    }
+
+    /// Whether a frame waits on work of `kind`.
+    func waits(on kind: UInt8) -> Bool { pending.contains { ($0?.waiting ?? 0) & kind != 0 } }
+
+    /// Work of `kind` finished: owner work landed, applied or skipped, or a canvas render that waited
+    /// on its drawable drew. The frame waiting on it may now be finished.
+    func landed(_ kind: UInt8, at now: Double = CACurrentMediaTime()) {
+        guard enabled else { return }
+        var recorded = false
+        for index in pending.indices {
+            guard var work = pending[index], work.waiting & kind != 0 else { continue }
+            work.waiting &= ~kind
+            work.finished = max(work.finished, now)
+            pending[index] = work
+            recorded = finish(index) || recorded
+        }
+        guard recorded else { return }
+        // The detail panel's cached read predates this work record
+        window.invalidate()
+        // A landing after the source stopped is the last change; publish it past the throttle
+        if running { (publicationOwner ?? self).publicationDue(at: now) } else { (publicationOwner ?? self).publish() }
+    }
+
+    /// A canvas render that waited on its drawable will not draw: its canvas left, or the source
+    /// stopped. The frame waiting on it never finishes, so it has no work record.
+    func abandon(_ kind: UInt8) {
+        for index in pending.indices where (pending[index]?.waiting ?? 0) & kind != 0 { pending[index] = nil }
+    }
+
+    /// Record a frame's work once its callback has returned and all it started has finished.
+    @discardableResult
+    private func finish(_ index: Int) -> Bool {
+        guard let work = pending[index], work.returned, work.waiting == 0 else { return false }
+        exact_frame_health_worked(handle, Self.nanoseconds(work.start), Self.nanoseconds(work.deadline), Self.nanoseconds(work.finished))
+        chart?.work(start: work.start, deadline: work.deadline, finished: work.finished)
+        pending[index] = nil
+        return true
+    }
+
+    /// Frames whose work is still in flight, and those of them already past their deadline at `now`,
+    /// so certainly late (LLP 1079.000 §4.4: unresolved exposure, apart from finalized counts).
+    func pendingFrames(at now: Double) -> (pending: Int, overdue: Int) {
+        let frames = pending.compactMap { $0 }
+        return (frames.count, frames.filter { now > $0.deadline }.count)
     }
 
     func publicationDue(at now: Double) {
@@ -113,6 +208,8 @@ final class FrameHealth {
     func stop() {
         guard enabled, running else { return }
         running = false
+        abandon(Self.canvas)
+        chart?.endRun()
         exact_frame_health_stop(handle)
         window.invalidate()
         (publicationOwner ?? self).publish()
@@ -127,6 +224,8 @@ final class FrameHealth {
         track = nil
         window.invalidate()
         exact_frame_health_reset(handle)
+        chart?.reset()
+        pending = [Pending?](repeating: nil, count: 3)
         requestedPeriodNs = 0
         requestedHertz = 0
         nativeSampleLoss = 0
@@ -141,7 +240,7 @@ final class FrameHealth {
         reset()
     }
 
-    private func publish() {
+    fileprivate func publish() {
         guard changed != nil || inspected != nil else { return }
         publicationDirty = true
         FrameHealthPublication.request(at: CACurrentMediaTime(), force: true)
@@ -202,16 +301,17 @@ final class FrameHealth {
             "ui": uiReply(),
             "unavailableReason": unavailableReason as Any? ?? NSNull(),
             "source": source, "evidence": "callback-proxy",
-            "coverage": "Synchronous Exact frame callbacks; optional bounded owner/apply evidence in perf frames report; native-only animations and presentation unobserved",
+            "coverage": "Exact frame callbacks and the owner work they send; optional bounded owner/apply evidence in perf frames report; Core Animation commits, native-only animations and presentation unobserved",
             "status": virtual ? "virtual" : !enabled ? (unavailableCode == "collection-disabled" ? "disabled" : "unavailable") : s.running == 0 ? "inactive" : "observing",
             "generation": s.generation, "callbacks": s.callbacks, "intervals": s.intervals,
             "activeNs": s.active_ns, "scheduledPeriodNs": s.period_ns == 0 ? NSNull() : s.period_ns as Any,
-            "maximumCallbackGapNs": s.max_gap_ns, "synchronousCallbackOverruns": s.work_overruns,
-            "exactWorkDeadlineOverruns": NSNull(),
+            "maximumFrameIntervalNs": s.max_interval_ns, "heldCallbacks": s.held,
+            "workRecords": s.worked, "lateFrames": FrameHealthAssessment.deadlinesObserved ? s.late as Any : NSNull(),
             "cadenceChanges": s.cadence_changes, "presentedFrames": NSNull(), "contentLatenessNs": NSNull()]
     }
 
+    /// The nearest nanosecond, so a converted time carries no downward bias.
     static func nanoseconds(_ seconds: Double) -> UInt64 {
-        UInt64(min(seconds * 1_000_000_000, Double(UInt64.max / 2)))
+        UInt64(min(max(0, (seconds * 1_000_000_000).rounded()), Double(UInt64.max / 2)))
     }
 }

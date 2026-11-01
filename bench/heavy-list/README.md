@@ -159,11 +159,35 @@ Their “quiet” label means that old rule only. The complete (a) CPU baseline 
 taken under that background; re-take it when the machine is quiet. The owner
 must stop the fleet/Claude session and its polling loops, simulators and
 DeviceHub, and PerfPowerServices if it is spinning, before the next series.
-The bounds are ≤2 whole-machine busy cores, all load averages below 30 and
-no compiler. WindowServer counts as benchmark work because it composites the
-benchmark's frames. Other processes stay at or below 0.25 core, except transient
-macOS daemons: at most 10% of a series' five-second observations may cross
-0.25 core, and none may exceed 1.0 core. User workloads get no allowance.
+The bounds are ≤1.0 non-benchmark busy cores, all load averages below 30 and
+no compiler. Benchmark work is the arms, driver, wheel helper, probe helpers,
+caffeinate and WindowServer. The aggregate is the sum of `ps` per-process CPU
+shares outside that set; whole-machine CPU-tick deltas are retained separately.
+M10 cut 1 amends the former 2.0 whole-machine-core limit: its launches alone
+used 2.0–2.1 cores. M10 cut 1b applies the 0.25-core per-process bound only to user processes:
+anything outside `/System`, `/usr/libexec`, `/sbin` and the XPC services inside
+system frameworks. System daemons count only toward the 1.0-core total.
+This replaces the transient-daemon allowance. Cut 1's crossings were
+XprotectService (0.6 core, triggered by launches), mediaanalysisd, hybridsearchd,
+searchpartyd, suggestd, duetexpertd, launchd and the system screen-sharing
+agent (0.29 core). Retain the five largest non-benchmark processes and the
+five largest user processes so system work cannot hide a user-process breach.
+After signing, launch each arm once as an unrecorded throwaway before a cohort;
+first-execution signature validation is not the scoreboard's cold launch.
+**M10 cut 1d, launch cohorts:** after five amendments without a qualified
+startup cohort, the orchestrator makes quiet a gate before each launch and
+a report during it. Launching wakes XProtect and the daemons listed above.
+`startup.py` requires ten seconds with no user process above 0.25 core and
+non-benchmark total below 1.0 core before each launch. During launch it samples
+every 250 ms and at exit, retaining observed maxima beside every sample;
+those maxima never exclude a launch. `ps` shares are rolling observations,
+not instantaneous process CPU. Power sampling remains off. The first launch
+of each freshly signed arm is a throwaway. `measure.m`'s `G1_ONLY_ARM` lets
+the startup driver gate each cold-only launch separately and forbids replacing
+a failed original with a retry. Fling, rest and static qualification is unchanged.
+**M10 cut 2:** a failed launch is retained and the cohort continues without
+replacement. Each arm's median uses completed launches, with n and failures
+reported beside it; an incomplete schedule still fails qualification.
 `gpui/run-hook.py` retains CPU-tick deltas, the five largest other processes,
 and power source/mode. Its `--single` mode retains an instrument sample even
 when loaded and produces no scoreboard table. See

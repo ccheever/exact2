@@ -200,6 +200,7 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     const built = build();
     expect(built.status, built.stdout + built.stderr).toBe(0);
     expect(built.stdout).toContain('site: no site-render entry, so its pages render under Bun (--render js)');
+    expect(built.stdout).toContain('/item/:id: render=client, the default, so the browser draws the page only once app.js and its data have loaded; a page every reader sees alike arrives whole sooner as render=request');
     expect(built.stdout).toContain('/live: render=request, so serve renders its page for each request; a static host serves its shell');
     expect(built.stdout).toContain('/feed: render=cached, so serve renders its page and keeps it 60 s; a static host serves its shell');
     expect(built.stdout.trimEnd().split('\n').slice(-3).join('\n')).toMatch(/dist: the site, for any static host\. bun host\/web\/serve\.mjs .*dist serves it[^]*shell\.html with status 200; else 404\.html with status 404\.\n {2}A host with a single fallback page serves shell\.html/);

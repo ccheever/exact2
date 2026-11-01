@@ -395,9 +395,8 @@ struct Bar<'a> {
 /// A route's `header` that is not the bar, in `lower-header-no-bar`'s words (LLP 1115.000 D5.2).
 const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
 
-/// The other repair `lower-header-no-bar` names: the route's own chrome.
-const OR_NO_BAR: &str =
-    "; or, if this screen draws its own chrome, say `navigationBar=\"none\"` on the route";
+/// The other repairs `lower-header-no-bar` names: a site's header, and the route's own chrome.
+const OR_NO_BAR: &str = "; or, for a site's header, say `appearance=\"none\"` on it; or, if this screen draws its own chrome, say `navigationBar=\"none\"` on the route's element (the one with `navigationKey`, not its line under `routes`)";
 
 /// `lower-header-unplaced`: a node in a route's first `header` that the
 /// iOS navigation bar does not place (LLP 1075.003 §9.10, LLP 1116 D6). The

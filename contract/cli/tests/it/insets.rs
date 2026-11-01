@@ -163,7 +163,7 @@ fn a_comparison_outside_the_kernel_grammar_is_refused_at_compile_time() {
             "clamp(15px, env(safe-area-inset-bottom))",
             "exactly three arguments",
         ),
-        ("max(15px, 1rem)", "rem and em"),
+        ("max(15px, 1em)", "em is not supported"),
         ("max(15, env(safe-area-inset-bottom))", "takes a unit"),
         (
             "max(15px, env(safe-area-inset-bottom)) + 44px",
