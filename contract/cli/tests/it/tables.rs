@@ -377,3 +377,18 @@ fn a_cell_takes_vertical_align() {
         .unwrap_err();
     assert_eq!(e.id, "lower-attr-tag", "{e}");
 }
+
+/// `border-collapse` is refused with the separated model's way to the same table.
+#[test]
+fn border_collapse_names_border_spacing() {
+    let e = contract::compile(
+        "component App\n  view\n    table border-collapse=\"collapse\"\n      tr\n        td\n          text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-unknown-attr", "{e}");
+    assert!(
+        e.to_string()
+            .contains("`border-spacing=0` puts the cells edge to edge"),
+        "{e}"
+    );
+}
