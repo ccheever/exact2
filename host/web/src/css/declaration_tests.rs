@@ -111,6 +111,20 @@ fn composed_declarations_keep_their_text() {
             &[],
         ),
         css(
+            &[(
+                StyleId::FontVariantLigatures,
+                StyleValue::Text("none".into()),
+            )],
+            &[],
+        ),
+        css(
+            &[(
+                StyleId::FontVariantLigatures,
+                StyleValue::Text("discretionary-ligatures no-contextual".into()),
+            )],
+            &[],
+        ),
+        css(
             &[(StyleId::WhiteSpace, StyleValue::Text("pre-line".into()))],
             &[],
         ),
@@ -132,6 +146,8 @@ fn composed_declarations_keep_their_text() {
         "text-transform:uppercase;",
         "font-variant-numeric:tabular-nums;white-space:nowrap;",
         "font-variant-numeric:normal;",
+        "font-variant-ligatures:none;",
+        "font-variant-ligatures:discretionary-ligatures no-contextual;",
         "white-space:pre-line;",
         "width:33.5px;opacity:0.125;",
     ];

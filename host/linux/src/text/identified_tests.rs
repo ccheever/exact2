@@ -572,6 +572,7 @@ mod owned_spec {
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,
+            font_variant_ligatures: 0,
             indent: 0.,
             hang: false,
             mark: 0,

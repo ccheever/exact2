@@ -1106,6 +1106,13 @@ two where they say it. Text fields and Canvas 2D's `font` take the width too.
 A file's `opsz` axis follows the font size; `font-optical-sizing="none"` keeps
 the face's own.
 
+`font-variant-ligatures` turns the face's ligatures on or off, as CSS does:
+`none` keeps a ligating font such as Fira Code from joining `://` or `->` in an
+address or code, and the other keywords (`no-contextual`,
+`discretionary-ligatures`, …) name one kind each. Text fields take it too. A
+terminal draws no ligatures; Android's native text fields, UIKit's grouped list
+cells and content regions keep the font's own; widgets and the watch refuse it.
+
 ## Input, events, and commands
 
 Bind a controlled text field's current value and its editing action:

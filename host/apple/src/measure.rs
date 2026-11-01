@@ -47,6 +47,8 @@ pub struct CRun {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
     pub font_variant_numeric: u8,
+    /// CSS `font-variant-ligatures` as `FontVariantLigatures`' bits.
+    pub font_variant_ligatures: u8,
     /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
     pub font_stretch: f32,
     /// CSS `font-variation-settings` (LLP 1019 D9): how many axes are set.
@@ -384,6 +386,7 @@ fn c_run(text: &str, style: exact_kernel::TextStyle, inline: Option<InlineBox>) 
         line_height: style.line_height.unwrap_or(0.0),
         letter_spacing: style.letter_spacing,
         font_variant_numeric: style.font_variant_numeric,
+        font_variant_ligatures: style.font_variant_ligatures,
         font_stretch: style.font_stretch,
         variation_count: style.font_variations.axes().len() as u8,
         variation_tags: std::array::from_fn(|i| {

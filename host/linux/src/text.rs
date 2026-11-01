@@ -89,6 +89,8 @@ pub struct Run {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
+    /// CSS `font-variant-ligatures` as `FontVariantLigatures`' bits.
+    pub font_variant_ligatures: u8,
     /// A Markdown list item's head indent, points: where its paragraph's
     /// lines start (LLP 1045 D4).
     pub indent: f32,
@@ -123,6 +125,7 @@ impl Clone for Run {
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            font_variant_ligatures: self.font_variant_ligatures,
             indent: self.indent,
             hang: self.hang,
             mark: self.mark,
@@ -150,6 +153,7 @@ impl Run {
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
+            font_variant_ligatures: style.font_variant_ligatures,
             indent: 0.0,
             hang: false,
             mark: 0,

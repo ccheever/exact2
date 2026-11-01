@@ -167,6 +167,7 @@ typedef struct ExactTextRun {
     float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
+    uint8_t font_variant_ligatures; /* CSS font-variant-ligatures as the kernel's FontVariantLigatures bits */
     float font_stretch;    /* CSS font-stretch, percent of normal width */
     uint8_t variation_count;      /* CSS font-variation-settings: axes set */
     uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
