@@ -291,6 +291,11 @@ type Refused = Option<(Why, String, Span)>;
 /// Rewrite a value's literals in place, through `?:`, `match`, `let`, `+`
 /// and a template's text.
 fn value(e: &mut Expr, tokens: &Tokens, mode: Mode, out: &mut Rewritten, refused: &mut Refused) {
+    if let Expr::Template(parts, _) = e {
+        if completed(parts, tokens) {
+            return;
+        }
+    }
     match e {
         Expr::Str(s, span) => {
             if mode == Mode::Whole && whole_var(s).is_none() {
@@ -350,6 +355,61 @@ fn value(e: &mut Expr, tokens: &Tokens, mode: Mode, out: &mut Rewritten, refused
         }
         _ => {}
     }
+}
+
+/// Write a template that is one `var()` whose name its holes complete
+/// (`` `var(--type-${t})` ``) as that name (`` `type-${t}` ``), which the
+/// runtime reads against the design as it reads a name from data, when a
+/// token of the design has the name's written start and end. Whether it was
+/// written.
+fn completed(parts: &mut Vec<TemplatePart>, tokens: &Tokens) -> bool {
+    let n = parts.len();
+    let (Some(TemplatePart::Text(first)), Some(TemplatePart::Text(last))) =
+        (parts.first(), parts.last())
+    else {
+        return false;
+    };
+    if n < 3 {
+        return false;
+    }
+    let first = first.trim_start();
+    let Some(start) = first
+        .get(..6)
+        .filter(|p| p.eq_ignore_ascii_case("var(--"))
+        .map(|_| &first[6..])
+    else {
+        return false;
+    };
+    let Some(end) = last.trim_end().strip_suffix(')') else {
+        return false;
+    };
+    let name = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.';
+    // Only the name's own text between the holes: a space, a comma (a
+    // fallback) or another call makes it more than a name.
+    let inner = parts[1..n - 1].iter().all(|p| match p {
+        TemplatePart::Text(t) => t.chars().all(name),
+        TemplatePart::Expr(_) => true,
+    });
+    if !inner || !start.chars().all(name) || !end.chars().all(name) {
+        return false;
+    }
+    if !tokens
+        .names
+        .iter()
+        .any(|(t, _)| t.starts_with(start) && t.ends_with(end) && t.len() > start.len() + end.len())
+    {
+        return false;
+    }
+    let (start, end) = (start.to_string(), end.to_string());
+    if let Some(TemplatePart::Text(t)) = parts.first_mut() {
+        *t = start;
+    }
+    if let Some(TemplatePart::Text(t)) = parts.last_mut() {
+        *t = end;
+    }
+    // As the parser writes a template, with no empty text.
+    parts.retain(|p| !matches!(p, TemplatePart::Text(t) if t.is_empty()));
+    true
 }
 
 /// `text` as one `var()` call and nothing else, its parentheses balanced:

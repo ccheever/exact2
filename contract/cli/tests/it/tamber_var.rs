@@ -4,8 +4,8 @@
 //! design lacks is refused naming the tokens the row could take, fallback or
 //! not, in a row or where a component's argument carries it to one (a
 //! `fn`'s result and a `derive`'s value name a token as an argument does); a
-//! fallback is warned once; a token of another kind is refused as its name
-//! is.
+//! `var()` whose name data completes is the name it makes; a fallback is
+//! warned once; a token of another kind is refused as its name is.
 
 use std::path::PathBuf;
 
@@ -73,6 +73,25 @@ fn a_var_compiles_to_the_plan_its_name_does() {
     assert!(
         inline("brand") == inline("VAR( --brand )"),
         "the inline plans differ"
+    );
+}
+
+/// A `var()` whose name data completes, the whole of a template, is the name
+/// that template makes, which the runtime reads against the design: in a
+/// row, a `fn`'s result and a `derive`, as `type-${t}` is.
+#[test]
+fn a_var_whose_name_data_completes_is_that_name() {
+    const TYPES: &str = "tamber t\n\ntheme\n  type-fire = #c2410c  scheme=fixed\n  type-water = #2a5fc4  scheme=fixed\n";
+    let plan = |label: &str, tint: &str| {
+        let view = format!("fn tint(t: string): string = `{tint}`\n\ncomponent App\n  state t = \"fire\"\n  derive shade = `{tint}`\n  view\n    column\n      text \"a\" color=tint(t) background-color=shade\n      text \"b\" border-color=`{tint}`\n");
+        let dir = app(label, &[("app.tamber", TYPES), ("app.contract", &view)]);
+        contract::compile_path(&dir)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .encode()
+    };
+    assert!(
+        plan("completed-name", "type-${t}") == plan("completed-var", "var(--type-${t})"),
+        "the plans differ"
     );
 }
 
