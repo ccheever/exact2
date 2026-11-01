@@ -29,6 +29,7 @@ import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
 import { announceHostFreezes } from '../connections/host-freeze';
 import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
+import type { SessionCheck } from '../connections/auth-scope-options';
 import { environmentRequest, routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from '../connections/local-environment';
@@ -136,6 +137,10 @@ export class T3Client {
   legacyPermissions = false;
   /** The session read found a session the server no longer accepts (`authenticated: false`): pair again. */
   private sessionRejected = false;
+  /** The last session read failed; the transport asks again while this connection stays up. */
+  private sessionFailed = false;
+  /** What the session read has said (SessionPermissions' pending, failed, rejected or granted). */
+  get sessionCheck(): SessionCheck { return this.sessionRejected ? 'rejected' : this.scopesKnown ? 'granted' : this.sessionFailed ? 'failed' : 'pending'; }
   shellLive = false;
   threadLive = false;
   configLive = false;
@@ -371,7 +376,7 @@ export class T3Client {
       this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
       this.config = {}; this.providerId = ''; this.modelId = '';
-      this.scopes = []; this.scopesKnown = false; this.legacyPermissions = false; this.sessionRejected = false;
+      this.scopes = []; this.scopesKnown = false; this.legacyPermissions = false; this.sessionRejected = false; this.sessionFailed = false;
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
@@ -500,7 +505,7 @@ export class T3Client {
   private adoptSession(entry: Obj): void {
     const item = obj(entry.value), read = item._replyError === undefined, auth = read ? obj(item._reply) : {};
     this.scopes = sessionPermissions(auth); this.legacyPermissions = sessionHasLegacyPermissions(auth);
-    this.scopesKnown = read && auth.authenticated === true; this.sessionRejected = read && auth.authenticated !== true;
+    this.scopesKnown = read && auth.authenticated === true; this.sessionRejected = read && auth.authenticated !== true; this.sessionFailed = !read;
     // Only the notices the session decides change; another failure's banner stays.
     if (this.synchronizedGeneration === this.generation && [CONTEXT_NOTICE, PAIR_AGAIN, ''].includes(this.error)) this.error = this.sessionNotice();
   }

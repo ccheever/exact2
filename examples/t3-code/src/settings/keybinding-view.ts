@@ -1,9 +1,10 @@
 // Settings → Keybindings view model: rows, pills, labels, sources, conflicts and
-// area groups from KeybindingsSettings.logic.ts (T3 7c3b3b3605ef), and the When builder of
+// area groups from KeybindingsSettings.logic.ts (T3 2359643cff), and the When builder of
 // KeybindingsSettings.tsx as precomputed next expressions, so every builder
 // control only replaces the draft expression with a string computed here.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { shortcutInput, whenExpression, keybindingDefaults, keybindingCommands } from './keybinding-settings';
+import { PLATFORM } from './desktop-shell-favicon';
 
 export type WhenNode = { type: 'identifier'; name: string } | { type: 'not'; node: WhenNode } | { type: 'and' | 'or'; left: WhenNode; right: WhenNode };
 
@@ -199,9 +200,38 @@ export type KeybindingRowView = { id: string; command: string; label: string; ke
   defaultKey: string; defaultWhen: string; canReset: boolean; canRemove: boolean; conflict: string; first: boolean;
   /** keybindingAnchorIds: the search target `keybinding-<command>` on the first row of each command, '' on the rest. */
   anchor: string };
-export function conflictLabels(rows: { id: string; command: string; key: string; when: string }[], input: { id: string; key: string; when: string }): string[] {
+/** shared/keybindings.ts parseKeybindingShortcut: the chord a shortcut string names, or null when it names none. */
+export function parseShortcut(value: string): { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; modKey: boolean } | null {
+  const tokens = value.toLowerCase().split('+').map(token => token.trim());
+  let trailing = false;
+  while (tokens[tokens.length - 1] === '') { trailing = true; tokens.pop(); }
+  if (trailing) tokens.push('+');
+  if (!tokens.length || tokens.some(token => !token)) return null;
+  const chord = { key: '', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, modKey: false };
+  for (const token of tokens) {
+    if (token === 'cmd' || token === 'meta') chord.metaKey = true;
+    else if (token === 'ctrl' || token === 'control') chord.ctrlKey = true;
+    else if (token === 'shift') chord.shiftKey = true;
+    else if (token === 'alt' || token === 'option') chord.altKey = true;
+    else if (token === 'mod') chord.modKey = true;
+    else if (chord.key) return null;
+    else chord.key = token === 'space' ? ' ' : token === 'esc' ? 'escape' : token;
+  }
+  return chord.key ? chord : null;
+}
+/** keybindings.ts shortcutConflictKey: the resolved chord, so mod+k is meta+k on a Mac and ctrl+k elsewhere. */
+export function shortcutConflictKey(value: string, platform = PLATFORM): string | null {
+  const chord = parseShortcut(value);
+  if (!chord) return null;
+  const mac = /mac|iphone|ipad|ipod/i.test(platform);
+  return [chord.key, chord.metaKey || (chord.modKey && mac) ? 'meta' : '', chord.ctrlKey || (chord.modKey && !mac) ? 'ctrl' : '', chord.shiftKey ? 'shift' : '', chord.altKey ? 'alt' : ''].join('|');
+}
+/** keybindingConflictLabels: rows whose resolved chord is the input's, under an overlapping condition. */
+export function conflictLabels(rows: { id: string; command: string; key: string; when: string }[], input: { id: string; key: string; when: string }, platform = PLATFORM): string[] {
   if (!input.key.trim()) return [];
-  const conflicts = rows.filter(row => row.id !== input.id && row.key === input.key && (!row.when || !input.when || row.when === input.when)).map(row => commandLabel(row.command));
+  const chord = shortcutConflictKey(input.key, platform);
+  if (chord === null) return [];
+  const conflicts = rows.filter(row => row.id !== input.id && shortcutConflictKey(row.key, platform) === chord && (!row.when || !input.when || row.when === input.when)).map(row => commandLabel(row.command));
   return [...new Set(conflicts)].sort();
 }
 export function conflictText(labels: string[]): string {

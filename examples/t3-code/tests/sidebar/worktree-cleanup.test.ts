@@ -1,4 +1,4 @@
-// Ports of T3 Code 1e2ecbd975 apps/web/src/worktreeCleanup.test.ts (9 cases, original names),
+// Ports of T3 Code 2359643cff apps/web/src/worktreeCleanup.test.ts (13 cases, original names),
 // Sidebar.logic.test.ts "deleteSelectedThreadEntries" and "getFallbackThreadIdAfterDelete",
 // and packages/shared/src/threadReference.test.ts (6 cases; MIT, see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
@@ -23,6 +23,17 @@ describe('getOrphanedWorktreePathForThread', () => {
   test('returns null when another thread links to the same worktree', () => {
     const threads = [thread({ id: 'thread-1', worktreePath: '/tmp/repo/worktrees/feature-a' }), thread({ id: 'thread-2', worktreePath: '/tmp/repo/worktrees/feature-a' })];
     expect(getOrphanedWorktreePathForThread(threads, 'thread-1')).toBeNull();
+  });
+  for (const [targetPath, otherPath] of [['/tmp/repo/worktrees/feature-a', '/tmp/repo/worktrees/feature-a/'], ['/tmp/repo/worktrees/feature-a', '/tmp/repo/worktrees/feature-a//'], ['C:\\repo\\worktrees\\feature-a', 'c:/repo/worktrees/feature-a/']]) {
+    test(`treats ${targetPath} and ${otherPath} as the same worktree`, () => {
+      const threads = [thread({ id: 'thread-1', worktreePath: targetPath }), thread({ id: 'thread-2', worktreePath: otherPath })];
+      expect(getOrphanedWorktreePathForThread(threads, 'thread-1')).toBeNull();
+      expect(getOrphanedWorktreePathForThread(threads, 'thread-2')).toBeNull();
+    });
+  }
+  test('keeps case-sensitive POSIX worktrees apart', () => {
+    const threads = [thread({ id: 'thread-1', worktreePath: '/tmp/repo/worktrees/Feature' }), thread({ id: 'thread-2', worktreePath: '/tmp/repo/worktrees/feature' })];
+    expect(getOrphanedWorktreePathForThread(threads, 'thread-1')).toBe('/tmp/repo/worktrees/Feature');
   });
   test('ignores threads linked to different worktrees', () => {
     const threads = [thread({ id: 'thread-1', worktreePath: '/tmp/repo/worktrees/feature-a' }), thread({ id: 'thread-2', worktreePath: '/tmp/repo/worktrees/feature-b' })];

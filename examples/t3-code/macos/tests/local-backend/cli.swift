@@ -57,6 +57,38 @@ final class LocalCliCommandTests: XCTestCase {
         XCTAssertEqual(try String(contentsOfFile: command.launcher, encoding: .utf8), "unowned")
         XCTAssertThrowsError(try fixture(supported: false).install())
     }
+    // DesktopCliCommand.test.ts at 2359643cff: only an executable file first on PATH is another t3.
+    func testOnlyAnExecutableFileFirstOnPathShadows() throws {
+        let fs = FileManager.default
+        let folder = root.appendingPathComponent("folder", isDirectory: true), plain = root.appendingPathComponent("plain", isDirectory: true)
+        try fs.createDirectory(at: folder.appendingPathComponent("t3", isDirectory: true), withIntermediateDirectories: true)
+        try fs.createDirectory(at: plain, withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(toFile: plain.appendingPathComponent("t3").path, atomically: true, encoding: .utf8)
+        try fs.setAttributes([.posixPermissions: 0o644], ofItemAtPath: plain.appendingPathComponent("t3").path)
+        let command = fixture(path: [folder.path, plain.path, root.appendingPathComponent("preferred").path].joined(separator: ":"))
+        XCTAssertNil(command.state()["shadowedBy"])
+        let state = try command.install()
+        XCTAssertEqual(state["installedPath"] as? String, root.appendingPathComponent("preferred/t3").path)
+        XCTAssertEqual(state["onPath"] as? Bool, true)
+        XCTAssertNil(state["shadowedBy"])
+    }
+    // The launcher's own folder first on PATH runs our launcher: not another t3, and on PATH.
+    func testTheLaunchersOwnFolderOnPathIsNotAnotherT3() throws {
+        let probe = fixture()
+        let command = fixture(path: [(probe.launcher as NSString).deletingLastPathComponent, root.appendingPathComponent("preferred").path].joined(separator: ":"))
+        _ = try command.installLauncher()
+        let before = command.state()
+        XCTAssertNil(before["shadowedBy"])
+        XCTAssertEqual(before["onPath"] as? Bool, true)
+        XCTAssertTrue(before["installedPath"] is NSNull)
+        let state = try command.install()
+        XCTAssertEqual(state["installedPath"] as? String, root.appendingPathComponent("preferred/t3").path)
+        XCTAssertEqual(state["onPath"] as? Bool, true)
+        XCTAssertNil(state["shadowedBy"])
+        // Removal still takes only links: the launcher itself stays.
+        _ = try command.uninstall()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: command.launcher))
+    }
     func testLauncherPreservesArgumentsAndHomeOverridesAndReportsAMovedApp() throws {
         let command = fixture()
         try executable(command.appExecutable, text: "#!/bin/sh\nexit 0\n")

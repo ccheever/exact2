@@ -322,6 +322,22 @@ describe('managed Codex setup (CodexSetupSection)', () => {
     expect(obj(obj(obj(fake.methods('server.updateSettings')[1]!.payload).providerInstanceMutation).instance).config).toEqual({ enabled: true, setupMode: 'existing' });
   });
 
+  test('Settings: the signed-out ChatGPT account row offers Use existing CLI, but not in the Add ChatGPT account dialog', async () => {
+    const fake = await rendered(auth(), installed());
+    fake.handlers['server.getConfig'] = () => fake.config;
+    const row = fake.setup();
+    expect([row.control, row.controlLabel, row.secondary, row.secondaryDisabled]).toEqual(['connect', 'Continue with ChatGPT', 'existing', false]);
+    const dialog = codexSetupView(fake, instanceId, provider(), { presentation: 'settings', mode: 'managed', enabled: true, readOnly: false, allowExistingCli: false });
+    expect(dialog.secondary).toBe('');
+    const readOnly = codexSetupView(fake, instanceId, provider(), { presentation: 'settings', mode: 'managed', enabled: true, readOnly: true, allowExistingCli: true });
+    expect(readOnly.secondaryDisabled).toBe(true);
+    await fake.press('setup:codex-mode', 'existing');
+    expect(obj(obj(obj(fake.methods('server.updateSettings')[0]!.payload).providerInstanceMutation).instance).config).toEqual({ enabled: true, setupMode: 'existing' });
+    const source = await appText('codex-setup.contract');
+    expect(source).toContain('label="Use existing CLI", muted=false, small=false, disabled=(setup.secondaryDisabled or pending), icon="", target=`codex-existing-${setup.instanceId}`');
+    expect(source).toContain('row flex-shrink=0 min-width=0 max-width="22rem" gap="0.5rem"');
+  });
+
   test('the Add ChatGPT account dialog carries the created account\'s setup, starts it, and reports when the plan is shared', async () => {
     const fake = new Fake([]);
     fake.ids = async (_native: Native, count: number) => ['8f9e', '0000'].slice(0, count);

@@ -25,6 +25,8 @@ import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-sc
 import { PROJECT_SCOPED, applyCoreSetting, applyDeviceSetting } from './settings-core'; // "Open links in"; the storage panel's core rows
 import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread's chip
 import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
+import { defaultProjectIcon } from './projects-view';
+import { isScratch } from '../composer/scratch-machine';
 import { scopedStorageCommand } from './storage-scope';
 import { databaseCommand } from './storage-maintenance';
 import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
@@ -196,19 +198,21 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     return '';
   }
   if (op === 'project-icon') {
-    // ProjectSettingsPanel setProjectIcon({ faviconPath: null, projectIcon: null }), fanned out to the group on every
-    // environment, each member through its own.
+    // ProjectSettingsPanel setProjectIcon(defaultProjectIcon), fanned out to the group on every environment, each
+    // member through its own: no icon, or the Scratch project's own.
     const { projectId } = await currentScope(client, access, scope);
     const group = projectId ? groupOfMember(focused, background ? fleetThreadId(background.environmentId, projectId) : projectId) : undefined;
     if (!projectId || !group) throw new ClientError('Choose a project to change its icon.');
     for (const [environmentId, ids] of byEnvironment(focused, group.members.map(member => str(member.id)))) {
       const home = environmentClient(focused, environmentId, native), homeAccess = home.restAccess(native);
       const shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
+      const scratchRoot = str(home.config.scratchWorkspaceRoot).trim();
       for (const id of ids) {
-        if (!shell.projects.some(project => project.id === id)) throw new ClientError('Project group membership changed. Reopen its settings.');
+        const project = shell.projects.find(candidate => candidate.id === id);
+        if (!project) throw new ClientError('Project group membership changed. Reopen its settings.');
         const [commandId] = await homeAccess.ids(1);
         await homeAccess.write(storage, { method: 'projects.mutate', description: 'Reset project icon', threadId: '', text: '', uncertain: false,
-          payload: { type: 'project.update', commandId, projectId: id, faviconPath: null, projectIcon: null } });
+          payload: { type: 'project.update', commandId, projectId: id, ...defaultProjectIcon(isScratch(project, scratchRoot)) } });
       }
       home.shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
     }

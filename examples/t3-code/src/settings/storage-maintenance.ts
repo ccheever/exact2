@@ -10,14 +10,8 @@ import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 const GIB = 1024 ** 3;
 
-/** lib/formatBytes.ts. */
-export function formatBytes(value: number): string {
-  if (value < 1_024) return `${Math.round(value)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'] as const;
-  let next = value, unitIndex = -1;
-  do { next /= 1_024; unitIndex += 1; } while (next >= 1_024 && unitIndex < units.length - 1);
-  return `${next.toFixed(next >= 100 ? 0 : next >= 10 ? 1 : 2)} ${units[unitIndex]}`;
-}
+import { formatBytes } from './format-bytes';
+export { formatBytes };
 
 export type DatabaseNotice = { environmentId: string; title: string; command: string };
 /**

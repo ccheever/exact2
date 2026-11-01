@@ -68,6 +68,8 @@ export const SESSION_STATE_KEY = 'session-state';
 /** fetchEnvironmentSessionState's first deadline and its ceiling: a timeout asks again with double the time. */
 export const SESSION_READ_FIRST_MS = 6_000;
 export const SESSION_READ_MAX_MS = 60_000;
+/** sessionStateAtom: a failed read asks again while its connection stays up, after 2 s doubling to 60 s. */
+export const sessionRetryMs = (failures: number): number => Math.min(2_000 * 2 ** failures, 60_000);
 
 /**
  * An SSH host's pairing exchange answered with HTTP 500, from a server that runs another version than this client,
@@ -160,6 +162,9 @@ export class Session {
   private sessionRead: { epoch: number; id: number; timeoutMs: number } | null = null;
   private sessionReads = 0;
   private sessionReading: Promise<void> | null = null;
+  /** The failed read's next try on its connection, and how many tries in a row have failed there. */
+  private sessionRetry: { epoch: number; id: number; at: number } | null = null;
+  private sessionFailures = 0;
   private socket: SocketHandle | null = null;
   private abort: AbortController | null = null;
   private readonly lease = {};
@@ -745,6 +750,12 @@ export class Session {
         if (this.inbox.append(this.generation, key, due.id, { _retryDue: true })) this.hooks.changed('events');
       }
       if (this.routes.nextCheckAt && now >= this.routes.nextCheckAt) { this.routes.schedule(now); this.routeCheckDue = true; this.check += 1; }
+      const retry = this.sessionRetry;
+      if (retry && now >= retry.at) {
+        this.sessionRetry = null;
+        // Under the same id, which the reader keys the grants on.
+        if (retry.epoch === this.generation && !this.sessionRead) { this.sessionRead = { epoch: retry.epoch, id: retry.id, timeoutMs: SESSION_READ_FIRST_MS }; this.check += 1; }
+      }
     } else if (this.url && this.openDeadline && now >= this.openDeadline) {
       this.connectionFailed(new TransportFailure('Network', this.unopened), this.generation);
     }
@@ -757,6 +768,7 @@ export class Session {
     if (this.reconnectAt !== null && this.reconnectAt - now < 1_500) return true;
     if (this.probing) return true;
     for (const due of this.retryDue.values()) if (due.at - now < 1_500) return true;
+    if (this.sessionRetry && this.sessionRetry.at - now < 1_500) return true;
     return false;
   }
 
@@ -984,6 +996,7 @@ export class Session {
   private askSession(): Obj {
     if (this.state !== 'connected') throw notConnected();
     this.sessionRead = { epoch: this.generation, id: ++this.sessionReads, timeoutMs: SESSION_READ_FIRST_MS };
+    this.sessionRetry = null; this.sessionFailures = 0; // each connection reads anew, from the first delay
     this.check += 1;
     return { id: String(this.sessionRead.id) };
   }
@@ -1016,6 +1029,12 @@ export class Session {
     }
     if (!current()) return;
     this.sessionRead = null;
+    // A failure is filed (the reader says it is retrying) and read again later on this connection, so a read
+    // that failed mid-reconnect cannot outlive the socket that recovered.
+    if (reply._replyError !== undefined) {
+      this.sessionRetry = { epoch: read.epoch, id: read.id, at: this.hooks.now() + sessionRetryMs(this.sessionFailures) };
+      this.sessionFailures += 1;
+    } else this.sessionFailures = 0;
     if (this.inbox.append(read.epoch, SESSION_STATE_KEY, String(read.id), reply)) this.hooks.changed('events');
   }
 

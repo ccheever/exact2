@@ -2,7 +2,9 @@ import { notifyChatGptCreated } from './provider-created-callback';
 import { providerSettingsWritable, providerWritable } from './provider-permissions';
 // T3 Code 74541bab17 (MIT, LICENSE-T3), ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers; the Add provider wizard and its ACP Registry search
-// follow 7c3b3b3605ef (AddProviderInstanceDialog, AcpRegistrySearchStep, MultipleAccountsNote).
+// follow 7c3b3b3605ef (AddProviderInstanceDialog, AcpRegistrySearchStep, MultipleAccountsNote); the environment
+// variables (ProviderInstanceCard ProviderEnvironmentSection), the model rows' labels (ProviderModelsSection) and the
+// usage hub ids (AddUsageLimitSourceDialog.logic.ts) follow 2359643cff.
 // Every write reads fresh server settings first and changes only the selected instance (atomic mutation).
 import { setupOf } from './provider-setup'; // the Account and Runtime rows
 import { providerAccount, providerWizardAuth } from './provider-auth';
@@ -10,6 +12,7 @@ import { providerRuntime, configuredBinaryPath } from './provider-install';
 import { redactedValue } from '../shared/redacted-text';
 import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // CodexSetupSection
 import { usesChatGptSharing } from './chatgpt-plan';
+import { REASONING_SELECT_DESCRIPTOR_IDS } from '../composer/composer-controls-model';
 import { obj, str, arr, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
@@ -96,11 +99,17 @@ const fieldRow = (instanceId: string, field: DriverField, value: string, extra: 
   options: (field.options || []).map(option => ({ value: option.value, label: option.label, selected: option.value === (value || field.options![0]!.value) })),
 });
 
-function capabilityLabels(model: Obj): string {
+const PROVIDER_ALIAS_SLUGS = new Set(['default', 'auto']);
+const hasReasoningControl = (model: Obj) => arr(obj(model.capabilities).optionDescriptors).some(item => REASONING_SELECT_DESCRIPTOR_IDS.has(str(item.id)));
+/**
+ * ProviderModelsSection describeModelCapabilities (T3 Code 2359643cff). Reasoning is the norm, so only its absence is
+ * labeled, and only when another model has it (`flagMissingReasoning`); custom models, models without capabilities
+ * and the alias slugs ("default", Cursor's "auto") prove nothing about it.
+ */
+function capabilityLabels(model: Obj, flagMissingReasoning: boolean): string {
   const descriptors = arr(obj(model.capabilities).optionDescriptors), labels: string[] = [];
   if (descriptors.some(item => item.id === 'fastMode' || (item.id === 'serviceTier' && item.type === 'select' && arr(item.options).some(option => option.id === 'fast' || option.label === 'Fast')))) labels.push('Fast mode');
-  if (descriptors.some(item => item.id === 'thinking')) labels.push('Thinking');
-  if (descriptors.some(item => item.type === 'select' && ['reasoningEffort', 'effort', 'reasoning', 'variant'].includes(str(item.id)))) labels.push('Reasoning');
+  if (flagMissingReasoning && model.isCustom !== true && model.capabilities && !PROVIDER_ALIAS_SLUGS.has(str(model.slug)) && !hasReasoningControl(model)) labels.push('No reasoning');
   return labels.join(' · ');
 }
 
@@ -118,8 +127,22 @@ function modelRevisionsOf(host: ProviderHost): Map<string, number> { let revisio
 function envRows(host: ProviderHost, instanceId: string, instance: Obj, dedicated: Set<string>): Obj[] {
   const published = arr(instance.environment).filter(variable => !dedicated.has(str(variable.name)));
   const draft = envDraftsOf(host).get(instanceId);
-  return draft ?? published.map(variable => ({ name: str(variable.name), value: str(variable.value), sensitive: variable.sensitive === true, ...(variable.valueRedacted === true ? { valueRedacted: true } : {}) }));
+  return draft ?? published.map(storedVariable);
 }
+/**
+ * A variable as settings store it (contracts providerInstance.ts StoredProviderInstanceEnvironmentVariable): a
+ * secret provider's reference travels as `secret` beside an empty value, so older clients still decode it. A
+ * row keeps it through every edit of its siblings, as the reference's draft rows keep the decoded value.
+ */
+const storedVariable = (variable: Obj): Obj => ({ name: str(variable.name), value: str(variable.value), sensitive: variable.sensitive === true,
+  ...(variable.valueRedacted === true ? { valueRedacted: true } : {}), ...(secretOf(variable) ? { secret: secretOf(variable) } : {}) });
+/** The variable's SecretReference ({ provider, reference }), or null for a plain value. */
+export function secretOf(variable: Obj | undefined): { provider: string; reference: string } | null {
+  const secret = obj(variable?.secret), provider = str(secret.provider), reference = str(secret.reference);
+  return provider && reference ? { provider, reference } : null;
+}
+/** SecretReferencePath: trimmed, not empty, at most 1,024 characters, one line. */
+const SECRET_REFERENCE = /^[^\r\n]{1,1024}$/;
 
 const environmentLabelOf = (host: ProviderHost) => str(obj(host.config.environment).label, 'this environment');
 const setupTargetOf = (host: ProviderHost, instanceId: string) => host.setupTarget ? { target: host.setupTarget(instanceId) } : {};
@@ -138,6 +161,35 @@ function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' 
   if (providerWritable(host) && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
   if (providerWritable(host) && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
   return '';
+}
+/**
+ * AddUsageLimitSourceDialog.logic.ts sourceIdFromUrl: a saved hub with this URL keeps its id, and
+ * another hub on the same host gets the next free `-<n>`, since settings merge by id.
+ */
+export function sourceIdFromUrl(url: string, parsed: URL, sources: Obj): string {
+  const saved = Object.entries(sources).find(([, source]) => obj(source).url === url);
+  if (saved) return saved[0];
+  const slug = parsed.host.toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '');
+  const base = `cliproxy-${slug || 'hub'}`;
+  let id = base;
+  for (let suffix = 2; id in sources; suffix += 1) id = `${base}-${suffix}`;
+  return id;
+}
+/**
+ * One ProviderEnvironmentSection row. A row whose value is a secret reference shows SecretSourceInput's parts: the
+ * source picker (Value, or the provider) and the reference field, and no sensitivity toggle. Choosing a secret
+ * provider is the T3CODE_FEATURE_SECRETS build's (useSecretSources is empty in a release), so the picker offers only
+ * Value and the provider a reference already names.
+ */
+function variableView(instanceId: string, variable: Obj, index: number) {
+  const secret = secretOf(variable), value = variable.valueRedacted === true ? '' : str(variable.value);
+  return {
+    rowKey: `${instanceId}:env:${index}:${str(variable.name)}:${value}:${variable.sensitive === true}:${variable.valueRedacted === true}:${secret ? `${secret.provider}:${secret.reference}` : ''}`,
+    index, name: str(variable.name), value: secret ? secret.reference : value, sensitive: variable.sensitive === true,
+    redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1),
+    secretProvider: secret?.provider ?? '',
+    sources: secret ? [{ value: '__stored__', label: 'Value', note: '', selected: false }, { value: secret.provider, label: secret.provider, note: '', selected: true }] : [],
+  };
 }
 function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
   const kind = setupKind(host, row, provider), environmentLabel = environmentLabelOf(host), entry = setupOf(host, row.id);
@@ -176,6 +228,7 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   // ProviderModelsSection: favorites, visible, then hidden, using this environment’s preferences.
   const source = modelPreferenceSource(host);
   const favorites = favoriteSlugs(source, row.id), prefs = instancePrefs(source, row.id), hiddenSet = new Set(prefs.hiddenModels);
+  const flagMissingReasoning = models.some(model => hasReasoningControl(obj(model)));
   const display = groupModels<Obj & { slug: string; isCustom: boolean }>(models.map(model => ({ ...(model as Obj), slug: str(model.slug), isCustom: model.isCustom === true })), favorites, hiddenSet, prefs.modelOrder);
   const favoriteCount = display.filter(entry => entry.group === 'favorite').length;
   const hiddenCount = display.filter(entry => !entry.model.isCustom && hiddenSet.has(entry.model.slug)).length;
@@ -203,15 +256,13 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     commandArgs: (Array.isArray(config.commandArgs) ? config.commandArgs : []).filter((arg): arg is string => typeof arg === 'string').map((value, index) => ({ key: `${row.id}:${index}:${value}`, index, value })),
     fields: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [] : (meta?.fields || []).filter(field => row.driver !== 'acpRegistry' || config.source !== 'local' || field.key === 'source' || field.key === 'commandPath').map((field, index) => fieldRow(row.id, row.driver === 'acpRegistry' && config.source === 'local' && field.key === 'commandPath' ? { ...field, label: 'Executable', description: 'Executable name or path on this environment.', placeholder: 'e.g. dsh' } : field, str(config[field.key]) || (field.key === 'source' ? 'registry' : ''), {}, index === 0)),
     codexRuntime: row.driver === 'codex' && readCodexSetupMode(config) === 'managed' ? [codexRuntimeFields(host, row.id, provider)] : [],
-    variables: variables.map((variable, index) => ({ rowKey: `${row.id}:env:${index}:${str(variable.name)}:${variable.valueRedacted === true ? '' : str(variable.value)}:${variable.sensitive === true}:${variable.valueRedacted === true}`,
-      index, name: str(variable.name), value: variable.valueRedacted === true ? '' : str(variable.value), sensitive: variable.sensitive === true,
-      redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1) })),
+    variables: variables.map((variable, index) => variableView(row.id, variable, index)),
     hasVariables: variables.length > 0,
     models: display.map(({ model, group }, index) => {
       const previous = display[index - 1], next = display[index + 1], starts = !previous || previous.group !== group;
       const hidden = !model.isCustom && hiddenSet.has(model.slug);
       return { rowKey: `${row.id}:model:${model.slug}`, slug: model.slug, name: str(model.name) || model.slug, showSlug: str(model.name) !== model.slug && str(model.name) !== '',
-        custom: model.isCustom, favorite: group === 'favorite', capabilities: capabilityLabels(obj(model)),
+        custom: model.isCustom, favorite: group === 'favorite', capabilities: capabilityLabels(obj(model), flagMissingReasoning),
         groupLabel: !starts ? '' : group === 'hidden' ? 'Hidden from picker' : favoriteCount > 0 ? (group === 'favorite' ? 'Favorites' : 'All') : '', firstGroup: index === 0,
         hidden, moves: !hidden, canUp: previous?.group === group, canDown: next?.group === group,
         pickerTip: model.isCustom ? 'Custom models are always shown in the picker' : hidden ? 'Hidden from picker' : 'Shown in picker' };
@@ -414,7 +465,7 @@ const withKey = (base: Obj, key: string, value: unknown) => { const next: Obj = 
 const FAILURE_TITLES: Record<string, string> = { 'provider-remove': 'Could not delete provider instance', 'provider-reset': 'Could not reset provider instance',
   'provider-add': 'Could not add provider instance', 'provider-create': 'Could not add provider instance' };
 const TOASTED = ['provider-name', 'provider-display', 'provider-enabled', 'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-remove', 'provider-env-name',
-  'provider-env-value', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', ...Object.keys(FAILURE_TITLES)];
+  'provider-env-value', 'provider-env-source', 'provider-env-sensitive', 'provider-model-add', 'provider-model-remove', ...Object.keys(FAILURE_TITLES)];
 const toastOf = (host: ProviderHost) => hostClient(host); // a background environment's page toasts in this window
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
@@ -478,8 +529,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       if (!url || !key) throw new ClientError('Enter the hub URL and management key.');
       let parsed: URL;
       try { parsed = new URL(url); } catch { throw new ClientError('Enter a valid hub URL.'); }
-      const slug = parsed.host.toLowerCase().replace(/[^a-z0-9.-]+/g, '-').replace(/^-+|-+$/g, '');
-      await host.rpc(native, 'server.updateSettings', { patch: { usageLimitSources: { [`cliproxy-${slug || 'hub'}`]: { kind: 'cliproxy', ...(id.trim() ? { label: id.trim() } : {}), url, managementKey: key, enabled: true } } } }, true);
+      await host.rpc(native, 'server.updateSettings', { patch: { usageLimitSources: { [sourceIdFromUrl(url, parsed, obj(obj(host.config.settings).usageLimitSources))]: { kind: 'cliproxy', ...(id.trim() ? { label: id.trim() } : {}), url, managementKey: key, enabled: true } } } }, true);
     } else await host.rpc(native, 'server.updateSettings', { patch: { usageLimitSources: { [str(input.key)]: null } } }, true);
     await refreshConfig(host, native); return '';
   }
@@ -568,14 +618,22 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       if (index < 0 || index >= rows.length) throw new ClientError('That variable is no longer available.');
       if (op === 'provider-env-remove') rows.splice(index, 1);
       else if (op === 'provider-env-name') rows[index]!.name = str(input.value).trim();
+      else if (op === 'provider-env-value' && secretOf(rows[index])) {
+        // SecretSourceInput's reference field: an empty commit returns to a stored value; an invalid one is refused.
+        const reference = str(input.value).trim(), current = rows[index]!;
+        if (!reference) { delete current.secret; current.value = ''; delete current.valueRedacted; }
+        else if (!SECRET_REFERENCE.test(reference)) return 'Enter a valid secret reference.';
+        else current.secret = { provider: secretOf(current)!.provider, reference };
+      }
       else if (op === 'provider-env-value') { if (str(input.value) !== str(rows[index]!.value) || rows[index]!.valueRedacted === true) { rows[index]!.value = str(input.value); rows[index]!.valueRedacted = false; } }
+      else if (op === 'provider-env-source') { const current = rows[index]!; if (input.value === '__stored__' && secretOf(current)) { delete current.secret; current.value = ''; delete current.valueRedacted; } }
       else if (op === 'provider-env-sensitive') { const current = rows[index]!; current.sensitive = input.value === 'true'; if (current.sensitive !== true && current.valueRedacted === true) current.valueRedacted = false; }
       else throw new ClientError(`Unknown action: ${op}`);
       envDraftsOf(host).set(id, rows);
       const invalid = rows.some(entry => !ENV_NAME.test(str(entry.name)) && (str(entry.name) || str(entry.value) || entry.sensitive !== true || entry.valueRedacted !== undefined));
       if (invalid) return str(rows[index]?.name) && !ENV_NAME.test(str(rows[index]?.name)) ? 'Use letters, digits and underscores for variable names, starting with a letter or underscore.' : '';
       const keep = arr(instance.environment).filter(variable => dedicated.has(str(variable.name)));
-      const published = rows.filter(entry => ENV_NAME.test(str(entry.name))).map(entry => ({ name: str(entry.name), value: str(entry.value), sensitive: entry.sensitive === true, ...(entry.valueRedacted === true ? { valueRedacted: true } : {}) }));
+      const published = rows.filter(entry => ENV_NAME.test(str(entry.name))).map(storedVariable);
       const environment = [...keep, ...published];
       if (sameValue(environment, arr(instance.environment))) { await refreshConfig(host, native); return ''; }
       next = withKey(instance, 'environment', environment.length ? environment : undefined);
@@ -669,7 +727,7 @@ export function setCodexTargetResolver(resolver: typeof codexTargetResolver): vo
 export { setChatGptCreatedHandler } from './provider-created-callback';
 
 export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
-  'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
+  'provider-accent', 'provider-argument-add', 'provider-argument-remove', 'provider-argument-value', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-source', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
   'provider-model-remove', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', ...MODEL_PREF_OPS];
 export type { Driver };
 

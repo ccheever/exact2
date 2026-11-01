@@ -1,0 +1,17 @@
+// The window's Back and Forward (sidebar-history.ts): the sidebar header's Go back and Go forward buttons and a mouse's
+// side buttons step what ⌘[ and ⌘] step, through the same targets the keyboard dispatch runs.
+use NavigationHistory from "./sidebar-shapes.contract"
+members T3Code
+  resource navigationHistory = navigationHistory(data.revision, utilityPage, settingsOpen) as shape NavigationHistory
+  action historyGo(direction: string)
+    let kind = direction == "back" ? navigationHistory.backKind : navigationHistory.forwardKind
+    let target = direction == "back" ? navigationHistory.backTarget : navigationHistory.forwardTarget
+    let extra = direction == "back" ? navigationHistory.backExtra : navigationHistory.forwardExtra
+    if kind == "thread"
+      selectThread(target)
+    else if kind == "back"
+      closeModal()
+    else if kind == "palette-run"
+      paletteRun(target, extra, "")
+    else if kind == "new-thread-in"
+      paletteRun("new-thread", target, "")

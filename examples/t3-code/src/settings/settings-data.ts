@@ -11,11 +11,37 @@ import { can } from '../connections/command-permissions';
 import { environmentClient, groupOfMember } from './projects-fleet';
 import { settingsScopeEnvironmentLabel } from './settings-scope';
 import { letGo } from '../client/let-go';
+import { sleep } from '../client/command-waits';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Could not load this section.';
 type NoticeRow = { id: string; name: string; version: string; license: string; bundles: string; sourceUrl: string; expanded: boolean; noticeText: string };
 type ArchiveGroup = { id: string; title: string; mark: string; ink: string; surface: string; first: boolean; threads: { id: string; scope: string; title: string; description: string; first: boolean }[] };
 const notices = new WeakMap<T3Client, { origin: string; generation: number; retry: number; entries: Obj[] }>();
+
+/**
+ * StorageCleanupSections' artifact and log status, `useDebouncedValue(\`${targetIds}:${mixed}\`, 300)`: a row reads
+ * "Mixed across selected machines" only once more than one machine has disagreed for 300 ms, so a save that reaches
+ * the machines one after another does not flash it. The first answer after the page opens is settled at once, as the
+ * hook's first value is; a later change settles after 300 ms on the app's clock and asks again (`t3.notify`).
+ */
+const artifactStatuses = new WeakMap<T3Client, Map<string, { pending: string; settled: string; seq: number }>>();
+export function settledStatus(client: T3Client, native: Native, key: string, value: string): string {
+  let statuses = artifactStatuses.get(client);
+  if (!statuses) artifactStatuses.set(client, statuses = new Map());
+  const entry = statuses.get(key);
+  if (!entry) { statuses.set(key, { pending: value, settled: value, seq: 0 }); return value; }
+  if (entry.pending !== value) {
+    const seq = ++entry.seq, owned = statuses;
+    entry.pending = value;
+    void sleep(300).then(async () => {
+      if (entry.seq !== seq || owned.get(key) !== entry) return;
+      entry.settled = value;
+      await native.later({ op: 'wake', topic: 't3.notify' });
+    }).catch(() => {});
+  }
+  if (entry.settled !== entry.pending) native.watch('t3.notify');
+  return entry.settled;
+}
 
 // The connected server owns this manifest. Do not substitute a fabricated list
 // of this native client's dependencies for the T3 bundle's actual notices.
@@ -161,7 +187,7 @@ export async function storageSettings(client: T3Client, native: Native | null | 
   const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as DatabaseNotice[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
     available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], worktreesAdvanced: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; entries: CleanupEntry[]; omitted: string; omittedFirst: boolean; empty: string; emptyFirst: boolean }[],
     creation: [] as CoreRow[], creationAdvanced: [] as CoreRow[], branches: [] as ScopedRow[], diagnostics: [] as CoreRow[], codePreview: NO_PREVIEW };
-  if (!active) return empty;
+  if (!active) { artifactStatuses.delete(client); return empty; }
   // Maintenance ends with Diagnostics whatever its storage sections show.
   const diagnostics = (selected: number) => [{ ...diagnosticsRow(selected === 1), divider: false }];
   try {
@@ -187,7 +213,10 @@ export async function storageSettings(client: T3Client, native: Native | null | 
     const mixedModes = modes.some(value => value !== mode);
     const allRules = context.targets.map(target => ({ ...obj(target.settings.storageCleanup), ...effectiveWorktreeRules(target.settings, target.projectId ? obj(obj(target.settings.projectSettingsOverrides)[target.projectId]) : {}) }));
     const rules = allRules[context.targets.indexOf(representative)] ?? allRules[0] ?? {};
-    const mixed = (key: string) => allRules.some(value => JSON.stringify(value[key]) !== JSON.stringify(rules[key]));
+    const differs = (key: string) => allRules.some(value => JSON.stringify(value[key]) !== JSON.stringify(rules[key]));
+    const targetIds = context.targets.map(target => target.environmentId).sort().join(',');
+    const mixed = (key: string) => key !== 'browserArtifactsAfterDays' && key !== 'logsAfterDays' ? differs(key)
+      : context.targets.length > 1 && settledStatus(client, native as Native, key, `${targetIds}:${differs(key)}`) === `${targetIds}:true`;
     const view = (definitions: (typeof storageDefinitions)[number][], first: boolean) => definitions.map(([key, label, description, retention], index) => ({ key, label, description: mixed(key) ? `Mixed across selected machines. ${description}` : description, mixed: mixed(key), retention, first: first && index === 0, enabled: retention ? typeof rules[key] === 'number' : rules[key] === true, days: typeof rules[key] === 'number' ? String(rules[key]) : '8',
       decrease: String(Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, num(rules[key], 8) - 1)), increase: String(Math.min(3650, num(rules[key], 8) + 1)) }));
     const environments = liveEnvironments(client, native).filter(environment => scope.selected.some(selected => selected.environmentId === environment.environmentId)

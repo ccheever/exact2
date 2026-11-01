@@ -9,7 +9,7 @@ import type { Files, Native } from '../../src/client/protocol';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { byEnvironment, groupOfMember, settingsGroups, settingsPageClient } from '../../src/settings/projects-fleet';
 import { archiveCommand } from '../../src/settings/settings-a-archive';
-import { projectsPage } from '../../src/settings/projects-view';
+import { defaultProjectIcon, hasDefaultProjectIcon, projectsPage } from '../../src/settings/projects-view';
 import { sidebarWrites } from '../../src/client/client-ops-sidebar';
 import { restCommand } from '../../src/settings/settings-rest-commands';
 import { runIconOp } from '../../src/settings/settings-b-icons';
@@ -145,4 +145,35 @@ test('background archive actions use the row owner without changing the focused 
   expect(client.threadId).toBe('focused-thread');
   expect(client.local.drafts['env-remote:t1']).toBeUndefined();
   expect(client.local.drafts['local:focused-thread']).toBe('focused draft');
+});
+
+// ProjectSettingsPanel at 2359643cff: the No project (Scratch) project's name and icon reset to its own, and removal
+// copy says the threads are deleted from T3 Code while provider sessions are kept.
+describe('No project and removal copy', () => {
+  const scratch = (entry: FleetEntry) => { entry.config = { ...entry.config, scratchWorkspaceRoot: '/srv/solo/' }; };
+  test('a renamed Scratch project offers Reset project name, and its icon counts as default only when it is the dashed message', () => {
+    const client = focused(), entry = studio();
+    expect(projectsPage(client, 'env-remote:/srv/solo', '', true)).toMatchObject({ nameResettable: false, iconCustom: false });
+    scratch(entry);
+    expect(projectsPage(client, 'env-remote:/srv/solo', '', true)).toMatchObject({ nameResettable: true, iconCustom: true });
+    const [project] = entry.shell.projects;
+    Object.assign(project!, { title: 'No project', projectIcon: { kind: 'lucide', name: 'message-square-dashed', color: 'gray' } });
+    expect(projectsPage(client, 'env-remote:/srv/solo', '', true)).toMatchObject({ nameResettable: false, iconCustom: false });
+    // A group with a member that is not Scratch is never renamed back to "No project".
+    expect(projectsPage(client, 'github.com/acme/app', '', true).nameResettable).toBe(false);
+  });
+  test('Reset project icon gives a Scratch member its dashed message icon, and any other member none', async () => {
+    const client = focused(), entry = studio(), ops: Obj[] = [];
+    scratch(entry);
+    await restCommand(client, nativeOf(entry, ops), files, 'project-icon', 'local:fleet:env-remote:r1', 'action=reset');
+    expect(fleetRequests(ops).map(request => [request.payload.projectId, request.payload.faviconPath, request.payload.projectIcon]))
+      .toEqual([['r1', null, { kind: 'lucide', name: 'message-square-dashed', color: 'gray' }]]);
+    expect([defaultProjectIcon(false), hasDefaultProjectIcon({ projectIcon: null }, false), hasDefaultProjectIcon({ faviconPath: 'icon.png' }, true)])
+      .toEqual([{ faviconPath: null, projectIcon: null }, true, false]);
+  });
+  test('removing a project says provider sessions are kept', () => {
+    const client = focused(); studio();
+    expect(projectsPage(client, 'env-remote:/srv/solo', '', true).confirm).toContain('Those threads and any archived threads are deleted from T3 Code. Provider sessions are kept.');
+    expect(projectsPage(client, 'github.com/acme/app', '', true).confirm).toContain('Any archived threads are deleted from T3 Code. Provider sessions are kept.');
+  });
 });

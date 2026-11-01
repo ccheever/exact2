@@ -114,12 +114,26 @@ describe('pooled limits across environments', () => {
     const hub = pooled.pools[1]!.windows[0]!.segments[0]!;
     expect(hub).toMatchObject({ whereLabel: 'Via', where: 'Laptop · Team hub', avatar: 'chip', chip: 'ST', name: '', redeemable: false, plan: 'Claude Max' });
     expect(pooled.notices.map(notice => notice.text)).toEqual(['Laptop · Old hub: token expired']);
-    expect(pooled.links).toEqual([{ key: 'https://chatgpt.com/#settings/Usage', label: 'ChatGPT usage', chatgpt: true, message: 'View usage in ChatGPT with your connected account.', url: 'https://chatgpt.com/#settings/Usage' }]);
+    // The card names the accounts that reach it (UsageLimitsPooled.browser.test.tsx).
+    expect(pooled.links).toEqual([{ key: 'https://chatgpt.com/#settings/Usage', label: 'ChatGPT usage', accounts: 'Codex on Laptop', chatgpt: true, message: 'View usage in ChatGPT with your connected account.', url: 'https://chatgpt.com/#settings/Usage' }]);
     // One automatic provider check per connected environment, each on its own transport.
     expect(rig.of('server.refreshProviders').map(entry => entry.env).sort()).toEqual(['env-a', 'env-b']);
     await rig.command('usage-pool-open', 'https://chatgpt.com/#settings/Usage');
     await rig.command('usage-pool-open', 'https://example.com/elsewhere');
     expect(rig.opened).toEqual(['https://chatgpt.com/#settings/Usage']);
+  });
+
+  // UsageLimitsPooled.tsx PoolBar: a segment, its hatch and its legend chip take the account's accent colour, else the driver's.
+  it('each segment takes its account accent colour, falling back to the driver colour', async () => {
+    const two = laptop();
+    (two.providers as Obj[]).push(provider({ instanceId: 'codex-work', displayName: 'Work', accentColor: ' #2563eb ', auth: { status: 'authenticated', email: 'work@example.com' },
+      usageLimits: { checkedAt: iso(-60_000), windows: [session(10)] } }));
+    const rig = new Rig(two, null);
+    const pool = (await rig.page({ viewport: 1280, sidebar: 256 })).pooled.pools[0]!;
+    expect(pool.windows[0]!.segments.map(segment => [segment.name, segment.accent])).toEqual([['Codex', ''], ['Work', '#2563eb']]);
+    const source = await Bun.file(appPath('usage-pooled.contract')).text();
+    for (const call of ['PoolSegment(seg=seg, wide=view.wide, ', 'LegendRow(seg=seg, '])
+      expect(source).toContain(`${call}light=(seg.accent != "" ? seg.accent : pool.light), dark=(seg.accent != "" ? seg.accent : pool.dark)`);
   });
 
   it('wide segments carry their labels, narrow ones a legend; the first card hangs its popover below', async () => {

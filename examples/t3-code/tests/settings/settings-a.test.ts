@@ -73,11 +73,15 @@ describe('background activity, advanced', () => {
     const gone = backgroundRow({ ...client, environmentId: '' } as Fake);
     expect(gone.options.find(entry => entry.id === 'advanced')!.disabled).toBe(true);
   });
-  test("the inheritance popover reads Custom for the policy, as SettingInheritance's formatValue has no profile labels", () => {
+  test("the inheritance popover names the background activity profile, as SettingInheritance's formatValue does", () => {
     const client = fakeClient();
-    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Custom']]);
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Inherits'], ['Default', 'Balanced']]);
     client.config.settings = { ...(client.config.settings as Obj), backgroundActivity: { schemaVersion: 1, profile: 'performance', overrides: {} } };
-    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Custom'], ['Default', 'Custom']]);
+    expect(backgroundRow(client).layers.map(layer => [layer.label, layer.detail])).toEqual([['Environment', 'Performance'], ['Default', 'Balanced']]);
+    expect(['battery-saver', 'custom', 'future'].map(profile => formatSettingValue('backgroundActivity', { profile }))).toEqual(['Battery saver', 'Advanced', 'future']);
+    // Worktree cleanup reads Off or Custom; only the writing style maps its mode through the writing-style labels.
+    expect([formatSettingValue('worktreeCleanup', { mode: 'off' }), formatSettingValue('worktreeCleanup', { mode: 'custom', afterDays: 7 }), formatSettingValue('worktreeCleanup', { mode: 'custom_instructions' }),
+      formatSettingValue('someOtherSetting', { mode: 'custom' })]).toEqual(['Off', 'Custom', 'Custom', 'custom']);
     // The rest of formatValue: model selections, writing styles, merge methods and the writer model's unset value.
     expect([formatSettingValue('textGenerationModelSelection', { instanceId: 'codex', model: 'gpt-6' }), formatSettingValue('sourceControlWritingStyle', { mode: 'conventional_commits' }),
       formatSettingValue('pullRequestMergeMethod', 'squash'), formatSettingValue('pullRequestMergeMethod', null), formatSettingValue('sourceControlWriterModelSelection', null),

@@ -195,9 +195,10 @@ component ThemeColorSwatch
       push(hh, ss, vv, true)
   action hueKey(k: string, e: KeyboardEvent)
     mouse = false
-    if tcpArrow(k)
+    // ColorHueSlider: Home and End take the hue to 0 and 360, the arrows step it by 1 (10 with Shift), wrapping.
+    if tcpArrow(k) or k == "Home" or k == "End"
       preventDefault()
-      let nh = (ch + (k == "ArrowRight" or k == "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1) + 360) % 360
+      let nh = k == "Home" ? 0 : (k == "End" ? 360 : (ch + (k == "ArrowRight" or k == "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1) + 360) % 360)
       let ss = cs
       let vv = cv
       touched = true

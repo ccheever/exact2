@@ -19,6 +19,7 @@ import { completeRouteReveal } from './route-reveal';
 import { copyThreadTarget, threadChipCopyTarget } from './thread-reference';
 import { pickSnoozePreset, snoozePresets, snoozePresetSettings } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
+import { canPinProjectGroup, setProjectGroupPinned } from './project-pin';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
 import { claimThreadOpen } from '../palette/palette-search';
 import { syncFavicons } from './sidebar-glyph';
@@ -542,6 +543,12 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'dialog-cancel') { if (session.dialog.kind === 'delete-worktree') await answerWorktree(client, nativeHandle, storage, false); else closeDialog(session); return ''; }
   if (op === 'drop' && id.startsWith('sweep|')) return sweepRelease(client, nativeHandle, storage, id); // upstream 1826fb55cc
   if (op === 'drop') return sidebarDrop(client, nativeHandle, id, value);
+  // ProjectPinButton and the thread pin shortcut in the project filter: the menu stays open, its rows where they were.
+  if (op === 'project-pin') {
+    const group = projectScopes(client).find(entry => entry.key === value);
+    if (group && canPinProjectGroup(client, group.members)) await setProjectGroupPinned(client, nativeHandle, group.members, !group.pinned);
+    return '';
+  }
   if (op === 'project-settings-group') {
     const group = client.projectGroups().find(entry => entry.key === value), member = group?.members[0];
     session.scopeOpen = false; session.scopeQuery = '';
