@@ -56,3 +56,15 @@ assertions), the full mobile suite (4,238 passed, 2 optional skips, 37,663
 assertions), Contract compilation, strict TypeScript, caps, boot, and a normal
 no-install iOS build. A runtime scroll drive remains pending because the
 assigned Duo is held by another device session; no framework defect is claimed.
+
+The follow-up keeps the same app ownership boundary. Home scrollports and swipe
+row roots now use border-box and a shrinkable inline size, with an 88-point
+virtualization estimate for the mixed card/slim feed. Thread end-follow no longer
+asks the host to animate every streamed correction; history anchor restores remain
+explicitly instant. This removes repeated retargeting while a response grows and
+keeps authored padding out of the measured scroll width. Home dividers remain
+projection-owned and only occur between adjacent rows; the fallback work row no
+longer adds a bottom rule of its own. Focused Home/thread tests,
+the full mobile suite, Contract build, strict TypeScript, caps and boot pass.
+The local Family Reference iPhone 16 was unavailable because another workspace
+held its device session; no runtime or framework defect claim is made.

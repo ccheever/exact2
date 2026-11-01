@@ -255,10 +255,10 @@ component Home
   view
     t3-home-swipe-events swipe-owner=swipeOwner swipe-active=active swipe-route-key=(listId == "sidebar-list" ? "t3-workspace-sidebar" : routeId) swipe-refresh-at=`${refreshAt}` swipe-epoch-at-zero=`${epochAtZero}` width=0 height=0 change=swipeEvent testId=`home-swipe-events-${listId}`
     if items.length == 0 and listId == "sidebar-list"
-      list id=listId appearance="none" flex=1 min-height=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
+      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
         text emptyTitle padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 font-size=14 line-height="19px" color=colors.drawerMuted translate="0px 0.5px" testId="sidebar-empty-title"
     else if items.length == 0 and not fullPageEmpty
-      scroll id=listId flex=1 min-height=0 padding-bottom=bottomClearance
+      scroll id=listId flex=1 min-height=0 box-sizing="border-box" padding-bottom=bottomClearance
         column flex="none" padding=17.5
           border-radius=22
           border-width=1
@@ -318,13 +318,13 @@ component Home
               testId="home-add-environment"
               text "Add environment" color=colors.primaryForeground font-size=plainActionRole.size line-height=`${plainActionRole.line}px` font-weight=700
     else
-      list id=listId appearance="none" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
+      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         padding-left=(listId == "sidebar-list" ? 8 : 0)
         padding-right=(listId == "sidebar-list" ? 8 : trailingReservation)
         padding-top=(listId == "sidebar-list" ? 6 : 0)
         min-width=0
         virtualized=true
-        estimated-item-height=72
+        estimated-item-height=88
         testId="home-thread-list"
         for item in items key=item.key
           HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
@@ -434,7 +434,7 @@ component HomeListItem
           testId=`home-shelf-${item.section}`
           row align-items="center" gap=8.75
             text item.title font-size=13 line-height="17px" font-weight=500 color=(item.section == "snoozed" ? colors.secondary : colors.tertiary)
-            view flex=1 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
+            view flex=1 min-width=0 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
             t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
       else if item.kind == "more"
         button press=showMore
@@ -454,7 +454,7 @@ component HomeListItem
         if item.showPendingDivider
           row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
             text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
-            view flex=1 height=1 background-color=colors.border
+            view flex=1 min-width=0 height=1 background-color=colors.border
         button press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
           hatch="mobile-home-row"
           data-mobile-home-menu=item.nativeMenu
@@ -494,10 +494,10 @@ component HomeListItem
           if item.trailingDivider and surface != "sidebar-list"
             view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle
       else
-        box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
+        box position="relative" min-width=0 overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           if item.swipe.primary != ""
             HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground, actionOpacity=(exiting ? (exitPhase == "out" ? 1 - exitEase : 0) : 1))
-          column translate=`${exitOffset}px 0px` transition=swipeTransition background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
+          column translate=`${exitOffset}px 0px` transition=swipeTransition min-width=0 background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
             button press=selectThread(item.id)
               hatch="mobile-home-row"
               data-mobile-swipe-owner=owner

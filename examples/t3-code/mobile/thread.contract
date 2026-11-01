@@ -27,8 +27,8 @@ component ThreadFeed
           text data.emptyTitle text-align="center" font-family="DM Sans" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
           text data.emptyDetail text-align="center" font-family="DM Sans" font-size=14 line-height="21px" color=colors.secondary
     else
-      column flex=1 min-height=0 justify-content="flex-end"
-        list id="thread-feed" appearance="none" max-height="100%" min-height=0 min-width=0 overscroll-behavior="contain" virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true scroll-behavior="smooth" scroll=historyScroll reachstart=loadEarlier reach-margin="100%"
+      column flex=1 min-height=0 min-width=0 justify-content="flex-end"
+        list id="thread-feed" appearance="none" max-height="100%" min-height=0 min-width=0 box-sizing="border-box" overscroll-behavior="contain" virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true scroll=historyScroll reachstart=loadEarlier reach-margin="100%"
           padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
           for row in data.rows key=row.id
             column min-width=0 padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"
@@ -151,7 +151,6 @@ component ThreadMessage
         column
           if row.toggleOp.length > 0
             button press=action(row.toggleOp, row.toggleId, "") box-sizing="border-box" padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=(row.kind == "work" ? 38.5 : 28) text-align="left"
-              border-bottom-width=(row.kind == "work" ? 1 : 0) border-bottom-style="solid" border-bottom-color=colors.borderSubtle
               aria-expanded=row.expanded aria-label=row.title
               row align-items="center" gap=7
                 text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 font-variant-numeric=(row.kind == "work" ? "tabular-nums" : "normal") color=(row.failed ? colors.dangerForeground : colors.muted)

@@ -15,8 +15,12 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract');
   expect(home).toContain('list id=listId appearance="none"');
   expect(thread).toContain('list id="thread-feed" appearance="none"');
-  expect(thread).toContain('scrollFollowEnd=true scroll-behavior="smooth"');
+  expect(thread).toContain('scrollFollowEnd=true scroll=historyScroll');
+  expect(thread).not.toContain('scroll-behavior="smooth"');
+  expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain"');
+  expect(thread).not.toContain('border-bottom-width=(row.kind == "work"');
   expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
+  expect(home).toContain('box-sizing="border-box" overflow-x="hidden"');
   expect(thread).toContain('overscroll-behavior="contain" virtualized=true');
 });
 
