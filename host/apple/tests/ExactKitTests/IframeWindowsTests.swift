@@ -29,6 +29,7 @@ final class IframeWindowsTests: XCTestCase {
         var records: [(event: String, record: [String: Any])] = []
         var navigation: [(event: String, record: [String: Any])] = []
         var asked: [[String: Any]] = []
+        var messages: [String] = []
     }
 
     private struct Arm {
@@ -50,6 +51,7 @@ final class IframeWindowsTests: XCTestCase {
     private static let event: EventFn = { context, _, kind, bytes, length in
         let seen = Unmanaged<Seen>.fromOpaque(context!).takeUnretainedValue()
         let data = Data(bytes: bytes ?? UnsafePointer(bitPattern: 1)!, count: Int(length))
+        if kind == 1 { return seen.messages.append(String(decoding: data, as: UTF8.self)) }
         guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         if kind == 6 { return seen.asked.append(value) }
         guard let name = value["event"] as? String, let record = value["record"] as? [String: Any] else { return }
@@ -460,6 +462,26 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(run(web, "document.fullscreenEnabled") as? Bool, true, "element fullscreen is on")
     }
 
+    /// A guest the wrapper's inner frame holds (a sandboxed remote page, and
+    /// on iOS any remote one) is allowed fullscreen, as a top-level guest is
+    /// (LLP 1020.002 D5); without `allow="fullscreen *"` its
+    /// `fullscreenEnabled` is false.
+    func testAGuestInTheWrapperIsAllowedFullscreen() throws {
+        let arm = try arm()
+        for sandbox in ["allow-scripts", "allow-scripts allow-forms allow-popups allow-downloads", nil] {
+            let seen = Seen()
+            let (handle, web) = mount(arm, seen, configuration: [:], src: "\(baseURL)/fullscreen", sandbox: sandbox)
+            defer { arm.destroy(handle) }
+            spin { !seen.messages.isEmpty || web.url?.path == "/fullscreen" && !web.isLoading }
+            if web.url?.path == "/fullscreen" {
+                XCTAssertNil(sandbox, "only an unsandboxed remote page is direct")
+                XCTAssertEqual(run(web, "document.fullscreenEnabled") as? Bool, true)
+            } else {
+                XCTAssertEqual(seen.messages, ["fullscreen true"], sandbox ?? "unsandboxed")
+            }
+        }
+    }
+
     // MARK: Review round 1
 
     /// A download's destination that is a folder is refused, never replaced:
@@ -709,8 +731,9 @@ private final class FrameProbe: NSObject, WKScriptMessageHandler {
 
 /// Pages on a loopback port: `/opener` (links, a form, a file input, and a
 /// listener that retitles it with what a popup posts), `/popup` (posts to
-/// its opener), `/b`, `/posted` (echoes its method) and `/report` (an
-/// attachment).
+/// its opener), `/b`, `/posted` (echoes its method), `/report` (an
+/// attachment) and `/fullscreen` (posts its own `fullscreenEnabled` to
+/// its parent).
 final class WindowPages {
     private var listener: NWListener!
 
@@ -744,6 +767,8 @@ final class WindowPages {
             case "/sandboxed-mail":
                 response = Self.page("Sandboxed", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setTimeout(() => document.getElementById('mail').click(), 300)</script>")
             case "/posted": response = Self.page("Posted", method)
+            case "/fullscreen":
+                response = Self.page("Fullscreen", "<script>parent.postMessage('fullscreen ' + document.fullscreenEnabled, '*')</script>")
             case "/report":
                 let body = "report body"
                 response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=\"report.txt\"\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"

@@ -1156,6 +1156,8 @@ mod tests {
         assert!(js.contains(",\"src\",()=>\"data:text/html,a\")"), "{js}");
         assert!(!js.contains("()=>\"data:text/html,b\""), "{js}");
         assert!(!js.contains("()=>\"https://e.dev/c\""), "{js}");
+        // Each frame grants its guest fullscreen (LLP 1020.002 D5).
+        assert_eq!(js.matches(r#""allow":"fullscreen *""#).count(), 3, "{js}");
     }
 
     #[test]

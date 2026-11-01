@@ -902,6 +902,10 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return "\(o.protocol)://\(host)\(port)"
     }
 
+    /// The inner frame grants fullscreen to whatever the guest becomes, as a
+    /// top-level guest has it (@ref LLP 1020.002 D5). `allow="fullscreen"`
+    /// alone grants only the `src` origin, which in WebKit an opaque sandboxed
+    /// guest never matches.
     func wrapper(error: String?) -> String {
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
         let remote = local == nil ? src.flatMap(remoteSource) : nil
@@ -914,7 +918,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         return """
         <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}body{overflow:hidden}</style>
-        <iframe id="exact-frame"\(source)\(restriction)></iframe>
+        <iframe id="exact-frame" allow="fullscreen *"\(source)\(restriction)></iframe>
         <script>
         (() => {
           const inner = document.getElementById('exact-frame');
