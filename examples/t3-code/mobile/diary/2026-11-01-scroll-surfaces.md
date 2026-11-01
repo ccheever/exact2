@@ -136,3 +136,5 @@ tests, Contract build, strict TypeScript, caps and boot pass. The rebuilt app
 settled with no saved environment after reinstall, so the corrected thread width
 still needs a populated native re-drive. Simulator frame-health sampling is not
 available on this iOS simulator; no buttery-performance claim is made.
+
+The follow-up keeps Home strokes within their section: the projection now permits a divider only between adjacent rows with the same section, while the Contract still suppresses the final row and sidebar strokes. This removes boundary lines that read as both the end of one section and the start of the next without changing list keys, row padding or scroll ownership. The focused Home, thread and scroll tests pass, and a normal signed simulator build installed on the owned iPhone Duo. Qualitative Home and thread flings kept content intact and exposed no clipping; simulator frame-health sampling remains unavailable, so this is not a quantitative frame-rate claim and no framework defect was reproduced.
