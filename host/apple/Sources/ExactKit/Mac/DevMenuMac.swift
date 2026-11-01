@@ -294,8 +294,6 @@ public enum DevMenu {
             if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
             #endif
             dev.addItem(withTitle: "Show Frame Health", action: #selector(ExactView.toggleFrameHealth(_:)), keyEquivalent: "")
-            dev.addItem(withTitle: "Frame Health Details…", action: #selector(ExactView.showFrameHealthDetails(_:)), keyEquivalent: "")
-            dev.addItem(withTitle: "Share Frame Health…", action: #selector(ExactView.shareFrameHealth(_:)), keyEquivalent: "")
             // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
             let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
             trace.keyEquivalentModifierMask = [.command, .option]

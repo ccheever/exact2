@@ -8,7 +8,7 @@ import UIKit
 import AppKit
 #endif
 
-/// The card's charts and its copy picture, drawn by hand on one opaque surface in a context whose
+/// The card's charts and its shared picture, drawn by hand on one opaque surface in a context whose
 /// y axis points down (LLP 1079.000 §7.2). Shared by iOS and macOS.
 enum FrameHealthCardDrawing {
     /// Opaque colors: the translucent system roles composited over the card's background ahead of
@@ -295,6 +295,19 @@ enum FrameHealthCardDrawing {
         return CTLineCreateWithAttributedString(NSAttributedString(string: string, attributes: attributes))
     }
 
+    /// A string broken into lines no wider than `width`, where Core Text suggests.
+    static func lines(_ string: String, width: CGFloat, _ font: CTFont) -> [String] {
+        let attributed = NSAttributedString(string: string, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font])
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed), text = string as NSString
+        var start = 0, lines: [String] = []
+        while start < text.length {
+            let count = max(1, CTTypesetterSuggestLineBreak(typesetter, start, Double(width)))
+            lines.append(text.substring(with: NSRange(location: start, length: count)).trimmingCharacters(in: .whitespaces))
+            start += count
+        }
+        return lines
+    }
+
     static func width(_ string: String, _ font: CTFont) -> CGFloat {
         CGFloat(CTLineGetTypographicBounds(line(string, font), nil, nil, nil))
     }
@@ -321,20 +334,20 @@ enum FrameHealthCardDrawing {
         ctx.restoreGState()
     }
 
-    /// The copy's picture: the context lines, both charts, then every figure in a table whose
-    /// columns are right-aligned in tabular digits. PNG data at twice the point size.
+    /// The shared picture: the context lines, both charts, every figure in a table whose columns are
+    /// right-aligned in tabular digits, then Details' results. PNG data at twice the point size.
     static func picture(title: String, context: [String], input: Input, chart: FrameHealthChart, table: [[String]],
-                        notes: [String], palette: Palette) -> Data? {
+                        results: [String], notes: [String], palette: Palette) -> Data? {
         let body = tabular(CTFontCreateUIFontForLanguage(.system, 11, nil)!)
         let heading = semibold(15)
         let lineHeight: CGFloat = 18, gap: CGFloat = 16, margin: CGFloat = 16
         let nameWidth = table.dropFirst().map { width($0[0], body) }.max() ?? 0
         let column = table.flatMap { $0.dropFirst() }.map { width($0, body) }.max() ?? 0
         let columns = CGFloat(max(0, (table.first?.count ?? 1) - 1))
-        let prose = (context + notes).map { width($0, body) }.max() ?? 0
+        let prose = (context + results + notes).map { width($0, body) }.max() ?? 0
         let size = CGSize(width: ceil(max(380 - 2 * margin, nameWidth + columns * (gap + column), prose)) + 2 * margin,
             height: 40 + CGFloat(context.count) * lineHeight + 12 + 80 + 16 + 104 + 16
-                + CGFloat(table.count) * lineHeight + CGFloat(notes.count) * lineHeight + 18)
+                + CGFloat(table.count + results.count + notes.count) * lineHeight + 24)
         let scale: CGFloat = 2
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
@@ -360,6 +373,8 @@ enum FrameHealthCardDrawing {
                     index == 0 ? palette.secondary : palette.label, .right)
             }
         }
+        y += 6
+        for result in results { y += lineHeight; text(ctx, result, x: margin, y: y - 4, body, palette.label, .left) }
         y += 6
         for note in notes { y += lineHeight; text(ctx, note, x: margin, y: y - 4, body, palette.secondary, .left) }
         guard let image = ctx.makeImage() else { return nil }

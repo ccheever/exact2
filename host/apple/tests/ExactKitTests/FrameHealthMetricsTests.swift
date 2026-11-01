@@ -405,6 +405,17 @@ final class FrameHealthMetricsTests: XCTestCase {
         drag.track(CGPoint(x: 10, y: 0), at: 1.011)
         XCTAssertEqual(drag.velocity(releasedAt: 1.011).dx, 1000, accuracy: 0.001)
         XCTAssertEqual(drag.velocity(releasedAt: 1.07), .zero)
+        // Dragged past an edge, the card goes part of the way, the less the further, and never a whole span
+        let resisted = { (x: CGFloat) in FrameHealthCardFace.resisted(CGPoint(x: x, y: 100), size: size, in: area).x }
+        XCTAssertEqual(FrameHealthCardFace.resisted(CGPoint(x: 40, y: 100), size: size, in: area), CGPoint(x: 40, y: 100), "within the area, under the press")
+        // 100 points past the left edge of a 400-point area
+        let ratio: CGFloat = 0.55 * 100 / 400 + 1
+        XCTAssertEqual(resisted(-92), 8 - (1 - 1 / ratio) * 400, accuracy: 0.001)
+        XCTAssertGreaterThan(resisted(-92), -92)
+        XCTAssertGreaterThan(resisted(-92) - resisted(-192), 0, "further still goes further")
+        XCTAssertLessThan(resisted(-92) - resisted(-192), 100, "but less than the press")
+        XCTAssertGreaterThan(resisted(-1e6), 8 - 400)
+        XCTAssertGreaterThan(resisted(500), 88, "past the far edge too")
     }
 
     func testACanvasRenderWithoutItsDrawableFinishesWhenItDraws() throws {
@@ -595,20 +606,20 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertNil(session.sampler)
     }
 
-    func testLiveCaptureGuardsAllClockRequestsAndInspectorOwnershipIsIndependent() throws {
+    func testLiveCaptureGuardsAllClockRequestsAndTheCardsCaptureIsIndependent() throws {
         let session = ExactApp.shared.makeSession(label: "frame-health-clock-guard")
         defer { session.destroy() }
         session.clock = nil
         let health = session.frameHealth
-        health.setInspectorVisible(true)
+        health.setHUDVisible(true)
         _ = health.setAgentCapture("start")
         for request: [String: Any] in [["take": true], ["data": true], ["settle": true], ["to": 500], ["land": true]] {
             XCTAssertEqual(session.agentInstance.clock(request)["code"] as? String, "frame-health-clock-takeover")
             XCTAssertNil(session.clock)
         }
         _ = health.setAgentCapture("stop")
-        XCTAssertNotEqual(health.captureID, 0, "closing an agent lease does not close the human inspector")
-        health.setInspectorVisible(false)
+        XCTAssertNotEqual(health.captureID, 0, "closing an agent lease does not end the card's capture")
+        health.setHUDVisible(false)
         XCTAssertEqual(health.captureID, 0)
         XCTAssertNotNil(session.agentInstance.clock(["take": true])["clock"])
     }
@@ -642,6 +653,9 @@ final class FrameHealthMetricsTests: XCTestCase {
         run(from: 106, seconds: 0.1)
         XCTAssertTrue(reader.sample(health, now: 108))
         XCTAssertEqual(FrameHealthCardText.window(reader.window(0.5), nominal: 0.5), "Last 2.0s")
+        // A read moments later, as at a lifecycle boundary, has no frame, so it names no span
+        XCTAssertTrue(reader.sample(health, now: 108.01, force: true))
+        XCTAssertEqual(FrameHealthCardText.window(reader.window(0.5), nominal: 0.5), "Last 0.5s", "not Last 0.0s")
         health.reset()
         XCTAssertFalse(reader.sample(health, now: 108.5), "a new generation starts again from a baseline")
         XCTAssertTrue(reader.samples.isEmpty)
@@ -652,15 +666,8 @@ final class FrameHealthMetricsTests: XCTestCase {
         let readers = (0..<5).map { _ in FrameHealthCardReader() }
         XCTAssertEqual(readers.prefix(4).map { $0.start() }, [true, true, true, true])
         XCTAssertFalse(readers[4].start(), "a fifth card reads nothing")
-        let health = FrameHealth(enabled: true)
-        defer { health.destroy() }
-        XCTAssertNil(health.rollingMetrics(), "a Details inspector shares the four places")
-        XCTAssertTrue(FrameHealthReadout.detail(health).contains(FrameHealthReaders.full))
         readers[0].stop()
-        XCTAssertNotNil(health.rollingMetrics(), "until one closes")
-        XCTAssertFalse(readers[4].start())
-        health.setInspectorVisible(false)
-        XCTAssertTrue(readers[4].start(), "and an inspector that closes frees its place")
+        XCTAssertTrue(readers[4].start(), "a card that stops frees its place")
         readers.forEach { $0.stop() }
     }
 
@@ -688,7 +695,7 @@ final class FrameHealthMetricsTests: XCTestCase {
         var long = t
         long.refreshes[0] = 9_999; long.refreshes[2] = 5_000; long.refreshes[31] = 4_999
         XCTAssertEqual(T.pacing(long, rates: rates, adaptiveSync: false, count: { String($0) }).1,
-            "9999 frames at 1 refresh, 10000 at 3 refreshes or more", "Copy gives counts in full")
+            "9999 frames at 1 refresh, 10000 at 3 refreshes or more", "the shared text gives counts in full")
         XCTAssertEqual(T.pacing(long, rates: rates, adaptiveSync: false).1, "9k frames at 1 refresh, 10k at 3 refreshes or more")
         var locked = FrameHealthCardReader.Window()
         locked.counts.frames = 300; locked.refreshes[1] = 300
@@ -711,7 +718,26 @@ final class FrameHealthMetricsTests: XCTestCase {
         XCTAssertEqual([figures.fps, figures.missed, figures.late, figures.maxFrame], ["—", "—", "—", "—"])
     }
 
-    func testTheCopyTextNamesEveryFigureWithinTheReportCap() {
+    func testABuildThatCollectsNoFrameHealthSaysHowToTurnItOn() {
+        let on = FrameHealth(enabled: true), off = FrameHealth(enabled: false)
+        defer { on.destroy(); off.destroy() }
+        XCTAssertNil(on.unavailableExplanation)
+        XCTAssertEqual(off.unavailableExplanation?.title, "Frame Health Is Off")
+        XCTAssertTrue(off.unavailableExplanation?.message.contains("in app.json and build the app again") == true)
+    }
+
+    func testTheHeaderButtonsFitApartAtTheMinimumWidth() {
+        let layout = FrameHealthCardFace.Layout(width: FrameHealthCardFace.minimumWidth)
+        let header = [layout.close, layout.title, layout.status, layout.details, layout.share]
+        for (left, right) in zip(header, header.dropFirst()) { XCTAssertLessThanOrEqual(left.maxX + 2, right.minX, "\(left) and \(right)") }
+        XCTAssertEqual(layout.share.maxX, layout.width - 6)
+        // Details and Share are 4 points apart, so their touch targets overlap; each takes its own half
+        XCTAssertEqual(layout.control(at: CGPoint(x: layout.details.maxX + 1, y: 22)), .details)
+        XCTAssertEqual(layout.control(at: CGPoint(x: layout.share.minX - 1, y: 22)), .share)
+        XCTAssertEqual(layout.control(at: CGPoint(x: layout.title.minX + 1, y: 22)), .title, "within the title, not Close's target")
+    }
+
+    func testTheSharedTextNamesEveryFigureWithinTheReportCap() {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
         health.requestedRate(120)
@@ -723,11 +749,62 @@ final class FrameHealthMetricsTests: XCTestCase {
             if index % 60 == 59 { reader.sample(health, now: time + 0.001) }
         }
         let display = FrameHealthCardText.Display(name: "ProMotion", detail: "adaptive refresh up to 120 Hz", maximumHz: 120, adaptiveSync: false)
-        let text = FrameHealthCardText.summary(reader: reader, rates: .init(requestedHz: 120, periodMs: 1000 / 120.0), display: display, paused: false)
+        let text = FrameHealthCardText.summary(reader: reader, rates: .init(requestedHz: 120, periodMs: 1000 / 120.0), display: display,
+            paused: false, health: health).text
         XCTAssertLessThan(text.utf8.count, 4000)
         // Two seconds of samples cover two seconds, whatever the window's nominal span
         XCTAssertTrue(text.contains("Max work time: 3.0ms (last 0.5s), 3.0ms (last 2.0s), 3.0ms (last 2.0s)"), text)
         XCTAssertTrue(text.contains("Frame rate: 120 FPS (last 0.5s)"), text)
         XCTAssertFalse(text.contains("·"), "no middots in the figures")
+        XCTAssertTrue(text.contains("\nCadence (last 2.0s): "), "and Details' results: \(text)")
+    }
+
+    func testDetailsGivesTheCollectorsResultsOverTheLast5sAndTheCountsBehindThem() {
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        health.requestedRate(120)
+        let reader = FrameHealthCardReader()
+        XCTAssertFalse(reader.sample(health, now: 100, force: true))
+        var time = 100.0
+        for second in stride(from: 100.0, to: 106.0, by: 0.5) {
+            while time < second + 0.5 {
+                // One frame late by a whole refresh in the newest five seconds, with its slot missed
+                if abs(time - 105.2) < 0.004 { time += 1.0 / 120 }
+                health.record(arrival: time, target: time + 1 / 120, period: 1 / 120, finished: time + (abs(time - 105.0) < 0.004 ? 0.012 : 0.004))
+                time += 1.0 / 120
+            }
+            reader.sample(health, now: second + 0.5)
+        }
+        let rows = FrameHealthCardText.details(reader: reader, health: health)
+        let five = reader.window(5).counts
+        XCTAssertEqual(rows.map(\.name), ["Cadence", "Target rate", "Content latency", "Frames", "Requested slots", "Missed frames",
+            "Skipped refreshes", "Late frames", "Limited by the system"])
+        XCTAssertEqual(rows[1].value, "Fail")
+        XCTAssertEqual(rows[1].reason, "missed frames")
+        XCTAssertEqual(rows[2].value, "Not enough evidence")
+        XCTAssertEqual(rows[2].reason, "not observed")
+        XCTAssertEqual(rows[3].value, String(five.frames))
+        XCTAssertEqual(rows[5].value, String(five.missed))
+        XCTAssertGreaterThan(five.missed, 0)
+        XCTAssertEqual(rows[6].value, String(five.skipped))
+        XCTAssertNil(rows[3].reason, "a count has no reason")
+        // The same rules as the collector's own reply over the same span
+        let lateness = FrameHealthAssessment.deadlinesObserved
+        XCTAssertEqual(rows[0].value, five.skipped > 0 || (lateness && five.late > 0) ? "Fail" : "Pass by proxy")
+        XCTAssertEqual(FrameHealthCardText.detailsCaption(reader: reader),
+            "Last 5s. Exact does not observe presentation, compositor or GPU time, or input latency.")
+    }
+
+    func testDetailsRowsScrollWhereTheyOutgrowTheCardAndTheCardKeepsItsSize() {
+        let rows = (0..<3).map { FrameHealthCardText.Detail(name: "Result \($0)", value: "Fail", reason: "late work") }
+            + (0..<6).map { FrameHealthCardText.Detail(name: "Count \($0)", value: "0") }
+        let caption = "Last 5s. Exact does not observe presentation, compositor or GPU time, or input latency."
+        let full = FrameHealthCardFace.Layout(width: FrameHealthCardFace.width, showsDetails: true)
+        let height = FrameHealthCardFace.detailsHeight(width: full.width, rows: rows, caption: caption)
+        XCTAssertEqual(full.detailsArea.maxY, FrameHealthCardFace.height, "Details fills the card below the header")
+        XCTAssertLessThanOrEqual(height, full.detailsArea.height, "today's rows fit the whole card")
+        let compact = FrameHealthCardFace.Layout(width: FrameHealthCardFace.width, compact: true, showsDetails: true)
+        XCTAssertGreaterThan(height, compact.detailsArea.height, "and scroll on a compact card, which stays its height")
+        XCTAssertNil(full.control(at: CGPoint(x: full.segments.0.midX, y: full.segments.0.midY)), "Charts and Table are not there")
     }
 }

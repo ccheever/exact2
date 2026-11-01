@@ -1694,9 +1694,11 @@ one selected node's provenance; a general provenance explorer stays refused.
 **Expanded (user, 2026-10-28: "Implement", LLP 1079.000):** admit bounded local
 frame-health counters, native menus and cards, and human/agent readouts. The menu and
 card follow platform presentation and accessibility. The request "Let’s target 4KB"
-admits recent-hitch capture in fixed memory and explicit Share/Copy or agent reports
-capped at 4000 bytes, without automatic persistence or uploads; the card's own Copy
-may add a picture of the card outside that cap (user, 2026-10-30). "Let’s do it all"
+admits recent-hitch capture in fixed memory and explicit Share or agent reports
+capped at 4000 bytes, without automatic persistence or uploads; the card's Share may
+also give a text summary within that size and an image of the card outside that cap
+(user, 2026-10-30), and the card holds Details and Share itself, so the menus offer
+only Show and Hide (user, 2026-10-31). "Let’s do it all"
 also admits live-clock scheduling, cursor reads, the development-only passive
 native-scroll experiment and macOS card/inspector controls. Production default-on
 requires measured adapter qualification. No production inspection endpoint or

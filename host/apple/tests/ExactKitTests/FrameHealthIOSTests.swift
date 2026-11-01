@@ -64,6 +64,7 @@ final class FrameHealthIOSTests: XCTestCase {
         let menu = try XCTUnwrap(navigation.viewControllers.first as? DevMenuController)
         menu.tableView.layoutIfNeeded()
         XCTAssertEqual(menu.groups[1].first?.title, "Hide Frame Health")
+        XCTAssertFalse(menu.groups[1].contains { $0.title.contains("Details") || $0.title.contains("Share") }, "the card offers these itself")
         let light = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         })
@@ -85,6 +86,43 @@ final class FrameHealthIOSTests: XCTestCase {
         let dismissed = expectation(description: "native developer sheet dismissed")
         root.dismiss(animated: false) { dismissed.fulfill() }
         wait(for: [dismissed], timeout: 5)
+        // Details takes the place of the card's charts at the same size, and Share asks what to share,
+        // then opens the share sheet with that one item
+        func presented<Controller: UIViewController>(_: Controller.Type) throws -> Controller {
+            wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in root.presentedViewController is Controller }, object: nil)], timeout: 10)
+            return try XCTUnwrap(root.presentedViewController as? Controller)
+        }
+        func close() {
+            let closed = expectation(description: "presentation dismissed")
+            root.dismiss(animated: false) { closed.fulfill() }
+            wait(for: [closed], timeout: 5)
+        }
+        let size = overlay.card.frame.size
+        overlay.card.activate?(.details)
+        XCTAssertTrue(overlay.card.state.showsDetails)
+        XCTAssertFalse(overlay.card.detailsScroll.isHidden)
+        XCTAssertEqual(overlay.card.frame.size, size, "the card keeps its size")
+        XCTAssertEqual(overlay.card.presentation.details.map(\.name), ["Cadence", "Target rate", "Content latency", "Frames",
+            "Requested slots", "Missed frames", "Skipped refreshes", "Late frames", "Limited by the system"])
+        XCTAssertNil(root.presentedViewController, "and opens no sheet")
+        if #available(iOS 26.0, *) { XCTAssertTrue(overlay.card.detailsScroll.topEdgeEffect.isHidden, "no edge effect blends the rows") }
+        XCTAssertEqual(overlay.card.detailsScroll.contentInsetAdjustmentBehavior, .never)
+        let details = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        details.name = "Frame health — Details"
+        details.lifetime = .keepAlways
+        add(details)
+        overlay.card.activate?(.details)
+        XCTAssertTrue(overlay.card.detailsScroll.isHidden, "a second tap returns the charts")
+        overlay.card.activate?(.share)
+        let choices = try presented(UIAlertController.self)
+        XCTAssertEqual(choices.actions.map(\.title), ["Agent Report", "Summary", "Image", "Cancel"])
+        close()
+        overlay.share(.image)
+        // On a phone the sheet rises from the bottom edge, and UIKit replaces the popover's source
+        XCTAssertEqual(try presented(UIActivityViewController.self).excludedActivityTypes, [.assignToContact])
+        close()
         root.overrideUserInterfaceStyle = .dark
         overlay.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
         overlay.setNeedsLayout(); overlay.layoutIfNeeded()
@@ -126,10 +164,11 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertNil(overlay.hitTest(outside, with: nil), "outside the card, touches reach the app")
         let layout = FrameHealthCardFace.Layout(width: overlay.card.bounds.width)
         for (control, rect) in [(FrameHealthCardFace.Control.close, layout.close), (.title, layout.title), (.status, layout.status),
-                                (.copy, layout.copy)] {
-            // Each button's touch target is 44 points tall and at least as wide
+                                (.details, layout.details), (.share, layout.share)] {
+            // Each button's touch target is 44 points tall and at least as wide, out to the card's edge or
+            // halfway to the next button
             XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX, y: rect.midY - 21)), control)
-            XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX + 18, y: rect.midY)), control)
+            XCTAssertEqual(layout.control(at: CGPoint(x: rect.midX + (control == .share ? 18 : -18), y: rect.midY)), control)
         }
         XCTAssertEqual(overlay.card.state.status, .idle)
         XCTAssertEqual(overlay.card.state.rows.map(\.1), ["—", "—"], "no figure without data")
@@ -138,9 +177,10 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertEqual(elements.first?.accessibilityLabel, "Close frame health", "Close comes first, in its corner")
         let title = try XCTUnwrap(elements.first { $0.accessibilityLabel == "Frame health" })
         XCTAssertTrue(title.accessibilityTraits.contains(.button), "the title opens the definitions")
-        // The card rests in a corner; moving it down takes it to the bottom one, where it stays
+        // The card rests in a corner, 8 points from the window's edges past its safe area; moving it down
+        // takes it to the bottom one, where it stays
         let action = try XCTUnwrap(title.accessibilityCustomActions?.first { $0.name == "Move down" })
-        let bottom = overlay.bounds.inset(by: overlay.safeAreaInsets).maxY - 8
+        let bottom = overlay.bounds.maxY - 8
         XCTAssertTrue(action.actionHandler?(action) == true)
         XCTAssertEqual(overlay.card.frame.maxY, bottom, accuracy: 0.5)
         overlay.setVisible(false)
@@ -275,27 +315,66 @@ final class FrameHealthIOSTests: XCTestCase {
         XCTAssertTrue(published, "the app chart refreshes before tracking ends, even with an active unknown-cadence scroll observer")
     }
 
-    func testInspectorHeaderFitsNarrowAndAccessibilityWidths() {
+    func testADragGoesPastTheEdgesAndTheCardSpringsBackToAScreenCorner() throws {
         let health = FrameHealth(enabled: true)
         defer { health.destroy() }
-        let controller = FrameHealthInspectorController(health: health)
-        controller.loadViewIfNeeded()
-        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
-            controller.traitOverrides.preferredContentSizeCategory = category
-            for width: CGFloat in [240, 320, 393, 852] {
-                controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 800)
-                controller.view.setNeedsLayout()
-                controller.view.layoutIfNeeded()
-                controller.viewDidLayoutSubviews()
-                controller.tableView.tableHeaderView?.layoutIfNeeded()
-                let source = controller.source.convert(controller.source.bounds, to: controller.view)
-                XCTAssertGreaterThan(source.width, 0)
-                XCTAssertGreaterThanOrEqual(source.minX, 0)
-                XCTAssertLessThanOrEqual(source.maxX, width)
-                XCTAssertGreaterThanOrEqual(source.height, 44)
-                XCTAssertFalse(controller.source.hasAmbiguousLayout)
-            }
+        let overlay = FrameHealthOverlay(health: health)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "the card in a real host window, whose corners it follows")
         }
+        let window = hosted(overlay, in: scene, size: .zero)
+        overlay.frame = window.bounds
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "a new card rests in the top-left corner, past the safe area")
+        overlay.card.moved?(CGPoint(x: -92, y: 8))
+        XCTAssertLessThan(overlay.card.frame.minX, 8, "a drag carries the card past the edge")
+        XCTAssertGreaterThan(overlay.card.frame.minX, -92, "but not as far as the press")
+        overlay.card.released?(.zero)
+        XCTAssertEqual(overlay.card.frame.origin, CGPoint(x: 8, y: 8), "on release it springs back to its corner")
+        if #available(iOS 26.0, *) {
+            // In a corner of a rounded screen the card's corner follows the screen's (54 points on an iPhone 18
+            // Pro); a screen without rounded corners, as the iPhone Duo's, leaves the minimum
+            XCTAssertEqual(overlay.card.cornerConfiguration, .corners(radius: .containerConcentric(minimum: 12)))
+            overlay.card.layoutIfNeeded()
+            XCTAssertEqual(overlay.card.effectiveRadius(corner: .bottomRight), 12, accuracy: 0.5)
+            XCTAssertGreaterThanOrEqual(overlay.card.effectiveRadius(corner: .topLeft), 12)
+        }
+    }
+
+    func testTheCardFollowsDarkModeWithoutBeingMoved() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
+            throw missing("scene", "a real host window whose appearance changes")
+        }
+        let health = FrameHealth(enabled: true)
+        defer { health.destroy() }
+        let overlay = FrameHealthOverlay(health: health)
+        let window = hosted(overlay, in: scene, size: CGSize(width: 430, height: 900))
+        window.overrideUserInterfaceStyle = .light
+        overlay.setVisible(true)
+        overlay.layoutIfNeeded()
+        // The card's ground, systemBackground, is white in light mode and black in dark
+        let dark = { (overlay.card.palette.background.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent,
+            options: nil)?.components?.first ?? 1) < 0.5 }
+        XCTAssertFalse(dark())
+        // Only the appearance changes: nothing lays the card out or moves it
+        window.overrideUserInterfaceStyle = .dark
+        let followed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in dark() }, object: nil)
+        wait(for: [followed], timeout: 2)
+        XCTAssertEqual(overlay.card.backgroundColor?.cgColor, overlay.card.palette.background, "the card's ground follows too")
+    }
+
+    func testTheMenusOneFrameHealthRowIsDimmedAndExplainsWhereTheCardCannotRead() {
+        let on = FrameHealth(enabled: true), off = FrameHealth(enabled: false)
+        defer { on.destroy(); off.destroy() }
+        let available = DevMenuController.frameHealth(on, container: true)
+        XCTAssertEqual(available.title, "Show Frame Health")
+        XCTAssertNil(available.unavailable)
+        let disabled = DevMenuController.frameHealth(off, container: true)
+        XCTAssertEqual(disabled.title, "Show Frame Health", "the same one row, dimmed")
+        XCTAssertEqual(disabled.unavailable?.title, "Frame Health Is Off")
+        XCTAssertTrue(disabled.unavailable?.message.contains("\"frame_health\": { \"mode\": \"core\" }") == true, "it says how to turn collection on")
+        XCTAssertEqual(DevMenuController.frameHealth(on, container: false).unavailable?.title, "Frame Health Is Unavailable")
     }
 
     func testMenuUsesNativeRowsAndBuildDetailsHaveTheirOwnScreen() throws {

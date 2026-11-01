@@ -11,13 +11,6 @@ extension FrameHealth {
         updateCapture(at: CACurrentMediaTime())
     }
 
-    func setInspectorVisible(_ visible: Bool) {
-        inspectorCapture = visible
-        if !visible { window.close() }
-        nativeHealth?.setInspectorVisible(visible)
-        updateCapture(at: CACurrentMediaTime())
-    }
-
     /// Agent capture is a bounded lease; expiration uses existing work or reads, never a timer.
     func setAgentCapture(_ action: String, duration: Double = 60_000) -> [String: Any] {
         guard ["start", "stop", "clear"].contains(action), duration.isFinite,
@@ -43,7 +36,7 @@ extension FrameHealth {
     }
 
     func updateCapture(at now: Double) {
-        let wanted = enabled && !virtual && (hudVisible || inspectorCapture || agentCaptureUntil > now)
+        let wanted = enabled && !virtual && (hudVisible || agentCaptureUntil > now)
         guard wanted != (captureID != 0) else { return }
         exact_frame_health_capture(handle, wanted ? 1 : 0, Self.nanoseconds(now))
         if wanted {
@@ -74,7 +67,6 @@ extension FrameHealth {
         if frames.hatches { bits |= 1 << 22 }
         if hudVisible { bits |= 1 << 35 }
         if hudDragging { bits |= 1 << 36 }
-        if inspectorCapture { bits |= 1 << 38 }
         return bits
     }
 

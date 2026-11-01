@@ -5,7 +5,7 @@ import AppKit
 /// outside it reach the app (LLP 1079.000 §7.2).
 final class FrameHealthOverlayMac: NSView {
     weak var health: FrameHealth?
-    private let card = FrameHealthCardViewMac()
+    let card = FrameHealthCardViewMac()
     private let reader = FrameHealthCardReader()
     /// The corner the card rests in; the window's coordinates rise, so the top is `maxY`
     private var corner = FrameHealthCardFace.Corner(maxY: true)
@@ -15,7 +15,8 @@ final class FrameHealthOverlayMac: NSView {
     /// The generation the charts last took frames from
     private var chartGeneration: UInt64?
     var desiredVisible = false
-    var showDetails: (() -> Void)?
+    /// The session the agent report describes
+    weak var session: ExactSession?
 
     init(health: FrameHealth) {
         self.health = health
@@ -25,7 +26,11 @@ final class FrameHealthOverlayMac: NSView {
         isHidden = true
         addSubview(card)
         card.grabbed = { [weak self] in self?.stopSnap() }
-        card.moved = { [weak self] origin in self?.health?.hudDragging = true; self?.place(at: origin) }
+        card.moved = { [weak self] origin in
+            guard let self else { return }
+            self.health?.hudDragging = true
+            place(at: FrameHealthCardFace.resisted(origin, size: card.frame.size, in: bounds.insetBy(dx: 8, dy: 8)))
+        }
         card.released = { [weak self] velocity in
             guard let self else { return }
             self.health?.hudDragging = false
@@ -64,7 +69,7 @@ final class FrameHealthOverlayMac: NSView {
 
     deinit { occlusion.map(NotificationCenter.default.removeObserver) }
 
-    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Copy
+    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Share
     /// all describe the same samples; a drag only defers drawing.
     /// Shown, fitting, and in a window that is on screen and not covered, with no hidden ancestor.
     private var canBeSeen: Bool {
@@ -118,7 +123,8 @@ final class FrameHealthOverlayMac: NSView {
         guard let health else { return }
         card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
             status: paused ? .paused : health.snapshot().running != 0 ? .live : .idle,
-            unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason))
+            unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
+            details: card.state.showsDetails))
     }
 
     /// Fixed refresh has one interval; Adaptive-Sync takes any rate in its range (a granularity of 0,
@@ -149,23 +155,44 @@ final class FrameHealthOverlayMac: NSView {
             if paused { render() } else { refresh() }
         case .close: setVisible(false)
         case .title: card.showDefinitions()
-        case .copy: copySummary()
+        case .details:
+            card.showDetails(!card.state.showsDetails)
+            render()
+        case .share: chooseShare()
         case .charts, .table:
             card.state.table = control == .table
             render()
         }
     }
 
-    /// One pasteboard item with the text summary and a picture of the charts and every figure.
-    private func copySummary() {
-        let (text, picture) = FrameHealthCardText.copy(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
-            palette: card.palette)
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        if let picture { item.setData(picture, forType: .png) }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([item])
-        card.showCopied(picture == nil ? "Text copied" : "Picture and text copied")
+    /// What to share, as a menu under the Share button.
+    private func chooseShare() {
+        let menu = NSMenu()
+        for kind in FrameHealthShare.allCases {
+            let item = menu.addItem(withTitle: kind.title, action: #selector(shareItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind
+        }
+        _ = menu.popUp(positioning: nil, at: CGPoint(x: card.shareFrame.minX, y: card.shareFrame.maxY + 4), in: card)
+    }
+
+    @objc private func shareItem(_ item: NSMenuItem) { (item.representedObject as? FrameHealthShare).map(share) }
+
+    /// The system's share picker with one item: the report an agent reads, the summary, or the image.
+    func share(_ kind: FrameHealthShare) {
+        guard let health else { return }
+        let present = { [weak self] (item: Any) in
+            guard let self, card.window != nil else { return }
+            NSSharingServicePicker(items: [item]).show(relativeTo: card.shareFrame, of: card, preferredEdge: .minY)
+        }
+        switch kind {
+        case .report: FrameHealthReport.prepare(health: health.reportSource, session: session) { present(String(decoding: $0, as: UTF8.self)) }
+        case .summary: present(FrameHealthCardText.summary(reader: reader, rates: rates, display: display, paused: paused, health: health).text)
+        case .image:
+            let picture = FrameHealthCardText.picture(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
+                health: health, palette: card.palette)
+            if let image = picture.flatMap(NSImage.init(data:)) { present(image) }
+        }
     }
 
     override func layout() {
@@ -187,17 +214,18 @@ final class FrameHealthOverlayMac: NSView {
     }
 
     func place(at point: CGPoint) {
-        card.setFrameOrigin(CGPoint(x: min(max(bounds.minX + 8, point.x), max(bounds.minX + 8, bounds.maxX - card.frame.width - 8)),
-            y: min(max(bounds.minY + 8, point.y), max(bounds.minY + 8, bounds.maxY - card.frame.height - 8))))
+        card.setFrameOrigin(point)
         // In the window's coordinates, wherever the embedder's container sits
         health?.hudBounds = convert(card.frame, to: nil)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // A springing card is where it is drawn, not where it will rest
-        guard desiredVisible, !card.isHidden, (card.layer?.presentation()?.frame ?? card.frame).contains(convert(point, from: superview))
-        else { return nil }
-        return card
+        let local = convert(point, from: superview)
+        guard desiredVisible, !card.isHidden, (card.layer?.presentation()?.frame ?? card.frame).contains(local) else { return nil }
+        // Details rows that scroll take the wheel and trackpad on them; a click there still reaches the card
+        let scroll = card.detailsScroll, inCard = card.convert(local, from: self)
+        return !scroll.isHidden && scroll.frame.contains(inCard) ? scroll.hitTest(inCard) ?? card : card
     }
 
     private var snapping: Bool { card.layer?.animation(forKey: "snap.position.x") != nil || card.layer?.animation(forKey: "snap.position.y") != nil }
@@ -261,7 +289,6 @@ final class FrameHealthCardViewMac: NSView {
     private(set) var drag: FrameHealthCardFace.Drag?
     private(set) var presentation = FrameHealthCardPresentation()
     private(set) var palette: FrameHealthCardDrawing.Palette!
-    private var copiedUntil: DispatchWorkItem?
     private var elements: [Element] = []
     var grabbed: (() -> Void)?
     var moved: ((CGPoint) -> Void)?
@@ -269,9 +296,20 @@ final class FrameHealthCardViewMac: NSView {
     var released: ((CGVector?) -> Void)?
     var activate: ((FrameHealthCardFace.Control) -> Void)?
     var expandedChanged: (() -> Void)?
+    /// Details in place of everything below the header, its rows drawn on one opaque view that scrolls
+    /// where they outgrow the area; it shows no scroller, which would blend
+    let detailsScroll = NSScrollView()
+    private let detailsView = DetailsView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        detailsScroll.isHidden = true
+        detailsScroll.hasVerticalScroller = false
+        detailsScroll.hasHorizontalScroller = false
+        detailsScroll.drawsBackground = true
+        detailsScroll.automaticallyAdjustsContentInsets = false
+        detailsScroll.documentView = detailsView
+        addSubview(detailsScroll)
         wantsLayer = true
         // The drawing fills the bounds; the layer clips it to the card's rounded outline
         layer?.cornerRadius = 12
@@ -280,15 +318,15 @@ final class FrameHealthCardViewMac: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Frame health")
-        elements = [Element(.close, card: self), Element(.title, card: self), Element(.status, card: self), Element(.copy, card: self),
-            Element(.charts, card: self), Element(.table, card: self), Element(.rateChart, card: self),
-            Element(.timeChart, card: self), Element(.tableView, card: self)]
+        elements = [Element(.close, card: self), Element(.title, card: self), Element(.status, card: self),
+            Element(.details, card: self), Element(.share, card: self), Element(.charts, card: self), Element(.table, card: self), Element(.rateChart, card: self),
+            Element(.timeChart, card: self), Element(.tableView, card: self), Element(.detailsView, card: self)]
         resolveColors()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
-    private var regions: FrameHealthCardFace.Layout { .init(width: bounds.width, compact: compact) }
+    private var regions: FrameHealthCardFace.Layout { .init(width: bounds.width, compact: compact, showsDetails: state.showsDetails) }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -297,8 +335,30 @@ final class FrameHealthCardViewMac: NSView {
 
     override func layout() {
         super.layout()
+        layoutDetails()
         updateAccessibility()
         updatePlots()
+    }
+
+    /// Show Details in place of everything below the header, from its first row, or the charts or table again.
+    func showDetails(_ shown: Bool) {
+        state.showsDetails = shown
+        detailsScroll.isHidden = !shown
+        layoutDetails()
+        detailsScroll.documentView?.scroll(.zero)
+        needsDisplay = true
+        updateAccessibility()
+        updatePlots()
+    }
+
+    private func layoutDetails() {
+        guard state.showsDetails, let palette else { return }
+        let area = regions.detailsArea
+        let height = FrameHealthCardFace.detailsHeight(width: area.width, rows: presentation.details, caption: presentation.detailsCaption)
+        detailsScroll.frame = area
+        detailsScroll.backgroundColor = NSColor(cgColor: palette.background) ?? .textBackgroundColor
+        detailsView.frame = CGRect(x: 0, y: 0, width: area.width, height: max(area.height, height))
+        detailsView.set(rows: presentation.details, caption: presentation.detailsCaption, palette: palette)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -319,6 +379,7 @@ final class FrameHealthCardViewMac: NSView {
         layer?.backgroundColor = palette.background
         layer?.borderColor = palette.separator
         needsDisplay = true
+        layoutDetails()
         updatePlots(force: true)
     }
 
@@ -333,33 +394,28 @@ final class FrameHealthCardViewMac: NSView {
         updateAccessibility()
         // The table changes with each sample; the charts' labels only with their scales
         let labels = [next.input?.rateTop, next.input?.timeTop, state.table ? 1 : 0]
-        if header { needsDisplay = true } else {
+        // Under Details only the header shows, and Details draws its own rows
+        if header { needsDisplay = true } else if !state.showsDetails {
             setNeedsDisplay(regions.figures)
             if !compact, state.table || labels != chartLabels { setNeedsDisplay(regions.chartArea) }
         }
         chartLabels = labels
+        layoutDetails()
         updatePlots()
     }
 
     /// Place the shown plots' layers; a change of place, scale or palette draws them whole.
     private func updatePlots(force: Bool = false) {
         guard let palette else { return }
-        let shown = presentation.input.map { compact || state.table ? [] : FrameHealthCardDrawing.plots(regions.chartArea, $0, expanded: expanded) } ?? []
+        let shown = presentation.input.map { compact || state.table || state.showsDetails ? [] : FrameHealthCardDrawing.plots(regions.chartArea, $0, expanded: expanded) } ?? []
         chart.configure(shown, scale: 1, contentsScale: window?.backingScaleFactor ?? 2, palette: palette, force: force)
     }
 
     /// Release the samples the drawing holds, when the reader stops.
     func clear() { update(FrameHealthCardPresentation()) }
 
-    func showCopied(_ message: String) {
-        state.copied = true
-        NSAccessibility.post(element: self, notification: .announcementRequested, userInfo: [.announcement: message])
-        needsDisplay = true
-        copiedUntil?.cancel()
-        let reset = DispatchWorkItem { [weak self] in self?.state.copied = false; self?.needsDisplay = true }
-        copiedUntil = reset
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: reset)
-    }
+    /// Where Share is drawn, for the share picker
+    var shareFrame: CGRect { regions.share }
 
     /// Expand a chart to the whole chart area, or return it: 0 frame rate, 1 frame time.
     func toggle(chart: Int) {
@@ -399,7 +455,7 @@ final class FrameHealthCardViewMac: NSView {
         ctx.setFillColor(palette.background)
         ctx.fill(bounds)
         FrameHealthCardFace.draw(ctx, width: bounds.width, compact: compact, state: state, palette: palette)
-        guard !compact else { return }
+        guard !compact, !state.showsDetails else { return }
         let area = regions.chartArea, p = presentation
         if state.table {
             FrameHealthCardFace.table(ctx, area, columns: p.columns, rows: p.table, caption: p.caption, palette: palette)
@@ -445,7 +501,7 @@ final class FrameHealthCardViewMac: NSView {
         if current.moved { return }
         if let control = current.control {
             if regions.control(at: point) == control { activate?(control) }
-        } else if !compact, !state.table, regions.chartArea.contains(point) {
+        } else if !compact, !state.table, !state.showsDetails, regions.chartArea.contains(point) {
             toggle(chart: point.y - regions.chartArea.minY < 88 ? 0 : 1)
         }
     }
@@ -480,7 +536,7 @@ final class FrameHealthCardViewMac: NSView {
 
     /// An accessibility element over a region the card draws: its buttons, charts and table.
     private final class Element: NSAccessibilityElement {
-        enum Role { case close, title, status, copy, charts, table, rateChart, timeChart, tableView }
+        enum Role { case close, title, status, details, share, charts, table, rateChart, timeChart, tableView, detailsView }
         let role: Role
         weak var card: FrameHealthCardViewMac?
         init(_ role: Role, card: FrameHealthCardViewMac) {
@@ -495,12 +551,13 @@ final class FrameHealthCardViewMac: NSView {
             case .close: card.activate?(.close)
             case .title: card.activate?(.title)
             case .status: card.activate?(.status)
-            case .copy: card.activate?(.copy)
+            case .details: card.activate?(.details)
+            case .share: card.activate?(.share)
             case .charts: card.activate?(.charts)
             case .table: card.activate?(.table)
             case .rateChart: card.toggle(chart: 0)
             case .timeChart: card.toggle(chart: 1)
-            case .tableView: return false
+            case .tableView, .detailsView: return false
             }
             return true
         }
@@ -515,7 +572,8 @@ final class FrameHealthCardViewMac: NSView {
             case .status: frame = l.status; label = state.status == .paused ? "Resume frame health" : "Pause frame health"
             case .close: frame = l.close; label = "Close frame health"
             case .title: frame = l.title; label = "Frame health"; element.setAccessibilityHelp("Shows what these numbers mean.")
-            case .copy: frame = l.copy; label = "Copy a picture and a text summary"
+            case .details: frame = l.details; label = "Frame health details"; element.setAccessibilitySelected(state.showsDetails)
+            case .share: frame = l.share; label = "Share frame health"
             case .charts, .table:
                 frame = element.role == .charts ? l.segments.0 : l.segments.1
                 label = element.role == .charts ? "Charts" : "Table"
@@ -534,7 +592,14 @@ final class FrameHealthCardViewMac: NSView {
                 label = p.table.map { "\($0.0): " + zip(p.columns, $0.1).map { "\($1) (\($0))" }.joined(separator: ", ") }
                     .joined(separator: ". ") + ". " + p.caption
                 role = .staticText
+            case .detailsView:
+                frame = l.detailsArea
+                label = p.details.map { "\($0.name): \($0.value)" + ($0.reason.map { ", " + $0 } ?? "") }.joined(separator: ". ") + ". " + p.detailsCaption
+                role = .staticText
             }
+            // Details takes the place of everything below the header
+            if state.showsDetails, ![.close, .title, .status, .details, .share, .detailsView].contains(element.role) { hidden = true }
+            if element.role == .detailsView, !state.showsDetails { hidden = true }
             // In the card's own coordinates, which are flipped, as the parent space is
             element.setAccessibilityFrameInParentSpace(frame)
             element.setAccessibilityLabel(label)
@@ -545,10 +610,38 @@ final class FrameHealthCardViewMac: NSView {
     }
 }
 
+extension FrameHealthCardViewMac {
+    /// Details' rows and caption on one opaque surface.
+    final class DetailsView: NSView {
+        private var rows: [FrameHealthCardText.Detail] = [], caption = ""
+        private var palette: FrameHealthCardDrawing.Palette?
+        override var isFlipped: Bool { true }
+        override var isOpaque: Bool { true }
+        func set(rows: [FrameHealthCardText.Detail], caption: String, palette: FrameHealthCardDrawing.Palette) {
+            (self.rows, self.caption, self.palette) = (rows, caption, palette)
+            needsDisplay = true
+        }
+        override func draw(_ dirtyRect: NSRect) {
+            guard let ctx = NSGraphicsContext.current?.cgContext, let palette else { return }
+            ctx.setFillColor(palette.background)
+            ctx.fill(bounds)
+            FrameHealthCardFace.details(ctx, width: bounds.width, rows: rows, caption: caption, palette: palette)
+        }
+    }
+}
+
 extension ExactView {
     @objc func toggleFrameHealth(_ sender: Any?) {
         guard let container = session.frameHealth.macContainer else { return }
         let health = session.frameHealth
+        // AppKit lets no one choose a disabled menu item, so the item stays enabled and explains instead
+        if let unavailable = health.unavailableExplanation {
+            let alert = NSAlert()
+            alert.messageText = unavailable.title
+            alert.informativeText = unavailable.message
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            return
+        }
         let overlay: FrameHealthOverlayMac
         if let existing = health.desktopOverlay, existing.superview === container { overlay = existing }
         else {
@@ -559,20 +652,13 @@ extension ExactView {
             container.addSubview(overlay)
             health.desktopOverlay = overlay
             health.ended = { [weak overlay] in overlay?.setVisible(false); overlay?.removeFromSuperview() }
-            overlay.showDetails = { [weak self] in self?.showFrameHealthDetails(nil) }
+            overlay.session = session
         }
         overlay.setVisible(!health.hudVisible)
     }
     func validateFrameHealthItem(_ item: NSMenuItem) -> Bool {
         item.title = session.frameHealth.hudVisible ? "Hide Frame Health" : "Show Frame Health"
         return session.frameHealth.macContainer != nil
-    }
-    @objc func showFrameHealthDetails(_ sender: Any?) { FrameHealthInspector.show(health: session.frameHealth, window: window) }
-    @objc func shareFrameHealth(_ sender: Any?) {
-        FrameHealthReport.prepare(health: session.frameHealth.reportSource, session: session) { [weak self] data in
-            guard let self else { return }
-            NSSharingServicePicker(items: [String(decoding: data, as: UTF8.self)]).show(relativeTo: self.visibleRect, of: self, preferredEdge: .minY)
-        }
     }
 }
 #endif
