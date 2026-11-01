@@ -6041,5 +6041,12 @@ Before running the Mac checks, predict zero failures in Linux, Ink, guides,
 caps, formatting and Clippy, plus the bake tests, manifest scripts and the
 focused scaffold tests. No performance result is predicted or measured.
 The NucBox remains asleep; this path and the other Windows checks listed
-above are unrun. Raw output will be retained under
+above are unrun. Raw output is retained under
 `target/win-default/game-default/`.
+
+Mac validation on `15075af5b0` meets the zero-failure prediction: Linux passes
+1,706 unit and 296 integration tests, Ink 58, bake 77 library and two CLI
+tests, guides five, manifest scripts 22 and the two focused scaffold tests.
+Caps, formatting and Clippy pass; ignored tests remain ignored. The retained
+logs, source revision, commands and exit statuses reproduce these counts.
+`origin/main` remains `a88bb1e534`, so no further rebase was needed.
