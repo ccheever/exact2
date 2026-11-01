@@ -32,6 +32,64 @@ fn constant_text(e: &Expr) -> Option<String> {
         _ => None,
     }
 }
+/// A grid track list with each length token it names written as the token's
+/// value (`minmax(card-min-width, 1fr)`, the loader having written
+/// `var(--card-min-width)` as the name), as a browser substitutes `var()` before
+/// it parses the tracks (CSS Variables 1 §3). Only a token with one value in
+/// every app mode is written in; the kernel's track parser refuses any other.
+pub(crate) fn grid_tokens(a: &Attr, rows: &[StyleId]) -> Option<Attr> {
+    if !rows
+        .iter()
+        .any(|r| matches!(r, StyleId::GridTemplateColumns | StyleId::GridTemplateRows))
+    {
+        return None;
+    }
+    fn write(e: &mut Expr, changed: &mut bool) {
+        match e {
+            Expr::Str(text, _) => {
+                let mut out = String::with_capacity(text.len());
+                let mut rest = text.as_str();
+                while let Some(start) = rest.find(|c: char| c.is_ascii_alphabetic()) {
+                    let (before, word) = rest.split_at(start);
+                    let end = word
+                        .find(|c: char| {
+                            !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                        })
+                        .unwrap_or(word.len());
+                    // A word that follows a digit is the number's unit (`1fr`, `9.5rem`).
+                    let unit = before.ends_with(|c: char| c.is_ascii_digit() || c == '.');
+                    out.push_str(before);
+                    match crate::theme::measure_written(&word[..end]).filter(|_| !unit) {
+                        Some((exact_tamber::Kind::Length, values)) if values.len() == 1 => {
+                            out.push_str(&values[0]);
+                            *changed = true;
+                        }
+                        _ => out.push_str(&word[..end]),
+                    }
+                    rest = &word[end..];
+                }
+                out.push_str(rest);
+                *text = out;
+            }
+            Expr::Ternary(_, yes, no, _)
+            | Expr::Match {
+                some: yes,
+                none: no,
+                ..
+            } => {
+                write(yes, changed);
+                write(no, changed);
+            }
+            Expr::Let { body, .. } => write(body, changed),
+            _ => {}
+        }
+    }
+    let mut out = a.clone();
+    let mut changed = false;
+    write(&mut out.value, &mut changed);
+    changed.then_some(out)
+}
+
 /// `navigationSplit`'s column width written as a number: its text, as the
 /// prop carries it (LLP 1116.004 D1.2).
 pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
@@ -176,7 +234,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, rem, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px, rem and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; a design token (`var(--name)`, or its name) and env() are not tracks".into(),
+        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, rem, %, fr, auto, min-content, max-content, calc()/min()/max()/clamp() over px, rem and %, fit-content(px or %), minmax(), repeat() (including auto-fill/auto-fit), and named lines; a length token (`var(--name)`, or its name) with one value in every app mode is its value; env() is not a track".into(),
         StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line through 10,000, or `span N` through 10,000, optionally followed by `/` and a second line".into(),
         StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
         StyleValueError::BadSymbolPalette { .. } => "expected none, or one to three colours".into(),

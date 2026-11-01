@@ -1355,10 +1355,10 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
-                // @ref LLP 1121 D3 — a duration or easing token is written
-                // into its `transition` or `animation` before the codec reads it.
-                // (The loader wrote a literal's in; this is an expansion's.)
-                let motion = rows
+                // @ref LLP 1121 D3 — a duration or easing token is written into its `transition` or
+                // `animation` before the codec reads it (the loader wrote a literal's in; this is an
+                // expansion's), and a length token into grid tracks.
+                let written = rows
                     .iter()
                     .any(|r| {
                         matches!(
@@ -1375,8 +1375,9 @@ impl<'a> Lowerer<'a> {
                             &crate::theme::motion_tokens(),
                         )
                     })
-                    .flatten();
-                let a = motion.as_ref().map_or(a, |m| &m[0]);
+                    .flatten()
+                    .or_else(|| values::grid_tokens(a, rows).map(|g| vec![g]));
+                let a = written.as_ref().map_or(a, |m| &m[0]);
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 self.check_style(a, rows, &ty, font, scope)?;
                 for &row in rows {
