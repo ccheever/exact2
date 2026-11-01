@@ -12,6 +12,7 @@ import { decodeClientPrefs } from '../../src/settings/settings-core';
 import type { CustomTheme } from '../../src/appearance/settings-themes';
 import { currentDraft, editDraft, editorView, previewTheme, syncDraft, themeEditorCommand, themeLocal, updateFamily } from '../../src/appearance/settings-appearance-editor';
 import { contractHsvToHex, hexToHsv, hsvToHex, huePoint, hueKey, pickerCommit, pickerFields, pickerOwns, pickerStamp, planeKey, planePoint, themePickerAlphaSuffix, themeRgbToHex, type HsvColor } from '../../src/appearance/theme-color-picker';
+import { appText } from '../support/app-files';
 
 describe('picker color conversion', () => {
   it.each(['#000000', '#ffffff', '#808080', '#ff0000', '#00ff00', '#0000ff', '#2563eb'])('round trips %s through HSV without changing the persisted color', hex => {
@@ -80,7 +81,7 @@ describe('shared color controls in settings', () => {
     const before = picker.commits.length;
     expect(key(picker, 's', 'Tab')).toBe(false);
     expect(key(picker, 'v', 'Tab')).toBe(false);
-    expect(key(picker, 'h', 'Home')).toBe(false);
+    expect(key(picker, 'h', 'Tab')).toBe(false);
     expect(picker.commits.length).toBe(before);
   });
   it('supports Home/End and clamps each axis without changing the other', () => {
@@ -101,6 +102,20 @@ describe('shared color controls in settings', () => {
     key(picker, 's', 'ArrowLeft');
     expect(percent(picker.hsv.s)).toBe(98);
     expect(picker.commits.at(-1)).toBe('#ff0505');
+  });
+  // colorPickers.browser.test.tsx "jumps hue to both endpoints without changing saturation or brightness" (T3 Code 2359643cff).
+  it('jumps hue to both endpoints without changing saturation or brightness', () => {
+    const picker = startAt('#408080');
+    key(picker, 'h', 'Home');
+    expect([Math.round(picker.hsv.h), picker.commits.at(-1)]).toEqual([0, '#804040']);
+    key(picker, 'h', 'End');
+    expect([Math.round(picker.hsv.h), picker.commits.at(-1)]).toEqual([360, '#804040']);
+    key(picker, 'h', 'ArrowRight', true);
+    expect([Math.round(picker.hsv.h), picker.commits.at(-1)]).toEqual([10, '#804b40']);
+    // Both Contract sliders take the same keys (theme-color-picker.contract and settings-b-accent.contract hueKey).
+    for (const file of ['theme-color-picker.contract', 'settings-b-accent.contract']) {
+      expect(appText(file)).toContain('or k == "Home" or k == "End"\n      preventDefault()\n      let nh = k == "Home" ? 0 : (k == "End" ? 360 : (ch + ');
+    }
   });
   // colorPickers.test.tsx "persists independent native range changes through theme batching with alpha"
   it('keeps the alpha through independent saturation and brightness changes', () => {
@@ -234,7 +249,7 @@ describe('the picker in the theme editor', () => {
     // The dark row shows its own value with the role's stamp, so an open panel, its op landed and its
     // colour not the row's, follows the dark value instead of carrying the light one across.
     const dark = editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows.find(entry => entry.role === 'canvas')!;
-    expect([dark.value, dark.seq]).toEqual(['#0a0a0a', 50]);
+    expect([dark.value, dark.seq]).toEqual(['#000000', 50]);
     expect(pickerOwns(true, false, 50, dark.seq, '#202020', dark.hex6)).toBe(false);
     op(fake, 'color', 'canvas', '#303030', 51);
     expect(editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows[0]!.value).toBe('#303030');

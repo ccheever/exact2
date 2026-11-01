@@ -3,7 +3,7 @@ import { composerFieldOwner } from '../composer/auto-balance-owner';
 // The pull request panel's hand-offs: "Ask a question", "Explain this
 // PR" (the host's term), "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
 // finding's own Fix on the Summary tab, and Resolve conflicts — the panel's startAsk/startHandoff
-// (T3 Code 7c3b3b3605ef, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
+// (T3 Code 2359643cff, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
 // PullRequestDetailPanel.tsx writeTaskToComposer, startAsk, startHandoff, askAboutPullRequest,
 // explainPullRequest, startCheckout, startFixFinding, startFixFindings, startResolveConflicts and
 // the menus that call them). The thread-opening core is pr-row-actions.ts (checkoutHandoff,
@@ -20,6 +20,7 @@ import type { T3Client } from '../client/client';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { can } from '../connections/command-permissions';
 import { letGo } from '../client/let-go';
 import { replaceComposerPrompt } from '../composer/composer-editor';
 import { askedDescription, askInThread, beginCheckoutHandoff, prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
@@ -37,12 +38,15 @@ export type PrHandoffsView = {
   pending: string;
   /** checkoutRoot: the server knows where the repository is checked out, so it can be checked out again. */
   canCheckout: boolean;
+  /** canPrepareWorktree: this connection may prepare a pull request's thread in a worktree (source-control:write and
+   *  orchestration:operate); Resolve conflicts with no thread to attach to needs it. */
+  canPrepareWorktree: boolean;
   /** pullRequestPanelContext beside the window's thread: its own pull request hides the Check out menu there. */
   threadOwn: boolean;
   /** The panel's host words (pages-pr-actions.ts panelTerminology). */
   term: TermView;
 };
-export const emptyHandoffs = (): PrHandoffsView => ({ pending: '', canCheckout: false, threadOwn: false, term: termView(terminologyOf(undefined)) });
+export const emptyHandoffs = (): PrHandoffsView => ({ pending: '', canCheckout: false, canPrepareWorktree: false, threadOwn: false, term: termView(terminologyOf(undefined)) });
 
 export function presentHandoffs(client: T3Client, detail: Obj | null, reference: { projectId: string; host: string; repository: string; number: number }, term: Terminology = terminologyOf(undefined)): PrHandoffsView {
   const thread = arr(client.shell?.threads).find(entry => entry.id === client.threadId) ?? null;
@@ -51,7 +55,8 @@ export function presentHandoffs(client: T3Client, detail: Obj | null, reference:
     ? pullRequestPanelContext({ projectId: str(thread?.projectId) || client.projectId, pullRequests: thread?.pullRequests,
       linkedPullRequest: thread?.linkedPullRequest ? obj(thread.linkedPullRequest) : null, branchPullRequest: thread?.branchPullRequest ? obj(thread.branchPullRequest) : null }, surface)
     : 'page';
-  return { pending: prState(client).handoff, canCheckout: checkoutRoot(client, detail, reference.projectId) !== '', threadOwn: own === 'thread', term: termView(term) };
+  const canPrepareWorktree = can(client, 'source-control:write') && can(client, 'orchestration:operate');
+  return { pending: prState(client).handoff, canCheckout: checkoutRoot(client, detail, reference.projectId) !== '', canPrepareWorktree, threadOwn: own === 'thread', term: termView(term) };
 }
 /** checkoutRoot: where the server keeps the repository — the detail's, else the project's (while the detail is out). */
 function checkoutRoot(client: T3Client, detail: Obj | null, projectId: string): string {
@@ -118,7 +123,11 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
   // startHandoff: a task the agent needs the branch for, or a checkout that carries nothing.
   let task: HandoffTask | null = null, mode: 'worktree' | 'local' = 'worktree';
   if (kind === 'checkout:worktree' || kind === 'checkout:local') mode = kind === 'checkout:local' ? 'local' : 'worktree';
-  else if (kind === 'conflicts') task = { prompt: resolveConflictsPrompt(subject) };
+  else if (kind === 'conflicts') {
+    // PullRequestResolveConflictsButton `unavailable`: with no thread to attach to, the worktree must be preparable here.
+    if (!attach && !(can(client, 'source-control:write') && can(client, 'orchestration:operate'))) return '';
+    task = { prompt: resolveConflictsPrompt(subject) };
+  }
   else if (kind === 'findings') {
     const activity = ctx.activity;
     task = buildFixFindingsHandoff({ ...subject, reviewThreads: arr(activity?.reviewThreads), comments: arr(activity?.comments),

@@ -127,6 +127,19 @@ describe('handleToggleDeviceToolbar and BrowserDeviceToolbar', () => {
     expect(resizes(s).at(-1)).toEqual({ _tag: 'fill' });
     expect(browserView(s.client, s.surface, Date.now()).aspectLocked).toBe(false);
   });
+  // BrowserDeviceToolbar.browser.test.tsx: the field typed in keeps its digits; the size asked for is resized at the
+  // locked ratio along that field, then bounded (the floor, the area cap).
+  it.each([
+    { width: 1920, height: 1080, asked: '2560|1440|width', expected: [2560, 1440] },
+    { width: 390, height: 844, asked: '1170|2532|height', expected: [1170, 2532] },
+    { width: 1920, height: 1080, asked: '256|240|width', expected: [427, 240] },
+    { width: 1920, height: 1920, asked: '3840|3840|width', expected: [2880, 2880] },
+  ])('with the ratio locked, a typed $asked asks for $expected', async ({ width, height, asked, expected }) => {
+    const s = setup({ viewport: { _tag: 'freeform', width, height } });
+    await local(s, 'viewport-lock');
+    await local(s, 'viewport-size', asked);
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: expected[0], height: expected[1] });
+  });
   it('a failed resize toasts and lets the view drop the size it held', async () => {
     const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 }, resize: () => { throw new Error('resize refused'); } });
     await local(s, 'viewport-size', '900|700');

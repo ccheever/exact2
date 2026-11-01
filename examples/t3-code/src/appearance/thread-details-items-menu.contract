@@ -1,4 +1,4 @@
-// ThreadDetailsItemsRow's control (T3 Code 6d450a4284, MIT, see LICENSE-T3): an outline sm button reading "N of 10 on"
+// ThreadDetailsItemsRow's control (T3 Code 6d450a4284, MIT, see LICENSE-T3): an outline sm button reading "N of 12 on"
 // whose menu is ThreadDetailsItemsMenuItems, the items of the thread details card's own menu (details/shell-details.contract
 // ItemsMenuPopover): "Show in thread details", a checkbox per item, a separator, then Reset to default. Its rows keep a
 // check icon box beside each label, so the popover is not menu-shaped (LLP 1021 D3) and macOS shows it as drawn here.

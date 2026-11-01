@@ -216,6 +216,8 @@ component T3Code
     frameMoved
     optionsAnchorX
     optionsAnchorWidth
+    navigationHistory // the window's Back and Forward (src/sidebar/sidebar-members.contract)
+    historyGo
   members "./src/timeline/cite-members.contract"
   mutation balanceLoaded as shape Change queue refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time. Queued: its move to another machine holds `moving` across polls on its own timers, which a newer send would let go.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
@@ -523,6 +525,7 @@ component T3Code
   resource viewport = exactViewport() as shape Viewport
   derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light") // Palettes use the resolved Appearance scheme; viewport.prefersColorScheme is only the underlying system preference.
   members "./src/palette/palette-members.contract"
+  members "./src/sidebar/sidebar-members.contract"
   mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
   mutation providerUpdateRun as shape Change queue refreshes providerPage
   mutation changed as shape Change refreshes data then commandCompleted
@@ -650,7 +653,7 @@ component T3Code
   state licenseExpanded = ""
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
-  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp, shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp != "" ? confirmOp : (data.composer.resetConfirm != "" or data.revertPending != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm ? "alertdialog" : ""), shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "browser" or settingsRoute == "devices"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
   state removalAt = ""

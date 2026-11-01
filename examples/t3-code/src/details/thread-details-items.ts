@@ -1,9 +1,10 @@
-// What the thread details card shows (T3 Code 6d450a4284, MIT, see LICENSE-T3: components/chat/threadDetailsItems.ts and
-// ThreadDetailsItemsMenu.tsx). Ten items, each on by default but Usage; the choices are kept as the reference keeps the
-// client setting `threadDetailsItems`: only those that differ from the default, so a later default reaches everyone
-// else. The record lives in the client's preference file under the same name. The card's right-click menu, its
-// "Choose what to show" row and Settings › Appearance › Thread details share this list. The reference also reads the
-// retired Labs flag `threadDetailsUsageEnabled` as Usage's default; the clone never offered that flag, so Usage is off.
+// What the thread details card shows (T3 Code 2359643cff, MIT, see LICENSE-T3: components/chat/threadDetailsItems.ts and
+// ThreadDetailsItemsMenu.tsx). Twelve items, each on by default but Usage limits and Context window; the choices are kept
+// as the reference keeps the client setting `threadDetailsItems`: only those that differ from the default, so a later
+// default reaches everyone else. The record lives in the client's preference file under the same name. The card's
+// right-click menu, its "Choose what to show" row and Settings › Appearance › Thread details share this list. The
+// reference also reads the retired Labs flag `threadDetailsUsageEnabled` as the default of both; the clone never offered
+// that flag, so both are off.
 import { obj, type Obj } from '../client/domain';
 
 // Ids are stored in the preference file, so never rename one.
@@ -17,7 +18,9 @@ export const THREAD_DETAILS_ITEMS = [
   { id: 'servers', label: 'Servers', defaultVisible: true },
   { id: 'automations', label: 'Automations', defaultVisible: true },
   { id: 'lineage', label: 'Lineage', defaultVisible: true },
-  { id: 'usage', label: 'Usage', defaultVisible: false },
+  { id: 'sideChats', label: 'Side chats', defaultVisible: true },
+  { id: 'usage', label: 'Usage limits', defaultVisible: false },
+  { id: 'context', label: 'Context window', defaultVisible: false },
 ] as const;
 
 export type ThreadDetailsItemId = (typeof THREAD_DETAILS_ITEMS)[number]['id'];
@@ -45,7 +48,7 @@ export function setThreadDetailsItem(choices: Choices, id: ThreadDetailsItemId, 
 
 export const isDefaultThreadDetailsVisibility = (visibility: ThreadDetailsVisibility): boolean => THREAD_DETAILS_ITEMS.every(item => visibility[item.id] === item.defaultVisible);
 
-/** "Thread details: N of 10 on" (Settings › Appearance's row). */
+/** "Thread details: N of 12 on" (Settings › Appearance's row). */
 export const shownItemCount = (visibility: ThreadDetailsVisibility): number => THREAD_DETAILS_ITEMS.filter(item => visibility[item.id]).length;
 
 /** The menu's rows: one checkbox per item, then Reset to default (disabled at the defaults). */

@@ -80,7 +80,7 @@ describe('the theme editor opens Advanced for a theme the guided editor did not 
     editDraft(as(fake), 'advanced', 'true');
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', 'Pair');
     const pair = library(fake).find(theme => theme.id === 'pair')!;
-    expect([pair.light?.canvas, pair.dark?.canvas, pair.managed]).toEqual(['#ffffff', '#0a0a0a', undefined]);
+    expect([pair.light?.canvas, pair.dark?.canvas, pair.managed]).toEqual(['#ffffff', '#000000', undefined]);
     expect(editorView(syncDraft(as(fake), 'edit', 'mocha#2', prefs(fake), 'dark')).advanced).toBe(true);
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', '');
     expect(library(fake).find(theme => theme.id === 'mocha')!.collection).toEqual({ id: 'open-vsx:catppuccin.catppuccin-vsc', label: 'Catppuccin' });

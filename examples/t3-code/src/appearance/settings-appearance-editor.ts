@@ -24,7 +24,8 @@ const LIGHT: Record<string, string> = { canvas: '#fcfcfc', chrome: '#fcfcfc', to
   codeBackground: '#ffffff', codeForeground: '#27272a', sidebar: '#fafafa', sidebarForeground: '#27272a', sidebarMutedForeground: '#71717b', sidebarControlSurface: '#f4f4f5',
   sidebarRowHover: '#fcfcfc', sidebarRowActive: '#ffffff', sidebarRowSelected: '#ffffff', sidebarBorder: '#e4e4e7', terminalBackground: '#fcfcfc', terminalForeground: '#27272a',
   terminalCursor: '#26384e', terminalSelection: '#d0d6dd', terminalScrollbar: '#d6d6d6', terminalScrollbarHover: '#bdbdbd' };
-const DARK: Record<string, string> = { canvas: '#0a0a0a', chrome: '#0a0a0a', toolbar: '#0a0a0a', toolbarForeground: '#f5f5f5', toolbarBorder: '#191919', toolbarControl: '#111111',
+// getStandardThemeColors paints the dark canvas black, as the dark chat is (an HTML render's background, the editor's Background).
+const DARK: Record<string, string> = { canvas: '#000000', chrome: '#0a0a0a', toolbar: '#0a0a0a', toolbarForeground: '#f5f5f5', toolbarBorder: '#191919', toolbarControl: '#111111',
   toolbarControlForeground: '#f5f5f5', toolbarControlHover: '#141414', surface: '#111111', surfaceRaised: '#111111', surfaceOverlay: '#111111', text: '#f5f5f5', textMuted: '#818181',
   border: '#191919', input: '#1e1e1e', focus: '#346bf1', accent: '#346bf1', accentForeground: '#ffffff', secondary: '#111111', secondaryForeground: '#f5f5f5', muted: '#111111',
   mutedForeground: '#818181', placeholder: '#818181', secondaryLabel: '#818181', iconMuted: '#818181', error: '#fb414a', errorForeground: '#ff6467', errorSurface: '#301214',

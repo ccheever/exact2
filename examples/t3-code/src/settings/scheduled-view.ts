@@ -8,7 +8,10 @@
 // is the user's own switch. Labels and the scope rule are scheduled-tasks.ts ports.
 import { fleet, trimOrigin } from '../connections/settings-b-fleet';
 import { catalogOrder, isPrimaryEnvironment } from '../connections/local-primary';
-import { connectionRouteLabel, savedRoutes } from '../connections/connection-routes';
+import { savedRoutes } from '../connections/connection-routes';
+import { routesTransportLabel } from '../connections/connection-routes-ops';
+import { can } from '../connections/command-permissions';
+import { bridgeReply } from '../client/protocol';
 import { formatSshTarget } from '../connections/settings-b-ssh';
 import { deliveriesPage, closeDeliveries, EMPTY_DELIVERIES } from './scheduled-deliveries';
 import { webhookAddress, webhookDraft, webhookSchedule } from './scheduled-webhook';
@@ -131,11 +134,14 @@ export function taskEnvironmentSummaries(sections: readonly TaskSection[]): { id
   return Object.entries(labels).flatMap(([id, entries]) => entries.length ? [{ id, text: `${id} ${entries.join(', ')}` }] : []);
 }
 
-/** EnvironmentRow.tsx environmentTransportLabel without an active route: primary, preferred route, then display URL. */
-function taskTransportLabel(environmentId: string, displayUrl: string | null | undefined): string {
+/**
+ * EnvironmentRow.tsx useEnvironmentTransportLabel: primary, "via <route>" for the route a connected environment uses
+ * (the preferred route's label while it is not connected), then T3 Connect, SSH or the display URL.
+ */
+function taskTransportLabel(environmentId: string, displayUrl: string | null | undefined, activeRouteId: string, connected: boolean): string {
   if (isPrimaryEnvironment(environmentId)) return 'This machine';
   const saved = fleet.saved.find(entry => entry.environmentId === environmentId), routes = saved ? savedRoutes(saved) : [];
-  if (routes.length > 1) return connectionRouteLabel(routes[0]!);
+  if (routes.length > 1) return routesTransportLabel(routes, activeRouteId, connected)!;
   const route = routes[0];
   if (route?.kind === 'relay') return 'T3 Connect';
   if (route?.kind === 'ssh') return route.ssh ? `SSH ${formatSshTarget(route.ssh)}` : 'SSH';
@@ -153,7 +159,7 @@ function taskTransportLabel(environmentId: string, displayUrl: string | null | u
 // and the answer asks itself again (`t3.notify`, T3LatinChords.swift's wake) for the read.
 type ProjectRefs = RefPages & { error: string; first: Obj | null; loading?: boolean };
 type Refs = { projectId: string; error: string; refs: BranchRef[]; selected: BranchRef[]; status: string };
-type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string, BranchRef[]>; picker: string; looks: number };
+type Visit = { key: string; pages: Map<string, ProjectRefs>; lookups: Map<string, BranchRef[]>; picker: string; looks: number; titles: Map<string, string> };
 /** The topic the page watches while a search's first page is pending: its own wake asks it again (command-waits.ts). */
 export const TASK_REFS_WAKE = 't3.notify';
 const editorRefs = new WeakMap<T3Client, Visit>();
@@ -189,9 +195,9 @@ export function taskRefsStatus(pages: ProjectRefs): string {
 }
 
 export async function scheduledPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, editor: string, editingId: string, active: boolean, now = 0, machine = '', projectKey = '', checkout = '', taskBase = '', refresh = 0) {
-  const empty = { deliveries: EMPTY_DELIVERIES, available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
+  const empty = { deliveries: EMPTY_DELIVERIES, creatable: false, available: false, writable: false, error: '', loading: false, environment: '', scope: `${environmentId}:${projectId}`, missing: false,
     tasks: [] as TaskRow[], sections: [] as TaskSection[], compact: false, emptyTasks: false, summaries: [] as { id: string; text: string }[],
-    editors: [] as (ReturnType<typeof editorDraft> & ReturnType<typeof webhookAddress> & { key: string; missing: boolean })[], projects: [] as TaskChoice[], workspaces: [] as Choice[], environments: [] as TaskChoice[],
+    editors: [] as (ReturnType<typeof editorDraft> & ReturnType<typeof webhookAddress> & { key: string; missing: boolean; destination: string })[], projects: [] as TaskChoice[], workspaces: [] as Choice[], environments: [] as TaskChoice[],
 
     branches: [] as Refs[], marks: [] as TaskModelMark[] };
   if (!active || editor !== 'task') { editorRefs.delete(client); editorTasks.delete(client); }
@@ -208,17 +214,26 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // `environment`: the primary when it is connected), else the first connected one (ScheduledTasksSettings defaultEnvironment).
     const inScope = catalogOrder(environments.filter(environment => scope.environmentIds.includes(environment.environmentId)), fleet.catalogIds());
     const fallback = (inScope.find(environment => environment.connected) ?? inScope[0])?.environmentId ?? '';
+    // New task opens on the representative if it may create tasks there (scheduledTasks.upsert), else on the first
+    // connected environment that permits it; with none, it is disabled.
+    const permitted = inScope.filter(environment => environment.connected && (environment.focused ? can(client, 'orchestration:operate')
+      : fleet.entries.get(environment.key)?.scopes.includes('orchestration:operate') === true));
+    const creation = permitted.find(environment => environment.environmentId === fallback) ?? permitted[0];
     const target = (editor === 'task' || editor === 'task-deliveries') && editingId ? editTarget(editingId, fallback) : null;
     const scopeMachines = scopeEnvironments(client);
+    // The focused environment's route in use is its transport's (the native status); a background one's is its entry's.
+    const focusedRoute = inScope.some(environment => environment.focused && environment.connected && savedRoutes(fleet.saved.find(entry => entry.environmentId === environment.environmentId) ?? {}).length > 1)
+      ? await bridgeReply(native, { op: 'status' }).then(reply => reply.ok ? str(obj(reply.value).activeRouteId) : '', (error: unknown) => { if (letGo(error)) throw error; return ''; }) : '';
     const sections = inScope.map(environment => {
       const section = taskSection(environment, scope, inScope.length > 1, target?.link && target.environmentId === environment.environmentId ? target.taskId : '', now);
       const machine = scopeMachines.find(entry => entry.environmentId === environment.environmentId);
       const labels = machine ? settingsScopeEnvironmentLabels(machine, scopeMachines) : { primary: section.label, secondary: '' };
-      const transport = taskTransportLabel(environment.environmentId, machine?.displayUrl);
+      const transport = taskTransportLabel(environment.environmentId, machine?.displayUrl,
+        environment.focused ? focusedRoute : str(fleet.entries.get(environment.key)?.activeRouteId), environment.connected);
       return { ...section, label: labels.primary, secondary: labels.secondary, kind: machine?.kind ?? 'laptop', transport };
     });
-    const editing = environments.find(environment => environment.environmentId === (target?.environmentId || fallback));
-    const base = { ...empty, available: !!editing?.connected, writable: !!editing?.connected && (!editing.focused || client.writable),
+    const editing = environments.find(environment => environment.environmentId === (target?.environmentId || creation?.environmentId || fallback));
+    const base = { ...empty, creatable: !!creation, available: !!editing?.connected, writable: !!editing?.connected && (!editing.focused || client.writable),
       environment: editing?.label ?? '', sections, compact: inScope.length > 1, summaries: taskEnvironmentSummaries(sections),
       emptyTasks: sections.some(section => section.state === 'ready') && sections.every(section => !section.tasks.length), tasks: sections.flatMap(section => section.tasks) };
     if (editor === 'task-deliveries' && editing) {
@@ -257,7 +272,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const visitKey = [editing.environmentId, editing.key, editing.connected, editing.focused ? client.generation : '', target?.taskId ?? 'new', refresh,
       ...projects.map(project => `${str(project.id)}=${str(project.workspaceRoot)}`)].join('|');
     let visit = editorRefs.get(client);
-    if (!visit || visit.key !== visitKey) editorRefs.set(client, visit = { key: visitKey, pages: new Map(), lookups: new Map(), picker: '', looks: 0 });
+    if (!visit || visit.key !== visitKey) editorRefs.set(client, visit = { key: visitKey, pages: new Map(), lookups: new Map(), picker: '', looks: 0, titles: new Map() });
     // Another list shown (a project, a search): it starts from its first page (usePaginatedBranches' targetKey).
     const moved = visit.picker !== `${shown}\n${search}`, opening = visit.looks++ === 0;
     visit.picker = `${shown}\n${search}`;
@@ -265,6 +280,23 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // environment's read is shared (the request's `share`): an answer asked again before its reply joins it.
     const listRefs = async (payload: Obj) => (editing.focused ? client.restAccess(native).read('vcs.listRefs', payload) : editing.request('vcs.listRefs', payload));
     const kept = visit, reports = refScrollEnds(client);
+    // ScheduledTaskDestination: the thread a run continues, by its shell title; the shell can omit older settled
+    // threads, whose family read (shellThreadFamilies servers) still carries it. Read once per editor visit.
+    let destination = '';
+    if (draft.threadId) {
+      const shellThread = editing.shell.threads.find(thread => str(thread.id) === draft.threadId);
+      let title = str(shellThread?.title).trim();
+      if (!shellThread && editing.config.shellThreadFamilies === true) {
+        if (!kept.titles.has(draft.threadId)) {
+          const payload = { threadId: draft.threadId };
+          const family = await (editing.focused ? client.restAccess(native).read('orchestration.getThreadFamily', payload) : editing.request('orchestration.getThreadFamily', payload))
+            .catch((error: unknown): Obj => { if (letGo(error)) throw error; return {}; });
+          kept.titles.set(draft.threadId, str(arr(family.threads).map(obj).find(thread => str(thread.id) === draft.threadId)?.title).trim());
+        }
+        title = kept.titles.get(draft.threadId) ?? '';
+      }
+      destination = title || `Thread ${draft.threadId}`;
+    }
     let pending = false;
     const branches: Refs[] = await Promise.all(projects.map(async project => {
       const cwd = str(project.workspaceRoot), projectId = str(project.id), query = projectId === shown ? search : '';
@@ -320,7 +352,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // editingTaskMissing: the task went away while its editor was open.
     const missing = !!target?.taskId && !!all && !live;
     return { ...base, missing,
-      editors: [{ ...draft, ...webhookAddress(liveTask?.webhook ? obj(liveTask.webhook) : undefined, editing.focused ? client.origin : str(fleet.entries.get(editing.key)?.origin)), key, missing }],
+      editors: [{ ...draft, ...webhookAddress(liveTask?.webhook ? obj(liveTask.webhook) : undefined, editing.focused ? client.origin : str(fleet.entries.get(editing.key)?.origin)), key, missing, destination }],
       projects: projects.map(project => ({ value: str(project.id), label: str(project.title), selected: false, kind: '', secondary: environments.some(environment => environment.shell.projects.some(other => other.title === project.title && (environment.environmentId !== editing.environmentId || other.id !== project.id))) ? str(project.workspaceRoot) : '' })),
 
       workspaces: ['worktree', 'root', 'existing_worktree'].map(value => ({ value, label: WORKSPACE_LABELS[value], selected: false })),

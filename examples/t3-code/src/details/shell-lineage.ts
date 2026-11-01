@@ -2,18 +2,20 @@
 // packages/client-runtime/src/state/threadRelationships.ts, threadWorkflows.ts
 // resolveLatestMergeBackRun, apps/web/src/components/chat/
 // ThreadRelationshipsControl.tsx, ThreadRelationshipIcon.tsx, AgentElapsed.tsx;
-// upstream 74541bab17): the open thread's immediate relationships (fork parent,
+// upstream 2359643cff): the open thread's immediate relationships (fork parent,
 // forks, subagents, context transfers) from the thread shells and its own
-// projection. A settled subagent whose child thread has a live run shows that
-// run, while a subagent still at work (a supervisor waiting on its worker) keeps
-// its own status; a provider-native parent shows its root turn's status
-// (lineage-parent.ts); the heading counts what is running. A row ends in one
-// item: an agent's compact elapsed time, else its status; a running T3-owned
-// subagent trades it for Stop on hover.
+// projection. Its side chats are a group of their own (`side`, the Side chats
+// section), whose rows open their right-panel tab. A settled subagent whose
+// child thread has a live run shows that run, while a subagent still at work (a
+// supervisor waiting on its worker) keeps its own status; a provider-native
+// parent shows its root turn's status (lineage-parent.ts); the heading counts
+// what is running. A row ends in one item: an agent's compact elapsed time, else
+// its status; a running T3-owned subagent trades it for Stop on hover.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { subagentTitle } from '../timeline/timeline-events';
 import { canStopNativeSubagent, canStopWorkflow, projectedWorkflowAgents, workflowBody, workflowGroups } from './lineage-workflows';
+import { canDetachSession } from './lineage-actions';
 
 type Kind = 'fork' | 'subagent' | 'transfer';
 type Edge = { source: string; target: string; kind: Kind; status: string | null };
@@ -210,8 +212,9 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     if (a !== b) { if (a === null) return 1; if (b === null) return -1; return b - a; }
     return left.threadId < right.threadId ? -1 : left.threadId > right.threadId ? 1 : 0;
   });
-  const groupOf = (edge: Edge) => edge.kind !== 'subagent' || isParentRelationship(edge, threadId) ? 'related' : SETTLED_AGENT.has(edge.status ?? '') ? 'previous' : 'active';
-  const counters: Record<string, number> = { related: 0, active: 0, previous: 0 };
+  const sideChatOf = (id: string, edge: Edge) => !isParentRelationship(edge, threadId) && obj(graph.nodes.get(id)?.thread?.lineage).sideChat === true;
+  const groupOf = (edge: Edge, id: string) => sideChatOf(id, edge) ? 'side' : edge.kind !== 'subagent' || isParentRelationship(edge, threadId) ? 'related' : SETTLED_AGENT.has(edge.status ?? '') ? 'previous' : 'active';
+  const counters: Record<string, number> = { related: 0, active: 0, previous: 0, side: 0 };
   const rows: LineageRow[] = ordered.map(({ threadId: id, edge }) => {
     const node = graph.nodes.get(id), thread = node?.thread ?? null;
     const subagent = edge.kind === 'subagent', parent = isParentRelationship(edge, threadId);
@@ -223,11 +226,12 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
     const agent = workflow ? raw : currentSubagent(raw, thread);
     const provider = providers.find(entry => str(entry.instanceId) === (str(agent?.providerInstanceId) || str(thread?.providerInstanceId)));
     const driver = subagent && !parent ? str(agent?.driver) || str(provider?.driver) : '';
-    const relationship = edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');
+    const sideChat = sideChatOf(id, edge);
+    const relationship = sideChat ? 'Side chat' : edge.kind === 'transfer' ? 'Context transfer' : subagent ? (edge.source === threadId ? 'Subagent' : 'Parent agent') : (edge.source === threadId ? 'Fork' : 'Parent thread');
     const rawTitle = workflow?.workflow.workflowName ?? (str(thread?.title) || str(agent?.title) || id);
-    const group = groupOf(edge), failed = status === 'failed' || status === 'error';
+    const group = groupOf(edge, id), failed = status === 'failed' || status === 'error';
     return {
-      id, title: subagent ? subagentTitle(rawTitle) : rawTitle, icon: parent ? 'corner-left-up' : subagent ? 'bot' : 'git-fork', driver,
+      id, title: subagent ? subagentTitle(rawTitle) : rawTitle, icon: parent ? 'corner-left-up' : subagent ? 'bot' : sideChat ? 'messages-square' : 'git-fork', driver,
       status: statusLabel(status), dot: statusDot(status), group, index: counters[group]!++, mergeTarget: id === mergeTarget,
       // One trailing item keeps room for the title: the badge already carries status, so a timed agent shows its time.
       elapsed: agent && !failed ? agentElapsed(agent, now, true) : '', agent: !!agent, missing: node?.missing === true,
@@ -240,8 +244,9 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
   });
   // Subagents without a child thread yet have no row, so they are counted on their own.
   const running = arr(projection?.subagents).filter(agent => !str(agent.childThreadId) && agent.status === 'running').length
-    + ordered.filter(({ edge }) => groupOf(edge) === 'active' && edge.status === 'running').length;
-  const previous = rows.filter(row => row.group === 'previous');
+    + ordered.filter(({ threadId: id, edge }) => groupOf(edge, id) === 'active' && edge.status === 'running').length;
+  const previous = rows.filter(row => row.group === 'previous'), sideChats = rows.filter(row => row.group === 'side');
+  const canDetach = canDetachSession(projection);
   // Expansion is flattened before Contract renders it: phase and member rows share their header's pagination index.
   const lineage = rows.flatMap(row => {
     const group = workflows.get(row.workflowId);
@@ -266,8 +271,11 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
   const mergeRun = latestMergeBackRun(projection);
   const parentTitle = mergeTarget ? str(graph.nodes.get(mergeTarget)?.thread?.title) : '';
   return {
-    lineageTitle: running > 0 ? `Lineage · ${running} running` : 'Lineage', lineage, showLineage: rows.length > 0 || running > 0,
-    previousCount: previous.length, previousFailed: ordered.filter(({ edge }) => groupOf(edge) === 'previous' && (edge.status === 'failed' || edge.status === 'error')).length,
+    // The Side chats section's rows are not Lineage's; Disconnect lives in Lineage's heading, so a thread with only side
+    // chats still shows it.
+    lineageTitle: running > 0 ? `Lineage · ${running} running` : 'Lineage', lineage, showLineage: rows.length > sideChats.length || running > 0 || (canDetach && sideChats.length > 0),
+    canDetach,
+    previousCount: previous.length, previousFailed: ordered.filter(({ threadId: id, edge }) => groupOf(edge, id) === 'previous' && (edge.status === 'failed' || edge.status === 'error')).length,
     mergeRunId: mergeRun ? str(mergeRun.id) : '', mergeTargetId: mergeTarget, mergeSourceId: mergeTarget ? threadId : '',
     mergeLabel: parentTitle ? `Merge back to ${parentTitle}` : 'Merge back to source conversation',
     mergeHint: !mergeRun ? 'Complete a run in this fork before merging it back' : parentTitle ? `Merge this conversation back into ${parentTitle}` : 'Merge this conversation back into its source',

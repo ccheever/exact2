@@ -3,8 +3,8 @@
 // apart from imports under ../vendor/ghostty) and opens its own server socket for the session (session.ts), as the
 // reference's renderer holds the attach stream. It talks to the app by `postMessage` only, in JSON strings:
 //
-// - page → app: boot, ticket, focus, link, command, selection-ready, contextmenu, selection-dismiss, exited,
-//   error, auth-error, auth-recovered, stats; each carries the identity the config named.
+// - page → app: boot, ticket, focus, link, command, selection-ready, contextmenu, selection-dismiss,
+//   selection-moved, exited, error, auth-error, auth-recovered, stats; each carries the identity the config named.
 // - app → page: config (theme, font, visible, keybindings, closePending and the session), socket (a URL with a
 //   fresh ticket, or none), transcript, system, focus, clearSelection, selectAll, scrollToBottom, paste,
 //   pasteClipboard, stats.
@@ -24,6 +24,30 @@ import { terminalTranscriptUpdate } from "../../src/providers/provider-auth-term
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
 type Outbound = Record<string, unknown> & { readonly type: string };
+
+// Avoid formatting unbounded scrollback selections on every output update.
+const MAX_COMPARED_SELECTION_CELLS = 3_000;
+
+/**
+ * ThreadTerminalDrawer `synchronizeTerminalOutput`: output keeps a selection whose text it leaves unchanged (a
+ * spinner redrawn in place) and clears one it changes. True when the selection moved rows or was cleared, which the
+ * app hears so that Add to chat takes the line numbers at the click and never adds text no longer selected.
+ */
+export function writeKeepingSelection(
+  surface: Pick<GhosttyTerminalSurface, "write" | "resetAndWrite" | "getSelection" | "getSelectionCellCount" | "getSelectionPosition" | "clearSelection">,
+  data: string, reset: boolean,
+): boolean {
+  const cells = surface.getSelectionCellCount();
+  const compared = cells <= MAX_COMPARED_SELECTION_CELLS;
+  const selected = cells > 0 && compared ? surface.getSelection() : "";
+  const before = cells > 0 ? surface.getSelectionPosition() : null;
+  if (reset) surface.resetAndWrite(data);
+  else surface.write(data);
+  if (cells === 0) return false;
+  if (!compared || surface.getSelection() !== selected) surface.clearSelection();
+  const after = surface.getSelectionPosition();
+  return after?.start.y !== before?.start.y || after?.end.y !== before?.end.y;
+}
 
 /** Chords (`Meta+K`, `Control+Shift+Backquote`) the page must leave to the app. */
 interface Chord {
@@ -498,8 +522,8 @@ class TerminalPage {
   private openSocket(): TerminalSocket {
     const session = this.session!;
     return new TerminalSocket({
-      write: (data) => this.surface?.write(data),
-      resetAndWrite: (data) => { this.surface?.resetAndWrite(data); this.selectionActions?.cancel(); },
+      write: (data) => this.writeOutput(data, false),
+      resetAndWrite: (data) => this.writeOutput(data, true),
       system: (message) => this.system(message),
       exited: () => this.send({ type: "exited" }),
       wantSocket: () => this.wantSocket(),
@@ -584,6 +608,14 @@ class TerminalPage {
       return false;
     }
     return !composed;
+  }
+
+  /** Output, and the app told when it moved or cleared a selection (writeKeepingSelection). */
+  private writeOutput(data: string, reset: boolean): void {
+    const surface = this.surface;
+    if (!surface) return;
+    if (reset) this.selectionActions?.cancel();
+    if (writeKeepingSelection(surface, data, reset)) this.send({ type: "selection-moved", ...this.selection() });
   }
 
   private selection() {

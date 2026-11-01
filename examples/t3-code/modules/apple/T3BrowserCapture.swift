@@ -3,7 +3,7 @@ import AppKit
 import WebKit
 
 /// A Browser tab's artifacts and its separate preview window (T3BrowserPage.swift uses both). MIT reference, see
-/// LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`, `resolveArtifactPath`,
+/// LICENSE-T3, T3 Code 2359643cff: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`, `resolveArtifactPath`,
 /// `openPictureInPicture`, `fitPictureInPictureContentSize`, the PICTURE_IN_PICTURE_* constants) and
 /// apps/desktop/src/app/DesktopEnvironment.ts (`browserArtifactsDir`).
 ///
@@ -65,18 +65,25 @@ final class T3BrowserPictureInPicture: NSObject, NSWindowDelegate {
     static let minimumSize = NSSize(width: 240, height: 160)
     static let frameIntervalMs = Int((1000.0 / 12).rounded(.up))
     static let aspectEpsilon = 0.002
+    /// CAPTURE_PAGE_ATTEMPT_TIMEOUT_MS: a snapshot that has not answered by then is given up, so the next tick captures.
+    static let captureTimeoutMs = 1_000
 
     let window: NSPanel
     private let imageView = NSImageView()
     private weak var web: WKWebView?
     private var timer: Timer?
     private var inFlight = false
+    private var attempt = 0
     private var aspect: Double?
     private(set) var frames = 0
+    typealias Snapshot = (WKWebView, @escaping (NSImage?) -> Void) -> Void
+    /// WKWebView.takeSnapshot, which a test replaces with one that never answers.
+    private let snapshot: Snapshot
     var closed: (() -> Void)?
 
-    init(web: WKWebView, title: String, agent: Bool) {
+    init(web: WKWebView, title: String, agent: Bool, snapshot: @escaping Snapshot = { web, done in web.takeSnapshot(with: nil) { image, _ in done(image) } }) {
         self.web = web
+        self.snapshot = snapshot
         window = NSPanel(contentRect: NSRect(origin: .zero, size: Self.initialSize), styleMask: [.titled, .closable, .resizable, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         window.title = title.isEmpty ? "Browser preview" : "Preview · \(title)"
@@ -111,8 +118,15 @@ final class T3BrowserPictureInPicture: NSObject, NSWindowDelegate {
     private func capture() {
         guard let web, !inFlight else { return }
         inFlight = true
-        web.takeSnapshot(with: nil) { [weak self] image, _ in
-            guard let self else { return }
+        attempt += 1
+        let current = attempt
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Self.captureTimeoutMs)) { [weak self] in
+            guard let self, self.attempt == current, self.inFlight else { return }
+            self.inFlight = false
+        }
+        snapshot(web) { [weak self] image in
+            // An answer after its attempt timed out is dropped: a newer attempt owns the frame.
+            guard let self, self.attempt == current, self.inFlight else { return }
             self.inFlight = false
             guard let image, image.size.width > 0, image.size.height > 0, self.timer != nil else { return }
             self.imageView.image = image

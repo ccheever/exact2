@@ -16,9 +16,7 @@ members T3Code
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
   resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState, not settingsOpen and not pageCover and not welcome.show, notificationPermission.state) as shape ShellView // then: the chat view is shown (proactive panels); the notification permission (app.contract notificationPermission)
-  // useNpmReleasePublished: its own answer, which waits for npm; the shell's is let go too often to (npm-release.ts).
-  resource npmRelease = npmRelease(shell.npmProbe) as shape bool
-  resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
+  resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource).concat(shell.panel.sideChat.markdownSource).concat(shell.composerFile.file.markdownSource), data.look.math) as shape TranscriptMarkdown
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
@@ -239,7 +237,7 @@ members T3Code
       jumpRequest = jumpRequest + 1
       commandPending = true
       send changed = command("shell:surface-reopen", "", "", 0)
-    else if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T"))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
+    else if (what == "choose" or (what == "key" and (id == "b" or id == "B" or id == "d" or id == "D" or id == "f" or id == "F" or id == "m" or id == "M" or id == "l" or id == "L" or id == "p" or id == "P" or id == "t" or id == "T" or ((id == "s" or id == "S") and shell.surfaces.filter((surface) => surface.id == "side-chat" and surface.available).length > 0)))) and (data.threadId != "" or id == "browser" or id == "b" or id == "B" or id == "files" or id == "f" or id == "F" or (shell.terminalAvailable and (id == "terminal" or id == "t" or id == "T")) or (data.projectId != "" and (id == "device" or id == "m" or id == "M"))) and not commandPending
       commandPending = true
       send changed = command((id == "diff" or id == "d" or id == "D") ? "diff" : "shelllocal:surface-open", "", id, 0)
   action detailsAct(op: string, target: string, value: string) // the window's half: the editors list, the title menu

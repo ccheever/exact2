@@ -26,7 +26,7 @@ import { threadAutomations, NO_AUTOMATIONS } from './thread-automations'; // Thr
 import { autoBalanceState } from '../composer/auto-balance';
 import { threadDetailsMenu, threadDetailsVisibility } from './thread-details-items';
 import { NO_SERVERS, threadServersView, watchThreadServers } from './thread-servers'; // ThreadServersPanel
-import { NO_USAGE, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage
+import { NO_USAGE, threadContext, threadUsage } from './thread-details-usage'; // ThreadDetailsUsage, ThreadDetailsContext
 
 /** EDITORS in contracts/editor.ts order; `file-manager` is Finder on macOS (editorLabelForPlatform). */
 export const EDITORS: [string, string][] = EDITOR_DEFINITIONS.map(editor => [editor.id, editor.label]);
@@ -84,13 +84,13 @@ export function environmentIndicator(input: { isPrimary: boolean; available: num
 }
 
 type LineageView = ReturnType<typeof lineageView>;
-const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
+const noLineage: LineageView = { lineageTitle: 'Lineage', lineage: [], showLineage: false, canDetach: false, previousCount: 0, previousFailed: 0, mergeRunId: '', mergeTargetId: '', mergeSourceId: '', mergeLabel: '', mergeHint: '' };
 // A function, not a constant: the Servers and Usage modules sit in an import cycle with this one.
 const empty = () => ({ versionClient: '', versionServer: '', versionLabel: '', ready: false, inline: false, error: '', folderName: '', folderLabel: '', cwd: '', workspacePath: '', editorId: '', editorLabel: '', editors: [] as { id: string; label: string; selected: boolean }[], editorShortcut: '', editorShow: false, editorHint: '', editorUnavailable: '', editorEmpty: false,
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
   envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage,
-  items: threadDetailsVisibility({ local: {} }), itemsMenu: threadDetailsMenu({ local: {} }), servers: NO_SERVERS, usage: NO_USAGE });
+  items: threadDetailsVisibility({ local: {} }), itemsMenu: threadDetailsMenu({ local: {} }), servers: NO_SERVERS, usage: NO_USAGE, context: NO_USAGE });
 /** usePreferredEditor's stored choice (persisted in t3-code.json, shell-prefs.ts). */
 export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
 export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
@@ -155,7 +155,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   await watchThreadServers(client, native, items.servers && !!thread);
   return {
     items, itemsMenu: threadDetailsMenu(client), servers: thread && items.servers ? threadServersView(client, threadId) : NO_SERVERS,
-    usage: items.usage ? threadUsage(client, thread ? threadId : '', now) : NO_USAGE,
+    usage: items.usage ? threadUsage(client, now) : NO_USAGE, context: items.context ? threadContext(client, thread ? threadId : '') : NO_USAGE,
     versionClient: '', versionServer: '', versionLabel: '',
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
     // The panel names the workspace kind only when it is not the project folder.

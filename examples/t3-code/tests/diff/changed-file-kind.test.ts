@@ -15,6 +15,10 @@ describe('classifyChangedFile and isTestChangedFile', () => {
     expect(['yarn.lock', 'app.min.js', 'docs/guide.md', 'requirements.txt', 'src/x.ts', 'e2e/login.ts', 'mocks/user.ts'].map(classifyChangedFile))
       .toEqual(['generated', 'generated', 'docs', 'code', 'code', 'tests', 'mocks']);
   });
+  test('_generated folders are generated; evals are tests, so Hide tests hides them', () => {
+    expect(['convex/_generated/api.d.ts', 'src/agent.eval.ts', 'evals/title-generation.ts'].map(classifyChangedFile)).toEqual(['generated', 'tests', 'tests']);
+    expect(isTestChangedFile('src/agent.eval.ts') && isTestChangedFile('evals/title-generation.ts')).toBe(true);
+  });
 });
 
 describe('Hide test files (useHideTestFiles)', () => {

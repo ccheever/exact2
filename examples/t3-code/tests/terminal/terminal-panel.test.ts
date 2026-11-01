@@ -88,6 +88,20 @@ test('accepting a queued close after switching threads closes only the original 
   expect(panelState(client).surfaces).toHaveLength(1);
   expect(calls.at(-1)).toEqual({ method: 'terminal.close', payload: { threadId: 'thread', terminalId: 'term-1', deleteHistory: true } });
 });
+test('a pane close confirmed after switching threads closes that terminal on its own thread', async () => {
+  const { client, calls, native } = clientFixture();
+  await addTerminalSurface(client, native);
+  await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');
+  client.threadId = 'other';
+  await addTerminalSurface(client, native);
+  await terminalPanelLocal(client, native, 'close', 'env:thread|term-2', '');
+  expect(calls.at(-1)).toEqual({ method: 'terminal.close', payload: { threadId: 'thread', terminalId: 'term-2', deleteHistory: true } });
+  expect(terminalPanelIds(client, { environmentId: 'env', threadId: 'thread' })).toEqual(['term-1']);
+  expect(panelState(client).surfaces.map(surface => surface.terminal?.terminalIds)).toEqual([['term-1']]);
+  // Only a close crosses threads: a split addressed to the thread left behind does nothing.
+  await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');
+  expect(terminalPanelIds(client, { environmentId: 'env', threadId: 'thread' })).toEqual(['term-1']);
+});
 test('draft right-panel sessions share reserved identity and survive first send', async () => {
   const { client, native } = clientFixture(); client.threadId = '';
   client.restAccess = () => ({ ids: async () => ['reserved'] }) as ReturnType<T3Client['restAccess']>;

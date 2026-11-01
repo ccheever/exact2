@@ -2,18 +2,18 @@
 // components/files/FilePreviewPanel.tsx RENDER_BROWSER_FILE_STORAGE_KEY "t3code.renderBrowserFile"
 // (default true), renderedToggleLabel, WorkspaceBrowserPreview and WorkspaceAudioPreview; filePreviewMode.ts
 // workspaceAssetResource; browser/openFileInPreview.ts isBrowserPreviewFile; components/files/BrowserDocumentFrame.tsx;
-// T3 Code 7c3b3b3605ef). An `.html` / `.htm` file opens as its page; the eye toggle ("Show HTML source" / "Show
+// T3 Code 2359643cff). An `.html` / `.htm` file opens as its page; the eye toggle ("Show HTML source" / "Show
 // rendered page") switches to the numbered source and back, and the choice is a preference, not a property of one
 // file. The page is read from a signed asset URL (`assets.createUrl`: `workspace-file` for a thread, `media-file` for a
 // file outside the workspace, `draft-workspace-file` for a draft's workspace), suffixed with the workspace revision
 // (ChatView's workspaceMutationId), so a workspace change reloads it. A renewed signature keeps the URL the page opened
 // with until that revision changes, so a page's form input and scroll survive it (BrowserDocumentFrame's
 // `documentKey`). The page is shown by the app module's sandboxed WebKit body (T3MediaPreview.swift, as the attachment's
-// HTML preview; siblings load only from the token directory), never in the app's own session. A PDF is signed the same
-// way and opens in the viewer page's PDF.js (files-viewer.ts), mounted again for each revision as the reference's
-// BrowserDocumentFrame keys it. An audio file plays from a `media-file`
-// URL signed again for each workspace change (WorkspaceAudioPreview's revisioned asset URL); it keeps its URL while the
-// server reports the same `fileRevision`, so a command that leaves the file alone does not reload it.
+// HTML preview; siblings load only from the token directory), never in the app's own session. A PDF and an audio file
+// are `media-file` URLs signed again for each workspace change (the revisioned asset URL of WorkspaceBrowserPreview and
+// WorkspaceAudioPreview); each keeps its URL while the server reports the same `fileRevision`, so a command that leaves
+// the file alone does not reload it. A PDF opens in the viewer page's PDF.js (files-viewer.ts), mounted again for each
+// revision its URL carries, as the reference's BrowserDocumentFrame keys it.
 import type { T3Client } from '../client/client';
 import { obj, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -40,7 +40,7 @@ export function workspaceAssetResource(kind: 'workspace-file' | 'media-file', th
   if (!threadId) return { _tag: 'draft-workspace-file', cwd, path: absolutePath };
   return { _tag: mediaFileReference(absolutePath, cwd).relativePath !== undefined ? kind : 'media-file', threadId, path: absolutePath };
 }
-/** A page or a PDF: its `workspace-file`, or the `media-file` of one outside the workspace. */
+/** A page: its `workspace-file`, or the `media-file` of one outside the workspace. */
 export const htmlResource = (threadId: string, cwd: string, absolutePath: string) => workspaceAssetResource('workspace-file', threadId, cwd, absolutePath);
 
 /** The page URL with its revision (WorkspaceBrowserPreview's `revisionSuffix`; an audio file's may be `file-revision`). */
@@ -54,7 +54,8 @@ type Minted = { key: string; url: string; at: number; error: string; signedFor: 
 const minted = new WeakMap<T3Client, Map<string, Minted>>();
 const STALE_URL_MS = 5 * 60_000; // signed URLs live an hour; re-mint after five minutes, as the attachment does
 
-export type HtmlPage = { url: string; error: string };
+/** `revision`: the one the URL carries, `file:<the file's own>` when the server reports it, else the workspace's. */
+export type HtmlPage = { url: string; error: string; revision?: string };
 
 /**
  * useAssetUrlState for one Files asset: '' while it is minted, `failure` when the server refuses it. `perRevision`
@@ -84,13 +85,17 @@ async function filesAsset(client: T3Client, native: Native | null | undefined, k
   // WorkspaceAudioPreview: `fileRevision ?? workspaceMutationId`, and the URL names which one it carries.
   const shownRevision = entry.fileRevision ? `file:${entry.fileRevision}` : revision;
   if (entry.shown?.revision !== shownRevision) entry.shown = { revision: shownRevision, url: entry.fileRevision ? revisedUrl(entry.url, entry.fileRevision, 'file-revision') : revisedUrl(entry.url, revision) };
-  return { url: entry.shown.url, error: '' };
+  return { url: entry.shown.url, error: '', revision: shownRevision };
 }
 const assetKey = (client: T3Client, kind: string, cwd: string, absolutePath: string) => `${client.environmentId}|${client.threadId}|${cwd}|${absolutePath}|${kind}`;
 
-/** One HTML file or PDF's signed URL. */
+/**
+ * One HTML file or PDF's signed URL. A PDF is a `media-file` signed again for each workspace revision, whose URL changes
+ * only with the file's own revision when the server reports one, so an agent's reply that leaves it alone keeps its page.
+ */
 export function htmlPage(client: T3Client, native: Native | null | undefined, cwd: string, absolutePath: string, revision: string, now = 0): Promise<HtmlPage> {
-  return filesAsset(client, native, 'workspace-file', cwd, absolutePath, revision, now, 'Unable to load file preview.');
+  const pdf = isPdfPath(absolutePath);
+  return filesAsset(client, native, pdf ? 'media-file' : 'workspace-file', cwd, absolutePath, revision, now, 'Unable to load file preview.', pdf);
 }
 /**
  * WorkspaceAudioPreview's `media-file` URL for workspace revision `revision`, signed again when that revision changes;

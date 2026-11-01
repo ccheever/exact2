@@ -32,7 +32,8 @@ function harness(turn = turnPatch) {
   const command = (op: string, id = '', value = '', n = 0) => client.command(op, id, value, n, native, storage);
   return { client, command, calls };
 }
-const requests = (calls: Obj[]) => calls.filter(call => call.op === 'request');
+// The Commits submenu's read (review.getBranchCommits, diff-commits.test.ts) runs beside each answer; these follow the diff's own.
+const requests = (calls: Obj[]) => calls.filter(call => call.op === 'request' && call.method !== 'review.getBranchCommits');
 
 describe('diff panel', () => {
   test('a workspace outside git shows the reference\'s notice, not an empty diff or an error (DiffPanel !isGitRepo)', async () => {

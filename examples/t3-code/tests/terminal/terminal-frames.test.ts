@@ -2,7 +2,7 @@
 // document drops what the old one was sent, a sign-in transcript goes again when it moves on, and a system line
 // reaches every frame showing the terminal.
 import { describe, expect, test } from 'bun:test';
-import { postToTerminalFrame, terminalFrameMessage, terminalFrameSystemMessage, terminalFrameView } from '../../src/terminal/terminal-frames';
+import { postToTerminalFrame, terminalFrameMenuPick, terminalFrameMessage, terminalFrameSystemMessage, terminalFrameView } from '../../src/terminal/terminal-frames';
 import { AUTH_TERMINALS, authFrameId, authTerminalFrame } from '../../src/providers/provider-auth-terminal';
 
 const mint = async () => 'ws://host/ws?wsTicket=t';
@@ -23,6 +23,20 @@ describe('terminal frames', () => {
     expect(texts(owner, id)).toEqual([{ type: 'focus' }]);
     await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
     expect(texts(owner, id)).toEqual([]);
+  });
+
+  test('Add to chat takes the rows output moved the selection to, and nothing once its text is gone', async () => {
+    const owner = {}, id = 'frame-a', copy = async () => true;
+    const at = (start: number, end: number) => ({ start: { x: 0, y: start }, end: { x: 3, y: end } });
+    await terminalFrameMessage(owner, id, { type: 'boot' }, { mint });
+    await terminalFrameMessage(owner, id, { type: 'selection-ready', x: 1, y: 1, text: 'one\ntwo', position: at(6, 7) }, { mint, canAddToChat: true });
+    await terminalFrameMessage(owner, id, { type: 'selection-moved', text: 'one\ntwo', position: at(4, 5) }, { mint });
+    let serial = terminalFrameView(owner, id, {}).menu.serial;
+    expect(await terminalFrameMenuPick(owner, id, `${serial}|add-to-chat`, copy)).toMatchObject({ text: 'one\ntwo', lineStart: 5, lineEnd: 6 });
+    await terminalFrameMessage(owner, id, { type: 'selection-ready', x: 1, y: 1, text: 'one\ntwo', position: at(6, 7) }, { mint, canAddToChat: true });
+    await terminalFrameMessage(owner, id, { type: 'selection-moved', text: '', position: null }, { mint });
+    serial = terminalFrameView(owner, id, {}).menu.serial;
+    expect(await terminalFrameMenuPick(owner, id, `${serial}|add-to-chat`, copy)).toBeNull();
   });
 
   test('a mint that fails or is let go still answers the page, with no URL, so it asks again', async () => {

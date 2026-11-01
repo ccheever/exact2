@@ -12,7 +12,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { modelCatalog } from '../client/presentation';
 import { adjacentPickerProvider } from '../composer/model-catalog';
 import type { T3Client } from '../client/client';
-import { undoLive } from '../sidebar/sidebar-state';
+import { sidebarSession, undoLive } from '../sidebar/sidebar-state';
 import { addStripShortcuts } from '../composer/composer-controls-branch';
 import { diffShown } from './button-chords'; // ⌘D
 import { openFavoriteEnabled, remoteOpenFor } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
@@ -33,7 +33,9 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
   /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
-  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
+  terminalClosePending?: boolean;
+  /** A confirmation (role="alertdialog") is open and holds the focus. */
+  confirmOpen?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
   /** The right panel shows a file (not an attachment): its Open in picker's path, '' while that picker cannot open it. */
   fileSurface?: boolean; fileOpenPath?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
@@ -111,6 +113,7 @@ export function favoriteEditor(config: Obj, last = ''): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
+  if (context.confirmOpen) return waitForConfirmation(keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, confirmOpen: false, terminalClosePending: false }));
   if (context.terminalClosePending) return refuseTerminalClose(client, keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, terminalClosePending: false }));
   context = { ...context, terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client) };
   const winners = chordWinners(arr(client.config.keybindings), context);
@@ -188,6 +191,21 @@ function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
     ...closing.map(chord => ({ id: `terminal.close:refused:${chord}`, command: 'terminal.close', chord, kind: 'refuse', target: '', extra: '', label: 'Close Terminal' }))];
 }
 
+/**
+ * dispatcher.ts runScope (v0.1.6): a command chord pressed inside a confirmation (role="alertdialog") runs nothing and
+ * its key is swallowed. Each chord stays a "refuse" button under a command nothing else reads (rightPanel.close's
+ * window capture and thread.undo's claim look rows up by command). Settings… is the reference's menu item, not a
+ * dispatcher command, and the dialog's own Escape (its Cancel) must still reach it.
+ */
+function waitForConfirmation(rows: Dispatch[]): Dispatch[] {
+  const held = new Set<string>();
+  return rows.flatMap(row => {
+    if (row.command === 'settings.open' || row.chord === 'Escape' || held.has(row.chord)) return row.command === 'settings.open' ? [row] : [];
+    held.add(row.chord);
+    return [{ id: `confirmation.wait:${row.chord}`, command: 'confirmation.wait', chord: row.chord, kind: 'refuse', target: '', extra: '', label: row.label }];
+  });
+}
+
 /** `add` files one button per winning chord of a command (keyboardDispatch); `add.chord` files one for a chord it names. */
 export type DispatchAdd = ((command: string, kind: string, target: string, label: string, extra?: string) => void) &
   { chord(command: string, chord: string, kind: string, target: string, label: string, extra?: string): void };
@@ -241,16 +259,23 @@ function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
   }
   ordered.slice(0, 9).forEach((thread, index) => add(`thread.jump.${index + 1}`, 'thread', str(thread.id), `Thread ${index + 1}`));
 }
+/** Where Back and Forward go from the main view: a dispatch row's kind, target and extra, or null at that end. */
+export type HistoryStep = { kind: string; target: string; extra: string };
+export function historySteps(client: T3Client, page: string): { back: HistoryStep | null; forward: HistoryStep | null } {
+  // Back and Forward between the visited threads and drafts.
+  const history = visit(client, page);
+  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
+  const route = (entry: string): HistoryStep => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7), extra: '' }
+    : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: entry.slice(6), extra: '' };
+  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
+  return { back: back && liveEntry(client, back) ? route(back) : null,
+    forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null };
+}
 /** Back and Forward. */
 function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
-  // Back and Forward between the visited threads and drafts.
-  const history = visit(client, context.page ?? '');
-  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
-  const route = (entry: string) => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7) } : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5) } : { kind: 'new-thread-in', target: entry.slice(6) };
-  if (back && liveEntry(client, back)) add('navigation.back', route(back).kind, route(back).target, 'Back');
-  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
-  if (settingsRoute) add('navigation.forward', 'palette-run', 'settings', 'Forward', settingsRoute);
-  else if (forward && liveEntry(client, forward)) add('navigation.forward', route(forward).kind, route(forward).target, 'Forward');
+  const { back, forward } = historySteps(client, context.page ?? '');
+  if (back) add('navigation.back', back.kind, back.target, 'Back', back.extra);
+  if (forward) add('navigation.forward', forward.kind, forward.target, 'Forward', forward.extra);
 }
 /** chat.newWithoutProject, when the server has a scratch workspace. */
 function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
@@ -264,8 +289,9 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
     // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle-advance', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
-    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
-    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {
+    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks. An open project filter
+    // pins its highlighted project with this key instead (useThreadLifecycle).
+    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true && !sidebarSession(client).scopeOpen) {
       const pinned = thread.pinnedAt != null;
       add('thread.pin', 'command', pinned ? 'sidebar:unpin' : 'sidebar:pin', pinned ? 'Unpin Thread' : 'Pin Thread', str(thread.id));
     }
@@ -324,6 +350,6 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), confirmOpen: String(args[18] || '') !== '', findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
     fileSurface: args[22] === true, fileOpenPath: String(args[23] || '') });
 }

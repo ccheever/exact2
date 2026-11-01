@@ -11,6 +11,8 @@ import { obj, str } from '../../src/client/domain';
 // The second half drives the clone's panel (pages-pr-detail.ts →
 // pages-pr-handoffs.ts → pr-row-actions.ts) against injected host replies.
 import { describe, expect, test } from 'bun:test';
+import { appText } from '../support/app-files';
+import { value } from '../support/contract-action-fixture';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
@@ -306,7 +308,7 @@ const activity = { reviewers: [], commits: [], commentCount: 2, reviewThreads: [
 function fakeClient(replies: Record<string, Reply>, over: Obj = {}) {
   const calls: { method: string; payload: Obj; write: boolean }[] = [], opened: string[] = [];
   const client = {
-    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, projection: {},
+    environmentId: 'env', threadId: '', projectId: 'p1', ready: true, revision: 0, generation: 1, projection: {}, scopes: ['source-control:write', 'orchestration:operate'],
     get snapshotOwner() { return this.draftKey; },
     get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
     get draft() { return this.local.drafts[this.draftKey] ?? ''; },
@@ -475,9 +477,28 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     const view = await open(client);
     expect(view.summary.checks.map(check => check.fix)).toEqual(['', 'finding:check:ci/test:https://ci/2']);
     expect([...view.summary.newest].map(item => item.card.fix).sort()).toEqual(['finding:comment:rv1', 'finding:thread:rt1']);
-    expect(view.handoffs).toEqual({ pending: '', canCheckout: true, threadOwn: false, term: { short: 'PR', singular: 'pull request', plural: 'pull requests', title: 'Pull request' } });
+    expect(view.handoffs).toEqual({ pending: '', canCheckout: true, canPrepareWorktree: true, threadOwn: false, term: { short: 'PR', singular: 'pull request', plural: 'pull requests', title: 'Pull request' } });
     await press(client, 'page|conflicts');
     expect(client.local.drafts['env:new:p1']).toBe(resolveConflictsPrompt({ number: 7, url: URL7, headBranch: 'feature/changelog', baseBranch: 'main' }));
+  });
+  // PullRequestDetailPanel.permissions.browser.test.tsx (2359643cff): with no thread to attach to, Resolve conflicts needs
+  // a connection that can prepare the worktree; beside a thread it writes that thread's composer whatever the scopes.
+  test('Resolve conflicts with no thread to attach to needs source-control:write and orchestration:operate', async () => {
+    for (const scopes of [['source-control:write'], ['orchestration:operate']]) {
+      const { client, calls } = fakeClient(defaults(base({ mergeability: 'conflicting' })), { scopes });
+      const view = await open(client);
+      expect(view.handoffs).toMatchObject({ canCheckout: true, canPrepareWorktree: false });
+      await press(client, 'page|conflicts');
+      expect(client.local.drafts['env:new:p1']).toBeUndefined();
+      expect(calls.some(call => call.method === 'git.preparePullRequestThread')).toBe(false);
+    }
+    // The header's and the ghost header's Resolve conflicts are disabled by the same rule.
+    const rule = 'handoffs.pending != "" or (surface != "thread" and not (handoffs.canCheckout and handoffs.canPrepareWorktree))';
+    for (const file of ['pages-pr-actions.contract', 'pages-pr-ghost.contract']) expect(appText(file)).toContain(`disabled=(${rule})`);
+    const disabled = (surface: string, handoffs: Obj) => value(rule, { surface, handoffs });
+    expect(disabled('page', { pending: '', canCheckout: true, canPrepareWorktree: false })).toBe(true);
+    expect(disabled('page', { pending: '', canCheckout: true, canPrepareWorktree: true })).toBe(false);
+    expect(disabled('thread', { pending: '', canCheckout: false, canPrepareWorktree: false })).toBe(false);
   });
   test('the labels say where the task lands', () => {
     expect(pullRequestHandoffLabels(true)).toEqual({ fixFinding: 'Fix in this thread', fixCheck: 'Fix in this thread', fixFindings: 'Fix findings in this thread' });

@@ -114,14 +114,15 @@ describe('sidebar width (threadSidebarWidth.ts)', () => {
     expect(sidebarLaunchWidth(client, 840, true)).toBe(0); // preferences not read yet: the window clamps
     await load(client, files);
     expect(sidebarLaunchWidth(client, 840, false)).toBe(0); // the baked answer
-    expect(sidebarLaunchWidth(client, 840, true)).toBe(208);
-    expect(sidebarLaunchWidth(client, 1280, true)).toBe(208); // a later resize keeps it
+    // 208 at 840, clamped to the live minimum: the brand with Go back and Go forward (257 at 16 px).
+    expect(sidebarLaunchWidth(client, 840, true)).toBe(257);
+    expect(sidebarLaunchWidth(client, 1280, true)).toBe(257); // a later resize keeps it
     client.local.sidebarWidth = 300; (client.local as unknown as { sidebarWidthStored: boolean }).sidebarWidthStored = true;
     expect(sidebarLaunchWidth(client, 1280, true)).toBe(0);
     await sidebarLocal(client, null as unknown as Native, 'width-reset', '', '');
     expect([client.local.sidebarWidth, sidebarWidthStored(client)]).toEqual([256, false]);
-    expect(sidebarLaunchWidth(client, 1280, true)).toBe(256); // the reset sizes it again from the window
-    expect(sidebarLaunchWidth(client, 840, true)).toBe(208); // f870c41 clamps the fixed size to the live window (refresize.mjs: 256 → 208 at 840)
+    expect(sidebarLaunchWidth(client, 1280, true)).toBe(257); // the reset sizes it again from the window (256, under the minimum)
+    expect(sidebarLaunchWidth(client, 840, true)).toBe(257); // f870c41 clamps the fixed size to the live window and its minimum
   });
   test('only a finished drag stores the width; toggles send 0; older files count a non-default width as stored', async () => {
     const legacy = disk(JSON.stringify({ version: 1, sidebarWidth: 256, sidebarOpen: false }));

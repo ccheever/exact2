@@ -1,5 +1,5 @@
 import { can, requirePermission } from '../connections/command-permissions';
-// The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// The right panel's Browser tabs over a native WKWebView (MIT reference, see LICENSE-T3, T3 Code 2359643cff:
 // apps/web/src/components/preview/{addBrowserSurface,openPreviewSession,closePreviewSession,usePreviewBridge,
 // PreviewView}.ts(x), apps/web/src/rightPanelStore.ts `openBrowser`/`reconcileBrowserSurfaces`,
 // apps/web/src/components/RightPanelTabs.tsx `surfaceTitle`/`SurfaceIcon`, apps/web/src/browser/ElectronBrowserHost.tsx;
@@ -34,7 +34,7 @@ import { annotationAttachedToDraft } from './browser-annotation';
 import { DEFAULT_BROWSER_PROFILE_ID, browserProfileChoices, tabProfile, type BrowserDefaults } from './browser-profiles';
 import { addressBarSearchTemplate, resolveBrowserOpenDefaults } from './browser-defaults';
 // History, discovery, zoom, appearance, the viewport and the preview keys (browser-navigation.ts).
-import { browserKey, focusUrlTaken, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
+import { browserKey, focusUrlTaken, reportAddressError, emptyNavigationView, navigationLocal, navigationNow, navigationPrepare, navigationView, showPreview, type BrowserNavigationView } from './browser-navigation';
 import { recordVisit } from './browser-history-record';
 import { preparedConnection, resolveDiscoveredServerUrl } from './browser-targets';
 import { fleet } from '../connections/settings-b-fleet';
@@ -533,7 +533,7 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (snapshot?.runtime === 'server') {
     if (op === 'float') { toggleFloat(client, state, { ref, tabId: snapshot.tabId, runtimeId }); return ''; }
     if (op === 'navigate' || op === 'open-url') {
-      let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
+      let url: string; try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch (error) { return value.trim() ? reportAddressError(client, error) : ''; }
       if (sendServerCommand(client, runtimeId, { type: 'navigate', url })) {
         host.store.rememberUrl(ref, url); recordVisit(client, ref, url, navigationNow(client));
       }
@@ -548,10 +548,10 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   } else if (await captureLocal(client, native, state, op, { ref, tabId: surface.browser.tabId, runtimeId }, value)) return '';
   switch (op) {
     case 'navigate': {
-      // handleSubmitUrl: text that is not an address searches the chosen engine for it; only empty input or an unsupported
-      // scheme does nothing (the field keeps the text). The URL loads in this tab's web view and is remembered.
+      // handleSubmitUrl: text that is not an address searches the chosen engine for it; empty input does nothing and an
+      // unsupported scheme says so (the field keeps the text). The URL loads in this tab's web view and is remembered.
       let url: string;
-      try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch { return ''; }
+      try { url = resolveAddressBarInput(value, addressBarSearchTemplate(client)); } catch (error) { return value.trim() ? reportAddressError(client, error) : ''; }
       frameOp(client); navigateFrame(client, runtimeId, url);
       host.store.rememberUrl(ref, url);
       recordVisit(client, ref, url, navigationNow(client));

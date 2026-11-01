@@ -1,4 +1,4 @@
-// The pooled Limits view as data for usage-pooled.contract, T3 Code 7c3b3b3605ef (MIT, see
+// The pooled Limits view as data for usage-pooled.contract, T3 Code v0.1.6 (MIT, see
 // LICENSE-T3): apps/web/src/components/usage/UsageLimitsPooled.tsx (UsageLimitsPooled, PoolSection,
 // PoolWindowCard, PoolBar, PoolSegment, SegmentTriggers, LegendRow, SegmentPopover, RedeemableSegment,
 // ActiveSegmentPopover's check that its segment is still drawn,
@@ -156,7 +156,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
     cursorAfter: cursorEnvironments.length > 0 && cursorPromptAt === pools.length,
     cursor: cursorEnvironments.map(environment => ({ key: environment.environmentId, label: environment.label,
       button: cursorEnvironments.length > 1 ? `Enable on ${environment.label}` : 'Enable', busy: state.cursorPending.has(environment.environmentId) })),
-    links: links.map(link => ({ key: link.url, label: link.label, chatgpt: link.url === CHATGPT_USAGE_URL,
+    links: links.map(link => ({ key: link.url, label: link.label, accounts: link.accounts.join(', '), chatgpt: link.url === CHATGPT_USAGE_URL,
       message: link.url === CHATGPT_USAGE_URL ? 'View usage in ChatGPT with your connected account.' : link.message ?? '', url: link.url })),
     notices: notices.map(text => ({ key: text, text })),
     confirm: state.confirm,

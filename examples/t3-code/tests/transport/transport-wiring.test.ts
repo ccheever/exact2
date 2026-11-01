@@ -34,8 +34,8 @@ describe('app.contract', () => {
     for (const name of ['composerFieldNext', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed', 'pickerAnnounced']) exempt.add(name);
     // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
     for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
-    // The update pill's npm check asks the registry, not a server (npm-release.ts).
-    exempt.add('npmRelease');
+    // The window's Back and Forward read the client's own history (sidebar-history.ts).
+    exempt.add('navigationHistory');
     // A draft image's upload is a stream over HTTP that no socket reply ends (composer-uploads.ts).
     for (let slot = 0; slot < 6; slot++) exempt.add(`composerUpload${slot}`);
     expect(contract).toMatch(/task transportAnswered key=transportAnswering\n    after\(1, transportPump\)/);

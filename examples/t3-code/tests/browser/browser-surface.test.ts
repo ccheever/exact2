@@ -263,7 +263,7 @@ describe('the chrome row and the native host', () => {
     expect(browserTab(client, surface!).title).toBe('example.com');
   });
 
-  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse does nothing', async () => {
+  it('handleSubmitUrl: a good address loads in the tab\'s frame, other text searches for it; one the rules refuse says so', async () => {
     const { client } = fakeClient(() => ({}));
     const state = emptyPanel();
     opened(client, state, idle('tab-1'));
@@ -282,6 +282,8 @@ describe('the chrome row and the native host', () => {
     expect(frameCommandView(client).url).toBe('http://localhost:16651/');
     frameCommandDone(client, frameCommandView(client).serial);
     expect(frameCommandView(client).url).toBe(search);
+    // PreviewView's catch: the unsupported scheme toasts; empty input never submitted.
+    expect(toasts(client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Could not open this address', 'Enter an http or https URL.']]);
   });
 
   it('Back, Forward, Refresh, Hard reload and Open DevTools go to the tab\'s frame; Open in system browser opens its URL', async () => {
@@ -556,5 +558,23 @@ describe('Open DevTools', () => {
       return browserView(client, openBrowserIn(state, 'tab-1', 'local:thread-1')).devTools;
     };
     expect([view(true, 'desktop'), view(true, 'server'), view(false, 'desktop')]).toEqual([true, false, false]);
+  });
+});
+
+// The app's runtime freezes the intrinsics, so Error.prototype.name is read-only there and assigning a subclass's own
+// `name` throws; the Browser's errors define it instead (an invalid address's toast says "Enter an http or https URL.").
+describe('Browser errors under frozen intrinsics', () => {
+  it('construct with their names', async () => {
+    const { PreviewUrlNormalizationError } = await import('../../src/browser/browser-url');
+    const { PreviewCaptureFailure, BrowserRecordingError } = await import('../../src/browser/browser-recording');
+    const { TerminalLinkPreviewOpenError } = await import('../../src/browser/browser-links');
+    const original = Object.getOwnPropertyDescriptor(Error.prototype, 'name')!;
+    Object.defineProperty(Error.prototype, 'name', { ...original, writable: false });
+    try {
+      expect(new PreviewUrlNormalizationError({ inputLength: 3, reason: 'unsupported-protocol', protocol: 'ftp:' }).name).toBe('PreviewUrlNormalizationError');
+      expect(new PreviewCaptureFailure('unavailable' as never, 'capture' as never).name).toBe('PreviewCaptureFailure');
+      expect(new BrowserRecordingError('RecordingFailed', 'x').name).toBe('RecordingFailed');
+      expect(new TerminalLinkPreviewOpenError(threadRef, 'http://localhost:1', null).name).toBe('TerminalLinkPreviewOpenError');
+    } finally { Object.defineProperty(Error.prototype, 'name', original); }
   });
 });

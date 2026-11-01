@@ -1,7 +1,7 @@
 // The pull request panel's writes: the floating composer
 // (a comment, Close/Reopen with comment, a review with its verdict and the line comments the Code
 // tab collects), the title, description and comment editors, reactions on remarks, and the
-// reviewer and label pickers. Measured against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)
+// reviewer and label pickers. Measured against T3 Code 2359643cff (MIT, see LICENSE-T3)
 // apps/web/src/components/pullRequest/{PullRequestComposer,PullRequestCommentForm,
 // PullRequestReviewForm,PullRequestMarkdownEditor,PullRequestReactions,PullRequestReviewerPicker,
 // PullRequestLabelPicker}.tsx, PullRequestDetailPanel.tsx (performCommentAction, saveTitle),
@@ -248,7 +248,7 @@ async function submitReview(context: WriteContext, verdict: string, body: string
   } catch (error) {
     failureOf(error);
     // The draft is kept: whatever went wrong, retyping the review is not the answer.
-    pushToast(client, { kind: 'error', title: 'The review could not be submitted' });
+    pushToast(client, { kind: 'error', title: 'The review could not be submitted', description: readableFailure(error, 'The host refused the review. Your draft is still here to try again.') });
     return error instanceof Error ? error.message : 'The review could not be submitted';
   } finally { state.reviewing.delete(key); }
   store.removeComments(key, submittedComments.map(comment => comment.id));

@@ -19,6 +19,7 @@ import { openInEditorHere } from '../connections/remote-open'; // remote Open (O
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { detachSession, mergeBack } from '../details/lineage-actions';
 import { visiblePullRequests } from '../panel/shell-pr';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
@@ -59,6 +60,9 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
   if (op === 'mark-unread') { await markUnread(client, native, id); return ''; } // the sidebar's, silent on failure
   if (op === 'stop-subagent') { await stopSubagent(client, native, storage, id); return ''; }
   if (op === 'stop-workflow') { await stopWorkflow(client, native, id); return ''; }
+  // Lineage's Merge back and Disconnect agent session (lineage-actions.ts): a failure is their own toast.
+  if (op === 'merge-back') { await mergeBack(client, native, storage, id, value); return ''; }
+  if (op === 'detach-session') { await detachSession(client, native, id || client.threadId); return ''; }
   const thread = threadOf(client, id);
   const title = str(thread.title, 'thread');
   if (op === 'rename') {
@@ -67,16 +71,6 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
     if (resolution.action === 'noop') return '';
     const [commandId] = await access.ids(1);
     await access.dispatch(storage, { type: 'thread.metadata.update', commandId, threadId: id, title: resolution.title }, `Rename ${title}`);
-    return '';
-  }
-  if (op === 'merge-back') {
-    // ThreadRelationshipsPanel merge(): thread.merge_back from the fork's latest finished run, then open the target.
-    const [targetThreadId = '', runId = ''] = value.split('|');
-    if (!targetThreadId || !runId) throw new ClientError('Complete a run in this fork before merging it back');
-    const [commandId] = await access.ids(1);
-    await access.dispatch(storage, { type: 'thread.merge_back', commandId, createdBy: 'user', creationSource: 'web', sourceThreadId: id, targetThreadId,
-      sourcePoint: { type: 'run', runId } }, `Merge ${title} back`);
-    await client.openSelected(native, targetThreadId);
     return '';
   }
   const [commandId] = await access.ids(1);

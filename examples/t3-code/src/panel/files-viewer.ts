@@ -1,6 +1,7 @@
 // The Files surface's viewer page (MIT reference, see LICENSE-T3: components/files/FilePreviewPanel.tsx
-// WorkspaceBrowserPreview, DelimitedTablePreview and WorkspaceLargeTextPreview; T3 Code 7c3b3b3605ef): a PDF in PDF.js,
-// keyed on the workspace revision as WorkspaceBrowserPreview's `documentKey` is; a rendered CSV or TSV table over the
+// WorkspaceBrowserPreview, DelimitedTablePreview and WorkspaceLargeTextPreview; T3 Code 2359643cff): a PDF in PDF.js,
+// keyed on the revision its URL carries as WorkspaceBrowserPreview's `documentKey` is, and named without it
+// (`documentId`) so a new revision opens at the page, scroll and zoom the reader left; a rendered CSV or TSV table over the
 // text Files read, every row; and a text file past 1 MB as "Full file", streamed from a `media-file` URL signed for
 // download and again for each workspace change, with Copy contents and Save file. The page itself is viewer-frames.ts's.
 import type { T3Client } from '../client/client';
@@ -60,7 +61,7 @@ async function signFull(client: T3Client, native: Native, absolutePath: string, 
 export type FilesViewerRequest = {
   kind: 'pdf' | 'table' | 'full';
   path: string; absolute: string; name: string;
-  /** The workspace revision (ChatView's workspaceMutationId). */
+  /** The workspace revision (ChatView's workspaceMutationId); a PDF's, the one its URL carries (htmlPage `revision`). */
   revision: string;
   /** A PDF's signed page URL (files-rendered-html.ts htmlPage). */
   url: string;
@@ -80,7 +81,8 @@ export async function filesViewer(client: T3Client, native: Native | null | unde
   let config: ViewerConfig;
   let full = closedFullFile();
   if (request.kind === 'pdf') {
-    config = { ...base, view: 'pdf', key: `pdf:${client.environmentId}:${client.threadId}:${request.absolute}:${request.revision}`, src: request.url };
+    const documentId = `pdf:${client.environmentId}:${client.threadId}:${request.absolute}`;
+    config = { ...base, view: 'pdf', key: `${documentId}:${request.revision}`, documentId, src: request.url };
   } else if (request.kind === 'table') {
     // LargeTextViewer parses its text again when the text changes: a new read of the file is a new viewer.
     config = { ...base, view: 'text', key: `table:${request.path}:${request.revision}:${request.text.length}:${state.refresh}`, text: request.text, delimiter: request.delimiter };

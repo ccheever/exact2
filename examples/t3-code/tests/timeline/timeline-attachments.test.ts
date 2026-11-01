@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { attachmentUrls, imagePreviewAction, imagePreviewView, messageAttachments } from '../../src/timeline/timeline-attachments';
+import { attachmentUrls, formatBytes, imagePreviewAction, imagePreviewView, messageAttachments, userMessageShape } from '../../src/timeline/timeline-attachments';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
@@ -20,7 +20,7 @@ describe('sent attachments', () => {
     const { images, attachFiles } = messageAttachments(item);
     expect(images.map(image => [image.id, image.snapshot, image.appName, image.appInitial, image.windowTitle, image.accessible])).toEqual([
       ['a1', true, 'Safari', 'S', 'Captured window', true], ['a2', false, '', '', '', false]]);
-    expect(attachFiles).toEqual([{ id: 'f1', name: 'notes.md', icon: 'markdown' }]);
+    expect(attachFiles).toEqual([{ id: 'f1', name: 'notes.md', icon: 'markdown', label: 'notes.md', detail: 'MD · 0 B', note: '', sending: false }]);
   });
   // ImageChipButton at v0.1.5 (#26306) takes the image kind's blue accent, so no picture is fetched for a tint.
   test('signed inline URLs come from assets.createUrl and are reused until they near expiry; no image is read for an accent', async () => {
@@ -74,7 +74,7 @@ describe('a sent sound is an audio chip (#21363)', () => {
   });
   test('a live or unknown length reads as none, not "Infinity:NaN" (AudioPreview sets 0)', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
-    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = chip.state();
+    const chip = contractComponent('timeline-audio.contract', 'AudioPreview'), state = chip.state();
     for (const [seconds, duration] of [[Infinity, 0], [Number.NaN, 0], [-1, 0], [92.5, 92.5]] as const) {
       chip.call('measured', state, {}, [seconds]);
       expect(state.duration).toBe(duration);
@@ -82,7 +82,7 @@ describe('a sent sound is an audio chip (#21363)', () => {
   });
   test('the chip tells its row when its sound starts and stops, once each, so the transcript keeps the row mounted', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
-    const chip = contractComponent('timeline-audio.contract', 'AudioChip'), state = { ...chip.state(), id: 'memo.wav' }, reports: string[] = [];
+    const chip = contractComponent('timeline-audio.contract', 'AudioPreview'), state = { ...chip.state(), id: 'memo.wav' }, reports: string[] = [];
     const scope = { report: (value: string) => reports.push(value) };
     chip.call('stopped', state, scope, []); // a paused chip's own pause tells nothing
     chip.call('started', state, scope, []);
@@ -91,5 +91,51 @@ describe('a sent sound is an audio chip (#21363)', () => {
     chip.call('started', state, scope, []);
     chip.call('refused', state, scope, ['MEDIA_ERR_DECODE']);
     expect(reports).toEqual(['1memo.wav', '0memo.wav', '1memo.wav', '0memo.wav']);
+  });
+});
+
+// TimelineUserMessageRow at v0.1.6: what a message holds decides its shape (#26769, #27306, #27324, #27377).
+describe('a sent message takes the shape of what it holds', () => {
+  const image = (id: string, extra: Obj = {}) => ({ type: 'image', id, name: `${id}.png`, mimeType: 'image/png', ...extra });
+  const file = (id: string, name: string, extra: Obj = {}) => ({ type: 'file', id, name, mimeType: 'application/octet-stream', sizeBytes: 1_234, ...extra });
+  const ref = (kind: string, contextId: string, label: string) => `${kind === 'image' ? '!' : ''}[${label}](t3-context://v1/${kind}/${contextId})`;
+  const shape = (attachments: Obj[], text = '', records: Obj[] = [], chipped: string[] = [], folded = false) => {
+    const message = { type: 'user_message', attachments, context: { records } };
+    return userMessageShape(message, text, messageAttachments(message), new Set(chipped), folded);
+  };
+  test('images sent alone show without a bubble: a lone image at its own shape, several as one collage', () => {
+    expect(shape([image('a')])).toMatchObject({ shape: 'media', mediaAbove: false, layout: 'lone' });
+    expect(shape([image('a'), image('b'), image('c')])).toMatchObject({ shape: 'media', layout: 'collage' });
+    expect(shape([image('a'), image('b', { source: { kind: 'snap-shot', appName: 'Safari' } })])).toMatchObject({ shape: 'media', layout: 'stack' });
+    expect(shape([image('a'), file('v', 'clip.mp4', { mimeType: 'video/mp4' })])).toMatchObject({ shape: 'media', layout: 'stack' });
+  });
+  test('media sent with words sits above the bubble; a folded message keeps its grid', () => {
+    expect(shape([image('a')], 'Look at this')).toMatchObject({ shape: '', mediaAbove: true, layout: 'lone' });
+    expect(shape([image('a')], 'From another agent', [], [], true)).toMatchObject({ shape: '', mediaAbove: false, layout: '' });
+  });
+  test('files sent without words are cards; with words or beside media they stay rows', () => {
+    const records = [{ contextId: 'c1', kind: 'file', attachmentId: 'f1', label: 'notes.md' }];
+    expect(shape([file('f1', 'notes.md')], ref('file', 'c1', 'notes.md'), records, ['f1'])).toMatchObject({ shape: 'files' });
+    expect(shape([file('f1', 'notes.md')], `Read ${ref('file', 'c1', 'notes.md')}`, records, ['f1'])).toMatchObject({ shape: '' });
+    expect(shape([file('f1', 'notes.md')], `${ref('file', 'c1', 'notes.md')}`, records, ['f1']).files.map(entry => entry.id)).toEqual(['f1']);
+  });
+  test('a voice note alone is a bubble-shaped audio chip', () => {
+    expect(shape([file('s1', 'memo.m4a', { mimeType: 'audio/mp4' })])).toMatchObject({ shape: 'audio' });
+    expect(shape([file('s1', 'memo.m4a', { mimeType: 'audio/mp4' })], 'Listen')).toMatchObject({ shape: '' });
+  });
+  test('Copy on a wordless media message takes its media\'s references', () => {
+    const records = [{ contextId: 'i1', kind: 'image', attachmentId: 'a', label: 'a.png' }, { contextId: 'i2', kind: 'image', attachmentId: 'b', label: 'b.png' }];
+    expect(shape([image('a'), image('b')], '', records).copy).toBe(`${ref('image', 'i1', 'a.png')}\n${ref('image', 'i2', 'b.png')}`);
+    expect(shape([image('a')], 'Words', records).copy).toBe('');
+  });
+  test('pasted text reads "Pasted text" with its size; a file still sending says so', () => {
+    const [pasted, sending, plain] = messageAttachments({ attachments: [file('p', 'pasted-text.txt', { source: { _tag: 'pasted-text' }, sizeBytes: 40_960 }),
+      file('s', 'big.zip', { downloadable: false }), file('d', 'report.pdf')] }).attachFiles;
+    expect(pasted).toMatchObject({ label: 'Pasted text', detail: '40.0 KB', note: '40.0 KB', sending: false });
+    expect(sending).toMatchObject({ label: 'big.zip', detail: 'Sending…', note: 'Sending…', sending: true });
+    expect(plain).toMatchObject({ label: 'report.pdf', detail: 'PDF · 1.21 KB', note: '' });
+  });
+  test('byte sizes pick their unit after rounding (lib/formatBytes.ts)', () => {
+    expect([500, 1_024, 1_048_000, 1_048_500, 5_000_000].map(formatBytes)).toEqual(['500 B', '1.00 KB', '1023 KB', '1.00 MB', '4.77 MB']);
   });
 });

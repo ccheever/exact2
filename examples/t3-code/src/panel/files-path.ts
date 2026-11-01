@@ -1,4 +1,4 @@
-// The Files breadcrumbs' paths (MIT reference, see LICENSE-T3: T3 Code 74541bab17
+// The Files breadcrumbs' paths (MIT reference, see LICENSE-T3: T3 Code 2359643cff
 // components/files/filePath.ts and packages/shared/src/path.ts): the crumbs of a workspace or host
 // path, the trail the crumbs keep after the browser walks up a folder, and host paths inside a
 // host folder the browser lists.
@@ -20,8 +20,9 @@ export function fileBreadcrumbs(projectName: string, relativePath: string): File
     ...(hostPath ? [] : [{ label: projectName, path: '', kind: 'project' as const }]),
     ...parts.map((part, index) => {
       const path = root + parts.slice(0, index + 1).join(separator);
-      // A bare drive (`C:`) means the drive's current directory; its root is `C:\`.
-      return { label: part, path: /^[A-Za-z]:$/.test(path) ? `${path}\\` : path, kind: index === parts.length - 1 ? 'file' as const : 'directory' as const };
+      // A bare drive (`C:`) means the drive's current directory; its root is `C:\`. A bare `~` is not a host path;
+      // the home folder is `~/`.
+      return { label: part, path: /^[A-Za-z]:$/.test(path) ? `${path}\\` : hostPath && path === '~' ? '~/' : path, kind: index === parts.length - 1 ? 'file' as const : 'directory' as const };
     }),
   ];
 }

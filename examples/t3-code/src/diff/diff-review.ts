@@ -18,12 +18,17 @@ import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, format
 import { openCitationComment, rememberCitedStart } from '../timeline/citation-comment';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { noteCommitsMenu, refreshBranchCommits } from './diff-commits';
+import { openLink } from '../browser/browser-links';
 
-/** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since). */
+/** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since),
+ *  and the branch's commits for the Commits submenu, which DiffPanel's query keeps while the panel shows. */
 export async function loadDiffFiles(client: T3Client, native: Native): Promise<void> {
   const state = client.diffState, lazy = state.lazy, source = state.source;
-  if (!lazy || !source) return;
-  await loadFilePatches(lazy, source, state.ignoreWhitespace, (method, payload) => client.rpc(native, method, payload));
+  await Promise.all([
+    refreshBranchCommits(client, native),
+    lazy && source ? loadFilePatches(lazy, source, state.ignoreWhitespace, (method, payload) => client.rpc(native, method, payload)) : undefined,
+  ]);
 }
 
 /**
@@ -39,6 +44,16 @@ export async function diffReview(client: T3Client, native: Native, op: string, v
   const file = (path: string) => diffFiles(client).find(entry => entry.path === path);
   // The open draft's textarea took or let go of the focus: while it holds it, ⌘↩ is the draft's (composer-presentation.ts sendChords).
   if (action === 'focus' || action === 'blur') { noteDraftFocus(client, action === 'focus'); return ''; }
+  // The Commits submenu opened (its list is kept and read again for next time) or closed.
+  if (action === 'commits-open') { noteCommitsMenu(state.commits, true); await refreshBranchCommits(client, native, true); return ''; }
+  if (action === 'commits-close') { noteCommitsMenu(state.commits, false); return ''; }
+  // A commit's short SHA: its code host page, where "Open links in" says (`value` the URL, `n` 1 with ⌘ or Ctrl held);
+  // it never selects the commit.
+  if (action === 'commit-url') {
+    try { if (value) await openLink(client, native, value, { event: { metaKey: n === 1, ctrlKey: false } }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to open link', description: error instanceof Error ? error.message : 'An error occurred.' }); }
+    return '';
+  }
   if (action === 'next') { if (state.lazy && loadNextFiles(state.lazy).length) await loadDiffFiles(client, native); return ''; }
   if (action === 'retry') { if (state.lazy && retryFile(state.lazy, value)) await loadDiffFiles(client, native); return ''; }
   if (action === 'reveal') {

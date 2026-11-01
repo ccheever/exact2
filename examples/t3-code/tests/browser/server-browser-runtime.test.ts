@@ -37,12 +37,22 @@ test('one active tab owns the stream, input requires its controller and resizing
     event({ type: 'open' }); event({ type: 'message', data: JSON.stringify({ type: 'viewport', width: 1200, height: 800 }) });
     event({ type: 'message', data: JSON.stringify({ type: 'control', canOperate: true, controller: 'agent', generation: 1, dialog: null }) });
     serverStreamInput(run.client, 'one', 'key', { key: 'Enter', code: 'Enter' }); expect(run.sent).toEqual([]);
+    serverStreamInput(run.client, 'one', 'copy', {}); expect(run.sent).toEqual([]); // only the controller's copy reaches the page
     serverStreamInput(run.client, 'one', 'takeControl', {}); expect(run.sent.at(-1)).toEqual({ type: 'takeControl' });
     event({ type: 'message', data: JSON.stringify({ type: 'control', canOperate: true, controller: 'you', generation: 2, dialog: null }) });
     serverStreamInput(run.client, 'one', 'mouse', { phase: 'down', buttons: 1, x: 200, y: 200, width: 800, height: 400 });
     expect(run.sent.at(-1)).toMatchObject({ type: 'mouse', action: 'down', button: 'left', x: 200, y: 400, clickCount: 1 });
     serverStreamInput(run.client, 'one', 'key', { key: 'Enter', code: 'Enter', phase: 'down' });
     expect(run.sent.at(-1)).toMatchObject({ type: 'key', action: 'down', keyCode: 13, text: '\r' });
+    // handleClipboard: the menu bar's Copy and Cut arrive as Control+C and Control+X (modifiers 2).
+    const before = run.sent.length;
+    serverStreamInput(run.client, 'one', 'copy', {}); serverStreamInput(run.client, 'one', 'cut', {});
+    expect(run.sent.slice(before)).toEqual([
+      { type: 'key', action: 'down', key: 'c', code: 'KeyC', keyCode: 67, modifiers: 2 }, { type: 'key', action: 'up', key: 'c', code: 'KeyC', keyCode: 67, modifiers: 2 },
+      { type: 'key', action: 'down', key: 'x', code: 'KeyX', keyCode: 88, modifiers: 2 }, { type: 'key', action: 'up', key: 'x', code: 'KeyX', keyCode: 88, modifiers: 2 },
+    ]);
+    serverStreamInput(run.client, 'one', 'back', {}); expect(run.sent.at(-1)).toEqual({ type: 'history', delta: -1 });
+    serverStreamInput(run.client, 'one', 'forward', {}); expect(run.sent.at(-1)).toEqual({ type: 'history', delta: 1 });
     serverStreamInput(run.client, 'one', 'resize', { width: 1600, height: 1000 });
     expect(run.sent.at(-1)).toEqual({ type: 'resize', width: 1600, height: 1000 });
   });

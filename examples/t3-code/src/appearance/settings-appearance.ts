@@ -250,7 +250,7 @@ export function appearanceSections(prefs: ClientPrefs, installed: InstalledFont[
     { id: 'typography', title: 'Typography', collapsible: false, rows: typography, toggle: false, advanced: typographyAdvanced }];
 }
 /**
- * ThreadDetailsItemsRow: "N of 10 on", whose menu (ThreadDetailsItemsMenuItems) shows or hides each item of the
+ * ThreadDetailsItemsRow: "N of 12 on", whose menu (ThreadDetailsItemsMenuItems) shows or hides each item of the
  * thread details card, then Reset to default. Its options are the items, `selected` when shown; the choices are this
  * app's (thread-details-items.ts), so the row is the same in every scope.
  */

@@ -12,12 +12,12 @@ import { contractComponent } from '../support/contract-action-fixture';
 const holder = () => ({ local: {} as object });
 
 describe('the items and their defaults (THREAD_DETAILS_ITEMS)', () => {
-  test('ten items in the reference order, each on but Usage', () => {
+  test('twelve items in the reference order, each on but Usage limits and Context window', () => {
     expect(THREAD_DETAILS_ITEMS.map(item => item.label)).toEqual(['Environment and worktree', 'Open in editor', 'Project scripts', 'Branch and pull request',
-      'Git actions', 'Changes', 'Servers', 'Automations', 'Lineage', 'Usage']);
+      'Git actions', 'Changes', 'Servers', 'Automations', 'Lineage', 'Side chats', 'Usage limits', 'Context window']);
     const visibility = resolveThreadDetailsVisibility({});
-    expect(Object.entries(visibility).filter(([, on]) => !on).map(([id]) => id)).toEqual(['usage']);
-    expect([isDefaultThreadDetailsVisibility(visibility), shownItemCount(visibility)]).toEqual([true, 9]);
+    expect(Object.entries(visibility).filter(([, on]) => !on).map(([id]) => id)).toEqual(['usage', 'context']);
+    expect([isDefaultThreadDetailsVisibility(visibility), shownItemCount(visibility)]).toEqual([true, 10]);
   });
 });
 
@@ -38,7 +38,7 @@ describe('the choices are stored as differences from the default (setThreadDetai
     threadDetailsItemsLocal(client, 'item', 'nonsense', 'false');
     expect((client.local as { threadDetailsItems?: object }).threadDetailsItems).toEqual({ changes: false, usage: true });
     const menu = threadDetailsMenu(client);
-    expect(menu.items.filter(item => item.id === 'changes' || item.id === 'usage')).toEqual([{ id: 'changes', label: 'Changes', checked: false }, { id: 'usage', label: 'Usage', checked: true }]);
+    expect(menu.items.filter(item => item.id === 'changes' || item.id === 'usage')).toEqual([{ id: 'changes', label: 'Changes', checked: false }, { id: 'usage', label: 'Usage limits', checked: true }]);
     expect(menu.resetDisabled).toBe(false);
     threadDetailsItemsLocal(client, 'reset', '', '');
     expect([threadDetailsChoices(client), isDefaultThreadDetailsVisibility(threadDetailsVisibility(client))]).toEqual([{}, true]);

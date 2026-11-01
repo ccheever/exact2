@@ -1,8 +1,9 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.test.ts),
 // with 9c161462c9's tests of the history keys, Select all, the resize on release and the selection
 // autoscroll at the window edge, 74541bab17's of Kitty key releases, the single paste and a
-// wrapped quoted link, 7c3b3b3605ef's of the autoscroll's speed past the edge, and one of the clone's for the
-// shared PTY grid.
+// wrapped quoted link, 7c3b3b3605ef's of the autoscroll's speed past the edge, 2359643cff's of wide
+// characters and PowerShell prompt paths in links and of selections that output moves, and one of the
+// clone's for the shared PTY grid.
 // Changes from the reference:
 // - split for the 1,500-line cap: the key helper and browser harness are surfaceHarness.ts, and
 //   74541bab17's synchronized output tests are surfaceSynchronized.test.ts.
@@ -544,6 +545,41 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(surface.getSelection()).toBe("https");
   });
 
+  it("reports where a selection sits after output scrolls it", async () => {
+    const harness = createHarness();
+    const surface = await harness.create();
+    const rows = Array.from({ length: 10 }, (_, index) => `row ${index}`);
+    surface.write(`\x1b[?1049h\x1b[H${rows.join("\r\n")}`);
+    harness.flushFrame();
+    harness.pointer("pointerdown", 5, 1, false, 0, 50);
+    harness.pointer("pointermove", 45, 1, false, 0, 50);
+    harness.pointer("pointerup", 45, 0, false, 0, 50);
+    const text = surface.getSelection();
+    const before = surface.getSelectionPosition();
+    expect(text).toMatch(/^row \d$/);
+
+    surface.write("\r\nrow 10\r\nrow 11");
+    expect(surface.getSelection()).toBe(text);
+    expect(surface.getSelectionPosition()?.start.y).toBe(before!.start.y - 2);
+    expect(surface.getSelectionCellCount()).toBe(surface.cols);
+  });
+
+  it("keeps a drag anchored to its text when output scrolls it mid-drag", async () => {
+    const harness = createHarness();
+    const surface = await harness.create();
+    const rows = Array.from({ length: 10 }, (_, index) => `row ${index}`);
+    surface.write(`\x1b[?1049h\x1b[H${rows.join("\r\n")}`);
+    harness.flushFrame();
+    harness.pointer("pointerdown", 5, 1, false, 0, 50);
+    harness.pointer("pointermove", 45, 1, false, 0, 50);
+    expect(surface.getSelection()).toBe("row 6");
+
+    // The pointer stays over the row that output scrolls "row 8" into.
+    surface.write("\r\nrow 10\r\nrow 11");
+    harness.pointer("pointermove", 53, 1, false, 0, 50);
+    expect(surface.getSelection()).toBe("row 6\nrow 7\nrow 8");
+  });
+
   it("does not activate a link replaced before pointer release", async () => {
     const harness = createHarness();
     const onLinkActivate = vi.fn();
@@ -711,6 +747,42 @@ describe("shouldBlinkTerminalCursor", () => {
 });
 
 describe("terminalLinkAtPositionWithRange", () => {
+  it.each([
+    { text: "https://example.com/日本", cols: 80, end: { x: 23, y: 0 } },
+    { text: "src/日本/main.ts:3:1", cols: 80, end: { x: 19, y: 0 } },
+    { text: "https://example.com/🙂", cols: 80, end: { x: 21, y: 0 } },
+    { text: "https://example.com/日本", cols: 23, end: { x: 1, y: 1 } },
+  ])("keeps every cell of $text clickable at $cols columns", async ({ text, cols, end }) => {
+    const core = await GhosttyTerminalCore.create(
+      cols,
+      3,
+      8,
+      16,
+      {
+        foreground: { r: 255, g: 255, b: 255 },
+        background: { r: 0, g: 0, b: 0 },
+        cursor: { r: 255, g: 255, b: 255 },
+      },
+      () => {},
+    );
+    try {
+      core.write(text + " next");
+      const rows = core.snapshot().rowData;
+      for (let y = 0; y <= end.y; y += 1) {
+        const lastColumn = y === end.y ? end.x : cols - 2;
+        for (let x = 0; x <= lastColumn; x += 1) {
+          expect(terminalLinkAtPositionWithRange(rows, y, x)).toEqual({
+            text,
+            range: { start: { x: 0, y: 0 }, end },
+          });
+        }
+      }
+      expect(terminalLinkAtPositionWithRange(rows, end.y, end.x + 1)).toBeNull();
+    } finally {
+      core.dispose();
+    }
+  });
+
   it("activates a wrapped quoted Windows path from its spaces and position suffix", () => {
     const row = (text: string, isWrapContinuation: boolean): GhosttyRow => ({
       cells: Array.from(text, (character) => cell(character)),
@@ -769,12 +841,20 @@ describe("terminalLinkAtPositionWithRange", () => {
       row("com/reference", true),
       row("~/project/file", false),
       row("C:\\repo\\file.ts", false),
+      row("PS C:\\repo\\dir 1", false, true),
+      row("\\test> ", true),
     ];
 
     expect(terminalLinkAtPositionWithRange(rows, 0, 8)?.text).toBe("https://example.com/reference");
     expect(terminalLinkAtPositionWithRange(rows, 1, 4)?.text).toBe("https://example.com/reference");
     expect(terminalLinkAtPositionWithRange(rows, 2, 2)?.text).toBe("~/project/file");
     expect(terminalLinkAtPositionWithRange(rows, 3, 4)?.text).toBe("C:\\repo\\file.ts");
+    expect(terminalLinkAtPositionWithRange(rows, 4, 13)).toEqual({
+      text: "C:\\repo\\dir 1\\test",
+      range: { start: { x: 3, y: 4 }, end: { x: 4, y: 5 } },
+    });
+    expect(terminalLinkAtPositionWithRange(rows, 5, 2)?.text).toBe("C:\\repo\\dir 1\\test");
+    expect(terminalLinkAtPositionWithRange(rows, 5, 5)).toBeNull();
     expect(terminalLinkAtPositionWithRange(rows, 1, 4)).toEqual({
       text: "https://example.com/reference",
       range: {

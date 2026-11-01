@@ -2,8 +2,9 @@
 // with 9c161462c9's history keys (Shift+PageUp/PageDown, Cmd+Shift+Home/End), `selectAll`, the PTY
 // resize on a pointer release and the selection autoscroll at the window edge, 74541bab17's
 // synchronized output, Kitty releases for encoded presses only and the single paste per shortcut, and
-// 7c3b3b3605ef's autoscroll that speeds up the farther the pointer is past the edge, and 6d450a4284's shared PTY
-// grid (`setSharedGrid`).
+// 7c3b3b3605ef's autoscroll that speeds up the farther the pointer is past the edge, 6d450a4284's shared PTY
+// grid (`setSharedGrid`), and 2359643cff's selection read from Ghostty (`getSelectionPosition`,
+// `getSelectionCellCount`, the drag that follows rows output moved) and wide characters in links.
 // 9c161462c9's touch scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer
 // are not here.
 // This part holds `GhosttyTerminalSurface`: its creation, public API and DOM event handlers.
@@ -461,12 +462,17 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     return this.core.selectionText();
   }
 
+  /** An upper bound on the selection's size, read without formatting its text. */
+  getSelectionCellCount(): number {
+    const range = this.core.selectionRange();
+    return range ? (Math.abs(range.end.y - range.start.y) + 1) * this.cols : 0;
+  }
+
   /** Select the active screen's entire history, including rows outside the viewport. */
   selectAll(): void {
     this.clearPrimedCopy();
     const range = this.core.selectAll();
     this.selectionAnchorScreen = range?.start ?? null;
-    this.selectionEndScreen = range?.end ?? null;
     this.selectionEnd = range ? this.core.screenPointToViewport(range.end.x, range.end.y) : null;
     this.selectionMode = "cell";
     this.selectionBase = null;
@@ -477,15 +483,13 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
   }
 
   getSelectionPosition(): GhosttySelectionPosition | null {
-    if (!this.selectionAnchorScreen || !this.selectionEndScreen || !this.hasSelection())
-      return null;
-    const before =
-      this.selectionAnchorScreen.y < this.selectionEndScreen.y ||
-      (this.selectionAnchorScreen.y === this.selectionEndScreen.y &&
-        this.selectionAnchorScreen.x <= this.selectionEndScreen.x);
-    return before
-      ? { start: this.selectionAnchorScreen, end: this.selectionEndScreen }
-      : { start: this.selectionEndScreen, end: this.selectionAnchorScreen };
+    // Ask Ghostty rather than the gesture's coordinates, which go stale once
+    // output scrolls the selected rows (alternate screen, scrollback pruning).
+    const range = this.hasSelection() ? this.core.selectionRange() : null;
+    if (!range) return null;
+    const { start, end } = range;
+    const before = start.y < end.y || (start.y === end.y && start.x <= end.x);
+    return before ? { start, end } : { start: end, end: start };
   }
 
   getSelectionEndClientRect(): { readonly right: number; readonly bottom: number } | null {
@@ -513,7 +517,6 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.core.clearSelection();
     this.selectionEnd = null;
     this.selectionAnchorScreen = null;
-    this.selectionEndScreen = null;
     this.selectionMode = "cell";
     this.selectionBase = null;
     this.setSelectionAutoscroll(0);

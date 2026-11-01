@@ -1,4 +1,4 @@
-// A Browser tab's page area (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// A Browser tab's page area (MIT reference, see LICENSE-T3, T3 Code 2359643cff:
 // apps/web/src/browser/HostedBrowserWebview.tsx, BrowserSurfaceSlot.tsx, BrowserDeviceToolbar.tsx,
 // BrowserViewportResizeHandles.tsx, useBrowserViewportResize.ts, browserViewportLayout.ts, ScreenRotationIcon.tsx;
 // apps/web/src/components/preview/ZoomIndicator.tsx). Fill puts the page over the whole area. A fixed viewport (the
@@ -188,18 +188,23 @@ component BrowserDeviceToolbar
   derive validH = match parseNumber(shownH) { case some(n) => n == floor(n) and n >= 240 and n <= 3840, case none => false }
   derive numW = match parseNumber(shownW) { case some(n) => n, case none => 0 }
   derive numH = match parseNumber(shownH) { case some(n) => n, case none => 0 }
-  derive valid = validW and validH and numW * numH <= 8294400
+  // The field typed in with the ratio locked (BrowserDeviceToolbar customSize.axis): it keeps what was typed, and the
+  // data module resizes the size at the ratio when it is asked for, the area cap included.
+  state draftAxis = ""
+  derive valid = validW and validH and ((view.aspectLocked and draftAxis != "") or numW * numH <= 8294400)
+  derive asked = `${numW}|${numH}|${view.aspectLocked ? draftAxis : ""}`
   action hover(id: string, on: bool)
     over = on ? id : (over == id ? "" : over)
   action begin
     if not drafted
       draftW = `${view.viewportWidth}`
       draftH = `${view.viewportHeight}`
+      draftAxis = ""
     editing = true
     waitSerial = -1
-  // updateCustomDimension: with the ratio locked, a valid width is bounded so its height stays within 240 to 3,840
-  // (resizeAtAspectRatio) and sets that height; a height the same way. The area cap's bound needs a square root, which
-  // Contract has not: the size asked for is checked again by the data module.
+  // updateCustomDimension: with the ratio locked, a valid width keeps its typed digits and sets the height its bounded
+  // value has (resizeAtAspectRatio: within 240 to 3,840); a height the same way. The area cap's bound needs a square
+  // root, which Contract has not: the data module applies it to the size asked for.
   derive minW = ceil(max(240, 240 * ratio))
   derive maxW = floor(min(3840, 3840 * ratio))
   derive minH = ceil(max(240, 240 / ratio))
@@ -210,7 +215,8 @@ component BrowserDeviceToolbar
     let typedW = match parseNumber(text) { case some(n) => min(maxW, max(minW, round(n))), case none => 0 }
     editing = true
     waitSerial = -1
-    draftW = locked ? `${typedW}` : text
+    draftAxis = "width"
+    draftW = text
     draftH = locked ? `${round(typedW / ratio)}` : base
   action editH(text: string)
     let base = drafted ? draftW : `${view.viewportWidth}`
@@ -218,12 +224,13 @@ component BrowserDeviceToolbar
     let typedH = match parseNumber(text) { case some(n) => min(maxH, max(minH, round(n))), case none => 0 }
     editing = true
     waitSerial = -1
-    draftH = locked ? `${typedH}` : text
+    draftAxis = "height"
+    draftH = text
     draftW = locked ? `${round(typedH * ratio)}` : base
   // applyCustomSize: a valid change is asked for (and drawn until it lands); anything else puts the size back.
   action apply
     if editing and valid and (numW != view.viewportWidth or numH != view.viewportHeight)
-      local("surface-browser-viewport-size", view.tabId, `${numW}|${numH}`)
+      local("surface-browser-viewport-size", view.tabId, asked)
       waitSerial = view.viewportSerial
     else
       // A blur after Enter already asked for its size: only an edit that asks for nothing puts the size back.
@@ -231,7 +238,7 @@ component BrowserDeviceToolbar
         waitSerial = -1
     editing = false
   action rotate
-    local("surface-browser-viewport-rotate", view.tabId, editing and valid ? `${numW}|${numH}` : "")
+    local("surface-browser-viewport-rotate", view.tabId, editing and valid ? asked : "")
     editing = false
     waitSerial = -1
   view

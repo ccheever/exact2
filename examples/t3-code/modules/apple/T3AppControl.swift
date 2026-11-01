@@ -48,9 +48,11 @@ enum T3AppControlAddress {
     }
 
     /// The socket and its directory for a state directory (`<T3 home>/userdata`).
+    /// A socket path over sun_path's 104 bytes (with its NUL) moves to /tmp, as the CLI's does.
     static func resolve(stateDir: String, tempDir: String, userId: uid_t?) -> (address: String, directory: String) {
-        let hash = shortHash(stateDir)
-        let directory = normalize("\(tempDir)/t3code-\(userId.map { String($0) } ?? String(hash.prefix(12)))")
+        let hash = shortHash(stateDir), folder = "t3code-\(userId.map { String($0) } ?? String(hash.prefix(12)))"
+        var directory = normalize("\(tempDir)/\(folder)")
+        if normalize("\(directory)/\(hash).sock").utf8.count > 103 { directory = "/tmp/\(folder)" }
         return (normalize("\(directory)/\(hash).sock"), directory)
     }
 }

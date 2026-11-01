@@ -99,12 +99,21 @@ describe('installed font selection', () => {
     await applyCoreSetting(client, native, 'code-font:fontFamilyCode|||', 'Menlo');
     expect(look(client).promptFont).toBe('"Arial", system-ui');
     await applyCoreSetting(client, native, 'prompt-font:fontFamilyComposer|||', 'Avenir Next');
-    expect(look(client).promptFont).toBe('"Avenir Next", system-ui');
+    // With separate fonts off the prompt box is the interface font (appearanceFonts.ts at v0.1.6); the family is kept.
+    expect(look(client).promptFont).toBe('"Arial", system-ui');
     expect(look(client).codeFont).toBe('\"Menlo\", ui-monospace');
     expect(look(client).terminalFont).toBe('Menlo');
     await applyCoreSetting(client, native, 'separate-fonts:typographyAdvanced|||', 'true'); // Typography's Separate fonts row
     expect(look(client).promptFont).toBe('\"Avenir Next\", system-ui');
     expect(look(client).terminalFont).toBe('');
+  });
+  it('the prompt box follows Interface size until separate fonts are on (#26559)', () => {
+    const client = new T3Client();
+    const prefs = (client.local as unknown as { clientSettings: Record<string, unknown> }).clientSettings;
+    Object.assign(prefs, { fontSizeInterface: 18, fontSizePrompt: 20 });
+    expect([look(client).fontSize, look(client).promptSize]).toEqual([18, 15.75]);
+    prefs.typographyAdvanced = true;
+    expect(look(client).promptSize).toBe(20);
   });
   it('the terminal page\'s face carries Font smoothing, which the page\'s root follows (terminal-host applySmoothing)', () => {
     const client = new T3Client();

@@ -141,8 +141,6 @@ shape ShellView
   highlightPending: bool // a Files / attachment code text waits for its tokens (highlights.ts)
   // The screen reader's live regions (announce.ts, live-regions.contract).
   announce: AnnounceView
-  // The npmRelease resource's key: the version a server waits for on npm, with its five-minute window (npm-release.ts).
-  npmProbe: string
 shape AnnounceView
   thread: string
   background: string
@@ -201,6 +199,8 @@ shape ShellDetails
   lineageTitle: string
   lineage: ShellLineage[]
   showLineage: bool
+  // Lineage's heading offers Disconnect agent session (lineage-actions.ts canDetachSession).
+  canDetach: bool
   previousCount: number
   previousFailed: number
   mergeRunId: string
@@ -217,6 +217,7 @@ shape ShellDetails
   itemsMenu: DetailsItemsMenu
   servers: ThreadServersView
   usage: UsageView
+  context: UsageView // the Context window item (thread-details-usage.ts contextView)
   // The branch picker, Git actions and their dialogs (git-card.ts).
   git: GitCard
 // The control a workspace area last held (shell-members.contract workspaceEntered).

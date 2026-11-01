@@ -86,6 +86,20 @@ describe('resolveDesktopAppControlAddress', () => {
     expect(first.address).not.toBe(second.address);
   });
 
+  // desktopAppControl.test.ts's table at v0.1.6: a socket path over the platform's limit moves to /tmp.
+  test.each([
+    ['linux', '/tmp', '/tmp/t3code-1000', 107],
+    ['linux', '/var/tmp/custom', '/var/tmp/custom/t3code-1000', 107],
+    ['linux', `/tmp/${'x'.repeat(120)}`, '/tmp/t3code-1000', 107],
+    ['darwin', `/tmp/${'é'.repeat(30)}`, '/tmp/t3code-1000', 103],
+    ['darwin', `/tmp/${'x'.repeat(56)}`, `/tmp/${'x'.repeat(56)}/t3code-1000`, 103],
+  ] as const)('keeps %s sockets short under %s', (platform, tempDir, directory, maxBytes) => {
+    const resolved = resolveDesktopAppControlAddress({ stateDir: `/home/user/${'long/'.repeat(40)}userdata`, platform, tempDir, userId: 1000,
+      joinPath: (...segments) => segments.join('/'), sha256 });
+    expect(resolved.directory).toBe(directory);
+    expect(new TextEncoder().encode(resolved.address).byteLength).toBeLessThanOrEqual(maxBytes);
+  });
+
   // The vectors macos/tests/app-control holds T3AppControlAddress to (the app's native half).
   test('the macOS vectors the native address shares, under the 104-byte sun_path limit', () => {
     const join = (...segments: string[]) => segments.join('/');

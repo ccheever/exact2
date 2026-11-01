@@ -4,6 +4,7 @@ use SecretCardView from "../timeline/secret-card.contract"
 use TimelineApproval from "../timeline/timeline-approval.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
+use DiffCommitsView from "../diff/diff-commits-shapes.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/mermaid-frame.contract"
 use MathFrame from "../timeline/markdown-math.contract"
@@ -158,12 +159,21 @@ shape Message
   attribution: string
   // A folded automation or agent message's one line (its task title or first line).
   summary: string
+  // A sent message's shape (timeline-attachments.ts userMessageShape): "" its bubble, "media" its media alone, "files"
+  // file cards, "audio" a bubble-shaped voice note; `mediaAbove` its media above the bubble, `mediaLayout` that media's.
+  shape: string
+  mediaAbove: bool
+  mediaLayout: string
+  copyable: bool
+  // Your back-to-back messages: another of yours directly below or above, and a steer under a steer (its label once).
+  groupedNext: bool
+  groupedPrevious: bool
+  continuesSteer: bool
   // A queued automation or agent message's fold heading ("Automation", or the sending thread's title).
   sender: string
   targetId: string
   actionLabel: string
   copied: number
-  copyFailed: bool
   meta: bool
   collapsible: bool
   code: CodeHighlight[]
@@ -175,6 +185,9 @@ shape Message
   codeCopied: string
   codeCopyNonce: number
   fileCount: number
+  // A checkpoint's "N changed files" over all its files, and "N more files in the full diff" when the wire sent a prefix.
+  filesLabel: string
+  moreFiles: string
   images: MessageImage[]
   attachFiles: MessageFile[]
   // A sent message's sounds, each an audio chip (timeline-audio.contract).
@@ -502,6 +515,8 @@ shape Snapshot
   diffScopeLabel: string
   diffScope: string
   diffTurns: DiffTurn[]
+  // The Commits submenu and a shown commit's short SHA (diff-commits.ts).
+  diffCommits: DiffCommitsView
   diffLatestSelected: bool
   diffCanRefresh: bool
   diffLayout: string

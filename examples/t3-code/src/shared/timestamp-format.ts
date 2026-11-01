@@ -1,7 +1,7 @@
 // Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts (1e2ecbd975,
 // resolveHour12 at 74541bab17; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn,
 // resolveHour12 and the cached wall-clock formatters. The desktop host reports the system locale
-// (Electron's app.getSystemLocale() with `_` → `-`; here Contract's `exactTime().formatLocale`, the Region's
+// (Electron's app.getSystemLocale() through toSystemLocaleTag, 2359643cff; here Contract's `exactTime().formatLocale`, the Region's
 // format locale, which app.contract passes with the snapshot request). The packaged Electron app's runtime default locale is en-US
 // (it ships only that Chromium locale), while the macOS data runtime's default follows the Mac's
 // region (en-KR on a Korean Mac; exact2 docs/reference.md: pass the locale explicitly), so a call
@@ -9,12 +9,45 @@
 export const RUNTIME_LOCALE = 'en-US';
 
 /**
+ * toSystemLocaleTag (apps/desktop ElectronApp.ts at v0.1.6): the macOS Region override, which the locale carries as
+ * a `rg` keyword (`en_US@rg=gbzzzz`, or `en-US-u-rg-gbzzzz` as Contract's formatLocale has it), replaces the region
+ * subtag, because Intl ignores `rg`. An hour cycle (`hc`) is kept; other keywords are dropped, as the reference drops
+ * ICU keywords Intl cannot read, rather than losing the whole locale.
+ */
+export function toSystemLocaleTag(identifier: string, hourCycle?: 'h12' | 'h23'): string {
+  const [icuBase = '', icuKeywords = ''] = identifier.split('@');
+  const [bcpBase = '', extension = ''] = icuBase.replace(/_/g, '-').split(/-u-/i);
+  const keywords = new Map<string, string>();
+  for (const pair of icuKeywords.split(';')) { const [key, value] = pair.split('='); if (key && value) keywords.set(key.toLowerCase(), value.toLowerCase()); }
+  // A -u- extension is key (two characters) and value subtags, up to the next singleton.
+  let key = '';
+  for (const subtag of extension.split('-')) {
+    if (subtag.length === 1) break;
+    if (subtag.length === 2) key = subtag.toLowerCase();
+    else if (key && !keywords.has(key)) keywords.set(key, subtag.toLowerCase());
+  }
+  const region = /^([a-z]{2}|\d{3})zzzz$/i.exec(keywords.get('rg') ?? '')?.[1]?.toUpperCase();
+  const cycle = hourCycle ?? (/^h(11|12|23|24)$/.test(keywords.get('hc') ?? keywords.get('hours') ?? '') ? keywords.get('hc') ?? keywords.get('hours') : undefined);
+  const [language = '', ...rest] = bcpBase.split('-');
+  const script = rest.find(subtag => /^[a-z]{4}$/i.test(subtag));
+  const ownRegion = rest.find(subtag => /^([a-z]{2}|\d{3})$/i.test(subtag));
+  const variants = rest.filter(subtag => subtag !== script && subtag !== ownRegion);
+  const tag = [language, script, region ?? ownRegion, ...variants].filter(Boolean).join('-') + (cycle ? `-u-hc-${cycle}` : '');
+  try {
+    return Intl.getCanonicalLocales(tag)[0] ?? tag;
+  } catch {
+    return tag; // resolveTimestampLocale refuses it if it is not a well-formed tag
+  }
+}
+
+/**
  * Pick the locale to format wall-clock times in, given the locale the host reports. Hosts that
  * report nothing fall back to `undefined`, the runtime default.
  */
 export function resolveTimestampLocale(systemLocale: string | null | undefined): string | undefined {
-  const tag = systemLocale?.trim();
-  if (!tag) return undefined;
+  const reported = systemLocale?.trim();
+  if (!reported) return undefined;
+  const tag = toSystemLocaleTag(reported);
   try {
     // Throws on a structurally invalid tag; a well-formed tag without data is left to ICU's fallback.
     Intl.DateTimeFormat.supportedLocalesOf([tag]);

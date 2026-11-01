@@ -219,9 +219,16 @@ describe('review verdicts (PullRequestReviewForm)', () => {
     await run.view();
     pullRequestReviewStore(run.client).addComment(key, { id: 'pending-a', path: 'src/validate.js', position: { kind: 'added', newLine: 4 }, body: 'Here.' });
     expect(await run.act('review', 'request-changes|Not yet.')).toBe('HTTP 422');
-    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'The review could not be submitted' });
+    // GitHub's reason is the toast's description (readableFailure).
+    expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'The review could not be submitted', description: 'HTTP 422' });
     const writes = (await run.view()).writes;
     expect([writes.summary, writes.pendingCount, writes.reviewSerial, writes.reviewPending]).toEqual(['Not yet.', 1, 0, false]);
+  });
+  test('a refusal with nothing readable to say falls back to the draft being kept', async () => {
+    const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity(), 'pullRequests.submitReview': () => { throw new Error(''); } });
+    await run.view();
+    await run.act('review', 'request-changes|Not yet.');
+    expect(toasts(run.client).at(-1)).toMatchObject({ description: 'The host refused the review. Your draft is still here to try again.' });
   });
 });
 
@@ -302,7 +309,15 @@ describe('title, description and comment edits', () => {
     const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity() });
     await run.view();
     await run.act('preview', 'body|# Heading\n\nWords.');
-    expect((await run.view()).bodies.find(body => body.id === 'pr-preview:body')).toEqual({ id: 'pr-preview:body', kind: 'assistant', title: '', body: '# Heading\n\nWords.' });
+    // GitHub keeps a single newline as a line break (hardLineBreaks), so the preview renders as the host will.
+    expect((await run.view()).bodies.find(body => body.id === 'pr-preview:body')).toEqual({ id: 'pr-preview:body', kind: 'breaks', title: '', body: '# Heading\n\nWords.' });
+  });
+  // PullRequestMarkdown.browser.test.tsx (2359643cff): GitHub, Forgejo and Azure DevOps break a single newline, other
+  // hosts join it; the review guide's prose never breaks.
+  test.each([['github', 'breaks'], ['forgejo', 'breaks'], ['azure-devops', 'breaks'], ['gitlab', 'assistant'], ['bitbucket', 'assistant'], ['', 'assistant']])('%s text is a %s document', async (provider, kind) => {
+    const run = lane({ 'pullRequests.detail': () => detail({ provider, body: 'first line\nsecond line' }), 'pullRequests.activity': () => activity() });
+    const view = await run.view();
+    expect(view.bodies.find(body => body.id === view.bodyId)).toMatchObject({ kind, body: 'first line\nsecond line' });
   });
 });
 

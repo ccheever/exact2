@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import "./test-assets";
+import { createHarness, disposeHarnessSurfaces } from "../vendor/ghostty/surfaceHarness";
 import { applySmoothing, CompositionTracker, eventKeyNames, fromApp, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
-  terminalInputShortcutData, terminalKeyShortcutData, themeFrom } from "./entry";
+  terminalInputShortcutData, terminalKeyShortcutData, themeFrom, writeKeepingSelection } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
   metaKey: false,
@@ -302,5 +304,44 @@ describe("the messages the page takes", () => {
     // A bundled page on Apple is its own top document: the host's replies come through its own window.
     const apple = { parent: self, location: { origin: "exact-app://app" } };
     expect(fromApp({ source: self, origin: "", data: "{}" }, apple, self)).toBe(true);
+  });
+});
+
+describe("output over a selection", () => {
+  afterEach(disposeHarnessSurfaces);
+
+  test("keeps a selection through redraws until the selected text changes", async () => {
+    const harness = createHarness();
+    const surface = await harness.create();
+    expect(writeKeepingSelection(surface, "* Working |", true)).toBe(false);
+    harness.flushFrame();
+    harness.pointer("pointerdown", 5, 1);
+    harness.pointer("pointermove", 85, 1);
+    harness.pointer("pointerup", 85, 0);
+    expect(surface.getSelection()).toBe("* Working |");
+
+    // A TUI repaints its spinner line in place, the way Claude Code redraws.
+    expect(writeKeepingSelection(surface, "\r\x1b[2K* Working |", false)).toBe(false);
+    expect(surface.getSelection()).toBe("* Working |");
+
+    expect(writeKeepingSelection(surface, "\r\x1b[2K* Working /", false)).toBe(true);
+    expect(surface.getSelection()).toBe("");
+    expect(surface.getSelectionPosition()).toBeNull();
+  });
+
+  test("tells the app when output scrolls the selected rows", async () => {
+    const harness = createHarness();
+    const surface = await harness.create();
+    const rows = Array.from({ length: 10 }, (_, index) => `row ${index}`);
+    writeKeepingSelection(surface, `\x1b[?1049h\x1b[H${rows.join("\r\n")}`, false);
+    harness.flushFrame();
+    harness.pointer("pointerdown", 5, 1, false, 0, 50);
+    harness.pointer("pointermove", 45, 1, false, 0, 50);
+    harness.pointer("pointerup", 45, 0, false, 0, 50);
+    const text = surface.getSelection(), before = surface.getSelectionPosition();
+
+    expect(writeKeepingSelection(surface, "\r\nrow 10\r\nrow 11", false)).toBe(true);
+    expect(surface.getSelection()).toBe(text);
+    expect(surface.getSelectionPosition()?.start.y).toBe(before!.start.y - 2);
   });
 });

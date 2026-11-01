@@ -8,4 +8,8 @@ describe('code block icons', () => {
     expect(['src/app.ts', 'package.json', 'README.md', 'docs/notes.md', 'Cargo.toml', 'x.unknownext', '.gitignore'].map(fileIconToken))
       .toEqual(['typescript', 'npm-plain', 'markdown', 'markdown', 'toml', 'default', 'git']);
   });
+  test('language dialects draw their base language\'s icon', () => {
+    expect(['init.luau', 'schema.xsd', 'page.xsl', 'page.xslt'].map(fileIconToken)).toEqual(['lua', 'xml', 'xml', 'xml']);
+    expect(['luau', 'xslt'].map(languageIconToken)).toEqual(['lua', 'xml']);
+  });
 });

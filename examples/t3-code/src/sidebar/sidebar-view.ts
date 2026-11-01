@@ -6,6 +6,8 @@ import { instanceIconUrl } from '../providers/acp-icons';
 // plus the sidebar's own view state. Pure over the client and `now`.
 import { arr, obj, pickableProjectGroups, projectGroupOrganization, str, type Obj } from '../client/domain';
 import { effectiveShortcut } from '../shell/shortcut-labels';
+import { chordWinners } from '../shell/keyboard-dispatch';
+import { canPinProjectGroup, orderWhileOpen } from './project-pin';
 import { PLATFORM } from '../settings/desktop-shell-favicon';
 import { machineKind } from '../connections/connections';
 import { fleet, fleetThreads, parseFleetThreadId, fleetRunningTerminalIds, remoteThread } from '../connections/settings-b-fleet'; // settings-b: background environments' threads
@@ -82,7 +84,7 @@ export interface SidebarThread {
 }
 /** A row of the sidebar's tree (lib/sidebarTree.ts), by its element id: a shelf header's rows name it as their parent. */
 export interface SidebarTreeRow { id: string; parent: string; expanded: string }
-export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
+export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph; canPin: boolean; pinned: boolean; pinTitle: string }
 export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph; menu: MenuRow[] }
 export interface SidebarView {
   drafts: SidebarDraft[];
@@ -93,7 +95,7 @@ export interface SidebarView {
   /** Non-zero while a grace's start or a return's stamp waits for the window's clock, changing with each new one. */
   graceOwed: number;
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
-  emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
+  emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; newThreadPicks: boolean; scopePinChord: string; dragEnabled: boolean;
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
   scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
@@ -340,8 +342,8 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     section, status: pill?.label ?? '', selected: active, routeThread, searchFirst: extra.searchFirst,
     ...searchMatch(extra.match, session.searchFoundFor), // a row listed for its message
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
-    // metaLineEmpty: only the provider icon would remain, so a card drops its third line and the icon joins the title.
-    metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && !remote && terminalCount === 0,
+    // metaLineEmpty: only the trailing icons would remain, so a card drops its third line and they join the title.
+    metaEmpty: !str(thread.branch) && !scratch && !prBadge.badge && terminalCount === 0,
     duration: started ? workingDuration(now - Date.parse(started)) : '',
     workingSince: started ? Date.parse(started) : 0, remoteMachine: remote?.machine ?? '',
     scratchMachine: scratch?.machine ?? '', scratchLabel: scratch?.label ?? '',
@@ -427,6 +429,8 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   revealRoute(client, searching);
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), chosen = chosenScopes(client, scopes), scope = chosen[0];
+  // Pinning from a row keeps the rows in place while the menu is open (useOrderWhileOpen).
+  const scopeList = orderWhileOpen(session.scopeHold, scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity), item => item.key, session.scopeOpen);
   notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
   const rows: { thread: Obj; section: SidebarSection; match?: Obj }[] = searching ? searchRows(client, parts, now) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchKey = ''; }
@@ -466,15 +470,15 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
         : chosen.length > 1 ? 'No threads in these projects yet' : scope ? `No threads in ${scope.name} yet` : 'No threads yet',
       emptyAddProject: !searching && total === 0 && client.shell.projects.length === 0,
       hasProjects: client.shell.projects.length > 0, projectGroupCount: scopes.length,
+      newThreadPicks: !shouldCreateNewThreadInCurrentProject(false, pickableScopes(client, scopes).length, scopes.length),
+      scopePinChord: pinChord(client),
       dragEnabled: !searching && capabilities(client.config).pinning && capabilities(client.config).pinReorder && session.renameId === '',
       scopeKey: chosen.map(group => group.key).join('\n'), scopeLabel: chosen.map(group => group.name).join(', '),
       scopeMark: scope ? identity.projectMark : '', scopeInk: scope ? identity.projectInk : '', scopeSurface: scope ? identity.projectSurface : '',
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
       // Several projects: the trigger overlaps the first two glyphs.
       scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
-      scopes: scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity),
-      scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
-      scopeFirst: scopeItems(client, session.scopeQuery, prefs.scopes, pickableScopes(client, scopes), helpers.projectIdentity)[0]?.key ?? '',
+      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeFirst: scopeList[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
@@ -548,13 +552,28 @@ function groupGlyph(client: T3Client, group: { key?: string; name: string; membe
 /** The representative member's title, which names the group's monogram; the group's name for No project or a member without one. */
 const groupTitle = (group: { key?: string; name: string; members: Obj[] }): string => group.key === NO_PROJECT_SCOPE ? group.name : str(group.members[0]?.title) || group.name;
 
-/** filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. "All projects" is selected with no project. */
-function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[] }[], identity: Identity): SidebarScope[] {
-  const needle = query.trim().toLowerCase();
-  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity) },
-    ...scopes.map(group => { const mark = identity(groupTitle(group)); return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false, glyph: groupGlyph(client, group, identity) }; })];
+/**
+ * filterSidebarProjectScopeItems: a query hides "All projects" and keeps matching groups. "All projects" is selected with
+ * no project. Each group offers its pin (ProjectPinButton) where it can be pinned, titled with the thread pin shortcut.
+ */
+function scopeItems(client: T3Client, query: string, selected: readonly string[], scopes: { key: string; name: string; members: Obj[]; pinned: boolean }[], identity: Identity): SidebarScope[] {
+  const needle = query.trim().toLowerCase(), shortcut = shortcutLabel(client, 'thread.pin');
+  const items: SidebarScope[] = [{ key: '', label: 'All projects', mark: '', ink: '', surface: '', selected: selected.length === 0, all: true, glyph: groupGlyph(client, undefined, identity), canPin: false, pinned: false, pinTitle: '' },
+    ...scopes.map(group => {
+      const mark = identity(groupTitle(group)), action = `${group.pinned ? 'Unpin' : 'Pin'} ${group.name}`;
+      return { key: group.key, label: group.name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, selected: selected.includes(group.key), all: false,
+        glyph: groupGlyph(client, group, identity), canPin: canPinProjectGroup(client, group.members), pinned: group.pinned, pinTitle: shortcut ? `${action} (${shortcut})` : action };
+    })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }
+/** isProjectPinShortcut: the thread pin binding in effect in an editable field (the filter's search), as a chord. */
+function pinChord(client: T3Client): string {
+  const winners = chordWinners(arr(client.config.keybindings), { editableFocus: true, modelPickerOpen: false, composerFocus: false, turnRunning: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false });
+  return [...winners].find(([, command]) => command === 'thread.pin')?.[0] ?? '';
+}
+/** shouldCreateNewThreadInCurrentProject: the "New thread in" picker opens unless there is one open project or none. */
+export const shouldCreateNewThreadInCurrentProject = (shiftKey: boolean, openProjectGroupCount: number, projectGroupCount: number): boolean =>
+  shiftKey || openProjectGroupCount === 1 || projectGroupCount === 0;
 
 /** SidebarDraftBlock: new-thread drafts with text or attachments, other than the one on screen, newest project first. */
 export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] {

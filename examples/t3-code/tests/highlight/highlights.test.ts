@@ -70,6 +70,11 @@ describe('a text reaches the lexers through the root', () => {
     expect(lexerOf('Python')).toBe(lexerOf('py'));
     expect(lexerOf('gitignore')).toBe(lexerOf('ini'));
   });
+  test('dialects with no lexer of their own highlight as their base language', () => {
+    expect(lexerOf('src/init.luau')).toBe(lexerOf('lua'));
+    expect([lexerOf('styles/page.xsl'), lexerOf('page.xslt')]).toEqual([lexerOf('xml'), lexerOf('xml')]);
+    expect(lexerOf('xml')).toBeGreaterThan(0);
+  });
   test('the longest-waiting texts go first, and a text no view paints or asks for again is dropped', () => {
     highlightTokens('let a = 1;', 'ts');
     highlightAsk();
