@@ -62,3 +62,18 @@ test('Home keeps menus outside the virtualized feed at one bounded resident pair
   expect(home).toContain('popoverMenuId=sharedSwipeMenuId');
   expect(thread).toContain('virtualized=true estimated-item-height=180');
 });
+
+test('Home keeps its native scroll owner through filtered empty results', () => {
+  const app = appText('mobile/app.contract');
+  const home = appText('mobile/home.contract');
+  expect(app).toContain('entry.name == "home" ? (home.fullPageEmpty ? "" : "home-list")');
+
+  const filteredStart = home.indexOf('else if items.length == 0 and not fullPageEmpty');
+  const fullPageStart = home.indexOf('else if items.length == 0\n', filteredStart + 1);
+  const nextBranch = home.indexOf('\n    else\n', fullPageStart);
+  expect(filteredStart).toBeGreaterThanOrEqual(0);
+  expect(fullPageStart).toBeGreaterThan(filteredStart);
+  expect(nextBranch).toBeGreaterThan(fullPageStart);
+  expect(home.slice(filteredStart, fullPageStart)).toContain('scroll id=listId');
+  expect(home.slice(fullPageStart, nextBranch)).not.toContain('scroll id=listId');
+});
