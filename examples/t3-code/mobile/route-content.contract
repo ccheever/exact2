@@ -401,9 +401,9 @@ component MobileRouteContent
           // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.
           for geometryOwner in [threadGeometryKey] key=geometryOwner
             view id=`thread-route-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(geometryOwner)
-          column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" padding-right=threadTrailingReservation box-sizing="border-box" pointer-events="none"
+          column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" box-sizing="border-box" pointer-events="none"
             view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
-            column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
+            column position="absolute" top=0 left=0 right=threadTrailingReservation bottom=(-threadCoveredBottom) pointer-events="auto"
               ThreadFeed(data=threadData, active=focused, workWidth=(threadContentWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, openSendingThread=openSendingThread(routeId), historyScroll=threadHistoryScroll, colors=threadLook)
           if threadData.queuedFailed
             column id=`thread-dock-${routeId}` position="absolute" left=0 right=threadTrailingReservation bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"

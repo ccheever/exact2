@@ -156,6 +156,7 @@ test('thread content consumes only the measured trailing reservation', () => {
   expect(source).toContain('workWidth=(threadContentWidth - workspace.chatHorizontalPadding * 2)');
   expect(source).toContain('maxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
   expect(source).toContain('contentMaxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
-  expect(source).toContain('padding-right=threadTrailingReservation');
+  expect(source).not.toContain('id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" padding-right=threadTrailingReservation');
+  expect(source).toContain('column position="absolute" top=0 left=0 right=threadTrailingReservation bottom=(-threadCoveredBottom) pointer-events="auto"');
   expect(source).toContain('right=threadTrailingReservation');
 });

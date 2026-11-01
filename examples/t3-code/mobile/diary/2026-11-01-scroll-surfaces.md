@@ -125,3 +125,14 @@ overscroll and hide incidental indicators, matching the existing file-preview
 pattern. Focused and full mobile tests pass; both local Duo targets were still
 owned by another workspace, so live frame pacing and rendered line placement
 remain unqualified.
+
+The first exclusive Duo drive then exposed the remaining rail defect: transcript
+rows kept the full inner width and painted under the right rail. The route flow
+had the measured reservation as parent padding while its feed was an absolute
+child; applying the reservation to that child's `right` edge makes the containing
+block shrink with the measured route geometry, without adding row-level safe-area
+padding or a second scroll surface. The focused geometry, Home, thread and scroll
+tests, Contract build, strict TypeScript, caps and boot pass. The rebuilt app
+settled with no saved environment after reinstall, so the corrected thread width
+still needs a populated native re-drive. Simulator frame-health sampling is not
+available on this iOS simulator; no buttery-performance claim is made.
