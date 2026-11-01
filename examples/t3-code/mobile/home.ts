@@ -143,10 +143,13 @@ export function mobileHomeEmpty(catalog: HomeCatalogState, projectCount: number)
 /** Pure mobile shelf projection. No shared shell objects or persistence are mutated. */
 export function projectMobileHome(sources: HomeSource[], now: number, options: HomeOptions = {}) {
   const projects = mobileHomeProjects(sources, options), selectedProject = projects.find(project => project.key === options.projectKey || project.projectKeys.includes(options.projectKey ?? ''));
+  const selectedProjectKeys = selectedProject ? new Set(selectedProject.projectKeys) : null;
   const titles = new Map(projects.flatMap(project => project.projectKeys.map(key => [key, project.title] as const)));
   // Home rows resolve their project and source repeatedly while the projection is rebuilt.
   // Keep those reads constant-time so a shell refresh does not scan every project for every row.
   const sourceByEnvironment = new Map(sources.map(source => [source.environmentId, source] as const));
+  const threadKeysByEnvironment = new Map(sources.map(source => [source.environmentId,
+    new Set(source.shell.threads.map(thread => str(thread.id)))] as const));
   const projectsByEnvironment = new Map(sources.map(source => [source.environmentId,
     new Map(source.shell.projects.map(project => [project.id, project] as const))] as const));
   const parts: Record<SidebarSection, Obj[]> = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
@@ -154,7 +157,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   let nextSnoozeWakeAt: number | null = null;
   for (const source of sources) for (const raw of source.shell.threads) {
     if (!sidebarVisible(raw) || options.environmentId && source.environmentId !== options.environmentId
-      || selectedProject && !selectedProject.projectKeys.includes(scoped(source.environmentId, raw.projectId))) continue;
+      || selectedProjectKeys && !selectedProjectKeys.has(scoped(source.environmentId, raw.projectId))) continue;
     const thread: Obj = { ...raw, environmentId: source.environmentId };
     const key = scoped(source.environmentId, thread.id);
     if (query && !str(thread.title).toLocaleLowerCase().includes(query)
@@ -201,7 +204,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   parts.pinned.forEach(thread => append(thread, 'pinned')); parts.active.forEach(thread => append(thread, 'active'));
   const draftProjects = sources.flatMap(source => source.shell.projects.map(project => ({ environmentId: source.environmentId,
     projectId: str(project.id), title: str(project.title), groupTitle: titles.get(scoped(source.environmentId, project.id)) })));
-  const projectRefs = selectedProject ? draftProjects.filter(project => selectedProject.projectKeys.includes(scoped(project.environmentId, project.projectId))) : null;
+  const projectRefs = selectedProjectKeys ? draftProjects.filter(project => selectedProjectKeys.has(scoped(project.environmentId, project.projectId))) : null;
   const pendingTasks = new Map((options.pendingTasks ?? []).map(task => [task.owner, task]));
   const editorTitles = new Map<string, string>(), editorDrafts = new Map<string, string>();
   for (const marker of options.pendingEditors ?? []) {
@@ -218,7 +221,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   const pendingTitle = (task: MobilePendingTask) => editorTitles.get(task.owner) ?? homeDraftTitle(task.record.text, task.record.attachments.length);
   const pendingRows = projectHomePending([...pendingTasks.values()], { environmentId: options.environmentId, projectRefs })
     .filter(task => (!query || pendingTitle(task).toLocaleLowerCase().includes(query)) && (editorTitles.has(task.owner)
-      || !sourceByEnvironment.get(task.record.environmentId)?.shell.threads.some(thread => thread.id === task.record.threadId)));
+      || !threadKeysByEnvironment.get(task.record.environmentId)?.has(task.record.threadId)));
   // Only hide a duplicate if its actual replacement survived this view's filters.
   // Unknown/orphan content without validated marker ownership remains visible.
   const replacedDrafts = new Set(pendingRows.flatMap(task => editorDrafts.has(task.owner) ? [editorDrafts.get(task.owner)!] : []));
