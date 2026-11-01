@@ -7,7 +7,7 @@ series and are not comparable with round 20's.
 
 | Piece | What it is |
 |---|---|
-| `specs/<id>/SPEC.md`, `data/` | twelve iPhone apps, each with a long list from seeded data (`specs/gen.mjs` writes it) |
+| `specs/<id>/SPEC.md`, `data/` | nineteen iPhone apps, each with seeded data; the four service and package specs include frozen servers |
 | `pairs.json` | each spec's comparison stack and builder model, fixed so rounds compare pair against pair |
 | `prompts/` | the builder prompt (`common.md` plus the stack's) and the grader's |
 | `native/` | the SwiftUI and UIKit builders' skeleton: `swiftc` and an assembled `.app`, no Xcode project |
@@ -19,16 +19,21 @@ series and are not comparable with round 20's.
 | `report.mjs` | the round's table; `results/<round>/` keeps what each round recorded |
 
 ```sh
-bun bench/bakeoff/round.mjs r21             # build, feel, grade and report every pair
-bun bench/bakeoff/round.mjs r21 grade --specs chat,inbox --redo 1
+BAKEOFF_ROOT=/Volumes/ExternalSSD/bakeoff bun bench/bakeoff/round.mjs n0 build --native-only 1 --parallel 3
+BAKEOFF_ROOT=/Volumes/ExternalSSD/bakeoff bun bench/bakeoff/round.mjs g0a all --native n0 --parallel 3
+BAKEOFF_ROOT=/Volumes/ExternalSSD/bakeoff bun bench/bakeoff/round.mjs g1 all --native n0 --heldout timetable --parallel 3
 ```
 
-A round's apps, logs and screenshots stay in `~/bakeoff/rounds/<name>`; `report` copies records, feel results,
+A round's apps, logs and screenshots stay in `${BAKEOFF_ROOT:-~/bakeoff}/rounds/<name>`; `report` copies records, feel results,
 grades, builders' notes and the summary into `results/<name>/`.
 
-- Builders: GPT-6.1 Sol (high) through `codex exec`, sandboxed with escalations reviewed (`--approve-for-me`), and
-  Claude Opus 5.5 through `claude -p` in the `auto` permission mode. Muse is not logged in on this machine.
-- Exact builders use a detached checkout pinned at the round's commit (`~/bakeoff/pins/<rev>`) with this directory
+The native baseline is named with `--native`; later rounds build Exact only and reuse that baseline for feel, grading
+and the report. `--native-only 1` builds the baseline's native arm once. `--heldout <id>` leaves the held-out existing
+spec out of rounds after g0a and g0b. `notes`, `settings` and `trips` are cold-cache builds and run alone; the report
+lists their first-build minutes. Set `BAKEOFF_ROOT` explicitly so apps, logs, pins and locks stay on the external SSD.
+
+- Builders: GPT-6.1 Sol (high) through `codex exec`, for both arms. The blind grader remains Claude Opus 5.5.
+- Exact builders use a detached checkout pinned at the round's commit (`${BAKEOFF_ROOT:-~/bakeoff}/pins/<rev>`) with this directory
   removed, so the grader's prompt is not there to read.
 - Simulators: `bake-b1`…`b6` build, `bake-g1`, `g2` grade, `bake-feel` probes (iPhone 18 Pro, iOS 27). Apps are
   uninstalled between uses, never erased.

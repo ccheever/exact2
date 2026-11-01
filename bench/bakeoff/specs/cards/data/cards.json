@@ -1,0 +1,1262 @@
+[
+ {
+  "id": 1,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-01",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 2,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-02",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 3,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-03",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 4,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-04",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 5,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-05",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 6,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-06",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 7,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-07",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 8,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-08",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 9,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-09",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 10,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-10",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 11,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-11",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 12,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-12",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 13,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-13",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 14,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-14",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 15,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-15",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 16,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-16",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 17,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-17",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 18,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-18",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 19,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-19",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 20,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-20",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 21,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-21",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 22,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-22",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 23,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-23",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 24,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-24",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 25,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-25",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 26,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-26",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 27,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-27",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 28,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-01",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 29,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-02",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 30,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-03",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 31,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-04",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 32,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-05",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 33,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-06",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 34,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-07",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 35,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-08",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 36,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-09",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 37,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-10",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 38,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-11",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 39,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-12",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 40,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-13",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 41,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-14",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 42,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-15",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 43,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-16",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 44,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-17",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 45,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-18",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 46,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-19",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 47,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-20",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 48,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-21",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 49,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-22",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 50,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-23",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 51,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-24",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 52,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-25",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 53,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-26",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 54,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-27",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 55,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-01",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 56,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-02",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 57,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-03",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 58,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-04",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 59,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-05",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 60,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-06",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 61,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-07",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 62,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-08",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 63,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-09",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 64,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-10",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 65,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-11",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 66,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-12",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 67,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-13",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 68,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-14",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 69,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-15",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 70,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-16",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 71,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-17",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 72,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-18",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 73,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-19",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 74,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-20",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 75,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-21",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 76,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-22",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 77,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-23",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 78,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-24",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 79,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-25",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 80,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-26",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 81,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-27",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 82,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-01",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 83,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-02",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 84,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-03",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 85,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-04",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 86,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-05",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 87,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-06",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 88,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-07",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 89,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-08",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 90,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-09",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 91,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-10",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 92,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-11",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 93,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-12",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 94,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-13",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 95,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-14",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 96,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-15",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 97,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-16",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 98,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-17",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 99,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-18",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 100,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-19",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 101,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-20",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 102,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-21",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 103,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-22",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 104,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-23",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 105,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-24",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 106,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-25",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 107,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-26",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 108,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-27",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 109,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-01",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 110,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-02",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 111,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-03",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 112,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-04",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 113,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-05",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 114,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-06",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 115,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-07",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 116,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-08",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 117,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-09",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 118,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-10",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 119,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-11",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 120,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-12",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 121,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-13",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 122,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-14",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 123,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-15",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 124,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-16",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 125,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-17",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 126,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-18",
+  "interval": 1,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 127,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-19",
+  "interval": 2,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 128,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-20",
+  "interval": 4,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 129,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-21",
+  "interval": 7,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 130,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-22",
+  "interval": 14,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 131,
+  "front": "رحلة إلى البحر",
+  "back": "A journey by the sea",
+  "due": "2026-01-23",
+  "interval": 1,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 132,
+  "front": "موعد القطار",
+  "back": "The train is on time",
+  "due": "2026-02-24",
+  "interval": 2,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 133,
+  "front": "قائمة المشتريات",
+  "back": "A list for the market",
+  "due": "2026-03-25",
+  "interval": 4,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 134,
+  "front": "كتاب جديد",
+  "back": "A new book to read",
+  "due": "2026-04-26",
+  "interval": 7,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 135,
+  "front": "صباح هادئ",
+  "back": "A quiet morning",
+  "due": "2026-05-27",
+  "interval": 14,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 136,
+  "front": "رسالة إلى صديق",
+  "back": "A note to a friend",
+  "due": "2026-06-01",
+  "interval": 1,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 137,
+  "front": "حديقة صغيرة",
+  "back": "A small garden",
+  "due": "2026-07-02",
+  "interval": 2,
+  "ease": 2.5,
+  "direction": "ltr"
+ },
+ {
+  "id": 138,
+  "front": "وصفة العشاء",
+  "back": "Dinner recipe",
+  "due": "2026-08-03",
+  "interval": 4,
+  "ease": 2.8,
+  "direction": "ltr"
+ },
+ {
+  "id": 139,
+  "front": "موسيقى المساء",
+  "back": "Evening music",
+  "due": "2026-09-04",
+  "interval": 7,
+  "ease": 2.1,
+  "direction": "rtl"
+ },
+ {
+  "id": 140,
+  "front": "محادثة طويلة",
+  "back": "A long conversation",
+  "due": "2026-10-05",
+  "interval": 14,
+  "ease": 2.5,
+  "direction": "ltr"
+ }
+]

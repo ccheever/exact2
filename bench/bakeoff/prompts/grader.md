@@ -4,6 +4,7 @@ holding the phone would see and feel. You run unattended; nobody will answer que
 
 Both apps are installed on the iOS simulator `{SIM}`, which is yours alone. App A is `{A}`, app B is `{B}`.
 Drive them with the driver below; take screenshots into `./shots/` (name them `A-…png`, `B-…png`) and look at them.
+For a specification with a service, its frozen local server is at `http://127.0.0.1:{SERVER_PORT}` during this grade.
 
 {DRIVE}
 

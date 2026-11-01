@@ -5,6 +5,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import net from 'node:net';
 
 const HERE = resolve(new URL('.', import.meta.url).pathname);
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, all) => (x.startsWith('--') ? [...a, [x.slice(2), all[i + 1]]] : a), []));
@@ -12,7 +13,12 @@ const { round, spec, sim } = args;
 if (!round || !spec || !sim) { console.error('usage: grade.mjs --round <dir> --spec <id> --sim <udid>'); process.exit(2); }
 const pairs = JSON.parse(readFileSync(resolve(HERE, 'pairs.json'), 'utf8'));
 const arms = ['exact', pairs[spec].stack];
-const records = Object.fromEntries(arms.map((a) => [a, JSON.parse(readFileSync(resolve(round, 'records', `${spec}-${a}.json`), 'utf8'))]));
+const nativeRound = args.native ? resolve(round, '..', args.native) : null;
+const recordFile = (arm) => {
+  const current = resolve(round, 'records', `${spec}-${arm}.json`);
+  return existsSync(current) ? current : resolve(nativeRound ?? round, 'records', `${spec}-${arm}.json`);
+};
+const records = Object.fromEntries(arms.map((a) => [a, JSON.parse(readFileSync(recordFile(a), 'utf8'))]));
 const out = resolve(round, 'grades', spec);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(resolve(out, 'shots'), { recursive: true });
@@ -34,10 +40,25 @@ for (const side of ['A', 'B']) {
   ids[side] = r.status === 0 ? rec.appId : null;
 }
 
+const serverFile = resolve(HERE, 'specs', spec, 'server/server.mjs');
+const serverPort = Number(args.serverPort ?? 43000);
+const portOpen = () => new Promise((done) => {
+  const socket = net.connect({ host: '127.0.0.1', port: serverPort });
+  socket.once('connect', () => { socket.destroy(); done(true); });
+  socket.once('error', () => { socket.destroy(); done(false); });
+});
+let server = null;
+if (existsSync(serverFile) && !(await portOpen())) {
+  const child = spawn('bun', [serverFile, '--port', String(serverPort)], { cwd: out, stdio: ['ignore', 'pipe', 'pipe'] });
+  for (const until = Date.now() + 15000; Date.now() < until && !(await portOpen());) await new Promise((r) => setTimeout(r, 100));
+  if (child.exitCode != null || !(await portOpen())) throw new Error(`server failed to listen on ${serverPort}`);
+  server = child;
+}
+
 // The sheet names the driver by its repository path; the grader runs it by its absolute one.
 const drive = readFileSync(resolve(HERE, 'drive.md'), 'utf8').replaceAll('bun bench/bakeoff/drive.mjs', `bun ${resolve(HERE, 'drive.mjs')}`).replaceAll('<UDID>', sim);
 const prompt = readFileSync(resolve(HERE, 'prompts/grader.md'), 'utf8')
-  .replaceAll('{SIM}', sim).replace('{DRIVE}', drive)
+  .replaceAll('{SIM}', sim).replace('{SERVER_PORT}', String(serverPort)).replace('{DRIVE}', drive)
   .replace('{A}', ids.A ?? '(not installed: the build left no app; grade it as missing)')
   .replace('{B}', ids.B ?? '(not installed: the build left no app; grade it as missing)')
   .replace('{SPEC}', readFileSync(resolve(HERE, 'specs', spec, 'SPEC.md'), 'utf8'));
@@ -54,6 +75,7 @@ child.stderr.on('data', (d) => log.write(JSON.stringify({ stderr: String(d) }) +
 const timer = setTimeout(() => child.kill('SIGTERM'), Number(args.limit ?? 60) * 60000);
 const code = await new Promise((r) => child.on('exit', r));
 clearTimeout(timer);
+if (server?.pid) { try { server.kill('SIGTERM'); } catch {} }
 spawnSync('xcrun', ['simctl', 'ui', sim, 'appearance', 'light']);
 spawnSync('xcrun', ['simctl', 'ui', sim, 'content_size', 'large']);
 let grade = null;

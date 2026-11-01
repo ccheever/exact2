@@ -13,6 +13,9 @@ keyboard, dark mode, the largest text size). Test it on the simulator as you go.
   directory: what was hard, what you had to look up or guess, anything you could not finish, and what would have
   made building this faster.
 
+If this specification names a backend or realtime service, the harness has started its frozen local server at
+`http://127.0.0.1:{SERVER_PORT}`. Use that origin in the app and leave the service running only through the build.
+
 {STACK}
 
 # Specification

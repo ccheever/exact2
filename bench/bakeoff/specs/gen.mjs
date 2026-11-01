@@ -122,4 +122,4 @@ for (const station of STATIONS) for (let t = 5 * 60; t < 25 * 60; t += int(4, 14
   deps.push({ station, line: line.id, destination: pick(STATIONS.filter((x) => x !== station)), minute: t % (24 * 60), platform: int(1, 4), status: rnd() < 0.08 ? `Delayed ${int(2, 15)} min` : rnd() < 0.02 ? 'Cancelled' : 'On time' });
 }
 write('timetable', 'departures.json', { lines: TRANSIT, stations: STATIONS, departures: deps });
-console.log('wrote data for 14 specs');
+console.log('wrote data for the 15 core specs');
