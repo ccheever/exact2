@@ -963,10 +963,13 @@ export class T3Client {
       if (!current() || !this.thread) throw new ClientError('This history read was superseded.', 'superseded');
       const next = mergeHistory(this.thread, page);
       if (next.hasMore && !next.historyCursor) throw new ClientError('Earlier activity returned an invalid page boundary.', 'protocol');
-      const added = arr(next.projection.visibleTurnItems).length - arr(this.thread.projection.visibleTurnItems).length;
+      const previous = new Set(arr(this.thread.projection.visibleTurnItems).map(row => JSON.stringify([row.sourceThreadId, row.sourceItemId])));
+      const added = arr(next.projection.visibleTurnItems)
+        .filter(row => !previous.has(JSON.stringify([row.sourceThreadId, row.sourceItemId])))
+        .map(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]));
       this.thread = next;
-      this.historyRevision++;
-      return arr(next.projection.visibleTurnItems).slice(0, added).map(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]));
+      if (added.length > 0) this.historyRevision++;
+      return added;
     } catch (error) {
       if (letGo(error)) throw error;
       if (!current()) throw new ClientError('This history read was superseded.', 'superseded');

@@ -59,6 +59,17 @@ describe('older-history request ownership', () => {
     f.page(0, '', { items: [] });
     expect(await pending).toEqual([]);
     expect(f.client.historyLoading).toBe(false);
+    expect(f.client.historyRevision).toBe(0);
+  });
+
+  test('a duplicate-only page does not report progress or advance the history revision', async () => {
+    const f = fixture(), item = { id: 'older-item', threadId: 'thread', type: 'assistant_message', text: 'Existing', streaming: false,
+      messageId: 'older-message', runId: null, nodeId: null, ordinal: 0, status: 'completed', startedAt: '2026-10-30T00:00:00Z', updatedAt: '2026-10-30T00:00:00Z' };
+    const row = { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: 'older-item', item };
+    f.client.thread!.projection.visibleTurnItems = [row]; f.client.thread!.projection.turnItems = [item];
+    const pending = f.client.history(f.native);
+    f.page(0); expect(await pending).toEqual([]);
+    expect(f.client.historyRevision).toBe(0);
   });
 
   test('a nonlocal command retires the token even when the history identity stays unchanged', async () => {
