@@ -33,7 +33,9 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
   /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
-  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
+  terminalClosePending?: boolean;
+  /** A confirmation (role="alertdialog") is open and holds the focus. */
+  confirmOpen?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
   /** The right panel shows a file (not an attachment): its Open in picker's path, '' while that picker cannot open it. */
   fileSurface?: boolean; fileOpenPath?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
@@ -111,6 +113,7 @@ export function favoriteEditor(config: Obj, last = ''): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
+  if (context.confirmOpen) return waitForConfirmation(keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, confirmOpen: false, terminalClosePending: false }));
   if (context.terminalClosePending) return refuseTerminalClose(client, keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, terminalClosePending: false }));
   context = { ...context, terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client) };
   const winners = chordWinners(arr(client.config.keybindings), context);
@@ -186,6 +189,21 @@ function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
   const closing = [...winners].filter(([, command]) => command === 'terminal.close').map(([chord]) => chord);
   return [...rows.filter(row => !closing.includes(row.chord)),
     ...closing.map(chord => ({ id: `terminal.close:refused:${chord}`, command: 'terminal.close', chord, kind: 'refuse', target: '', extra: '', label: 'Close Terminal' }))];
+}
+
+/**
+ * dispatcher.ts runScope (v0.1.6): a command chord pressed inside a confirmation (role="alertdialog") runs nothing and
+ * its key is swallowed. Each chord stays a "refuse" button under a command nothing else reads (rightPanel.close's
+ * window capture and thread.undo's claim look rows up by command). Settings… is the reference's menu item, not a
+ * dispatcher command, and the dialog's own Escape (its Cancel) must still reach it.
+ */
+function waitForConfirmation(rows: Dispatch[]): Dispatch[] {
+  const held = new Set<string>();
+  return rows.flatMap(row => {
+    if (row.command === 'settings.open' || row.chord === 'Escape' || held.has(row.chord)) return row.command === 'settings.open' ? [row] : [];
+    held.add(row.chord);
+    return [{ id: `confirmation.wait:${row.chord}`, command: 'confirmation.wait', chord: row.chord, kind: 'refuse', target: '', extra: '', label: row.label }];
+  });
 }
 
 /** `add` files one button per winning chord of a command (keyboardDispatch); `add.chord` files one for a chord it names. */
@@ -332,6 +350,6 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), confirmOpen: String(args[18] || '') !== '', findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
     fileSurface: args[22] === true, fileOpenPath: String(args[23] || '') });
 }

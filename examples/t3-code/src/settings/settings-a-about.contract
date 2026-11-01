@@ -1,5 +1,5 @@
-// General → About (settings-a-about.ts): the Version row's
-// update button over the app's own delivery facts (LLP 1030 D7).
+// General → About (settings-a-about.ts): the Version row's title, whose version copies itself,
+// and its update button over the app's own delivery facts (LLP 1030 D7).
 use CoreRow from "./settings-core.contract"
 use CorePalette from "./settings-core-shared.contract"
 use SettingsGhost from "./settings-core-shared.contract"
@@ -8,6 +8,42 @@ use SettingsGhost from "./settings-core-shared.contract"
 shape AboutDelivery
   stream: string
   staged: bool
+
+keyframes aboutCopiedA
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+keyframes aboutCopiedB
+  from opacity=1
+  99% opacity=1
+  to opacity=0
+
+// AboutVersionTitle: "Version" and the version as an InlineButton tone="muted" (muted, the foreground and underlined
+// on hover) with its "Copy version" tooltip. A copy shows the anchored "Copied!" for 1 s (showAnchoredCopySuccessToast,
+// tooltip style): `row.amount` counts the copies, so each one starts its fade again.
+component AboutVersionTitle
+  props
+    row: CoreRow
+    pal: CorePalette
+    change: action
+  state hovered = false
+  state pressed = false
+  action hover(over: bool)
+    hovered = over
+    pressed = false
+  action copy
+    pressed = true
+    change(row.id, "copy", "")
+  view
+    row align-items="baseline" gap="0.5rem" role="heading" aria-level=3 id=`paint-CoreRowView-2-${row.id}`
+      text "Version" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text data-paint="text" data-pick="text"
+      box position="relative" flex-shrink=0
+        button press=copy hover=hover aria-label=`Copy version ${row.value}` testId="setting-version-copy" id="setting-version-copy" display="flex" flex-direction="row" align-items="center" padding=0 border-width=0 background-color="#00000000" title="" data-focus-stop="enabled page"
+          text row.value font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? pal.text : pal.muted) text-decoration-line=(hovered ? "underline" : "none") white-space="nowrap" id=`paint-CoreRowView-3-${row.id}` data-paint=(hovered ? "text" : "mutedForeground") data-pick="text"
+        if hovered and not pressed
+          text "Copy version" position="absolute" bottom="1.5rem" left="50%" translate="-50% 0%" z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="tooltip" testId="setting-version-copy-tip" data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+        if row.amount > 0
+          text "Copied!" position="absolute" bottom="1.5rem" left="50%" translate="-50% 0%" z-index=61 pointer-events="none" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="status" testId="setting-version-copied" animation=(row.amount % 2 == 0 ? "aboutCopiedA 1s linear forwards" : "aboutCopiedB 1s linear forwards") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
 
 // AboutVersionSection's Button size sm variant outline, with its tooltip.
 // Check runs deliveryCheck (Checking… until the store stages an entry);

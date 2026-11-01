@@ -1,5 +1,5 @@
 import { providerWritable } from './provider-permissions';
-// ACP agent management on a provider's card, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// ACP agent management on a provider's card, T3 Code 2359643cff (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/AcpSessionManagementSection.tsx:41-569 (Native sessions: list,
 // Load more, Import, Delete, Log out; Agent providers: list, protocol, base URL, write-only
 // headers, Save, Disable) and ProviderSettingsPanel.tsx:639-664 (acceptUrlAuthentication, the
@@ -23,7 +23,9 @@ export interface AcpHost {
 type Draft = { apiType: string; baseUrl: string; headers: string };
 type State = {
   projectId: string | null; sessions: Obj[]; nextCursor: string | null; loading: boolean; importingSessionId: string | null; deletingSessionId: string | null;
-  loggingOut: boolean; providers: Obj[]; loadingProviders: boolean; savingProviderId: string | null; drafts: Record<string, Draft>; loads: number;
+  loggingOut: boolean; providers: Obj[]; loadingProviders: boolean; savingProviderId: string | null; drafts: Record<string, Draft>;
+  /** Each provider row's mount: a load that resets a row's draft mounts it again, so its fields read the draft. */
+  loads: Record<string, number>;
 };
 const states = new WeakMap<object, Map<string, State>>();
 function stateOf(host: object, instanceId: string, projects: Obj[]): State {
@@ -31,7 +33,7 @@ function stateOf(host: object, instanceId: string, projects: Obj[]): State {
   if (!byInstance) states.set(host, byInstance = new Map());
   let state = byInstance.get(instanceId);
   if (!state) byInstance.set(instanceId, state = { projectId: str(projects[0]?.id) || null, sessions: [], nextCursor: null, loading: false, importingSessionId: null,
-    deletingSessionId: null, loggingOut: false, providers: [], loadingProviders: false, savingProviderId: null, drafts: {}, loads: 0 });
+    deletingSessionId: null, loggingOut: false, providers: [], loadingProviders: false, savingProviderId: null, drafts: {}, loads: {} });
   // A project that left the environment is no longer offered.
   if (state.projectId !== null && !projects.some(project => str(project.id) === state!.projectId)) state.projectId = str(projects[0]?.id) || null;
   if (state.projectId === null && projects.length) state.projectId = str(projects[0]!.id);
@@ -77,14 +79,14 @@ export function acpSectionView(host: AcpHost, instanceId: string, provider: Obj 
     }) : [],
     showMore: can.canList && state.nextCursor !== null, moreLabel: state.loading ? 'Loading' : 'Load more', moreDisabled: readOnly || state.loading,
     providersLabel: state.loadingProviders ? 'Loading' : state.providers.length === 0 ? 'List providers' : 'Refresh',
-    providersDisabled: readOnly || state.loadingProviders || state.projectId === null,
+    providersDisabled: readOnly || state.loadingProviders || state.savingProviderId !== null || state.projectId === null,
     showProviderPicker: !can.canList && projects.length > 1,
     providers: state.providers.map((item, index) => {
       const providerId = str(item.providerId), draft = state.drafts[providerId] ?? draftFor(item), required = item.required === true, current = item.current !== null && item.current !== undefined;
       const busy = readOnly || state.savingProviderId !== null;
-      return { key: `${providerId}:${state.loads}`, first: index === 0, providerId, status: `${current ? 'Configured' : 'Disabled'}${required ? ' · Required' : ''}`,
-        saveLabel: state.savingProviderId === providerId ? 'Saving' : 'Save', saveDisabled: busy || draft.apiType.length === 0 || draft.baseUrl.length === 0,
-        showDisable: !required && current, disableDisabled: busy, fieldsDisabled: busy,
+      return { key: `${providerId}:${state.loads[providerId] ?? 0}`, first: index === 0, providerId, status: `${current ? 'Configured' : 'Disabled'}${required ? ' · Required' : ''}`,
+        saveLabel: state.savingProviderId === providerId ? 'Saving' : 'Save', saveDisabled: busy || state.loadingProviders || draft.apiType.length === 0 || draft.baseUrl.length === 0,
+        showDisable: !required && current, disableDisabled: busy || state.loadingProviders, fieldsDisabled: busy,
         apiType: draft.apiType, protocols: supportedOf(item).map(protocol => ({ value: protocol, label: protocol, note: '', selected: protocol === draft.apiType })),
         baseUrl: draft.baseUrl, headers: draft.headers,
         confirmKey: `${instanceId}|provider|${providerId}`, disableTitle: `Disable ACP provider "${providerId}"?` };
@@ -156,7 +158,7 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
       finally { state.deletingSessionId = null; }
       return;
     }
-    case 'providers': return loadProviders(host, native, id, state, reportFailure);
+    case 'providers': return state.savingProviderId !== null ? undefined : loadProviders(host, native, id, state, reportFailure);
     case 'draft-api': case 'draft-url': case 'draft-headers': {
       const listed = state.providers.find(candidate => candidate.providerId === field);
       if (!listed || state.savingProviderId !== null) return;
@@ -166,7 +168,7 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
     }
     case 'save': {
       const listed = state.providers.find(candidate => candidate.providerId === field);
-      if (readOnly || projectId === null || state.savingProviderId !== null || !listed) return;
+      if (readOnly || projectId === null || state.savingProviderId !== null || state.loadingProviders || !listed) return;
       const draft = state.drafts[field] ?? draftFor(listed);
       if (draft.apiType.length === 0 || draft.baseUrl.length === 0) return;
       let headers: Record<string, string> | undefined;
@@ -186,18 +188,18 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
         saved = true;
       } catch (error) { reportFailure('Could not configure ACP provider', error); }
       finally { state.savingProviderId = null; }
-      if (saved) { toast({ kind: 'success', title: 'ACP provider configured' }); await loadProviders(host, native, id, state, reportFailure); }
+      if (saved) { toast({ kind: 'success', title: 'ACP provider configured' }); await loadProviders(host, native, id, state, reportFailure, field); }
       return;
     }
     case 'disable': {
       const listed = state.providers.find(candidate => candidate.providerId === field);
-      if (readOnly || projectId === null || state.savingProviderId !== null || !listed || listed.required === true) return;
+      if (readOnly || projectId === null || state.savingProviderId !== null || state.loadingProviders || !listed || listed.required === true) return;
       state.savingProviderId = field;
       let disabled = false;
       try { await call('server.disableAcpRegistryProvider', { instanceId: id, projectId, providerId: field }); disabled = true; }
       catch (error) { reportFailure('Could not disable ACP provider', error); }
       finally { state.savingProviderId = null; }
-      if (disabled) { toast({ kind: 'success', title: 'ACP provider disabled' }); await loadProviders(host, native, id, state, reportFailure); }
+      if (disabled) { toast({ kind: 'success', title: 'ACP provider disabled' }); await loadProviders(host, native, id, state, reportFailure, field); }
       return;
     }
     case 'logout': {
@@ -226,14 +228,22 @@ export async function acpOp(host: AcpHost, native: Native, what: string, id: str
   }
 }
 
-async function loadProviders(host: AcpHost, native: Native, id: string, state: State, reportFailure: (title: string, error: unknown) => void): Promise<void> {
+/**
+ * List providers. A load after one provider's save or disable (`resetProviderId`) resets only that row's draft and
+ * keeps the others' unsaved edits; List providers and Refresh reset every row.
+ */
+async function loadProviders(host: AcpHost, native: Native, id: string, state: State, reportFailure: (title: string, error: unknown) => void, resetProviderId?: string): Promise<void> {
   if (!providerWritable(host) || state.projectId === null || state.loadingProviders) return;
   state.loadingProviders = true;
   try {
     const result = await host.rpc(native, 'server.listAcpRegistryProviders', { instanceId: id, projectId: state.projectId }, true);
     state.providers = arr(result.providers);
-    state.drafts = Object.fromEntries(state.providers.map(provider => [str(provider.providerId), draftFor(provider)]));
-    state.loads += 1;
+    const current = state.drafts;
+    state.drafts = Object.fromEntries(state.providers.map(provider => {
+      const providerId = str(provider.providerId), kept = resetProviderId !== undefined && providerId !== resetProviderId ? current[providerId] : undefined;
+      if (!kept) state.loads[providerId] = (state.loads[providerId] ?? 0) + 1;
+      return [providerId, kept ?? draftFor(provider)];
+    }));
   } catch (error) { reportFailure('Could not list ACP providers', error); }
   finally { state.loadingProviders = false; }
 }

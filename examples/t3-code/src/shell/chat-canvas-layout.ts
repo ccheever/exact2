@@ -1,6 +1,6 @@
 // The chat canvas: where chat, the composer lane, the workspace card and the floating player sit
-// (T3 Code 9c161462c9, MIT, see LICENSE-T3: apps/web/src/components/chat/chatCanvasLayout.ts and
-// ChatCanvas.tsx's width probe for the lane metrics; the centring beside the card is 96fc7b9551's).
+// (T3 Code 2359643cff, MIT, see LICENSE-T3: apps/web/src/components/chat/chatCanvasLayout.ts and
+// ChatCanvas.tsx's width probe for the lane metrics).
 // Ported as is; chatLaneMetrics is the one place the lane's constants come from (the probe's `sm:ps-12`,
 // `--chat-content-max-width` and `min-w-[40rem]`), so the Interface font size's rem conversion changes them here only.
 import { clampPreviewMiniPlayerPosition, resolvePreviewMiniPlayerFrame, type PreviewMiniPlayerFrame, type PreviewMiniPlayerObstacles } from '../device/previewMiniPlayerLayout';
@@ -49,14 +49,7 @@ export function resolveChatCanvasLayout({
   const laneRight = detailsCard ? detailsCard.left - DETAILS_CARD_CLEARANCE : container.width - padding;
   const normalWidth = Math.max(0, Math.min(centeredWidth, laneRight - padding));
   const canvasCenterLeft = (container.width - normalWidth) / 2;
-  // Beside a card it would crowd, the chat centers between the card and the canvas edge. The shift
-  // eases to zero as clearance grows, so very wide windows keep the chat still and a resize
-  // never jumps it.
-  const besideShift = detailsCard
-    ? Math.min((container.width - detailsCard.left) / 2,
-      Math.max(0, (container.width - detailsCard.left) / 2 - (laneRight - canvasCenterLeft - normalWidth)))
-    : 0;
-  const normalLeft = Math.max(padding, Math.min(canvasCenterLeft - besideShift, laneRight - normalWidth));
+  const normalLeft = Math.max(padding, Math.min(canvasCenterLeft, laneRight - normalWidth));
   let chat = { left: normalLeft, width: normalWidth, insetStart: 0, insetEnd: Math.max(0, container.width - normalLeft * 2 - normalWidth) };
   let frame: PreviewMiniPlayerFrame | null = null;
   let overlapsChat = false;

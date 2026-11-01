@@ -214,6 +214,8 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
   const items: ShellMenuItem[] = [];
+  // ChatView offers Find in thread where the server can search (threadFindEnabled); it opens the find bar as ⌘F does.
+  if (client.config.threadFind === true) items.push(item('find', 'Find in thread', 'text-search', 'chatlocal:find-open', ''));
   if (branch) items.push(item('new-thread-on-branch', `New thread on ${branch}`, 'message-square-plus', 'ui:new-thread', client.projectId));
   const prefs = client.local.clientSettings, title = str(thread.title);
   if (caps.threadPinning === true) items.push(thread.pinnedAt ? confirmable(item('unpin', 'Unpin thread', 'pin-off', 'shell:unpin', id), prefs.confirmThreadUnpin === true, `Unpin thread "${title}"?`, 'This will move the thread out of your pinned section.') : item('pin', 'Pin thread', 'pin', 'shell:pin', id));

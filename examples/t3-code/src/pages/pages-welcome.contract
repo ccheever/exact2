@@ -292,14 +292,15 @@ component WelcomeConnect
               WelcomePrimary(label=(busy ? "Pairing..." : "Pair"), icon="", disabled=(busy or link.trim() == ""), press=pair, elementId="welcome-pair", testId="welcome-pair")
             if helpOpen
               column width="100%"
-                text "Run this on the computer with your code." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+                text font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="welcome-pairing-hint"
+                  text "On the computer with your code, start T3 Code or run "
+                  text "npx t3 serve" font-family="Menlo, Consolas, \"Liberation Mono\", monospace"
+                  text ", then run:"
                 WelcomeCommand(command="npx t3 pair", copied=view.commandCopied, local=local)
-                row margin-top="0.5rem" flex-wrap="wrap" align-items="baseline"
-                  text "Start T3 Code first, or run " font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-                  text "npx t3 serve" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
-                  text ". Add " font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
-                  text "--tailscale" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
-                  text " to use your tailnet." font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
+                text margin-top="0.5rem" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)" testId="welcome-pairing-tailnet"
+                  text "On a tailnet, run "
+                  text "npx t3 pair --tailscale" font-family="Menlo, Consolas, \"Liberation Mono\", monospace"
+                  text " instead."
       if view.skipped != ""
         text view.skipped font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" margin-top="1rem" role="status" testId="welcome-skipped"
       row width="100%" margin-top="1.5rem" justify-content="flex-end" align-items="center" gap="0.75rem"

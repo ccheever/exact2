@@ -114,8 +114,9 @@ export function planeKey(current: number, key: string, shiftKey: boolean): numbe
   if (key === 'End') return 1;
   return null;
 }
-/** The hue slider's keys: 1° (10° with Shift), wrapping at 360. */
+/** The hue slider's keys: Home and End to 0 and 360, the arrows 1° (10° with Shift), wrapping at 360. */
 export function hueKey(current: number, key: string, shiftKey: boolean): number | null {
+  if (key === 'Home' || key === 'End') return key === 'Home' ? 0 : 360;
   if (!['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp'].includes(key)) return null;
   const direction = key === 'ArrowRight' || key === 'ArrowUp' ? 1 : -1;
   return (current + direction * (shiftKey ? 10 : 1) + 360) % 360;

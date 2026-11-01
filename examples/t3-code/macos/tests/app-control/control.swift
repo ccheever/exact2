@@ -16,6 +16,17 @@ final class AppControlAddressTests: XCTestCase {
         }
     }
 
+    // desktopAppControl.test.ts's table at 2359643cff, the macOS rows: a socket path over 103 bytes moves to /tmp.
+    func test_keepsDarwinSocketsShortUnderLongTemporaryDirectories() {
+        for (tempDir, directory) in [("/tmp/\(String(repeating: "é", count: 30))", "/tmp/t3code-1000"),
+                                     ("/tmp/\(String(repeating: "x", count: 56))", "/tmp/\(String(repeating: "x", count: 56))/t3code-1000"),
+                                     ("/tmp/\(String(repeating: "x", count: 57))", "/tmp/t3code-1000")] {
+            let resolved = T3AppControlAddress.resolve(stateDir: "/home/user/\(String(repeating: "long/", count: 40))userdata", tempDir: tempDir, userId: 1000)
+            XCTAssertEqual(resolved.directory, directory)
+            XCTAssertLessThanOrEqual(resolved.address.utf8.count, 103)
+        }
+    }
+
     func test_theMacOSVectorsTheBunTestShares() {
         let lane = T3AppControlAddress.resolve(stateDir: "/Users/someone/.t3/userdata", tempDir: "/var/folders/zz/abcdefghijklmnopqrstuvwxyz0000gn/T", userId: 501)
         XCTAssertEqual(lane.directory, "/var/folders/zz/abcdefghijklmnopqrstuvwxyz0000gn/T/t3code-501")
@@ -111,11 +122,12 @@ final class AppControlLifecycleTests: XCTestCase {
         backend.status = ["state": "refused", "enabled": true, "t3Home": root + "/home"]
         control.attach(window, dataRoot: URL(fileURLWithPath: root), changed: { _ in })
         XCTAssertEqual(control.presentation()["listening"] as? Bool, false)
-        // A temp directory too long for a Unix socket path.
-        control.environment = { ["TMPDIR": root + "/" + String(repeating: "d", count: 90)] }
+        // A temp directory that cannot hold the socket's folder (a too-long one moves to /tmp instead).
+        FileManager.default.createFile(atPath: root + "/file", contents: Data())
+        control.environment = { ["TMPDIR": root + "/file"] }
         backend.set(["state": "starting", "enabled": true, "t3Home": root + "/home"]); settle(control)
         XCTAssertEqual(control.presentation()["listening"] as? Bool, false)
-        XCTAssertTrue((control.presentation()["error"] as? String ?? "").contains("too long"))
+        XCTAssertTrue((control.presentation()["error"] as? String ?? "").contains("mkdir"))
         XCTAssertTrue(logged.contains { $0.hasPrefix("desktop app control socket unavailable") })
         control.detach(window)
         try? FileManager.default.removeItem(atPath: root)

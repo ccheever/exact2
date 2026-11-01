@@ -333,6 +333,16 @@ describe('provider setup in the clone', () => {
     expect(fake.account()).toMatchObject({ terminal: true, flow: 'flow-1:t', output: 'login> ', offset: 7, description: 'Complete sign-in in the terminal below.' });
   });
 
+  // ProviderSetupSection.browser.test.tsx "can start installation before the first install snapshot arrives" (T3 Code 2359643cff).
+  test('runtime row: Install works before the first install snapshot, which the row says it is checking', async () => {
+    const fake = await rendered(authState({ phase: 'idle', flowId: null, authorizationUrl: null }), null, new Fake([provider({ installed: false })]));
+    expect(fake.runtime()).toMatchObject({ statusMessage: 'Checking the Antigravity runtime.', showInstall: true, installLabel: 'Install Antigravity', installDisabled: false });
+    await fake.press('setup:install-start', fake.runtime().token);
+    expect(fake.calls).toEqual([{ method: 'provider.install.start', payload: { instanceId } }]);
+    fake.emit('install', { ...idle(), operationId: 'install-1', phase: 'downloading', downloadedBytes: 1_000_000, totalBytes: 2_000_000 });
+    expect(fake.runtime()).toMatchObject({ statusMessage: 'Downloading 1.0 MB of 2.0 MB.', showCancel: true });
+  });
+
   test('runtime row: byte progress, labels, cancel and stream errors with Retry setup status', async () => {
     const fake = await rendered(authState({ phase: 'idle', flowId: null, authorizationUrl: null }), idle(), new Fake([provider({ installed: false })]));
     expect(fake.runtime()).toMatchObject({ statusMessage: 'Not installed.', showInstall: true, installLabel: 'Install Antigravity', installDisabled: false, progressMax: 0 });

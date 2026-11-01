@@ -1,5 +1,5 @@
 // The Usage page: server.getUsageSummary merged and presented
-// as the reference UsagePage does. Sources: T3 Code 7c3b3b3605ef (MIT, see LICENSE-T3)
+// as the reference UsagePage does. Sources: T3 Code v0.1.6 (MIT, see LICENSE-T3)
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx,
 // apps/web/src/state/usage.ts (withoutProviders, the last answered usage useUsage keeps on
@@ -25,6 +25,34 @@ const HOUR = 3_600_000;
 // ── Formatting (usageFormat.ts) ─────────────────────────────────────────────
 
 const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+export function formatMalformedUsageWarning(count: number): string {
+  return `${count} malformed or inconsistent usage record(s) were skipped; usage may be incomplete.`;
+}
+/**
+ * usageFormat.ts usageSourceMessages: the notices under the totals, with the skipped-record warnings of every
+ * source combined into one count (a source's highest count, once per transcript directory).
+ */
+export function usageSourceMessages(sources: readonly Obj[]): string[] {
+  const messages = new Set<string>();
+  const malformedBySource = new Map<string, number>();
+  for (const source of sources) {
+    const fingerprint = obj(source.fingerprint), malformed = num(source.malformedRecords);
+    if (source.action || (source.status !== 'partial' && source.status !== 'failed' && fingerprint.provider !== 'cursor' && !(source.status === 'missing' && malformed > 0))) continue;
+    let message = str(source.message);
+    if (malformed > 0) {
+      const key = JSON.stringify([fingerprint.hostId, fingerprint.provider, fingerprint.resolvedHomePath, fingerprint.volumeId]);
+      malformedBySource.set(key, Math.max(malformedBySource.get(key) ?? 0, malformed));
+      // Servers also append this warning to message; keep any read failure before it.
+      const warning = formatMalformedUsageWarning(malformed);
+      if (message.endsWith(warning)) message = message.slice(0, -warning.length).trim();
+    }
+    if (message) messages.add(message);
+  }
+  const malformedRecords = [...malformedBySource.values()].reduce((total, count) => total + count, 0);
+  if (malformedRecords > 0) messages.add(formatMalformedUsageWarning(malformedRecords));
+  return [...messages];
+}
+
 /**
  * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits). ICU rounds the number's shortest
  * decimal digits half away from zero (`halfExpand`), so 0.825 is $0.83 where `toFixed` rounds the binary value
@@ -497,9 +525,7 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
   page.total = tokens ? formatTokens(merged.totalTokens) : formatUsd(merged.costUsd);
   page.sessions = `${formatCount(merged.sessions)} sessions`;
   page.unpriced = !tokens && merged.unpricedShare > 0 ? `API estimate excludes ${formatPercent(merged.unpricedShare)} unpriced records.` : '';
-  page.notices = [...new Set(arr(summary.sources).flatMap(source => str(source.message) && !source.action
-    && (source.status === 'partial' || source.status === 'failed' || obj(source.fingerprint).provider === 'cursor') ? [str(source.message)] : []))]
-    .map(text => ({ key: text, text }));
+  page.notices = usageSourceMessages(arr(summary.sources)).map(text => ({ key: text, text }));
   page.coverage = [
     ...merged.mismatches.map(mismatch => ({ key: `m:${mismatch.environment}`, text: mismatch.direction === 'serverBehind'
       ? `${mismatch.environment} runs an older server version and is excluded from totals.` : `This client is older than the server on ${mismatch.environment}; its usage is excluded from totals.` })),
