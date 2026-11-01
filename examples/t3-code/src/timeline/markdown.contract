@@ -11,11 +11,11 @@ use MorphCopyCheck from "../shell/shell-morph.contract"
 use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor, citeNear from "./diff-cite.contract"
 use MarkdownMedia from "../media/media-markdown.contract"
 use MathBlock from "./markdown-math.contract"
+use TableCopyButton from "./markdown-table-copy.contract"
 use MermaidDiagram, MermaidFrameView from "./mermaid-frame.contract"
 use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
 use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
 use hoverTipAtFrame from "../shell/hover-layer.contract" // a pull request link's card
-use kmArrow from "../shared/menu-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 use LinkMenuRow, FileLinkButton from "./link-menus.contract"
 use EditorMenuIcon from "../composer/composer-editor.contract" // a pull request chip's state glyph
@@ -353,7 +353,7 @@ component MarkdownBlocks
       for block in document.blocks key=block.id
         column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=blockDirection(block.kind, block.dir)
           if block.kind == "code"
-            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="Menlo, Consolas, \"Liberation Mono\", monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
+            CodeBlock(block=block, prose=prose, local=local, code=code, copiedText="", copiedNonce=0, codeFont="Menlo, Consolas, \"Liberation Mono\", monospace", codeSize=13, wrapDefault=true, canRun=false, source="", cite=noCite, ms=-1, me=-1)
           else
             BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
@@ -388,7 +388,7 @@ component EnvBlocks
       for block in document.blocks key=block.id
         column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16) direction=blockDirection(block.kind, block.dir)
           if block.kind == "code"
-            CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source="", cite=noCite, ms=-1, me=-1)
+            CodeBlock(block=block, prose=prose, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source="", cite=noCite, ms=-1, me=-1)
           else
             BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite, ms=-1, me=-1)
 
@@ -438,7 +438,7 @@ component DiagramBlocks
               for entry in diagrams.filter((entry) => entry.code == block.text) key=entry.id
                 MermaidBlock(block=block, local=local, diagram=entry, scheme=scheme, copied=(copiedText == block.text ? copiedNonce : 0), codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
             else
-              CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
+              CodeBlock(block=block, prose=prose, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and env.runCommands.includes(`${block.href}:${block.text}`)), source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
           else
             BlockBody(block=block, scope=document.id, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite, ms=(markStart < 0 ? -1 : markStart - citeOffset(document.blocks, code, block.id)), me=(markStart < 0 ? -1 : markEnd - citeOffset(document.blocks, code, block.id)))
 
@@ -492,8 +492,9 @@ component BlockBody
       column id=headingNode(scope, block) width="100%"
         text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") width="100%" font-size=(block.depth == 1 ? "1.25rem" : block.depth == 2 ? "1.125rem" : block.depth == 3 ? "1rem" : "0.875rem") line-height=1.3 overflow-wrap="anywhere" color=(block.depth == 6 ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
           ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600, ms=ms, me=me)
+    // In dark mode the rule takes the muted foreground: the border colour blends into a dark bubble.
     if block.kind == "rule"
-      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
+      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #a1a1a1)"
     if block.kind == "table-row"
       row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)"
         for cell, at in block.cells key=cell.id
@@ -665,7 +666,7 @@ component FlowRuns
       citeHold()
   view
     row flex-grow=(fit ? 0 : 1) min-width=0 width=(fit ? "auto" : "100%") max-width="100%" flex-wrap="wrap" align-items="flex-start"
-      for run in runs key=run.id
+      for run, index in runs key=run.id
         // A link's first run (ChatMarkdown's `<a>`): one link node per link, named with the whole link (`run.label`), on its
         // first word or code span; the link's other words and code spans follow as nodes hidden from assistive tech (their
         // `label` is the same), so a reader meets one link with its URL, not words. A press anywhere
@@ -696,17 +697,15 @@ component FlowRuns
           box aria-hidden=(run.kind == "link" and run.label != "" and not webLink(run.href)) cursor=(run.kind == "link" and run.label != "" and not webLink(run.href) ? "pointer" : "auto") height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
             text id=codeNode(source, scope, blockId, run.id) testId=`code-${scope}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) dblclick=selectCode(codeNode(source, scope, blockId, run.id), run.text.length) font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.74375rem" line-height="0.875rem" white-space="pre" font-weight=runWeight(run.weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") padding-left="0.26rem" padding-right="0.26rem" padding-top="0.075rem" padding-bottom="0.075rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(ms >= 0 and citeMarks(ms, me, runAt(runs, run.id), run.text.length) ? "light-dark(#1b4ed873, #346bf173)" : "light-dark(#18181b1a, #f5f5f51a)") color="light-dark(#18181b, #f5f5f5)"
               FindParts(parts=run.findParts)
-        if inlineFile(run, chips)
-          for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
-            InlineFileChip(run=run, chip=chip, local=local)
-        if not run.mono and (run.kind == "file" or contextRun(run.kind))
-          if chips.filter((chip) => chip.href == run.href and run.href != "").length > 0
-            for chip in chips.filter((chip) => chip.href == run.href) key=chip.id
-              ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId, color=color)
-          if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind == "file"
-            FileChip(run=run)
-          if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind != "file"
-            ContextChipBox(run=run, color=color)
+        // rehypeChipPunctuation: punctuation right after a chip stays on the chip's line, its word laid out with it.
+        if chipRun(run, chips)
+          if runs.slice(index + 1, index + 2).filter((next) => chipPunctuation(next)).length > 0
+            row flex-shrink=0 align-items="flex-start"
+              FlowChip(run=run, chips=chips, urls=urls, local=local, blockId=blockId, color=color)
+              for next in runs.slice(index + 1, index + 2) key=next.id
+                FlowProse(run=next, runs=runs, size=size, weight=weight, color=color, source=source, blockId=blockId, cite=cite, ms=ms, me=me)
+          else
+            FlowChip(run=run, chips=chips, urls=urls, local=local, blockId=blockId, color=color)
         if not run.mono and not (run.kind == "file" or contextRun(run.kind)) and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
         // An image inside a line of text (ChatMarkdownImage, not
@@ -731,14 +730,58 @@ component FlowRuns
         // Prose, an emptied anchor's text, and a mailto, irc or xmpp link's later words: no href of their own, so a click
         // follows nothing (the link node above is the link); a link's words keep its pointer (an emptied anchor has no
         // `label`, and an `<a>` with no href shows none).
-        if not run.mono and not (run.kind == "file" or contextRun(run.kind)) and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
-          if ms < 0
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
-              FindParts(parts=run.findParts)
-          else
-            text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
-              MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
+        if not chipPunctuationAt(runs, index, chips) and not run.mono and not (run.kind == "file" or contextRun(run.kind)) and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
+          FlowProse(run=run, runs=runs, size=size, weight=weight, color=color, source=source, blockId=blockId, cite=cite, ms=ms, me=me)
 
+// A prose word of a line (FlowRuns), or the punctuation word that follows a chip on its line.
+component FlowProse
+  props
+    run: ChatRun
+    runs: ChatRun[]
+    size: number
+    weight: number
+    color: string
+    source: string
+    blockId: string
+    cite: action
+    ms: number
+    me: number
+  view
+    if ms < 0
+      text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+        FindParts(parts=run.findParts)
+    else
+      text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre-wrap" overflow-wrap="anywhere" max-width="100%" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
+        MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
+
+// A chip of a line (FlowRuns): an inline file chip, a resolved context or file chip, or its unresolved box.
+component FlowChip
+  props
+    run: ChatRun
+    chips: ChipView[]
+    urls: AttachmentUrl[]
+    local: action
+    blockId: string
+    color: string
+  view
+    if inlineFile(run, chips)
+      for chip in chips.filter((entry) => entry.href == run.href) key=chip.id
+        InlineFileChip(run=run, chip=chip, local=local)
+    if not run.mono and (run.kind == "file" or contextRun(run.kind))
+      if chips.filter((chip) => chip.href == run.href and run.href != "").length > 0
+        for chip in chips.filter((chip) => chip.href == run.href) key=chip.id
+          ResolvedChip(run=run, chip=chip, urls=urls, local=local, blockId=blockId, color=color)
+      if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind == "file"
+        FileChip(run=run)
+      if not (chips.filter((chip) => chip.href == run.href and run.href != "").length > 0) and run.kind != "file"
+        ContextChipBox(run=run, color=color)
+
+// A chip in a line: an inline file chip, or a file or context reference's.
+fn chipRun(run: ChatRun, chips: ChipView[]): bool = inlineFile(run, chips) or (not run.mono and (run.kind == "file" or contextRun(run.kind)))
+// A prose word that opens with punctuation (markdownChipPunctuation.ts LEADING_PUNCTUATION).
+fn chipPunctuation(run: ChatRun): bool = not run.mono and run.href == "" and run.kind != "break" and [".", ",", ":", ";", "!", "?", "…", ")", "]", "}", "\"", "'", "’", "”"].includes(run.text.slice(0, 1))
+// Whether the run at `index` is a chip's punctuation, drawn with that chip.
+fn chipPunctuationAt(runs: ChatRun[], index: number, chips: ChipView[]): bool = index > 0 and runs.slice(index, index + 1).filter((run) => chipPunctuation(run)).length > 0 and runs.slice(index - 1, index).filter((run) => chipRun(run, chips)).length > 0
 // A link's word or code span in a line (FlowRuns), link-coloured; `top` is a code span's offset from the line's top.
 component LinkRunWords
   props
@@ -1074,12 +1117,18 @@ component ChipDetails
       text chip.tip font-size="0.75rem" font-weight=500 line-height="1rem" line-clamp=1 color="light-dark(#18181b, #f5f5f5)"
       text chip.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)"
 
+// A plain-text fence (any case); extractFenceLanguage reads one with no language as "text".
+fn plainFence(language: string): bool = language == "" or ["text", "txt", "plain", "plaintext"].includes(language.toLowerCase())
+
 // chat-markdown-codeblock: a 10pt bordered card, a header with the language and
-// the wrap/copy toolbar, and 13pt code on 17.875pt lines.
+// the wrap/copy toolbar, and 13pt code on 17.875pt lines. A plain-text fence's code
+// takes the surrounding prose colour.
 component CodeBlock
   props
     canRun: bool
     block: ChatBlock
+    // The surrounding text's colour.
+    prose: string
     local: action
     code: CodeHighlight[]
     copiedText: string
@@ -1097,6 +1146,7 @@ component CodeBlock
   // readInitialWordWrapSetting: Settings → Word wrap decides; the toggle flips it.
   state flipped = false
   derive wrap = flipped ? not wrapDefault : wrapDefault
+  derive ink = plainFence(block.href) ? prose : "light-dark(#000000, #fafafa)"
   derive codeAt = ms < 0 ? 0 : citeCodeLabel(block, code).length + (citeCodeLabel(block, code) != "" ? 1 : 0)
   action toggleWrap
     flipped = not flipped
@@ -1123,22 +1173,22 @@ component CodeBlock
       if code.filter((hl) => hl.code == block.text).length == 0
         if wrap
           if ms < 0
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
               FindParts(parts=block.findParts)
           else
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
               MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             if ms < 0
-              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color=ink
                 FindParts(parts=block.findParts)
             else
-              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
+              text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color=ink
                 MarkedText(value=block.text, at=codeAt, ms=ms, me=me)
       for hl in code.filter((hl) => hl.code == block.text) key=hl.id
         if wrap
-          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#000000, #fafafa)"
+          text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") width="100%" padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" box-sizing="border-box" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color=ink
             for token in hl.tokens key=token.id
               if ms < 0
                 text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
@@ -1148,7 +1198,7 @@ component CodeBlock
                   MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
-            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#000000, #fafafa)"
+            text id=`cite-${source}-${block.id}-code` selectionchange=cite(block.id, "code") padding-left="0.9rem" padding-right="0.9rem" padding-top="0.8rem" padding-bottom="0.8rem" font-family=codeFont font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color=ink
               for token in hl.tokens key=token.id
                 if ms < 0
                   text color=synColor(token.cls) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
@@ -1405,39 +1455,6 @@ component CellSizer
         if not run.mono and run.kind != "file" and not contextRun(run.kind) and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0)
           text min-width=0 font-size="0.875rem" line-height=1.625 white-space="pre" font-weight=(runWeight(run.weight) > weight ? runWeight(run.weight) : weight) font-style=run.slant color=color text-decoration-line=(run.strike ? "line-through" : "none")
             FindParts(parts=run.findParts)
-
-component TableCopyButton
-  inject
-    still: bool
-    codeCopyDone: number
-  props
-    press: action
-    // ↓ and ↑: the same request, asking the window's menu to focus its first or last item as it mounts.
-    pressFirst: action
-    pressLast: action
-    copied: number
-    open: bool
-    testId: string
-  state hovered = false
-  action hover(over: bool)
-    hovered = over
-  // The Copy menu opens from the data module; the button lets go of the focus and the
-  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract). ↓ and ↑ open it too: the menu
-  // mounts at the window, past this tree, so the request itself carries the end (`menu.keyed`).
-  action openMenu
-    blur()
-    press()
-  action menuKey(k: string, e: KeyboardEvent)
-    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not open
-      preventDefault()
-      blur()
-      if k == "ArrowUp"
-        pressLast()
-      else
-        pressFirst()
-  view
-    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)
 
 component TableMenuItem
   props

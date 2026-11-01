@@ -668,12 +668,11 @@ component SubagentGroup
             SubagentRow(agent=agent, command=command, now=now)
 
 // MessageCopyButton: the copy glyph becomes a primary check while the anchored
-// "Copied!" toast shows; a failure says so in the same place.
+// "Copied!" toast shows (a failure is an error toast; timeline-presentation.ts).
 component CopyButton
   props
     id: string
     copied: number
-    failed: bool
     local: action
     hover: action
   view
@@ -683,12 +682,9 @@ component CopyButton
           box width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "tlHiddenA 1s linear forwards" : "tlHiddenB 1s linear forwards")
             Icon(name="copy", size=12, color="light-dark(#71717b, #a1a1a1)")
           box position="absolute" left="0.375rem" top="0.375rem" width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "tlShownA 1s linear forwards" : "tlShownB 1s linear forwards")
-            if failed
-              Icon(name="x", size=12, color="light-dark(#fb2c36, #fb414a)")
-            else
-              TimelineIcon(name="check-mark", size=12, color="light-dark(#1b4ed8, #346bf1)")
+            TimelineIcon(name="check-mark", size=12, color="light-dark(#1b4ed8, #346bf1)")
         else
           Icon(name="copy", size=12, color="light-dark(#71717b, #a1a1a1)")
       if copied > 0
         box position="absolute" bottom="1.875rem" left="-3.75rem" width="9rem" display="flex" flex-direction="column" align-items="center" pointer-events="none" animation=(copied % 2 == 0 ? "tlShownA 1s linear forwards" : "tlShownB 1s linear forwards") aria-hidden=true
-          text (failed ? "Failed to copy" : "Copied!") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.5rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#fafafa, #000000)" background-color="light-dark(#18181b, #fafafa)"
+          text "Copied!" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.5rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#fafafa, #000000)" background-color="light-dark(#18181b, #fafafa)"

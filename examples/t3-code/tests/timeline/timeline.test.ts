@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
+import { toasts } from '../../src/shell/toast';
 import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { commandDisplayText, commandProgramName, displayFailed, formatDuration, liveThoughtLine, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind, thoughtText } from '../../src/timeline/timeline-worklog';
@@ -428,7 +429,7 @@ describe('events and messages', () => {
     expect(folded().expanded).toBe(false);
     // The footer (Open automation, the time, the actions) shows only while the fold is open.
     const row = contractComponent('timeline.contract', 'UserRow');
-    const footer = (expanded: boolean) => row.drawn('label="Open automation"', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' } });
+    const footer = (expanded: boolean) => row.drawn('wrap=false)', row.state(), { message: { ...folded(), expanded }, threadFind: { open: true, query: 'commits', entry: '' }, rem: 16 });
     expect([footer(true), footer(false)]).toEqual([true, false]);
   });
 
@@ -503,12 +504,19 @@ describe('work-log presentation', () => {
     expect([formatDuration(912), formatDuration(9_960), formatDuration(42_000), formatDuration(162_000)]).toEqual(['912ms', '10s', '42s', '2m 42s']);
     // The unit is chosen after rounding (#20299).
     expect([formatDuration(59_400), formatDuration(59_500), formatDuration(3_599_500)]).toEqual(['59s', '1m', '1h']);
+    // Under 10 s a whole number of seconds drops its trailing .0.
+    expect([formatDuration(2_000), formatDuration(2_040), formatDuration(2_450)]).toEqual(['2s', '2s', '2.5s']);
     expect(thoughtText('**Bold** and `code` [link](http://x)')).toBe('Bold and code link');
   });
   test('reasoning prose never reads as a failed tool (#21146)', () => {
     const thought = entry({ type: 'reasoning', text: 'That exit code 2 is just from listing the deleted directory, which is expected.' });
     expect(displayFailed(thought)).toBe(false);
     expect(displayFailed(entry({ type: 'command_execution', input: 'ls', output: 'ls: x: No such file or directory' }))).toBe(true);
+  });
+  test('a command\'s exit code outranks failure text in its output and detail (#23351)', () => {
+    expect(displayFailed(entry({ type: 'command_execution', input: 'rg ENOENT', output: 'src/a.ts: ENOENT handling\nexit code 2', exitCode: 0 }))).toBe(false);
+    expect(displayFailed(entry({ type: 'command_execution', input: 'rg x', output: '', exitCode: 1 }))).toBe(true);
+    expect(displayFailed(entry({ type: 'command_execution', input: 'rg x', output: 'ok', exitCode: 0, outputIndicatesFailure: true }))).toBe(false);
   });
   test('the live thought line: a bold-only heading wins, else the first sentence (liveThoughtLine)', () => {
     expect(liveThoughtLine('**Tracing the cache**\nIt reads twice.')).toBe('Tracing the cache');
@@ -584,16 +592,17 @@ describe('Edit from here waits for the rollback', () => {
 });
 
 describe('copy feedback', () => {
-  test('a copy marks its row Copied!, a refused one Failed to copy', async () => {
+  test('a copy marks its row Copied!; a refused one is a Failed to copy error toast with the reason (#23679)', async () => {
     const value = client(richItems()), copied: string[] = [];
     let refuse = false;
     Object.assign(value, { restAccess: () => ({ call: async (request: Obj) => { if (refuse) throw new Error('The clipboard refused.'); copied.push(String(request.text)); return { copied: true }; } }) });
     expect(await chatLocal(value, native, 'copy', key('final'), '')).toBe('Copied message');
     expect(copied).toEqual(['**Rich fixture complete.**']);
-    const row = () => timelineMessages(value, rows(value), base).find(message => message.copied > 0)!;
-    expect(row()).toMatchObject({ copyFailed: false });
+    const nonce = () => timelineMessages(value, rows(value), base).find(message => message.copied > 0)?.copied;
+    const first = nonce();
     refuse = true;
-    await expect(chatLocal(value, native, 'copy', key('final'), '')).rejects.toThrow('refused');
-    expect(row()).toMatchObject({ copyFailed: true });
+    expect(await chatLocal(value, native, 'copy', key('final'), '')).toBe('');
+    expect(toasts(value).at(-1)).toMatchObject({ kind: 'error', title: 'Failed to copy', description: 'The clipboard refused.', timeoutMs: 5000 });
+    expect(nonce()).toBe(first);
   });
 });

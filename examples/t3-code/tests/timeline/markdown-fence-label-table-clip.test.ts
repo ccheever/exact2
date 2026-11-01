@@ -17,6 +17,19 @@ describe('code block label (extractFenceLanguage)', () => {
   });
 });
 
+describe('plain-text fences and rules (index.css)', () => {
+  test('a text, txt, plain or plaintext fence paints its code in the prose colour (#27144)', async () => {
+    const plain = await contractFn('markdown.contract', 'plainFence', ['language']);
+    expect(['', 'text', 'TXT', 'Plain', 'plaintext', 'ts', 'bash', 'texts'].map(language => plain(language))).toEqual([true, true, true, true, true, false, false, false]);
+    const source = await Bun.file(appPath('markdown.contract')).text();
+    expect(source).toContain('derive ink = plainFence(block.href) ? prose : "light-dark(#000000, #fafafa)"');
+  });
+  test('a rule in dark mode takes the muted foreground, not the border colour (#22367)', async () => {
+    const source = await Bun.file(appPath('markdown.contract')).text();
+    expect(source).toContain('if block.kind == "rule"\n      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #a1a1a1)"');
+  });
+});
+
 // MarkdownTable at v0.1.5 (#26449): no "Expand table cells" toggle; every cell, a header's too, wraps at word
 // boundaries within its column, so a table opens at its size.
 describe('tables open at their size', () => {

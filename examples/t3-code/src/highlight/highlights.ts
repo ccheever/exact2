@@ -12,7 +12,7 @@
 // many there are; the others are kept up to KEPT and KEPT_BYTES. A view's answer pins, and reports waiting, only the
 // texts painted for it: each call that paints names its view.
 
-import { FILE_TYPES } from './file-languages';
+import { CUSTOM_EXTENSIONS, FILE_TYPES } from './file-languages';
 import { LEXER_IDS, TYPE_CLASSES } from './highlights-tables';
 
 /** A run of code text and its colour class (syntax-ink.contract synColor, synSlant, synWeight). */
@@ -52,11 +52,14 @@ const MORE = -1, AGAIN = -2, FAILED = -3;
  *  (component.ts), then a simple one; '' for a path it has no language for. */
 export function fileLanguage(path: string): string {
   const has = (key: string) => Object.prototype.hasOwnProperty.call(FILE_TYPES, key);
+  const custom = (key: string) => Object.prototype.hasOwnProperty.call(CUSTOM_EXTENSIONS, key);
+  if (custom(path)) return CUSTOM_EXTENSIONS[path]!;
   if (has(path)) return FILE_TYPES[path]!;
   const compound = /\.([^/\\]+\.[^/\\]+)$/.exec(path)?.[1];
+  if (compound && custom(compound)) return CUSTOM_EXTENSIONS[compound]!;
   if (compound && has(compound)) return FILE_TYPES[compound]!;
   const simple = /\.([^.]+)$/.exec(path)?.[1] ?? '';
-  return has(simple) ? FILE_TYPES[simple]! : '';
+  return custom(simple) ? CUSTOM_EXTENSIONS[simple]! : has(simple) ? FILE_TYPES[simple]! : '';
 }
 
 /** The lexer for a fence word or a file path, 0 for plain text. A word (no "/" or ".") is a fence word, which the

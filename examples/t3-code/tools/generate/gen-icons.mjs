@@ -244,7 +244,7 @@ const T3_BY_NAME = { 'package.json': 'npm-plain', 'tsconfig.json': 'typescript-p
 // The document icons (pierre-icons.ts at 7c3b3b3605ef DOCUMENT_ICON_COLORS: Lucide File Type, File Text, File Spreadsheet,
 // Presentation and Book Open, tinted per kind).
 const DOCUMENT_ICON_EXTENSIONS = { pdf: 'pdf', doc: 'word', docx: 'word', odt: 'word', rtf: 'word', xls: 'spreadsheet', xlsx: 'spreadsheet', ods: 'spreadsheet', csv: 'spreadsheet', tsv: 'spreadsheet', ppt: 'slides', pptx: 'slides', odp: 'slides', epub: 'epub' };
-const FILE_ICON_EXTENSIONS = { ...DOCUMENT_ICON_EXTENSIONS, cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml' };
+const FILE_ICON_EXTENSIONS = { ...DOCUMENT_ICON_EXTENSIONS, cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', luau: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml', xsd: 'xml', xsl: 'xml', xslt: 'xml' };
 
 const attributes = tag => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
 /** Every symbol as { viewBox, inner, paths: [{ d, opacity, rule, fill }] }, by token. */

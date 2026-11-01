@@ -7,6 +7,7 @@ import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { entryIcon, projectedWorkEntry } from '../../src/timeline/timeline-worklog';
 import { subagent, subagentGroupTiming, summarizeSubagentStatuses } from '../../src/timeline/timeline-events';
+import { notificationSubagent } from '../../src/timeline/timeline-inspect';
 import {
   assistantCanFork, canForkProjectedAssistantItem, decodeNotificationSource, externalWebLinkHref, formatElapsedSeconds,
   groupToolPresentation, inspectorExtras, subagentElapsedMs,
@@ -60,6 +61,15 @@ describe('background work kinds from older or newer servers', () => {
     }
     expect(decodeNotificationSource({ kind: 'delegated_task' })).toBeNull();
     expect(decodeNotificationSource({ kind: 'subagent', childThreadId: 7 })).toBeNull();
+  });
+
+  test('a delegated task\'s notice shows that task, not the first task of the shared child thread (#22141)', () => {
+    const tasks = [{ id: 'task-1', childThreadId: 'child', status: 'completed', title: 'First pass', result: 'First result' },
+      { id: 'task-2', childThreadId: 'child', status: 'completed', title: 'Follow-up', result: 'Follow-up result' }];
+    const notice = (source: Obj) => notificationSubagent(notification(source), tasks, at(9), '09:00:09');
+    expect(notice({ kind: 'delegated_task', taskIds: ['task-2'], childThreadId: 'child' })?.body).toBe('Follow-up result');
+    expect(notice({ kind: 'delegated_task', taskIds: ['task-3'], childThreadId: 'child' })).toBeNull();
+    expect(notice({ kind: 'subagent', childThreadId: 'child' })?.body).toBe('First result');
   });
 
   test('"Background build finished" shows the terminal icon', () => {
@@ -291,5 +301,18 @@ describe('keys inside an expanded tool row (#18831)', () => {
     const button = lines.findIndex(line => line.includes('button press=command("tool-diff"')), stats = lines.findIndex(line => line.trim() === 'if entry.stats');
     expect(button).toBeGreaterThan(stats);
     expect(lines[button]!.search(/\S/)).toBe(lines[stats]!.search(/\S/));
+  });
+});
+
+// TimelineUserMessageRow at v0.1.6 (#26769): an attachment-only message hides the prompt that stands in for its words.
+describe('image-only messages', () => {
+  const prompt = '[User attached one or more files without additional text. Respond using the conversation context and the attached files.]';
+  const sent = (text: string) => item('u-img', 'user_message', 1, { text, messageId: 'm-img', inputIntent: 'turn_start', createdBy: 'user',
+    attachments: [{ type: 'image', id: 'a1', name: 'shot.png', mimeType: 'image/png' }] });
+  test('the image shows on its own, without the placeholder prompt, Ultrathink or not', () => {
+    for (const text of [prompt, `Ultrathink:\n${prompt}`]) {
+      const message = rows(client([sent(text)])).find(entry => entry.kind === 'user')!;
+      expect(message).toMatchObject({ body: '', shape: 'media', mediaAbove: false, mediaLayout: 'lone' });
+    }
   });
 });

@@ -93,7 +93,7 @@ describe('desktop presentation and model options', () => {
       const result = transcriptPresentation(client);
       expect(result.map(row => row.kind)).toEqual(status === 'running'
         ? ['user', 'work', 'assistant', 'user', 'working', 'live'] : ['user', 'work', 'assistant', 'user', 'work', 'assistant']);
-      expect(result[1]).toMatchObject({ title: 'Worked for 2.0s', groupId: 'a' });
+      expect(result[1]).toMatchObject({ title: 'Worked for 2s', groupId: 'a' });
       if (status === 'running') expect(result[5]).toMatchObject({ title: 'Running b1', live: true });
     }
   });
@@ -194,7 +194,7 @@ describe('desktop presentation and model options', () => {
       text: 'See [badge.svg](t3-context://v1/file/file_svg) and [gone.pdf](t3-context://v1/file/file_gone)', attachments: [svg, gone],
       context: { version: 1, records: [record('file_svg', svg), record('file_gone', gone)] } } }];
     const chips = () => snapshot(client).messages[0]!.md.chips.map(chip => [chip.kind, chip.target, chip.tip]);
-    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\n1 KB']]);
+    expect(chips()).toEqual([['image', 'att-svg', 'File attachment, badge.svg, 1 KB'], ['file', '', 'gone.pdf\nSending…']]);
     // Both are chips in the prose, so neither has a file row of its own.
     expect(snapshot(client).messages[0]!.attachFiles).toEqual([]);
     // The thumbnail's URL is the one attachmentUrls signed (SvgFileChip's failedPreviewUrl names the URL that failed).

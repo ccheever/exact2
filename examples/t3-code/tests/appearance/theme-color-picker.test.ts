@@ -234,7 +234,7 @@ describe('the picker in the theme editor', () => {
     // The dark row shows its own value with the role's stamp, so an open panel, its op landed and its
     // colour not the row's, follows the dark value instead of carrying the light one across.
     const dark = editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows.find(entry => entry.role === 'canvas')!;
-    expect([dark.value, dark.seq]).toEqual(['#0a0a0a', 50]);
+    expect([dark.value, dark.seq]).toEqual(['#000000', 50]);
     expect(pickerOwns(true, false, 50, dark.seq, '#202020', dark.hex6)).toBe(false);
     op(fake, 'color', 'canvas', '#303030', 51);
     expect(editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows[0]!.value).toBe('#303030');

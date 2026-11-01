@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { obj, type Obj } from '../../src/client/domain';
-import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentView, inlineReference, syncInlineDocuments } from '../../src/timeline/inline-documents';
+import { inlineDocumentEvent, inlineDocumentKey, inlineDocumentSource, inlineDocumentView, inlineReference, syncInlineDocuments } from '../../src/timeline/inline-documents';
 import { timelineEntries } from '../../src/timeline/timeline-rows';
 import { transcriptRows } from '../../src/timeline/timeline-presentation';
 
@@ -21,6 +21,21 @@ test('completed render tools become standalone timeline rows instead of grouped 
   expect(timelineEntries({ rows: obj(client.thread?.projection).visibleTurnItems, attempts: [], nodes: [] })).toMatchObject([{ kind: 'document', document: { kind: 'html', reference: html } }]);
   expect(transcriptRows(client)).toMatchObject([{ kind: 'inline-document', inlineDocuments: [{ title: 'Report', src: '' }] }]);
   expect(inlineReference({ ...item, status: 'running' })).toBeNull();
+});
+
+test('an HTML render\'s page may take the screen: its sandboxed frame allows fullscreen (#21378)', async () => {
+  const config = (src: string) => JSON.parse(decodeURIComponent(src.slice(src.indexOf('#') + 1)));
+  expect(config(inlineDocumentSource('https://x/render', 't', 'fullscreen'))).toEqual({ src: 'https://x/render', token: 't', allow: 'fullscreen' });
+  expect(config(inlineDocumentSource('https://x/app', 't'))).toEqual({ src: 'https://x/app', token: 't' });
+  const adapter = await Bun.file(new URL('../../assets/inline-document/index.html', import.meta.url)).text();
+  expect(adapter).toContain("if (config.allow === 'fullscreen') frame.setAttribute('allow', 'fullscreen');");
+});
+
+test('an MCP App whose call failed is hosted, as a form-deferring write does (#25225)', () => {
+  const mcpApp = { attachmentId: 'render-thread-app-html', server: 'github', tool: 'create_pull_request', resourceUri: 'ui://github-mcp-server/pr-create' };
+  const failed = { ...item, status: 'failed', toolName: 'github.create_pull_request', output: { t3McpApp: mcpApp, result: { content: [], isError: true } } };
+  expect(inlineReference(failed)).toMatchObject({ kind: 'mcp', reference: mcpApp });
+  expect(inlineReference({ ...item, status: 'failed' })).toBeNull();
 });
 
 test('signed URLs are chosen once and retain the mounted document through refreshes', async () => {

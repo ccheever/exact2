@@ -58,3 +58,7 @@ export const FILE_TYPES: Record<string, string> = {
   wl: "wolfram", nb: "wolfram", xml: "xml", xsl: "xsl", xslt: "xsl", yaml: "yaml", yml: "yml", zs: "zenscript",
   zig: "zig", zsh: "zsh", sty: "tex",
 };
+
+/** syntaxHighlighting.ts setCustomExtension: dialects Highlights has no lexer for take their base language's,
+ *  ahead of FILE_TYPES (getFiletypeFromFileName checks custom extensions first). */
+export const CUSTOM_EXTENSIONS: Record<string, string> = { luau: "lua", xsl: "xml", xslt: "xml" };

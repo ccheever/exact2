@@ -61,8 +61,10 @@ export function subagentResumedSince(agent: Obj, notifiedAt: string): boolean {
  * an update) and the time it arrived in place of the elapsed time.
  */
 export function notificationSubagent(item: Obj, subagents: Obj[], createdAt: string, time: string, providers: Obj[] = []): Activity | null {
-  const childThreadId = notificationChildThreadId(item);
-  const agent = childThreadId ? subagents.find(candidate => candidate.childThreadId === childThreadId) : undefined;
+  const childThreadId = notificationChildThreadId(item), source = obj(item.source);
+  // Follow-up tasks share a child conversation; a delegated task's notice reports that task's result.
+  const taskIds = source.kind === 'delegated_task' && Array.isArray(source.taskIds) ? source.taskIds.map(id => str(id)) : undefined;
+  const agent = childThreadId ? subagents.find(candidate => taskIds === undefined ? candidate.childThreadId === childThreadId : taskIds.includes(str(candidate.id))) : undefined;
   if (!agent) return null;
   const outcome = str(item.outcome, 'unknown'), status = OUTCOME_STATUS[outcome] ?? '';
   // A subagent resumed since this notification shows its live status, not the outcome reported then.
