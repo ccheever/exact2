@@ -66,15 +66,15 @@ for phase in ['warm','warm-startup','cold','rest','bar','caret']:
     phase_report=dict(quietObservations=len(quiet),loadedObservations=[x for x in quiet if not x['quiet']],
                       maxCpuPercent=max(x['cpuPercent'] for x in quiet),arms={})
     for arm in ['d3d11','wgpu','egui']:
-        samples=[json.loads(p.read_text()) for p in sorted(directory.glob(arm+'-*.json'))]
-        passed=[x for x in samples if x['status']=='ok']
-        entry=dict(attempts=len(samples),failures=[x for x in samples if x['status']!='ok'],
+        sources=[(json.loads(p.read_text()),p) for p in sorted(directory.rglob(arm+'-*.json'))]
+        passed=[x for x,p in sources if x['status']=='ok' and not x.get('focusLosses')]
+        entry=dict(attempts=len(sources),failures=[x for x,p in sources if x['status']!='ok' or x.get('focusLosses')],
                    dwmMs=metric([x['dwmMs'] for x in passed]),dxgiMs=metric([x['dxgiMs'] for x in passed]))
-        full=[x for x in passed if 'flingEnd' in x]
+        full=[(x,p) for x,p in sources if x['status']=='ok' and not x.get('focusLosses') and 'flingEnd' in x]
         if full:
             measures={}
-            for x in full:
-                f=(frames(x,directory/f'{arm}-{x["number"]}-presents.csv')
+            for x,path in full:
+                f=(frames(x,path.with_name(f'{arm}-{x["number"]}-presents.csv'))
                    if x.get('presentmonEventsLost',0)==0 and x.get('presentmonExit')==0 else {})
                 f['eventsLost']=x.get('presentmonEventsLost',0)
                 f.update(input_metrics(x))
