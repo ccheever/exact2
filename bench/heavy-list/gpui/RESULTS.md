@@ -11681,3 +11681,15 @@ No carrier change is planned. A foreground loss retains the foreground
 window's title and process and permits one retry; a second loss stops
 fling collection. Raw files belong under `target/g7b/` in this worktree
 and the lane's own NucBox mirror; no earlier retained evidence is removed.
+
+**Capture repair prediction, before collection.** The initial cold captures
+close the application as soon as its carrier logs readiness. They produce
+no PresentMon CSV and report lost ETW events. PresentMon 2.6.0 defers events
+up to two seconds and resolves a live process's image name in its output
+thread ([main thread](https://github.com/GameTechDev/PresentMon/blob/v2.6.0/PresentMon/MainThread.cpp),
+[output thread](https://github.com/GameTechDev/PresentMon/blob/v2.6.0/PresentMon/OutputThread.cpp)).
+Keeping each cold application alive until the existing four-second capture
+finishes should produce nonempty D3D11 and egui CSVs with zero lost events;
+Ink/wgpu should still have no app-owned presents. The carrier's already
+logged DWM/DXGI endpoints stay unchanged. This changes the observer's
+application lifetime, not the renderer or presentation policy.

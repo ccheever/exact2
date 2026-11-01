@@ -192,6 +192,9 @@ def run(arm, number, out, full, presentmon, capture=False, *, binary=None, motio
             if capture:
                 time.sleep(1)
                 ImageGrab.grab(bbox=tuple(samples['dimensions']['outer'])).save(out/(name+'-top.png'))
+            if presentmon and not full:
+                # PresentMon resolves process names after consuming the deferred events.
+                pm.wait(timeout=8)
             if full:
                 if presentmon:
                     pm_log = (out/(name+'-presentmon.log')).open('wb')
