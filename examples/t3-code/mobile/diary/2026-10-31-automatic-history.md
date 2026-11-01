@@ -16,6 +16,10 @@ press and an edge observation share the same request guard.
 While a page is in flight, that control stays mounted with the upstream loading
 label and spinner and is disabled until the request settles.
 
+When a page fails, the same control remains visible and retries the request; the
+error is shown below it. This follows the reference feed's single-control state
+model instead of presenting a second Retry button.
+
 Independent review found that Stop retired the client's history request while
 the presentation helper still reported it pending. The integrated regression
 holds the old response across Stop and a replacement request. Both owners must

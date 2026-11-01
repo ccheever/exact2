@@ -264,7 +264,7 @@ test('authored paging gates inactive views, rejects stale observations and isola
   feed.call('loadEarlier', {}, scope, []);
   history.call('observe', {}, scope, ['key', { isIntersecting: true }]);
   expect(calls).toEqual([['chatlocal:history-auto', 'key', ''], ['chatlocal:history-auto', 'key', '']]);
-  data.historyError = 'Offline'; feed.call('loadEarlier', {}, scope, []); history.call('retry', {}, scope, []);
+  data.historyError = 'Offline'; feed.call('loadEarlier', {}, scope, []); history.call('loadEarlier', {}, scope, []);
   expect(calls.at(-1)).toEqual(['chatlocal:history-retry', 'key', '']);
   const sent: string[] = [], rootScope = { data: { environmentId: 'env', threadId: 'thread' }, nav: {},
     top: () => ({ id: 7, name: 'thread', params: { threadEnvironment: 'env', threadId: 'thread' } }),
@@ -288,21 +288,23 @@ test('authored paging gates inactive views, rejects stale observations and isola
   expect(anchorCalls).toHaveLength(1);
 });
 
-test('history chrome describes active loading and disables retry while offline', () => {
+test('history chrome keeps one load control mounted while offline', () => {
   const history = contractComponent('mobile/thread.contract', 'ThreadHistory');
   const data = { hasMore: true, historyRequest: 'key', historyLoading: false, historyError: '' };
-  const scope = { data, active: true };
+  const calls: unknown[][] = [], scope = { data, active: true, action: (...args: unknown[]) => calls.push(args) };
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('intersect=observe(key)', {}, scope)).toBe(true);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
   data.historyRequest = '';
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(false);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
-  data.historyError = 'Offline';
-  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
-  expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(true);
+  data.historyRequest = 'key'; data.historyError = 'Offline';
+  expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
+  expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(false);
   data.historyRequest = 'key';
-  expect(history.attribute('testId="thread-history-retry"', 'disabled', {}, scope)).toBe(false);
+  history.call('loadEarlier', {}, scope, []);
+  expect(calls.at(-1)).toEqual(['chatlocal:history-retry', 'key', '']);
+  expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(false);
   data.historyError = ''; data.historyLoading = true;
   expect(history.drawn('t3-archive-spinner', {}, scope)).toBe(true);
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);

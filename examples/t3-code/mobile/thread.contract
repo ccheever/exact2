@@ -56,14 +56,17 @@ component ThreadHistory
   action retry
     if active and data.historyRequest != "" and not data.historyLoading and data.historyError != ""
       action("chatlocal:history-retry", data.historyRequest, "")
+  action loadEarlier
+    if active and data.historyRequest != "" and not data.historyLoading
+      action(data.historyError == "" ? "chatlocal:history-auto" : "chatlocal:history-retry", data.historyRequest, "")
   view
     if data.hasMore or data.historyError != ""
       column position="relative" align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
         if active and data.historyRequest != "" and data.historyError == ""
           for key in [data.historyRequest] key=key
             view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
-        if active and data.historyRequest != "" and data.historyError == ""
-          button press=action("chatlocal:history-auto", data.historyRequest, "") disabled=data.historyLoading min-height=31.5 padding=7 aria-label="Load earlier activity" testId="thread-history-load-earlier"
+        if active and data.historyRequest != ""
+          button press=loadEarlier disabled=data.historyLoading min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
             row align-items="center" gap=5.25
               if data.historyLoading
                 t3-archive-spinner spinner-tint=colors.iconSubtle width=16 height=16
@@ -72,8 +75,6 @@ component ThreadHistory
               text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.primary
         if data.historyError != ""
           text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
-          button press=retry disabled=(not active or data.historyLoading or data.historyRequest == "") min-height=31.5 padding=7 aria-label="Retry loading earlier activity" testId="thread-history-retry"
-            text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
 
 component ThreadMessage
   props
