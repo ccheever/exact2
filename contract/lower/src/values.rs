@@ -922,9 +922,16 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
 pub(crate) fn aria_takes_bool(words: &[&str]) -> bool {
     words.starts_with(&["true", "false"])
 }
-pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
-    match (prop, value) {
-        (PropId::AccessibilityDisabled, Expr::Str(s, span)) if s == "true" || s == "false" => {
+/// An ARIA state that is a bool, written as the WAI-ARIA token: `aria-hidden="true"` is
+/// `aria-hidden=true` (WAI-ARIA 1.2 §8.2, "true/false"). Not an HTML boolean attribute, whose
+/// `disabled="false"` would mean present.
+pub(crate) fn aria_bool_literal(name: &str, prop: PropId, value: &Expr) -> Option<Expr> {
+    match value {
+        Expr::Str(s, span)
+            if name.starts_with("aria-")
+                && tags::prop_ty(prop) == tags::PropTy::Bool
+                && (s == "true" || s == "false") =>
+        {
             Some(Expr::Bool(s == "true", *span))
         }
         _ => None,

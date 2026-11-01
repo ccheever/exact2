@@ -107,6 +107,25 @@ fn aria_disabled_is_accepted_on_a_button_and_focusable_role() {
     assert_eq!(disabled(&r, "role"), Some(true));
 }
 
+/// A bool ARIA state takes the WAI-ARIA token as written in HTML, `aria-hidden="true"`, as
+/// it takes `aria-hidden=true`.
+#[test]
+fn a_bool_aria_state_takes_its_token_in_quotes() {
+    let r = boot(
+        "component App\n  view\n    column\n      view aria-hidden=\"true\" testId=\"hidden\"\n      view aria-hidden=\"false\" testId=\"shown\"\n      column role=\"dialog\" aria-modal=\"true\" testId=\"sheet\"\n",
+    );
+    let prop = |id: &str, prop| r.kernel().node(view_of(&r, id)).unwrap().props.bool(prop);
+    assert_eq!(
+        prop("hidden", PropId::AccessibilityElementsHidden),
+        Some(true)
+    );
+    assert_eq!(
+        prop("shown", PropId::AccessibilityElementsHidden),
+        Some(false)
+    );
+    assert_eq!(prop("sheet", PropId::AccessibilityModal), Some(true));
+}
+
 /// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
 /// its state; Signal Clone's call screen and menus had no way to say it.
 #[test]
