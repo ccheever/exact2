@@ -218,7 +218,7 @@ test.skipIf(!tools)('signed GPU framework upgrades refresh metadata before archi
   writeFileSync(info, plistFile(oldInfo));
   run('codesign', ['--force', '--sign', '-', '--timestamp=none', container]);
   run('codesign', ['--verify', '--strict', container]);
-  // The pre-capability cache key had no framework metadata revision.
+  // The cache key from before the plist was the key: the metadata's inputs, not what was written.
   const oldKey = JSON.stringify([sourceDigest, '-', false, name,
     [app.id, '17.0', options.platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0']]);
   writeFileSync(record, oldKey);
