@@ -873,11 +873,14 @@ test('both document renderers infer an undeclared route\'s activation from its r
   const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
   const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
   for (const how of ['js', 'rust']) {
-    await renderedPages(`routes nav
+    await renderedPages(`use EmptyState from "exact:content"
+
+routes nav
   home "/" render=build
   clock "/clock" render=build
   wide "/wide" render=build
   seen "/seen" render=build
+  empty "/empty" render=build
 
 shape Viewport
   width: number
@@ -909,6 +912,8 @@ component App
           text "Above"
         column intersect=saw
           text \`\${shown}\`
+      if top(nav).name == "empty"
+        EmptyState(symbol="symbol:alert", title="Nothing Here", message="Its link may be out of date.")
 `, async (_, html, dist) => {
       const wake = '[["(width >= 640px)",false]]';
       expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
@@ -916,6 +921,8 @@ component App
       expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
       // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
       expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
+      // `EmptyState` reads `accessibilityTextSize`, which every browser holds false, as the render does.
+      expect([how, activation(html('empty'))]).toEqual([how, ['interaction', [], wake]]);
       // The capture script wakes the runtime where the comparison differs, and only there.
       const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
         const path = new URL(req.url).pathname;
