@@ -548,8 +548,6 @@ component HomeListItem
                       view flex=1 min-width=0
                     if item.provider.visible
                       HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
-                if item.trailingDivider and not sidebar
-                  view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
               else
                 row min-height=44
                   box-sizing="border-box"
@@ -569,6 +567,8 @@ component HomeListItem
                   if item.queued
                     t3-symbol symbol-name="tray.and.arrow.up" symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                   text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
+        if item.card and item.trailingDivider and not sidebar
+          view height=1 min-width=0 margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
 
 
 component HomeProjectIcon

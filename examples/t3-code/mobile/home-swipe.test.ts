@@ -25,6 +25,11 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
   expect(home).toContain('box-sizing="border-box" overflow-x="hidden"');
   expect(thread).toContain('overscroll-behavior="contain" virtualized=true');
+  const homeRow = home.indexOf('button appearance="none" press=selectThread(item.id)');
+  const homeDivider = home.indexOf('if item.card and item.trailingDivider and not sidebar');
+  expect(homeRow).toBeGreaterThanOrEqual(0);
+  expect(homeDivider).toBeGreaterThan(homeRow);
+  expect(home.slice(homeRow, homeDivider)).not.toContain('trailingDivider');
 });
 
 const capabilities = { serverResolvedCommandContext: true, threadSettlement: true, threadSnooze: true,

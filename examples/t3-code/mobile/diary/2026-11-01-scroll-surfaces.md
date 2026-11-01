@@ -36,6 +36,9 @@ first-row or final-row separator was added. List-level horizontal clipping was
 rejected for the thread because Markdown and code blocks own their own
 horizontal scrollers; Home's list has no authored horizontal content and now
 clips only incidental sideways overflow.
+Home's compact-row divider now sits beside the pressable row content in the
+noninteractive row container. It keeps the authored margin and adjacent-row
+predicate without inheriting the button's swipe translation or clipping box.
 
 ### Needed
 
