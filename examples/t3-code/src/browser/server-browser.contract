@@ -90,12 +90,14 @@ component ServerBrowserPage
   action control(kind: string)
     streamControl(runtimeId, kind)
   // A mouse's Back (button 3) and Forward (4) step this tab's history at the release, never the page; the release's
-  // preventDefault keeps the window's own history where it is.
+  // preventDefault keeps the host's own history where it is, and stopPropagation keeps the window's pointerup
+  // (app-window.contract outsidePressUp) from stepping the thread history too.
   action mouse(phase: string, e: PointerEvent)
     interacted()
     if e.button == 3 or e.button == 4
       if phase == "up"
         preventDefault()
+        stopPropagation()
         streamControl(runtimeId, e.button == 3 ? "back" : "forward")
     else if frame.controlled and pdfUrl == ""
       if phase == "down"

@@ -12,7 +12,7 @@ function mounted(controlled = true) {
   const scope = {
     runtimeId: 'run-1', mini: false, pdfUrl: '', frame: { controlled }, serverFrame: { controlled }, serverMiniFrame: { controlled },
     streamControl: (...args: unknown[]) => calls.push(['control', ...args]), streamKey: (...args: unknown[]) => calls.push(['key', args[0], args[2]]),
-    preventDefault: () => calls.push(['preventDefault']), blur: () => {},
+    preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']), blur: () => {},
   };
   return { state: page.state(scope), scope, calls };
 }
@@ -40,7 +40,7 @@ describe('server browser Copy and Cut', () => {
     expect(calls).toEqual([['preventDefault']]);
   });
   // ServerBrowserSurface handleMouseUp (#22522): a mouse's Back and Forward step the tab at the release, with or without
-  // control, and never reach the page.
+  // control, and never reach the page or the window's own Back and Forward.
   test('the thumb buttons step the tab\'s history at the release', () => {
     for (const controlled of [true, false]) {
       const { state, scope, calls } = mounted(controlled);
@@ -48,7 +48,7 @@ describe('server browser Copy and Cut', () => {
       page.call('mouse', state, at, ['down', { button: 3 }]);
       page.call('mouse', state, at, ['up', { button: 3 }]);
       page.call('mouse', state, at, ['up', { button: 4 }]);
-      expect(calls).toEqual([['preventDefault'], ['control', 'run-1', 'back'], ['preventDefault'], ['control', 'run-1', 'forward']]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['control', 'run-1', 'back'], ['preventDefault'], ['stopPropagation'], ['control', 'run-1', 'forward']]);
     }
   });
 });
