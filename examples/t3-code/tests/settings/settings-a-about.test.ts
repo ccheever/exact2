@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { applyCoreSetting, generalSections, resolveScope, serverContext } from '../../src/settings/settings-core';
 import { copyVersion, DesktopUpdateChannelPersistenceError, rememberDelivery, updateConfirmation } from '../../src/settings/settings-a-about';
-import { awaitsTrackSwitch } from '../../src/sidebar/update-everything-logic';
 import { announcements } from '../../src/shell/announce';
 import { fakeClient, fakeNative } from './settings-a.test';
 import { parseLocalBackendStatus } from '../../src/connections/local-backend';
@@ -104,29 +103,16 @@ describe('about: the Update track with no feed', () => {
   });
 });
 
-// AboutVersionSection unswitchedMachines and updateEverything.logic.ts awaitsTrackSwitch (T3 Code 2359643cff).
+// AboutVersionSection unswitchedMachines (T3 Code 2359643cff): its Review link opens the fleet's track switch, which
+// the clone does not port, so the row never counts machines on the other track or offers Review.
 describe('about: machines on the other track', () => {
-  const machine = (serverVersion: string, capabilities: Obj = { serverSelfUpdate: 'boot-service' }, os = 'linux', hostedByThisApp = false) =>
-    ({ hostedByThisApp, serverConfig: { environment: { serverVersion, capabilities, platform: { os } } } });
-  test('a remote host off the track that a switch could move', () => {
-    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4'), 'latest')).toBe(true);
-    expect(awaitsTrackSwitch(machine('0.1.6'), 'latest')).toBe(false);
-    expect(awaitsTrackSwitch(machine('0.1.6'), 'nightly')).toBe(true);
-    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', {}), 'latest')).toBe(false); // needs a manual update
-    expect(awaitsTrackSwitch(machine('0.1.7-preview.20261101.4'), 'latest')).toBe(false);
-    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', { serverSelfUpdate: 'desktop-managed', desktopAppChannelSwitch: true }), 'latest')).toBe(true);
-    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', { serverSelfUpdate: 'desktop-managed', desktopAppChannelSwitch: true }, 'darwin'), 'latest')).toBe(false);
-    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', {}, 'linux', true), 'latest')).toBe(false);
-  });
-  test('the description counts them, with the Review link', () => {
+  test('a remote host on Nightly leaves the description plain, with no Review link', () => {
     const client = fakeClient();
     rememberDelivery(as(client), 'embedded', false);
     Object.assign(client, { connection: 'connected', origin: 'http://127.0.0.1:16618', scopes: ['environment:maintain'] });
     (client.config.environment as Obj).serverVersion = '0.1.7-nightly.20261101.4';
     (client.config.environment as Obj).capabilities = { serverSelfUpdate: 'boot-service' };
-    expect(aboutRows(client)[1]).toMatchObject({ id: 'update-track', description: '1 machine still runs Nightly.', label2: 'Review' });
-    (client.config.environment as Obj).serverVersion = '0.1.6';
-    expect(aboutRows(client)[1]).toMatchObject({ description: 'Switches this app and every connected machine whose database the target release supports.', label2: '' });
+    expect(aboutRows(client)[1]).toMatchObject({ id: 'update-track', description: 'Switches this app and every connected machine whose database the target release supports.', label2: '' });
   });
 });
 
