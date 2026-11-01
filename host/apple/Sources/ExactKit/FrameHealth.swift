@@ -20,21 +20,16 @@ final class FrameHealth {
         .map { $0 == "core" } ?? !ExactEnv.productionBake
     private(set) var handle: UInt32
     let source: String
-    let window = FrameHealthWindow()
     var nativeCoverage = "unobserved"
     var nativeHealth: FrameHealth?
     var nativeScrollActive = false
     var nativeSampleLoss: UInt64 = 0
     weak var publicationOwner: FrameHealth?
-    var inspectorCapture = false
-    var inspected: (() -> Void)? { didSet { FrameHealthPublication.update(self) } }
-    var inspectionEnded: (() -> Void)?
     #if (os(iOS) || os(tvOS)) && !targetEnvironment(macCatalyst)
     var scrollObserver: AnyObject?
     #endif
     #if os(macOS)
     weak var macContainer: NSView?
-    var inspectorController: NSWindowController?
     var desktopOverlay: FrameHealthOverlayMac?
     #endif
     private var lifecycle: [NSObjectProtocol] = []
@@ -74,6 +69,15 @@ final class FrameHealth {
         unavailableCode = !enabled ? "collection-disabled" : !Thread.isMainThread ? "wrong-thread" : handle == 0 ? "collector-capacity" : nil
         unavailableReason = enabled ? (!Thread.isMainThread ? "Frame health requires a UI-thread session." : handle == 0 ? "Collector capacity reached. Close unused sessions and reload." : nil)
             : "Collection is disabled in this build."
+    }
+
+    /// Why this session's card cannot read and how to change that, for a person; nil when it can.
+    var unavailableExplanation: (title: String, message: String)? {
+        guard !enabled else { return nil }
+        guard unavailableCode != "collection-disabled" else {
+            return ("Frame Health Is Off", "This build does not collect frame timing. Production builds leave collection off unless the app asks for it. To turn it on, set \"frame_health\": { \"mode\": \"core\" } in app.json and build the app again.")
+        }
+        return ("Frame Health Is Unavailable", unavailableReason ?? "This session does not collect frame timing.")
     }
 
     func attach(_ session: ExactSession) {
@@ -168,8 +172,6 @@ final class FrameHealth {
             recorded = finish(index) || recorded
         }
         guard recorded else { return }
-        // The detail panel's cached read predates this work record
-        window.invalidate()
         // A landing after the source stopped is the last change; publish it past the throttle
         if running { (publicationOwner ?? self).publicationDue(at: now) } else { (publicationOwner ?? self).publish() }
     }
@@ -198,7 +200,7 @@ final class FrameHealth {
     }
 
     func publicationDue(at now: Double) {
-        guard changed != nil || inspected != nil else { return }
+        guard changed != nil else { return }
         publicationDirty = true
         FrameHealthPublication.request(at: now)
     }
@@ -211,7 +213,6 @@ final class FrameHealth {
         abandon(Self.canvas)
         chart?.endRun()
         exact_frame_health_stop(handle)
-        window.invalidate()
         (publicationOwner ?? self).publish()
     }
 
@@ -222,7 +223,6 @@ final class FrameHealth {
         #endif
         nativeHealth?.clockChanged(virtual: virtual)
         track = nil
-        window.invalidate()
         exact_frame_health_reset(handle)
         chart?.reset()
         pending = [Pending?](repeating: nil, count: 3)
@@ -241,7 +241,7 @@ final class FrameHealth {
     }
 
     fileprivate func publish() {
-        guard changed != nil || inspected != nil else { return }
+        guard changed != nil else { return }
         publicationDirty = true
         FrameHealthPublication.request(at: CACurrentMediaTime(), force: true)
     }
@@ -261,12 +261,9 @@ final class FrameHealth {
         scrollObserver = nil
         #endif
         #if os(macOS)
-        let desktop = desktopOverlay, inspector = inspectorController
-        desktopOverlay = nil; inspectorController = nil
+        let desktop = desktopOverlay
+        desktopOverlay = nil
         #endif
-        let inspection = inspectionEnded
-        inspectionEnded = nil
-        inspected = nil
         let notifications = lifecycle
         lifecycle.removeAll()
         if captureID != 0 { FrameHealthEnvironment.release(); captureID = 0 }
@@ -281,10 +278,9 @@ final class FrameHealth {
             #endif
             native?.destroy()
             #if os(macOS)
-            desktop?.setVisible(false); desktop?.removeFromSuperview(); inspector?.close()
+            desktop?.setVisible(false); desktop?.removeFromSuperview()
             #endif
             notifications.forEach(NotificationCenter.default.removeObserver)
-            inspection?()
             finish?()
             if closing != 0 { exact_frame_health_destroy(closing) }
         }

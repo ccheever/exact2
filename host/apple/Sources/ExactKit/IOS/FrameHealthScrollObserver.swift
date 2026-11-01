@@ -88,7 +88,6 @@ extension FrameHealth {
                 scrollObserver = observer
                 nativeHealth = observer.health
                 nativeHealth?.setHUDVisible(hudVisible)
-                nativeHealth?.setInspectorVisible(inspectorCapture)
                 if liveCapture { _ = nativeHealth?.setAgentCapture("start", duration: min(120_000, max(1, (agentCaptureUntil - CACurrentMediaTime()) * 1000).rounded())) }
                 nativeCoverage = observer.health.enabled ? "passive native-scroll proxy; presentation/cadence unqualified" : "native-scroll collector capacity exhausted"
             }

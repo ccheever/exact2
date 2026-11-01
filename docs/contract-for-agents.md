@@ -3217,18 +3217,22 @@ it. Copy (iOS and macOS) takes all of it as text.
 
 On iOS, **Show Frame Health** opens a native card below sheets and alerts; the Mac's
 Develop menu has the same item. It starts hidden and takes the touches within its
-bounds: drag it from anywhere, and on release it springs to the window corner nearest
-where its momentum would carry it; accessibility actions move it to a corner. Close,
-at its top left, or **Hide Frame Health** dismisses it. Touches outside it reach the
-app. LLP 1079.000 §7.2 describes its rows: Live, Paused or Idle; the requested rate
-and any system limit; frame rate and missed frames for the last 0.5 s and 5 s; pacing;
-and charts of frame rate and frame time, or a table of work time, late frames, maximum
-frame time and pacing changes. A tap on a chart expands it; a tap on the title defines
-each figure; Copy puts text and a picture on the clipboard. The card states no pass or
-fail of its own; Details lists `perf frames health`'s results with their reasons.
-These are timing proxies; actual presentation and native-only animation cadence are
-unmeasured. While the card is shown, bounded hitch capture also records matching
-asynchronous owner and apply timestamps. Idle time never becomes a frame time.
+bounds: drag it from anywhere, even past the window's edges, and on release it springs
+to the window corner nearest where its momentum would carry it, past the safe area;
+accessibility actions move it to a corner. Close, at its top left, or **Hide Frame
+Health** dismisses it. Touches outside it reach the app. LLP 1079.000 §7.2 describes
+its rows: Live, Paused or Idle; the requested rate and any system limit; frame rate
+and missed frames for the last 0.5 s and 5 s; pacing; and charts of frame rate and
+frame time, or a table of work time, late frames, maximum frame time and pacing
+changes. A tap on a chart expands it; a tap on the title defines each figure; Share,
+at its top right, asks what to share, Agent Report, Summary or Image, and opens the
+system's share sheet with that one item. The card states no pass or fail of its own;
+Details, beside Share, swaps everything below the header for `perf frames health`'s
+three results over the last 5 s with their reasons and the counts behind them, in rows
+that scroll within the card. These are timing proxies; actual presentation and
+native-only animation cadence are unmeasured. While the card is shown, bounded hitch
+capture also records matching asynchronous owner and apply timestamps. Idle time never
+becomes a frame time.
 
 The card's charts take each frame and show the last 30 seconds: the frame rate's
 moving average over the last half second against the request, and each frame's frame
@@ -3240,16 +3244,18 @@ every half second, and at once when the source stops, on the existing bounded
 publication pass in common run-loop modes, so touch tracking does not suspend them.
 The reader creates no display link or polling timer, reads nothing while the card is
 hidden, paused or detached, and keeps at most 60 half-second samples. During native
-scrolling the card stays on the app callback source; the separate experimental scroll
-source is available in Details.
+scrolling the card stays on the app callback source; in development builds on iOS 18
+and later the separate experimental scroll source reaches `perf frames` and the report.
 
 `perf frames health` exposes the metrics. `state.frameHealthUI` contains only the
 card's visibility and window-local bounds, marked as host controls outside app nodes.
 Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthContainer`.
 
-`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Builds with development
-trust default to core counters; production bakes default to off pending device
-qualification. Showing the card does not override that policy. The core has fixed
+`app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Builds with
+development trust default to core counters; production bakes default to off pending
+device qualification. Showing the card does not override that policy: where collection
+is off, the developer menu's Frame Health row is dimmed, and a tap on it says so and
+how to turn collection on; on the Mac, choosing the item does. The core has fixed
 storage for up to 16 collectors per UI thread and does no per-callback allocation;
 these bounds do not substitute for measuring whole-hook overhead on real devices.
 
@@ -3258,9 +3264,9 @@ these bounds do not substitute for measuring whole-hook overhead on real devices
 Run an Apple app on a connected phone with `bun host/apple/build.mjs --device --run`.
 For a production bake, opt into collection with `"frame_health": { "mode": "core" }`
 before building. Open the four-finger menu and choose **Show Frame Health**, reproduce
-the hitch, then choose **Share Frame Health…**. Share or Copy supplies JSON text;
-Exact creates no report file or automatic upload. A person can send that text to an
-agent. The system share destination controls any storage it creates.
+the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
+the JSON text. Exact creates no report file or automatic upload. A person can send
+that text to an agent. The system share destination controls any storage it creates.
 
 For controlled device checks, `scripts/fixtures/frame-health-app` is a minimal fixture:
 one Start/Stop button, one moving canvas tile and 32 static rows. It starts paused;
@@ -3282,7 +3288,7 @@ requires iOS 27.0 or later.
 Each source retains its latest 16 timing events in fixed memory. A report includes
 only events from the last 120 seconds. A burst can overwrite the ring sooner; the
 report names overwrite, expiry and byte-budget omissions separately. Hiding the card
-stops detail capture unless the details panel or an agent lease still owns it. Reload
+stops detail capture unless an agent lease still owns it. Reload
 preserves retained evidence and advances the generation; explicit clear or session
 teardown removes it. The core creates no expiry timer, extra display link, stack
 sampling, screenshots or log collection. The optional scroll observer is described below.
@@ -3301,7 +3307,7 @@ perf frames capture stop
 perf frames capture clear
 ```
 
-A capture lease lasts 1–120000 ms, default 60000. The card, details panel and agent
+A capture lease lasts 1–120000 ms, default 60000. The card and the agent
 lease own capture independently. Existing callbacks, applies and reads check expiry;
 an idle app gets no expiry wakeup. Power/thermal notification observers can remain until that next
 check. Reports bypass the legacy sampler and cost at most 4 KB (4000 UTF-8 bytes,
@@ -3453,15 +3459,16 @@ sample. The observer reports completion-deadline overruns. Its cadence is unknow
 passive updates can pause while a finger rests, so they contribute no FPS, interval
 histogram or maximum-gap population. This observer is not presentation feedback.
 
-On macOS, Develop offers Show/Hide Frame Health, Frame Health Details and Share Frame
-Health. Actions follow the responder chain to the eligible window; an embedder opts in
-by passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter supplies
-its host slot. The card passes body clicks through and moves without changing the
-app's viewport. Details use a native sheet on both platforms, with separate App/Scroll
-sources. Active reader updates are coalesced at half-second intervals across the
-process. Lifecycle changes may publish immediately; there is no idle publication timer. macOS spatial
-motion, canvases and press feedback request the current display maximum, including
-above 120 Hz; press clocks are per window and update when its screen changes.
+On macOS, Develop offers Show/Hide Frame Health, and the card's Details and Share work
+as on iOS. Actions follow the responder chain to the eligible window; an embedder opts
+in by passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter
+supplies its host slot. The card takes the clicks within its bounds and moves without
+changing the app's viewport. Details shows within the card on both platforms, with the
+app's frames. Active reader updates are coalesced at half-second intervals across the
+process. Lifecycle changes may publish immediately; there is no idle publication
+timer. macOS spatial motion, canvases and press feedback request the current display
+maximum, including above 120 Hz; press clocks are per window and update when its
+screen changes.
 
 `exact.frame-health/2` is a versioned JSON schema. Field explanations stay here to
 leave bytes for evidence. `columns` names each field in a `hitches` row. Export keeps
@@ -3503,8 +3510,7 @@ outside an agent run for production behavior.
 tasks, 20 fill pending, 21 tick pending, 22 hatch frames, 23 workload flags known
 (otherwise bits 16–22 are unavailable); bits 32–33 thermal state
 (0 nominal, 1 fair, 2 serious, 3 critical), 34 Low Power Mode, 35 card shown, 36 card
-dragging, 38 details panel shown. These cached observations do not establish which activity
-caused the hitch.
+dragging. These cached observations do not establish which activity caused the hitch.
 
 Save received text as `report.frame-health.json` if needed, then use
 `bun scripts/agent.mjs trace report.frame-health.json` for the expert readout. This

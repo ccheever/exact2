@@ -2,7 +2,6 @@
 import UIKit
 import CExact
 import ObjectiveC
-import UniformTypeIdentifiers
 
 /// Host UI outside the app's node tree, below sheets and alerts. The card takes the touches within
 /// its bounds, and touches outside it reach the app (LLP 1079.000 §7.2).
@@ -42,6 +41,10 @@ final class FrameHealthOverlay: UIView {
         card.activate = { [weak self] control in self?.activate(control) }
         card.expandedChanged = { [weak self] in self?.render() }
         card.accessibilityMove = { [weak self] edge in self?.move(toward: edge) ?? false }
+        // The card grows with the text size
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (overlay: FrameHealthOverlay, _: UITraitCollection) in
+            overlay.setNeedsLayout()
+        }
         health.ended = { [weak self] in self?.detach() }
         let center = NotificationCenter.default
         // Scenes change state independently, so only the card's own scene's transitions count
@@ -99,7 +102,7 @@ final class FrameHealthOverlay: UIView {
         return true
     }
 
-    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Copy
+    /// Sample on each publication. A pause freezes the reader, so the face, accessibility and Share
     /// all describe the same samples; a drag only defers drawing.
     func refresh(now: Double = CACurrentMediaTime()) {
         guard let health else { return }
@@ -146,7 +149,8 @@ final class FrameHealthOverlay: UIView {
         guard let health else { return }
         card.update(FrameHealthCardPresentation(reader: reader, rates: rates, display: display,
             status: paused ? .paused : health.snapshot().running != 0 ? .live : .idle,
-            unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason))
+            unavailable: health.enabled ? reader.reading ? nil : FrameHealthReaders.full : health.unavailableReason, health: health,
+            details: card.state.showsDetails))
     }
 
     static func display(_ screen: UIScreen) -> FrameHealthCardText.Display {
@@ -167,28 +171,57 @@ final class FrameHealthOverlay: UIView {
             if paused { render() } else { refresh() }
         case .close: hideReadout()
         case .title: DevMenu.showFrameHealthDefinitions()
-        case .copy: copySummary()
+        case .details:
+            card.showDetails(!card.state.showsDetails)
+            render()
+        case .share: chooseShare()
         case .charts, .table:
             card.state.table = control == .table
             render()
         }
     }
 
-    /// One clipboard item with the text summary and a picture of the charts and every figure.
-    private func copySummary() {
-        let (text, picture) = FrameHealthCardText.copy(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
-            palette: card.palette)
-        var item: [String: Any] = [UTType.utf8PlainText.identifier: text]
-        if let picture { item[UTType.png.identifier] = picture }
-        UIPasteboard.general.setItems([item])
-        let message = item.count == 2 ? "Picture and text copied" : "Text copied"
-        card.showCopied(message)
-        UIAccessibility.post(notification: .announcement, argument: message)
+    /// What to share, as an action sheet from the Share button, which UIKit shows as a popover from it
+    /// where there is room.
+    private func chooseShare() {
+        guard let presenter = ViewPresentation.presenter(for: card) else { return }
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        for kind in FrameHealthShare.allCases {
+            sheet.addAction(UIAlertAction(title: kind.title, style: .default) { [weak self] _ in self?.share(kind) })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.popoverPresentationController?.sourceView = card
+        sheet.popoverPresentationController?.sourceRect = card.shareFrame
+        presenter.present(sheet, animated: !ExactEnv.agentFreezes)
+    }
+
+    /// The system's share sheet with one item: the report an agent reads, the summary, or the image.
+    /// It leaves out Assign to Contact, which an image would offer.
+    func share(_ kind: FrameHealthShare) {
+        guard let health else { return }
+        let present = { [weak self] (item: Any) in
+            guard let self, let presenter = ViewPresentation.presenter(for: card) else { return }
+            let sheet = UIActivityViewController(activityItems: [item], applicationActivities: nil)
+            sheet.excludedActivityTypes = [.assignToContact]
+            sheet.popoverPresentationController?.sourceView = card
+            sheet.popoverPresentationController?.sourceRect = card.shareFrame
+            presenter.present(sheet, animated: !ExactEnv.agentFreezes)
+        }
+        switch kind {
+        case .report:
+            FrameHealthReport.prepare(health: health.reportSource, session: DevMenu.session) { present(String(decoding: $0, as: UTF8.self)) }
+        case .summary: present(FrameHealthCardText.summary(reader: reader, rates: rates, display: display, paused: paused, health: health).text)
+        case .image:
+            let picture = FrameHealthCardText.picture(reader: reader, chart: card.chart, rates: rates, display: display, paused: paused,
+                health: health, palette: card.palette)
+            if let image = picture.flatMap(UIImage.init(data:)) { present(image) }
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        var available = bounds.inset(by: safeAreaInsets).insetBy(dx: 8, dy: 8)
+        // Corners 8 points from the window's edges, past its safe area, and above any keyboard
+        var available = bounds.insetBy(dx: 8, dy: 8)
         if let keyboard, keyboard.intersects(available), keyboard.maxY >= available.maxY {
             available.size.height = max(0, keyboard.minY - 8 - available.minY)
         }
@@ -209,31 +242,27 @@ final class FrameHealthOverlay: UIView {
         let size = CGSize(width: min(FrameHealthCardFace.width, available.width / card.scale) * card.scale,
             height: (full == nil ? FrameHealthCardFace.compactHeight : FrameHealthCardFace.height) * card.scale)
         if card.frame.size != size { card.frame.size = size; card.setNeedsDisplay() }
-        // A spring toward a corner the new geometry moved turns toward where it is now
+        // A dragged card stays under the press; a spring toward a corner the new geometry moved turns
+        // toward where it is now
         let target = corner.origin(of: size, in: available)
-        if dragging { card.frame.origin = clamped(card.frame.origin) }
-        else if snap == nil { card.frame.origin = target }
-        else if card.frame.origin != target { stopSnap(); spring(velocity: .zero) }
+        if !dragging, snap == nil { card.frame.origin = target }
+        else if !dragging, card.frame.origin != target { stopSnap(); spring(velocity: .zero) }
         health?.hudBounds = window.map { card.convert(card.bounds, to: $0) }
         if card.isHidden != wasHidden { refresh() }
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        card.resolveColors()
-        setNeedsLayout()
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // A springing card is where it is drawn, not where it will rest
         guard !isHidden, !card.isHidden, (card.layer.presentation()?.frame ?? card.frame).contains(point) else { return nil }
-        return card
+        // Details rows that scroll take the touches on them; everywhere else the card takes them, to drag or press
+        let scroll = card.detailsScroll
+        return !scroll.isHidden && scroll.isScrollEnabled && scroll.frame.contains(convert(point, to: card)) ? scroll : card
     }
 
     private func move(to origin: CGPoint) {
         health?.hudDragging = true
         UIView.performWithoutAnimation {
-            card.frame.origin = clamped(origin)
+            card.frame.origin = FrameHealthCardFace.resisted(origin, size: card.frame.size, in: availableFrame)
             health?.hudBounds = window.map { card.convert(card.bounds, to: $0) }
         }
     }
@@ -280,10 +309,6 @@ final class FrameHealthOverlay: UIView {
     }
 
     @objc @discardableResult func hideReadout() -> Bool { setVisible(false); return true }
-    private func clamped(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: min(max(point.x, availableFrame.minX), max(availableFrame.minX, availableFrame.maxX - card.frame.width)),
-            y: min(max(point.y, availableFrame.minY), max(availableFrame.minY, availableFrame.maxY - card.frame.height)))
-    }
 }
 
 /// The card: one opaque view that draws its face and its charts or table by hand, and turns
@@ -301,7 +326,6 @@ final class FrameHealthCardView: UIView {
     private(set) var drag: FrameHealthCardFace.Drag?
     private(set) var presentation = FrameHealthCardPresentation()
     private(set) var palette: FrameHealthCardDrawing.Palette!
-    private var copiedUntil: DispatchWorkItem?
     var grabbed: (() -> Void)?
     var moved: ((CGPoint) -> Void)?
     /// At the end of a press: with the release velocity in points a second after a drag, or nil
@@ -311,16 +335,43 @@ final class FrameHealthCardView: UIView {
     /// Toward an edge: a negative or positive component, or zero to keep that axis
     var accessibilityMove: ((CGVector) -> Bool)?
     private var elements: [Element] = []
+    /// Details in place of everything below the header, its rows drawn on one opaque view that scrolls
+    /// where they outgrow the area; it shows no scroll indicator or edge effect, which would blend, and
+    /// takes no safe-area inset, since the card can rest past the safe area
+    let detailsScroll = UIScrollView()
+    private let detailsView = DetailsView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = true
-        // The drawing fills the bounds; the layer clips it to the card's rounded outline
-        layer.cornerRadius = 12
-        layer.cornerCurve = .continuous
+        detailsScroll.isHidden = true
+        detailsScroll.showsVerticalScrollIndicator = false
+        detailsScroll.showsHorizontalScrollIndicator = false
+        detailsScroll.contentInsetAdjustmentBehavior = .never
+        if #available(iOS 26.0, *) {
+            for edge in [detailsScroll.topEdgeEffect, detailsScroll.leftEdgeEffect, detailsScroll.bottomEdgeEffect, detailsScroll.rightEdgeEffect] {
+                edge.isHidden = true
+            }
+        }
+        detailsScroll.isOpaque = true
+        detailsScroll.addSubview(detailsView)
+        addSubview(detailsScroll)
+        // The drawing fills the bounds; the layer clips it to the card's rounded outline, which in a
+        // corner of the screen follows the screen's own rounding, so that rounding never cuts the card
+        if #available(iOS 26.0, *) {
+            cornerConfiguration = .corners(radius: .containerConcentric(minimum: 12))
+        } else {
+            layer.cornerRadius = 12
+            layer.cornerCurve = .continuous
+        }
         layer.masksToBounds = true
         isMultipleTouchEnabled = false
         resolveColors()
+        // Colors resolve again as soon as the appearance changes: UIKit updates a view's traits lazily,
+        // so without this the card would keep its colors until something laid it out
+        registerForTraitChanges(UITraitCollection.systemTraitsAffectingColorAppearance + [UITraitDisplayScale.self]) {
+            (card: FrameHealthCardView, _: UITraitCollection) in card.resolveColors()
+        }
         addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(hover(_:))))
         elements = Element.all(self)
         accessibilityElements = elements
@@ -328,14 +379,38 @@ final class FrameHealthCardView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private var layout: FrameHealthCardFace.Layout { .init(width: bounds.width / scale, compact: compact) }
+    private var layout: FrameHealthCardFace.Layout { .init(width: bounds.width / scale, compact: compact, showsDetails: state.showsDetails) }
     private func face(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x / scale, y: point.y / scale) }
     private func view(_ rect: CGRect) -> CGRect { rect.applying(CGAffineTransform(scaleX: scale, y: scale)) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        layoutDetails()
         updateAccessibility()
         updatePlots()
+    }
+
+    /// Show Details in place of everything below the header, from its first row, or the charts or table again.
+    func showDetails(_ shown: Bool) {
+        state.showsDetails = shown
+        detailsScroll.isHidden = !shown
+        detailsScroll.contentOffset = .zero
+        layoutDetails()
+        setNeedsDisplay()
+        updateAccessibility()
+        updatePlots()
+    }
+
+    private func layoutDetails() {
+        guard state.showsDetails, let palette else { return }
+        let l = layout, area = view(l.detailsArea)
+        let height = FrameHealthCardFace.detailsHeight(width: l.width, rows: presentation.details, caption: presentation.detailsCaption) * scale
+        detailsScroll.frame = area
+        detailsScroll.backgroundColor = UIColor(cgColor: palette.background)
+        detailsScroll.contentSize = CGSize(width: area.width, height: max(area.height, height))
+        detailsScroll.isScrollEnabled = height > area.height
+        detailsView.frame = CGRect(origin: .zero, size: detailsScroll.contentSize)
+        detailsView.set(rows: presentation.details, caption: presentation.detailsCaption, width: l.width, scale: scale, palette: palette)
     }
 
     func resolveColors() {
@@ -349,6 +424,7 @@ final class FrameHealthCardView: UIView {
         layer.borderWidth = 1 / max(1, t.displayScale)
         layer.borderColor = palette.separator
         setNeedsDisplay()
+        layoutDetails()
         updatePlots(force: true)
     }
 
@@ -360,38 +436,28 @@ final class FrameHealthCardView: UIView {
         updateAccessibility()
         // The table changes with each sample; the charts' labels only with their scales
         let labels = [next.input?.rateTop, next.input?.timeTop, state.table ? 1 : 0]
-        if header { setNeedsDisplay() } else {
+        // Under Details only the header shows, and Details draws its own rows
+        if header { setNeedsDisplay() } else if !state.showsDetails {
             setNeedsDisplay(view(layout.figures))
             if !compact, state.table || labels != chartLabels { setNeedsDisplay(view(layout.chartArea)) }
         }
         chartLabels = labels
+        layoutDetails()
         updatePlots()
     }
 
     /// Place the shown plots' layers; a change of place, scale or palette draws them whole.
     private func updatePlots(force: Bool = false) {
         guard let palette else { return }
-        let shown = presentation.input.map { compact || state.table ? [] : FrameHealthCardDrawing.plots(layout.chartArea, $0, expanded: expanded) } ?? []
+        let shown = presentation.input.map { compact || state.table || state.showsDetails ? [] : FrameHealthCardDrawing.plots(layout.chartArea, $0, expanded: expanded) } ?? []
         chart.configure(shown, scale: scale, contentsScale: traitCollection.displayScale, palette: palette, force: force)
     }
 
     /// Release the samples the drawing holds, when the reader stops.
     func clear() { update(FrameHealthCardPresentation()) }
 
-    func showCopied(_ message: String) {
-        state.copied = true
-        elements.first { $0.role == .copy }?.accessibilityValue = message
-        setNeedsDisplay(view(CGRect(x: 0, y: 0, width: layout.width, height: 44)))
-        copiedUntil?.cancel()
-        let reset = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            state.copied = false
-            elements.first { $0.role == .copy }?.accessibilityValue = nil
-            setNeedsDisplay(view(CGRect(x: 0, y: 0, width: layout.width, height: 44)))
-        }
-        copiedUntil = reset
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: reset)
-    }
+    /// Where Share is drawn, for the share sheet's popover
+    var shareFrame: CGRect { view(layout.share) }
 
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext(), let palette else { return }
@@ -399,7 +465,7 @@ final class FrameHealthCardView: UIView {
         ctx.fill(bounds)
         ctx.scaleBy(x: scale, y: scale)
         FrameHealthCardFace.draw(ctx, width: layout.width, compact: compact, state: state, palette: palette)
-        guard !compact else { return }
+        guard !compact, !state.showsDetails else { return }
         let area = layout.chartArea, p = presentation
         if state.table {
             FrameHealthCardFace.table(ctx, area, columns: p.columns, rows: p.table, caption: p.caption, palette: palette)
@@ -454,7 +520,7 @@ final class FrameHealthCardView: UIView {
         if current.moved { return }
         if let control = current.control {
             if layout.control(at: point) == control { activate?(control) }
-        } else if !compact, !state.table, layout.chartArea.contains(point) {
+        } else if !compact, !state.table, !state.showsDetails, layout.chartArea.contains(point) {
             // The frame-rate chart is the top 80 points with half the gap below it
             toggle(chart: point.y - layout.chartArea.minY < 88 ? 0 : 1)
         }
@@ -485,7 +551,7 @@ final class FrameHealthCardView: UIView {
     // MARK: Accessibility: an element for each region the card draws.
 
     fileprivate final class Element: UIAccessibilityElement {
-        enum Role { case close, title, status, copy, context, figures, pacing, charts, table, rateChart, timeChart, tableView }
+        enum Role { case close, title, status, details, share, context, figures, pacing, charts, table, rateChart, timeChart, tableView, detailsView }
         let role: Role
         weak var card: FrameHealthCardView?
         init(_ role: Role, card: FrameHealthCardView) {
@@ -494,8 +560,8 @@ final class FrameHealthCardView: UIView {
             super.init(accessibilityContainer: card)
         }
         static func all(_ card: FrameHealthCardView) -> [Element] {
-            [.close, .title, .status, .copy, .context, .figures, .pacing, .charts, .table, .rateChart, .timeChart, .tableView]
-                .map { Element($0, card: card) }
+            [.close, .title, .status, .details, .share, .context, .figures, .pacing, .charts, .table, .rateChart, .timeChart, .tableView,
+             .detailsView].map { Element($0, card: card) }
         }
         override func accessibilityActivate() -> Bool {
             guard let card else { return false }
@@ -503,7 +569,8 @@ final class FrameHealthCardView: UIView {
             case .close: card.activate?(.close)
             case .title: card.activate?(.title)
             case .status: card.activate?(.status)
-            case .copy: card.activate?(.copy)
+            case .details: card.activate?(.details)
+            case .share: card.activate?(.share)
             case .charts: card.activate?(.charts)
             case .table: card.activate?(.table)
             case .rateChart: card.toggle(chart: 0)
@@ -531,7 +598,8 @@ final class FrameHealthCardView: UIView {
                 frame = l.status; traits = .button
                 label = state.status == .paused ? "Resume frame health" : "Pause frame health"
                 element.accessibilityValue = state.status == .paused ? "Paused" : state.status == .live ? "Live" : "Idle"
-            case .copy: frame = l.copy; label = "Copy a picture and a text summary"; traits = .button
+            case .details: frame = l.details; label = "Frame health details"; traits = state.showsDetails ? [.button, .selected] : .button
+            case .share: frame = l.share; label = "Share frame health"; traits = .button
             case .context:
                 frame = CGRect(x: 0, y: 44, width: l.width, height: 36)
                 label = [state.request.0, state.request.1, state.display].filter { !$0.isEmpty }.joined(separator: ", ")
@@ -560,11 +628,37 @@ final class FrameHealthCardView: UIView {
                 frame = chartArea
                 label = p.table.map { "\($0.0): " + zip(p.columns, $0.1).map { "\($1) (\($0))" }.joined(separator: ", ") }
                     .joined(separator: ". ") + ". " + p.caption
+            case .detailsView:
+                frame = l.detailsArea
+                label = p.details.map { "\($0.name): \($0.value)" + ($0.reason.map { ", " + $0 } ?? "") }.joined(separator: ". ") + ". " + p.detailsCaption
             }
+            // Details takes the place of everything below the header
+            if state.showsDetails, ![.close, .title, .status, .details, .share, .detailsView].contains(element.role) { hidden = true }
+            if element.role == .detailsView, !state.showsDetails { hidden = true }
             element.accessibilityFrameInContainerSpace = view(frame)
             element.accessibilityLabel = label
             element.accessibilityTraits = traits
             element.isAccessibilityElement = !hidden
+        }
+    }
+}
+
+extension FrameHealthCardView {
+    /// Details' rows and caption on one opaque surface, at the card's scale.
+    final class DetailsView: UIView {
+        private var rows: [FrameHealthCardText.Detail] = [], caption = "", width: CGFloat = 0, scale: CGFloat = 1
+        private var palette: FrameHealthCardDrawing.Palette?
+        override init(frame: CGRect) { super.init(frame: frame); isOpaque = true }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        func set(rows: [FrameHealthCardText.Detail], caption: String, width: CGFloat, scale: CGFloat, palette: FrameHealthCardDrawing.Palette) {
+            backgroundColor = UIColor(cgColor: palette.background)
+            (self.rows, self.caption, self.width, self.scale, self.palette) = (rows, caption, width, scale, palette)
+            setNeedsDisplay()
+        }
+        override func draw(_ rect: CGRect) {
+            guard let ctx = UIGraphicsGetCurrentContext(), let palette else { return }
+            ctx.scaleBy(x: scale, y: scale)
+            FrameHealthCardFace.details(ctx, width: width, rows: rows, caption: caption, palette: palette)
         }
     }
 }
