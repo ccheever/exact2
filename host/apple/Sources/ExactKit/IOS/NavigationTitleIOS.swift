@@ -237,6 +237,8 @@ final class HeaderTitleView: UIControl {
     private(set) var groupId: UInt32?
     #endif
     let avatar = UIImageView(), title = UILabel(), subtitle = UILabel()
+    /// The face the avatar draws, whose corners its lift takes (`ContextMenuHost.targeted`).
+    private(set) var avatarFace: BadgeFace?
     private let stack = UIStackView(), texts = UIStackView()
     /// The avatar's box, its face's size: the image's own size is not to be
     /// trusted, as its dark variant from the asset came back at 1x and drew
@@ -372,6 +374,7 @@ final class HeaderTitleView: UIControl {
         groupId = group.id
         #endif
         avatar.image = group.avatar?.image
+        avatarFace = group.avatar
         avatar.isHidden = group.avatar == nil
         avatarWidth.constant = group.avatar?.size ?? 0
         avatarHeight.constant = group.avatar?.size ?? 0

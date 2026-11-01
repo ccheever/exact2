@@ -72,7 +72,8 @@ extension NavigationBasicsIOSTests {
 
     /// A pressable group naming a context popover keeps its long press in the title the bar draws in its place:
     /// the title carries the group's menu, lifts as it begins, and pops its card, though the group itself is hidden
-    /// while the bar shows it.
+    /// while the bar shows it. With no card to pop, it lifts its avatar alone, in the avatar's corners on no ground,
+    /// as the platform's chat lifts the photo in its title.
     func testADrawnTitleCarriesItsGroupsContextMenu() throws {
         let session = try fixture("basics-title-menu")
         let (_, _, chat) = try chat(session)
@@ -85,6 +86,18 @@ extension NavigationBasicsIOSTests {
         let owner = try XCTUnwrap(menus.open)
         XCTAssertNotNil(menus.lift(owner), "its card pops")
         menus.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        let card = try node(session, "title-card")
+        card.isHidden = true
+        defer { card.isHidden = false }
+        let alone = try XCTUnwrap(menus.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: view.bounds.midX, y: view.bounds.midY)))
+        let photo = try XCTUnwrap(menus.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: alone))
+        XCTAssertTrue(photo.view === view.avatar, "with no card, the avatar lifts alone")
+        let shape = try XCTUnwrap(photo.parameters.visiblePath)
+        XCTAssertEqual(shape.bounds, view.avatar.bounds)
+        XCTAssertTrue(shape.contains(CGPoint(x: view.avatar.bounds.midX, y: view.avatar.bounds.midY)))
+        XCTAssertFalse(shape.contains(CGPoint(x: 1, y: 1)), "in the avatar's round corners")
+        XCTAssertEqual(photo.parameters.backgroundColor, .clear)
+        menus.contextMenuInteraction(interaction, willEndFor: alone, animator: nil)
     }
 
     /// The agent's long press on a group the bar draws as its title does what a finger's does: the title takes a

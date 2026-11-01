@@ -467,12 +467,21 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     }
 
     /// The view UIKit lifts: the node, clipped to its corners or to the
-    /// grounds it holds, or the list cell that draws it, in its background's shape.
+    /// grounds it holds, a bar title's avatar, or the list cell that draws
+    /// it, in its background's shape.
     private func targeted(_ configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
         guard let owner = open, let source = owner.source, live(source), (owner.touched ?? source).window != nil,
               (configuration.identifier as? NSNumber)?.uint32Value == (owner.inlineID ?? source.id) else { return nil }
         let parameters = UIPreviewParameters()
         var shown: UIView = owner.touched.flatMap { $0.window == nil ? nil : $0 } ?? source
+        // A bar title drawn with an avatar, whose menu has no preview row,
+        // lifts the avatar alone, in its corners on no ground, as the
+        // platform's chat lifts the photo in its title
+        if let title = shown as? HeaderTitleView, !title.avatar.isHidden, let face = title.avatarFace, !previews(owner) {
+            shown = title.avatar
+            parameters.visiblePath = UIBezierPath(cgPath: BorderPaint.roundedRect(title.avatar.bounds, face.corners))
+            parameters.backgroundColor = .clear
+        }
         if let id = owner.inlineID, let run = presenter?.inlineText(id) {
             let path = UIBezierPath()
             source.inlineRects(run).forEach { path.append(UIBezierPath(rect: $0)) }
@@ -509,6 +518,10 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
         }
         let target = UIPreviewTarget(container: window, center: superview.convert(shown.center, to: window), transform: transform)
         return UITargetedPreview(view: shown, parameters: parameters, target: target)
+    }
+    /// Whether the menu's popover has a preview row to show (`lift`).
+    private func previews(_ owner: Open) -> Bool {
+        current(owner)?.container.subviews.contains { ($0 as? NodeView)?.props["contextPreview"] == "true" && !$0.isHidden } ?? false
     }
     /// The grounds the nodes inside `view` paint, in `view`'s space, each in
     /// its clip path or its corners; nil when none paints one, or when a
