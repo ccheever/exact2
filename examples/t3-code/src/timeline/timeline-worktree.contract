@@ -13,10 +13,10 @@ keyframes tlSetupSpin
   from rotate=0
   to rotate=360
 
-// shared/orchestrationTiming formatDuration: "850ms", "1.5s", "12s", "1m 5s".
+// shared/orchestrationTiming formatDuration: "850ms", "1.5s", "3s" (no trailing ".0"), "12s", "1m 5s".
 fn setupTenths(ms: number): number = floor(ms / 100 + 0.5)
 fn setupWhole(seconds: number): string = `${seconds >= 3600 ? floor(seconds / 3600).toString() + "h " : ""}${floor(seconds % 3600 / 60) > 0 ? floor(seconds % 3600 / 60).toString() + "m " : ""}${seconds % 60 > 0 ? (seconds % 60).toString() + "s" : ""}`.trim()
-fn setupDuration(ms: number): string = ms < 1000 ? `${max(1, floor(ms + 0.5))}ms` : ms < 10000 ? (setupTenths(ms) >= 100 ? "10s" : setupTenths(ms) % 10 == 0 ? `${floor(setupTenths(ms) / 10)}.0s` : `${setupTenths(ms) / 10}s`) : floor(ms / 1000 + 0.5) < 60 ? `${floor(ms / 1000 + 0.5)}s` : setupWhole(floor(ms / 1000 + 0.5))
+fn setupDuration(ms: number): string = ms < 1000 ? `${max(1, floor(ms + 0.5))}ms` : ms < 10000 ? (setupTenths(ms) >= 100 ? "10s" : setupTenths(ms) % 10 == 0 ? `${floor(setupTenths(ms) / 10)}s` : `${setupTenths(ms) / 10}s`) : floor(ms / 1000 + 0.5) < 60 ? `${floor(ms / 1000 + 0.5)}s` : setupWhole(floor(ms / 1000 + 0.5))
 fn setupElapsed(started: number, ended: number, now: number): string = started <= 0 ? "" : setupDuration(max(0, (ended > 0 ? ended : now) - started))
 fn stageInk(status: string): string = status == "failed" ? "light-dark(#e7000b, #ff6467)" : status == "warning" ? "light-dark(#bb4d00, #fdc700)" : "light-dark(#71717b, #a1a1a1)"
 fn stageGlyph(status: string): string = status == "done" ? "check-mark" : status == "failed" ? "x" : status == "warning" ? "circle-alert" : status == "skipped" ? "minus" : "circle"

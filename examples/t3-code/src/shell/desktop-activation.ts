@@ -237,17 +237,22 @@ export function activationDependencies(client: T3Client, native: Native, source:
       const project = projects().find(candidate => candidate.id === projectId);
       if (!project) return null;
       const entry = target?.entry;
-      // Opening an archived project's folder again brings the project back; a failure is a toast, and the draft opens.
+      // Opening an archived project's folder again brings the project back; a failure is a toast, and the draft opens
+      // without waiting for the write (`void updateProject`). A remote machine's write goes before its connection is
+      // replaced below, which would cut it off, so that one is awaited.
       if (project.archivedAt != null) {
-        try {
-          const [commandId] = await client.ids(native, 1);
-          const payload = { type: 'project.update', commandId, projectId, archived: false };
-          if (entry) await fleetCall(native, entry, { op: 'request', method: 'projects.mutate', payload });
-          else await client.rpc(native, 'projects.mutate', payload, true);
-        } catch (error) {
-          // A cancelled write is no failure (reportProjectFailure skips an interrupted command), and blocks nothing.
-          if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
-        }
+        const unarchive = (async () => {
+          try {
+            const [commandId] = await client.ids(native, 1);
+            const payload = { type: 'project.update', commandId, projectId, archived: false };
+            if (entry) await fleetCall(native, entry, { op: 'request', method: 'projects.mutate', payload });
+            else await client.rpc(native, 'projects.mutate', payload, true);
+          } catch (error) {
+            // A cancelled write is no failure (reportProjectFailure skips an interrupted command), and blocks nothing.
+            if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+          }
+        })();
+        if (entry) await unarchive;
       }
       if (entry) {
         client.local.selections[environmentId] = { projectId, threadId: '' };

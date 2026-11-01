@@ -193,5 +193,5 @@ describe('worktree setup subscription lifetime', () => {
 
 test('the setup card\'s duration chooses its unit after rounding, as orchestrationTiming formatDuration does (#20299)', () => {
   const setupDuration = contractFns('src/timeline/timeline-worktree.contract', [], { floor: Math.floor }).setupDuration as (ms: number) => string;
-  for (const ms of [850, 1_500, 9_960, 12_000, 59_400, 59_500, 65_000, 3_599_500, 3_725_000]) expect(setupDuration(ms)).toBe(formatDuration(ms));
+  for (const ms of [850, 1_500, 3_000, 9_960, 12_000, 59_400, 59_500, 65_000, 3_599_500, 3_725_000]) expect(setupDuration(ms)).toBe(formatDuration(ms));
 });
