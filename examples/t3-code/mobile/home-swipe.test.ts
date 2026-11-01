@@ -26,7 +26,7 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
   expect(home).toContain('scrollbar-width="none" touch-action="pan-y"');
   expect(home).toContain('box-sizing="border-box" overflow-x="hidden"');
-  expect(thread).toContain('overscroll-behavior="contain" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
   const homeRow = home.indexOf('button appearance="none" press=selectThread(item.id)');
   const homeDivider = home.indexOf('if item.card and item.trailingDivider and not item.last and not sidebar');
   expect(homeRow).toBeGreaterThanOrEqual(0);

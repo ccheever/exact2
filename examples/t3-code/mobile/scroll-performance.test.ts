@@ -30,7 +30,7 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('button appearance="none" press=selectThread(item.id)');
   expect(home).toContain('keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"');
   expect(thread).toContain('column flex=1 min-height=0 min-width=0 justify-content="flex-end"');
-  expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
   expect(work).toContain('scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"');
