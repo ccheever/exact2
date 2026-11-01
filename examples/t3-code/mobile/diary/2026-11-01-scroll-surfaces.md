@@ -108,3 +108,11 @@ signature verification. The host's iOS tests already cover `pan-y` admission
 and native swipe precedence; no framework failure reproduced. Every local Duo
 target was occupied by another session, so this unit makes no runtime frame
 pacing or rendered-divider claim.
+
+The follow-up removes default native button chrome from Home swipe actions and
+Markdown code-copy controls. Code and table scrollports now own the horizontal
+touch axis, contain edge overscroll, hide incidental scrollbars and include
+their authored padding in the measured border box. Focused source tests pass;
+the normal source build succeeds. A runtime drive could not start because both
+available local simulators were owned by another workspace, so rendered motion,
+divider placement and any framework issue remain unqualified.

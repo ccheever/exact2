@@ -38,7 +38,7 @@ component HomeSwipeControls
   view
     row position="absolute" top=0 right=0 bottom=0 width=(secondary ? 116 : 58) align-items="center" opacity=actionOpacity
       // Lifecycle taps and full swipes await a separate coordinated-dismissal proof.
-      button disabled=true width=58 padding=0 aria-label=primaryAccessibilityLabel
+      button appearance="none" disabled=true width=58 padding=0 aria-label=primaryAccessibilityLabel
         display="flex" flex-direction="column" align-items="center" justify-content="center"
         opacity=primaryProgress translate=`${22 * (1 - primaryProgress)}px 0px` scale=(0.78 + primaryProgress * 0.22)
         testId=`home-swipe-primary-${token}`
@@ -46,7 +46,7 @@ component HomeSwipeControls
           t3-symbol symbol-name=primarySymbol symbol-weight="regular" symbol-tint=primaryForeground width=(card ? 15 : 13) height=(card ? 15 : 13)
         text primaryLabel font-size=11 line-height="14px" font-weight=500 color=muted padding-top=(card ? 2 : 0)
       if secondary
-        button popovertarget=(surface == "sidebar-list" ? "" : menuId) width=58 padding=0 disabled=(not enabled or not open)
+        button appearance="none" popovertarget=(surface == "sidebar-list" ? "" : menuId) width=58 padding=0 disabled=(not enabled or not open)
           display="flex" flex-direction="column" align-items="center" justify-content="center"
           aria-label=secondaryAccessibilityLabel
           opacity=secondaryProgress translate=`${22 * (1 - secondaryProgress)}px 0px` scale=(0.78 + secondaryProgress * 0.22)

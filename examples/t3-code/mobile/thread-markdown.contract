@@ -21,16 +21,16 @@ component ThreadMarkdown
               padding-top=3.5 padding-bottom=3.5 padding-left=12.25 padding-right=5.25
               text (block.language == "" ? "text" : block.language) flex=1 min-width=0 line-clamp=1 font-family="Menlo" font-size=13 line-height="19px"
                 text-transform="uppercase" opacity=0.7 color=(user ? colors.userCodeForeground : colors.codeForeground)
-              button press=action("chatlocal:copy-code", block.id, block.text) width=32 height=32 padding=0 aria-label="Copy code"
+              button appearance="none" press=action("chatlocal:copy-code", block.id, block.text) width=32 height=32 padding=0 aria-label="Copy code"
                 column align-items="center" justify-content="center" width=32 height=32
                   t3-symbol symbol-name="doc.on.doc" symbol-weight="regular" symbol-tint=colors.iconSubtle width=16 height=16
-            view overflow-x="auto" overflow-y="hidden" max-width="100%"
+            view overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-x" min-width=0 max-width="100%" box-sizing="border-box"
               padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5
               text font-family="Menlo" font-size=13 line-height="19px" white-space="pre"
                 for token in block.tokens key=token.id
                   text token.text user-select="text" color=token.color font-weight=token.weight font-style=token.slant
         else if block.kind == "table"
-          view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" margin-top=4 margin-bottom=12
+          view display="flex" align-items="flex-start" min-width=0 max-width="100%" overflow-x="auto" overflow-y="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-x" box-sizing="border-box" margin-top=4 margin-bottom=12
             view display="grid" role="table" flex="none" min-width=(block.columns * 60) grid-template-columns=`repeat(${block.columns}, fit-content(320px))`
               border-radius=8 border-width="-exact-hairline" border-style="solid" border-color=colors.borderSubtle
               for item in block.rows key=item.id
