@@ -164,6 +164,13 @@ export function keptThread(client: { generation: number }, threadId: string): Th
   const detail = owners.get(client)?.details.get(threadId);
   return detail && detail.status === 'live' && !detail.error && detail.thread ? detail.thread : null;
 }
+/** Replaces a live kept thread's state (a side chat's earlier history, its settled turn items); false when none is live. */
+export function setKeptThread(client: { generation: number }, threadId: string, thread: ThreadState | null): boolean {
+  const owner = owners.get(client), detail = owner?.details.get(threadId);
+  if (!thread || !owner || !detail || detail.status !== 'live' || detail.error || !detail.thread) return false;
+  owner.details.set(threadId, { ...detail, thread });
+  return true;
+}
 
 // ── Background environments (settings-b-fleet.ts) ──────────────────────────
 export function keepAliveFleetEvent(entry: FleetEntry, value: Obj): boolean {

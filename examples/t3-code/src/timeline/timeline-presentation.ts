@@ -10,6 +10,7 @@ import { threadFindAction, threadFindExpanded, threadFindView } from './thread-f
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
 import { openThreadLinkTarget, relabelThreadLinks } from './thread-links';
+import { isThreadScope } from '../client/scope-root';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
@@ -468,7 +469,9 @@ export function openCitedFold(client: T3Client, messageId: string): boolean {
  * useV2ItemSupport reads an item's own thread: this thread, or an inherited row's source while its
  * detail is live (a kept running thread); none, and the fork stays available.
  */
-function forkable(client: T3Client, row: Obj, item: Obj): boolean {
+export function forkable(client: T3Client, row: Obj, item: Obj): boolean {
+  // A side chat's runs offer no fork: it would promote the side chat (ChatView `embedded` passes no onForkFromRun).
+  if (isThreadScope(client)) return false;
   const source = str(row.sourceThreadId, client.threadId);
   const projection = source === client.threadId ? client.projection : keptThread(client, source)?.projection;
   return assistantCanFork(projection ?? {}, item);

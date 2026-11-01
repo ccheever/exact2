@@ -12,6 +12,8 @@ import { layoutFrames, noteLayoutFrames } from '../../src/shell/layout-frames';
 import { slashRows } from '../../src/composer/composer-editor-menu';
 import { childThreadInputs, childThreadInputsTitle, childThreadInputsWaiting, pendingSubagentRequestsByThread } from '../../src/sidebar/subagent-requests';
 import { subagentLead } from '../../src/sidebar/sidebar-lineage';
+import { keptThread } from '../../src/client/keep-alive';
+import { contractComponent } from '../support/contract-action-fixture';
 
 async function withSideChat() {
   const context = await opened();
@@ -135,4 +137,47 @@ describe('what a scope shares with its window', () => {
     await scopedCommand(context.client, 'scope:s1|select-thread', 't2', '', 0, context.native, context.disk.files);
     expect(context.client.threadId).toBe('t2');
   });
+});
+
+describe('what stays the window\'s, and what the side chat keeps', () => {
+  test('a thread the side chat opens opens in the window; the side chat keeps its own (onOpenThread)', async () => {
+    const context = await withSideChat();
+    const scope = threadScope(context.client, 's1');
+    await scope.openSelected(context.native, 't2');
+    expect(context.client.threadId).toBe('t2');
+    expect(scope.threadId).toBe('s1');
+  });
+  test('a new thread state written through the scope is its kept thread\'s (Load earlier, a stop\'s repair)', async () => {
+    const { client } = await withSideChat();
+    const scope = threadScope(client, 's1');
+    const before = scope.thread!;
+    scope.thread = { ...before, hasMore: true };
+    expect(keptThread(client, 's1')?.hasMore).toBe(true);
+    expect(scope.thread?.hasMore).toBe(true);
+    expect(client.thread).not.toBe(scope.thread);
+  });
+  test('the model picker and the menus serve the window\'s composer again once they close', () => {
+    const members = contractComponent('side-chat-members.contract', 'T3Code');
+    const state = { composerTarget: 's1' };
+    members.call('composerTargetReleased', state, { modelsOpen: true, optionsOpen: '' }, []);
+    expect(state.composerTarget).toBe('s1');
+    members.call('composerTargetReleased', state, { modelsOpen: false, optionsOpen: '' }, []);
+    expect(state.composerTarget).toBe('');
+  });
+  test('an over-limit prompt arms the limit notice and does not send, as the window\'s submit does', () => {
+    const members = contractComponent('side-chat-members.contract', 'T3Code');
+    const sent: unknown[][] = [];
+    members.call('sideSend', {}, { commandPending: false, sideChatThread: 's1', sideEditor: { overLimit: true }, sideText: 'long', sideRichOwner: 'o', sideDraftOwner: 'o',
+      sideChat: { requestMode: '', canSend: true, snapshotDrafts: [], composer: { uploadBlock: '', queueEditAttachments: [] } },
+      command: (...args: unknown[]) => args, sent: (name: string, args: unknown) => sent.push([name, args]) }, ['']);
+    expect(sent).toEqual([['localChanged', ['scope:s1|editorlocal:arm-limit', '', '', 0]]]);
+  });
+});
+
+test('a side chat\'s answers offer no Fork, which would promote the side chat (ChatView `embedded`)', async () => {
+  const { forkable } = await import('../../src/timeline/timeline-presentation');
+  const { client } = await withSideChat();
+  const answer = { type: 'assistant_message', runId: 'run', status: 'completed' };
+  expect(forkable(client, {}, answer)).toBe(true);
+  expect(forkable(threadScope(client, 's1'), {}, answer)).toBe(false);
 });

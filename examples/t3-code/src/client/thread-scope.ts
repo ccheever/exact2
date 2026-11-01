@@ -11,7 +11,7 @@
 // the window's (toasts, upload slots, layout frames) look up `windowClient(client)`. The module's anchors and the
 // layout boxes the scope reads are the ones its ids report, prefixed "side-chat-" (side-chat.contract).
 import type { T3Client } from './client';
-import { keptThread } from './keep-alive';
+import { keptThread, setKeptThread } from './keep-alive';
 import { obj, str, type Obj, type ThreadState } from './domain';
 import { applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { SCOPE_IDS, SCOPE_ROOT, windowClient } from './scope-root';
@@ -68,6 +68,8 @@ export function threadScope(client: T3Client, threadId: string): T3Client {
   const scope: T3Client = new Proxy(root, {
     get(target, prop, receiver) {
       if (prop === SCOPE_ROOT) return target;
+      // A thread the side chat opens opens in the window (ChatView's onOpenThread), never as the side chat's own.
+      if (prop === 'openSelected') return target.openSelected.bind(target);
       // The module's anchors under the scope's ids are its own (composer-label-probes.contract LabelProbe).
       if (prop === 'presentation') return scopedPresentation(target.presentation);
       if (prop === 'thread') return thread();
@@ -82,7 +84,10 @@ export function threadScope(client: T3Client, threadId: string): T3Client {
       return Reflect.get(target, prop, receiver);
     },
     set(target, prop, value) {
-      if (prop === 'thread' || prop === 'threadLive' || prop === 'threadSubscription') return true; // the kept stream owns them
+      // The kept stream owns these; a whole new thread state (Load earlier's merged history, a stop's settled items) is
+      // the kept thread's from here.
+      if (prop === 'thread') { setKeptThread(target, threadId, value as ThreadState | null); return true; }
+      if (prop === 'threadLive' || prop === 'threadSubscription') return true;
       if (typeof prop === 'string' && OWN.has(prop)) { own[prop] = value; return true; }
       return Reflect.set(target, prop, value);
     },

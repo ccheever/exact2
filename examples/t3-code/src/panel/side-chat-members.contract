@@ -41,8 +41,14 @@ members T3Code
       sideChatY = y
       sideChatWidth = width
       sideChatHeight = height
-  // The composer the model picker and the options menus serve: a side chat's thread, or "" for the window's.
+  // The composer the model picker and the options menus serve: a side chat's thread, or "" for the window's. It goes
+  // back to the window's once they close, however they close, so the window's own Plan toggle, ⇧⇥ and picks stay its.
   state composerTarget = ""
+  task composerTargetRelease when composerTarget != "" and not modelsOpen and optionsOpen == "" key=`${composerTarget}|${popoverSession}`
+    after(1, composerTargetReleased)
+  action composerTargetReleased
+    if not modelsOpen and optionsOpen == ""
+      composerTarget = ""
   derive composerTargetData = composerTarget != "" and composerTarget == sideChatThread ? sideChat : data
   // A command of the side chat's: the window's routing (app.contract command), on its thread.
   action sideCommand(op: string, id: string, value: string, n: number)
@@ -74,8 +80,10 @@ members T3Code
       send sideFieldChanged = sideFieldObserved(ComposerFieldObservation(generation=sideRich.generation, snapshotOwner=sideChat.snapshotOwner, owner=sideRichOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=true, focused=true, inputSerial=sideInputSerial), false, sideChatThread)
   // Send, Return and a question's answer, as the window's `submit` takes them.
   action sideSend(held: string)
-    if not commandPending and sideChatThread != "" and (sideChat.requestMode == "question" or sideChat.composer.uploadBlock == "")
-      if sideChat.requestMode == "question" or (sideChat.canSend and (sideText != "" or sideChat.snapshotDrafts.length > 0))
+    if not commandPending and sideChatThread != "" and sideEditor.overLimit and sideChat.requestMode != "question"
+      sideCommand("editorlocal:arm-limit", "", "", 0)
+    if not commandPending and sideChatThread != "" and (not sideEditor.overLimit or sideChat.requestMode == "question") and (sideChat.requestMode == "question" or sideChat.composer.uploadBlock == "")
+      if sideChat.requestMode == "question" or (sideChat.canSend and (sideText != "" or sideChat.snapshotDrafts.length > 0 or sideChat.composer.queueEditAttachments.length > 0))
         commandPending = true
         send changed = command(`scope:${sideChatThread}|send`, held == "" ? "" : `pointer:${held}`, sideText, 0)
         sideDraftOwner = "__unset__"
