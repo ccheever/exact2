@@ -1715,14 +1715,23 @@ and the Linux headless CPU renderer without claiming display frame timing.
   sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
   after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
   `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
-- **G7 Windows cadence needs foreground qualification** (2026-10-31,
-  LLP 1149.001). The display is 5120×1440 at 120 Hz, verified by PresentMon,
-  but two egui diagnostics each record 683 focus losses after the native DPI
-  journeys. Minimizing Settings and the native field driver's input-attachment
-  fallback do not grant foreground ownership; the third diagnostic stops
-  before its timed fling. The three-round repair limit is reached. Resolve
-  foreground acquisition, then collect all three arms' five quiet rounds;
-  do not promote the unfocused diagnostics into 120 Hz cadence or CPU rows.
+- **G7b Windows cadence and static rows need foreground qualification**
+  (2026-11-01, LLP 1149.001). At 5120×1440, 120 Hz, the first D3D11 fling
+  and its one retry fail before wheel input. Both identify ChatGPT.exe,
+  title ChatGPT, PID 22076, as foreground. Collection stops without another
+  workaround. Resolve foreground ownership before the five interleaved
+  fling rounds and the separate rest/bar/caret samples; the historical
+  60 Hz rows remain the comparison. G7b's quiet cold carrier endpoints and
+  first-paint pairs are recorded separately in RESULTS.
+- **G7b Windows startup PresentMon capture remains unqualified**
+  (2026-11-01, LLP 1149.001). Three configurations produce no CSV and lose
+  ETW events: start before launch and close at readiness, retain the process
+  through capture, and PID-filter immediately after process creation.
+  Repair stops at three configurations; exact archives and raw failures
+  remain in `target/g7b/`. Establish a zero-loss trace with app-owned startup
+  presents before claiming PresentMon corroboration. The quiet native
+  DWM/DXGI endpoint comparison is recorded as such, not as a successful
+  PresentMon startup capture.
 - **NucBox sleep/wake needs a verified wake-timer design** (2026-10-31,
   LLP 1149.001 G7). The unattended October 30 sleep journey never woke;
   G7 skips sleep/wake on both devices. Before another unattended attempt,

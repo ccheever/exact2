@@ -1125,6 +1125,33 @@ passes 56 tests with the AMD hook loaded; the prior fault does not recur.
 See [G7's predictions, rows and retained
 evidence](../bench/heavy-list/gpui/RESULTS.md#g7-windows-at-120-hz).
 
+**G7b, Windows, 2026-11-01:** cut 7's before/after comparison at 120 Hz
+uses `5dc29e7bb2` and `5892f92d5a`, ten interleaved fresh processes per arm
+and revision, caches retained. The repeat passes all 109 quiet observations
+(maximum 9.5% CPU); the first cohort is excluded whole for background load.
+The table gives **carrier endpoints only**: startup PresentMon loses events
+and produces no CSV in three capture configurations. G7b starts PresentMon
+before each launch; G7 did not, so their absolute difference is not isolated.
+Paired D3D11 savings are **2.37 ms DWM / 2.28 ms DXGI**, below prediction.
+Five quiet first-paint pairs give **8.13 → 6.81 ms** on D3D11 and
+**36.93 → 16.88 ms** on Ink/wgpu; every after process records two glyph-page
+copies. D3D11's predicted 10–20 ms paint saving misses. Its complete-screen
+DXGI median remains above the 100 ms obligation.
+
+| Windows cold endpoint, median ms | 60 Hz G6e/G6 | 120 Hz G7 | 120 Hz G7b before | 120 Hz G7b after |
+| --- | ---: | ---: | ---: | ---: |
+| D3D11 DWM proxy | 160.78 | 161.18 | 194.10 | 192.98 |
+| D3D11 DXGI display | 177.66 | 167.03 | 199.96 | 199.15 |
+| Ink/wgpu DWM proxy | 716.21 | 723.48 | 758.66 | 730.36 |
+| egui DWM proxy | 248.76 | 239.05 | 278.20 | 275.75 |
+
+The first fling and its one retry fail foreground acquisition before wheel
+input: both identify **ChatGPT.exe**, title **ChatGPT**, PID 22076. Collection
+stops. The five-round 120 Hz fling and separate rest/bar/caret rows remain
+uncollected; no carrier cadence limit is established and no presentation
+policy changes. See [G7b's predictions, failures and retained
+comparison](../bench/heavy-list/gpui/RESULTS.md#g7b-windows-at-120-hz-with-cut-7).
+
 **G6d, Windows, 2026-10-30**: reservation errors retry without terminating;
 visibility, focus, resize and DPI events clear presentation backoff; successful
 presents retry transient Mica refusal, bounded to three attempts. Clean redraws

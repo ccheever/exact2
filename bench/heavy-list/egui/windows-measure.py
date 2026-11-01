@@ -149,17 +149,6 @@ def run(arm, number, out, full, presentmon, capture=False, *, binary=None, motio
     log_path = out/(name+'.log')
     with log_path.open('wb') as log:
         pm = None
-        if presentmon and not full:
-            pm_log = (out/(name+'-presentmon.log')).open('wb')
-            pm = subprocess.Popen([str(ROOT/'target/g6/PresentMon.exe'),
-                '--process_name',binary.name,'--output_file',str(out/(name+'-presents.csv')),
-                '--qpc_time','--v1_metrics','--no_console_stats','--no_track_gpu',
-                '--no_track_input','--set_circular_buffer_size','65536',
-                '--timed','4','--terminate_after_timed',
-                '--session_name','ExactG7b-'+name+'-'+str(os.getpid())],
-                stdout=pm_log,stderr=subprocess.STDOUT)
-            record(out/'pids.jsonl',dict(name=name+'-presentmon',pid=pm.pid))
-            time.sleep(1)
         child = subprocess.Popen([str(binary)], env=env, cwd=binary.parent,
                                  stdout=log, stderr=subprocess.STDOUT)
         record(out/'pids.jsonl', dict(name=name, pid=child.pid))
@@ -192,9 +181,6 @@ def run(arm, number, out, full, presentmon, capture=False, *, binary=None, motio
             if capture:
                 time.sleep(1)
                 ImageGrab.grab(bbox=tuple(samples['dimensions']['outer'])).save(out/(name+'-top.png'))
-            if presentmon and not full:
-                # PresentMon resolves process names after consuming the deferred events.
-                pm.wait(timeout=8)
             if full:
                 if presentmon:
                     pm_log = (out/(name+'-presentmon.log')).open('wb')

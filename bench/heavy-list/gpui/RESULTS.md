@@ -11666,16 +11666,16 @@ PresentMon 2.6.0 supplies displayed timestamps; late means over 12.5 ms.
 Ink/wgpu's readback/softbuffer path has no app-owned displayed presents,
 so its displayed cadence remains unavailable if PresentMon cannot observe it.
 
-| Prediction | Instrument and criterion |
-| --- | --- |
-| D3D11 first paint saves 10–20 ms; DWM first complete screen falls from about 161 to 140–150 ms. | Existing Windows first-paint log, separately from the ten-launch DWM endpoint. DXGI display should fall by 10–20 ms in matched pairs. |
-| Windows first paint replaces roughly 250–310 glyph uploads with two dirty-page copies. | Existing painter counters in separate diagnostics. D3D11 uses one `UpdateSubresource` and completion query per dirty page instead of per mask; wgpu uses one staging submission. Windows has no glyph-upload duration span, so first-paint time cannot establish upload time alone. |
-| Ink/wgpu DWM first screen saves 10–25 ms, reaching 700–715 ms; egui remains within 10% of G7's 239.05 ms. | Ten launches per arm and revision, same DWM proxy as G7; no DXGI startup endpoint exists for these arms. |
-| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon, four gesture windows in each of five rounds. |
-| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, within 25%. | Process and HWND-owner-thread CPU endpoints over ten seconds; accounting uses 15.625 ms ticks. |
-| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak working set at the rest endpoint, beside sampled fling peak. |
-| D3D11 snapshots equal successful frames. | Existing exit counters, including startup. |
-| Rest has zero displays and at most two CPU ticks in ten seconds; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame per sample. | One ten-second static sample per arm, CPU endpoints and PresentMon. Ink/wgpu cadence may remain unavailable. |
+| Prediction | Instrument and criterion | Result |
+| --- | --- | --- |
+| D3D11 first paint saves 10–20 ms; DWM first complete screen falls from about 161 to 140–150 ms. | Existing Windows first-paint log, separately from the ten-launch DWM endpoint. DXGI display should fall by 10–20 ms in matched pairs. | First paint saves 1.23 ms paired; after DWM 192.98 ms and DXGI paired saving 2.28 ms: all miss. |
+| Windows first paint replaces roughly 250–310 glyph uploads with two dirty-page copies. | Existing painter counters in separate diagnostics. D3D11 uses one `UpdateSubresource` and completion query per dirty page instead of per mask; wgpu uses one staging submission. Windows has no glyph-upload duration span, so first-paint time cannot establish upload time alone. | Two copies in every after diagnostic: met. Baseline upload count unavailable: 250–310 untested. |
+| Ink/wgpu DWM first screen saves 10–25 ms, reaching 700–715 ms; egui remains within 10% of G7's 239.05 ms. | Ten launches per arm and revision, same DWM proxy as G7; no DXGI startup endpoint exists for these arms. | After wgpu 730.36 ms, paired saving 33.92 ms; egui 275.75 ms: all stated bands miss. |
+| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon, four gesture windows in each of five rounds. | Uncollected after two foreground failures; untested. |
+| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, within 25%. | Process and HWND-owner-thread CPU endpoints over ten seconds; accounting uses 15.625 ms ticks. | Uncollected; untested. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak working set at the rest endpoint, beside sampled fling peak. | Uncollected; untested. |
+| D3D11 snapshots equal successful frames. | Existing exit counters, including startup. | Cold before 39/39, after 40/40: met. Five flings uncollected. |
+| Rest has zero displays and at most two CPU ticks in ten seconds; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame per sample. | One ten-second static sample per arm, CPU endpoints and PresentMon. Ink/wgpu cadence may remain unavailable. | Uncollected; untested. |
 
 No carrier change is planned. A foreground loss retains the foreground
 window's title and process and permits one retry; a second loss stops
@@ -11693,3 +11693,202 @@ finishes should produce nonempty D3D11 and egui CSVs with zero lost events;
 Ink/wgpu should still have no app-owned presents. The carrier's already
 logged DWM/DXGI endpoints stay unchanged. This changes the observer's
 application lifetime, not the renderer or presentation policy.
+
+**Final capture repair prediction, before collection.** Keeping the process
+alive did not repair capture: the D3D11/wgpu/egui diagnostics lost
+6,841/6,646/7,080 ETW events and produced no CSV. That prediction missed.
+PresentMon's PID option filters the consumer before output; the name option
+filters output only. Start the same capture immediately after `Popen`, with
+that process's PID, and retain the process until capture ends. Predict at
+least one displayed record for D3D11 and egui and zero lost ETW events in
+all three diagnostics; wgpu remains unavailable. This may miss the earliest
+startup events, so it cannot independently certify the first display unless
+its timestamps establish that correspondence. The native DWM/DXGI endpoints
+retain their definitions. This is the third and final capture configuration.
+
+### G7b collection and first paint
+
+The measured binaries are release builds of `5dc29e7bb260d00f9d6f98d0ff6fbed586e9ca4e`
+and `5892f92d5a9de07f7be8cc170d8c48e434070281`, built in this lane's
+NucBox mirror, with separate before/after output directories. No carrier or
+renderer source changed. The desktop records 5120×1440 at **120 Hz**, 96 DPI;
+Windows 11 build 26200 and Radeon driver 32.0.23033.1002 match G7. Windows
+Search remained active after the builds. The first cold cohort completed all
+60 launches but failed **60 of 109** quiet observations, maximum **16.4%**
+CPU. It is excluded whole. A separate five-second process observation records
+SearchIndexer consuming 8,375 CPU ms in 5.116 s; this locates background work,
+not its share of every failed interval.
+
+Five interleaved first-paint pairs per Ink device use the existing
+`EXACT_AGENT_WINDOW_FRAMES=1` log and painter counters. All 20 exit normally;
+all five quiet observations pass, maximum **9.7%** total CPU. These are
+first-paint diagnostics, not the complete-screen endpoint. Medians
+[min–max], milliseconds:
+
+| Device | Before first paint | After first paint | Before minus after, paired |
+| --- | ---: | ---: | ---: |
+| D3D11 | 8.13 [7.95–8.27] | 6.81 [6.72–7.01] | 1.23 [1.15–1.38] |
+| Ink/wgpu DX12 | 36.93 [36.15–37.73] | 16.88 [15.96–17.68] | 19.42 [19.25–21.09] |
+
+D3D11's predicted 10–20 ms first-paint saving **misses**. The difference of
+medians is 1.32 ms; 1.23 ms is the median of matched pairs. Every after
+process records **one glyph batch, two page copies, 72,390 bytes and one
+paint attempt**. The two-copy prediction is met. The baseline lacks the
+per-glyph upload counter, so the predicted 250–310 Windows uploads is
+**untested**; Mac's 307 is not a Windows count. D3D11 issues one
+`UpdateSubresource` and completion query per page; these timings measure the
+whole paint and cannot isolate the upload call's saving. No Windows upload
+duration span was added.
+
+### G7b cold carrier endpoints beside G6e/G6 and G7
+
+The repeat (`series-2`) completes all **60 launches**, with **109 of 109**
+quiet observations passing, maximum **9.5%** CPU and no compiler. Each arm
+has ten before/after pairs, alternating the revision order and rotating the
+arm order. These are **carrier endpoint results only**. The concurrent
+startup PresentMon traces produce no CSV and lose events; the requested
+PresentMon corroboration is unavailable. Cold launches use G7's endpoint
+qualification, which does not certify foreground ownership or unoccluded
+pixels. No failed-focus fling is used as a startup sample.
+
+Medians [min–max], ms; ten processes per cell. Application, OS and driver
+caches are retained. G7b adds a separate PresentMon process before each
+launch; G7's startup driver did not start PresentMon. There is no observer-off
+control here, so the difference from G7 is not an isolated renderer change.
+The paired G7b columns share the same observer configuration.
+
+| Endpoint | 60 Hz, G6e / G6 | 120 Hz, G7 | 120 Hz, G7b before | 120 Hz, G7b after |
+| --- | ---: | ---: | ---: | ---: |
+| D3D11 DWM proxy | 160.78 [151.81–171.37] | 161.18 [146.55–175.67] | 194.10 [178.46–200.83] | 192.98 [172.38–205.10] |
+| D3D11 DXGI display | 177.66 [170.41–182.54] | 167.03 [153.72–181.89] | 199.96 [184.38–206.51] | 199.15 [178.38–209.76] |
+| Ink/wgpu DWM proxy | 716.21 [706.02–736.88] | 723.48 [687.45–834.75] | 758.66 [719.69–791.44] | 730.36 [715.54–767.56] |
+| egui DWM proxy | 248.76 [240.70–255.15] | 239.05 [229.51–263.04] | 278.20 [263.34–288.50] | 275.75 [264.68–280.11] |
+
+The cold D3D11 snapshot invariant holds in every launch: **39/39** before
+and **40/40** after. It remains untested over five flings.
+
+Ink/wgpu and egui expose no DXGI startup endpoint. The independently logged
+D3D11 DXGI median remains above the 100 ms application obligation.
+
+| Prediction | Observed carrier endpoint | Verdict |
+| --- | --- | --- |
+| D3D11 DWM 140–150 ms | 192.98 ms; paired saving 2.37 [−26.64–18.39] ms | Miss, slower |
+| D3D11 DXGI paired saving 10–20 ms | 2.28 [−25.38–18.18] ms | Miss, smaller saving |
+| Ink/wgpu DWM 700–715 ms and paired saving 10–25 ms | 730.36 ms; saving 33.92 [−27.92–68.16] ms | Both miss: slower endpoint, larger paired median saving |
+| Egui within 10% of G7's 239.05 ms | 275.75 ms, +15.35%; paired saving 2.09 [−12.69–17.25] ms | G7 band misses; the paired before/after medians differ by 0.88% |
+
+### G7b PresentMon startup limit
+
+The three capture configurations all fail. The original four-second capture
+starts a second before the application and closes the application at native
+readiness. The next keeps it alive through capture; the last starts a
+PID-filtered capture immediately after process creation and keeps it alive.
+The last two are diagnostics, not replacements selected into the cold cohort.
+
+| Capture | D3D11 lost ETW events | Ink/wgpu lost ETW events | Egui lost ETW events | CSV |
+| --- | ---: | ---: | ---: | --- |
+| Original, quiet `series-2`, before / after totals over ten launches | 40,152 / 39,854 | 56,325 / 46,309 | 40,061 / 39,749 | None |
+| Keep alive, one after process each | 6,841 | 6,646 | 7,080 | None |
+| PID filter, one after process each | 8,140 | 7,595 | 8,298 | None |
+
+Both repair predictions **miss**. All six diagnostic applications and
+PresentMon processes exit zero. Capture repair stops after these three
+configurations; no absent CSV is interpreted as zero displays. The failed
+cold-capture additions are removed from the maintained driver and retained
+as exact instrument archives and patches under `target/g7b/`. The driver
+keeps the requested alternate-binary, static-motion and foreground-recording
+support. The summary rejects failed-focus originals and reads a successful
+retry's own CSV. The carrier is unchanged, so `host/ink/MEASUREMENTS.md`
+needs no carrier amendment.
+
+### G7b foreground and the missing 120 Hz rows
+
+The first D3D11 fling fails foreground acquisition before its timed phase.
+Its one retry fails the same way. Both raw observations identify HWND
+**393270**, PID **22076**, process **ChatGPT.exe**, title **ChatGPT**. The
+first QPC is **505490278762**, the retry **505584299146**, at 10 MHz. No wheel
+input is posted. Collection stops without another focus workaround. No
+five-round fling cohort or separate rest/bar/caret sample is collected.
+The static cases require the same visible, foreground-qualified window;
+they are not filled from an unfocused run.
+
+The following 60 Hz values remain historical; the missing 120 Hz cells
+have no median or range. Source and refresh both differ from G6e/G6.
+
+| Arm / refresh | Displays / gesture s | Late intervals / s | p99, ms | Fling process / main CPU, ms/s | Peak working set, MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| D3D11, 60 Hz (G6e) | 58.15 | 0 | 16.85 | 84.08 / 62.31 | 153.18 |
+| D3D11, 120 Hz (G7b) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+| Ink/wgpu, 60 Hz (G6) | Unavailable | Unavailable | Unavailable | 121.41 / 112.02 | 324.75 |
+| Ink/wgpu, 120 Hz (G7b) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+| egui, 60 Hz (G6) | 57.86 | 0 | 16.88 | 24.91 / 24.91 | 181.74 |
+| egui, 120 Hz (G7b) | Uncollected | Uncollected | Uncollected | Uncollected | Uncollected |
+
+| Arm | 60 Hz rest process / main CPU, ms/s | 60 Hz rest displays | 60 Hz ending working set, MiB | 60 Hz static bar / caret | 120 Hz separate rest / bar / caret |
+| --- | ---: | ---: | ---: | --- | --- |
+| D3D11 | 0 / 0 | 0 | 153.16 | Bar unmeasured; caret 2.0 redraws/s only (M2b) | Uncollected |
+| Ink/wgpu | 1.55 / 1.55 | Unavailable | 322.48 | Bar unmeasured; caret 2.0 redraws/s only (M2b) | Uncollected |
+| egui | 0 / 0 | 0 | 170.00 | Unmeasured | Uncollected |
+
+The 60 Hz rest values are medians of the post-fling phases; M2b's caret
+counter counts redraws, not displayed frames, and its CPU cohort failed
+quiet qualification. The 120 Hz cadence, late-interval, p99, CPU, memory,
+fling snapshot and static predictions remain **untested**, not numerical
+misses. This session establishes no carrier cadence limit and makes no
+presentation-policy change. Late would mean over 12.5 ms at 120 Hz, compared
+with G6's 25 ms.
+
+### G7b reproduction and verification
+
+All originals remain at `target/g7b/` in this worktree and
+`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120b\target\g7b\`
+on the NucBox. The local `nucbox/` tree mirrors the observations: both
+60-launch cold cohorts, all 20 first-paint processes, both failed foreground
+attempts and all six capture-repair diagnostics. No earlier retained files
+were removed. Only this lane's two completed scheduled tasks were removed.
+No black-Mac input or focus operation was used.
+
+`before-source.tar.gz` and `after-source.tar.gz`, `sources.json`, the build
+script and four build logs pin the inputs and commands. The NucBox retains
+the before/after Ink bundles and egui executables; their SHA-256 receipts
+match every measured process. `prepare-data.log` records the shared data
+check. Both standalone workspaces use this mirror's own `target/`.
+`collect.py` and `cold-retry.py` retain the exact schedules. The latter waits
+for six consecutive quiet observations in `waiting.jsonl` before the
+all-observations cohort gate starts. Both runs keep the same capture
+configuration and endpoint definitions. No sample is selected from the
+loaded first cohort into the quiet second one.
+
+`instrument.tar.gz` is the exact driver for both cold cohorts and the
+foreground attempts. `instrument-repair.tar.gz` and `instrument-pid.tar.gz`,
+their patches and the `pm-repair.ps1` / `pm-pid.ps1` invocations retain the
+two failed capture changes. Reproducing those attempts requires their
+archived drivers; the maintained driver no longer includes failed cold
+capture. `first-paint.py` retains the one-frame diagnostic with counters and
+quiet monitoring. `raw-sha256.json` hashes the local observation tree.
+
+Reproduce the numeric tables and audit directly from the retained files:
+
+```sh
+python3 target/g7b/reduce.py series-1
+python3 target/g7b/reduce.py series-2
+python3 target/g7b/audit.py
+```
+
+The audit verifies all native endpoint values against their application
+logs, binary hashes, the full interleaved schedules, all quiet observations,
+first-paint counters, foreground failures and capture event losses.
+`summary-validation-final.txt` records the unchanged G7 reduction, synthetic
+0/120/2 displays/s and CPU endpoints, unavailable wgpu cadence, and rejection
+of a failed-focus original while reading its retry's own CSV. Synthetic
+values are reducer checks, not Windows measurements. Full check logs and
+verbatim result lines are retained in `checks/` and `checks-rebased/`.
+
+The branch is rebased onto `bf67258db5`. All four Windows release builds
+pass. The six required checks pass after rebase, including both Clippy and
+formatting; the root test run reports **7,470 passed, 0 failed, 83 ignored**
+across 113 test binaries. Staged caps passes. Native Windows parity and
+journey suites were not rerun; this lane changes measurement and records,
+not the carrier. `checks-rebased/verbatim-results.txt` preserves the exact
+result lines and commands, with complete output in the adjacent logs.
+The branch is committed without a push.
