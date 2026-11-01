@@ -25,6 +25,10 @@ pages older filtered results until the cited assistant response is present. A
 route change aborts the request before the native transcript is asked to place a
 stale row; missing targets retain the reference warning outcomes.
 
+An automatic edge read yields while a targeted citation page is in flight, so
+the citation's cursor and native transfer cannot be replaced by a background
+observation. Ordinary route visits remain able to retire stale reads.
+
 Independent review found that Stop retired the client's history request while
 the presentation helper still reported it pending. The integrated regression
 holds the old response across Stop and a replacement request. Both owners must

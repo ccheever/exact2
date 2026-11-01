@@ -30,7 +30,7 @@ export async function mobileLoadThreadHistory(client: T3Client, native: Native, 
   displaysOlder: (keys: ReadonlySet<string>) => boolean) {
   const state = histories.get(client), cursor = client.thread?.historyCursor;
   if (!state?.route || state.owner !== owner(client) || key !== requestKey(client, state)
-    || !client.ready || !client.thread?.hasMore || !cursor || state.pending || state.error && !retry) return;
+    || !client.ready || !client.thread?.hasMore || !cursor || state.pending || client.historyTargetedLoading || state.error && !retry) return;
   if (retry) { state.error = ''; state.cursors = []; state.noProgress = 0; }
   const token = {}, current = () => histories.get(client) === state && state.pending === token && state.owner === owner(client);
   state.pending = token;

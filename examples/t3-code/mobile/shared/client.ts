@@ -109,6 +109,7 @@ export class T3Client {
   historyEpoch = 0;
   historyRevision = 0;
   private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean; throughEntryId: string } | null = null;
+  get historyTargetedLoading(): boolean { return this.historyLoading && !!this.historyRequest?.throughEntryId; }
   private historyIdentity(): string {
     return JSON.stringify([this.origin, this.environmentId, this.generation, this.threadId, this.threadEpoch, this.thread?.historyCursor]);
   }

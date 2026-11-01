@@ -54,6 +54,14 @@ describe('older-history request ownership', () => {
     expect(f.client.historyLoading).toBe(false);
   });
 
+  test('automatic paging yields to a targeted citation read already in flight', async () => {
+    const f = fixture(), targeted = f.client.history(f.native, 'citation', () => true, 'target-message');
+    const key = mobileThreadHistory(f.client, 'visit', true).historyRequest;
+    await chatLocal(f.client, f.native, 'history-auto', key, '');
+    expect(f.requests).toHaveLength(1);
+    f.page(0); expect(await targeted).toEqual(['["thread","older-item"]']);
+  });
+
   test('an accepted page with no admitted older rows returns an empty array', async () => {
     const f = fixture(), pending = f.client.history(f.native);
     f.page(0, '', { items: [] });
