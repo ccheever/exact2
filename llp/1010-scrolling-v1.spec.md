@@ -196,7 +196,8 @@ web and Apple; programmatic offsets, per-axis overflow, overscroll policy,
 and the admitted scroll-snap form have also landed. `scrollCommand` was
 replaced by offset props. None of those changes implements windowing.
 The current code is `host/web/glue.js`, `NodeViewIOS.swift`,
-`NodeViewMac.swift`, and `runner/src/runner.rs`'s `Event::Scroll`.
+`ScrollViewIOS.swift`, `NodeViewMac.swift`, and `runner/src/runner.rs`'s
+`Event::Scroll`.
 
 **Built, untested:** keyboard and space-bar scrolling on the page (AppKit's);
 horizontal scrolling on macOS (the code path takes x; the fixture is

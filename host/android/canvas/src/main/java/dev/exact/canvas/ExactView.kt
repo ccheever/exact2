@@ -622,7 +622,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * the direction they are: 0 in view), the nearest, and how many are in view. */
     private fun traceNewRows() {
         val b = ops ?: return
-        val range = groupRange(b, feed) ?: return
+        val range = structure.groupRange(b, feed) ?: return
         val y = feedY()
         var nearest = Long.MAX_VALUE; var inView = 0; var n = 0
         var i = range[0]
@@ -677,7 +677,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         feedCount = -1
         val n = natives ?: return
         if (!lazyOn) return
-        val range = ops?.let { groupRange(it, feedNext) }
+        val range = ops?.let { structure.groupRange(it, feedNext) }
         if (range == null) {
             // No feed to place rows in: every element has its view.
             n.everywhere()
@@ -745,7 +745,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private fun nearRows(stream: IntBuffer) {
         nearY.clear()
         if (!nearOn || !async || Math.abs(scrollV) * NEAR_S < height * 0.1f) return
-        val range = groupRange(stream, feed) ?: return
+        val range = structure.groupRange(stream, feed) ?: return
         var residual = 0f
         for ((_, d) in sent) residual += d
         var i = range[0]
@@ -791,7 +791,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private var reachUp = 0f
     private fun reach(): Boolean {
         val b = ops ?: return false
-        val range = groupRange(b, feed) ?: return false
+        val range = structure.groupRange(b, feed) ?: return false
         val y = feedY()
         val top = -y; val bottom = -y + height
         // The drawn rows, by top: a row still recording on the worker (nothing drawn in its place) ends the reach.
@@ -830,7 +830,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
      * node (p: that one has no drawing), M nothing to draw), and the stream's age. */
     fun tagState(): String {
         val b = ops ?: return "none"
-        val range = groupRange(b, feed) ?: return "nofeed"
+        val range = structure.groupRange(b, feed) ?: return "nofeed"
         val y = feedY()
         val sb = StringBuilder()
         sb.append("y=").append(y.toInt()).append(" h=").append(height).append(" age=").append((System.nanoTime() - tookAt) / 1000).append(" |")
@@ -857,21 +857,6 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         return sb.toString()
     }
     private var tookAt = 0L
-
-    /** Group [id]'s body in [b] (after its GROUP_BEGIN, up to its GROUP_END), or null. */
-    private fun groupRange(b: IntBuffer, id: Int): IntArray? {
-        var i = 0
-        var from = -1
-        val n = b.limit()
-        while (i < n) {
-            val op = b.get(i)
-            val j = structure.end(b, i)
-            if (op == 20 && b.get(i + 1) == id) from = j
-            if (op == 21 && from >= 0) return intArrayOf(from, i)
-            i = j
-        }
-        return null
-    }
 
     /** New rows recorded on the worker that a group may draw (nothing drawn in their place until then), and those
      * done since the last frame. */
@@ -1087,9 +1072,9 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
             when (b.get(i)) {
                 1 -> i += 7
                 2 -> i += 14
-                3 -> i = skipPath(b, i + 3)
+                3 -> i = structure.skipPath(b, i + 3)
                 4 -> i += 13
-                5 -> i = skipPath(b, i + 2)
+                5 -> i = structure.skipPath(b, i + 2)
                 6 -> i += 1
                 7 -> i += 2
                 8 -> i += 6
@@ -1119,7 +1104,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
                     }
                     i += 2
                 }
-                13 -> i = skipPath(b, i + 5)
+                13 -> i = structure.skipPath(b, i + 5)
                 14 -> i += 18
                 25 -> i += 3 + b.get(i + 2)
                 43 -> i += 2 + b.get(i + 1)
@@ -1341,7 +1326,7 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
     private fun placeLater() {
         if (laterRows.isEmpty()) return
         val b = ops ?: return
-        val range = groupRange(b, feedNext) ?: return
+        val range = structure.groupRange(b, feedNext) ?: return
         var i = range[0]
         while (i < range[1]) {
             if (b.get(i) == 17) laterRows[b.get(i + 1)]?.let { it.top = f(b, i + 3) }
@@ -1476,14 +1461,6 @@ class ExactView(context: Context, private val live: Boolean, private val onFirst
         slotOwner = Slots.layer(b.get(at + 1))
         slots.again(slotOwner) { ingest(b, at + 19, at + 3 + len) }
         slotOwner = outer
-    }
-
-    private fun skipPath(b: IntBuffer, at: Int): Int {
-        var i = at + 1
-        repeat(b.get(at)) {
-            i += when (b.get(i)) { 0, 1 -> 3; 2 -> 7; else -> 1 }
-        }
-        return i
     }
 }
 

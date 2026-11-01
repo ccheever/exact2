@@ -58,10 +58,26 @@ internal class Structure {
 
     private fun copy(b: IntBuffer, from: Int, to: Int) { for (k in from until to) put(b.get(k)) }
 
-    private fun skipPath(b: IntBuffer, at: Int): Int {
+    /** Where the path whose command count is at [at] ends. */
+    fun skipPath(b: IntBuffer, at: Int): Int {
         var i = at + 1
         repeat(b.get(at)) { i += when (b.get(i)) { 0, 1 -> 3; 2 -> 7; else -> 1 } }
         return i
+    }
+
+    /** Group [id]'s body in [b] (after its GROUP_BEGIN, up to its GROUP_END), or null. */
+    fun groupRange(b: IntBuffer, id: Int): IntArray? {
+        var i = 0
+        var from = -1
+        val n = b.limit()
+        while (i < n) {
+            val op = b.get(i)
+            val j = end(b, i)
+            if (op == 20 && b.get(i + 1) == id) from = j
+            if (op == 21 && from >= 0) return intArrayOf(from, i)
+            i = j
+        }
+        return null
     }
 
     /** Where the op at [i] ends. */
