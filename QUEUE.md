@@ -1746,7 +1746,20 @@ and the Linux headless CPU renderer without claiming display frame timing.
   verify a resume-capable timer is armed and permitted by the active power
   plan, retain its due time and wake-source evidence, and provide an
   independent recovery path. A timer handle alone does not prove the machine
-  or physical display will wake. Keep this separate from the AMD-hook crash.
+  or physical display will wake. The November 1 Windows-default attempt
+  retained enabled AC/DC wake timers and a confirmed scheduled wake, then
+  lost SSH after launch; neither device's result was collected
+  (`host/ink/MEASUREMENTS.md`, “Windows default”). Keep this separate from
+  the AMD-hook crash.
+- **Excord's optional RichEdit composer does not accept typing** (2026-11-01,
+  Windows default qualification). With `EXACT_INK_RICHEDIT=1`, clicking the
+  composer and sending Ctrl+A and text at 100% leaves its value unchanged;
+  scaling to 150% preserves that value. The log reports `RichEdit UIA: device: Catastrophic
+  failure (0x8000FFFF)`. The same drive edits the ordinary Ink and CPU
+  composers. Reproduce with Excord's local transcript fixture; captures and
+  logs are retained in `target/win-default/nucbox/richedit-*`. Investigate
+  alongside chunk B's pointer and focus work below; this observation does
+  not establish the cause. RichEdit remains opt-in.
 - **Stage 1w chunk B: native-field pointer delivery** (Claude review 3,
   `target/review-claude-s1w.md`, `98cff0bdfa`). RichEdit's handled mouse messages
   make winit skip dispatch, so field and ancestor clicks never reach the page.

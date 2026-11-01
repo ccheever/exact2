@@ -5780,3 +5780,196 @@ activation and resizing at 100% and 150%. These are functional predictions;
 no timing change is predicted or measured. Raw logs and screenshots stay
 under `target/win-default/` here and in the branch's NucBox mirror,
 `projects/exact2-1149-win-default`.
+
+### Outcome and retained evidence
+
+Runtime source `a28244e3e5` includes the default change and the Windows
+package-source path repair, rebased onto `41e76a432a`. The NucBox mirror is
+`C:\Users\Charlie Cheever\projects\exact2-1149-win-default`; it uses its
+own `target/`, Bun 1.4.2 and Rust 1.97.0. Shelf and Excord both build there.
+Excord's first packaging attempt refused Rust's canonical `\\?\` package
+source path; normalizing it to Cargo's spelling fixes the source receipt.
+The temporary Excord CPU manifest builds separately into
+`target/win-default/excord-cpu/`; its original manifest is restored byte for
+byte. Default and CPU binaries and their SHA-256 receipts remain in the mirror.
+
+| Prediction, made before running | Result |
+| --- | --- |
+| Zero failures in Windows, both Ink, pinned, text and image suites | Miss on the first Windows run: its modal deadline fixture failed. The rerun and all requested rendering suites pass. |
+| Six desktop journeys pass per device, painter absent | Unmet: five pass on both devices; sleep/wake has no collected result after the NucBox stopped answering SSH. The first device-loss attempts failed because DXCap required administrator rights; elevated reruns pass. |
+| CPU override opens a window | Met: Shelf resizes; Excord also completes the matching window drive. |
+| Baked Excord CPU choice reports `cpu` | Met: `painter: cpu`, then `smoke ok`. |
+| Default Shelf and Excord report Ink/direct D3D11 | Met: both report `painter: ink — AMD Radeon(TM) 8060S Graphics (direct D3D11)`, then `smoke ok`. |
+| Excord scrolling, composer, menu, resize and scale survive | Met for the ordinary Ink path and CPU control. The additional, optional RichEdit drive fails typing as described below. |
+
+The initial Windows failure is
+`modal::tests::native_modal_and_carrier_deadlines_cancel_rearm_and_release`
+(`checks-initial/windows.log`): it selected the two-second deadline instead
+of the expected half-second deadline. No timer code or assertion was changed. The subsequent run uses the existing Windows recipe's
+explicit `--config profile.gpu-dev.package.exact-linux.opt-level=0`; an earlier
+package-profile environment variable had not selected that override. An
+unfinished text-suite compilation from that attempt was stopped, with its
+owned process tree retained in `interrupted-test-pids.json`. No result is
+claimed for that interrupted invocation.
+
+The Excord window drive uses its local transcript fixture on port 5007.
+`ink-general`, `ink-history`, `ink-composer`, `ink-menu`, `ink-resized`,
+`ink-150` and `ink-100-return` retain the default path; the matching `cpu-*`
+captures retain the override. Each capture has a UIA tree and a result file
+with HWND, foreground window, DPI and extended style. The Ink window has
+`WS_EX_NOREDIRECTIONBITMAP`; CPU does not. The app logs independently name
+the painters. The first `ink-open` and `ink-window` captures selected an
+app-owned transparent overlay and are excluded; `ink-visible` and the later
+captures select the visible app window. The default and CPU paths both
+scroll history, edit an unsent draft, open the account menu, resize from
+1120×820 to 900×650 and back, and retain the draft across 96/144/96 DPI.
+No behavior in that ordinary Ink drive was missing relative to CPU.
+
+RichEdit still requires `EXACT_INK_RICHEDIT=1`; this default change does not
+enable it. In the additional drive, clicking the composer, Ctrl+A and typing
+at 100% left its value unchanged, also visible after scaling to 150%.
+`richedit-open-app.log` reports the attached RichEdit view and then repeated
+`RichEdit UIA: device: Catastrophic failure (0x8000FFFF)` errors.
+`richedit-selected.png`, `richedit-composer.png` and `richedit-150.png` retain
+that failure. The standalone composition and windowless-field tests pass;
+they do not qualify Excord's input path. The cause is not established and is
+recorded in `QUEUE.md` beside the existing chunk B pointer/focus work.
+The ordinary Ink path restored the original unsent draft, and the desktop
+returned to 100%. No message was sent.
+
+### Native suite results
+
+The following are the result lines verbatim from `target/win-default/nucbox/`.
+The source scripts `native.ps1`, `finish-native.py`, `dpi.ps1` and
+`recovery.py` retain the exact commands and environment. Cargo uses
+`--profile gpu-dev -- --test-threads=1`, the explicit package override above,
+`EXACT_REQUIRED=1`, `EXACT_INK_REQUIRED=1`, `WGPU_BACKEND=dx12`, and
+`EXACT_INK_DEVICE=d3d11` or `wgpu`. Desktop journeys remove `EXACT_PAINTER`;
+the one CPU resize explicitly sets it. Device recovery runs in an interactive
+administrator task. No benchmark series or PresentMon command ran.
+
+```text
+windows:
+test result: ok. 40 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+d3d11-ink:
+test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 6.26s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+d3d11-pinned:
+test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 29.09s
+d3d11-text:
+test result: ok. 217 passed; 0 failed; 1 ignored; 0 measured; 1425 filtered out; finished in 3.78s
+d3d11-image:
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 3.43s
+wgpu-ink:
+test result: ok. 53 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.24s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+wgpu-pinned:
+test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 58.50s
+wgpu-text:
+test result: ok. 217 passed; 0 failed; 1 ignored; 0 measured; 1425 filtered out; finished in 3.84s
+wgpu-image:
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.93s
+d3d11-shelf_resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 6.87s
+d3d11-shelf_minimize_restore:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 2.20s
+d3d11-shelf_idle_caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 2.80s
+d3d11-dpi:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 6.61s
+d3d11-device_loss-elevated:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 7.98s
+wgpu-shelf_resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 6.92s
+wgpu-shelf_minimize_restore:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 2.80s
+wgpu-shelf_idle_caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 3.43s
+wgpu-dpi:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 6.94s
+wgpu-device_loss-elevated:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 8.18s
+cpu-shelf_resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 5.83s
+d3d11-surfaces:
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1633 filtered out; finished in 0.77s
+wgpu-surfaces:
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1633 filtered out; finished in 0.52s
+composition_and_windowless_text:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.12s
+windowless_field_edit_and_scale:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.12s
+direct-caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.33s
+```
+
+The initial failed result lines remain part of the record:
+
+```text
+checks-initial/windows.log:
+test result: FAILED. 39 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.99s
+checks/d3d11-shelf_device_loss.log:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.91s
+checks/wgpu-shelf_device_loss.log:
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 86 filtered out; finished in 1.23s
+```
+
+### Mac checks and reproduction
+
+After the rebase, `cargo test -p exact-linux --lib --tests --no-fail-fast`,
+`cargo test -p exact-ink`, `cargo check --workspace --all-targets --keep-going`
+with Bun 1.4.2 first on PATH, `cargo fmt --all -- --check`, staged caps,
+the manifest tests and `cargo run -p contract-difftest -- quick` pass.
+The bake's painter roundtrip test passes. The changed guide snippets pass
+`cargo test -q -p contract --test it docs::`, repeated after the final guide
+wording. Full output is under `target/win-default/checks/` and
+`checks-rebased/`; the complete six-check gate remains assigned to the mini.
+
+To reproduce the selection, build `shelf` and `excord` with
+`bun host/windows/build.mjs <app>`, with the Windows SDK's `fxc` on PATH.
+With `EXACT_PAINTER` absent, run each executable with `EXACT_SMOKE=1`;
+then set `EXACT_PAINTER=cpu` for the CPU window. For the baked override,
+`build-rebased.py` retains the temporary manifest edit, separate output
+location, smoke and byte-for-byte restoration. `native.ps1` runs the suites
+and first three journeys. `dpi.ps1` drives the existing DPI handshake through
+Settings; `recovery.py` runs the existing device-loss or sleep/wake journey.
+`desktop.ps1`, `invoke.ps1` and the `drive-*.ps1` files retain the Excord
+window operations. They are run artifacts, not new repository drivers.
+
+The pre-sleep archive `target/win-default/evidence-before-sleep.tar.gz`
+(SHA-256 `166bd9b532dc2c6924f0ddef2ea809324f2e97808e3b142e35505ceb018d0343`)
+contains 472 retained logs, captures, commands, task receipts and hashes.
+It is copied from the mirror's `target/evidence-before-sleep.tar.gz` and
+extracted here under `target/win-default/nucbox/`. `raw-sha256.json` names
+every included file; `binary-and-source-hashes.json` names the revision and
+both default binaries and the baked CPU binary. The source bundles remain
+under `target/win-default/`. No retained raw file was removed.
+
+### Sleep/wake remains unqualified
+
+At 12:09:16 PST, `sleep-start.ps1` launched an elevated task running
+`recovery.py sleep_wake`, D3D11 first and wgpu second. Beforehand, `powercfg` reported
+S0 connected standby and enabled AC/DC wake timers. The existing fixture
+arms a resume-capable 15-second timer. A separate one-shot task requested
+wake at 12:10:47; `powercfg /waketimers` confirmed that scheduled wake
+(`sleep-start-local.log`). The task receipt, power policy and wake-capable
+devices were retained; no power setting changed.
+
+SSH stopped answering after that launch. Bounded connection attempts
+returned no response or a connection timeout, including after the scheduled
+wake time (`sleep-polls.log`); at 12:12:29 the machine was still unreachable.
+Neither device's sleep suite has a collected result, and whether the second
+invocation started is unknown. This is an incomplete qualification, not a
+passing journey or evidence of a renderer defect. The existing NucBox
+sleep/wake queue item remains open; no retry or reboot was attempted.
+
+The pre-sleep evidence is retained on both machines. The sleep command and
+connection observations are also retained locally under `target/win-default/`.
+The NucBox's `Exact-WinDefault-*` tasks, its recorded fixture process and any
+remaining sleep child could not be inspected or cleaned up after the
+connection loss. Excord had already closed with the original draft restored
+and the desktop at 100%. The mirror remains at the tested runtime tip
+`a28244e3e5`; the final local commit only adds the qualification record,
+queue observation, diaries and guide clarification. It could not be copied
+to the unreachable mirror.

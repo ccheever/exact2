@@ -45,8 +45,9 @@ swap chain. `"cpu"` keeps the CPU painter and its `softbuffer` window;
 `"ink"` is also accepted. `EXACT_PAINTER` overrides either choice.
 `EXACT_INK_DEVICE=wgpu` selects ink's DirectX 12 device; `warp` selects
 software DirectX 11. Install the Windows SDK for build-time `fxc` compilation.
-Headless agent and smoke drives explicitly use CPU unless `EXACT_PAINTER`
-is set; their screenshots do not qualify the window's composition path.
+The agent and smoke scripts explicitly select CPU unless `EXACT_PAINTER`
+is set; their headless screenshots do not qualify the window's composition path.
+A direct `EXACT_SMOKE=1` launch uses the app's painter choice.
 Linux and Android still opt into ink per platform; Android refuses it until
 its Vulkan presenter is implemented. Apple keeps the native host by default;
 `host.macos.presenter: "painted"` builds the ink carrier for development,
