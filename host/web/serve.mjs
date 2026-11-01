@@ -1343,8 +1343,8 @@ function settleBuild(dist) {
 
 /** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
  * browser's navigation awaits, which builds the site again once a source changed since the build (newer than its
- * receipt), as a framework's dev server does, and answers the build's output when it failed (null when it built or
- * nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
+ * receipt), as a framework's dev server does, or once another build with other settings replaced it (a test run's,
+ * for its own API), and answers the build's output when it failed (null when it built or nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
 function rebuildOnChange(dist) {
   let marker;
   try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
@@ -1369,9 +1369,11 @@ function rebuildOnChange(dist) {
     if (running) return running;
     if (Date.now() - checked < 300) return null;
     checked = Date.now();
-    if (newest(app) <= Math.max(since, receipt())) return null;
+    let settings = [];
+    try { settings = settingChanges(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env ?? {}, process.env, app); } catch { /* being replaced */ }
+    if (!settings.length && newest(app) <= Math.max(since, receipt())) return null;
     const started = Date.now();
-    console.log(`${app}: a source changed since the build: building it again`);
+    console.log(`${app}: ${settings.length ? `the build has other settings than this server (${settings.map((c) => c.name).join(', ')})` : 'a source changed since the build'}: building it again`);
     running = new Promise((done) => {
       const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
         { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
