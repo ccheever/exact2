@@ -437,6 +437,7 @@ extension NodeView {
             setNeedsDisplay()
             return
         }
+        let shown = textRasterSpec
         textRaster = result.image; textRasterScale = key.scale; textRasterSpec = key.spec
         textMore.rasterCovered = result.covered; textMore.rasterBand = key.clip != nil; textMore.rasterInk = (result.ink, result.shadows)
         textMore.rasterRoom = key.room ?? key.box
@@ -461,6 +462,8 @@ extension NodeView {
         hostText(ink)
         ink.frame = result.frame
         ink.contentsScale = key.scale
+        // The lines' clock settled first: a numeral roll runs in it
+        textBoxLayer?.show(from: shown, to: key.spec)
         let roll = NumeralRoll.roll(ink, node: self)
         if tint == nil { ink.contents = result.image }
         TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
@@ -483,23 +486,35 @@ extension NodeView {
         textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 
-    /// The paragraph's ink in its text's box (`placeTextRaster`), made now
-    /// if it has none. The box is inside a vibrancy view when the ink draws
-    /// in a system colour over a blur (`VibrancyIOS.swift`).
+    /// The paragraph's ink in the lines layer inside its text's box
+    /// (`makeTextBox`, `placeTextRaster`), the box made now if it has none.
+    /// The box is inside a vibrancy view when the ink draws in a system colour
+    /// over a blur (`VibrancyIOS.swift`).
     func hostText(_ ink: CALayer) {
         let made = textBoxLayer == nil
         if made { CATransaction.begin(); CATransaction.setDisableActions(true) }
         defer { if made { CATransaction.commit() } }
         let box = textBoxLayer ?? makeTextBox()
-        if ink.superlayer !== box { box.addSublayer(ink) }
+        if let lines = box.lines, ink.superlayer !== lines { lines.addSublayer(ink) }
         textRasterLayer = ink
         if box.superlayer == nil, syncVibrancy() == nil { mountTextBox() }
         placeTextRaster()
     }
 
-    private func makeTextBox() -> CALayer {
-        let box = BoxPartLayer()
+    /// The box, placed and sized as the paragraph's content box, moving and
+    /// resizing in UIKit's animation (`BoxPartLayer`), with its lines at its
+    /// origin, which never move in it. The lines are a layer of their own for
+    /// a fade (`TextBoxLayer`): a transition was seen to render the old state of
+    /// the layer it is on with that layer's geometry before the change, so a
+    /// fade on the box itself, moved in the same transaction, left the old
+    /// lines where it was; and a fade on the ink alone left out a one-colour
+    /// ink's coverage mask (both states showed the new one).
+    private func makeTextBox() -> TextBoxLayer {
+        let box = TextBoxLayer(), lines = InkLayer()
         box.anchorPoint = .zero
+        lines.anchorPoint = .zero
+        box.addSublayer(lines)
+        box.lines = lines
         textBoxLayer = box
         return box
     }
