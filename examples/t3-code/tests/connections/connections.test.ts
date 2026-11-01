@@ -115,6 +115,22 @@ test('every paired environment, a loopback one included, is a saved row under En
   expect(JSON.stringify(page)).not.toContain('token');
 });
 
+// SessionPermissions at 2359643cff (sessionPermissionsUnavailableMessage): what the card says until the grants are in.
+test('session permissions say whether they are being checked, retried or refused', () => {
+  const saved = [{ origin: 'https://remote.example.com', environmentId: 'env-b', label: 'Remote', enabled: true }];
+  const key = environmentKey('https://remote.example.com', 'env-b'), config = { environment: { label: 'Remote', serverVersion: '0.1.6' } };
+  const row = (extra: Partial<FleetEntry>) => connectionsProjection(host(), saved, new Map([[key, entry(key, { config, ...extra })]])).environments.find(each => each.environmentId === 'env-b')!;
+  const card = (extra: Partial<FleetEntry>) => { const { permissionsChecked, permissionsMessage } = row(extra); return [permissionsChecked, permissionsMessage]; };
+  expect(card({})).toEqual([false, 'Checking permissions…']);
+  expect(card({ session: 'failed' })).toEqual([false, 'Could not verify your permissions. Retrying automatically.']);
+  expect(card({ session: 'rejected' })).toEqual([false, 'This environment did not accept your session. Reconnect to try again.']);
+  expect(card({ session: 'granted' })).toEqual([true, expect.any(String)]);
+  expect(card({ session: 'granted', phase: 'reconnecting' })).toEqual([false, 'Connect to this environment to view this session’s permissions.']);
+  // The focused environment's come from its client.
+  const focused = connectionsProjection(host('connected', { sessionCheck: 'failed' }), [{ origin: 'http://127.0.0.1:14796', environmentId: 'env-a', label: 'Fixture A', enabled: true }]);
+  expect(focused.environments[0]).toMatchObject({ permissionsChecked: false, permissionsMessage: 'Could not verify your permissions. Retrying automatically.' });
+});
+
 test('failure tone, trace ID and unsupported clients follow the row rules', () => {
   const saved = [{ origin: 'https://remote.example.com', environmentId: 'env-b', label: 'Remote', enabled: true }];
   const key = environmentKey('https://remote.example.com', 'env-b');

@@ -12,7 +12,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { modelCatalog } from '../client/presentation';
 import { adjacentPickerProvider } from '../composer/model-catalog';
 import type { T3Client } from '../client/client';
-import { undoLive } from '../sidebar/sidebar-state';
+import { sidebarSession, undoLive } from '../sidebar/sidebar-state';
 import { addStripShortcuts } from '../composer/composer-controls-branch';
 import { diffShown } from './button-chords'; // ⌘D
 import { openFavoriteEnabled, remoteOpenFor } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
@@ -241,16 +241,23 @@ function threadOrderRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
   }
   ordered.slice(0, 9).forEach((thread, index) => add(`thread.jump.${index + 1}`, 'thread', str(thread.id), `Thread ${index + 1}`));
 }
+/** Where Back and Forward go from the main view: a dispatch row's kind, target and extra, or null at that end. */
+export type HistoryStep = { kind: string; target: string; extra: string };
+export function historySteps(client: T3Client, page: string): { back: HistoryStep | null; forward: HistoryStep | null } {
+  // Back and Forward between the visited threads and drafts.
+  const history = visit(client, page);
+  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
+  const route = (entry: string): HistoryStep => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7), extra: '' }
+    : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5), extra: '' } : { kind: 'new-thread-in', target: entry.slice(6), extra: '' };
+  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
+  return { back: back && liveEntry(client, back) ? route(back) : null,
+    forward: settingsRoute ? { kind: 'palette-run', target: 'settings', extra: settingsRoute } : forward && liveEntry(client, forward) ? route(forward) : null };
+}
 /** Back and Forward. */
 function navigationRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
-  // Back and Forward between the visited threads and drafts.
-  const history = visit(client, context.page ?? '');
-  const back = history.entries[history.cursor - 1], forward = history.entries[history.cursor + 1];
-  const route = (entry: string) => entry.startsWith('thread:') ? { kind: 'thread', target: entry.slice(7) } : entry.startsWith('page:') ? { kind: 'palette-run', target: entry.slice(5) } : { kind: 'new-thread-in', target: entry.slice(6) };
-  if (back && liveEntry(client, back)) add('navigation.back', route(back).kind, route(back).target, 'Back');
-  const settingsRoute = settingsForward(client, false); // Settings left by Back is Forward's target
-  if (settingsRoute) add('navigation.forward', 'palette-run', 'settings', 'Forward', settingsRoute);
-  else if (forward && liveEntry(client, forward)) add('navigation.forward', route(forward).kind, route(forward).target, 'Forward');
+  const { back, forward } = historySteps(client, context.page ?? '');
+  if (back) add('navigation.back', back.kind, back.target, 'Back', back.extra);
+  if (forward) add('navigation.forward', forward.kind, forward.target, 'Forward', forward.extra);
 }
 /** chat.newWithoutProject, when the server has a scratch workspace. */
 function scratchRow(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
@@ -264,8 +271,9 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
     // (a thread whose settledAt outlived its un-settle took Un-settle, a no-op).
     const settled = thread.settledOverride === 'settled';
     add('thread.settle', 'command', settled ? 'chat:unsettle' : 'chat:settle-advance', settled ? 'Un-settle Thread' : 'Settle Thread', str(thread.id));
-    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks.
-    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true) {
+    // thread.pin: pin, or unpin through the sidebar's Unpin confirmation when that setting asks. An open project filter
+    // pins its highlighted project with this key instead (useThreadLifecycle).
+    if (obj(obj(obj(client.config).environment).capabilities).threadPinning === true && !sidebarSession(client).scopeOpen) {
       const pinned = thread.pinnedAt != null;
       add('thread.pin', 'command', pinned ? 'sidebar:unpin' : 'sidebar:pin', pinned ? 'Unpin Thread' : 'Pin Thread', str(thread.id));
     }

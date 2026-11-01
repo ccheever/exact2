@@ -372,6 +372,11 @@ final class T3Ssh: @unchecked Sendable {
     private func baseArgs(_ target: Target, _ auth: Auth) -> [String] {
         configArgs() + ["-o", "BatchMode=\(auth.batch ? "yes" : "no")", "-o", "ConnectTimeout=10"] + (target.port.map { ["-p", String($0)] } ?? [])
     }
+    /// A remote command (launch, pairing) and the tunnel: a dropped connection fails within about 45 s
+    /// instead of hanging until the command's timeout (packages/ssh command.ts).
+    static let keepAliveArgs = ["-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"]
+    /// The arguments before `hostSpec` for a remote command.
+    func commandArgs(_ target: Target, _ auth: Auth) -> [String] { baseArgs(target, auth) + Self.keepAliveArgs }
     /// A stable loopback port per target, so the saved origin survives relaunches.
     static func preferredPort(_ target: Target) -> Int {
         let digest = SHA256.hash(data: Data(connectionKey(target).utf8)).prefix(2).reduce(0) { $0 << 8 | Int($1) }
@@ -403,7 +408,7 @@ final class T3Ssh: @unchecked Sendable {
     }
 
     private func launchRemote(_ command: String, _ target: Target, _ auth: Auth) throws -> (port: Int, kind: String) {
-        let result = try run(command, baseArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s", "--", Self.stateKey(target)], stdin: Self.launchScript, timeout: 60, environment: auth.environment)
+        let result = try run(command, commandArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s", "--", Self.stateKey(target)], stdin: Self.launchScript, timeout: 60, environment: auth.environment)
         guard result.status == 0 else { throw T3Failure(kind: "Ssh", message: Self.sshError(result.stderr, fallback: "SSH could not start T3 Code on \(target.alias).")) }
         guard let json = Self.jsonObject(result.stdout), let port = json["remotePort"] as? Int, (1...65_535).contains(port) else {
             throw T3Failure(kind: "Ssh", message: "SSH launch did not return a remote port.")
@@ -415,8 +420,8 @@ final class T3Ssh: @unchecked Sendable {
         let process = Process(), errors = Pipe()
         process.executableURL = URL(fileURLWithPath: command)
         if let environment = auth.environment { process.environment = environment }
-        process.arguments = baseArgs(target, auth) + ["-o", "ExitOnForwardFailure=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no",
-                                                "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-n", "-N", "-L", "\(local):127.0.0.1:\(remote)", Self.hostSpec(target)]
+        process.arguments = baseArgs(target, auth) + ["-o", "ExitOnForwardFailure=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ControlPersist=no"]
+                                                + Self.keepAliveArgs + ["-n", "-N", "-L", "\(local):127.0.0.1:\(remote)", Self.hostSpec(target)]
         process.standardInput = FileHandle.nullDevice; process.standardOutput = FileHandle.nullDevice; process.standardError = errors
         try process.run()
         let deadline = Date().addingTimeInterval(Self.readyTimeout)
@@ -433,7 +438,7 @@ final class T3Ssh: @unchecked Sendable {
     }
 
     private func issuePairingToken(_ command: String, _ target: Target, _ auth: Auth) throws -> String {
-        let result = try run(command, baseArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s"], stdin: Self.pairingScript, timeout: 60, environment: auth.environment) // login shell: t3 on the remote PATH
+        let result = try run(command, commandArgs(target, auth) + [Self.hostSpec(target), "sh", "-l", "-s"], stdin: Self.pairingScript, timeout: 60, environment: auth.environment) // login shell: t3 on the remote PATH
         guard result.status == 0 else { throw T3Failure(kind: "Ssh", message: Self.sshError(result.stderr, fallback: "SSH pairing failed on \(target.alias).")) }
         guard Self.lastLine(result.stdout) != nil else { throw T3Failure(kind: "Ssh", message: "SSH pairing did not return a credential.") }
         guard let json = Self.jsonObject(result.stdout) else { throw T3Failure(kind: "Ssh", message: "SSH pairing returned unparseable output.") }

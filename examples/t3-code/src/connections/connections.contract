@@ -73,6 +73,7 @@ shape SavedEnvironment
   routesLabel: string
   routes: EnvRoute[]
   permissionsChecked: bool
+  permissionsMessage: string
   permissionContext: string
   permissions: SessionPermission[]
 shape BalanceMachine
@@ -450,7 +451,7 @@ component SessionPermissions
               text permission.title font-size="0.75rem" flex=1
               text (permission.allowed ? "Allowed" : "Not granted") font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
       else
-        text "Permissions not checked. Connect to this environment to view this session’s permissions." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+        text environment.permissionsMessage font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
 
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.

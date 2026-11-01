@@ -1,5 +1,5 @@
 // Network access for the embedded server, after T3
-// Code (MIT, see LICENSE-T3; reference 74541bab17): apps/desktop/src/backend/DesktopServerExposure.ts.
+// Code (MIT, see LICENSE-T3; reference 2359643cff): apps/desktop/src/backend/DesktopServerExposure.ts.
 // Local-only binds 127.0.0.1; network access binds 0.0.0.0 and advertises a usable LAN IPv4, preferring
 // one off a host-only bridge or tunnel (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:
 // `setMode` refuses it, and at launch it falls back to local-only without losing the preference.
@@ -127,6 +127,14 @@ export function resolveRuntimeState(input: { requestedMode: DesktopServerExposur
 export const requiresBackendRelaunch = (previous: { port: number; bindHost: string; localHttpUrl: string }, next: { port: number; bindHost: string; localHttpUrl: string }): boolean =>
   previous.port !== next.port || previous.bindHost !== next.bindHost || previous.localHttpUrl !== next.localHttpUrl;
 
+// A network-accessible backend binds every interface, so a new Wi-Fi network
+// or DHCP lease changes only the address worth advertising, not the binding.
+function withCurrentAdvertisedHost(state: RuntimeState, networkInterfaces: NetworkInterfaces, advertisedHostOverride: string | undefined): RuntimeState {
+  if (state.mode !== 'network-accessible') return state;
+  const exposure = resolveDesktopServerExposure({ mode: state.mode, port: state.port, networkInterfaces, ...(advertisedHostOverride ? { advertisedHostOverride } : {}) });
+  return { ...state, endpointUrl: exposure.endpointUrl, advertisedHost: exposure.advertisedHost };
+}
+
 const toContractState = (state: RuntimeState): DesktopServerExposureState => ({ mode: state.mode, endpointUrl: state.endpointUrl, advertisedHost: state.advertisedHost,
   tailscaleServeEnabled: state.tailscaleServeEnabled, tailscaleServePort: state.tailscaleServePort });
 const toResolvedExposure = (state: RuntimeState): ResolvedDesktopServerExposure => ({ mode: state.mode, bindHost: state.bindHost, localHttpUrl: state.localHttpUrl,
@@ -187,7 +195,10 @@ export class DesktopServerExposure {
   constructor(private readonly deps: DesktopServerExposureDeps) {}
   private get override() { return this.deps.config?.desktopLanHostOverride; }
 
-  getState(): DesktopServerExposureState { return toContractState(this.state); }
+  private readCurrentState(networkInterfaces: NetworkInterfaces): RuntimeState { return withCurrentAdvertisedHost(this.state, networkInterfaces, this.override); }
+
+  /** The state with the address the interfaces have now. */
+  async getState(): Promise<DesktopServerExposureState> { return toContractState(this.readCurrentState(await this.deps.readNetworkInterfaces())); }
   backendConfig(): DesktopServerExposureBackendConfig {
     return { port: this.state.port, bindHost: this.state.bindHost, httpBaseUrl: this.state.httpBaseUrl, tailscaleServeEnabled: this.state.tailscaleServeEnabled, tailscaleServePort: this.state.tailscaleServePort };
   }
@@ -221,8 +232,8 @@ export class DesktopServerExposure {
 
   /** The core endpoints, then Tailscale's, which are read only while network access or Serve is on (the spawn can raise macOS's "Other apps" prompt). */
   async getAdvertisedEndpoints(): Promise<AdvertisedEndpoint[]> {
-    const state = this.state;
     const networkInterfaces = await this.deps.readNetworkInterfaces();
+    const state = this.readCurrentState(networkInterfaces);
     const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({ port: state.port, exposure: toResolvedExposure(state), customHttpsEndpointUrls: this.deps.config?.desktopHttpsEndpointUrls ?? [] });
     if (state.mode !== 'network-accessible' && !state.tailscaleServeEnabled) return coreEndpoints;
     const tailscaleEndpoints = await resolveTailscaleAdvertisedEndpoints({ port: state.port, serveEnabled: state.tailscaleServeEnabled, servePort: state.tailscaleServePort,

@@ -1,6 +1,6 @@
 import { coordinateGuides, decodeGuideOpenTarget, guideReader } from '../pull-requests/pages-pr-guide';
 import { can as hasPermission } from '../connections/command-permissions';
-import { npmReleaseProbe, updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
+import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
@@ -319,6 +319,5 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     notifications: `${state.status.authorization}${state.status.active ? '' : ' (window inactive)'}`,
     notifySound: notificationSounds(client), // the thread and guide notifications' sounds (app.contract notifyCompletionSound)
     announce,
-    npmProbe: native?.available ? npmReleaseProbe(client, now) : '', // the npmRelease resource's key (npm-release.ts)
   };
 }

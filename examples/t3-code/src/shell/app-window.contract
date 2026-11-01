@@ -70,6 +70,7 @@ component T3Window
   inject
     interacted: action // the reader pointed, typed or scrolled (app.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
+    historyGo: action // Back and Forward (src/sidebar/sidebar-members.contract)
   props
     releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
     promptLinkPage: PromptLinkView
@@ -684,9 +685,13 @@ component T3Window
       detailsPlayerArmed = false
   // Over a right panel sheet (a narrow window) the thread details popover is the window's, above the sheet (WindowOverlays).
   derive detailsSheet = detailsOpen and panelSheet and (rightPanel or shell.panel.open or data.diffOpen)
-  action outsidePressUp
+  action outsidePressUp(e: PointerEvent)
     outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
     outsideDown = false
+    // A mouse's back and forward buttons step the window's history at their release, as Chromium's do, where ⌘[ and
+    // ⌘] would: not under the palette or a dialog other than Settings.
+    if (e.button == 3 or e.button == 4) and not paletteOpen and (not modal or settingsOpen)
+      historyGo(e.button == 3 ? "back" : "forward")
   // AssistantSelectionToolbar.tsx: the Cite an answer offers, drawn by the window above the timeline
   // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
   // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press
@@ -1044,7 +1049,7 @@ component T3Window
     // Window has no accelerator on macOS: `-exact-menu-keys` leaves the item without ⌘W, and AppKit's Close All, which then
     // shows as a row of its own, goes too (LLP 1021 §5.3.3). With Font smoothing on, the default, text is drawn
     // `antialiased`, as appearanceFonts.ts sets it on the document root (LLP 1019 D12).
-    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main navigationKey="t3-code" navigationBack="" navigate=promptLinkNavigate testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape

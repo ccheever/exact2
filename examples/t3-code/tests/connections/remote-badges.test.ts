@@ -58,3 +58,14 @@ describe('remote is "not the primary environment"', () => {
     expect(flat(client)).toEqual({ t9: 'mac-studio', [mine]: 'laptop' });
   });
 });
+
+describe('a remote card with nothing else for its third line', () => {
+  // SidebarThreadRow at 2359643cff: the machine glyph no longer keeps the meta line; it joins the title line.
+  test('is two lines, its machine glyph beside the provider', () => {
+    setPrimary(true);
+    const client = rig('local'), away = rowId(client, 'env-second', 't9');
+    const rows = Object.fromEntries(sidebarSnapshot(client, NOW, identity).threads.map(row => [row.id, row]));
+    expect(rows[away]).toMatchObject({ remoteMachine: 'mac-studio', metaEmpty: true });
+    expect(rows.t1).toMatchObject({ remoteMachine: '', metaEmpty: true });
+  });
+});

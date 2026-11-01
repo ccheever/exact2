@@ -301,7 +301,7 @@ async function readNetwork(client: Local, native: Native, revalidate: boolean): 
   ctx.refresh = revalidate;
   try {
     if (live.port !== port) { await exposure.configureFromSettings({ port }); live.port = port; }
-    const state = exposure.getState(), endpoints = await exposure.getAdvertisedEndpoints();
+    const state = await exposure.getState(), endpoints = await exposure.getAdvertisedEndpoints();
     if (!ctx.pending) { live.snapshot = { state, endpoints }; live.at = live.now; live.revalidating = false; }
     live.error = '';
   } catch (error) { if (letGo(error)) throw error; live.error = error instanceof Error ? error.message : String(error); live.revalidating = false; }
@@ -363,7 +363,7 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
     const enabled = value.startsWith('on');
     networkUi.exposureError = '';
     try {
-      const port = enabled ? Number(value.slice(3)) : exposure.getState().tailscaleServePort;
+      const port = enabled ? Number(value.slice(3)) : exposure.backendConfig().tailscaleServePort;
       if (enabled && (!/^\d+$/u.test(value.slice(3)) || !Number.isInteger(port) || port < 1 || port > 65_535)) throw new Error('Enter a port from 1 to 65535.');
       // DesktopServerExposure.setTailscaleServeEnabled's failures reach the renderer through the IPC, as setMode's do.
       const change = await exposure.setTailscaleServeEnabled({ enabled, port }).catch((error: unknown) => { throw letGo(error) ? error : ipcFailure('desktop:set-tailscale-serve-enabled', error); });

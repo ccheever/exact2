@@ -168,8 +168,8 @@ describe('full-screen title row', () => {
     expect(workspaceControlsLeft(16, false)).toBe(90);
   });
   test('the sidebar minimum follows the inset (brand probe) in both states', () => {
-    expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([208, 208, 223]);
-    expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 208]);
+    expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([217, 257, 298]);
+    expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 223]);
   });
   // The public display mode (exactViewport().displayMode) is the one source; the
   // native full-screen fact (T3FullScreen.swift) and its t3.status field are gone.

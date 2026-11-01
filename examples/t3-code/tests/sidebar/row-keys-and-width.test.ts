@@ -111,10 +111,10 @@ describe('Environments never list the primary (ConnectionsSettings savedEnvironm
 });
 
 describe('the sidebar minimum width follows the brand at the Interface font size', () => {
-  test('max(13rem, ceil(brand probe)): the macOS probe is 90 + 2.5rem + mark + 0.75rem + 1', () => {
-    expect(brandProbeWidth(16)).toBeCloseTo(196.78125, 5);
-    expect([12, 16, 17, 18, 19, 20].map(sidebarMinimumWidth)).toEqual([208, 208, 208, 210, 216, 223]);
-    expect([undefined, 'x', 30, 4].map(sidebarMinimumWidth)).toEqual([208, 208, 223, 208]);
+  test('max(13rem, ceil(brand probe)): the macOS probe is 90 + 2.5rem + mark + 0.25rem + two 1.75rem buttons + 0.75rem + 1', () => {
+    expect(brandProbeWidth(16)).toBeCloseTo(256.78125, 5);
+    expect([12, 16, 17, 18, 19, 20].map(sidebarMinimumWidth)).toEqual([217, 257, 267, 278, 288, 298]);
+    expect([undefined, 'x', 30, 4].map(sidebarMinimumWidth)).toEqual([257, 257, 298, 217]);
   });
 
   test('a width clamps to [minimum, max(minimum, viewport - 40rem)]', () => {
@@ -125,11 +125,13 @@ describe('the sidebar minimum width follows the brand at the Interface font size
 
   test('the launch width (no stored width) is clamped to the live minimum', () => {
     const owner = { local: { clientSettings: { fontSizeInterface: 20 } }, preferencesLoaded: true };
-    expect(sidebarLaunchWidth(owner, 840, true)).toBe(223);
+    expect(sidebarLaunchWidth(owner, 840, true)).toBe(298);
     // Sized once at load (208 at 840), then only clamped: a wider window keeps it.
-    expect(sidebarLaunchWidth(owner, 1280, true)).toBe(223);
-    expect(sidebarLaunchWidth({ local: { clientSettings: { fontSizeInterface: 20 } }, preferencesLoaded: true }, 1280, true)).toBe(256);
-    owner.local.clientSettings.fontSizeInterface = 16;
-    expect(sidebarLaunchWidth(owner, 840, true)).toBe(208);
+    expect(sidebarLaunchWidth(owner, 1280, true)).toBe(298);
+    expect(sidebarLaunchWidth({ local: { clientSettings: { fontSizeInterface: 12 } }, preferencesLoaded: true }, 1280, true)).toBe(256);
+    // At 16 px the minimum (257) is over the 16rem default.
+    expect(sidebarLaunchWidth({ local: { clientSettings: { fontSizeInterface: 16 } }, preferencesLoaded: true }, 1280, true)).toBe(257);
+    owner.local.clientSettings.fontSizeInterface = 12;
+    expect(sidebarLaunchWidth(owner, 840, true)).toBe(217);
   });
 });

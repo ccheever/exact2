@@ -166,7 +166,8 @@ component TailscaleDisableDialog
           NdAction(buttonId="tailscale-disable-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
           NdAction(buttonId="tailscale-disable-confirm", label="Restart and disable", tone="destructive", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
 
-// "Set up Tailscale HTTPS?" (Dialog): the HTTPS port (1-65535) and the endpoint it will have.
+// "Set up Tailscale HTTPS?" (Dialog): the HTTPS port (1-65535) and the endpoint it will have, the current endpoint
+// with that port (resolveTailscaleServeBaseUrl), so 443 reads https://<host> whatever port is serving now.
 // `/^\d+$/u` on the trimmed text (ConnectionsSettings isTailscaleServePortValid): digits only, so "0443" is 443.
 fn tsDigitsOnly(t: string): bool = t != "" and t.replaceAll("0", "").replaceAll("1", "").replaceAll("2", "").replaceAll("3", "").replaceAll("4", "").replaceAll("5", "").replaceAll("6", "").replaceAll("7", "").replaceAll("8", "").replaceAll("9", "") == ""
 
@@ -211,7 +212,7 @@ component TailscaleSetupDialog
       tip = false
   derive portText = edited ? typed : `${initialPort}`
   derive valid = tsDigitsOnly(portText.trim()) and (match parseNumber(portText.trim()) { case some(n) => n >= 1 and n <= 65535, case none => false })
-  derive preview = valid ? (match parseNumber(portText) { case some(n) => (n == 443 ? baseUrl : `https://${host}:${n}`), case none => baseUrl }) : baseUrl
+  derive preview = valid ? (match parseNumber(portText) { case some(n) => (n == 443 ? `https://${host}` : `https://${host}:${n}`), case none => baseUrl }) : baseUrl
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-setup-overlay"
       column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label="Set up Tailscale HTTPS?" testId="tailscale-setup-dialog"
