@@ -1,0 +1,58 @@
+// Pinned365aa87982 PendingUserInputCard: all questions share one explicit submission.
+shape PendingInputRoute
+  active: bool
+  visit: string
+  url: string
+  environmentId: string
+  threadId: string
+shape PendingInputOption
+  id: string
+  label: string
+  description: string
+  selected: bool
+shape PendingInputQuestion
+  id: string
+  header: string
+  question: string
+  multiSelect: bool
+  customAllowed: bool
+  answer: string
+  options: PendingInputOption[]
+shape PendingInputView
+  cardId: string
+  owner: string
+  active: bool
+  requestId: string
+  questions: PendingInputQuestion[]
+  count: number
+  editable: bool
+  complete: bool
+  canOperate: bool
+  canSubmit: bool
+  canDismiss: bool
+  dismissible: bool
+  canStop: bool
+  responding: bool
+  reason: string
+  error: string
+  colors: PendingInputColors
+shape PendingInputColors
+  foreground: string
+  secondary: string
+  muted: string
+  tertiary: string
+  iconSubtle: string
+  card: string
+  border: string
+  input: string
+  inputBorder: string
+  primary: string
+  primaryForeground: string
+  selected: string
+  subtleStrong: string
+  danger: string
+  dangerForeground: string
+shape PendingInputResult
+  revision: number
+  owner: string
+  message: string

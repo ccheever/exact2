@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">=27.2.0",
+    "requireCommit": true,
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "testflight": {
+      "distribution": "store",
+      "credentialsSource": "remote",
+      "autoIncrement": true,
+      "ios": {
+        "config": "t3-production.yml",
+        "image": "macos-tahoe-26.6-xcode-27.1",
+        "resourceClass": "large"
+      }
+    }
+  },
+  "submit": {
+    "testflight": {
+      "ios": {
+        "ascAppId": "6821176299",
+        "appName": "T3 Code",
+        "bundleIdentifier": "com.exact.t3code.ios",
+        "language": "en-US"
+      }
+    }
+  }
+}

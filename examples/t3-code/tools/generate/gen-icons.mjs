@@ -8,6 +8,7 @@
 //   settings-b-lucide.ts          every Lucide icon as one 24-grid stroke path (the project icon picker)
 //   pages-icons.contract          the pages' Lucide glyphs (PAGE_GLYPHS) and two of their own, one path each
 //   timeline-files.contract       FileTypeIcon: each Pierre icon's paths, opacities, fill rules and tint
+//   mobile/file-icons.contract    the iOS app's FileTypeIcon: the same, without file-icon-marks.mjs's icons
 //   timeline-files-tables.ts      Pierre's file-name and extension tables (timeline-files.ts resolves with them)
 //   data/pierre-icons.tsv         the same tables for the Markdown module's file chips (pierre_icons.rs)
 //   icons.contract, shell-icons.contract, sidebar-icons.contract, timeline-icons.contract,
@@ -247,10 +248,11 @@ const DOCUMENT_ICON_EXTENSIONS = { pdf: 'pdf', doc: 'word', docx: 'word', odt: '
 const FILE_ICON_EXTENSIONS = { ...DOCUMENT_ICON_EXTENSIONS, cs: 'csharp', csx: 'csharp', dart: 'dart', diff: 'diff', patch: 'diff', ex: 'elixir', exs: 'elixir', hs: 'haskell', lhs: 'haskell', java: 'java', kt: 'kotlin', kts: 'kotlin', lua: 'lua', luau: 'lua', php: 'php', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell', r: 'r', scala: 'scala', toml: 'toml', xml: 'xml', xsd: 'xml', xsl: 'xml', xslt: 'xml' };
 
 const attributes = tag => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(m => [m[1], m[2]]));
-/** Every symbol as { viewBox, inner, paths: [{ d, opacity, rule, fill }] }, by token. */
-function pierreSymbols(pierre) {
+/** Every symbol as { viewBox, inner, paths: [{ d, opacity, rule, fill }] }, by token; `extra`
+ *  adds file-icon-marks.mjs's icons (the iOS app draws without them). */
+function pierreSymbols(pierre, extra = true) {
   const symbols = new Map();
-  const sheet = pierre.BUILT_IN_SVG_SPRITE_SHEETS.complete + T3_SPRITE + FILE_ICON_SPRITE;
+  const sheet = pierre.BUILT_IN_SVG_SPRITE_SHEETS.complete + T3_SPRITE + (extra ? FILE_ICON_SPRITE : '');
   for (const [, prefix, token, viewBox, inner] of sheet.matchAll(/<symbol id="(file-tree-builtin|t3-file-icon)-([\w-]+)" viewBox="([^"]+)">([\s\S]*?)<\/symbol>/g)) {
     const paths = [...inner.matchAll(/<path\s([^>]*?)\s*\/>/g)].map(([, tag]) => {
       const a = attributes(tag);
@@ -264,12 +266,12 @@ function pierreSymbols(pierre) {
   return symbols;
 }
 /** Each token's light-dark tint from the colored set's stylesheet ([data-icon-token] rules). */
-function pierreTints() {
+function pierreTints(extra = true) {
   const css = JSON.parse(/var style_default = (".*");/s.exec(read('@pierre/trees/dist/style.js'))[1]);
   const palette = Object.fromEntries([...css.matchAll(/--trees-icon-([\w-]+): (light-dark\([^)]*\));/g)].map(m => [m[1], m[2]]));
   const tokenColour = Object.fromEntries([...css.matchAll(/--trees-file-icon-color-([\w-]+): var\(\s*--[\w-]+,\s*var\(--trees-icon-([\w-]+)\)\s*\)/g)].map(m => [m[1], palette[m[2]]]));
   const ruled = [...css.matchAll(/\[data-icon-token='([\w-]+)'\] \{\s*color: var\(--trees-file-icon-color-([\w-]+)\);/g)].map(m => [m[1], tokenColour[m[2]]]);
-  return { tints: new Map([...ruled, ...Object.entries(FILE_ICON_TINTS)]), fallback: tokenColour.default };
+  return { tints: new Map([...ruled, ...(extra ? Object.entries(FILE_ICON_TINTS) : [])]), fallback: tokenColour.default };
 }
 const number = n => (Number.isInteger(n) ? n.toFixed(1) : String(n));
 
@@ -308,6 +310,40 @@ function fileTypeIcon(symbols, tints) {
 // FileTypeIcon's lookups are fns: a call reads its argument once, so a caller's deep expression is not
 // nested under every comparison.
 ${fns.join('\n')}
+
+component FileTypeIcon
+  props
+    token: string
+    size: number
+${derives.join('\n')}
+  view
+    svg width=\`\${size / 16}rem\` height=\`\${size / 16}rem\` viewBox=box color=tint fill="none" flex-shrink=0 aria-hidden=true
+${paths.join('\n')}
+`;
+}
+
+/** The iOS app's FileTypeIcon: every lookup an inline chain, and each layer only its path, fill,
+ *  opacity and fill rule (no Pierre path it draws has a stroke). */
+function mobileFileTypeIcon(symbols, tints) {
+  const tokens = [...symbols.keys()].sort();
+  const layers = Math.max(...tokens.map(token => symbols.get(token).paths.length));
+  if (tokens.some(token => symbols.get(token).paths.some(path => path.stroke !== 'none'))) throw new Error('a mobile file icon has a stroke');
+  const derive = (name, entries, fallback) => `  derive ${name} = ${inline(entries, fallback)}`;
+  const derives = [derive('box', tokens.filter(token => symbols.get(token).viewBox !== '0 0 16 16').map(token => [token, q(symbols.get(token).viewBox)]), '"0 0 16 16"'),
+    derive('tint', [...tints.tints].filter(([token, tint]) => symbols.has(token) && tint !== tints.fallback).sort(([a], [b]) => (a < b ? -1 : 1)).map(([token, tint]) => [token, q(tint)]), q(tints.fallback))];
+  for (let layer = 0; layer < layers; layer++) {
+    const at = token => symbols.get(token).paths[layer];
+    const having = tokens.filter(at);
+    derives.push(derive(`d${layer}`, having.map(token => [token, q(at(token).d)]), '""'),
+      derive(`o${layer}`, having.filter(token => at(token).opacity !== 1).map(token => [token, number(at(token).opacity)]), '1.0'),
+      derive(`r${layer}`, having.filter(token => at(token).rule !== 'nonzero').map(token => [token, q(at(token).rule)]), '"nonzero"'),
+      derive(`f${layer}`, having.filter(token => at(token).fill !== 'currentColor').map(token => [token, q(at(token).fill)]), '"currentColor"'));
+  }
+  const paths = Array.from({ length: layers }, (_, layer) => `      if d${layer} != ""\n        path d=d${layer} fill=f${layer} fill-opacity=o${layer} fill-rule=r${layer}`);
+  return `// Generated by examples/t3-code/tools/generate/gen-icons.mjs; do not edit. Pierre file icons (the
+// "complete" set of @pierre/trees@${version('@pierre/trees')} plus T3's agents/pnpm sprites (Apache-2.0;
+// T3's, MIT; see LICENSE-T3), for the iOS app, whose bake captures only mobile/. timeline-files.ts resolves
+// a path or fence language to the token; PierreEntryIcon colours it per scheme.
 
 component FileTypeIcon
   props
@@ -522,10 +558,14 @@ ${markComponents(SOURCE_CONTROL_MARKS)}
 export async function generate() {
   const pierre = pierreModule(), symbols = pierreSymbols(pierre), tints = pierreTints();
   const tables = fileTables(pierre);
+  const lucide = await lucideSet();
   return [
-    { file: join(example, 'src', 'settings', 'settings-b-lucide.ts'), text: await lucideSet() },
+    { file: join(example, 'src', 'settings', 'settings-b-lucide.ts'), text: lucide },
+    // The iOS app's bake captures only mobile/, so its project icon picker reads its own copy.
+    { file: join(example, 'mobile', 'shared', 'settings-b-lucide.ts'), text: lucide },
     { file: join(example, 'src', 'shared', 'pages-icons.contract'), text: await pageIcons() },
     { file: join(example, 'src', 'shared', 'timeline-files.contract'), text: fileTypeIcon(symbols, tints) },
+    { file: join(example, 'mobile', 'file-icons.contract'), text: mobileFileTypeIcon(pierreSymbols(pierre, false), pierreTints(false)) },
     { file: join(example, 'src', 'shared', 'timeline-files-tables.ts'), text: tables.ts },
     { file: join(example, 'data', 'pierre-icons.tsv'), text: tables.tsv },
     { file: join(example, 'src', 'shared', 'icons.contract'), text: await iconsContract() },

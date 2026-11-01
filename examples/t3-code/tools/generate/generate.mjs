@@ -3,9 +3,11 @@
 // integrity values the reference T3 Code locks; installed on first use) and from committed inputs,
 // and examples/t3-code/.gitignore keeps it out of git:
 //
+//   gen-mobile-grammar.mjs mobile/shared/r12-render-grammar.ts and -more.ts: the iOS app's grammar groups
+//   gen-css-words.mjs  mobile/shared/r7-polish-css-words.ts: the mobile CSS grammar word lists
 //   gen-highlights.mjs data/highlights.wasm and its licence: @pierre/highlights' lexers; src/highlight/
 //                      highlights-tables.ts and syntax-ink.contract: its languages and its colour classes
-//   gen-icons.mjs      src/settings/settings-b-lucide.ts, src/shared/pages-icons.contract (Lucide);
+//   gen-icons.mjs      src/settings/settings-b-lucide.ts (and mobile/shared/'s copy), src/shared/pages-icons.contract (Lucide);
 //                      src/shared/timeline-files.contract and timeline-files-tables.ts, data/pierre-icons.tsv,
 //                      the icon tables of icon-tables.mjs and
 //                      icon-marks.mjs (src/shared/icons.contract and nine more in their features' folders)
@@ -41,7 +43,7 @@ import { inputs as filePreviewInputs } from './gen-file-preview.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const example = join(here, '..', '..');
-const GENERATORS = ['gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs', 'gen-file-preview.mjs'];
+const GENERATORS = ['gen-mobile-grammar.mjs', 'gen-css-words.mjs', 'gen-highlights.mjs', 'gen-icons.mjs', 'gen-morph.mjs', 'gen-vectors.mjs', 'gen-mermaid.mjs', 'gen-codex-directives.mjs', 'gen-minimap-text.mjs', 'gen-shell-parser.mjs', 'gen-page-scripts.mjs', 'gen-file-preview.mjs'];
 
 /** Every input: this directory's scripts, package.json and bun.lock, the assets gen-page-scripts.mjs copies, and the
  *  viewer page's sources gen-file-preview.mjs bundles (no other generator reads an app source). */

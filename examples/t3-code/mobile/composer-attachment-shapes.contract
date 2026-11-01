@@ -1,0 +1,19 @@
+// @ref examples/t3-code/mobile/docs/1130.005-composer-and-transcript.decision.md#new-task-ownership
+shape ComposerAttachment
+  id: string
+  name: string
+  kind: string
+  size: string
+  mimeType: string
+  preview: string
+  removeOperation: string
+  disabled: bool
+shape ComposerAttachmentsSnapshot
+  menuConfiguration: string
+  previewRequest: string
+  contentOwner: string
+  items: ComposerAttachment[]
+  canPick: bool
+  supportsFiles: bool
+  remaining: number
+  error: string

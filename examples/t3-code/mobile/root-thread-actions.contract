@@ -1,0 +1,51 @@
+use Change from "./app-shapes.contract"
+members App
+  state historyAnchorKey = ""
+  state historyAnchorOffset = 0
+  state historyAnchorRoute = ""
+  state historyAnchorEnvironment = ""
+  state historyAnchorThread = ""
+  state historyAnchorRevision = 0
+  mutation threadHistoryChanged as shape Change queue refreshes data, threadData then didThreadHistoryChanged
+  action threadHistoryScroll(x: number, y: number, e: ScrollEvent)
+    if top(nav).name.startsWith("thread")
+      match e.firstVisibleKey
+        case some(key)
+          historyAnchorKey = key
+          historyAnchorOffset = e.firstVisibleOffset
+          historyAnchorRoute = `${top(nav).id}`
+          historyAnchorEnvironment = threadData.environmentId
+          historyAnchorThread = threadData.threadId
+          historyAnchorRevision = threadData.historyRevision
+        case none
+          historyAnchorKey = ""
+  action didThreadHistoryChanged
+    if historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision
+      scrollIntoView("thread-feed", historyAnchorKey, offset=historyAnchorOffset, behavior="instant")
+      historyAnchorRevision = threadData.historyRevision
+  action threadAction(op: string, id: string, value: string)
+    if op == "outbox:edit"
+      if not pending(outboxEdited)
+        send outboxEdited = outboxEdit(id, `${top(nav).id}`)
+    else if op == "outbox:retry"
+      if not pending(outboxChanged)
+        send outboxChanged = outboxAction("retry", id, wallTime.epochAtZero + performanceNow())
+    else if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      if op == "html-render"
+        send htmlRenderChanged = htmlRenderEvent(htmlRenderContext.context, id, value, `${top(nav).id}`, htmlRenderContext.full)
+      else if op == "fork-response"
+        if not pending(selected) and not pending(routeSelected)
+          haptic("selection")
+          send selected = threadFork(id, value, `${top(nav).id}`)
+      else if op == "queue-open"
+        blur()
+        composerFocusIdentity = ""
+        nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
+      else if (op == "send" or op == "send-alternate") and threadSubmission.ordinary
+        if not pending(changed) and not pending(threadSubmissionChanged)
+          send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
+      else if op == "chatlocal:history-auto" or op == "chatlocal:history-retry"
+        send threadHistoryChanged = command(op, id, value, `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+      else
+        lastOperation = "thread-action"
+        send changed = command(op, id, value, op.startsWith("pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)

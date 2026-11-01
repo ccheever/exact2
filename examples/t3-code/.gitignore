@@ -35,6 +35,14 @@
 /assets/math/vendor/
 /assets/file-preview/
 /data/pierre-icons.tsv
+# The iOS app's copies (its bake captures only mobile/).
+/mobile/shared/r12-render-grammar.ts
+/mobile/shared/r12-render-grammar-more.ts
+/mobile/shared/r7-polish-css-words.ts
+/mobile/shared/settings-b-lucide.ts
+/mobile/shared/file-markdown-parser.js
+/mobile/shared/file-markdown-parser.d.ts
+/mobile/file-icons.contract
 /tests/terminal/vectors.json
 # The app's own Cargo workspace builds here (Cargo.toml).
 /target/
