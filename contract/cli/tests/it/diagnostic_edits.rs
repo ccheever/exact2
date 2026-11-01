@@ -210,9 +210,9 @@ const CASES: &[Case] = &[
         fixed: &[("", "view role=\"list\"\n  row role=\"listitem\" gap=4\n    text \"•\"\n    text \"a\"")],
     },
     Case {
-        wrote: ("", "view role=\"list\" list-style=\"none\"\n  text role=\"listitem\" \"a\""),
+        wrote: ("", "view role=\"list\" list-style-type=\"disc\"\n  text role=\"listitem\" \"a\""),
         id: "lower-unknown-attr",
-        leads: "`view` has no attribute `list-style`; a list here draws no marker",
+        leads: "`view` has no attribute `list-style-type`; a list here draws no marker",
         fixed: &[("", "view role=\"list\"\n  text role=\"listitem\" \"a\"")],
     },
 ];
@@ -240,6 +240,25 @@ fn what_builders_wrote_is_refused_with_the_edit_leading_and_the_edit_builds() {
             }
         }
     }
+}
+
+/// A list draws no marker, so the reset a stylesheet writes on a `ul`, `list-style: none`, is taken on a node and
+/// in a style, and compiles to what writing nothing does.
+#[test]
+fn a_list_style_of_none_is_taken_and_writes_nothing() {
+    let plan = |style: &str, list: &str| {
+        let source = format!(
+            "style Bare\n  margin=0{style}\n\n{}",
+            app(
+                "",
+                &format!("view role=\"list\" class=Bare{list}\n  text role=\"listitem\" \"a\"")
+            )
+        );
+        contract::compile(&source).unwrap_or_else(|e| panic!("{} ({})\n{source}", e.message, e.id))
+    };
+    let bare = plan("", "");
+    assert_eq!(plan("\n  list-style=\"none\"", ""), bare);
+    assert_eq!(plan("", " list-style-type=\"none\""), bare);
 }
 
 /// A message that names an edit never edits what is not wrong: a role that is

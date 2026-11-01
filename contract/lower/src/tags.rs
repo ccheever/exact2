@@ -389,6 +389,14 @@ pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarg
     if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
         return Some(AttrTarget::Handler("resize"));
     }
+    // No `::marker` (CSS Lists 3 §3): every list is already `list-style: none`, so the
+    // reset a stylesheet writes on a `ul` is taken and writes nothing (`lint::unknown_attr`
+    // names the bullet for any other value).
+    if matches!(name, "list-style" | "list-style-type")
+        && matches!(value, Expr::Str(v, _) if v.trim().eq_ignore_ascii_case("none"))
+    {
+        return Some(AttrTarget::Styles(&[]));
+    }
     attr(name)
 }
 /// The style rows an attribute writes: its own, a shorthand's longhands,
