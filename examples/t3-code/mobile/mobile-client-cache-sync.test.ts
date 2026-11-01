@@ -419,6 +419,31 @@ test('expanded history stays lossless in memory, skips disk publication across l
   expect(wire.projection.turnItems[0].output).toBe(output); expect(wire.historyCursor).toBe('new-boundary');
 });
 
+test('older history drops future turn-item types while retaining known rows and the page boundary', () => {
+  const f = fixture();
+  const known = { id: 'known-history', threadId: 'thread', runId: null, nodeId: null, ordinal: 1,
+    status: 'completed', type: 'assistant_message', text: 'Known history', messageId: 'known-message', streaming: false };
+  const unknown = { ...known, id: 'future-history', type: 'future_turn_item' };
+  const merged = mergeHistory(f.thread, { snapshotSequence: 20, nextCursor: 'older-again', hasMoreHistory: true,
+    items: [
+      { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: unknown.id, item: unknown },
+      { position: 1, visibility: 'local', sourceThreadId: 'thread', sourceItemId: known.id, item: known },
+    ] });
+  expect(merged.historyCursor).toBe('older-again');
+  expect(merged.hasMore).toBe(true);
+  expect(merged.projection.visibleTurnItems.map(row => row.sourceItemId)).toEqual([known.id]);
+  expect(merged.projection.turnItems.map(item => item.id)).toEqual([known.id]);
+  const row = { position: 0, visibility: 'local', sourceThreadId: 'thread', sourceItemId: unknown.id, item: unknown };
+  const snapshot = threadSnapshot({ projection: { ...f.thread.projection, turnItems: [unknown], visibleTurnItems: [row] },
+    snapshotSequence: 21, historyCursor: 'snapshot-cursor', hasMoreHistory: true, latestLocalTurnOrdinal: 2 });
+  expect(snapshot.projection.turnItems).toEqual([]);
+  expect(snapshot.projection.visibleTurnItems).toEqual([]);
+  const streamed = applyThread(f.thread, { kind: 'event', sequence: 21, event: { type: 'turn-item.updated', threadId: 'thread',
+    occurredAt: '2026-10-10T12:00:00.000Z', payload: unknown } });
+  expect(streamed.sequence).toBe(21);
+  expect(streamed.projection.turnItems).toEqual(f.thread.projection.turnItems);
+});
+
 test('real successful empty earlier page prevents publication, while failure and stale cursor leave the replacement eligible', async () => {
   const f = liveFixture(), original = f.native.later;
   f.native.later = async input => obj(input).op === 'http' ? { ok: true, generation: 1, value: {

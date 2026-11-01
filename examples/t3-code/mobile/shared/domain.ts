@@ -115,6 +115,17 @@ const otherEvents = new Set([
   "provider-session.detached", "run.background-work-cancelled", "checkpoint.rollback-requested",
 ]);
 
+const TURN_ITEM_TYPES = [
+  "notification", "user_message", "assistant_message", "reasoning", "proposed_plan", "todo_list",
+  "user_input_request", "file_change", "command_execution", "file_search", "web_search", "approval_request",
+  "checkpoint", "run_interrupt_request", "run_interrupt_result", "system_notice", "error", "compaction",
+  "handoff", "fork", "thread_created", "subagent", "dynamic_tool",
+];
+/** Turn-item tags are an extensible wire union; retain fields this build understands. */
+function isUnknownTurnItem(value: unknown): boolean {
+  return isObject(value) && typeof value.type === "string" && !TURN_ITEM_TYPES.includes(value.type);
+}
+
 function validateTurnItem(value: unknown, path: string): Obj {
   const item = entity(value, path);
   string(item.threadId, `${path}.threadId`);
@@ -243,14 +254,22 @@ export function applyShell(current: Shell, value: unknown): Shell {
 
 export function threadSnapshot(value: unknown): ThreadState {
   const snapshot = object(value, "thread snapshot");
-  const projection = object(snapshot.projection, "thread snapshot.projection");
-  validateEntity(projection.thread, "threads", "projection.thread");
+  const received = object(snapshot.projection, "thread snapshot.projection");
+  validateEntity(received.thread, "threads", "projection.thread");
+  let projection = received;
   for (const family of projectionArrays) {
-    objects(projection[family], `projection.${family}`).forEach((item, index) => {
+    const items = objects(received[family], `projection.${family}`);
+    const known = family === "turnItems" ? items.filter(item => !isUnknownTurnItem(item))
+      : family === "visibleTurnItems" ? items.filter(row => !isUnknownTurnItem(row.item)) : items;
+    known.forEach((item, index) => {
       const path = `projection.${family}[${index}]`;
       if (family === "visibleTurnItems") validateRow(item, path);
       else validateEntity(item, family, path);
     });
+    if (known.length !== items.length) {
+      if (projection === received) projection = { ...received };
+      projection[family] = family === "visibleTurnItems" ? renumber(known) : known;
+    }
   }
   const historyCursor = snapshot.historyCursor === undefined ? null : nullableString(snapshot.historyCursor, "historyCursor");
   const hasMore = snapshot.hasMoreHistory === undefined ? false : boolean(snapshot.hasMoreHistory, "hasMoreHistory");
@@ -309,6 +328,7 @@ export function applyThread(state: ThreadState, value: unknown): ThreadState {
   string(event.threadId, "event.threadId");
   string(event.occurredAt, "event.occurredAt");
   const payload = object(event.payload, "event.payload");
+  if (family === "turnItems" && isUnknownTurnItem(payload)) return { ...state, sequence };
   if (threadEvents.has(type)) validateEntity(payload, "threads", "event.payload");
   else if (family) validateEntity(payload, family, "event.payload");
   else if (type === "provider-session.detached") string(payload.providerSessionId, "event.payload.providerSessionId");
@@ -363,7 +383,8 @@ function rowKey(row: Obj): string { return JSON.stringify([row.sourceThreadId, r
 export function mergeHistory(state: ThreadState, value: unknown): ThreadState {
   const page = object(value, "history page");
   integer(page.snapshotSequence, "history page.snapshotSequence");
-  const older = objects(page.items, "history page.items").map((row, index) => validateRow(row, `history page.items[${index}]`));
+  const older = objects(page.items, "history page.items").filter(row => !isUnknownTurnItem(row.item))
+    .map((row, index) => validateRow(row, `history page.items[${index}]`));
   const historyCursor = nullableString(page.nextCursor, "history page.nextCursor");
   const hasMore = boolean(page.hasMoreHistory, "history page.hasMoreHistory");
   const current = state.projection;
