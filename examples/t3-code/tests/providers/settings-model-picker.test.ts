@@ -68,7 +68,7 @@ describe('the picker for a General model row', () => {
     expect([catalog.provider, catalog.railIndex, catalog.favoritesSelected]).toEqual(['codex', 1, false]);
     expect(catalog.providers.map(rail => [rail.id, rail.selected])).toEqual([['codex', true], ['claudeAgent', false], ['cursor', false]]);
     expect(catalog.models.map(row => [row.kind, row.name, row.selected, row.reason])).toEqual([['model', 'GPT-5.6-Luna', false, ''], ['model', 'GPT-6-Astra', true, ''],
-      ['legacy', 'Legacy models', false, ''], ['legacy-model', 'GPT-4 Old', false, '']]);
+      ['legacy-model', 'GPT-4 Old', false, ''], ['legacy', '', false, '']]);
     expect(catalog.legacyDefault).toBe(false);
     // Switching the rail browses another provider; nothing marks the composer's Claude Sonnet.
     const claudeRail = settingsPickerCatalog(c, 'default-model:|||', 'claudeAgent', '', badge);

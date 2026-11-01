@@ -14,9 +14,29 @@ describe('workspace provider discovery', () => {
     expect(discovery.state('env', 1, provider, '/repo', wake, true, now).needed).toBe(false);
     const stale = discovery.state('env', 1, provider, '/repo', wake, true, now + 300_000);
     expect(stale.needed).toBe(true);
-    await discovery.refresh(stale.key, async () => ({ providers: [provider] }));
-    expect(discovery.state('env', 1, provider, '/repo', wake, true, now + 300_001).needed).toBe(false);
-    expect(discovery.state('env', 1, provider, '/repo', wake, true, now + 600_000).needed).toBe(true);
+    // The lagging server's new scan is still older than the TTL by this clock; its new timestamp is the progress.
+    const rescanned = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now + 1).toISOString() }] };
+    expect((await discovery.refresh(stale.key, async () => ({ providers: [rescanned] }))).retry).toBe(false);
+    expect(discovery.state('env', 1, rescanned, '/repo', { prompt: '', config: rescanned }, true, now + 300_001).needed).toBe(false);
+    expect(discovery.state('env', 1, rescanned, '/repo', { prompt: '', config: rescanned }, true, now + 600_000).needed).toBe(true);
+  });
+  test('a rescan that returns the same expired catalog is retried, three times at most (providerSkills.ts)', async () => {
+    const discovery = new WorkspaceDiscovery(), now = Date.parse('2026-10-18T00:05:00Z');
+    const stale = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: '2026-10-18T00:00:00.000Z' }] };
+    const wake = { prompt: '', config: stale };
+    let calls = 0;
+    for (const attempt of [1, 2, 3]) {
+      const state = discovery.state('env', 1, stale, '/repo', wake, true, now + attempt * 10_000);
+      expect(state.needed).toBe(true);
+      expect((await discovery.refresh(state.key, async () => { calls++; return { providers: [stale] }; })).retry).toBe(attempt < 3);
+    }
+    expect(calls).toBe(3);
+    expect(discovery.state('env', 1, stale, '/repo', wake, true, now + 60_000).needed).toBe(false);
+    const fresh = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: '2026-10-18T00:05:10.000Z' }] };
+    const again = new WorkspaceDiscovery(), first = again.state('env', 1, stale, '/repo', wake, true, now);
+    expect((await again.refresh(first.key, async () => ({ providers: [stale] }))).retry).toBe(true);
+    const second = again.state('env', 1, stale, '/repo', wake, true, now + 10_000);
+    expect((await again.refresh(second.key, async () => ({ providers: [fresh] }))).retry).toBe(false);
   });
   test('uses partial workspace skills and commands while keeping discovery retryable', () => {
     expect(hasCompleteProviderWorkspaceSnapshot(partial, '/repo')).toBe(false);
@@ -67,7 +87,7 @@ describe('workspace provider discovery', () => {
     expect(stale.needed).toBe(true);
     expect((await subscribed.refresh(stale.key, failing)).retry).toBe(true);
   });
-  test('a folder the composer moved from loses its count; a stale complete snapshot ends one too', async () => {
+  test('a folder the composer moved from loses its count; a stale complete snapshot does not end one', async () => {
     const now = Date.parse('2026-10-25T00:00:00Z'), failing = async () => { throw new Error('no such directory'); };
     const state = (discovery: WorkspaceDiscovery, provider: Obj, cwd: string, at: number) => discovery.state('env', 1, provider, cwd, { prompt: '', config: provider }, true, at);
     // Three failures on /gone, then another folder, then /gone again: a fresh count.
@@ -78,12 +98,13 @@ describe('workspace provider discovery', () => {
     const back = state(moved, partial, '/gone', now + 12);
     expect(back.needed).toBe(true);
     expect((await moved.refresh(back.key, failing)).retry).toBe(true);
-    // A complete snapshot checked long ago is not current, yet it ends the count (hasCompleteProviderWorkspaceSnapshot).
+    // A complete snapshot checked long ago may be all a failing scan returns: the count holds until the TTL.
     const old = { ...complete, workspaceSnapshots: [{ ...complete.workspaceSnapshots[0], checkedAt: new Date(now - 86_400_000).toISOString() }] };
     const stale = new WorkspaceDiscovery();
-    for (const attempt of [1, 2, 3]) await stale.refresh(state(stale, partial, '/repo', now + attempt).key, failing);
-    state(stale, old, '/repo', now + 10);
-    const next = state(stale, partial, '/repo', now + 3 + 300_001);
+    for (const attempt of [1, 2, 3]) await stale.refresh(state(stale, old, '/repo', now + attempt).key, failing);
+    expect(state(stale, old, '/repo', now + 10).needed).toBe(false);
+    const next = state(stale, old, '/repo', now + 3 + 300_001);
+    expect(next.needed).toBe(true);
     expect((await stale.refresh(next.key, failing)).retry).toBe(true);
   });
   test('retries failures and keeps delimiter-containing keys distinct', async () => {

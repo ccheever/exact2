@@ -42,9 +42,9 @@ describe("root font size in the JS layout", () => {
   });
 
   it("scales the composer's measured menus and leaves them alone at 16", () => {
-    const row = { effortMenuWidth: 200, runtimeMenuHeight: 102, sendTipWidth: 80, other: 7 };
+    const row = { effortHeight: 200, runtimeMenuHeight: 102, sendTipWidth: 80, other: 7 };
     expect(atRootFontSize(row, 16)).toBe(row);
-    expect(atRootFontSize(row, 20)).toEqual({ effortMenuWidth: 250, runtimeMenuHeight: 127.5, sendTipWidth: 100, other: 7 });
+    expect(atRootFontSize(row, 20)).toEqual({ effortHeight: 250, runtimeMenuHeight: 127.5, sendTipWidth: 100, other: 7 });
   });
 });
 

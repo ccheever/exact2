@@ -36,6 +36,11 @@ describe('video tiles (isPreviewableComposerVideo, videoMimeType)', () => {
     expect(videoMimeType({ name: 'notes.mp4', mimeType: 'application/pdf' })).toBeNull();
     expect(videoMimeType({ name: 'notes.md', mimeType: 'text/markdown' })).toBeNull();
   });
+  test('a TypeScript file labelled as an MPEG transport stream is not a video', () => {
+    expect(videoMimeType({ name: 'index.ts', mimeType: 'video/mp2t' })).toBeNull();
+    expect(videoMimeType({ name: 'index.ts', mimeType: 'video/vnd.dlna.mpeg-tts' })).toBeNull();
+    expect(videoMimeType({ name: 'clip.mp4', mimeType: 'video/mp2t' })).toBe('video/mp4');
+  });
   test('only the draft\'s attached, staged videos become tiles', () => {
     const file = (over: object) => ({ id, name: 'clip.mov', mimeType: 'video/quicktime', contextId: 'file_x', source: 'attached', status: 'staged', draftKey: 'k', ...over });
     expect(videoTiles([file({})], 'k')).toEqual([{ id, name: 'clip.mov', src: `app:/data/composer-files/${id}.mov`, contextId: 'file_x' }]);

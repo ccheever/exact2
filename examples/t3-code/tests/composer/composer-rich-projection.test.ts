@@ -15,14 +15,14 @@ describe('composer source projection', () => {
     const source = '😀\n```ts\nx\n```\n- item';
     const result = project(source);
     expect(result.blocks).toEqual([
-      { kind: 'paragraph', start: 0, end: 2, contentStart: 0, bodyStart: 0, bodyEnd: 2, bodyLine: true },
-      { kind: 'code', start: 3, end: 14, contentStart: 3, bodyStart: 9, bodyEnd: 10, bodyLine: true },
-      { kind: 'list', start: 15, end: 21, contentStart: 17, bodyStart: 15, bodyEnd: 21, bodyLine: true },
+      { kind: 'paragraph', start: 0, end: 2, contentStart: 0, bodyStart: 0, bodyEnd: 2, bodyLine: true, nested: false },
+      { kind: 'code', start: 3, end: 14, contentStart: 3, bodyStart: 9, bodyEnd: 10, bodyLine: true, nested: false },
+      { kind: 'list', start: 15, end: 21, contentStart: 17, bodyStart: 15, bodyEnd: 21, bodyLine: true, nested: false },
     ]);
     // Without rich text only a list line typed as text is a block: its Tab indents (listIndentForTab).
     expect(project(source, false).blocks.map(block => block.kind)).toEqual(['paragraph', 'paragraph', 'paragraph', 'paragraph', 'list']);
     // A fence closed on the next line is projected where its body would be, and says it has no body line.
-    expect(project('```ts\n```').blocks).toEqual([{ kind: 'code', start: 0, end: 9, contentStart: 0, bodyStart: 6, bodyEnd: 6, bodyLine: false }]);
+    expect(project('```ts\n```').blocks).toEqual([{ kind: 'code', start: 0, end: 9, contentStart: 0, bodyStart: 6, bodyEnd: 6, bodyLine: false, nested: false }]);
     expect(project('```ts\n\n```').blocks[0]).toMatchObject({ bodyStart: 6, bodyEnd: 6, bodyLine: true });
   });
   test('rich-text preference decides code blocks while literal answer mode also excludes chips', () => {

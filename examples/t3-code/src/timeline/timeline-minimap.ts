@@ -5,6 +5,7 @@
 // (MessagesTimeline.tsx's onSelect, 24pt under the top edge) are Contract's:
 // ChatColumn in app-main.contract.
 import { minimapPreviewText } from './minimap-text.js';
+import { isAttachmentOnlyPrompt } from '../composer/attachment-only-prompt';
 
 /** `text`: an answer's own text (Message.rawText), which its preview reads as upstream's does; else `body`. */
 export interface MinimapRow { id: string; kind: string; body: string; text?: string }
@@ -40,8 +41,10 @@ export function minimapItems(rows: readonly MinimapRow[]): MinimapItem[] {
       if (candidate.kind === 'user') break;
       if (candidate.kind === 'assistant') excerpt = candidate.text ?? candidate.body;
     }
-    const label = nextLabels.get(row.body) ?? labels.get(row.body) ?? compact(row.body);
-    nextLabels.set(row.body, label);
+    // An attachment-only message's prompt is not its text (timelineMinimapItems at 2359643cff).
+    const body = isAttachmentOnlyPrompt(row.body) ? '' : row.body;
+    const label = nextLabels.get(body) ?? labels.get(body) ?? compact(body);
+    nextLabels.set(body, label);
     items.push({ id: row.id, index: items.length, label: label || 'User message', excerpt: previewText(excerpt, next), row: index });
   });
   previews = next;

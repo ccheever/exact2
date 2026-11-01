@@ -9,7 +9,8 @@ import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, resolvePla
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork } from '../../src/composer/composer-controls-view';
 import { queuedTurnRows, threadNowRows } from '../../src/composer/thread-end';
-import { traitsMenu, withNoticeDetails } from '../../src/composer/composer-presentation';
+import { withNoticeDetails } from '../../src/composer/composer-presentation';
+import { speedSegments } from '../../src/composer/composer-model-effort';
 import { probeKey } from '../../src/composer/composer-menus';
 import { antigravitySendBlockReason } from '../../src/composer/composer-provider-selection';
 import { threadStatusLine } from '../../src/timeline/thread-status-line';
@@ -47,7 +48,7 @@ describe('sticky model and next-turn selection', () => {
     await command('runtime', '', 'approval-required');
     expect(native.committed.length).toBe(before);
     expect(client.error).toBe('');
-    expect(snapshot(client).composer).toMatchObject({ traitsLabel: 'Low', runtimeLabel: 'Supervised' });
+    expect(snapshot(client).composer).toMatchObject({ modelDetail: 'Low', runtimeLabel: 'Supervised' });
     // A thread event re-reads the thread's own selection; the staged choice still owns the composer.
     native.emit('thread', { kind: 'event', sequence: 2, event: { id: 'e2', type: 'thread.updated', threadId: 't1', occurredAt: at, payload: {} } });
     await client.refresh(native, storage());
@@ -63,9 +64,10 @@ describe('sticky model and next-turn selection', () => {
   test('boolean traits are offered and applied', () => {
     expect(applyOptionChoice([effort, fast], [], 'fastMode', 'true')).toEqual([{ id: 'fastMode', value: true }]);
     expect(() => applyOptionChoice([effort, fast], [], 'fastMode', 'maybe')).toThrow('no longer offered');
-    const menu = traitsMenu([effort, fast], [{ id: 'fastMode', value: true }]);
-    expect(menu.items.filter(item => item.descriptor === 'fastMode').map(item => [item.kind, item.label, item.selected])).toEqual([
-      ['divider', '', false], ['header', 'Fast mode', false], ['option', 'On', true], ['option', 'Off', false]]);
+    // Fast mode is the picker footer's speed control (ComposerModelEffort SpeedControl): Standard, then Fast.
+    const speed = speedSegments({ driver: 'codex', descriptors: [effort, fast], selections: [{ id: 'fastMode', value: true }], selection: null, reported: null,
+      ultra: { primaryId: '', controlled: false, inBody: false }, unavailable: false, labels: {} });
+    expect(speed.segments.map(segment => [segment.label, segment.value, segment.checked, segment.bolt])).toEqual([['Standard', 'false', false, ''], ['Fast', 'true', true, 'fast']]);
     expect(traitsDisplay('codex', [effort, fast], [{ id: 'fastMode', value: true }])).toEqual({ label: 'Medium Fast', speedLabel: 'Fast', otherLabels: [] });
     expect(traitsDisplay('claudeAgent', [fast], [])).toEqual({ label: 'Normal', speedLabel: null, otherLabels: [] });
     const tier = { id: 'serviceTier', type: 'select', options: [{ id: 'default', label: 'Normal' }, { id: 'priority', label: 'Fast' }, { id: 'flex', label: 'Ultrafast' }] };
@@ -203,6 +205,19 @@ describe('follow-up dispatch', () => {
       expect.objectContaining({ type: 'message.dispatch', text: 'Continue where you left off.', manualContinuationOfRunId: 'r1', modelSelection: { instanceId: 'codex', model: 'model-b' }, dispatchMode: { type: 'start_immediately' } }),
       expect.objectContaining({ type: 'queue.resume', threadId: 't1' })]);
   });
+  test('Resume sends the model its thread showed when it started, though the composer moves on before it dispatches', async () => {
+    const { client, native, command } = await opened();
+    client.thread!.projection.runs = [{ id: 'r1', ordinal: 1, status: 'interrupted', startedAt: at }];
+    await command('model', 'model-b', 'codex');
+    // The first await: by then the composer shows another thread's model (useComposerResume reads before it).
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => {
+      if (obj(input).op === 'ids') client.modelId = 'model-a';
+      return later(input);
+    };
+    await command('cc:resume');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', manualContinuationOfRunId: 'r1', modelSelection: { instanceId: 'codex', model: 'model-b' } });
+  });
 });
 
 describe('plan follow-up', () => {
@@ -298,6 +313,24 @@ describe('docked banners, activity and the provider control', () => {
     client.presentation.anchors = { ...client.presentation.anchors as object, 'nd:r': [40, 220] };
     expect(withNoticeDetails(client, [roster] as never[], 16)[0]!.details).toBe(false);
   });
+  test('once shown, the button stays until the banner is wider than where it appeared, or the description changes', () => {
+    const text = 'Server update failed: The package could not be verified.', other = 'Updated.';
+    const base = { id: 'n', description: text, segments: [], redact: '', machines: [], details: false };
+    const client = { presentation: { anchors: {} as Record<string, unknown> } } as unknown as T3Client;
+    const details = (laidOut: number, banner: number, notice: object = base) => {
+      client.presentation.anchors = { [probeKey(text, 12, 400)]: [0, 300], [probeKey(other, 12, 400)]: [0, 60], 'nd:n': [40, laidOut], 'nb:n': [0, banner] };
+      return withNoticeDetails(client, [notice] as never[], 16)[0]!.details;
+    };
+    expect(details(290, 500)).toBe(true);
+    // The button wrapped the actions onto a second row and the text now fits: the button stays at that width.
+    expect(details(340, 500)).toBe(true);
+    expect(details(340, 480)).toBe(true);
+    // The banner grew past where the button appeared.
+    expect(details(340, 501)).toBe(false);
+    expect(details(290, 520)).toBe(true);
+    // A new description starts over.
+    expect(details(340, 520, { ...base, description: other })).toBe(false);
+  });
   test('a lone subagent link reads Show, several name each subagent', () => {
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c1' }])!.segments)
       .toEqual([{ key: '0:Review', label: 'Show', threadId: 'c1', aria: 'Show subagent Review', last: true }]);
@@ -322,10 +355,10 @@ describe('docked banners, activity and the provider control', () => {
   });
   test('trailing labels compact before the model name', () => {
     expect(Math.round(textWidth('Medium'))).toBe(53);
-    const base = { model: 'GPT-5.6-Luna', traits: 55, runtime: 'Full access', runtimeShown: true, mode: true, plan: '' };
-    expect(footerLayout({ ...base, host: 360 })).toMatchObject({ runtimeIconOnly: false, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 280 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: false });
-    expect(footerLayout({ ...base, host: 215 })).toMatchObject({ runtimeIconOnly: true, traitsIconOnly: true });
+    const base = { model: 'GPT-5.6-Luna', suffix: 53, runtime: 'Full access', runtimeShown: true, mode: true, plan: '' };
+    expect(footerLayout({ ...base, host: 360 })).toMatchObject({ runtimeIconOnly: false, measuredHidden: 0 });
+    expect(footerLayout({ ...base, host: 280 })).toMatchObject({ runtimeIconOnly: true, measuredHidden: 0 });
+    expect(footerLayout({ ...base, host: 215 })).toMatchObject({ measuredHidden: 1, controlsHidden: false });
     expect(footerLayout({ ...base, host: 0 })).toMatchObject({ runtimeIconOnly: false });
   });
 });

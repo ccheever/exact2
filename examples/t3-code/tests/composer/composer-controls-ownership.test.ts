@@ -1,36 +1,36 @@
-// The simpler composer's rules (T3 Code v0.1.5 #25869): composerControlsOwnership.test.ts and EffortGlyph.test.ts.
+// The simpler composer's rules: composerControlsOwnership.test.ts (T3 Code 2359643cff) and EffortGlyph.test.ts (v0.1.5).
 import { describe, expect, test } from 'bun:test';
 import { resolveComposerControlsOwnership } from '../../src/composer/composer-controls-ownership';
 import { effortBarHeights, resolveEffortGlyph } from '../../src/composer/effort-glyph';
 
-const base = { matchesDefault: true, hasTraits: true, planModeUiEnabled: false, collapsed: false, measuredHiddenBlockCount: 0 };
+const base = { matchesDefault: true, planModeUiEnabled: false, collapsed: false, measuredHiddenBlockCount: 0 };
 
 describe('resolveComposerControlsOwnership', () => {
-  test('hides the chip at the default and lets the effort menu answer composer.mode', () => {
-    expect(resolveComposerControlsOwnership(base)).toMatchObject({ accessDisplay: 'hidden', showModeBlock: false, hiddenBlockIds: [], effortOwnsModeShortcut: true });
+  test('hides the chip at the default and lets the model picker answer composer.mode', () => {
+    expect(resolveComposerControlsOwnership(base)).toMatchObject({ accessDisplay: 'hidden', showModeBlock: false, hiddenBlockIds: [], pickerOwnsModeShortcut: true });
   });
   test('shows a labelled chip that owns composer.mode when the mode differs', () => {
-    expect(resolveComposerControlsOwnership({ ...base, matchesDefault: false })).toMatchObject({ accessDisplay: 'label', showModeBlock: true, effortOwnsModeShortcut: false });
+    expect(resolveComposerControlsOwnership({ ...base, matchesDefault: false })).toMatchObject({ accessDisplay: 'label', showModeBlock: true, pickerOwnsModeShortcut: false });
   });
-  test('never leaves an empty overflow menu: the effort chip overflows with the chip', () => {
+  test("gives an overflowed chip's Permissions to the overflow menu when it has no Plan toggle", () => {
     const result = resolveComposerControlsOwnership({ ...base, matchesDefault: false, measuredHiddenBlockCount: 1 });
-    expect(result.hiddenBlockIds).toEqual(['traits', 'mode']);
+    expect(result.hiddenBlockIds).toEqual(['mode']);
     expect(result.overflowShowsPermissions).toBe(true);
-    // One composer.mode target: the overflow menu, not the overflowed effort chip.
-    expect(result.effortOwnsModeShortcut).toBe(false);
+    expect(result.pickerOwnsModeShortcut).toBe(false);
   });
-  test('keeps the Plan toggle block at the default and overflows it before the effort chip', () => {
+  test('keeps the Plan toggle block at the default and leaves Permissions with the picker', () => {
     const result = resolveComposerControlsOwnership({ ...base, planModeUiEnabled: true, measuredHiddenBlockCount: 1 });
-    expect(result).toMatchObject({ showModeBlock: true, hiddenBlockIds: ['mode'], overflowShowsPermissions: false, effortOwnsModeShortcut: true });
+    expect(result.showModeBlock).toBe(true);
+    expect(result.hiddenBlockIds).toEqual(['mode']);
+    expect(result.overflowShowsPermissions).toBe(false);
+    expect(result.pickerOwnsModeShortcut).toBe(true);
   });
   test('overflows only the chip when the Plan toggle gives the overflow menu content', () => {
     const result = resolveComposerControlsOwnership({ ...base, matchesDefault: false, planModeUiEnabled: true, measuredHiddenBlockCount: 1 });
-    expect(result).toMatchObject({ hiddenBlockIds: ['mode'], overflowShowsPermissions: false, effortOwnsModeShortcut: true });
-  });
-  test('keeps a permissions icon for models without traits, even at the default', () => {
-    expect(resolveComposerControlsOwnership({ ...base, hasTraits: false }).accessDisplay).toBe('icon');
-    const overflowed = resolveComposerControlsOwnership({ ...base, hasTraits: false, measuredHiddenBlockCount: 1 });
-    expect(overflowed).toMatchObject({ hiddenBlockIds: ['mode'], overflowShowsPermissions: true });
+    expect(result.hiddenBlockIds).toEqual(['mode']);
+    // Permissions stay in the model picker, which now answers composer.mode.
+    expect(result.overflowShowsPermissions).toBe(false);
+    expect(result.pickerOwnsModeShortcut).toBe(true);
   });
   test('shows the non-default chip as an icon in the compacted row', () => {
     expect(resolveComposerControlsOwnership({ ...base, matchesDefault: false, collapsed: true }).accessDisplay).toBe('icon');

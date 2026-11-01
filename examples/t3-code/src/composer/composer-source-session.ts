@@ -2,7 +2,7 @@
 import { codeAt, composerLines, composerMarkdown, emptyFenceAt, parseOpeningFence, type ComposerBlockOrigin } from './composer-markdown';
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
-import { listContinuationForEnter, listIndentForTab } from './composer-list-continuation';
+import { listContinuationForEnter, listIndentForTab, listOutdentForTab } from './composer-list-continuation';
 import { composerSurround } from './composer-surround';
 import type { ComposerRange } from './composer-markdown';
 import { composerCharacterDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, type ComposerChip, type SkillOffer } from './composer-source-chips';
@@ -126,10 +126,10 @@ export class ComposerSourceSession {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const parsed = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
     if (this.mode !== 'rich') {
-      // The plain composer continues and indents Markdown lists typed as text; a literal answer does not.
+      // The plain composer continues, indents and outdents Markdown lists typed as text; a literal answer does not.
       const list = this.mode === 'plain' && !key.command
         ? key.name === 'Enter' && key.shift ? listContinuationForEnter(value, selection.start, this.sourceChips(value, parsed))
-          : key.name === 'Tab' && !key.shift ? listIndentForTab(value, selection.start, selection.end, this.sourceChips(value, parsed)) : null
+          : key.name === 'Tab' ? (key.shift ? listOutdentForTab : listIndentForTab)(value, selection.start, selection.end, this.sourceChips(value, parsed)) : null
         : null;
       if (list && (key.name === 'Tab' || selection.start === selection.end)) return this.deleted(value, list);
       if (key.name !== 'Enter') return { kind: 'default' };

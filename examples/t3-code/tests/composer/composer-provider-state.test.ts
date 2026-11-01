@@ -108,10 +108,10 @@ describe('resolvePromptInjectedEffort', () => {
   });
 });
 
-describe('the ultrathink traits flow (TraitsPicker handleSelectChange)', () => {
-  it('rewrites the prompt and stores nothing when the injected effort is picked', () => {
-    expect(traitChoice([EFFORT], '', 'effort', 'ultrathink')).toEqual({ prompt: 'Ultrathink:\n', store: false });
-    expect(traitChoice([EFFORT], 'Fix the bug', 'effort', 'ultrathink')).toEqual({ prompt: 'Ultrathink:\nFix the bug', store: false });
+describe('the ultrathink traits flow (getTraitSelectChange)', () => {
+  it('takes no pick of the injected effort: it is typed, never picked', () => {
+    expect(traitChoice([EFFORT], '', 'effort', 'ultrathink')).toEqual({ prompt: null, store: false });
+    expect(traitChoice([EFFORT], 'Fix the bug', 'effort', 'ultrathink')).toEqual({ prompt: null, store: false });
   });
   it('locks the primary effort while "ultrathink" is in the body text', () => {
     expect(ultrathinkTraits([EFFORT], 'please ultrathink about it')).toEqual({ primaryId: 'effort', controlled: true, inBody: true });

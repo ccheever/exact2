@@ -29,6 +29,7 @@ import { resolveRestingComposerControlsLayout } from './composer-resting-layout'
 import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real terminalOpen
 import { pendingThreadImports } from './composer-thread-import';
 import { PLATFORM } from '../settings/desktop-shell-favicon'; // the send tooltip's modifier (isMacPlatform)
+import { layoutFrames } from '../shell/layout-frames'; // the card's width, for the Compact chip's label
 
 // SF Pro advances (AppKit, ASCII 32–126) for the toolbar's two label styles:
 // 14pt medium (an upper bound for the "sm" labels, which are drawn regular) and 12pt regular (the resting "xs" ones).
@@ -44,26 +45,25 @@ export function textWidth(text: string, small = false): number {
 
 /**
  * The footer's fit (resolveRestingComposerControlsLayout, composer-resting-layout.ts, as ComposerControlsBar runs it
- * at v0.1.5): trailing blocks lose their labels first (mode, then traits), then move into the "More composer
- * controls" menu (mode, then traits); only then does the model picker shrink, and below its minimum the cluster
- * hides. `traits` is the effort block's width (effortBlockWidth) and `runtime` the Permissions chip's label, '' when
- * the chip shows its icon only; `mode` false when the chip is hidden and Plan is off (no mode block). Labels are
- * measured (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds the last step (icon-only
- * blocks plus hidden blocks) and whether the cluster showed, for the promotion slack.
+ * at 2359643cff): the mode block loses its labels first, then moves into the "More composer controls" menu; only then
+ * does the model picker shrink, and below its minimum the cluster hides. `suffix` is the width of the effort the model
+ * trigger shows after the name (effortSuffixWidth), `runtime` the Permissions chip's label, '' when the chip shows its
+ * icon only; `mode` false when the chip is hidden and Plan is off (no mode block). Labels are measured
+ * (composer-measure.ts); the rest is the toolbar's geometry. `previous` holds the last step (icon-only blocks plus
+ * hidden blocks) and whether the cluster showed, for the promotion slack.
  */
 export type FooterSteps = { sm: number; smHidden?: boolean };
-export function footerLayout(input: { model: string; traits: number; runtime: string; runtimeShown: boolean; mode: boolean; plan: string; host: number;
+export function footerLayout(input: { model: string; suffix: number; runtime: string; runtimeShown: boolean; mode: boolean; plan: string; host: number;
   measure?: Measure; previous?: FooterSteps;
   /** An unavailable model's badge, which follows its name inside the picker (0 without one). */
   badge?: number }) {
   // Label widths come from laid-out probes (composer-measure.ts); the estimate stands in until then.
   const width = (text: string, kind: ProbeKind) => labelWidth(text, false, kind, input.measure, textWidth);
-  // Block widths from the toolbar's own geometry (composer-controls.contract). A trigger pads 9 at its start (px-2
-  // and the 1pt border) and 5 at its end (pe-1), with 6pt gaps and 16pt icons; the controls sit 2pt apart (gap-0.5).
-  // The picker's minimum is min-w-13; the badge sits after the name across the trigger's gap.
+  // Block widths from the toolbar's own geometry (composer-controls.contract). A trigger pads 9 at each end (px-2
+  // and the 1pt border), with 6pt gaps and 16pt icons; the controls sit 2pt apart (gap-0.5). The model trigger's
+  // effort follows the name a word space (4pt) on; its minimum is min-w-13; the badge sits after them across its gap.
   const badge = input.badge ? input.badge + 6 : 0;
-  const picker = 36 + width(input.model, 'model') + badge;
-  const traits = input.traits, traitsIcon = traits ? 20 : 0;
+  const picker = 40 + width(input.model, 'model') + (input.suffix ? 4 + input.suffix : 0) + badge;
   // The plan toggle's glyph: PencilRuler 16pt while planning, Bot 18pt otherwise.
   const planGlyph = input.plan === 'Plan' ? 16 : 18;
   const plan = input.plan ? 18 + planGlyph + 6 + width(input.plan, 'plan') : 0;
@@ -72,28 +72,25 @@ export function footerLayout(input: { model: string; traits: number; runtime: st
   const mode = chip + plan + (chip && plan ? 2 : 0);
   const modeIcon = (input.runtimeShown ? 32 : 0) + (input.plan ? 18 + planGlyph : 0) + (input.runtimeShown && input.plan ? 2 : 0);
   const host = input.host > 0 ? input.host : 0;
-  const blocks = [...(traits ? [traits] : []), ...(input.mode ? [mode] : [])], icons = [...(traits ? [traitsIcon] : []), ...(input.mode ? [modeIcon] : [])];
+  const blocks = input.mode ? [mode] : [], icons = input.mode ? [modeIcon] : [];
   const previousStep = input.previous?.sm ?? 0;
   const previous = { hiddenCount: Math.max(0, previousStep - blocks.length), iconOnlyCount: Math.min(previousStep, blocks.length), visible: !input.previous?.smHidden };
   // The "…" trigger: an icon-only control (16pt glyph padded 9+9).
   const layout = host > 0 && blocks.length ? resolveRestingComposerControlsLayout({ gap: 2, naturalFixedWidth: picker, minimumFixedWidth: 52,
     blockWidths: blocks, iconOnlyBlockWidths: icons, overflowWidth: 34, hostWidth: host, previous }) : { hiddenCount: 0, iconOnlyCount: 0, visible: true };
   const iconOnly = layout.iconOnlyCount ?? 0, hidden = layout.hiddenCount;
-  return { runtimeIconOnly: input.mode && iconOnly >= 1, traitsIconOnly: !!traits && iconOnly >= (input.mode ? 2 : 1),
+  return { runtimeIconOnly: input.mode && iconOnly >= 1,
     // How many trailing blocks the measurement moved into the overflow menu (resolveComposerControlsOwnership's input),
     // and the cluster hidden below the picker's minimum.
     measuredHidden: hidden, controlsHidden: !layout.visible, steps: { sm: iconOnly + hidden, smHidden: !layout.visible } as FooterSteps };
 }
 
-/**
- * The effort trigger's width (TraitsPicker in the composer): it reads on from the model name, 4pt into the picker's
- * end padding (-ms-1), padded 1 (ps-0 and the border) before a word or 3 before bars and 5 after; its parts 6pt apart.
- */
-export function effortBlockWidth(effort: { word: string; bars: number; speed: string; other: string; shown: boolean }, measure?: Measure): number {
+/** describeComposerEffort's suffix: the word or the bars, the bolt, the other traits (at most 6rem), 6pt apart. */
+export function effortSuffixWidth(effort: { word: string; bars: number; speed: string; other: string; shown: boolean }, measure?: Measure): number {
   if (!effort.shown) return 0;
   const parts = [effort.word ? labelWidth(effort.word, false, 'traits', measure, textWidth) : effort.bars ? 4 * effort.bars - 2 : 0,
     effort.speed === 'Ultrafast' ? 15 : effort.speed ? 12 : 0, effort.other ? Math.min(96, textWidth(effort.other, true)) : 0].filter(width => width > 0);
-  return (effort.word ? 1 : 3) + 5 - 4 + parts.reduce((sum, width) => sum + width, 0) + 6 * Math.max(0, parts.length - 1);
+  return parts.reduce((sum, width) => sum + width, 0) + 6 * Math.max(0, parts.length - 1);
 }
 
 // traitsDisplay (buildTraitsTriggerDisplay) lives in composer-controls-model.ts, beside the option labels it reads; Settings' TraitsPicker rows share it.
@@ -138,15 +135,19 @@ export function primaryAction(client: T3Client, phase: string) {
 /**
  * The Compact chip beside Send (ComposerPrimaryActions compactTokens): a stale Claude session's token count, on
  * ("Compact 312k", the send compacts first) or off ("Keep 312k", the next send keeps the history). It hides while a
- * queued message is edited, and the contract hides it where Resume thread replaces Send. `compactWidth` is the chip's
- * width (px-2 gap-1.5, a 16pt glyph, the 14pt medium label and the count), which the resting card reserves.
+ * queued message is edited, and the contract hides it where Resume thread replaces Send. A card under 480pt
+ * (@max-[480px]/composer-surface) shows its glyph and count without the word (`compactLabel`). `compactWidth` is the
+ * chip's width (px-2 gap-1.5, a 16pt glyph, the 14pt medium label and the count), which the resting card reserves.
  */
 export function compactChip(client: T3Client, now: number, editingQueued: boolean) {
   const tokens = editingQueued ? null : resumeCompactionTokens(client, now, contextSnapshot(client.projection));
-  if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0 };
-  const count = formatTokens(tokens), keep = keepsFullHistory(client), label = keep ? 'Keep' : 'Compact';
+  if (tokens === null) return { compactTokens: '', compactKeepFull: false, compactTip: '', compactSend: false, compactWidth: 0, compactLabel: true };
+  const count = formatTokens(tokens), keep = keepsFullHistory(client), word = keep ? 'Keep' : 'Compact';
+  const card = layoutFrames(client).card, cardWidth = Array.isArray(card) ? Number(card[2]) || 0 : 0, compactLabel = !(cardWidth > 0 && cardWidth < 480);
+  const label = compactLabel ? word : '';
   const anchor = obj(client.presentation.anchors)[`compact:${label}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
-  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + 6 + textWidth(label) + 6 + textWidth(count)),
+  return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactLabel,
+    compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(16 + 16 + (label ? 6 + textWidth(label) : 0) + 6 + textWidth(count)),
     compactTip: keep ? `Next send keeps all ${count} tokens.\nClick to compact first` : `Next send compacts ${count} tokens first.\nClick to keep full history` };
 }
 

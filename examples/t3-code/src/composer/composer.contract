@@ -114,7 +114,7 @@ component ComposerCard
     urls: AttachmentUrl[]
   // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
   derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
-  derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0)
+  derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0)
   // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
   // edited or moved in, the field reports none: its caret is at the end of its value.
   state pasteValue = ""

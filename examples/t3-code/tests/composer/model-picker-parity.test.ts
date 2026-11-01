@@ -86,11 +86,11 @@ describe('the next and previous provider skip what cannot be chosen', () => {
 });
 
 describe('the first nine rows a person can choose show their jump shortcut', () => {
-  test('⌘1… on the provider list, the search results and Favorites; the legacy header takes none, its rows follow', () => {
+  test('⌘1… on the provider list, the search results and Favorites; the legacy rows follow, the Show more row takes none', () => {
     const c = client();
     const rows = (catalog: ReturnType<typeof modelCatalog>) => catalog.models.map(row => [row.kind, row.id, row.jump, row.jumpKey]);
     expect(rows(modelCatalog(c, 'claudeAgent', ''))).toEqual([['model', 'claude-opus-5-5', '⌘1', 'Meta+1'], ['model', 'claude-sonnet-5-5', '⌘2', 'Meta+2'],
-      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy', '', '', ''], ['legacy-model', 'claude-old', '⌘4', 'Meta+4']]);
+      ['model', 'claude-fable-5-1', '⌘3', 'Meta+3'], ['legacy-model', 'claude-old', '⌘4', 'Meta+4'], ['legacy', '', '', '']]);
     // The dispatch's own jump buttons cover the current rows; an open Legacy section's rows answer to their own aria-keyshortcuts.
     expect(keyboardDispatch(c, [], 'claudeAgent', '', pickerContext).filter(item => item.command.startsWith('modelPicker.jump')).map(item => item.command))
       .toEqual(['modelPicker.jump.1', 'modelPicker.jump.2', 'modelPicker.jump.3']);
@@ -159,11 +159,13 @@ describe('a search highlights its first row a person can choose', () => {
     const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
     expect(picker).toContain(`derive targetId = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.id).join("")`);
     expect(picker).toContain(`derive targetProvider = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.providerId).join("")`);
-    // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then, and they follow the header.
+    // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then. The Show
+    // more row trails them, so its index counts them only while they show (legacyIndex).
     expect(picker).toContain('derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)');
+    expect(picker).toContain('derive targetLegacy = catalog.models.filter((r) => r.kind == "legacy" and legacyIndex(r.index, legacyOpen, catalog.legacyCount) == highlight).length > 0');
     const catalog = modelCatalog(client(), 'claudeAgent', '');
     expect([catalog.count, catalog.legacyCount]).toEqual([5, 1]);
-    expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy', 3, ''], ['legacy-model', 4, 'claude-old']]);
+    expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy-model', 3, 'claude-old'], ['legacy', 4, '']]);
   });
 });
 

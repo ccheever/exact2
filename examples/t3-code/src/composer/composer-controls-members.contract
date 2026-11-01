@@ -92,6 +92,47 @@ members T3Code
     if not commandPending
       commandPending = true
       send changed = command(`cc:${op}`, id, "", 0)
+  // The model trigger's edges as the picker opens from it (ProviderModelPicker's PopoverPopup aligns its start, or its
+  // end when the start would overflow); -1 until measured. A press from the trigger opens the picker on its search.
+  state modelAnchorX = -1
+  state modelAnchorWidth = 0
+  action modelMeasure
+    let trigger = frame("model-picker-trigger")
+    modelAnchorX = trigger.unavailable or trigger.width <= 0 ? -1 : trigger.x
+    modelAnchorWidth = trigger.unavailable ? 0 : trigger.width
+    modelOpenTarget = ""
+    modelFocusedPick = `${data.providerId}:${data.modelId}`
+  // composer.effort and composer.mode aimed at the model picker (markOpenToEffort, takeOpenTarget): it opens, or stays
+  // open, with the focus on the effort column, or with its footer's Permissions menu open on the checked mode.
+  state modelOpenTarget = ""
+  action modelOpenTo(target: string)
+    modelMeasure()
+    if not modelsOpen
+      openModels()
+    modelPermissions(target == "permissions")
+    if target == "effort" and data.composer.effortFocusAny >= 0
+      focus(`model-effort-row-${data.composer.effortFocusAny}`)
+  action modelPermissions(open: bool)
+    modelOpenTarget = open ? "permissions" : ""
+    if open
+      focus(`model-permission-${data.composer.runtimeSelected}`)
+  // A model picked in the composer's picker keeps it open; once the new model's levels are drawn, the focus moves to
+  // the checked one (handleInstanceModelChange's focusEffort("levels")). The model the picker opened on, or last
+  // moved the focus for, is `modelFocusedPick`.
+  state modelFocusedPick = ""
+  task modelEffortFocusTask when modelsOpen and modelTarget.id == "" and not commandPending key=`${data.providerId}:${data.modelId}`
+    after(1, modelEffortFocused)
+  action modelEffortFocused
+    let pick = `${data.providerId}:${data.modelId}`
+    if pick != modelFocusedPick
+      modelFocusedPick = pick
+      if data.composer.effortFocusLevel >= 0
+        focus(`model-effort-row-${data.composer.effortFocusLevel}`)
+  // An effort, speed or permissions pick inside the model picker, which stays open until Escape or an outside press.
+  action pickerPick(op: string, id: string, value: string)
+    if not commandPending
+      commandPending = true
+      send changed = command(op, id, value, 0)
   action menuPick(op: string, id: string, value: string)
     optionsOpen = ""
     focus("composer")

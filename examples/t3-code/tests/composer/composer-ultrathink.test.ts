@@ -1,7 +1,7 @@
 // The ultrathink flow and the Fast default through the
 // client (composer-ultrathink.ts), against the composer-controls fake backend.
-// Behavior per T3 Code 1e2ecbd975 TraitsPicker.tsx handleSelectChange and
-// ChatView.tsx formatOutgoingPrompt (MIT; see LICENSE-T3).
+// Behavior per T3 Code 2359643cff TraitsPicker.tsx and modelTraits.ts (getTraitSelectChange,
+// selectableProviderOptionChoices) and ChatView.tsx formatOutgoingPrompt (MIT; see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
 import { snapshot } from '../../src/client/presentation';
 import type { Obj } from '../../src/client/domain';
@@ -21,24 +21,25 @@ async function onClaude() {
 }
 
 describe('ultrathink', () => {
-  test('choosing the injected effort rewrites the draft and stores no option', async () => {
+  test('the picker offers no Ultrathink; a typed "Ultrathink:" still works and checks no level', async () => {
     const { client, command } = await onClaude();
     await command('draft', '', 'Fix the flaky test');
-    const before = snapshot(client).requestKey;
+    expect(snapshot(client).composer.effortGroups[0]!.options.map(row => row.value)).toEqual(['medium', 'high']);
+    // A pick of it (an old binding) changes nothing.
     await command('model-option', 'effort', 'ultrathink');
-    expect(client.draft).toBe('Ultrathink:\nFix the flaky test');
+    expect(client.draft).toBe('Fix the flaky test');
     expect(client.modelOptions).toEqual([]);
+    await command('draft', '', 'Ultrathink:\nFix the flaky test');
     const view = snapshot(client);
-    expect(view.requestKey).not.toBe(before);
-    expect(view.composer).toMatchObject({ ultrathink: true, traitsLabel: 'Ultrathink' });
-    expect(view.composer.traits.find(item => item.value === 'ultrathink')?.selected).toBe(true);
+    expect(view.composer).toMatchObject({ ultrathink: true, modelDetail: 'Ultrathink', effortWord: 'Ultrathink' });
+    expect(view.composer.effortGroups[0]!.options.some(row => row.selected)).toBe(false);
   });
   test('"ultrathink" in the body locks the effort rows with the reference wording', async () => {
     const { client, command } = await onClaude();
     await command('draft', '', 'please ultrathink about the cache');
-    const traits = snapshot(client).composer.traits;
-    expect(traits.find(item => item.kind === 'note')?.label).toBe('Your prompt contains "ultrathink" in the text. Remove it to change this option.');
-    expect(traits.filter(item => item.kind === 'option').every(item => item.disabled)).toBe(true);
+    const [effort] = snapshot(client).composer.effortGroups;
+    expect(effort!.note).toBe('Your prompt contains "ultrathink" in the text. Remove it to change this option.');
+    expect(effort!.options.every(row => row.disabled)).toBe(true);
     await command('model-option', 'effort', 'medium');
     expect(client.modelOptions).toEqual([]);
     expect(client.draft).toBe('please ultrathink about the cache');
@@ -53,8 +54,7 @@ describe('ultrathink', () => {
   });
   test('the sent text carries the prefix once', async () => {
     const { client, native, command } = await onClaude();
-    await command('draft', '', 'Fix it');
-    await command('model-option', 'effort', 'ultrathink');
+    await command('draft', '', 'Ultrathink:\nFix it');
     const before = native.committed.length;
     await command('send', '', client.draft);
     const sent = native.committed.slice(before).find(entry => entry.type === 'message.dispatch');

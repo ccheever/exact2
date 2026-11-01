@@ -1,7 +1,7 @@
 // What the thread is doing now and the turns queued behind it, as rows at the end of the timeline,
 // adapted from T3 Code v0.1.5 (MIT); see LICENSE-T3: chat/ThreadNow.tsx, chat/ThreadActivityBanners.tsx
-// (childInputNowItem, backgroundWorkNowItem, goalNowItem), chat/QueuedRunsControl.tsx, threadSync.ts and ChatView.tsx
-// (timelineFooter, scrollToEndSummary).
+// (childInputNowItem, backgroundWorkNowItem, goalNowItem; runStopNowItem at 2359643cff), chat/QueuedRunsControl.tsx,
+// threadSync.ts and ChatView.tsx (timelineFooter, scrollToEndSummary).
 // threadEndRows is the timeline's footer and thread-end.contract draws its rows; the rows are
 // `Message`s, so each field below names its role.
 import { arr, obj, str, type Activity, type Message, type Obj } from '../client/domain';
@@ -19,9 +19,11 @@ import { anchorFrame } from '../shared/laid-out-widths';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { userMessagePresentation } from '../timeline/user-message';
 import { scheduledTaskTitle } from '../timeline/timeline-presentation';
+import { canForceStop, forceStoppingThread, threadRunStop } from './run-stop';
 
 /**
- * A line of thread state (`kind` "thread-now"): `icon` with `tone` "info" on the one line that needs you, `title`, then
+ * A line of thread state (`kind` "thread-now"): `icon` with `tone` "info" (or "warning", an unanswered Stop) on the one
+ * line that needs you, `title`, then
  * `detail` (a plain description) or its `activities` with `status` "link" (an inline button opening `targetId`, named
  * `body` when set) or "text"; the `activities` with `status` "action" are its inline buttons (`detail` the op, `targetId`
  * its id, `tone` "muted" or "", `ok` false while disabled). `status` "alert" announces the line and "status" is the sync
@@ -82,6 +84,20 @@ function backgroundWork(client: T3Client): Line | null {
       action('stop', stopping ? 'Stopping...' : 'Stop', 'cc:stop-background', '', '', canOperate && !stopping)] };
 }
 
+/**
+ * runStopNowItem: a Stop the agent has not finished, with its elapsed time; once it stops answering, a warning with
+ * Force stop.
+ */
+function runStop(client: T3Client): Line | null {
+  const stop = threadRunStop(client);
+  if (!stop) return null;
+  const unresponsive = stop.state === 'unresponsive', forcing = forceStoppingThread(client) === client.threadId, requested = epoch(stop.requestedAt);
+  return { id: `run-stop:${client.threadId}`, icon: unresponsive ? 'triangle-alert' : 'circle-stop', ...(unresponsive ? { tone: 'warning' } : {}),
+    title: unresponsive ? 'Agent not responding to Stop' : 'Stopping', ...(unresponsive ? { detail: 'It may be short on memory. Force stop kills its processes.' } : {}),
+    ...(requested !== null ? { startedMs: requested } : {}),
+    actions: unresponsive && canForceStop(client) ? [action('force-stop', forcing ? 'Force stopping...' : 'Force stop', 'cc:force-stop', stop.runId, '', !forcing)] : [] };
+}
+
 /** goalNowItem: the thread's goal. Clear stops goal work; Resume would stop unrelated work, so it waits. */
 function goal(client: T3Client): Line | null {
   const thread = client.shell.threads.find(thread => thread.id === client.threadId), current = providerGoal(thread?.goal);
@@ -109,7 +125,9 @@ export function syncStatus(client: T3Client): string {
 /** ThreadNow's order: what needs you, background work, the sync status while messages load (`sync`), then the goal. */
 function threadNowLines(client: T3Client, sync: string): Line[] {
   if (!client.threadId) return [];
-  return [childInput(client), backgroundWork(client),
+  // A Stop that went unanswered needs the user; one in progress is the thread's work.
+  const stop = runStop(client), unanswered = stop?.icon === 'triangle-alert';
+  return [unanswered ? stop : childInput(client), stop && !unanswered ? stop : backgroundWork(client),
     sync ? { id: `thread-sync:${client.threadId}`, icon: 'refresh-cw', status: 'status', title: sync, actions: [] } : null, goal(client)].filter((line): line is Line => line !== null);
 }
 

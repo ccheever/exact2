@@ -13,7 +13,8 @@ use TimelineIcon from "../timeline/timeline-icons-kit.contract"
 keyframes teFadeIn
   from opacity=0
 
-// ThreadNowLine (text-xs muted, 14pt glyph, gap-1.5, px-1 pb-2, as ThreadStatusLine): the icon, then the title, its
+// ThreadNowLine (text-xs muted, 14pt glyph, gap-1.5, px-1 pb-2, as ThreadStatusLine): the icon (info or warning
+// toned on a line that needs you), then the title, its
 // name (`body`, in the code font when `meta`) and the detail (2pt further, fainter: muted/80, dark /60) as one line that
 // gives way before the actions, so Stop stays reachable; the actions follow 6pt on, 10pt apart, with the one task's
 // elapsed time first (tickTextContent). A cut line offers its whole text from a details button (NoticeText).
@@ -36,7 +37,7 @@ component ThreadNowLine
   view
     row width="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" role=(message.status == "alert" ? "alert" : message.status == "status" ? "status" : "") animation=(still ? "none" : "teFadeIn 150ms ease-out") testId=`thread-now-${message.id}`
       row width="0.875rem" height="0.875rem" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
-        CcIcon(name=message.icon, size=14, color=(message.tone == "info" ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
+        CcIcon(name=message.icon, size=14, color=(message.tone == "info" ? "light-dark(#1447e6, #50a2ff)" : message.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#71717b, #a1a1a1)"), weight=1.75)
       // Hooked so the app can tell when the line is cut (thread-end.ts `collapsible`).
       row flex-shrink=1 min-width=0 overflow="hidden" align-items="center" hatch="t3-anchor" data-anchor=`tn:${message.id}` testId=`thread-now-text-${message.id}`
         if segments.length == 0 and message.body == "" and message.detail == ""

@@ -9,6 +9,7 @@ use StashBadge from "../composer/composer-editor.contract"
 use ComposerEditorView from "../composer/composer-editor.contract"
 use ComposerDock from "../composer/composer-controls.contract"
 use ComposerStrip from "../composer/composer-controls.contract"
+use ComposerDetachedNotices from "../composer/composer-controls.contract"
 use SubagentBar from "../composer/composer-controls.contract"
 use ComposerBranches from "../composer/composer-shapes.contract"
 use Viewport from "../shared/shapes.contract"
@@ -358,7 +359,9 @@ component ChatColumn
               ComposerEditorDock(editor=editor, dark=(scheme == "dark"), op=editorOp)
               ComposerCard(editor=editor, data=data, viewportWidth=((data.sidebarOpen ? sidebarWidth : 0) + conversationWidth), text=composerText, busy=commandPending, keyModels=settings.keyModels, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=stop, onFocus=composerFocus, onBlur=composerBlur, openModels=openModels, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=askRemove, interaction=interaction, command=command, openProviders=openProviderSettings, contextOver=contextOver, urls=attachmentUrls.items)
               if branches.show
-                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 768), compact=data.composer.stripCompact, composer=data.composer)
+                ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 36 * rem), compact=data.composer.stripCompact, composer=data.composer)
+              if data.composer.detachedNotices.length > 0
+                ComposerDetachedNotices(data=data, busy=commandPending, command=command, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             if data.requestMode == "question"
               RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)

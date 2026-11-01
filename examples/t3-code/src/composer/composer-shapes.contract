@@ -191,6 +191,41 @@ shape FanoutMark
   key: string
   driver: string
   icon: string
+// An option row of the model picker's effort column (composer-model-effort.ts EffortRow): a `level` of the reasoning
+// control, or another option's.
+shape EffortRow
+  key: string
+  descriptor: string
+  value: string
+  label: string
+  description: string
+  selected: bool
+  isDefault: bool
+  disabled: bool
+  level: bool
+  index: number
+// A block of the effort column (EffortGroup): a control ("control", its label shown except over the reasoning control,
+// its locked note), an unavailable model's option and value ("value"), or "No effort levels" ("none").
+shape EffortGroup
+  key: string
+  kind: string
+  label: string
+  showLabel: bool
+  note: string
+  value: string
+  options: EffortRow[]
+// A segment of the picker footer's speed control; `bolt` is "fast", "ultra" or "".
+shape SpeedSegment
+  key: string
+  descriptor: string
+  value: string
+  label: string
+  description: string
+  checked: bool
+  bolt: string
+  // The toggle's outer ends are rounded.
+  first: bool
+  last: bool
 // One bar of the effort glyph (effort-glyph.ts effortBars): its x, top and height in a 14pt box, filled up to the level.
 shape EffortBar
   x: number
@@ -209,23 +244,34 @@ shape ComposerView
   fanoutMarks: FanoutMark[]
   fanoutMore: number
   fanoutKeys: string[]
-  traitsLabel: string
-  // The effort chip (TraitsPicker in the composer): shown when the model has traits; its word ("High", "" for bars),
-  // its bars, the speed ("Fast", "Ultrafast" or ""), the other traits ("1M") and its name and tooltip.
+  // The effort after the model's name in its trigger (describeComposerEffort): shown when the model has traits; its
+  // word ("High", "" for bars), its bars, the speed ("Fast", "Ultrafast" or ""), the other traits ("1M"), and the
+  // whole of it in words for the trigger's name (`modelDetail`, "High Fast · 1M").
   effortShown: bool
   effortWord: string
   effortBars: EffortBar[]
   effortBarsWidth: number
   effortSpeed: string
   effortOther: string
-  traitsTip: string
+  modelDetail: string
+  // The model picker's effort column (composer-model-effort.ts): its header, its blocks, how many option rows they
+  // hold and its natural height; and its footer's speed control.
+  effortHeader: string
+  effortGroups: EffortGroup[]
+  effortRows: number
+  effortHeight: number
+  // The row a model pick (`effortFocusLevel`) or composer.effort (`effortFocusAny`) focuses, -1 for none.
+  effortFocusLevel: number
+  effortFocusAny: number
+  speedLabel: string
+  speedSegments: SpeedSegment[]
   // Where Permissions live (composer-controls-ownership.ts): the chip shows "label", "icon" or is "hidden"; it is
-  // emphasized off the project's default; the mode block (the chip or Plan) shows; the effort chip or the overflow
+  // emphasized off the project's default; the mode block (the chip or Plan) shows; the model picker or the overflow
   // menu answers composer.mode; a new thread's strip names them.
   accessDisplay: string
   accessEmphasized: bool
   showModeBlock: bool
-  effortOwnsMode: bool
+  pickerOwnsMode: bool
   overflowPermissions: bool
   permissionsInStrip: bool
   permissionsTip: string
@@ -233,7 +279,6 @@ shape ComposerView
   // The selected ACP Registry instance's agent icon URL (acp-instance-icon.ts).
   providerIcon: string
   runtimeIconOnly: bool
-  traitsIconOnly: bool
   sendRunning: bool
   sendLabel: string
   sendIcon: string
@@ -252,6 +297,8 @@ shape ComposerView
   compactSend: bool
   compactTip: string
   compactWidth: number
+  // The chip shows its word ("Compact", "Keep"); a card under 480pt shows the glyph and count alone.
+  compactLabel: bool
   canResume: bool
   planReady: bool
   planTitle: string
@@ -260,6 +307,8 @@ shape ComposerView
   // The context strip shows its controls' icons without their labels (useLabelsOverflow, context-strip.ts).
   stripCompact: bool
   notices: ComposerNotice[]
+  // A new thread's notices, as cards apart under its centred composer.
+  detachedNotices: ComposerNotice[]
   // The account whose reset credit confirm is open ('' when none).
   resetConfirm: string
   // A usage-limit reset under a minute away: the root's clock ticks each second until it passes (`resetKey` re-arms it).
@@ -297,9 +346,6 @@ shape ComposerView
   // The edit's kept attachments and whether its save is in flight.
   queueEditAttachments: QueueEditAttachment[]
   queueEditSaving: bool
-  traitsCount: number
-  traitsSelected: number
-  traits: ComposerTrait[]
   runtimeMode: string
   runtimeLabel: string
   runtimeIcon: string
@@ -309,9 +355,7 @@ shape ComposerView
   runtimes: ComposerRuntime[]
   // Menu texts to measure, and the menus' widths from the measurements (composer-menus.ts).
   menuProbes: TextProbe[]
-  effortMenuWidth: number
   runtimeMenuWidth: number
-  effortMenuHeight: number
   runtimeMenuHeight: number
   planVisible: bool
   planActive: bool
@@ -320,7 +364,6 @@ shape ComposerView
   // Blocks moved into "More composer controls", the cluster hidden below the
   // picker's minimum, and the menu's rows and widths.
   modeOverflow: bool
-  traitsOverflow: bool
   controlsHidden: bool
   more: ComposerTrait[]
   moreCount: number
@@ -348,8 +391,12 @@ shape PickerRow
   driver: string
   // An ACP Registry instance's agent icon URL (acp-instance-icon.ts).
   icon: string
-  // The provider line shows (a search, Favorites, a sub-provider; the Legacy header): a 48pt row, else 32pt.
+  // Always false since every row is one 32pt line (ModelListRow at 2359643cff); the sub-provider is `label`.
   twoLine: bool
+  // The row's provider, which its logo names for VoiceOver, and that logo's instance badge.
+  providerName: string
+  providerBadge: string
+  providerBadgeColor: string
   favorite: bool
   selected: bool
   isNew: bool
@@ -417,6 +464,11 @@ shape PickerCatalog
   firstEnabled: number
   // Shift adds a model to a new thread's draft and keeps the picker open (onToggleModel).
   multiple: bool
+  // Favorites, unsearched: every row is starred, so a star shows only on a hovered or highlighted row.
+  starOnHover: bool
+  // The first selected row's index (-1 for none), and whether it sits in the Legacy section.
+  selectedIndex: number
+  selectedLegacy: bool
 // The row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
 shape PickerTarget
   id: string

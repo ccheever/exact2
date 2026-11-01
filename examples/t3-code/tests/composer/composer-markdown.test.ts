@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { codeAt, composerMarkdown, emptyFenceAt } from '../../src/composer/composer-markdown';
-import { codeLanguageLabel, CODE_BLOCK_LANGUAGES, withInfoStringLanguage } from '../../src/composer/composer-code-languages';
+import { codeLanguageEntry, codeLanguageLabel, CODE_BLOCK_LANGUAGES, languageOfInfoString, withInfoStringLanguage } from '../../src/composer/composer-code-languages';
+import { fileLanguage } from '../../src/highlight/highlights';
 
 // The Markdown field paints the source (LLP 1045); these blocks drive key
 // handling and the controls outside the field.
@@ -65,9 +66,18 @@ describe('source-backed composer Markdown', () => {
 });
 
 describe('code fence language picker', () => {
-  test('all 39 reference choices and aliases use the canonical label', () => {
-    expect(CODE_BLOCK_LANGUAGES).toHaveLength(39);
-    expect(['ts', 'JS', 'c++', 'sh', 'text', 'unknown'].map(codeLanguageLabel)).toEqual(['TypeScript', 'JavaScript', 'C++', 'Bash', 'Plain text', 'unknown']);
+  test('all 40 reference choices and aliases use the canonical label', () => {
+    expect(CODE_BLOCK_LANGUAGES).toHaveLength(40);
+    expect(['ts', 'JS', 'c++', 'sh', 'text', 'assembly', 'S', 'unknown'].map(codeLanguageLabel))
+      .toEqual(['TypeScript', 'JavaScript', 'C++', 'Bash', 'Plain text', 'Assembly', 'Assembly', 'unknown']);
+  });
+  test('plain-text fence words in any case read as Plain text, metadata aside', () => {
+    const entries = ['Text', 'TEXT', 'plaintext', 'txt'].map((language) =>
+      codeLanguageEntry(languageOfInfoString(` ${language} title=notes.txt`)));
+    expect(entries).toEqual(Array.from({ length: 4 }, () => ({ id: '', label: 'Plain text' })));
+  });
+  test('assembly files highlight as asm, not the library\'s riscv', () => {
+    expect(['a.asm', 'a.ASM', 'a.s', 'a.S', 'a.nasm', 'a.NASM'].map(fileLanguage)).toEqual(Array(6).fill('asm'));
   });
   test('a language change preserves info-string metadata and plain text keeps its disambiguator', () => {
     expect(withInfoStringLanguage('  ts title=x  ', 'python')).toBe('  python title=x  ');

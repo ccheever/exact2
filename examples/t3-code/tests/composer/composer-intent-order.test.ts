@@ -32,7 +32,7 @@ function fixture(initial = 'word', caret = initial.length) {
     const env: Env = {
       data: {snapshotOwner: client.snapshotOwner, requestKey: '', requestMode: '', composer: {sendChords: 'Meta+Enter', sendCommandChords: ''}}, richComposerOwner: 'draft', composerOwner: 'draft', shortcuts: [], ...keyFns,
       composerText: state.draft, richComposer: projection, composerFieldLive: true, composerRequiresModifier: false, composerShift: false, composerCommand: false,
-      editor: {menu: {open: false}, stash: {menuOpen: false}}, composerInCode: false, composerInList: false, composerCodeStart: false,
+      editor: {menu: {open: false}, stash: {menuOpen: false}}, composerInCode: false, composerInList: false, composerInNestedList: false, composerCodeStart: false,
       first: (items: unknown[]) => items[0], ComposerIntentMetadata: record, ComposerFieldObservation: record, composerFieldObserved: (...args: unknown[]) => {observations.push(args); return {};}, command: () => '',
       composerIntent: (...args: unknown[]) => {requests.push(args); const reply = composerIntentAnswer(client, args); replies.push(reply); return reply;},
       setRangeText: (...args: unknown[]) => commands.push(args), setSelectionRange: (...args: unknown[]) => selections.push(args), send: () => sends++,

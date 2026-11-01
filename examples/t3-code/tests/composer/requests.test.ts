@@ -328,6 +328,12 @@ describe('the question card', () => {
       expect(banner.drawn('testId=`question-body-', { collapsed }, { q })).toBe(collapsed === '');
     }
   });
+  test('a long header truncates instead of pushing the question out; collapsed, it takes half the row at most', () => {
+    expect(attribute('text q.header ', 'line-clamp', {})).toBe(1);
+    expect(attribute('text q.header ', 'min-width', {})).toBe(0);
+    expect(attribute('text q.header ', 'max-width', { collapsed: 'q', q })).toBe('50%');
+    expect(attribute('text q.header ', 'max-width', { collapsed: '', q })).toBe('none');
+  });
   test('an option has a radio, or a checkbox when several can be chosen; unselected labels at 70%; its key cap in a 1.5rem column', () => {
     const option = { id: 'o', label: 'Main', description: '', shortcut: '1', selected: false };
     for (const multi of [false, true]) {

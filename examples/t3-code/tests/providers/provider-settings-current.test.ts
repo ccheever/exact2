@@ -4,7 +4,6 @@ import { connected } from '../support/client-fixture';
 import { buildProviderInstanceOverridePatch } from '../../src/providers/project-provider-overrides';
 import { providerPage, providerWizard } from '../../src/providers/providers';
 import { formatProviderUpdateRequiredNotice } from '../../src/providers/provider-update-required-models';
-import { providerRowLabel } from '../../src/composer/model-catalog';
 import { mergeUsage, providersWithUsage } from '../../src/usage/pages-usage';
 
 test('project provider switches update every checkout without changing environment enablement', async () => {
@@ -45,8 +44,6 @@ test('CLI unlock notices filter models and choose the highest required version',
   expect(formatProviderUpdateRequiredNotice(provider)).toBe('Update the Codex CLI to v1.10.0 or newer to use One and Two.');
   expect(formatProviderUpdateRequiredNotice(provider, 'ONE')).toBe('Update the Codex CLI to v1.2.0 or newer to use One.');
   expect(formatProviderUpdateRequiredNotice(provider, 'absent')).toBeNull();
-  expect(providerRowLabel('OpenCode', 'OpenCode Go')).toBe('OpenCode Go');
-  expect(providerRowLabel('OpenCode', 'Zen')).toBe('OpenCode · Zen');
   const merged = mergeUsage([]);
   merged.providers = [{ provider: 'pi', costUsd: 0, totalTokens: 100, sessions: 1, costShare: 0, tokenShare: 1 }];
   expect(providersWithUsage(merged)).toEqual(['pi']);

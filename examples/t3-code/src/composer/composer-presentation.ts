@@ -4,7 +4,7 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { composerRequests, requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { effortBlockWidth, footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { effortSuffixWidth, footerLayout, traitsDisplay, primaryAction, composerNotices, providerControl, contextMeter, compactChip } from './composer-controls-view';
 import { resolveComposerControlsOwnership } from './composer-controls-ownership';
 import { effortBars, resolveEffortGlyph } from './effort-glyph';
 import { planFollowUp, noteNow } from './composer-controls';
@@ -27,9 +27,10 @@ import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, probeK
 import { anchorFrame } from '../shared/laid-out-widths';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
-import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
+import { ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
 import { acpInstanceIcon } from './acp-instance-icon'; // the trigger's ACP agent mark
+import { effortColumn, effortColumnHeight, effortFocus, speedSegments } from './composer-model-effort'; // the picker's effort column and footer
 import { overflowMenu } from './composer-overflow';
 import { usageConfirm, usageResetClock } from './composer-controls-usage'; // the reset credit confirm and the reset's clock
 import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
@@ -100,39 +101,6 @@ export function composerPlaceholder(input: { connected: boolean; approval: boole
   return 'Ask anything. @ files, $ skills, / commands';
 }
 
-/** getProviderOptionDescriptors + TraitsMenuContent: one flat menu of headers, dividers and radio rows. */
-export function traitsMenu(descriptors: Obj[], selections: Obj[], selection: Selection | null = null, reported: Selection | null = null,
-  ultra: { primaryId: string; controlled: boolean; inBody: boolean } = { primaryId: '', controlled: false, inBody: false }) {
-  const items: Array<{ key: string; kind: string; descriptor: string; value: string; label: string; description: string; selected: boolean; isDefault: boolean; index: number; disabled: boolean }> = [];
-  const labels: string[] = [];
-  let index = 0;
-  descriptors.filter(descriptor => descriptor.type === 'select').forEach((descriptor, group) => {
-    const id = str(descriptor.id), options = arr(descriptor.options);
-    // getDescriptorStringValue(descriptor, selection, reported): the checked radio follows the trigger's label.
-    // A prompt that controls the primary effort checks "ultrathink"; "ultrathink" in its body locks the rows.
-    const primary = id === ultra.primaryId, locked = primary && ultra.inBody;
-    const current = primary && ultra.controlled ? 'ultrathink' : optionValue(descriptor, resolvedCurrent(descriptor, selections), selection, reported);
-    if (group > 0) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
-    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
-    if (locked) items.push({ key: `note:${id}`, kind: 'note', descriptor: id, value: '', label: ULTRATHINK_LOCKED_MESSAGE, description: '', selected: false, isDefault: false, index: -1, disabled: false });
-    for (const option of options) {
-      items.push({ key: `${id}:${str(option.id)}`, kind: 'option', descriptor: id, value: str(option.id), label: str(option.label, str(option.id)),
-        description: str(option.description), selected: option.id === current, isDefault: option.isDefault === true, index: index++, disabled: locked });
-    }
-    const label = str(options.find(option => option.id === current)?.label);
-    if (label) labels.push(label);
-  });
-  const selects = descriptors.some(descriptor => descriptor.type === 'select');
-  descriptors.filter(descriptor => descriptor.type === 'boolean').forEach((descriptor, group) => {
-    const id = str(descriptor.id), value = selections.find(selection => selection.id === id)?.value ?? descriptor.currentValue;
-    if (group > 0 || selects) items.push({ key: `divider:${id}`, kind: 'divider', descriptor: id, value: '', label: '', description: '', selected: false, isDefault: false, index: -1, disabled: false });
-    items.push({ key: `header:${id}`, kind: 'header', descriptor: id, value: '', label: str(descriptor.label, SAVED_OPTION_LABELS[id] ?? id), description: '', selected: false, isDefault: false, index: -1, disabled: false });
-    for (const on of [true, false]) items.push({ key: `${id}:${on}`, kind: 'option', descriptor: id, value: String(on), label: on ? 'On' : 'Off', description: '',
-      selected: (value === true) === on, isDefault: false, index: index++, disabled: false });
-  });
-  return { items, label: labels.join(' · '), count: index, selected: items.find(item => item.kind === 'option' && item.selected)?.index ?? 0 };
-}
-
 const named: Record<string, string> = { ' ': 'Space', escape: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown' };
 function whenMatches(ast: unknown, context: Record<string, boolean>, depth = 0): boolean | null {
   const node = obj(ast); if (!node.type) return true; if (depth > 64) return null;
@@ -193,7 +161,8 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   // The traits show the implicit Fast default (Normal) and the prompt's ultrathink (composerProviderState.tsx).
   const shown = withImplicitFastModeDefault(descriptors, client.modelOptions) ?? [], prompt = client.draft ?? '';
   const ultra = ultrathinkTraits(descriptors, prompt);
-  const traits = traitsMenu(descriptors, shown, selection, reported, ultra);
+  const effortInput = { driver: str(provider?.driver), descriptors, selections: shown, selection, reported, ultra, unavailable: model?.isUnavailable === true, labels: SAVED_OPTION_LABELS };
+  const column = effortColumn(effortInput), speed = speedSegments(effortInput);
   const supported = Array.isArray(provider?.supportedRuntimeModes) ? (provider!.supportedRuntimeModes as unknown[]).map(value => str(value)) : [];
   const runtimes = runtimeModes.filter(option => !supported.length || supported.includes(option.mode));
   const runtime = runtimes.find(option => option.mode === client.runtimeMode) ?? runtimes[0] ?? runtimeModes[0]!;
@@ -205,9 +174,9 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const modelLabel = model ? `${displayModelName(model)}${model.isUnavailable === true ? ' (Unavailable)' : ''}` : modelTitle;
   // ProviderModelPicker's Unavailable Badge (outline, sm): its text with 3pt padding and the 1pt border each side.
   const badge = model?.isUnavailable === true && !fanoutSelections(client as unknown as T3Client) ? measured(client.presentation, UNAVAILABLE_BADGE, 10, 500) + 8 : 0;
-  // TraitsPicker in the composer (v0.1.5): the primary reasoning select as a word ("High", Settings › Appearance ›
-  // Effort display "label", the default) or rising bars ("bars"); Max, Ultracode and Ultrathink keep their names, and
-  // traits the bars cannot show (an agent mode) read as their label. The gauge shows only in an icon-only footer.
+  // describeComposerEffort (2359643cff), after the model name in its trigger: the primary reasoning select as a word
+  // ("High", Settings › Appearance › Effort display "label", the default) or rising bars ("bars"); Max, Ultracode and
+  // Ultrathink keep their names, and traits the bars cannot show (an agent mode) read as their label.
   const primary = descriptors.find(descriptor => descriptor.type === 'select' && descriptor.id === ultra.primaryId);
   const glyph = primary && REASONING_SELECT_DESCRIPTOR_IDS.has(str(primary.id))
     ? resolveEffortGlyph(primary, ultra.controlled ? 'ultrathink' : stringOrNull(optionValue(primary, resolvedCurrent(primary, shown), selection, reported))) : null;
@@ -221,38 +190,39 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const permissionsInStrip = !client.threadId && !!client.projectId;
   const accessMatchesDefault = runtime.mode === defaultRuntimeMode;
   const planUi = planVisible;
-  const firstOwnership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+  const firstOwnership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip,
     planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: 0 });
-  const { steps, measuredHidden, ...layout } = footerLayout({ model: modelTitle, traits: effortBlockWidth(effort, measuredLabels(client.presentation)),
+  const { steps, measuredHidden, ...layout } = footerLayout({ model: modelTitle, suffix: effortSuffixWidth(effort, measuredLabels(client.presentation)),
     runtime: firstOwnership.accessDisplay === 'label' ? runtime.label : '', runtimeShown: firstOwnership.accessDisplay !== 'hidden', mode: firstOwnership.showModeBlock,
     plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: controlsWidth(client.presentation),
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client), badge });
   footerSteps.set(client, steps);
-  const ownership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip, hasTraits: effort.shown,
+  const ownership = resolveComposerControlsOwnership({ matchesDefault: accessMatchesDefault || permissionsInStrip,
     planModeUiEnabled: planUi, collapsed: false, measuredHiddenBlockCount: measuredHidden });
   const keyEffort = commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode = commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext);
-  // The effort chip's name and tooltip: "Effort: High · Fast", and while it holds Permissions, "Permissions: Supervised · ⇧⌘A".
-  const permissionsHint = ownership.accessDisplay === 'hidden' || accessMatchesDefault || permissionsInStrip
-    ? [`Permissions: ${runtime.label}`, chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · ') : '';
-  const traitsTip = [`Effort: ${display.label}`, effort.speed, permissionsHint].filter(Boolean).join(' · ');
   // The "More composer controls" rows; Permissions join them only while their home is in the menu.
-  const more = overflowMenu({ traits: traits.items, traitsHidden: ownership.traitsHidden, modeHidden: ownership.modeHidden, planVisible, interactionMode: client.interactionMode,
-    showPermissions: ownership.overflowShowsPermissions });
+  const more = overflowMenu({ modeHidden: ownership.modeHidden, planVisible, interactionMode: client.interactionMode, showPermissions: ownership.overflowShowsPermissions });
   return {
     placeholder: composerPlaceholder({ connected: client.connection === 'connected', ...requests, planReady: !!requests.planReady,
       projectRequired: !client.projectId, providerUnavailable: chosen.showProviderUnavailable,
       phase: client.threadId ? threadPhase(client.projection) : 'disconnected' }),
     modelTip: modelShortcut ? `${modelLabel} · ${modelShortcut}` : modelLabel, fieldLabel: fieldLabel(client),
-    traitsLabel: display.label, traitsTip,
+    // The trigger's name: the model, then its effort and other traits (triggerDetail), as one control.
+    modelDetail: effort.shown ? display.label : '',
     effortShown: effort.shown, effortWord: effort.word, effortBars: glyph && !effort.word ? effortBars(glyph) : [], effortBarsWidth: glyph ? 4 * glyph.count - 2 : 0,
     effortSpeed: effort.speed, effortOther: effort.other,
     providerIcon: acpInstanceIcon(client.config, provider),
-    ...layout, traitsOverflow: ownership.traitsHidden, modeOverflow: ownership.modeHidden, traitsCount: traits.count, traitsSelected: traits.selected, traits: traits.items,
+    ...layout, modeOverflow: ownership.modeHidden,
+    // The model picker's effort column (its header names the reasoning control), how many option rows it has and its
+    // natural height, the rows a model pick and composer.effort focus, and its footer's speed control
+    // (ComposerModelEffort.tsx).
+    effortHeader: column.header, effortGroups: column.groups, effortRows: column.rows.length, effortHeight: effortColumnHeight(column.groups),
+    effortFocusLevel: effortFocus(column.rows, 'levels'), effortFocusAny: effortFocus(column.rows, 'any'),
+    speedLabel: speed.label, speedSegments: speed.segments,
     // Where Permissions live (resolveComposerControlsOwnership): the chip shows its label, its icon or nothing; the
-    // effort chip or the overflow menu answers composer.mode while it does not. Without an effort chip, upstream's
-    // Permissions chip keeps its data-composer-shortcut="composer.mode", so it answers whatever ownership says.
+    // model picker or the overflow menu answers composer.mode while it does not.
     accessDisplay: ownership.accessDisplay, accessEmphasized: !accessMatchesDefault, showModeBlock: ownership.showModeBlock,
-    effortOwnsMode: effort.shown && ownership.effortOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
+    pickerOwnsMode: ownership.pickerOwnsModeShortcut, overflowPermissions: ownership.overflowShowsPermissions, permissionsInStrip,
     permissionsTip: `Permissions: ${runtime.label}. ${runtime.description}`,
     stripPermissionsTip: ['Permissions', chordGlyphs(keyMode.split(' ')[0] ?? '')].filter(Boolean).join(' · '),
     runtimeMode: runtime.mode, runtimeLabel: runtime.label, runtimeIcon: runtime.icon, runtimeDescription: runtime.description,
@@ -275,11 +245,14 @@ export function frameTops(frames: Obj) {
 }
 
 /**
- * NoticeDescription (ComposerBannerStack.tsx): a description, plain or a roster of segments, offers its details while
- * its natural width (its probes) exceeds the width it was laid out at (its `nd:` anchor). While the button shows, its
- * 24pt and the 4pt gap before it count as room, so it cannot keep itself shown once the text would fit.
+ * NoticeDescription (ComposerBannerStack.tsx at 2359643cff): a description, plain or a roster of segments, offers its
+ * details while its natural width (its probes) exceeds the width it was laid out at (its `nd:` anchor). While the
+ * button shows, its 24pt and the 4pt gap before it count as room, so it cannot keep itself shown once the text would
+ * fit. The button can wrap the banner's actions onto a second row, which gives the text room and removes the button,
+ * which unwraps the row again: once shown, it stays until the banner (its `nb:` anchor) gets wider than where it
+ * appeared, or the description changes.
  */
-const detailsShown = new WeakMap<T3Client, Set<string>>();
+const detailsShown = new WeakMap<T3Client, Map<string, { at: number; content: string }>>();
 const measurable = (notice: ComposerNotice) => (!!notice.description || notice.segments.length > 0) && !notice.redact && !notice.machines.length;
 /** The texts a description lays out, each at its size and weight: a roster's links are medium, its commas regular. */
 function descriptionTexts(notice: ComposerNotice): Array<[string, number]> {
@@ -287,19 +260,32 @@ function descriptionTexts(notice: ComposerNotice): Array<[string, number]> {
   return notice.segments.flatMap(segment => [[segment.label, segment.threadId ? 500 : 400] as [string, number], ...(segment.last ? [] : [[', ', 400] as [string, number]])]);
 }
 export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, notices: T[], rootFontSize: number): T[] {
-  const anchors = obj(client.presentation.anchors), shown = detailsShown.get(client), next = new Set<string>();
+  const anchors = obj(client.presentation.anchors), shown = detailsShown.get(client), next = new Map<string, { at: number; content: string }>();
   const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) : NaN; };
   const out = notices.map(notice => {
     if (!measurable(notice)) return notice;
-    const laidOut = width(`nd:${notice.id}`), parts = descriptionTexts(notice).map(([text, weight]) => width(probeKey(text, 12, weight)));
+    const laidOut = width(`nd:${notice.id}`), texts = descriptionTexts(notice), parts = texts.map(([text, weight]) => width(probeKey(text, 12, weight)));
     if (!(laidOut >= 0) || !parts.every(part => part > 0)) return notice;
+    const content = texts.map(([text]) => text).join(''), banner = width(`nb:${notice.id}`);
+    const previous = shown?.get(notice.id), shownAt = previous && previous.content === content ? previous.at : null;
     const natural = parts.reduce((sum, part) => sum + part, 0) * rootFontSize / 16;
-    const details = natural > laidOut + (shown?.has(notice.id) ? 28 * rootFontSize / 16 : 0) + 0.5;
-    if (details) next.add(notice.id);
-    return { ...notice, details };
+    const overflowing = natural > laidOut + (shownAt !== null ? 28 * rootFontSize / 16 : 0) + 0.5;
+    // A width not yet measured (NaN) keeps nothing: the button then goes once the text fits.
+    const at = overflowing ? (shownAt !== null && Number.isFinite(shownAt) ? shownAt : banner) : shownAt !== null && banner <= shownAt ? shownAt : null;
+    if (at !== null) next.set(notice.id, { at, content });
+    return { ...notice, details: at !== null };
   });
   detailsShown.set(client, next);
   return out;
+}
+
+/**
+ * A new thread's composer is centred (ChatView isDraftHeroState: a draft, so no messages yet): its notices stand apart
+ * as cards under it, out of flow, so one appearing never moves it (ComposerBannerStack detached); a thread's dock
+ * above its card.
+ */
+export function dockedNotices<T>(threadId: string, notices: T[]): { notices: T[]; detachedNotices: T[] } {
+  return threadId ? { notices, detachedNotices: [] } : { notices: [], detachedNotices: notices };
 }
 
 /** The snapshot's `composer` row: request state comes from the requests projection. */
@@ -351,7 +337,8 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // (attachmentUploadBlockReason); a send that goes anyway, an annotation's, is kept until they land, and the root sends
     // the first kept one that can go (`sendResume`).
     uploads: uploadTable(client), uploadBlock: uploadBlock(client), sendResume: readySend(client),
-    notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
+    ...dockedNotices(client.threadId, notices),
+    resetConfirm: bar.subagent ? '' : usageConfirm(client), ...usageResetClock(client, now) }, rootFontSize);
 }
 
 /**

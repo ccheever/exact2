@@ -14,7 +14,7 @@ import { pushToast } from '../shell/toast';
 import { composerInput, pendingRequests, requestPresentation } from './requests';
 import { composerIntentSource } from './composer-intent-source';
 import { contextId, contextLink, contextReferences } from './composer-editor-menu';
-import { videoMimeType } from './composer-video';
+import { GENERIC_MIME_TYPES, videoMimeType } from './composer-video';
 import { claimComposerOSRecord, composerOSRecord, type ComposerOSRecord } from './composer-os-record';
 import { composerFieldCurrent } from './composer-field-bridge';
 import { composerFieldReplacement } from './composer-field-edit';
@@ -112,7 +112,6 @@ export function stageFold(local: object, draftKey: string, environmentId: string
 /** The chip a staged file shows in the prompt. */
 export function fileChipLink(file: DraftFile): string { return contextLink('file', file.contextId, file.name); }
 
-const GENERIC_MIME_TYPES = new Set(['application/octet-stream', 'binary/octet-stream', 'application/unknown']);
 /** isSvgAttachment (shared image.ts): an SVG by its type, or by its name when the type says nothing. */
 export function isSvgAttachment(name: string, mimeType: string): boolean {
   const type = mimeType.split(';', 1)[0]!.trim().toLowerCase();

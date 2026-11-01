@@ -76,6 +76,7 @@ shape ComposerSourceBlock
   bodyStart: number
   bodyEnd: number
   bodyLine: bool // false: a fence closed on the next line, projected where its body would be
+  nested: bool // a list line whose marker is indented
 
 // Deferred input metadata; field source and undo remain owned by the textarea.
 shape ComposerIntentMetadata

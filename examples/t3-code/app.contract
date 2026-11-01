@@ -165,6 +165,13 @@ component T3Code
     promptPreviewSerial
     composerChipPress
     composerFieldInputSerial
+    modelOpenTo // the composer's model picker: its shortcuts, its trigger's edges, its Permissions menu and its picks
+    modelMeasure
+    modelOpenTarget
+    modelPermissions
+    modelAnchorX
+    modelAnchorWidth
+    pickerPick
     richComposer
     richComposerOwner
     composerMoved
@@ -1069,8 +1076,10 @@ component T3Code
       commandPending = true
       pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
       send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
-      modelsOpen = additive and modelTarget.id == "" and catalog.multiple
-      focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`))
+      // The composer's picker stays open through a pick, and its focus goes to the new model's levels
+      // (composer-controls-members.contract modelEffortFocused).
+      modelsOpen = modelTarget.id == ""
+      focus(modelTarget.id == "" ? "model-search" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
   // ModelPickerContent announces the tab or model its shortcut picked (composer-controls-commands.ts
   // announcePickerShortcut), and its announce blocks nothing: the announcement waits for no command in flight and
   // refreshes only the shell, whose live regions speak it, so a quick second press is announced too and a pick right

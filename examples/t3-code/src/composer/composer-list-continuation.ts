@@ -1,4 +1,4 @@
-// composer-list-continuation.ts at T3 Code v0.1.5 (MIT; LICENSE-T3): Enter and Tab in a
+// composer-list-continuation.ts at T3 Code v0.1.6 (MIT; LICENSE-T3): Enter, Tab and ⇧Tab in a
 // Markdown list typed as text. The plain composer uses it whole; the rich composer's own list
 // gesture (composer-markdown-edit.ts) renumbers with it.
 import type { ComposerRange } from './composer-markdown';
@@ -174,6 +174,24 @@ export function listIndentForTab(value: string, start: number, end: number, chip
     return listEdit(line.start, replacedEnd, replacement, start < replacedEnd ? line.start + indent.length : start - replacedEnd + line.start + replacement.length);
   }
   return listEdit(line.start, line.start, '  ', start + 2);
+}
+
+/** listOutdentForTab: a nested list line moves out to its parent item's indent, or loses one step of Tab's two-space
+ *  fallback with no parent above; an ordered item under an ordered parent of its delimiter takes the parent's next
+ *  number, and the items after it follow. Null for a top-level line, which leaves ⇧Tab to plan mode or the focus. */
+export function listOutdentForTab(value: string, start: number, end: number, chips: readonly ComposerRange[]): ComposerEdit | null {
+  if (!Number.isInteger(start) || start !== end || start < 0 || start > value.length) return null;
+  const line = currentLine(value, start), parsed = parseListMarker(line.text);
+  if (!parsed?.marker.indent || insideChip(chips, start)) return null;
+  const { marker } = parsed, parent = parentMarker(value, line.start, marker, chips);
+  const indent = parent?.indent ?? marker.indent.replace(/^(?:\t| {1,2})/, '');
+  const continues = parent?.kind === 'ordered' && marker.kind === 'ordered' && parent.delimiter === marker.delimiter;
+  const number = continues ? nestedNumber(marker, parent) : { replacedLength: 0, text: '' };
+  const replacedEnd = line.start + marker.indent.length + number.replacedLength, replacement = indent + number.text;
+  const caret = start < replacedEnd ? line.start + indent.length : start - replacedEnd + line.start + replacement.length;
+  const renumbered = continues ? renumberFollowingItems(value, line.end, parent, chips) : null;
+  if (renumbered) return listEdit(line.start, renumbered.end, replacement + value.slice(replacedEnd, line.end) + renumbered.text, caret);
+  return listEdit(line.start, replacedEnd, replacement, caret);
 }
 
 /** The list lines of a plain composer, for the Contract's Tab admission (a projected `list` block). */

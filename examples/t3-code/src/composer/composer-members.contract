@@ -172,6 +172,8 @@ members T3Code
   derive composerSelectionCurrent = composerSelectionOwner == richComposerOwner and composerSelectionValue == composerText
   derive composerInCode = composerRichCurrent and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart >= b.bodyStart and composerSelectionEnd <= b.bodyEnd).length > 0
   derive composerInList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "list" and composerSelectionStart >= b.contentStart and composerSelectionEnd <= b.end).length > 0
+  // The caret is on a nested list line, which ⇧Tab moves out (listOutdentForTab) before plan mode takes the key.
+  derive composerInNestedList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.mode != "literal" and richComposer.blocks.filter((b) => b.kind == "list" and b.nested and composerSelectionStart >= b.start and composerSelectionEnd <= b.end).length > 0
   derive composerCodeStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart == b.bodyStart).length > 0
   derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (composerText.includes("\n") or composerText.includes("\u{d}")))
   derive composerIntentContextCurrent = composerIntentObserved.owner == richComposerOwner and composerIntentObserved.snapshotOwner == data.snapshotOwner and composerIntentObserved.generation == richComposer.generation and composerIntentMode == richComposer.mode and composerFieldLive and not composerComposing
@@ -393,10 +395,10 @@ members T3Code
         case some(c)
           composerChipPress("composer", richComposerOwner, composerText, composerFieldInputSerial, c.start, c.end, c.source, true)
         case none
-    else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode
-      // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), in a list or with a menu open too.
-      // A code block outdents first (ComposerPromptEditorTiptap); without the toggle the key gives the focus back
-      // (TextAreaMac.insertBacktab), in a list too.
+    else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode and not (composerInNestedList and not editor.menu.open and not e.altKey and not (e.metaKey or e.ctrlKey))
+      // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), on a top-level list item or with a
+      // menu open too. A code block outdents first (ComposerPromptEditorTiptap), and a nested list item moves out
+      // (listOutdentForTab); without the toggle the key gives the focus back (TextAreaMac.insertBacktab).
       preventDefault()
       stopPropagation()
       if data.connected
@@ -470,8 +472,8 @@ members T3Code
           preventDefault()
           stopPropagation()
           editorOp("history", k == "ArrowUp" ? "previous" : "next", "")
-      // Tab indents a list item; ⇧Tab outdents only code (listIndentForTab runs without Shift).
-      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey))) or (k == "Backspace" and not heldCommand and composerCodeStart)
+      // Tab indents a list item; ⇧Tab outdents code and a nested list item (listOutdentForTab).
+      if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey) or (composerInNestedList and e.shiftKey))) or (k == "Backspace" and not heldCommand and composerCodeStart)
         preventDefault()
         stopPropagation()
         if k != "Enter" or not e.repeat

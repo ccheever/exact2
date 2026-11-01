@@ -3,14 +3,15 @@
 // entries) picks it: a whole name (Dockerfile, CMakeLists.txt), a compound extension (component.ts,
 // blade.php) or a simple one. Each value is a Shiki 4.2 language id or alias (1c is bsl's), which
 // the reference hands to @pierre/highlights: a language with a lexer there (highlights-tables.ts)
-// is highlighted, and the others paint plain, as the reference falls back to "text".
+// is highlighted, and the others paint plain, as the reference falls back to "text". Assembly is the reference's
+// own (client-runtime assemblyHighlighting.ts): the library's .s is riscv, which has no lexer.
 
 /** File names and extensions to the Shiki language @pierre/diffs gives them. */
 export const FILE_TYPES: Record<string, string> = {
   "1c": "1c", abap: "abap", as: "actionscript-3", ada: "ada", adb: "ada", ads: "ada", adoc: "asciidoc",
   asciidoc: "asciidoc", "component.html": "angular-html", "component.ts": "angular-ts", conf: "nginx",
   htaccess: "apache", cls: "tex", trigger: "apex", apl: "apl", applescript: "applescript", scpt: "applescript",
-  ara: "ara", asm: "asm", s: "riscv", astro: "astro", awk: "awk", bal: "ballerina", sh: "zsh", bash: "zsh",
+  ara: "ara", asm: "asm", ASM: "asm", s: "asm", S: "asm", nasm: "asm", NASM: "asm", astro: "astro", awk: "awk", bal: "ballerina", sh: "zsh", bash: "zsh",
   bat: "cmd", cmd: "cmd", be: "berry", beancount: "beancount", bib: "bibtex", bicep: "bicep", "blade.php": "blade",
   bsl: "bsl", c: "c", h: "objective-cpp", cs: "csharp", cpp: "cpp", hpp: "cpp", cc: "cpp", cxx: "cpp", hh: "cpp",
   cdc: "cdc", cairo: "cairo", clar: "clarity", clj: "clojure", cljs: "clojure", cljc: "clojure", soy: "soy",

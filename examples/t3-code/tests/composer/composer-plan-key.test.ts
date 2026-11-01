@@ -9,7 +9,7 @@ const root = contractComponent('app.contract', 'T3Code');
 const keyFns = contractFns('src/composer/composer-keys.contract');
 const { heldModifiers } = contractFns('src/shared/press-modifiers.contract');
 
-type Options = { planVisible?: boolean; planActive?: boolean; connected?: boolean; inCode?: boolean; inList?: boolean; menuOpen?: boolean;
+type Options = { planVisible?: boolean; planActive?: boolean; connected?: boolean; inCode?: boolean; inList?: boolean; nested?: boolean; menuOpen?: boolean;
   menuCount?: number; stashOpen?: boolean; stashCount?: number; caret?: number; sendChords?: string; sendCommandChords?: string; queuedEdit?: string; workspaceFocus?: boolean };
 function composer(options: Options = {}) {
   const calls: unknown[][] = [];
@@ -20,7 +20,7 @@ function composer(options: Options = {}) {
       sendCommandChords: options.sendCommandChords ?? '' }, connected: options.connected ?? true },
     richComposer: { mode: 'rich', historyPrevious: true, historyNext: true, chips: [] },
     composerRichCurrent: true, composerSelectionCurrent: true, composerSelectionStart: caret, composerSelectionEnd: caret, composerText: '- a',
-    composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerCodeStart: false, composerRequiresModifier: false,
+    composerInCode: options.inCode ?? false, composerInList: options.inList ?? false, composerInNestedList: options.nested ?? false, composerCodeStart: false, composerRequiresModifier: false,
     editor: { menu: { open: options.menuOpen ?? false, count: options.menuCount ?? 3 }, stash: { menuOpen: options.stashOpen ?? false, count: options.stashCount ?? 2 } },
     shortcuts: [...(options.queuedEdit ? [{ kind: 'composer-key', chord: options.queuedEdit, target: 'cclocal:queued-edit', extra: 'run-1' }] : []),
       ...(options.workspaceFocus ? [{ kind: 'workspace-focus', chord: 'F6', target: 'next' }, { kind: 'workspace-focus', chord: 'Shift+F6', target: 'previous' }, { kind: 'workspace-focus', chord: 'Meta+F6', target: 'next' }] : [])],
@@ -50,15 +50,17 @@ describe('⇧⇥ in the composer (onComposerCommandKey)', () => {
     plan.key('Tab', { shiftKey: true });
     expect(plan.calls).toEqual([['preventDefault'], ['menuPick', 'interaction', '', 'default']]);
   });
-  test('toggles in a list item and with a menu open; a code block outdents first', () => {
-    for (const options of [{ inList: true }, { menuOpen: true }]) {
+  test('toggles in a top-level list item and with a menu open; a code block and a nested list item outdent first', () => {
+    for (const options of [{ inList: true }, { menuOpen: true }, { inList: true, nested: true, menuOpen: true }]) {
       const field = composer(options);
       field.key('Tab', { shiftKey: true });
       expect(field.calls).toEqual([['preventDefault'], ['menuPick', 'interaction', '', 'plan']]);
     }
-    const code = composer({ inCode: true });
-    code.key('Tab', { shiftKey: true });
-    expect(code.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
+    for (const options of [{ inCode: true }, { inList: true, nested: true }]) {
+      const field = composer(options);
+      field.key('Tab', { shiftKey: true });
+      expect(field.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
+    }
   });
   test('without plan mode the focus goes back, from a list item too; a code block still outdents', () => {
     const list = composer({ planVisible: false, inList: true });
@@ -70,6 +72,9 @@ describe('⇧⇥ in the composer (onComposerCommandKey)', () => {
     const code = composer({ planVisible: false, inCode: true });
     code.key('Tab', { shiftKey: true });
     expect(code.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
+    const nested = composer({ planVisible: false, inList: true, nested: true });
+    nested.key('Tab', { shiftKey: true });
+    expect(nested.calls).toEqual([['preventDefault'], ['intent', 'key', 'Tab', true]]);
     const text = composer({ planVisible: false });
     text.key('Tab', { shiftKey: true });
     expect(text.calls).toEqual([]);
