@@ -11892,3 +11892,29 @@ journey suites were not rerun; this lane changes measurement and records,
 not the carrier. `checks-rebased/verbatim-results.txt` preserves the exact
 result lines and commands, with complete output in the adjacent logs.
 The branch is committed without a push.
+
+## G7c, the Windows 120 Hz fling rows and the observer-off cold control
+
+**Predictions before collection, 2026-11-01.** Reuse G7b's after binaries
+(`5892f92d5a`), checking their retained SHA-256 receipts before launch.
+No carrier or renderer source changes. Charlie minimized ChatGPT and
+Settings at 01:38 NucBox time; neither application was closed. The console
+session is idle at 5120×1440, 120 Hz. Wait for six consecutive five-second
+observations below 10% total CPU with no compiler, then apply that same
+quiet rule to every observation of each complete cohort. Retain all attempts.
+Application, OS and driver caches remain intact.
+
+| Prediction | Instrument and criterion |
+| --- | --- |
+| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon 2.6.0; four gesture windows per process, five rotating rounds per arm. Late means strictly over 12.5 ms. Ink/wgpu cadence stays unavailable if its readback path has no app-owned presents. |
+| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, each within 25%. | G6's process and HWND-owner-thread CPU endpoints over ten seconds; 15.625 ms accounting ticks. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak at the rest endpoint, with sampled fling peak reported separately. |
+| D3D11 snapshots equal successful frames over the five flings. | Existing exit counters, including startup. |
+| Rest has zero displays and at most two CPU ticks; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame. | One separate ten-second sample per arm and workload, using CPU endpoints and PresentMon. Unobserved wgpu cadence stays unavailable. |
+| Observer-off cold DWM medians return to 150–170 ms on D3D11, 230–250 on egui and 690–730 on Ink/wgpu. | G7's startup driver without PresentMon, ten interleaved fresh processes per arm in one session, with its existing DWM and DXGI endpoints. |
+
+A foreground loss retains the owning process and title and permits one
+retry; a repeated loss to the same application stops collection. G7b's
+predictions above are unchanged. Raw evidence belongs under `target/g7c/`
+locally and in the reused `exact2-1149-001-win120b` NucBox mirror;
+`target/g7b/` is retained intact.
