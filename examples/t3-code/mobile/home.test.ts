@@ -184,6 +184,10 @@ test('Unsent drafts sit after active rows and before shelves, without thread ope
     expect(item.menuItems.map(menu => menu.operation)).toEqual(['draft-discard']);
   }
 });
+test('a drafts-only Home starts with content instead of a detached section divider', () => {
+  const result = projectMobileHome([], now, { drafts: [homeDraft('only')] });
+  expect(result.items.map(item => [item.kind, item.showPendingDivider, item.trailingDivider])).toEqual([['draft', false, false]]);
+});
 test('draft filtering uses title and actual grouped project pairs, including colon IDs', () => {
   const first = source('env:one'), second = source('two');
   first.shell.projects[0]!.id = 'p:one'; first.shell.projects[0]!.repositoryIdentity = { canonicalKey: 'github:t/r', name: 'r' };

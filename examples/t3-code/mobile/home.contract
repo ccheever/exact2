@@ -307,7 +307,7 @@ component Home
             text-align="center"
             testId="home-empty-detail"
           if addEnvironment
-            button press=addConnection
+            button appearance="none" press=addConnection
               margin-top=17.5
               border-radius=9999
               background-color=colors.primary
@@ -318,7 +318,7 @@ component Home
               testId="home-add-environment"
               text "Add environment" color=colors.primaryForeground font-size=plainActionRole.size line-height=`${plainActionRole.line}px` font-weight=700
     else
-      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
+      list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="on-drag" scrollbar-width="none" hatch="mobile-home-swipe-list" data-mobile-swipe-owner=swipeOwner
         padding-left=(listId == "sidebar-list" ? 8 : 0)
         padding-right=(listId == "sidebar-list" ? 8 : trailingReservation)
         padding-top=(listId == "sidebar-list" ? 6 : 0)
@@ -422,7 +422,7 @@ component HomeListItem
       if item.kind == "thread"
         t3-home-swipe-events swipe-owner=owner swipe-row=item.swipe.token swipe-context=item.nativeMenu swipe-dismissal-identity=item.dismissalIdentity swipe-dismissal-registration=`${exitRegistration}` swipe-dismissal-token=exitToken swipe-dismissal-phase=(exiting ? exitPhase : "idle") swipe-dismissal-progress=`${exitProgress}` width=0 height=0 change=dismissalEvent
       if item.kind == "shelf"
-        button press=toggleShelf(item.section)
+        button appearance="none" press=toggleShelf(item.section)
           disabled=item.disabled
           margin-top=14
           margin-bottom=5.25
@@ -437,7 +437,7 @@ component HomeListItem
             view flex=1 min-width=0 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
             t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
       else if item.kind == "more"
-        button press=showMore
+        button appearance="none" press=showMore
           position="relative"
           margin-left=14
           margin-right=14
@@ -455,7 +455,7 @@ component HomeListItem
           row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
             text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
             view flex=1 min-width=0 height=1 background-color=colors.border
-        button press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
+        button appearance="none" press=menuAction(item.environmentId, item.threadId, (item.kind == "draft" ? "draft-open" : "pending-open"), (item.kind == "draft" ? item.draftKey : item.queuedOwner))
           hatch="mobile-home-row"
           data-mobile-home-menu=item.nativeMenu
           data-mobile-home-surface=surface
@@ -498,7 +498,7 @@ component HomeListItem
           if item.swipe.primary != ""
             HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground, actionOpacity=(exiting ? (exitPhase == "out" ? 1 - exitEase : 0) : 1))
           column translate=`${exitOffset}px 0px` transition=swipeTransition min-width=0 background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
-            button press=selectThread(item.id)
+            button appearance="none" press=selectThread(item.id)
               hatch="mobile-home-row"
               data-mobile-swipe-owner=owner
               data-mobile-swipe-row=item.swipe.token

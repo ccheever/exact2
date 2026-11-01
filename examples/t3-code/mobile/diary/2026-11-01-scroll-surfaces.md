@@ -68,3 +68,18 @@ longer adds a bottom rule of its own. Focused Home/thread tests,
 the full mobile suite, Contract build, strict TypeScript, caps and boot pass.
 The local Family Reference iPhone 16 was unavailable because another workspace
 held its device session; no runtime or framework defect claim is made.
+
+The final source pass also removes native button chrome from authored Home and
+thread controls, hides the Home scrollbar, and dismisses the keyboard when a
+Home drag begins, matching the reference list behavior without changing row
+keys or adding a scroll surface. The combined Home projection now decides the
+first Unsent section marker, so draft-only and pending-only lists have no
+detached leading rule and no row emits a trailing rule after the last item.
+Focused tests pass 202 tests with 1,481 assertions, the full mobile suite passes
+4,240 tests with 2 optional bridge skips and 37,681 assertions, and the normal
+no-install iOS build passes with strict deep codesign (92 bundle files;
+executable SHA-256
+`13355523775b4dc20440bb6cf13131237ae29e71beed5d50bb501a4fe2061c1b`).
+The only runtime attempt was refused because the Duo was owned by another
+workspace session; no framework defect or performance claim is made until an
+exclusive device window is available.

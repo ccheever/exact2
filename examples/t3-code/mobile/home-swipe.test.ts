@@ -14,7 +14,10 @@ const now = Date.parse('2026-10-07T12:00:00Z');
 test('custom Home and thread feeds opt out of platform row separators', () => {
   const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract');
   expect(home).toContain('list id=listId appearance="none"');
+  expect(home).toContain('button appearance="none" press=selectThread(item.id)');
+  expect(home).toContain('button appearance="none" press=menuAction(item.environmentId');
   expect(thread).toContain('list id="thread-feed" appearance="none"');
+  expect(thread).toContain('button appearance="none" press=action(row.toggleOp, row.toggleId, "")');
   expect(thread).toContain('scrollFollowEnd=true scroll=historyScroll');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain"');

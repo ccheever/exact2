@@ -40,7 +40,7 @@ component ThreadFeed
                   if data.queuedReason.length > 0
                     text data.queuedReason font-size=13 line-height="18px" color=colors.secondary
                   if data.queuedCanRetry
-                    button press=action("outbox:retry", data.queuedOwner, "") padding=7 aria-label="Retry pending task" testId="outbox-retry"
+                    button appearance="none" press=action("outbox:retry", data.queuedOwner, "") padding=7 aria-label="Retry pending task" testId="outbox-retry"
                       text "Retry" font-size=14 line-height="19px" font-weight=500 color=colors.primary
               ThreadMessage(row=row, workWidth=workWidth, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, openSendingThread=openSendingThread(data.environmentId, data.threadId), active=active, colors=colors)
 
@@ -63,7 +63,7 @@ component ThreadHistory
           for key in [data.historyRequest] key=key
             view width=1 height=1 pointer-events="none" aria-hidden=true intersect=observe(key) intersect-margin="100% 0px"
         if active and data.historyRequest != ""
-          button press=loadEarlier disabled=data.historyLoading min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
+          button appearance="none" press=loadEarlier disabled=data.historyLoading min-height=31.5 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border background-color=colors.subtle aria-label="Load earlier activity" testId="thread-history-load-earlier"
             row align-items="center" gap=5.25
               if data.historyLoading
                 t3-archive-spinner spinner-tint=colors.iconSubtle width=16 height=16
@@ -125,7 +125,7 @@ component ThreadMessage
             if row.body.trim().length > 0 and row.kind != "pending"
               ThreadCopy(row=row, action=action, active=active, colors=colors)
             if row.kind == "pending" and row.toggleOp != ""
-              button press=action(row.toggleOp, row.toggleId, "") min-height=28 padding-left=7 padding-right=7 aria-label="Retry pending message"
+              button appearance="none" press=action(row.toggleOp, row.toggleId, "") min-height=28 padding-left=7 padding-right=7 aria-label="Retry pending message"
                 text "Retry" font-size=13 line-height="17px" color=colors.primary
           if row.kind == "pending" and row.title != ""
             text row.title margin-top=3.5 font-size=13 line-height="17px" color=(row.failed ? colors.dangerForeground : colors.secondary)
@@ -139,7 +139,7 @@ component ThreadMessage
           if row.showMeta
             row margin-top=3.5 align-items="center" gap=3.5
               if row.canFork
-                button press=action("fork-response", row.id, row.forkKey) width=24.5 height=24.5 padding=0 disabled=row.forkBusy opacity=(row.forkBusy ? 0.4 : 1) aria-label="Fork from this response" testId=`thread-fork-${row.id}`
+                button appearance="none" press=action("fork-response", row.id, row.forkKey) width=24.5 height=24.5 padding=0 disabled=row.forkBusy opacity=(row.forkBusy ? 0.4 : 1) aria-label="Fork from this response" testId=`thread-fork-${row.id}`
                   column width=24.5 height=24.5 align-items="center" justify-content="center"
                     if row.forkBusy
                       t3-archive-spinner spinner-tint=colors.iconSubtle width=20 height=20
@@ -150,7 +150,7 @@ component ThreadMessage
       else
         column
           if row.toggleOp.length > 0
-            button press=action(row.toggleOp, row.toggleId, "") box-sizing="border-box" padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=(row.kind == "work" ? 38.5 : 28) text-align="left"
+            button appearance="none" press=action(row.toggleOp, row.toggleId, "") box-sizing="border-box" padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=(row.kind == "work" ? 38.5 : 28) text-align="left"
               aria-expanded=row.expanded aria-label=row.title
               row align-items="center" gap=7
                 text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 font-variant-numeric=(row.kind == "work" ? "tabular-nums" : "normal") color=(row.failed ? colors.dangerForeground : colors.muted)
@@ -179,7 +179,7 @@ component ThreadAttachment
     openMedia: action
     colors: ThreadColors
   view
-    button press=openMedia(media.id) padding=0 text-align="left" aria-label=media.name
+    button appearance="none" press=openMedia(media.id) padding=0 text-align="left" aria-label=media.name
       if media.kind == "image" and media.url.length > 0
         image media.url width="100%" aspect-ratio=1.3 object-fit="cover" border-radius=(user ? 14 : 18) aria-label=media.name
       else
@@ -207,7 +207,7 @@ component ThreadApprovals
               text approval.warning font-size=13 line-height="19.5px" color=colors.warningForeground
             row flex-wrap="wrap" gap=8.75
               for option in approval.options key=option.id
-                button press=action("approval", approval.id, option.id) disabled=approval.disabled
+                button appearance="none" press=action("approval", approval.id, option.id) disabled=approval.disabled
                   padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 border-radius=9999
                   background-color=(option.tone == "primary" ? colors.primary : option.tone == "danger" ? colors.danger : colors.subtle)
                   text option.label font-size=14 line-height="19px" font-weight=700 color=(option.tone == "primary" ? colors.primaryForeground : option.tone == "danger" ? colors.dangerForeground : colors.foreground)
@@ -226,5 +226,5 @@ component ThreadCreationFailedCard
       text (data.queuedCanEdit ? "Your prompt was kept in the project draft." : "The saved draft is no longer available here.") font-size=13 line-height="17px" color=colors.secondary
       if data.queuedCanEdit
         row
-          button press=action("outbox:edit", data.queuedOwner, "") border-radius=14 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 background-color=colors.primary testId="task-creation-edit" aria-label="Edit task"
+          button appearance="none" press=action("outbox:edit", data.queuedOwner, "") border-radius=14 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 background-color=colors.primary testId="task-creation-edit" aria-label="Edit task"
             text "Edit task" font-size=14 line-height="19px" font-weight=800 color=colors.primaryForeground

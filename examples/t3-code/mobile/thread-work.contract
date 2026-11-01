@@ -33,7 +33,7 @@ component ThreadToolRow
             t3-work-row configuration=activity.nativeWorkRow row-muted=colors.muted row-icon=colors.iconSubtle row-subtle=colors.subtle press=toggleDetail
               height=28 min-width=0 aria-label=activity.label aria-expanded=activity.expanded testId=`thread-work-${activity.id}`
         else
-          button press=toggleDetail
+          button appearance="none" press=toggleDetail
             disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7
             aria-expanded=activity.expanded aria-label=(activity.answerPreview != "" ? `${activity.label}: ${activity.answerPreview}` : activity.label)
             row align-items="center" gap=5.25 min-height=28

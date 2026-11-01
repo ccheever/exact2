@@ -73,7 +73,7 @@ test('pending Home tasks are scoped, filtered and newest-first with captured pro
   expect(projectHomePending(tasks, { query: 'no match' })).toEqual([]);
   const result = projectMobileHome([], now, { pendingTasks: tasks });
   expect(result.items.map(item => [item.kind, item.title, item.projectTitle, item.showPendingDivider])).toEqual([
-    ['pending', 'Inspect the app', 'Saved project', true], ['pending', 'Inspect the app', 'Saved project', false] ]);
+    ['pending', 'Inspect the app', 'Saved project', false], ['pending', 'Inspect the app', 'Saved project', false] ]);
   expect(result.items[0]?.queuedOwner).toBe(mobileOutboxOwner(record('new', -1)));
 });
 test('drafts precede pending creations, synchronized rows do not duplicate and divider survives filtering', async () => {

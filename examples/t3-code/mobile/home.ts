@@ -241,7 +241,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
     items.push({ ...blankItem(`pending-task:${record.environmentId}:${record.messageId}`), kind: 'pending', queuedOwner: pending.owner,
       environmentId: record.environmentId, projectId: creation.projectId, faviconTarget: mobileProjectFaviconTarget(record.environmentId, project), threadId: record.threadId, section: 'unsent', queued: true, card: true,
-      showPendingDivider: !items.some(item => item.kind === 'draft' || item.kind === 'pending'), title: pendingTitle(pending),
+      showPendingDivider: false, title: pendingTitle(pending),
       projectTitle: titles.get(scoped(record.environmentId, creation.projectId)) ?? str(project?.title, creation.projectTitle ?? ''),
       projectPresent: !!project, branch: creation.branch ?? '', status: mobileOutboxStatus(pending.status), statusTone: 'pending',
       error: pending.reason, environmentLabel: (options.draftEnvironments?.length ?? 0) > 1 ? environment?.label ?? '' : '',
@@ -266,7 +266,19 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     if (section === 'settled' && expanded && hiddenSettledCount) items.push({ ...blankItem('settled:more'), kind: 'more', section,
       title: `Show more (${hiddenSettledCount} settled hidden)`, count: hiddenSettledCount });
   }
-  items.forEach((item, index) => { item.last = index === items.length - 1; const next = items[index + 1]; item.trailingDivider = ['thread', 'draft', 'pending'].includes(item.kind) && !!next && (next.kind === 'thread' || ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider); });
+  let sawUnsent = false;
+  items.forEach((item, index) => {
+    item.last = index === items.length - 1;
+    if (item.kind === 'draft' || item.kind === 'pending') {
+      item.showPendingDivider = !sawUnsent && index > 0;
+      sawUnsent = true;
+    }
+  });
+  items.forEach((item, index) => {
+    const next = items[index + 1];
+    item.trailingDivider = ['thread', 'draft', 'pending'].includes(item.kind) && !!next
+      && (next.kind === 'thread' || ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider);
+  });
   const selectedEnvironment = sources.find(source => source.environmentId === options.environmentId);
   const empty = query ? { title: 'No results', detail: `No threads matching "${options.query?.trim()}".` }
     : selectedProject ? { title: `No threads in ${selectedProject.title}`, detail: 'Choose another project or create a new task.' }
