@@ -5,7 +5,7 @@
 // Builders run gated, never unsandboxed: Codex in its workspace-write sandbox with escalations reviewed
 // (`--approve-for-me`), Claude Code in its `auto` permission mode.
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, loadavg } from 'node:os';
 import { resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -51,7 +51,7 @@ const env = { ...process.env, EXACT_SIM: sim, SIM: sim };
 for (const k of Object.keys(env)) if (k.startsWith('CLAUDE_CODE') || k === 'CLAUDECODE') delete env[k];
 const [cmd, argv] = ['codex', ['exec', '--json', '--skip-git-repo-check', '--approve-for-me', '-c', 'sandbox_workspace_write.network_access=true', '-m', 'gpt-6.1-sol', '-c', 'model_reasoning_effort="high"', '-C', dir, '-']];
 const log = createWriteStream(resolve(round, 'logs', `${name}.jsonl`));
-const started = Date.now();
+let started;
 const usage = { input: 0, cached: 0, output: 0, cost: null, calls: 0, toolCalls: 0 };
 let timedOut = false, atCapacity = false, worked = false, thread = null, workMs = 0;
 
@@ -87,13 +87,15 @@ function enterColdCache() {
   const backup = resolve(round, 'cold-cache', `${name}-${process.pid}`);
   mkdirSync(resolve(round, 'cold-cache'), { recursive: true });
   const hadCache = existsSync(cache);
-  if (hadCache) renameSync(cache, backup);
+  // The home cache and the round are on different volumes, so rename cannot move the cache here.
+  // Copy it to the SSD before clearing home, then restore it after the isolated build.
+  if (hadCache) { cpSync(cache, backup, { recursive: true }); rmSync(cache, { recursive: true, force: true }); }
   return { cache, backup, hadCache };
 }
 function leaveColdCache(state) {
   if (!state) return;
   rmSync(state.cache, { recursive: true, force: true });
-  if (state.hadCache) renameSync(state.backup, state.cache);
+  if (state.hadCache) { cpSync(state.backup, state.cache, { recursive: true }); rmSync(state.backup, { recursive: true, force: true }); }
 }
 // A model at capacity is the service's failure, not the build's. Refused before any work, the run starts
 // again; cut off mid-run, a Codex session resumes where it stopped. Up to six tries, waiting longer each
@@ -101,6 +103,8 @@ function leaveColdCache(state) {
 const RESUME = 'The service interrupted your run (the model was at capacity). Continue from where you left off and finish the app as the original instructions say, including NOTES.md.';
 let code;
 const coldState = enterColdCache();
+// Do not charge the SSD backup and restore for the builder's first-build time.
+started = Date.now();
 let server;
 try {
   server = await startServer();
