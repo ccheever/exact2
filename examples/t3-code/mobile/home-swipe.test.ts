@@ -8,7 +8,15 @@ import { contractComponent, type Env } from '../tests/support/contract-action-fi
 import { contractFns } from '../tests/support/contract-fn-fixture';
 import { mobileHomeActionsObserve as observe, mobileHomeMenu as menu, mobileHomeAction as action,
   mobileHomeSnoozePresets as presets, mobileHomeSnoozeSelection as snoozeSelection } from './home-actions';
+import { appText } from '../tests/support/app-files';
 const now = Date.parse('2026-10-07T12:00:00Z');
+
+test('custom Home and thread feeds opt out of platform row separators', () => {
+  const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract');
+  expect(home).toContain('list id=listId appearance="none"');
+  expect(thread).toContain('list id="thread-feed" appearance="none"');
+});
+
 const capabilities = { serverResolvedCommandContext: true, threadSettlement: true, threadSnooze: true,
   threadPinning: true, threadPinReorder: true, threadAutoSettleOptOut: true, threadTitleRegeneration: true };
 const thread = (patch: Obj = {}): Obj => ({ id: 't', projectId: 'p', title: 'Original', branch: 'feat/雪 ?#', worktreePath: '/work/path ?',

@@ -13,6 +13,10 @@ declare a shrinkable inline size and row dividers that extended to the edge.
 Both lists and their virtualized row roots now declare `min-width=0`, allowing
 the route column to own their width. Home dividers have explicit horizontal
 margins in both card branches.
+Home and thread feeds also explicitly use `appearance="none"`: these surfaces
+author their own between-row dividers and message spacing, so the platform row
+cell separator must not add lines above the first or below the last row. This
+also removes the separator overlay work from these scrolling surfaces.
 The existing projection emits dividers only between adjacent rows, so no
 first-row or final-row separator was added. List-level horizontal clipping was
 rejected because Markdown and code blocks own their own horizontal scrollers.
@@ -26,7 +30,7 @@ worktree first.
 
 ### Checkpoints
 
-The focused Home/thread suite passes 152 tests and 1,112 assertions. Contract
+The focused Home/thread suite passes 223 tests and 1,595 assertions. Contract
 compilation, strict app TypeScript, boot and all ten caps categories pass.
 The first source commit was `98e425ba72`; the row-root correction is a follow-up
 source unit. No native build or performance claim is attached to this work.
