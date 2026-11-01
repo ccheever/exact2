@@ -119,7 +119,7 @@ final class T3MobileModule: ExactModule {
     private let sheets = T3MobileSheets()
     private let reviewViewport = T3MobileReviewViewport()
     private let inspectorChrome = T3MobileInspector()
-    private let workspace = T3MobileWorkspace()
+    lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome, inspector: inspectorChrome)
     let settingsNavigation = T3SettingsNavigation()
     private let scratchClock = T3MobileScratchClock()
     private let alerts = T3MobileAlerts()
@@ -185,6 +185,8 @@ final class T3MobileModule: ExactModule {
         }
     }
 
+
+    override func tabContainer(_ contents: ExactTabContents) -> UIViewController? { workspace.container(contents) }
 
     override func navigation(_ navigation: ExactNavigation) {
         T3MobileNavigation.configure(navigation)

@@ -18,7 +18,7 @@ const inspector = { token: 'registration-1', routeId: '12', environmentId: 'env'
 type ContractTerm = string | ContractTerm[];
 // Read the compiler's expanded view, including component and slot expansion.
 // A source-text match cannot tell which box UIKit receives as a route's first child.
-function expandedWorkspaceRoute(): ContractTerm[] {
+function expandedAppView(): ContractTerm[] {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const compiler = process.env.CONTRACT_BIN ?? resolve(root, process.env.CARGO_TARGET_DIR ?? 'target', 'debug/contract');
   const lean = execFileSync(compiler, ['lean', resolve(import.meta.dir, 'app.contract'), '--name', 'WorkspaceStructure'],
@@ -46,10 +46,39 @@ function expandedWorkspaceRoute(): ContractTerm[] {
     while (at < lean.length && !/[\s,\]\)]/.test(lean[at]!)) at++;
     return lean.slice(start, at);
   }
-  const view = terms(read()), main = terms(view[0]), children = terms(main[5]);
-  const entry = children.map(terms).find(node => node[0] === '.each' && node[2] === 'entry');
+  return terms(read());
+}
+function expandedWorkspaceRoute(): ContractTerm[] {
+  const view = expandedAppView(), main = terms(view[0]), children = terms(main[5]);
+  function findEntry(values: ContractTerm[]): ContractTerm[] | undefined {
+    for (const value of values) {
+      if (!Array.isArray(value)) continue;
+      const node = terms(value);
+      if (node[0] === '.each' && node[2] === 'entry') return node;
+      for (const child of node) if (Array.isArray(child)) {
+        const found = findEntry(child);
+        if (found) return found;
+      }
+    }
+    return undefined;
+  }
+  const entry = findEntry(children);
   if (!entry) throw new Error('Expanded root has no actual router-entry loop.');
   return terms(terms(entry[6])[0]);
+}
+function elementAttribute(node: ContractTerm, name: string): ContractTerm | undefined {
+  const parts = terms(node);
+  if (parts[0] !== '.element') return undefined;
+  return terms(parts[3]).map(terms).find(attribute => attribute[0] === name)?.[1];
+}
+function literalString(value: ContractTerm | undefined): string | undefined {
+  const node = Array.isArray(value) ? terms(value) : [];
+  return node[0] === '.str' && typeof node[1] === 'string' ? node[1] : undefined;
+}
+function expandedElements(value: ContractTerm): ContractTerm[][] {
+  if (!Array.isArray(value)) return [];
+  const node = terms(value), own = node[0] === '.element' ? [node] : [];
+  return own.concat(node.flatMap(child => expandedElements(child)));
 }
 function terms(value: ContractTerm | undefined): ContractTerm[] {
   if (!Array.isArray(value)) throw new Error('Expected an expanded Contract node/list.');
@@ -85,6 +114,16 @@ function routeParts(nodes: ContractTerm[], scope: Record<string, unknown>): Cont
   });
 }
 
+test('the app root exposes the three workspace tab panels to the native container seam', () => {
+  const elements = expandedElements(expandedAppView());
+  const ids = elements.map(node => literalString(elementAttribute(node, 'id'))).filter((value): value is string => typeof value === 'string');
+  expect(ids.filter(id => ['sidebar-panel', 'workspace-panel', 'inspector-panel'].includes(id))).toEqual(['sidebar-panel', 'workspace-panel', 'inspector-panel']);
+  const marker = elements.find(node => literalString(elementAttribute(node, 'role')) === 'tablist');
+  expect(marker).toBeDefined();
+  const markerChildren = expandedElements(marker!).filter(node => literalString(elementAttribute(node, 'role')) === 'tab');
+  expect(markerChildren.map(tab => literalString(elementAttribute(tab, 'aria-controls')))).toEqual(['sidebar-panel', 'workspace-panel', 'inspector-panel']);
+});
+
 test('expanded routes put native headers first and ordinary inspector columns below the bar', () => {
   const route = expandedWorkspaceRoute();
   for (const name of ['home', 'thread', 'threadFiles', 'threadFile', 'threadReview', 'newTask', 'newTaskDraft', 'settings', 'settingsAppearance', 'connect']) {
@@ -97,14 +136,9 @@ test('expanded routes put native headers first and ordinary inspector columns be
       expect(children[1]?.slice(0, 2), `${name}: content and inspector share the body row`).toEqual(['.element', 'row']);
       const columns = routeParts(terms(children[1]![5]), scope);
       expect(columns[0]?.slice(0, 2)).toEqual(['.element', 'column']);
-      const ownsInspector = mode.inspectorMounted && mode.inspectorRouteId === '7';
-      expect(columns).toHaveLength(ownsInspector ? 2 : 1);
-      if (ownsInspector) {
-        const inspectorColumn = columns[1];
-        expect(inspectorColumn?.slice(0, 2)).toEqual(['.element', 'column']);
-        const attrs = terms(inspectorColumn![3]).map(terms);
-        expect(contractValue(attrs.find(attr => attr[0] === 'id')?.[1], scope)).toBe('inspector-panel');
-      }
+      // The inspector is a separate public tab panel; the route stack stays a
+      // single column so UIKit can move it without reparenting route content.
+      expect(columns).toHaveLength(1);
     }
   }
 });
@@ -126,24 +160,31 @@ test('source overlay families preserve underlying workspace even when they are n
   expect(mobileWorkspaceOverlay('threadMedia')).toBe(false);
 });
 
-test('the one stack gives Home and workspace the full width until native split presentation exists', () => {
+test('split geometry reserves a persistent sidebar while compact geometry stays one column', () => {
   const projected = mobileWorkspace([home, thread], options), config = JSON.parse(projected.configuration);
-  expect(projected).toMatchObject({ usesSplitView: true, sidebarMounted: false, sidebarVisible: false,
-    sidebarTargetWidth: 0, sidebarContentWidth: 0, contentSettledWidth: 1024,
+  expect(projected).toMatchObject({ usesSplitView: true, sidebarMounted: true, sidebarVisible: true,
+    sidebarTargetWidth: 328, sidebarContentWidth: 328, contentPaneWidth: 696, contentSettledWidth: 696,
     workspaceRouteId: '7', environmentId: 'env', threadId: 'a', inspectorTargetWidth: 0 });
-  expect(config).toEqual({ inspectorOwner: '', inspectorContentWidth: 0, inspectorVisible: false, inspectorResizing: false,
-    dividerColor: '#808080', dividerActiveColor: '#808080', viewportWidth: 1024, viewportHeight: 768 });
+  expect(config).toEqual({ inspectorRouteKey: 't3-workspace-inspector', inspectorOwner: '', inspectorExitToken: '',
+    inspectorContentWidth: 0, inspectorVisible: false, inspectorResizing: false,
+    dividerColor: '#808080', dividerActiveColor: '#808080', sidebarRouteKey: 't3-workspace-sidebar',
+    viewportWidth: 1024, viewportHeight: 768, usesSplitView: true, sidebarVisible: true,
+    sidebarContentWidth: 328, sidebarTargetWidth: 328, contentSettledWidth: 696, inspectorTargetWidth: 0,
+    reducedMotion: false, appearance: 'dark', background: '#111111' });
   for (const width of [402, 719, 720, 744, 819, 820, 1366]) {
-    expect(mobileWorkspace([home], { ...options, width, primarySidebarPreferredVisible: false }))
-      .toMatchObject({ sidebarMounted: false, sidebarVisible: false, emptyWorkspaceDetail: false, contentSettledWidth: width });
+    const compact = mobileWorkspace([home], { ...options, width, primarySidebarPreferredVisible: false });
+    const split = width >= 720;
+    expect(compact).toMatchObject({ sidebarVisible: split, emptyWorkspaceDetail: split,
+      contentSettledWidth: split ? width - compact.sidebarTargetWidth : width });
+    expect(compact.sidebarMounted).toBe(width >= 720);
   }
   expect(mobileWorkspace([home, thread], { ...options, width: 932, height: 430 })).toMatchObject({ usesSplitView: false, sidebarTargetWidth: 0, contentSettledWidth: 932 });
 });
 
 test('real file registration reserves inspector; leaving focus retains content only for exit', () => {
   const visible = mobileWorkspace([home, files], { ...options, inspector, fileInspectorPreferredVisible: true });
-  expect(visible).toMatchObject({ inspectorMounted: true, inspectorVisible: true, inspectorTargetWidth: 287,
-    contentSettledWidth: 737, sidebarSuppressedByAuxiliary: false, inspectorMain: 'chat', inspectorCandidate: 'files' });
+  expect(visible).toMatchObject({ inspectorMounted: true, inspectorVisible: true, inspectorTargetWidth: 260,
+    contentSettledWidth: 764, sidebarSuppressedByAuxiliary: true, inspectorMain: 'chat', inspectorCandidate: 'files' });
   const exiting = mobileWorkspace([home, files, settings], { ...options, inspector, fileInspectorPreferredVisible: true });
   expect(exiting).toMatchObject({ workspaceRouteId: '12', topRouteId: '14', inspectorMounted: true, inspectorVisible: false, inspectorTargetWidth: 0, inspectorToken: 'registration-1' });
   expect(mobileWorkspace([home, files], { ...options, inspector: { ...inspector, renderable: false } })).toMatchObject({ inspectorMounted: false, inspectorToken: '', inspectorTargetWidth: 0 });
@@ -263,12 +304,13 @@ test('ordinary inspector support follows the viewport without changing route or 
     const projected = mobileWorkspace(routes, { ...preferences, width, height });
     expect(projected).toMatchObject({ workspaceRouteId: '12', topRouteId: '12', environmentId: 'env', threadId: 'a',
       inspectorToken: 'registration-1', inspectorRouteId: '12', inspectorMounted: supported, inspectorVisible: supported });
-    expect(projected.contentSettledWidth + projected.inspectorTargetWidth).toBe(width);
+    expect(projected.contentSettledWidth + projected.inspectorTargetWidth + projected.sidebarTargetWidth).toBe(width);
   }
   expect(routes).toEqual(before);
   expect(preferences.fileInspectorPreferredWidth).toBe(300);
   expect(preferences.primarySidebarPreferredVisible).toBe(true);
-  expect(mobileWorkspace(routes, { ...preferences, width: 1366 })).toMatchObject({ inspectorTargetWidth: 300, contentSettledWidth: 1066 });
+  expect(mobileWorkspace(routes, { ...preferences, width: 1366 })).toMatchObject({ inspectorTargetWidth: 300, contentSettledWidth: 686,
+    sidebarTargetWidth: 380 });
 });
 
 

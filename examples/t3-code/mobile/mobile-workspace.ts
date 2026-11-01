@@ -6,6 +6,7 @@ import { resolveThreadSelectionNavigationAction, resolveFileSelectionNavigationA
 import type { WorkspaceAuxiliaryPaneRole } from './layout-mobile';
 import { parseFleetThreadId } from './shared/settings-b-fleet';
 
+export const MOBILE_SIDEBAR_ROUTE_KEY = 't3-workspace-sidebar';
 export interface MobileWorkspaceEntry { id: string; name: string; url: string; params: Record<string, string> }
 export interface MobileWorkspaceInspector {
   token: string; routeId: string; environmentId: string; threadId: string; generation: number;
@@ -103,8 +104,7 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
   const active = registered && registration!.active && registration!.routeId === top?.id
     && (!registration!.environmentId || registration!.environmentId === top?.params.threadEnvironment)
     && (!registration!.threadId || registration!.threadId === top?.params.threadId);
-  // LLP1127 has no native split presenter. Home stays in the one route stack.
-  const geometryInput: AdaptiveWorkspaceInput = { ...options, primarySidebarAvailable: false, width: finite(options.width), height: finite(options.height),
+  const geometryInput: AdaptiveWorkspaceInput = { ...options, width: finite(options.width), height: finite(options.height),
     pathname: pathname(workspace?.url ?? '/'), focusedAuxiliaryPaneRole: role,
     supplementaryPanePreferredWidth: preferredWidth(options.supplementaryPanePreferredWidth),
     fileInspectorPreferredWidth: preferredWidth(options.fileInspectorPreferredWidth),
@@ -112,14 +112,20 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
   const geometry = adaptiveWorkspace(geometryInput);
   const inspectorContentWidth = geometry.inspectorMounted ? geometry.auxiliaryPaneWidth : 0;
   const inspectorMotion = options.reducedMotion || options.inspectorResizing ? 'none' : inspectorTiming;
-  const configuration = JSON.stringify({ inspectorOwner: geometry.inspectorMounted ? registration!.token : '',
-    viewportWidth: geometryInput.width, viewportHeight: geometryInput.height,
+  const configuration = JSON.stringify({ inspectorRouteKey: 't3-workspace-inspector',
+    inspectorOwner: geometry.inspectorMounted ? registration!.token : '', inspectorExitToken: options.inspectorExitToken ?? '',
     inspectorContentWidth, inspectorVisible: geometry.inspectorVisible, inspectorResizing: options.inspectorResizing === true,
-    dividerColor: options.dividerColor ?? '#808080', dividerActiveColor: options.dividerActiveColor ?? '#808080' });
+    dividerColor: options.dividerColor ?? '#808080', dividerActiveColor: options.dividerActiveColor ?? '#808080',
+    sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY,
+    viewportWidth: geometryInput.width, viewportHeight: geometryInput.height,
+    usesSplitView: geometry.usesSplitView, sidebarVisible: geometry.sidebarVisible,
+    sidebarContentWidth: geometry.sidebarContentWidth, sidebarTargetWidth: geometry.sidebarTargetWidth,
+    contentSettledWidth: geometry.contentSettledWidth, inspectorTargetWidth: geometry.inspectorTargetWidth,
+    reducedMotion: options.reducedMotion, appearance: options.appearance === 'dark' ? 'dark' : 'light', background: options.background });
   return { ...geometry, ready: !!workspace, topRouteId: top?.id ?? '', workspaceRouteId: workspace?.id ?? '',
     workspaceName: workspace?.name ?? '', workspaceURL: workspace?.url ?? '', workspacePath: geometryInput.pathname,
     environmentId: workspace?.params.threadEnvironment ?? '', threadId: workspace?.params.threadId ?? '',
-    overlayCount, inspectorContentWidth, configuration, inspectorMotion,
+    overlayCount, sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY, inspectorRouteKey: 't3-workspace-inspector', inspectorContentWidth, configuration, inspectorMotion,
     inspectorTransition: inspectorMotion === 'none' ? 'none' : `opacity ${inspectorMotion}, translate ${inspectorMotion}`,
     inspectorToken: registered ? registration!.token : '', inspectorRouteId: registered ? registration!.routeId : '',
     inspectorKind: registered ? registration!.kind : 'none', inspectorSelectedPath: registered ? registration!.selectedPath : '',
