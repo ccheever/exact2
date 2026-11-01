@@ -14,12 +14,18 @@ import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
 import { pickableScopes } from '../sidebar/sidebar-view';
 
-/** The palette's projects: one per open sidebar group, pinned ones first, then the current project's group, then Project order. */
+/**
+ * The palette's projects: one per open sidebar group, pinned ones first, then the current project's group, then Project
+ * order. Each carries its group's key (`scopeKey`), whether the group is pinned (`scopePinned`) and whether it is the
+ * current project's (`preferred`), for its pin and for where "No project" goes.
+ */
 export function pickerProjects(client: T3Client): Obj[] {
   const preferred = client.projectId;
   const entries = pickableScopes(client).flatMap(scope => {
     const target = scope.members.find(member => str(member.id) === preferred) ?? scope.members[0];
-    return target ? [{ project: { ...target, title: scope.name || str(target.title), memberTitle: str(target.title), memberProjects: scope.members }, preferred: !!preferred && scope.ids.has(preferred), pinned: scope.pinned }] : [];
+    const isPreferred = !!preferred && scope.ids.has(preferred);
+    return target ? [{ project: { ...target, title: scope.name || str(target.title), memberTitle: str(target.title), memberProjects: scope.members, scopeKey: scope.key,
+      scopePinned: scope.pinned, preferred: isPreferred }, preferred: isPreferred, pinned: scope.pinned }] : [];
   });
   // The preferred project leads the unpinned ones; pinned projects stay first.
   const lead = entries.find(entry => entry.preferred);

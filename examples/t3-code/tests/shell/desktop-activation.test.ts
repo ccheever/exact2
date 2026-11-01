@@ -15,6 +15,7 @@ import { READ_OPS } from '../../src/client/client-ops';
 import { T3Client } from '../../src/client/client';
 import { initialShell, obj, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
+import { toasts } from '../../src/shell/toast';
 
 afterEach(() => resetPrimary());
 
@@ -251,6 +252,21 @@ describe('a handed request on this client', () => {
     expect(create?.generation).toBe(3);
     expect(response).toMatchObject({ ok: true, projectId: 'id-2' });
     expect(client.projectId).toBe('id-2');
+  });
+
+  // DesktopAppActivationCoordinator openThread at 2359643cff: an archived project's folder unarchives it.
+  test('an archived project: project.update unarchives it and its draft opens; a refusal is a toast and the draft still opens', async () => {
+    for (const fail of ['', 'Project is locked']) {
+      primaryAt(ORIGIN, 'env-primary');
+      const client = focusedClient({ threadId: 'some-thread', projectId: '' });
+      client.shell.projects[0]!.archivedAt = '2026-10-31T00:00:00.000Z';
+      const { native, calls } = moduleDouble(handedRequest('/Users/me/one'), { shells: [], ...(fail ? { fail } : {}) });
+      const response = await openActivation(client, native, 'req-7', activationDependencies(client, native, new EnvironmentFleet()));
+      expect(obj(calls.find(call => call.method === 'projects.mutate')?.payload)).toEqual({ type: 'project.update', commandId: 'id-1', projectId: 'p-1', archived: false });
+      expect(response).toMatchObject({ ok: true, projectId: 'p-1' });
+      expect(client.projectId).toBe('p-1');
+      expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual(fail ? [['Failed to unarchive project', fail]] : []);
+    }
   });
 
   test("the server's refusal is project-create-failed with its message, no draft opens and no error banner", async () => {

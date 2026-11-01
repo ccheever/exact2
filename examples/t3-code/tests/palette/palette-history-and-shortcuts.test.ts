@@ -184,7 +184,7 @@ describe('new-thread chords run the palette row that lists them (#19055)', () =>
     const rows = [{ index: 0, op: 'new-thread', arg: 'p1', arg2: '', jump: 'Meta+Shift+n' }, { index: 1, op: 'flow', arg: 'scratch', arg2: '', jump: 'Meta+Alt+n' }];
     const press = (k: string, code: string, mods: string) => {
       const calls: unknown[][] = [];
-      const scope: Env = { view: { rows, jumpKeys: ['Meta+1'], accessoryKey: '' }, busy: false, first: (items: unknown[]) => items[0] ?? null,
+      const scope: Env = { view: { rows, jumpKeys: ['Meta+1'], accessoryKey: '', pinKeys: '' }, busy: false, first: (items: unknown[]) => items[0] ?? null,
         run: (...args: unknown[]) => calls.push(['run', ...args]), onKey: (key: string) => calls.push(['key', key]), preventDefault() {}, stopPropagation() {} };
       const event = { key: k, code, metaKey: mods.includes('meta'), ctrlKey: false, altKey: mods.includes('alt'), shiftKey: mods.includes('shift'), repeat: false };
       view.call('inputKey', {}, scope, [k, event]);

@@ -20,7 +20,8 @@ keyframes aboutCopiedB
 
 // AboutVersionTitle: "Version" and the version as an InlineButton tone="muted" (muted, the foreground and underlined
 // on hover) with its "Copy version" tooltip. A copy shows the anchored "Copied!" for 1 s (showAnchoredCopySuccessToast,
-// tooltip style): `row.amount` counts the copies, so each one starts its fade again.
+// tooltip style): `row.amount` counts the copies, so each one starts its fade again. The faded text stays drawn, so it
+// is hidden from assistive technology; the copy announces "Copied!" (settings-a-about.ts copyVersion).
 component AboutVersionTitle
   props
     row: CoreRow
@@ -43,7 +44,7 @@ component AboutVersionTitle
         if hovered and not pressed
           text "Copy version" position="absolute" bottom="1.5rem" left="50%" translate="-50% 0%" z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="tooltip" testId="setting-version-copy-tip" data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         if row.amount > 0
-          text "Copied!" position="absolute" bottom="1.5rem" left="50%" translate="-50% 0%" z-index=61 pointer-events="none" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="status" testId="setting-version-copied" animation=(row.amount % 2 == 0 ? "aboutCopiedA 1s linear forwards" : "aboutCopiedB 1s linear forwards") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+          text "Copied!" position="absolute" bottom="1.5rem" left="50%" translate="-50% 0%" z-index=61 pointer-events="none" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" aria-hidden=true testId="setting-version-copied" animation=(row.amount % 2 == 0 ? "aboutCopiedA 1s linear forwards" : "aboutCopiedB 1s linear forwards") data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
 
 // AboutVersionSection's Button size sm variant outline, with its tooltip.
 // Check runs deliveryCheck (Checking… until the store stages an entry);

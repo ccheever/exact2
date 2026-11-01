@@ -2,7 +2,7 @@
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
-import { closedView, commandView, rootFallback, threadJumpChords, type PaletteView } from './palette';
+import { closedView, commandView, fieldChords, resetPaletteOrder, rootFallback, threadJumpChords, type PaletteView } from './palette';
 import { addProjectView, isBrowseQuery } from './palette-add';
 import { forgetNewProjectEnvironment } from './palette-environments';
 import { contentSearchView, filePickerView } from './palette-files';
@@ -75,7 +75,7 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   forgetNewProjectEnvironment(client, open ? page : '');
   if (page === 'link-pr' && open) return linkPullRequestView(client, query);
   resetLinkDialog(client);
-  if (!open) return closedView;
+  if (!open) { resetPaletteOrder(client); return closedView; }
   if (mode === 'files') return filePickerView(client, native, query);
   if (mode === 'content') return contentSearchView(client, native, query, flags);
   // The command palette's own field (CommandPalette.tsx handleKeyDown) takes the thread.jump.N chords; the file
@@ -93,5 +93,6 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   const view = commandView(client, { page: root, query, now, scheme, matches: search.matches, matchQuery: search.query, searching: false, linkedThreads });
   const messages = view.rows.filter(entry => entry.key.startsWith('threads-messages:')).flatMap(entry => { const match = search.matches.get(entry.arg); return match ? [[entry.arg, match] as const] : []; });
   shownMessages.set(client, { query: search.query, matches: new Map(messages) });
-  return { ...view, page, jumpKeys };
+  // The thread pin shortcut pins the highlighted project row's group (CommandPalette.tsx handleKeyDown).
+  return { ...view, page, jumpKeys, pinKeys: fieldChords(client, 'thread.pin') };
 }

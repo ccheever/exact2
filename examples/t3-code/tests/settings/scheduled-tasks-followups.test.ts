@@ -95,6 +95,18 @@ describe('Runs on switches a new task to another environment', () => {
     const reads = calls.filter(call => call.method === 'vcs.listRefs').map(call => [call.fleet, call.fleet ? obj(call.payload.payload) : call.payload]);
     expect(reads).toEqual([['', { cwd: '/repo', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', limit: 100 }], ['http://127.0.0.1:16423\nenv2', { cwd: '/studio', query: 'main', limit: 10 }]]);
   });
+  // ScheduledTaskEditorForm at 2359643cff: pinned projects first, archived ones left out, the default a pinned open one.
+  test("the editor's projects: pinned first, archived left out, a new task on the pinned project", async () => {
+    const { client, native, subscriptions } = harness();
+    const at = '2026-10-31T00:00:00.000Z';
+    client.shell.projects = [{ id: 'p1', title: 'fixture', workspaceRoot: '/repo' }, { id: 'p2', title: 'old', workspaceRoot: '/old', archivedAt: at } as Obj as typeof client.shell.projects[number],
+      { id: 'p3', title: 'favorite', workspaceRoot: '/favorite', pinnedAt: at } as Obj as typeof client.shell.projects[number]];
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    const page = await scheduledPage(client, native, 'env', '', 'task', '', true, NOW);
+    expect(page.projects.map(project => project.value)).toEqual(['p3', 'p1']);
+    expect(page.editors.map(editor => editor.projectId)).toEqual(['p3']);
+  });
   test('a new task starts on the primary environment, listed first, when the window is focused elsewhere', async () => {
     const { client, native, subscriptions } = harness();
     await studio();

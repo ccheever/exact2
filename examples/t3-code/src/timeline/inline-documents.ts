@@ -80,7 +80,8 @@ export function inlineTheme(client: T3Client, systemScheme = 'dark') {
   const themeId = appearance === 'light' ? prefs.themeLight : prefs.themeDark;
   const own = custom.find(theme => theme.id === themeId);
   // The standard theme's colours are getStandardThemeColors' (STANDARD): its dark background is the dark chat's black.
-  const colors = { ...STANDARD[appearance], ...(own?.[appearance] ?? builtInThemeColors(themeId, appearance) ?? (themeId === 't3-code' ? {} : themeRoles(themeId, appearance, custom))) };
+  // No theme id is the standard theme too, as the theme editor reads it (rolesOf).
+  const colors = { ...STANDARD[appearance], ...(own?.[appearance] ?? builtInThemeColors(themeId, appearance) ?? (themeId === 't3-code' || !themeId ? {} : themeRoles(themeId, appearance, custom))) };
   return htmlRenderTheme(colors, appearance, { sans: fontStack(prefs.fontFamilySans, false), mono: fontStack(prefs.fontFamilyCode, true) });
 }
 

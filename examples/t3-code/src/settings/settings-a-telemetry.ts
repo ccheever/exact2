@@ -15,17 +15,19 @@ import { letGo } from '../client/let-go';
 import { formatBytes } from './format-bytes';
 export { formatBytes };
 export const formatRate = (value: number) => `${formatBytes(value)}/s`;
+/** A fixed-point figure without an all-zero fraction ("2" for 2.00, "1.50" stays). */
+export const fixedTrim = (value: number, digits: number) => value.toFixed(digits).replace(/\.0+$/, '');
 export function formatCpuTime(ms: number): string {
   const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
+  if (seconds < 60) return `${fixedTrim(seconds, seconds >= 10 ? 1 : 2)}s`;
   const minutes = seconds / 60;
-  if (minutes < 60) return `${minutes.toFixed(minutes >= 10 ? 1 : 2)}m`;
-  return `${(minutes / 60).toFixed(2)}h`;
+  if (minutes < 60) return `${fixedTrim(minutes, minutes >= 10 ? 1 : 2)}m`;
+  return `${fixedTrim(minutes / 60, 2)}h`;
 }
 export function formatMicros(value: number): string {
   if (value < 1000) return `${Math.round(value)} µs`;
-  if (value < 1_000_000) return `${(value / 1000).toFixed(2)} ms`;
-  return `${(value / 1_000_000).toFixed(2)} s`;
+  if (value < 1_000_000) return `${fixedTrim(value / 1000, 2)} ms`;
+  return `${fixedTrim(value / 1_000_000, 2)} s`;
 }
 export function formatInterval(ms: number): string {
   if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
@@ -230,7 +232,7 @@ export function telemetryView(client: T3Client, now: number, timeline: Telemetry
       rows: arr(obj(snapshot?.attribution).entries).map(entry => dxRow(`${str(entry.component)}:${str(entry.operation)}`, [
         dxCell('component', str(entry.component), 22, { tone: 'strong' }), dxCell('operation', str(entry.operation), 28, { tone: 'muted' }),
         dxCell('read', formatBytes(num(entry.logicalReadBytes)), 14, { mono: true, align: 'right', tone: 'info' }), dxCell('write', formatBytes(num(entry.logicalWriteBytes)), 14, { mono: true, align: 'right', tone: 'warning' }),
-        dxCell('count', String(num(entry.count)), 10, { mono: true, align: 'right' }), dxCell('time', `${(num(entry.durationMs) / 1000).toFixed(2)}s`, 12, { mono: true, align: 'right', tone: 'muted' })])),
+        dxCell('count', String(num(entry.count)), 10, { mono: true, align: 'right' }), dxCell('time', `${fixedTrim(num(entry.durationMs) / 1000, 2)}s`, 12, { mono: true, align: 'right', tone: 'muted' })])),
     }),
   };
 }

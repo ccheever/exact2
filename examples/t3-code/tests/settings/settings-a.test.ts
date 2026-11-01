@@ -7,11 +7,11 @@ import { applyCoreSetting, decodeClientPrefs, formatSettingValue, generalSection
 import { advancedBackgroundValue, backgroundDialog, normalizeBackground, profileOption, resolveBackground } from '../../src/settings/settings-a-background';
 import { appPath } from '../support/app-files';
 
-type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
+type Fake = { local: Obj; ready: boolean; environmentId: string; config: Obj; writes: Obj[]; scopes: string[]; projectGroups(): { key: string; name: string; members: Obj[] }[]; settingsCoreRequest(native: Native, method: string, payload: Obj): Promise<Obj> };
 export function fakeClient(settings: Obj = {}, ready = true): Fake {
   const client: Fake = {
     local: { deviceSettings: { planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter' }, clientSettings: decodeClientPrefs({}), groupingMode: 'repository' },
-    ready, environmentId: 'env1', writes: [],
+    ready, environmentId: 'env1', writes: [], scopes: [],
     config: { environment: { environmentId: 'env1', label: 'Studio', serverVersion: '0.0.46', capabilities: { projectSettingsOverrides: true } }, providers: [], settings: { projectSettingsOverrides: {}, ...settings } },
     projectGroups: () => [{ key: 'repo', name: 'Parity fixture', members: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/a' }] }],
     async settingsCoreRequest(_native, method, payload) {

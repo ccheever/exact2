@@ -7,7 +7,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { fleet, type FleetEntry } from '../../src/connections/settings-b-fleet';
 import { canPinProjectGroup, keepOrder, orderWhileOpen, setProjectGroupPinned, withArrivedKeys } from '../../src/sidebar/project-pin';
-import { shouldCreateNewThreadInCurrentProject, sidebarSnapshot } from '../../src/sidebar/sidebar-view';
+import { scopeHighlight, shouldCreateNewThreadInCurrentProject, sidebarSnapshot } from '../../src/sidebar/sidebar-view';
 import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 import { sidebarSession } from '../../src/sidebar/sidebar-state';
 import { toasts } from '../../src/shell/toast';
@@ -129,7 +129,34 @@ describe('the filter\'s keys', () => {
     expect(press('g1', 'p', { metaKey: true })).toEqual([]);
     expect(press('', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
     expect(press('g2', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
+  });  // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
+  test('before the pointer moves, the shortcut pins the chosen project, which Base UI highlights on open', () => {
+    const calls: unknown[][] = [];
+    const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }], scopeHighlight: 'g1' } };
+    menu.call('pinKey', { hovered: '\n', pinOver: '' }, { data, run: (...args: unknown[]) => calls.push(['run', ...args]), preventDefault() {}, stopPropagation() {} },
+      ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }]);
+    expect(calls).toEqual([['run', 'project-pin', '', 'g1']]);
   });
+  test('Return picks the highlighted row, and nothing when no row is highlighted', () => {
+    const picks = (hovered: string, scopeHighlight: string) => {
+      const calls: unknown[][] = [];
+      menu.call('submitScope', { hovered, pinOver: '' }, { data: { sidebar: { scopes: [], scopeHighlight } }, local: (...args: unknown[]) => calls.push(args) }, []);
+      return calls;
+    };
+    expect(picks('\n', 'g1')).toEqual([['scope', '', 'g1']]);
+    expect(picks('\n', '')).toEqual([['scope', '', '']]);
+    expect(picks('\n', '\n')).toEqual([]);
+    expect(picks('g2', '\n')).toEqual([['scope', '', 'g2']]);
+  });
+});
+
+test('scopeHighlight: the first match with a query; else the selected row, none with several chosen', () => {
+  const row = (key: string, selected = false, all = false) => ({ key, selected, all });
+  expect(scopeHighlight([row('', true, true), row('g1'), row('g2')], '')).toBe('');
+  expect(scopeHighlight([row('', false, true), row('g1'), row('g2', true)], '')).toBe('g2');
+  expect(scopeHighlight([row('', false, true), row('g1', true), row('g2', true)], '')).toBe('\n');
+  expect(scopeHighlight([row('g2', true), row('g1')], 'g')).toBe('g2');
+  expect(scopeHighlight([], 'zzz')).toBe('\n');
 });
 
 test('shouldCreateNewThreadInCurrentProject: the picker opens unless there is one open project or none', () => {

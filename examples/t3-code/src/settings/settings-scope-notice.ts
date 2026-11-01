@@ -1,8 +1,9 @@
-// SettingsScopeNotice's choices (MIT T3 Code 9c161462c9, LICENSE-T3:
+// SettingsScopeNotice's choices (MIT T3 Code 9c161462c9, the Archived mark at 2359643cff; LICENSE-T3:
 // apps/web/src/components/settings/SettingsScopeNotice.tsx). A category with no settings at the
 // selected scope lists the targets that own it as rows: an icon, the name, the line that tells it
 // apart and a chevron. Changes: the clone has no checkout picker and no search target owned by a
 // checkout, so a choice sets the project and environment axes only (`project`, `machine`).
+import { projectGroupOrganization } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
 import { settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabels, settingsScopeProjectMachines, type ScopeGroup } from './settings-scope';
 
@@ -21,7 +22,8 @@ export function scopeNoticeGroups(target: ScopeNoticeTarget, groups: readonly Sc
     ? groups.map(group => {
       const identity = projectIdentity(group.displayName);
       const sameName = groups.some(other => other.projectKey !== group.projectKey && other.displayName === group.displayName);
-      return choice(`project:${group.projectKey}`, group.displayName, [...(sameName ? settingsScopeProjectMachines(group, environments) : []), String(group.memberProjects[0]?.workspaceRoot ?? '')].join(' · '),
+      const archived = projectGroupOrganization(group.memberProjects).archived;
+      return choice(`project:${group.projectKey}`, group.displayName, [...(archived ? ['Archived'] : []), ...(sameName ? settingsScopeProjectMachines(group, environments) : []), String(group.memberProjects[0]?.workspaceRoot ?? '')].join(' · '),
         { icon: 'project', mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface, project: group.projectKey, member: String(group.memberProjects[0]?.id ?? '') });
     })
     : target === 'environment'

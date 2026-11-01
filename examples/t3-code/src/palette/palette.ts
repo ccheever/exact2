@@ -1,4 +1,4 @@
-// Adapted from T3 Code 7c3b3b3605ef (MIT); see LICENSE-T3.
+// Adapted from T3 Code 7c3b3b3605ef (MIT; the project pins at 2359643cff); see LICENSE-T3.
 // The command palette (⌘K): reference CommandPalette.tsx, CommandPalette.logic.ts,
 // CommandPaletteResults.tsx, CommandPaletteThreadItems.tsx, ThreadSearchMatch.tsx and
 // ThreadCommandSubtitle.tsx. One view model for every page the overlay can show; Contract
@@ -7,7 +7,8 @@
 // content search in palette-files.ts.
 import type { T3Client } from '../client/client';
 import { composerPromptLink, promptLinkRepositoryOf } from '../prompt-links/copy-prompt-link';
-import { terminalProcessCount } from '../sidebar/sidebar-view';
+import { projectScopes, terminalProcessCount } from '../sidebar/sidebar-view';
+import { canPinProjectGroup, orderWhileOpen } from '../sidebar/project-pin';
 import { searchPullRequest } from '../sidebar/search-pull-request';
 import { arr, isListedThreadLineage, num, obj, str, type Obj } from '../client/domain';
 import { projectIdentity } from '../client/presentation';
@@ -43,6 +44,8 @@ export type PaletteRow = {
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   /** A remote environment's machine glyph before `env` on a project row ('' for none). */
   envMachine: string;
+  /** ProjectPinButton on a project row: 'pinned' or 'unpinned', '' for none; the group it pins and its title. */
+  pin: string; pinKey: string; pinTitle: string;
   /** The second line's label ("You:", "Agent:", or a hint's field, as "Branch:") and its text, the matches marked; the
    *  line replaces the description. */
   matchLabel: string; matchParts: PalettePart[];
@@ -61,11 +64,13 @@ export type PaletteView = {
   matchCase: boolean; wholeWord: boolean; regex: boolean; summary: string; panel: string; inputPaddingRight: number; loading: boolean; listHeight: number;
   /** The chords that resolve to thread.jump.N here: the command palette's field takes each (threadJumpChords). */
   jumpKeys: string[];
+  /** The chords that resolve to thread.pin in the field, space-separated: they pin the highlighted row's project. */
+  pinKeys: string;
 };
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prIcon: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prIcon: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '', pin: '', pinKey: '', pinTitle: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], context: '', titleDir: '', titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -73,7 +78,7 @@ export const closedView: PaletteView = {
   open: false, mode: 'command', page: '', parent: '', back: false, addon: 'search', placeholder: '', label: 'Command palette', testId: 'command-palette', rows: [], count: 0,
   autoHighlight: true, empty: '', enterLabel: '', escapeLabel: 'Close', backHint: false, popOnEmpty: false, enterOp: '', enterArg: '', enterArg2: '', accessory: '', accessoryKey: '',
   accessoryEnabled: false, accessoryOp: '', accessoryArg: '', accessoryArg2: '', footerAction: '', contextLabel: '', contextTitle: '', contextDescription: '', contextIcon: '',
-  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0, jumpKeys: [],
+  toggles: false, matchCase: false, wholeWord: false, regex: false, summary: '', panel: 'list', inputPaddingRight: 11, loading: false, listHeight: 0, jumpKeys: [], pinKeys: '',
 };
 
 /**
@@ -307,6 +312,7 @@ function palettePullRequest(client: T3Client, thread: Obj, query: string): Pick<
  * Projects search a grouped project names its members' environments instead (ProjectSearchDescription).
  */
 export function projectItems(client: T3Client, projects: Obj[], prefix: string, op: string, search = false): Item[] {
+  const pinShortcut = commandShortcut(client, 'thread.pin');
   return projects.map(project => {
     const title = str(project.title), identity = projectIdentity(str(project.memberTitle) || title), root = str(project.workspaceRoot);
     const members = Array.isArray(project.memberProjects) ? project.memberProjects.map(obj) : [project];
@@ -315,9 +321,13 @@ export function projectItems(client: T3Client, projects: Obj[], prefix: string, 
     const grouped = search && members.length > 1;
     const terms = [title, str(project.memberTitle) || title, root, ...(search ? members.flatMap(member => [str(member.title), str(member.workspaceRoot), projectLocation(client, str(member.environmentId)).label])
       : [...members.flatMap(member => [str(member.title), str(member.workspaceRoot)]), location.label])];
+    // CommandPalette.tsx projectPin: a pin toggle where the group can be pinned.
+    const scopeKey = str(project.scopeKey), pinned = project.scopePinned === true, canPin = scopeKey !== '' && canPinProjectGroup(client, members);
+    const action = `${pinned ? 'Unpin' : 'Pin'} ${title}`;
     return { terms, row: row({ key: `${prefix}:${str(project.id)}`, op, arg: str(project.id), icon: 'project', title,
       project: identity.projectMark, projectInk: identity.projectInk, projectSurface: identity.projectSurface,
-      env: grouped ? labels.join(' · ') : location.label, envMachine: !grouped && location.remote ? location.machine : '', description: grouped ? '' : root }) };
+      env: grouped ? labels.join(' · ') : location.label, envMachine: !grouped && location.remote ? location.machine : '', description: grouped ? '' : root,
+      ...(canPin ? { pin: pinned ? 'pinned' : 'unpinned', pinKey: scopeKey, pinTitle: pinShortcut ? `${action} (${pinShortcut})` : action } : {}) }) };
   });
 }
 
@@ -377,28 +387,74 @@ export function rootActions(client: T3Client): Item[] {
     action(`workspace-focus-${direction}`, [title, 'accessibility', 'navigation', 'focus', 'F6'], { op: 'workspace-focus', arg: direction, icon: 'monitor', title, shortcut: commandShortcut(client, command) });
   }
   action('settings', ['settings', 'preferences', 'configuration', 'keybindings'], { op: 'settings', arg: 'general', icon: 'settings', title: 'Open settings' });
+  // Every group, so an archived project's thread still pins its own.
+  const currentGroup = client.projectId ? projectScopes(client).find(scope => scope.ids.has(client.projectId)) : undefined;
+  if (currentGroup && canPinProjectGroup(client, currentGroup.members)) action('project-pin', ['pin', 'unpin', 'project', 'favorite'],
+    { op: 'flow', arg: 'project-pin-action', arg2: currentGroup.key, icon: currentGroup.pinned ? 'pin-off' : 'pin', title: currentGroup.pinned ? 'Unpin project' : 'Pin project', description: currentGroup.name });
   if (current) action('project-settings', ['project', 'settings', 'name', 'icon', 'scripts', 'model', 'workspace', 'grouping', 'checkout', 'remove', 't3.json'],
     { op: 'project-settings', arg: str(current.id), icon: 'folder', title: 'Project settings', description: str(current.title) });
   return items;
 }
 
 /**
- * The New thread in... page (projectThreadItems): the sidebar's project order with the
- * current project first (buildSidebarProjectPickerEntries). enumerateCommandPaletteItems numbers the
- * first nine projects by thread.jump.N, whose rules hold only `isDesktop`: this is the desktop build,
- * so each shows its ⌘N and the field runs it by that chord (CommandPalette.tsx handleKeyDown).
- * The Scratch project is "No project", right after the current project (first when the current one
- * is the Scratch project), with its own chat.newWithoutProject shortcut, so the projects' numbers hold.
+ * Where "No project" goes among the new-thread picker's real projects (newThreadNoProjectIndex): at the scratch
+ * project's own place when it is pinned or current, else after the pinned projects and the first unpinned one.
+ */
+export function newThreadNoProjectIndex(entries: readonly { isScratch: boolean; pinned: boolean; isPreferred: boolean }[]): number {
+  const projects = entries.filter(entry => !entry.isScratch);
+  const scratchAt = entries.findIndex(entry => entry.isScratch);
+  const scratch = entries[scratchAt];
+  if (scratch && (scratch.pinned || scratch.isPreferred)) return entries.slice(0, scratchAt).filter(entry => !entry.isScratch).length;
+  const pinnedCount = projects.filter(entry => entry.pinned).length;
+  return Math.min(pinnedCount + 1, projects.length);
+}
+
+/**
+ * useOrderWhileOpen over the palette's two project lists, while it is open: a pin from a row leaves the rows where they
+ * were, and new rows join at the end. Rows are kept by their project group, whose target record can change when
+ * another machine's copy loads. The palette's closing forgets both orders (resetPaletteOrder).
+ */
+const openOrders = new WeakMap<T3Client, { project: { order: readonly string[] | null }; newThread: { order: readonly string[] | null } }>();
+function openOrder(client: T3Client) {
+  let orders = openOrders.get(client);
+  if (!orders) openOrders.set(client, orders = { project: { order: null }, newThread: { order: null } });
+  return orders;
+}
+export function resetPaletteOrder(client: T3Client): void { openOrders.delete(client); }
+const groupKeyOf = (projects: Obj[], prefix: string) => {
+  const keys = new Map(projects.map(project => [`${prefix}:${str(project.id)}`, str(project.scopeKey)]));
+  return (item: Item) => keys.get(item.row.key) || item.row.key;
+};
+/** The Projects search group: the palette's projects with their pins, in the order they had when the palette opened. */
+export function projectSearchItems(client: T3Client): Item[] {
+  const projects = pickerProjects(client);
+  return orderWhileOpen(openOrder(client).project, projectItems(client, projects, 'project', 'open-project', true), groupKeyOf(projects, 'project'), true);
+}
+
+const NO_PROJECT_KEY = 'new-thread-in:no-project';
+/**
+ * The New thread in... page (projectThreadItems): the sidebar's project order with the current project first
+ * (buildSidebarProjectPickerEntries), each row with its pin, held in its order while the palette is open. "No project"
+ * (the Scratch project) goes where newThreadNoProjectIndex puts it, with its own chat.newWithoutProject shortcut.
+ * enumerateCommandPaletteItems numbers the first nine projects as shown by thread.jump.N, whose rules hold only
+ * `isDesktop`: this is the desktop build, so each shows its ⌘N and the field runs it by that chord (CommandPalette.tsx
+ * handleKeyDown); a pin cannot move a number to another row. With every project archived and no "No project" home,
+ * only Add project is left.
  */
 export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config), picked = pickerProjects(client);
   const ordered = picked.filter(project => !isScratchProject(project, root));
-  const items = enumerateJumps(client, projectItems(client, ordered, 'new-thread-in', 'new-thread'));
-  if (scratchTarget(client) === null) return items;
-  const at = picked[0] !== undefined && isScratchProject(picked[0], root) ? 0 : 1;
-  items.splice(at, 0, { terms: ['No project', 'no project', 'without project', 'none'],
-    row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') }) });
-  return items;
+  let items = projectItems(client, ordered, 'new-thread-in', 'new-thread');
+  if (scratchTarget(client) !== null) {
+    const at = newThreadNoProjectIndex(picked.map(project => ({ isScratch: isScratchProject(project, root), pinned: project.scopePinned === true, isPreferred: project.preferred === true })));
+    items = [...items.slice(0, at), { terms: ['No project', 'no project', 'without project', 'none'],
+      row: row({ key: NO_PROJECT_KEY, op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') }) },
+    ...items.slice(at)];
+  }
+  const shown = orderWhileOpen(openOrder(client).newThread, items, groupKeyOf(ordered, 'new-thread-in'), true);
+  const jumps = new Map(enumerateJumps(client, shown.filter(item => item.row.key !== NO_PROJECT_KEY)).map(item => [item.row.key, item] as const));
+  const numbered = shown.map(item => jumps.get(item.row.key) ?? item);
+  return numbered.length ? numbered : rootActions(client).filter(item => item.row.key === 'add-project');
 }
 /**
  * CommandPalette.tsx handleKeyDown: a chord that resolves to a thread.jump.N command is the field's, whether or
@@ -469,7 +525,7 @@ function rootSearch(client: T3Client, query: string, threadQuery: string, now: n
   // A query also searches the submenus' options; an empty one shows the groups as they are.
   const searched = query.trim().length > 0;
   const nested = searched ? nestedItems(actions.map(item => item.row.kind === 'submenu' ? { ...item, children: submenuGroups(client, item.row.arg, scheme) } : item), query) : [];
-  return { root, extra: { projects: projectItems(client, pickerProjects(client), 'project', 'open-project', true), settings: settingsItems(client, query), threads, now, ...(searched ? { nested, root } : {}) } };
+  return { root, extra: { projects: projectSearchItems(client), settings: settingsItems(client, query), threads, now, ...(searched ? { nested, root } : {}) } };
 }
 /** What a submenu outside this module (an add-project list) searches when nothing in it matches: the root's results. */
 export function rootFallback(client: T3Client, query: string, now: number, scheme: string): SearchExtra {

@@ -756,10 +756,11 @@ above.
 
 **Known differences:**
 
-- Settings › About › Update track saves only this app's own track. In v0.1.5 the switch also moves every
+- Settings › About › Update track saves only this app's own track. In v0.1.6 the switch also moves every
   connected server between Stable and Nightly, after a database-migration check
   (`UpdateTrackSwitchDialog.tsx`). The clone is updated through Exact delivery and has no desktop
-  update feed (`settings-a-about.ts`), and Nightly is not cloned.
+  update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description and its
+  "N machines still run … Review" line, but Review, which opens that switch in v0.1.6, moves no machine here.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects

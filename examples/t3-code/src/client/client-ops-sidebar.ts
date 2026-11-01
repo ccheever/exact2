@@ -10,6 +10,8 @@ import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
 import { settingsGroups } from '../settings/projects-fleet';
+import { updateProjectGroup } from '../sidebar/project-pin';
+import { pushToast } from '../shell/toast';
 import { backgroundProjectThreads, forgetBackgroundDrafts, isBackground, writeBackgroundProject } from '../sidebar/background-threads';
 
 /** Thread search, the sidebar's open state and width, and project grouping. */
@@ -42,6 +44,8 @@ export async function sidebarWrites(this: T3Client, op: string, id: string, valu
     if (op === 'add-project') await addProject.call(this, native, storage, id, value);
     else if (op === 'rename-project' || op === 'remove-project') await manageProject.call(this, native, storage, op, id, value);
     else if (op === 'rename-group' || op === 'remove-group') await manageGroup.call(this, native, storage, op, id, value);
+    // ProjectSettingsPanel's Pin switch and Archive button (`pinned:<bool>`, `archived:<bool>`) over every member.
+    else if (op === 'organize-group') await organizeGroup(this, native, id, value);
     else if (op === 'remove-group-member') {
       this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
       if (!settingsGroups(this).some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
@@ -50,6 +54,14 @@ export async function sidebarWrites(this: T3Client, op: string, id: string, valu
     else return false;
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
+}
+const ORGANIZE_FAILURES: Record<string, [string, string]> = { pinned: ['Failed to unpin project', 'Failed to pin project'], archived: ['Failed to unarchive project', 'Failed to archive project'] };
+async function organizeGroup(client: T3Client, native: Native, key: string, value: string): Promise<void> {
+  const [field = '', flag] = value.split(':'), on = flag === 'true', titles = ORGANIZE_FAILURES[field];
+  if (!titles) return;
+  const group = settingsGroups(client).find(candidate => candidate.key === key);
+  if (!group) { pushToast(client, { kind: 'error', title: titles[on ? 1 : 0], description: 'That project group is no longer available.', stacked: true }); return; }
+  await updateProjectGroup(client, native, group.members, { [field]: on }, titles[on ? 1 : 0]);
 }
 async function addProject(this: T3Client, native: Native, storage: Files, path: string, title: string): Promise<void> {
   if (!path.trim()) throw new ClientError('Enter the project folder on the T3 server.');

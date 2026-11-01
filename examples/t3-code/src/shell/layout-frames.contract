@@ -3,6 +3,6 @@
 fn halfPoint(value: number): number = floor(value * 2 + 0.5) / 2
 // One box as `name:x,y,width,height`, to the half point; "" for a box that is not laid out.
 fn layoutFrame(name: string, box: Geometry): string = box.unavailable ? "" : `${name}:${halfPoint(box.x)},${halfPoint(box.y)},${halfPoint(box.width)},${halfPoint(box.height)}`
-// The trigger a composer menu opens from (app.contract openOptions): the traits, runtime and overflow triggers, the
-// context meter, the implement pill.
-fn optionsTriggerId(name: string): string = name == "effort" ? "composer-traits-trigger" : name == "runtime" ? "composer-runtime-trigger" : name == "more" ? "composer-more-trigger" : name == "context" ? "context-window-meter" : "implement-actions"
+// The trigger a composer menu opens from (app.contract openOptions): the runtime and overflow triggers, the context
+// meter, the implement pill.
+fn optionsTriggerId(name: string): string = name == "runtime" ? "composer-runtime-trigger" : name == "more" ? "composer-more-trigger" : name == "context" ? "context-window-meter" : "implement-actions"

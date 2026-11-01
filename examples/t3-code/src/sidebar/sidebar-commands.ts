@@ -12,7 +12,7 @@ import { bulkMenuState, canArchive, rowConfig, threadMenuState } from './sidebar
 import { wall, latestWall, shownWall, adoptCommandTime, closeDialog, localDate, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, undoSummary, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 import { calendarLocal } from './snooze-calendar';
 export { clock, undoLive } from './sidebar-state';
-import { partition, pickableScopes, projectScopes, renderedRows, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
+import { partition, pickableScopes, projectScopes, renderedRows, shouldCreateNewThreadInCurrentProject, scopedRowKey, threadSortOrder, undoLabel, workingInbox } from './sidebar-view';
 import { pickSearchResult, showPendingFind } from './sidebar-search';
 import { announce, cancelAnnouncement } from '../shell/announce';
 import { completeRouteReveal } from './route-reveal';
@@ -33,6 +33,7 @@ import { dropHeldRename, startHeldRename, startRename } from './sidebar-rename-w
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { openHome } from '../pages/home-landing';
+import { snapshotDefaultProject } from '../snapshot/snapshot-adopt';
 import { focusFleetThread, parseFleetThreadId } from '../connections/settings-b-fleet';
 import { letGo } from '../client/let-go';
 
@@ -563,13 +564,17 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // Behind the undo notice
   if (op === 'draft-choice') return draftChoice(client, nativeHandle, id, value); // the draft row's context popover (exact2 #223)
   if (op === 'new-thread-click') {
-    // routes/_chat.tsx chat.new; ⇧-click (`value` "shift", the press's own MouseEvent, app.contract sidebarNewThread)
-    // creates at once.
+    // chatRouteCommands chat.new and Sidebar handleNewThreadClick; ⇧-click (`value` "shift", the press's own MouseEvent,
+    // app.contract sidebarNewThread) creates at once.
     // shouldCreateNewThreadInCurrentProject: the picker opens unless there is one open project or none, across every
     // environment (projectScopes); with every project archived it opens too, to pick one.
     const scopes = projectScopes(client);
-    if (value !== 'shift' && pickableScopes(client, scopes).length !== 1 && scopes.length !== 0) return 'sidebar:palette-new-thread';
-    try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
+    if (value !== 'shift' && !shouldCreateNewThreadInCurrentProject(false, pickableScopes(client, scopes).length, scopes.length)) return 'sidebar:palette-new-thread';
+    // startNewThreadFromContext: the current thread's or draft's project, else the default one (not archived); with
+    // none, as when every project is archived, the picker opens to pick one.
+    const projectId = client.projectId || snapshotDefaultProject(client.shell.projects, client.environmentId, sidebarPrefs(client).projectOrder);
+    if (!projectId) return 'sidebar:palette-new-thread';
+    try { await (client as unknown as Navigator).openDraft?.(nativeHandle, projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';
   }
