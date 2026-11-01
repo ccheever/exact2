@@ -181,6 +181,7 @@ export function renderer(dist) {
     const head = headOf(info.activate !== 'interaction' && info.activate !== 'inferred');
     return { ...info, location, head, async finish(deadline = DEADLINE) {
       const out = await ctx.__render(deadline);
+      const hero = heroImage(out);
       const activate = info.activate === 'inferred' ? infer(out) : info.activate;
       const late = info.activate === 'inferred' && activate !== 'interaction' ? preloads : '';
       const wake = activate === 'interaction' && out.wake.length ? ` data-wake="${esc(JSON.stringify(out.wake))}"` : '';
@@ -192,7 +193,7 @@ export function renderer(dist) {
       // are needed only once the reader acts, and the capture script fetches them with the runtime (LLP 1048.007 D10).
       const deferred = activate === 'interaction' && (info.policy === 'request' || info.policy === 'cached') && checkpoint.length > 1024;
       const src = deferred ? ` data-src="/.exact/checkpoint/${deferAnswers(checkpoint)}.json"` : '';
-      const body = late => `${fields}\n${late}${style}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
+      const body = late => `${fields}\n${late}${style}${hero}<div id="exact-root"${rootAttrs}>${out.root}</div>${shell.slice(root + ROOT[0].length, entry)}`
         + `<script type="application/vnd.exact.checkpoint" data-digest="${digest}" data-activate="${activate}"${wake}${src}>${deferred ? '' : checkpoint.replace(/</g, '\\u003c')}</script>${shell.slice(entry + ENTRY.length)}`;
       // A complete page marks html and names the preloads in its head; a streamed head has gone already, so the rest
       // marks it before the body and names them after the head's fields, as page.rs does.
@@ -214,6 +215,21 @@ export function renderer(dist) {
   const render = async (location, deadline = DEADLINE) => (await begin(location)).finish(deadline);
   render.begin = begin;
   return render;
+}
+
+/** A rendered page's first image, when it loads with the page (no `for` repeats it, LLP 1048.007 D5), is likely its
+ * largest paint: it is fetched at high priority and preloaded ahead of the document, as web.dev's LCP guidance has a
+ * hero image (HTML's `fetchpriority` and `<link rel="preload" as="image">`). A page whose first image is a lazy row's
+ * opens with a list, and has none. Writes the priority into `out.root`; returns the preload link. */
+function heroImage(out) {
+  for (const m of out.root.matchAll(/<img\b([^>]*)>/g)) {
+    const src = /\bsrc="([^"]+)"/.exec(m[1])?.[1];
+    if (!src || src.startsWith('data:')) continue;
+    if (/\bloading="lazy"/.test(m[1])) return '';
+    out.root = out.root.slice(0, m.index) + '<img fetchpriority="high"' + out.root.slice(m.index + 4);
+    return `<link rel="preload" as="image" href="${src}">`;
+  }
+  return '';
 }
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.css': 'text/css', '.mp4': 'video/mp4', '.plan': 'application/octet-stream' };
