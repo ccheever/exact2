@@ -23,7 +23,8 @@ const CSS = `
 .md-b { font-weight: 700; } .md-i { font-style: italic; } .md-s { text-decoration: line-through; }
 .md-c { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); border-radius: 4px; padding: 1px 3px; }
 .md-a { color: light-dark(#245aba, #83b3ff); text-decoration: underline; text-underline-offset: 2px; }
-.md-m { opacity: .45; }
+/* Shown syntax is dimmed, and the rule drawn in place of a thematic break's hidden syntax is dimmed the same. */
+.md-m, .md-rule::after { opacity: .45; }
 .md-h1 { font-size: 1.7em; font-weight: 750; line-height: 1.25; margin: .2em 0 .1em; }
 .md-h2 { font-size: 1.4em; font-weight: 700; line-height: 1.3; margin: .2em 0 .1em; }
 .md-h3 { font-size: 1.2em; font-weight: 700; } .md-h4, .md-h5, .md-h6 { font-weight: 700; }
@@ -42,7 +43,7 @@ const CSS = `
 .md-task::before { content: ""; top: .3em; margin-inline-start: 3px; width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px; cursor: pointer; }
 .md-task[data-done="1"] { opacity: .6; }
 .md-task[data-done="1"]::before { content: "✓"; background: CanvasText; color: Canvas; border-color: CanvasText; font: 700 11px/13px system-ui, sans-serif; }
-.md-rule { min-height: 1.5em; } .md-rule::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid light-dark(#e4e4e7, #333338); }
+.md-rule { min-height: 1.5em; } .md-rule::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid currentColor; }
 `;
 
 let wasm;

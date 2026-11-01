@@ -1371,6 +1371,11 @@ source, so storage, search and export are the string.
   each link's `](destination)` hidden, as the web hides it. Linux
   edits it as a plain textarea. Without `markup` the same source is a plain
   textarea: the source mode.
+- A thematic break (`---`) is drawn in the colour of the text around it,
+  dimmed, so that it reads on a dark ground as on a light one: on the web a
+  line across the field, as dim as the syntax shown at the caret; on macOS
+  and iOS its `---`, wherever the caret is, at the opacity of the platform's
+  secondary label colour (`secondaryLabelColor`, `UIColor.secondaryLabel`).
 
 `format(id, command)` and `format(id, command, argument)` edit the editor whose
 `id` is given, at its selection, as one undo step reported through its `input`

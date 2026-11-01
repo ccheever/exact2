@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Fable 5.1)
 **Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-10-29 r7, each source line's base direction from the app, `paragraphDirs` (D11); 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
+**Revised:** 2026-11-02 r8, a thematic break in the field's secondary ink (D5); 2026-10-29 r7, each source line's base direction from the app, `paragraphDirs` (D11); 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 **Children:** LLP 1045.000 (inline atoms: a span of the source shown and edited as one pill; Accepted 2026-10-23)
 
@@ -298,6 +298,13 @@ and the row is kept only if the numbers say so.
   attributes in place after text or selection changes and skips marked text
   throughout composition. `format`, `select`, list Return, selection bookmarks
   across a link field, and alternate plain copy are implemented on both hosts.
+  A thematic break's `---` is drawn, wherever the selection is, in the
+  field's ink at the opacity of the platform's secondary label colour
+  (`secondaryLabelColor`, `UIColor.secondaryLabel`) in the appearance the
+  field draws in (r8). As faint as other syntax, it was lost on an app's
+  dark ground. Notes and TextEdit have no thematic break to match; AppKit's
+  HTML import, through which TextEdit opens HTML, colours an `<hr>` `#808080`,
+  which is `secondaryLabelColor` over white.
   Other native markers remain visible until caret movement, selection
   gestures and accessibility have been judged on a phone. The current proof
   uses a fixed editor height; intrinsic `field-sizing: content` parity
@@ -341,7 +348,9 @@ and the row is kept only if the numbers say so.
   and redraws only lines that changed, keeping lines the platform already
   typed correctly so autocorrect state survives. The editor owns undo.
   Structural native edits are read from the live DOM, including nested blocks
-  and line breaks, and invalidate the line cache before redraw. Select All
+  and line breaks, and invalidate the line cache before redraw. The line a
+  thematic break draws in place of its hidden `---` is the field's colour as
+  dim as shown syntax (r8). Select All
   includes the whole source; replacement removes hidden headings, link targets
   and collapsed fences too (2026-10-06). Composition keeps the native DOM until
   it ends. Replacement, native edits, composition, undo/redo and source-mode

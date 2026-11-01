@@ -168,6 +168,19 @@ for (const engine of engines) {
     });
   }, 60000);
 
+  engineTest[engine](`${engine}: a thematic break's line is the field's ink, dimmed as shown syntax is, light and dark`, async () => {
+    await editor(engine, 'Above\n\n---', async (page, field) => {
+      const look = scheme => field.evaluate((el, scheme) => {
+        document.documentElement.style.colorScheme = scheme;
+        const line = getComputedStyle(el.querySelector('.md-rule'), '::after');
+        return [line.borderTopColor, getComputedStyle(el).color, line.opacity];
+      }, scheme);
+      const light = await look('light'), dark = await look('dark');
+      for (const [line, ink, opacity] of [light, dark]) expect([line, opacity]).toEqual([ink, '0.45']);
+      expect(light[1]).not.toBe(dark[1]);
+    });
+  }, 60000);
+
   engineTest[engine](`${engine}: multi-line replacement reports only the new source and undo restores every line`, async () => {
     for (const source of ['one\n\ntwo', '# Heading\n\n[link](https://example.com)\n\n```js\ncode\n```', '- [x] done\n\n> quoted\n\n- two']) {
       await editor(engine, source, async (page, field) => {
