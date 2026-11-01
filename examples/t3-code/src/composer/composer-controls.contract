@@ -1,3 +1,4 @@
+use QuestionActions from "./requests.contract"
 use MorphQueueSteer from "../shell/shell-morph.contract"
 use ExtraGlyph from "../details/git.contract"
 use CnMachineIcon from "../settings/settings-b-kit.contract"
@@ -198,6 +199,8 @@ component ModelTrigger
   inject
     modelOpenTo: action
     composerScope: string
+    // Whether this composer's controls declare their ⌘ chords: the window's, unless a side chat's field has the focus.
+    composerChords: bool
     modelMeasure: action
   props
     data: Snapshot
@@ -217,7 +220,7 @@ component ModelTrigger
   view
     box position="relative" display="flex" flex-direction="row" min-width="3.25rem" flex-shrink=1 id=`${composerScope}model-picker-trigger`
       // Named by its model names (allModelNames, or the label it shows) and its effort, as ProviderModelPicker is.
-      button -exact-menu="none" press=pressed hover=hover class=Control aria-label=((data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) + (data.composer.modelDetail != "" ? `, ${data.composer.modelDetail}` : "")) aria-expanded=open aria-haspopup="dialog" aria-keyshortcuts=keyModels testId=`${composerScope}model-picker` disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 flex=1 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(bright and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      button -exact-menu="none" press=pressed hover=hover class=Control aria-label=((data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) + (data.composer.modelDetail != "" ? `, ${data.composer.modelDetail}` : "")) aria-expanded=open aria-haspopup="dialog" aria-keyshortcuts=(composerChords ? keyModels : "") testId=`${composerScope}model-picker` disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 flex=1 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(bright and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         // Several models (a multi-model draft): up to three overlapping marks, then "+N".
         if data.composer.fanout
           row flex-shrink=0 align-items="center" aria-hidden=true
@@ -252,9 +255,9 @@ component ModelTrigger
             text "Unavailable" font-size="0.625rem" line-height="0.625rem" font-weight=500 white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
     // The shortcut holders (sidebar.contract's sweep pattern): on screen, a point wide, out of the tab order.
     if not disabled and data.composer.keyEffort != ""
-      button press=modelOpenTo("effort") aria-keyshortcuts=data.composer.keyEffort aria-label="Effort" tabindex=-1 testId="model-picker-effort-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
+      button press=modelOpenTo("effort") aria-keyshortcuts=(composerChords ? data.composer.keyEffort : "") aria-label="Effort" tabindex=-1 testId="model-picker-effort-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
     if not disabled and data.composer.pickerOwnsMode and data.composer.keyMode != ""
-      button press=modelOpenTo("permissions") aria-keyshortcuts=data.composer.keyMode aria-label="Permissions" tabindex=-1 testId="model-picker-mode-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
+      button press=modelOpenTo("permissions") aria-keyshortcuts=(composerChords ? data.composer.keyMode : "") aria-label="Permissions" tabindex=-1 testId="model-picker-mode-key" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
 
 // ChatComposer's provider-unavailable control in place of the model picker.
 component ProviderUnavailable
@@ -294,6 +297,7 @@ component FastBolt
 component RuntimeTrigger
   inject
     composerScope: string
+    composerChords: bool
   props
     label: string
     tip: string
@@ -310,7 +314,7 @@ component RuntimeTrigger
   derive ink = (over or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181bcc, #f5f5f5cc)")
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id=`${composerScope}composer-runtime-trigger`
-      button -exact-menu="none" press=press hover=hover class=Control aria-label=`Permissions: ${label}` aria-expanded=open aria-keyshortcuts=keyMode testId=`${composerScope}runtime-mode` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      button -exact-menu="none" press=press hover=hover class=Control aria-label=`Permissions: ${label}` aria-expanded=open aria-keyshortcuts=(composerChords ? keyMode : "") testId=`${composerScope}runtime-mode` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 gap="0.375rem" border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=icon, size=16, color=(emphasized ? ink : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         if not iconOnly
           text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=ink line-clamp=1
@@ -339,6 +343,7 @@ component PlanToggle
 component OverflowTrigger
   inject
     composerScope: string
+    composerChords: bool
   props
     open: bool
     disabled: bool
@@ -349,7 +354,7 @@ component OverflowTrigger
     over = value
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 id=`${composerScope}composer-more-trigger`
-      button -exact-menu="none" press=press hover=hover class=Control aria-label="More composer controls" aria-haspopup="menu" aria-expanded=open aria-keyshortcuts=keys testId=`${composerScope}composer-more-controls` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+      button -exact-menu="none" press=press hover=hover class=Control aria-label="More composer controls" aria-haspopup="menu" aria-expanded=open aria-keyshortcuts=(composerChords ? keys : "") testId=`${composerScope}composer-more-controls` disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717a, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
           circle cx=12 cy=12 r=1
           circle cx=19 cy=12 r=1
@@ -545,7 +550,10 @@ component ComposerFooter
                   PlanToggle(active=data.composer.planActive, iconOnly=data.composer.runtimeIconOnly, disabled=locked, press=interaction(data.composer.planActive ? "default" : "plan"))
               if modeOut
                 OverflowTrigger(open=(optionsOpen == "more"), disabled=locked, keys=(data.composer.overflowPermissions ? data.composer.keyMode : ""), press=openOptions("more"))
-        PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
+        if data.requestMode == "question"
+          QuestionActions(data=data, command=command, busy=busy)
+        else
+          PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
 
 // The composer's menus, anchored above their trigger (side top, align start; end-aligned when start would
 // overflow): the overflow menu (MenuRadioItem rows: checked keep the foreground/8% wash, the highlighted row takes

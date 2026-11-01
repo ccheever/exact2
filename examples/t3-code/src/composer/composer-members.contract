@@ -96,7 +96,7 @@ members T3Code
   state composerIntentActive = 0
   state composerIntentPhase = ""
   state composerIntentMode = ""
-  state composerIntentNotice = ""
+  state fieldIntentNotice = ""
   state composerIntentObserved = ComposerFieldObservation(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, composing=false, live=false, focused=false, inputSerial=0)
   state composerIntentExpected = ""
   state composerIntentStart = 0
@@ -114,6 +114,47 @@ members T3Code
       let bounds = rangeFrame(preview ? "prompt-font-preview" : "composer", start, end)
       if not bounds.unavailable and bounds.width > 0 and bounds.height > 0
         send chipPressed = composerChipPressed(ComposerChipRequest(generation=current.generation, snapshotOwner=data.snapshotOwner, owner=owner, value=value, inputSerial=serial, start=start, end=end, source=source, surface=surface, comment=comment, frame=bounds))
+  // The field the editing engine below serves: the window's composer (""), or a side chat's from when its field takes
+  // the focus until the window's does (side-chat-members.contract). Only one field has the focus, and each of the
+  // engine's steps checks the field's owner and value, so a step meant for the other field lapses.
+  state fieldTarget = ""
+  state fieldSide = false
+  // A side chat that closes or changes hands the engine back to the window's field.
+  task fieldTargetLapse when fieldSide and fieldTarget != sideChatThread key=`${fieldTarget}|${sideChatThread}`
+    after(1, fieldTargetLapsed)
+  action fieldTargetLapsed
+    if fieldTarget != sideChatThread
+      fieldTarget = ""
+      fieldSide = false
+  derive fieldData = fieldSide ? sideChat : data
+  derive fieldRich = fieldSide ? sideRich : richComposer
+  derive fieldOwner = fieldSide ? sideRichOwner : richComposerOwner
+  derive fieldText = fieldSide ? sideText : composerText
+  derive fieldEditor = fieldSide ? sideEditor : editor
+  derive fieldId = fieldSide ? "side-chat-composer" : "composer"
+  action fieldEditorOp(op: string, id: string, value: string)
+    if fieldSide
+      sideEditorOp(op, id, value)
+    else
+      editorOp(op, id, value)
+  action fieldSubmit(gesture: string)
+    if fieldSide
+      sideSubmit(gesture)
+    else
+      submit(gesture)
+  // `/model`, as its trigger's press: the anchor, then the picker.
+  action fieldOpenModels
+    if fieldSide
+      sideModelMeasure()
+      sideOpenModels()
+    else
+      modelMeasure()
+      openModels()
+  action fieldInteraction(value: string)
+    if fieldSide
+      sideInteraction(value)
+    else
+      menuPick("interaction", "", value)
   mutation composerEdited as shape ComposerIntentReply queue then composerEditDone
   state composerFieldInputSerial = 0
   state composerFieldAfter = 0
@@ -123,11 +164,11 @@ members T3Code
   state composerFieldFocus = ComposerFieldAcknowledgement(applied=false, reason="", value="", start=0, end=0, generation=-1, snapshotOwner="", owner="", seq=0, then="", send=false, focus="", removedImage="", inputSerial=-1)
   state composerFieldAdmitted = false
   state composerFieldTarget = ComposerFieldCommand(generation=-1, snapshotOwner="", owner="", value="", start=0, end=0, text="", selectionStart=0, selectionEnd=0, focus=false, then="", seq=0, ready=false, history=0, citation=0, completion=0)
-  derive composerFieldLive = not modal and data.requestMode != "approval" and not data.composer.subagent
-  derive composerFieldSnapshot = ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=(composerSelectionCurrent ? composerSelectionStart : 0), end=(composerSelectionCurrent ? composerSelectionEnd : 0), composing=composerComposing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
-  resource composerFieldNext = composerField(composerFieldSnapshot, composerFieldAfter, data.revision) as shape ComposerFieldCommand
-  mutation composerFieldChanged as shape ComposerFieldResult queue refreshes editor
-  mutation composerFieldAck as shape ComposerFieldAcknowledgement queue refreshes richComposer, chip, shell, composerFieldNext, data, editor then composerFieldAckDone
+  derive composerFieldLive = not modal and fieldData.requestMode != "approval" and not fieldData.composer.subagent
+  derive composerFieldSnapshot = ComposerFieldObservation(generation=fieldRich.generation, snapshotOwner=fieldData.snapshotOwner, owner=fieldOwner, value=fieldText, start=(composerSelectionCurrent ? composerSelectionStart : 0), end=(composerSelectionCurrent ? composerSelectionEnd : 0), composing=composerComposing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
+  resource composerFieldNext = composerField(composerFieldSnapshot, composerFieldAfter, fieldData.revision, fieldTarget) as shape ComposerFieldCommand
+  mutation composerFieldChanged as shape ComposerFieldResult queue refreshes editor, sideEditor
+  mutation composerFieldAck as shape ComposerFieldAcknowledgement queue refreshes richComposer, sideRich, chip, shell, composerFieldNext, data, sideChat, editor, sideEditor then composerFieldAckDone
   task composerFieldDeliver when composerFieldNext.ready and composerFieldNext.seq > composerFieldAfter key=composerFieldNext.seq
     after(1, composerFieldApply)
   action composerFieldApply
@@ -135,55 +176,54 @@ members T3Code
     composerFieldAfter = item.seq
     composerFieldTarget = item
     composerFieldAdmitted = false
-    if item.ready and composerFieldLive and frame("composer").width > 0 and item.generation == richComposer.generation and item.snapshotOwner == data.snapshotOwner and item.owner == richComposerOwner and item.value == composerText and not composerComposing
+    if item.ready and composerFieldLive and frame(fieldId).width > 0 and item.generation == fieldRich.generation and item.snapshotOwner == fieldData.snapshotOwner and item.owner == fieldOwner and item.value == fieldText and not composerComposing
       composerFieldAdmitted = true
       if item.focus
-        focus("composer")
-      setRangeText("composer", item.text, item.start, item.end, "preserve")
-      setSelectionRange("composer", item.selectionStart, item.selectionEnd)
+        focus(fieldId)
+      setRangeText(fieldId, item.text, item.start, item.end, "preserve")
+      setSelectionRange(fieldId, item.selectionStart, item.selectionEnd)
   task composerFieldConfirm when composerFieldAfter > composerFieldAcked key=composerFieldAfter
     after(1, composerFieldConfirmRun)
   action composerFieldConfirmRun
     composerFieldAcked = composerFieldAfter
-    send composerFieldAck = composerFieldAcknowledged(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=(composerSelectionCurrent ? composerSelectionStart : 0), end=(composerSelectionCurrent ? composerSelectionEnd : 0), composing=composerComposing, live=(composerFieldLive and frame("composer").width > 0), focused=composerFocused, inputSerial=composerFieldInputSerial), composerFieldTarget.seq, composerFieldAdmitted)
+    send composerFieldAck = composerFieldAcknowledged(ComposerFieldObservation(generation=fieldRich.generation, snapshotOwner=fieldData.snapshotOwner, owner=fieldOwner, value=fieldText, start=(composerSelectionCurrent ? composerSelectionStart : 0), end=(composerSelectionCurrent ? composerSelectionEnd : 0), composing=composerComposing, live=(composerFieldLive and frame(fieldId).width > 0), focused=composerFocused, inputSerial=composerFieldInputSerial), composerFieldTarget.seq, composerFieldAdmitted, fieldTarget)
   action composerFieldAckDone
     match composerFieldAck
       case some(result)
-        if result.applied and result.seq > composerFieldEffects and result.generation == richComposer.generation and result.snapshotOwner == data.snapshotOwner and result.owner == richComposerOwner and not composerComposing and result.value == composerText and result.inputSerial == composerFieldInputSerial and composerSelectionCurrent and result.start == composerSelectionStart and result.end == composerSelectionEnd
+        if result.applied and result.seq > composerFieldEffects and result.generation == fieldRich.generation and result.snapshotOwner == fieldData.snapshotOwner and result.owner == fieldOwner and not composerComposing and result.value == fieldText and result.inputSerial == composerFieldInputSerial and composerSelectionCurrent and result.start == composerSelectionStart and result.end == composerSelectionEnd
           composerFieldEffects = result.seq
           if result.focus != ""
             composerFieldFocus = result
           if result.send
-            if result.value == composerText
-              send("")
+            if result.value == fieldText
+              fieldSubmit("")
           else if result.then == "models"
             // As the trigger's press: the anchor, and the pick the effort focus compares against.
-            modelMeasure()
-            openModels()
+            fieldOpenModels()
           else if result.then == "mode-plan" or result.then == "mode-default"
-            menuPick("interaction", "", result.then == "mode-plan" ? "plan" : "default")
+            fieldInteraction(result.then == "mode-plan" ? "plan" : "default")
       case none
-  derive composerFieldFocusCurrent = composerFieldLive and composerFieldFocus.generation == richComposer.generation and composerFieldFocus.snapshotOwner == data.snapshotOwner and composerFieldFocus.owner == richComposerOwner and composerFieldFocus.value == composerText and not composerComposing and composerFieldFocus.seq == composerFieldEffects and composerFieldFocus.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerFieldFocus.start == composerSelectionStart and composerFieldFocus.end == composerSelectionEnd
-  task composerFieldRestoreFocus when composerFieldFocus.seq > composerFieldFocusDone and (not composerFieldFocusCurrent or data.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0) key=composerFieldFocus.seq
+  derive composerFieldFocusCurrent = composerFieldLive and composerFieldFocus.generation == fieldRich.generation and composerFieldFocus.snapshotOwner == fieldData.snapshotOwner and composerFieldFocus.owner == fieldOwner and composerFieldFocus.value == fieldText and not composerComposing and composerFieldFocus.seq == composerFieldEffects and composerFieldFocus.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerFieldFocus.start == composerSelectionStart and composerFieldFocus.end == composerSelectionEnd
+  task composerFieldRestoreFocus when composerFieldFocus.seq > composerFieldFocusDone and (not composerFieldFocusCurrent or fieldData.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0) key=composerFieldFocus.seq
     after(1, composerFieldFocusRun)
   action composerFieldFocusRun
     composerFieldFocusDone = composerFieldFocus.seq
-    if composerFieldFocusCurrent and data.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0 and frame(composerFieldFocus.focus).width > 0
+    if composerFieldFocusCurrent and fieldData.snapshotDrafts.filter((image) => image.id == composerFieldFocus.removedImage).length == 0 and frame(composerFieldFocus.focus).width > 0
       focus(composerFieldFocus.focus)
-  derive composerRichCurrent = richComposer.owner == richComposerOwner and richComposer.value == composerText
-  derive composerSelectionCurrent = composerSelectionOwner == richComposerOwner and composerSelectionValue == composerText
-  derive composerInCode = composerRichCurrent and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart >= b.bodyStart and composerSelectionEnd <= b.bodyEnd).length > 0
-  derive composerInList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "list" and composerSelectionStart >= b.contentStart and composerSelectionEnd <= b.end).length > 0
+  derive composerRichCurrent = fieldRich.owner == fieldOwner and fieldRich.value == fieldText
+  derive composerSelectionCurrent = composerSelectionOwner == fieldOwner and composerSelectionValue == fieldText
+  derive composerInCode = composerRichCurrent and fieldRich.blocks.filter((b) => b.kind == "code" and composerSelectionStart >= b.bodyStart and composerSelectionEnd <= b.bodyEnd).length > 0
+  derive composerInList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.blocks.filter((b) => b.kind == "list" and composerSelectionStart >= b.contentStart and composerSelectionEnd <= b.end).length > 0
   // The caret is on a nested list line, which ⇧Tab moves out (listOutdentForTab) before plan mode takes the key.
-  derive composerInNestedList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.mode != "literal" and richComposer.blocks.filter((b) => b.kind == "list" and b.nested and composerSelectionStart >= b.start and composerSelectionEnd <= b.end).length > 0
-  derive composerCodeStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and richComposer.blocks.filter((b) => b.kind == "code" and composerSelectionStart == b.bodyStart).length > 0
-  derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (composerText.includes("\n") or composerText.includes("\u{d}")))
-  derive composerIntentContextCurrent = composerIntentObserved.owner == richComposerOwner and composerIntentObserved.snapshotOwner == data.snapshotOwner and composerIntentObserved.generation == richComposer.generation and composerIntentMode == richComposer.mode and composerFieldLive and not composerComposing
-  derive composerIntentBaseCurrent = composerIntentContextCurrent and composerIntentObserved.value == composerText and composerIntentObserved.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerIntentObserved.start == composerSelectionStart and composerIntentObserved.end == composerSelectionEnd
-  derive composerIntentReceiptCurrent = composerIntentContextCurrent and composerText == composerIntentExpected and composerFieldInputSerial == composerIntentObserved.inputSerial + 1 and composerSelectionCurrent and composerSelectionStart == composerIntentStart and composerSelectionEnd == composerIntentEnd
+  derive composerInNestedList = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.mode != "literal" and fieldRich.blocks.filter((b) => b.kind == "list" and b.nested and composerSelectionStart >= b.start and composerSelectionEnd <= b.end).length > 0
+  derive composerCodeStart = composerRichCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.blocks.filter((b) => b.kind == "code" and composerSelectionStart == b.bodyStart).length > 0
+  derive composerRequiresModifier = settings.sendShortcut == "mod-enter" or (settings.sendShortcut == "mod-enter-multiline" and (fieldText.includes("\n") or fieldText.includes("\u{d}")))
+  derive composerIntentContextCurrent = composerIntentObserved.owner == fieldOwner and composerIntentObserved.snapshotOwner == fieldData.snapshotOwner and composerIntentObserved.generation == fieldRich.generation and composerIntentMode == fieldRich.mode and composerFieldLive and not composerComposing
+  derive composerIntentBaseCurrent = composerIntentContextCurrent and composerIntentObserved.value == fieldText and composerIntentObserved.inputSerial == composerFieldInputSerial and composerSelectionCurrent and composerIntentObserved.start == composerSelectionStart and composerIntentObserved.end == composerSelectionEnd
+  derive composerIntentReceiptCurrent = composerIntentContextCurrent and fieldText == composerIntentExpected and composerFieldInputSerial == composerIntentObserved.inputSerial + 1 and composerSelectionCurrent and composerSelectionStart == composerIntentStart and composerSelectionEnd == composerIntentEnd
   task composerIntentReady when composerIntentQueue.length > 0 and composerIntentPhase == "" key=`${composerIntentSerial}|${composerFieldInputSerial}`
     after(1, composerIntentPump)
-  task composerIntentReceipt when composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent key=`${composerIntentActive}|${composerFieldInputSerial}|${richComposer.value}|${composerSelectionStart}:${composerSelectionEnd}`
+  task composerIntentReceipt when composerIntentPhase == "projection" and composerIntentReceiptCurrent and composerRichCurrent key=`${composerIntentActive}|${composerFieldInputSerial}|${fieldRich.value}|${composerSelectionStart}:${composerSelectionEnd}`
     after(1, composerIntentConfirmed)
   // A format command that changed nothing reports no input: its turn ends here.
   task composerIntentFormatQuiet when composerIntentPhase == "format" key=composerIntentActive
@@ -193,18 +233,18 @@ members T3Code
       composerIntentQueue = composerIntentQueue.slice(1)
       composerIntentActive = 0
       composerIntentPhase = ""
-  task composerIntentInvalidated when composerIntentQueue.length > 0 and not composerIntentContextCurrent key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}|${richComposer.mode}|${composerComposing}|${composerFieldLive}`
+  task composerIntentInvalidated when composerIntentQueue.length > 0 and not composerIntentContextCurrent key=`${fieldData.snapshotOwner}|${fieldOwner}|${fieldRich.generation}|${fieldRich.mode}|${composerComposing}|${composerFieldLive}`
     after(1, composerIntentCancelStale)
-  task composerIntentOwnerNotice key=`${data.snapshotOwner}|${richComposerOwner}|${richComposer.generation}`
+  task composerIntentOwnerNotice key=`${fieldData.snapshotOwner}|${fieldOwner}|${fieldRich.generation}`
     after(1, composerIntentOwnerChanged)
   action composerIntentOwnerChanged
-    if composerIntentObserved.owner != richComposerOwner or composerIntentObserved.snapshotOwner != data.snapshotOwner or composerIntentObserved.generation != richComposer.generation
+    if composerIntentObserved.owner != fieldOwner or composerIntentObserved.snapshotOwner != fieldData.snapshotOwner or composerIntentObserved.generation != fieldRich.generation
       composerIntentClear("")
   action composerIntentClear(message: string)
     composerIntentQueue = []
     composerIntentActive = 0
     composerIntentPhase = ""
-    composerIntentNotice = message
+    fieldIntentNotice = message
   action composerIntentCancelStale
     if not composerIntentContextCurrent
       composerIntentClear("The prompt changed. Please try that edit again.")
@@ -215,16 +255,16 @@ members T3Code
     if (kind != "format" and not composerRichCurrent) or not composerFieldLive or composing or (composerIntentQueue.length > 0 and (not current or (not explicit and (start != composerSelectionStart or end != composerSelectionEnd))))
       composerIntentClear("The prompt changed. Please try that edit again.")
     else if composerIntentQueue.length >= 32
-      composerIntentNotice = "Too many edits are waiting. Please try that edit again."
+      fieldIntentNotice = "Too many edits are waiting. Please try that edit again."
     else
       let serial = composerIntentSerial + 1
       let starting = composerIntentQueue.length == 0
       composerIntentSerial = serial
-      composerIntentNotice = ""
+      fieldIntentNotice = ""
       composerIntentQueue = composerIntentQueue.concat([ComposerIntentMetadata(serial=serial, kind=kind, text=text, key=key, shift=shift, command=command, start=start, end=end, inputSerial=composerFieldInputSerial)])
       if starting
-        composerIntentMode = richComposer.mode
-        composerIntentObserved = ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=(explicit ? composerSelectionStart : start), end=(explicit ? composerSelectionEnd : end), composing=false, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
+        composerIntentMode = fieldRich.mode
+        composerIntentObserved = ComposerFieldObservation(generation=fieldRich.generation, snapshotOwner=fieldData.snapshotOwner, owner=fieldOwner, value=fieldText, start=(explicit ? composerSelectionStart : start), end=(explicit ? composerSelectionEnd : end), composing=false, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial)
   action composerIntentPump
     if composerIntentPhase == "" and composerIntentBaseCurrent and composerRichCurrent
       match first(composerIntentQueue)
@@ -236,11 +276,11 @@ members T3Code
             // The Markdown field's own command at its selection then; its input is the receipt.
             composerIntentActive = item.serial
             composerIntentPhase = "format"
-            format("composer", item.text)
+            format(fieldId, item.text)
           else
             composerIntentActive = item.serial
             composerIntentPhase = "request"
-            send composerEdited = composerIntent(data.snapshotOwner, richComposerOwner, composerText, item.serial, explicit ? item.start : composerSelectionStart, explicit ? item.end : composerSelectionEnd, item.kind, item.text, item.key, item.shift, item.command, false, richComposer.mode)
+            send composerEdited = composerIntent(fieldData.snapshotOwner, fieldOwner, fieldText, item.serial, explicit ? item.start : composerSelectionStart, explicit ? item.end : composerSelectionEnd, item.kind, item.text, item.key, item.shift, item.command, false, fieldRich.mode, fieldTarget)
         case none
     else if composerIntentPhase == "" and composerIntentQueue.length > 0
       composerIntentClear("The prompt changed. Please try that edit again.")
@@ -248,18 +288,18 @@ members T3Code
     match composerEdited
       case some(result)
         if composerIntentPhase == "request" and result.serial == composerIntentActive
-          if composerIntentBaseCurrent and composerRichCurrent and result.owner == richComposerOwner and result.value == composerText and result.mode == richComposer.mode
+          if composerIntentBaseCurrent and composerRichCurrent and result.owner == fieldOwner and result.value == fieldText and result.mode == fieldRich.mode
             if result.kind == "edit"
               // Expected source is a receipt only; input independently persists the textarea's actual value.
-              composerIntentExpected = `${composerText.slice(0, result.start)}${result.text}${composerText.slice(result.end)}`
+              composerIntentExpected = `${fieldText.slice(0, result.start)}${result.text}${fieldText.slice(result.end)}`
               composerIntentStart = result.selectionStart
               composerIntentEnd = result.selectionEnd
               composerIntentPreserves = result.preserveSelection
               composerIntentCaretSeen = false
               composerIntentPhase = "input"
-              setRangeText("composer", result.text, result.start, result.end, "preserve")
+              setRangeText(fieldId, result.text, result.start, result.end, "preserve")
               if not result.preserveSelection
-                setSelectionRange("composer", result.selectionStart, result.selectionEnd)
+                setSelectionRange(fieldId, result.selectionStart, result.selectionEnd)
             else if result.kind == "handled"
               composerIntentQueue = composerIntentQueue.slice(1)
               composerIntentActive = 0
@@ -267,7 +307,7 @@ members T3Code
             else
               composerIntentClear(composerIntentQueue.length > 1 or result.kind != "send" ? "That edit could not be applied. Please try again." : "")
               if result.kind == "send"
-                send("")
+                fieldSubmit("")
           else
             composerIntentClear("The prompt changed. Please try that edit again.")
       case none
@@ -298,6 +338,7 @@ members T3Code
       composerIntentPhase = ""
       composerIntentObserved = composerFieldSnapshot
   action composerMoved(e: InputEvent)
+    composerPasteAt(e)
     if composerIntentQueue.length > 0
       if e.isComposing or not composerIntentContextCurrent
         composerIntentClear("The prompt changed. Please try that edit again.")
@@ -306,21 +347,38 @@ members T3Code
           composerIntentClear("The prompt changed. Please try that edit again.")
         else if e.selectionStart == composerIntentStart and e.selectionEnd == composerIntentEnd
           composerIntentCaretSeen = true
-      else if e.value == composerText and (e.selectionStart != composerIntentObserved.start or e.selectionEnd != composerIntentObserved.end)
+      else if e.value == fieldText and (e.selectionStart != composerIntentObserved.start or e.selectionEnd != composerIntentObserved.end)
         composerIntentClear("The prompt changed. Please try that edit again.")
     composerSelectionObserved(e, composerComposing)
   action composerSelectionObserved(e: InputEvent, composing: bool)
-    if e.value == composerText
-      composerSelectionOwner = richComposerOwner
+    if e.value == fieldText
+      composerSelectionOwner = fieldOwner
       composerSelectionValue = e.value
       composerSelectionStart = e.selectionStart
       composerSelectionEnd = e.selectionEnd
-      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
+      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=fieldRich.generation, snapshotOwner=fieldData.snapshotOwner, owner=fieldOwner, value=e.value, start=e.selectionStart, end=e.selectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false, fieldTarget)
+  // Where a paste the field holds goes (ComposerCard pasted): its value and selection as its events last reported them.
+  state composerPasteValue = ""
+  state composerPasteStart = 0
+  state composerPasteEnd = 0
+  action composerPasteAt(e: InputEvent)
+    composerPasteValue = e.value
+    composerPasteStart = e.selectionStart
+    composerPasteEnd = e.selectionEnd
+  // isPasteAsTextShortcut (⇧⌘V, no ⌥ or ⌃) arms the paste its menu item brings as Paste as Text for one second
+  // (armPasteAsTextShortcut's deadline); one paste takes it, and leaving the field disarms it, as the window's blur does.
+  state composerPasteAsTextUntil = 0
+  action composerPasteTaken
+    composerPasteAsTextUntil = 0
+  action composerPasteKey(k: string, e: KeyboardEvent)
+    if k.toLowerCase() == "v" and e.shiftKey and e.metaKey and not e.altKey and not e.ctrlKey
+      composerPasteAsTextUntil = performanceNow() + 1000
   action composerBeforeInput(e: InputEvent)
+    composerPasteAt(e)
     if e.isComposing
       if composerIntentQueue.length > 0
         composerIntentClear("The prompt changed. Please try that edit again.")
-    else if e.cancelable and e.value == composerText and composerRichCurrent
+    else if e.cancelable and e.value == fieldText and composerRichCurrent
       if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
         preventDefault()
         composerIntentRequest("key", "", "Enter", e.inputType == "insertLineBreak" or composerShift or (composerRequiresModifier and not composerCommand), composerCommand, e.selectionStart, e.selectionEnd, e.isComposing)
@@ -329,17 +387,18 @@ members T3Code
           case some(text)
             // Typed at an empty fence's closing line, text opens the body line (composerCodeInput). A bracket or
             // quote typed over a selection wraps it (composer-surround.ts).
-            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0) or (e.inputType == "insertText" and e.selectionStart < e.selectionEnd and richComposer.mode != "literal" and composerSurrounds(text))
+            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and fieldRich.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0) or (e.inputType == "insertText" and e.selectionStart < e.selectionEnd and fieldRich.mode != "literal" and composerSurrounds(text))
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
     composerSelectionObserved(e, e.isComposing)
     composerComposing = e.isComposing
   action composerLanguage(start: number, end: number, language: string)
-    if composerRichCurrent and richComposer.mode == "rich" and not composerComposing
-      focus("composer")
+    if composerRichCurrent and fieldRich.mode == "rich" and not composerComposing
+      focus(fieldId)
       composerIntentRequest("language", language, "", false, false, start, end, composerComposing)
   action composerKeyEvent(k: string, e: KeyboardEvent)
+    composerPasteKey(k, e)
     let heldCommand = e.metaKey or e.ctrlKey
     let composing = e.isComposing
     composerShift = e.shiftKey
@@ -353,20 +412,20 @@ members T3Code
     // keys before the dispatch buttons hear them, so the focus leaves it from here.
     let workspaceFocus = shortcuts.filter((item) => item.kind == "workspace-focus" and item.chord == chord)
     // ComposerStashMenu's window keydown listener (capture): Escape, ↑ ↓, Return and ⌘⌫ with the composer focused.
-    let stashKey = editor.stash.menuOpen and not editor.menu.open and (k == "Escape" or (editor.stash.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or k == "Enter" or (k == "Backspace" and heldCommand))))
+    let stashKey = fieldEditor.stash.menuOpen and not fieldEditor.menu.open and (k == "Escape" or (fieldEditor.stash.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or k == "Enter" or (k == "Backspace" and heldCommand))))
     // onComposerCommandKey: the open command menu takes Escape, and ↑ ↓ Return Tab while it lists rows, unless the
     // chord is a send that is not a plain one (composerSubmissionIntentForKey: alternate or background).
-    let menuKey = editor.menu.open and (k == "Escape" or (editor.menu.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or (k == "Tab" and not e.shiftKey) or (k == "Enter" and not composerChordIn(data.composer.sendCommandChords, chord)))))
+    let menuKey = fieldEditor.menu.open and (k == "Escape" or (fieldEditor.menu.count > 0 and (k == "ArrowDown" or k == "ArrowUp" or (k == "Tab" and not e.shiftKey) or (k == "Enter" and not composerChordIn(fieldData.composer.sendCommandChords, chord)))))
     if composerComposing and not composing and composerRichCurrent and composerSelectionCurrent
-      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=composerText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false)
+      send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=fieldRich.generation, snapshotOwner=fieldData.snapshotOwner, owner=fieldOwner, value=fieldText, start=composerSelectionStart, end=composerSelectionEnd, composing=composing, live=composerFieldLive, focused=composerFocused, inputSerial=composerFieldInputSerial), false, fieldTarget)
     if not composing and workspaceFocus.length > 0
       preventDefault()
       stopPropagation()
       match first(workspaceFocus)
         case some(item)
-          workspaceMove(item.target == "next" ? 1 : -1, "composer")
+          workspaceMove(item.target == "next" ? 1 : -1, fieldSide ? "panel" : "composer")
         case none
-    else if not composing and queuedEdit.length > 0 and caretAtStart
+    else if not composing and queuedEdit.length > 0 and caretAtStart and not fieldSide
       // A held key is consumed and does nothing more, as editLatest(event.repeat) does.
       preventDefault()
       stopPropagation()
@@ -379,7 +438,7 @@ members T3Code
       preventDefault()
       stopPropagation()
       composerStashKey(k)
-    else if not composing and richComposer.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "i" or k == "I" or e.code == "KeyI" or ((k == "b" or k == "B" or e.code == "KeyB") and composerSelectionStart != composerSelectionEnd))
+    else if not composing and fieldRich.mode == "rich" and e.metaKey and not e.ctrlKey and not e.shiftKey and not e.altKey and (k == "i" or k == "I" or e.code == "KeyI" or ((k == "b" or k == "B" or e.code == "KeyB") and composerSelectionStart != composerSelectionEnd))
       preventDefault()
       stopPropagation()
       // The Markdown editor's own command, at its selection, one undo step (LLP 1045 D6), after any edit still waiting.
@@ -388,35 +447,35 @@ members T3Code
         if composerIntentQueue.length > 0
           composerIntentRequest("format", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic", "", false, true, composerSelectionStart, composerSelectionEnd, composing)
         else
-          format("composer", k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
-    else if not composing and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
+          format(fieldId, k == "b" or k == "B" or e.code == "KeyB" ? "bold" : "italic")
+    else if not composing and not fieldSide and k == "Tab" and e.shiftKey and not e.altKey and not heldCommand and composerRichCurrent and composerSelectionCurrent and composerSelectionStart == composerSelectionEnd and fieldRich.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart).length > 0
       // ⇧⇥ just after a citation reaches its comment (ComposerPromptEditorTiptap handleKeyDown), before plan mode's.
       preventDefault()
       stopPropagation()
-      match first(richComposer.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart))
+      match first(fieldRich.chips.filter((c) => c.kind == "citation" and c.end == composerSelectionStart))
         case some(c)
-          composerChipPress("composer", richComposerOwner, composerText, composerFieldInputSerial, c.start, c.end, c.source, true)
+          composerChipPress("composer", fieldOwner, fieldText, composerFieldInputSerial, c.start, c.end, c.source, true)
         case none
-    else if not composing and k == "Tab" and e.shiftKey and data.composer.planVisible and not composerInCode and not (composerInNestedList and not editor.menu.open and not e.altKey and not (e.metaKey or e.ctrlKey))
+    else if not composing and k == "Tab" and e.shiftKey and fieldData.composer.planVisible and not composerInCode and not (composerInNestedList and not fieldEditor.menu.open and not e.altKey and not (e.metaKey or e.ctrlKey))
       // ⇧⇥ toggles Build/Plan where plan mode is available (onComposerCommandKey), on a top-level list item or with a
       // menu open too. A code block outdents first (ComposerPromptEditorTiptap), and a nested list item moves out
       // (listOutdentForTab); without the toggle the key gives the focus back (TextAreaMac.insertBacktab).
       preventDefault()
       stopPropagation()
-      if data.connected
-        menuPick("interaction", "", data.composer.planActive ? "default" : "plan")
+      if fieldData.connected
+        fieldInteraction(fieldData.composer.planActive ? "default" : "plan")
     else if not composing and menuKey
       preventDefault()
       stopPropagation()
       composerMenuKey(k)
-    else if not composing and k == "Enter" and composerChordIn(data.composer.sendChords, chord)
+    else if not composing and k == "Enter" and composerChordIn(fieldData.composer.sendChords, chord)
       // A send chord (⌘↩, and the server's composer.send* bindings here) sends with its modifiers, which the send
       // resolves through the keybindings (composer-editor-intent.ts sendIntent). The Send buttons declare these chords
       // only while the composer is unfocused, since an `aria-keyshortcuts` press precedes every key handler.
       preventDefault()
       stopPropagation()
       if not e.repeat
-        submit(`key:${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
+        fieldSubmit(`key:${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`)
     else
       composerGrammarKey(k, e, composing)
     composerComposing = composing
@@ -424,56 +483,56 @@ members T3Code
   // (resolveComposerMenuActiveItemId), and the stash menu's. The composer's keys and the rows' hover move them.
   state composerMenuHighlight = 0
   state composerMenuHighlightKey = ""
-  derive composerMenuActive = (composerMenuHighlightKey == editor.menu.searchKey and composerMenuHighlight < editor.menu.count ? composerMenuHighlight : 0)
+  derive fieldMenuActive = (composerMenuHighlightKey == fieldEditor.menu.searchKey and composerMenuHighlight < fieldEditor.menu.count ? composerMenuHighlight : 0)
   action composerMenuMove(delta: number)
-    composerMenuHighlight = (composerMenuActive + delta + editor.menu.count) % max(1, editor.menu.count)
-    composerMenuHighlightKey = editor.menu.searchKey
+    composerMenuHighlight = (fieldMenuActive + delta + fieldEditor.menu.count) % max(1, fieldEditor.menu.count)
+    composerMenuHighlightKey = fieldEditor.menu.searchKey
   action composerMenuHover(index: number, over: bool)
     if over
       composerMenuHighlight = index
-      composerMenuHighlightKey = editor.menu.searchKey
+      composerMenuHighlightKey = fieldEditor.menu.searchKey
   action composerMenuKey(k: string)
     if k == "Escape"
-      editorOp("dismiss", "", "")
+      fieldEditorOp("dismiss", "", "")
     else if k == "ArrowDown" or k == "ArrowUp"
       composerMenuMove(k == "ArrowDown" ? 1 : -1)
     else
-      match first(editor.menu.rows.filter((row) => row.index == composerMenuActive))
+      match first(fieldEditor.menu.rows.filter((row) => row.index == fieldMenuActive))
         case some(row)
-          editorOp("pick", row.id, "")
+          fieldEditorOp("pick", row.id, "")
         case none
   state composerStashHighlight = 0
-  derive composerStashActive = (composerStashHighlight < editor.stash.count ? composerStashHighlight : 0)
+  derive composerStashActive = (composerStashHighlight < fieldEditor.stash.count ? composerStashHighlight : 0)
   action composerStashMove(delta: number)
-    composerStashHighlight = (composerStashActive + delta + editor.stash.count) % max(1, editor.stash.count)
+    composerStashHighlight = (composerStashActive + delta + fieldEditor.stash.count) % max(1, fieldEditor.stash.count)
   action composerStashHover(index: number, over: bool)
     if over
       composerStashHighlight = index
   action composerStashKey(k: string)
     if k == "Escape"
-      editorOp("stash-menu", "", "close")
+      fieldEditorOp("stash-menu", "", "close")
     else if k == "ArrowDown" or k == "ArrowUp"
       composerStashMove(k == "ArrowDown" ? 1 : -1)
     else
-      match first(editor.stash.rows.filter((entry) => entry.index == composerStashActive))
+      match first(fieldEditor.stash.rows.filter((entry) => entry.index == composerStashActive))
         case some(entry)
-          editorOp(k == "Enter" ? "stash-restore" : "stash-delete", entry.id, "")
+          fieldEditorOp(k == "Enter" ? "stash-restore" : "stash-delete", entry.id, "")
         case none
   // Each opening of the stash menu starts at its first row.
-  task composerStashClosed when not editor.stash.menuOpen and composerStashHighlight != 0
+  task composerStashClosed when not fieldEditor.stash.menuOpen and composerStashHighlight != 0
     after(1, composerStashReset)
   action composerStashReset
     composerStashHighlight = 0
   action composerGrammarKey(k: string, e: KeyboardEvent, composing: bool)
     let heldCommand = e.metaKey or e.ctrlKey
-    if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
-      if not heldCommand and not e.shiftKey and composerSelectionStart == composerSelectionEnd and ((k == "ArrowUp" and richComposer.historyPrevious) or (k == "ArrowDown" and richComposer.historyNext))
-        let caret = rangeFrame("composer", composerSelectionStart, composerSelectionStart)
-        let edge = rangeFrame("composer", k == "ArrowUp" ? 0 : composerText.length, k == "ArrowUp" ? 0 : composerText.length)
+    if composerRichCurrent and composerSelectionCurrent and not composing and not fieldEditor.menu.open and not fieldEditor.stash.menuOpen and not e.altKey
+      if not heldCommand and not e.shiftKey and composerSelectionStart == composerSelectionEnd and ((k == "ArrowUp" and fieldRich.historyPrevious) or (k == "ArrowDown" and fieldRich.historyNext))
+        let caret = rangeFrame(fieldId, composerSelectionStart, composerSelectionStart)
+        let edge = rangeFrame(fieldId, k == "ArrowUp" ? 0 : fieldText.length, k == "ArrowUp" ? 0 : fieldText.length)
         if not caret.unavailable and not edge.unavailable and caret.height > 0 and edge.height > 0 and max(caret.y - edge.y, edge.y - caret.y) < 1
           preventDefault()
           stopPropagation()
-          editorOp("history", k == "ArrowUp" ? "previous" : "next", "")
+          fieldEditorOp("history", k == "ArrowUp" ? "previous" : "next", "")
       // Tab indents a list item; ⇧Tab outdents code and a nested list item (listOutdentForTab).
       if k == "Enter" or (k == "Tab" and not heldCommand and (composerInCode or (composerInList and not e.shiftKey) or (composerInNestedList and e.shiftKey))) or (k == "Backspace" and not heldCommand and composerCodeStart)
         preventDefault()
@@ -483,11 +542,13 @@ members T3Code
   // composer-copied-chips.ts: the copied range's image and file chips, held as the latest copy. The field copies the text.
   action composerCopied
     if composerSelectionCurrent and composerSelectionStart < composerSelectionEnd
-      editorOp("chips-copied", `${composerSelectionStart}:${composerSelectionEnd}`, composerText)
+      fieldEditorOp("chips-copied", `${composerSelectionStart}:${composerSelectionEnd}`, fieldText)
   action composerKeyReleased(k: string, e: KeyboardEvent)
     composerShift = e.shiftKey
     composerCommand = e.metaKey or e.ctrlKey
   action composerFocus
+    fieldTarget = "" // the window's field (side-chat-members.contract)
+    fieldSide = false
     composerFocused = true
     composerComposing = false
     composerHeldMode = richComposer.mode
@@ -495,15 +556,16 @@ members T3Code
   // A change of mode remounts the composer (atoms need a literal markup); as the reference's restoreFocusRef does, a field
   // focused across it takes back the focus and selection. The remount's own blur comes after the change: it keeps the hold.
   state composerHeldMode = ""
-  task composerRemounted key=richComposer.mode
+  task composerRemounted key=fieldRich.mode
     after(1, composerRestore)
   action composerRestore
-    if composerHeldMode != "" and composerHeldMode != richComposer.mode
-      composerHeldMode = richComposer.mode
-      focus("composer")
-      setSelectionRange("composer", min(composerSelectionStart, composerText.length), min(composerSelectionEnd, composerText.length))
+    if composerHeldMode != "" and composerHeldMode != fieldRich.mode
+      composerHeldMode = fieldRich.mode
+      focus(fieldId)
+      setSelectionRange(fieldId, min(composerSelectionStart, fieldText.length), min(composerSelectionEnd, fieldText.length))
   action composerBlur
-    composerHeldMode = composerHeldMode == richComposer.mode ? "" : composerHeldMode
+    composerPasteAsTextUntil = 0
+    composerHeldMode = composerHeldMode == fieldRich.mode ? "" : composerHeldMode
     composerFocused = false
     composerTyping = false
     composerComposing = false

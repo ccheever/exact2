@@ -181,3 +181,16 @@ test('a side chat\'s answers offer no Fork, which would promote the side chat (C
   expect(forkable(client, {}, answer)).toBe(true);
   expect(forkable(threadScope(client, 's1'), {}, answer)).toBe(false);
 });
+
+test('a side chat field\'s edit is answered from its own source session (composerIntent\'s last argument is its thread)', async () => {
+  const { composerIntentAnswer } = await import('../../src/composer/composer-intent-source');
+  const { composerSourceSession } = await import('../../src/composer/composer-rich-state');
+  const { client } = await withSideChat();
+  const scope = threadScope(client, 's1');
+  composerSourceSession(scope).observe('side-owner', 'hi');
+  const args = [scope.snapshotOwner, 'side-owner', 'hi', 1, 2, 2, 'key', '', 'Enter', false, false, false, 'rich', 's1'];
+  expect(composerIntentAnswer(client, args).kind).toBe('stale');
+  expect(composerIntentAnswer(scope, args).kind).not.toBe('stale');
+  const members = (await import('../support/app-files')).appText('src/composer/composer-members.contract');
+  expect(members).toContain('false, fieldRich.mode, fieldTarget)');
+});

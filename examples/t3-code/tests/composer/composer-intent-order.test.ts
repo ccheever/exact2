@@ -1,5 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 import {contractComponent, contractFns, value, type Env} from '../support/contract-action-fixture';
+import { windowField } from '../support/window-field';
 import { appText } from '../support/app-files';
 
 import {composerIntentAnswer} from '../../src/composer/composer-intent-source';
@@ -40,6 +41,7 @@ function fixture(initial = 'word', caret = initial.length) {
       preventDefault: () => suppressed++, stopPropagation: () => {}, releaseUndoClaim: () => {}, ...chipFns,
       ...state,
     };
+    Object.assign(env, windowField(env));
     for (const name of ['composerRichCurrent', 'composerSelectionCurrent', 'composerFieldSnapshot',
       'composerIntentContextCurrent', 'composerIntentBaseCurrent', 'composerIntentReceiptCurrent']) {
       const line = source.find(line => line.startsWith(`  derive ${name} = `))!;
@@ -53,7 +55,8 @@ function fixture(initial = 'word', caret = initial.length) {
   let inherited: Env = {};
   function call(action: string, args: unknown[] = [], extra: Env = {}) {
     const previous = inherited; inherited = {...previous, ...extra};
-    try {root.call(action, state, {...scope(), ...inherited}, args);} finally {inherited = previous;}
+    const env = {...scope(), ...inherited};
+    try {root.call(action, state, {...env, ...windowField(env)}, args);} finally {inherited = previous;}
   }
   const input = (text: string, start: number, end = start, composing = false) => call('write', [text, {
     value: text, selectionStart: start, selectionEnd: end, isComposing: composing, inputType: 'insertText',
@@ -123,7 +126,7 @@ describe('actual root composer intent ordering', () => {
       if (change === 'selection') f.move(0);
       if (change === 'composition') f.move(Number(f.state.composerSelectionStart), undefined, true);
       expect(f.state.composerIntentQueue).toEqual([]);
-      expect(f.state.composerIntentNotice).not.toBe('');
+      expect(f.state.fieldIntentNotice).not.toBe('');
       const before = f.commands.length; f.reply(); expect(f.commands).toHaveLength(before);
     }
   });
@@ -158,9 +161,9 @@ describe('actual root composer intent ordering', () => {
   test('stale explicit ranges refuse visibly and a full bounded queue retains admitted keys', () => {
     const f = fixture('```ts\nx\n```'); f.press(); f.request('language', 'rust', 0, 5);
     f.call('composerIntentPump'); f.reply(); f.accept(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
-    expect(f.requests).toHaveLength(1); expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.composerIntentNotice).not.toBe('');
+    expect(f.requests).toHaveLength(1); expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.fieldIntentNotice).not.toBe('');
     const full = fixture(); for (let i = 0; i < 33; i++) full.press();
-    expect(full.state.composerIntentQueue).toHaveLength(32); expect(full.state.composerIntentNotice).not.toBe('');
+    expect(full.state.composerIntentQueue).toHaveLength(32); expect(full.state.fieldIntentNotice).not.toBe('');
   });
   test('beforeinput routes rapid line breaks and pastes through the same FIFO', () => {
     for (const [inputType, data] of [['insertLineBreak', null], ['insertFromPaste', 'x']] as const) {
@@ -178,21 +181,21 @@ describe('actual root composer intent ordering', () => {
     noOp.press(); noOp.call('composerIntentPump'); noOp.reply();
     expect(noOp.replies[0]?.kind).toBe('handled');
     expect(noOp.commands).toHaveLength(0);
-    expect(noOp.state.composerIntentNotice).toBe('');
+    expect(noOp.state.fieldIntentNotice).toBe('');
     noOp.call('composerIntentPump'); expect(noOp.requests).toHaveLength(2);
     const send = fixture();
     for (let i = 0; i < 2; i++) send.call('composerIntentRequest', ['key', '', 'Enter', false, false, 4, 4, false]);
     send.call('composerIntentPump'); send.reply(); send.reply();
     expect(send.sends).toBe(1); expect(send.state.composerIntentQueue).toEqual([]);
-    expect(send.state.composerIntentNotice).not.toBe('');
+    expect(send.state.fieldIntentNotice).not.toBe('');
   });
   test('changed input serial refuses alias source, and a new admission clears refusal', () => {
     const f = fixture(); f.press(); f.call('composerIntentPump');
     f.state.composerFieldInputSerial = 1;
-    f.reply(); expect(f.commands).toHaveLength(0); expect(f.state.composerIntentNotice).not.toBe('');
-    f.press(); expect(f.state.composerIntentNotice).toBe('');
-    f.state.composerIntentNotice = 'Previous edit was refused'; f.client.snapshotOwner = 'next';
-    f.call('composerIntentOwnerChanged'); expect(f.state.composerIntentNotice).toBe('');
+    f.reply(); expect(f.commands).toHaveLength(0); expect(f.state.fieldIntentNotice).not.toBe('');
+    f.press(); expect(f.state.fieldIntentNotice).toBe('');
+    f.state.fieldIntentNotice = 'Previous edit was refused'; f.client.snapshotOwner = 'next';
+    f.call('composerIntentOwnerChanged'); expect(f.state.fieldIntentNotice).toBe('');
   });
 
   test('typing in a code body, an empty one included, is the field\'s own', () => {
@@ -214,7 +217,7 @@ describe('actual root composer intent ordering', () => {
     typed.call('composerIntentPump'); typed.reply(); typed.accept(); typed.call('composerIntentConfirmed');
     expect([typed.state.draft, typed.state.composerSelectionStart]).toEqual(['```ts\nx\n```', 7]);
     const line = source.find(line => line.startsWith('  derive composerCodeStart = '))!;
-    const codeStart = value(line.slice(line.indexOf(' = ') + 3), {composerRichCurrent: true, composerSelectionStart: 6, composerSelectionEnd: 6, richComposer: {blocks}});
+    const codeStart = value(line.slice(line.indexOf(' = ') + 3), {composerRichCurrent: true, composerSelectionStart: 6, composerSelectionEnd: 6, fieldRich: {blocks}});
     expect(codeStart).toBe(true);
     const erased = fixture(draft, 6); erased.projection = {...erased.projection, blocks} as typeof erased.projection;
     erased.call('composerGrammarKey', ['Backspace', {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false}, false], {composerCodeStart: codeStart});
@@ -284,11 +287,11 @@ describe('actual root composer intent ordering', () => {
     const kinds = (f: ReturnType<typeof fixture>) => (f.state.composerIntentQueue as {kind: string}[]).map(item => item.kind);
     const f = fixture('- a', 3); f.press(); f.call('composerIntentPump');
     f.call('composerKeyEvent', ['i', italic]);
-    expect(f.formats).toEqual([]); expect(kinds(f)).toEqual(['key', 'format']); expect(f.state.composerIntentNotice).toBe('');
+    expect(f.formats).toEqual([]); expect(kinds(f)).toEqual(['key', 'format']); expect(f.state.fieldIntentNotice).toBe('');
     // Also while the list edit's projection still lags the field.
     f.reply(); f.accept(undefined, false);
     f.call('composerKeyEvent', ['i', italic]);
-    expect(kinds(f)).toEqual(['key', 'format', 'format']); expect(f.state.composerIntentNotice).toBe('');
+    expect(kinds(f)).toEqual(['key', 'format', 'format']); expect(f.state.fieldIntentNotice).toBe('');
     f.project(); f.call('composerIntentConfirmed'); f.call('composerIntentPump');
     expect(f.state.draft).toBe('- a\n- ');
     expect(f.formats).toEqual([['composer', 'italic']]); expect(f.state.composerIntentPhase).toBe('format');
@@ -297,21 +300,21 @@ describe('actual root composer intent ordering', () => {
     expect(f.formats).toEqual([['composer', 'italic'], ['composer', 'italic']]); expect(kinds(f)).toEqual(['format']);
     // A command that changed nothing reports no input; its turn still ends.
     f.call('composerIntentFormatSettled');
-    expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.composerIntentPhase).toBe(''); expect(f.state.composerIntentNotice).toBe('');
+    expect(f.state.composerIntentQueue).toEqual([]); expect(f.state.composerIntentPhase).toBe(''); expect(f.state.fieldIntentNotice).toBe('');
     f.press(); f.call('composerIntentPump'); expect(f.requests).toHaveLength(2);
   });
   test('fresh composition completion reaches independent field metadata without a synthetic input', () => {
     const f = fixture(); f.state.composerComposing = true;
     f.call('composerBeforeInput', [{value: 'word', selectionStart: 4, selectionEnd: 4,
       isComposing: false, cancelable: true, inputType: 'insertParagraph', data: null}]);
-    expect(f.observations.at(-1)).toEqual([expect.objectContaining({composing: false, value: 'word', inputSerial: 0}), false]);
+    expect(f.observations.at(-1)).toEqual([expect.objectContaining({composing: false, value: 'word', inputSerial: 0}), false, '']);
     expect(f.state.draft).toBe('word'); expect(f.state.composerFieldInputSerial).toBe(0);
   });
   test('Apple nonediting key after unchanged unmark refreshes field metadata once without source/input changes', () => {
     const f = fixture(); f.state.composerComposing = true;
     const event = {isComposing: false, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, code: 'ArrowRight'};
     f.call('composerKeyEvent', ['ArrowRight', event]);
-    expect(f.observations).toEqual([[expect.objectContaining({composing: false, value: 'word', start: 4, end: 4, inputSerial: 0}), false]]);
+    expect(f.observations).toEqual([[expect.objectContaining({composing: false, value: 'word', start: 4, end: 4, inputSerial: 0}), false, '']]);
     expect(f.state.composerComposing).toBe(false); expect(f.state.composerFieldInputSerial).toBe(0);
     expect(f.state.draft).toBe('word'); expect(f.commands).toHaveLength(0); expect(f.requests).toHaveLength(0);
     f.call('composerKeyEvent', ['ArrowRight', event]); expect(f.observations).toHaveLength(1);

@@ -3,7 +3,6 @@
 use Snapshot from "../shared/shapes.contract"
 use Question from "../shared/shapes.contract"
 use QuestionOption from "../shared/shapes.contract"
-use AttachButton from "./composer-controls.contract"
 use ChatMarkdown from "../timeline/markdown.contract"
 use ChatDocument from "../timeline/markdown.contract"
 
@@ -128,18 +127,9 @@ component QuestionChoice
           box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#18181b12, #f5f5f512)" display="flex" align-items="center" justify-content="center"
             text option.shortcut font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #a1a1a1)"
 
-// Stop, Previous and Submit/Next replace the composer's send cluster while a
-// question is pending (ComposerPrimaryActions pendingAction, compact labels).
-// It sits over the card's toolbar end, on the card's own surface colour.
-component RequestActions
-  props
-    data: Snapshot
-    command: action
-    busy: bool
-    scheme: string
-  view
-    QuestionActions(data=data, command=command, busy=busy)
-
+// Stop, Previous and Submit/Next in place of the composer's send cluster while a question is pending
+// (ComposerFooterPrimaryActions `pendingAction`, compact: gap-1.5), at the toolbar's end after its controls; Attach files
+// stays at the toolbar's start (composer-controls.contract ComposerFooter).
 component QuestionActions
   props
     data: Snapshot
@@ -147,11 +137,7 @@ component QuestionActions
     busy: bool
   view
     for q in data.questions key=q.id
-      row position="absolute" right="0.875rem" bottom="0.875rem" height="2.375rem" padding-left="0.5rem" padding-right="0.1875rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" gap="0.375rem" align-items="center" background-color="light-dark(#fefefe, #101010)" testId="question-actions"
-        // Attach files sits outside the pending actions (gap-2), which space their own buttons 6pt apart.
-        if data.composer.attach
-          box display="flex" margin-right="0.125rem" flex-shrink=0
-            AttachButton(disabled=(busy or q.responding))
+      row gap="0.375rem" align-items="center" flex-shrink=0 testId="question-actions"
         if data.canStop
           button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width="1.75rem" height="1.75rem" padding=0 border-radius="0.75rem" border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
             svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true

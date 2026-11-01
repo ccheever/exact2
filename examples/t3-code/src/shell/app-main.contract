@@ -40,7 +40,6 @@ use TimelineMinimap, turnRunStart, turnRunEnd, turnBefore from "../timeline/time
 use TimelineAnchor, anchorOf, anchorKept, anchorKey from "../timeline/timeline-anchor.contract"
 use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
 use RequestBanner from "../composer/requests.contract"
-use RequestActions from "../composer/requests.contract"
 use DiffPanel from "../diff/diff.contract"
 use ShellView from "./shell-shapes.contract"
 use SurfacePanel from "./shell-panels.contract"
@@ -362,8 +361,6 @@ component ChatColumn
                 ComposerStrip(strip=branches, open=optionsOpen, busy=commandPending, openOptions=openOptions, command=command, wide=(stackWidth >= 36 * rem), compact=data.composer.stripCompact, composer=data.composer)
               if data.composer.detachedNotices.length > 0
                 ComposerDetachedNotices(data=data, busy=commandPending, command=command, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
-            if data.requestMode == "question"
-              RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)
       // The header's thread details popover (app.contract detailsShown: chat is narrow, or the floating player left the
       // docked card no placement), 13pt in from the chat column's right edge and under the floating player, as the

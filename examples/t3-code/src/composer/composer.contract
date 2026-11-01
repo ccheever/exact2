@@ -82,6 +82,11 @@ component ComposerCard
     composerKeyReleased: action
     // A copy or cut of the prompt's selection: its image and file chips are held for a paste into another draft.
     composerCopied: action
+    composerPasteValue: string
+    composerPasteStart: number
+    composerPasteEnd: number
+    composerPasteAsTextUntil: number
+    composerPasteTaken: action
     // A press on a reference's pill (app.contract composerChipPress).
     composerChipPress: action
     // A drop, a paste or Attach files (app.contract attachFiles, composer-controls-attach.ts).
@@ -117,54 +122,28 @@ component ComposerCard
   // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
   derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
   derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0)
-  // The field's value and selection as its events last reported them, where a held paste goes. Focused but not yet
-  // edited or moved in, the field reports none: its caret is at the end of its value.
-  state pasteValue = ""
-  state pasteStart = 0
-  state pasteEnd = 0
-  action richMoved(e: InputEvent)
-    pasteValue = e.value
-    pasteStart = e.selectionStart
-    pasteEnd = e.selectionEnd
-    composerMoved(e)
-  action richBeforeInput(e: InputEvent)
-    pasteValue = e.value
-    pasteStart = e.selectionStart
-    pasteEnd = e.selectionEnd
-    composerBeforeInput(e)
-  // isPasteAsTextShortcut (⇧⌘V, no ⌥ or ⌃) arms the paste its menu item brings as Paste as Text for one second
-  // (armPasteAsTextShortcut's deadline).
-  action richKey(k: string, e: KeyboardEvent)
-    if k.toLowerCase() == "v" and e.shiftKey and e.metaKey and not e.altKey and not e.ctrlKey
-      pasteAsTextUntil = performanceNow() + 1000
-    composerKeyEvent(k, e)
-  action richKeyReleased(k: string, e: KeyboardEvent)
-    composerKeyReleased(k, e)
-  action richWrite(value: string, e: InputEvent)
-    write(value, e)
-  action richCopied
-    composerCopied()
+  // The field's events go straight to the window's editing engine (composer-members.contract), which serves the
+  // focused field: a handler names the engine's action, where a call would copy its body into each composer. The
+  // engine keeps the field's value and selection as its events last reported them (`composerPasteValue`, where a held
+  // paste goes; focused but not yet edited or moved in, the field reports none: its caret is at the end of its value),
+  // and arms ⇧⌘V's Paste as Text (`composerPasteAsTextUntil`).
   action richAtom(e: AtomEvent)
     composerChipPress("composer", richComposerOwner, text, composerFieldInputSerial, e.start, e.end, e.source, e.kind == "citation" and e.altKey)
-  action richBlurred
-    pasteAsTextUntil = 0
-    onBlur()
   // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
   // prompt); a large text paste is held (preventDefault) and folds into a file (composer-editor-files.ts foldPaste,
   // through attachFiles' queue: the field's value and selection let it put the chip where the paste would have gone,
-  // and its id, microseconds on the runner's clock, rises with each paste). Armed by its key (richKey), the paste is Paste as Text
+  // and its id, microseconds on the runner's clock, rises with each paste). Armed by its key (composerKeyEvent), the paste is Paste as Text
   // (consumePasteAsTextShortcut, one paste only): its images get no inline chip and its text stays inline however large
   // (bypassAutoAttachment). Edit › Paste as Text chosen with the pointer arms it in the module (T3Menus.swift, the
   // reference's DESKTOP_PASTE_AS_TEXT_EVENT), which TypeScript reads for the paste it held or the files it attaches.
   // Leaving the composer disarms it, as the reference's window blur does.
-  state pasteAsTextUntil = 0
   action pasted(e: ClipboardEvent)
-    let asText = performanceNow() <= pasteAsTextUntil
-    let current = pasteValue == text
-    let start = current ? pasteStart : text.length
-    let end = current ? pasteEnd : text.length
+    let asText = performanceNow() <= composerPasteAsTextUntil
+    let current = composerPasteValue == text
+    let start = current ? composerPasteStart : text.length
+    let end = current ? composerPasteEnd : text.length
     let fold = asText ? "inline" : composerPasteDisposition(e.text, text.length, start, end, editor.foldLimit)
-    pasteAsTextUntil = 0
+    composerPasteTaken()
     if data.projectId != "" and composerPasteTakesFiles(e.files, e.text)
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
@@ -213,11 +192,11 @@ component ComposerCard
             // Switching threads lands the focus here, so the field's name says the thread (ChatComposer ariaLabel). Each source
             // line reads in its block's majority direction (ComposerTextDirectionExtension); on macOS the arrow keys follow it.
             if richComposer.mode == "rich"
-              textarea id=`${composerScope}composer` testId=`${composerScope}composer` hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces paragraphDirs=richComposer.dirs atompress=richAtom selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+              textarea id=`${composerScope}composer` testId=`${composerScope}composer` hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=write paste=pasted copy=composerCopied cut=composerCopied markup="markdown" atoms="citation context file mention skill" atomFaces=faces paragraphDirs=richComposer.dirs atompress=richAtom selectionchange=composerMoved beforeinput=composerBeforeInput key=composerKeyEvent keyup=composerKeyReleased focus=onFocus blur=onBlur aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
             else
               // With Markdown formatting off the field is plain source: the editor draws atoms only where it styles Markdown
               // (LLP 1045.000 D3), so a reference shows its source there. A literal answer has no chips (the reference's too).
-              textarea id=`${composerScope}composer` testId=`${composerScope}composer` hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=richWrite paste=pasted copy=richCopied cut=richCopied selectionchange=richMoved beforeinput=richBeforeInput key=richKey keyup=richKeyReleased focus=onFocus blur=richBlurred aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
+              textarea id=`${composerScope}composer` testId=`${composerScope}composer` hatch="t3-composer" data-snapshot-owner=data.snapshotOwner data-owner=richComposerOwner value=text input=write paste=pasted copy=composerCopied cut=composerCopied selectionchange=composerMoved beforeinput=composerBeforeInput key=composerKeyEvent keyup=composerKeyReleased focus=onFocus blur=onBlur aria-label=data.composer.fieldLabel aria-description=data.composer.placeholder width="100%" field-sizing="content" height="auto" min-height=`${data.look.promptSize * 1.625 * 2}px` font-family=data.look.promptFont font-size=data.look.promptSize line-height=`${data.look.promptSize * 1.625}px` padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#18181b, #f5f5f5)" caret-color="light-dark(#18181b, #f5f5f5)" autocorrect="off" outline="none" data-editable="yes"
         ComposerCodeHeaders(source=richComposer, owner=richComposerOwner, value=text)
       // The prompt editor (composer-editor.contract): the length line.
       if composerIntentNotice != ""

@@ -173,7 +173,9 @@ describe('a search highlights its first row a person can choose', () => {
     // modelMeasure records the pick the picker opened on; without it modelEffortFocusTask sees a new pick and moves
     // the focus to the effort column.
     const members = await source('composer-members.contract');
-    expect(members).toContain('else if result.then == "models"\n            // As the trigger\'s press: the anchor, and the pick the effort focus compares against.\n            modelMeasure()\n            openModels()');
+    expect(members).toContain('else if result.then == "models"\n            // As the trigger\'s press: the anchor, and the pick the effort focus compares against.\n            fieldOpenModels()');
+    // The window's field opens the window's picker, a side chat's its own (side-chat-members.contract).
+    expect(members).toContain('  action fieldOpenModels\n    if fieldSide\n      sideModelMeasure()\n      sideOpenModels()\n    else\n      modelMeasure()\n      openModels()');
   });
 });
 

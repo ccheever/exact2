@@ -230,10 +230,17 @@ export function contractComponent(file: string, name: string) {
      * the starting state too, and its writes land with these. A function of the same name in `scope` stands in for it.
      */
     call(actionName: string, state: Env, scope: Env, args: unknown[]) {
-      const writes: Env = {}, slots = new Set(Object.keys(state));
+      // A slot the test leaves out of `state` reads as its declared value, unless the scope gives it, and an action may
+      // write it: the write lands on `state` as the others do.
+      const declared: Env = {};
+      for (const line of lines) {
+        const m = /^  state (\w+) = (.+)$/.exec(line);
+        if (m && !(m[1]! in state) && !(m[1]! in scope)) { try { declared[m[1]!] = value(m[2]!, scope); } catch { /* typed or shaped: left out */ } }
+      }
+      const writes: Env = {}, slots = new Set([...Object.keys(state), ...Object.keys(declared)]);
       const own: Env = {};
       // Each derive the scope can give (a test's scope may leave out what an unrelated derive reads).
-      const derived: Env = {}, env: Env = { ...scope, ...state };
+      const derived: Env = {}, env: Env = { ...declared, ...scope, ...state };
       for (const line of lines) {
         const m = /^  derive (\w+) = (.+)$/.exec(line);
         if (!m) continue;
@@ -241,7 +248,7 @@ export function contractComponent(file: string, name: string) {
       }
       const invoke = (target: string, values: unknown[]) => {
         const { params, body } = action(target);
-        run(body, { ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
+        run(body, { ...declared, ...own, ...derived, ...scope, ...state, ...Object.fromEntries(params.map((p, i) => [p, values[i]])) }, slots, writes, name);
       };
       for (const line of lines) { const m = /^  action (\w+)/.exec(line); if (m && !(m[1]! in scope)) own[m[1]!] = (...values: unknown[]) => invoke(m[1]!, values); }
       invoke(actionName, args);

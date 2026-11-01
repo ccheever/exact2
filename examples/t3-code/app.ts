@@ -169,8 +169,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
     const base = windowData;
     return highlightView('sideChat', () => {
       const side = snapshot(sideChatClient(client, threadId), Number(args[2]) || 0, String(args[3] ?? ''), String(args[4] ?? ''));
-      // The window's chords reach the window's composer; a side chat's controls declare none.
-      return { ...base, ...side, composer: { ...side.composer, keyEffort: '', keyMode: '' } };
+      return { ...base, ...side };
     });
   }
   if (source === 'threadFind') return native?.available ? threadFindTick(client, native, Number(args[1]) || 0, arr(args[2]).map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) })), String(args[3] || '')) : threadFindView(client);
@@ -184,11 +183,11 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'refreshComposerWorkspace') return refreshComposerWorkspace(client, native, String(args[0] || ''));
   if (source === 'composerEditor') { noteLayoutFrames(client, args[2]); return composerEditorView(sideChatClient(client, String(args[3] ?? '')), native, Number(args[1]) || 0); } // args[3]: a side chat's composer
   if (source === 'composerRich') return composerRichSource(sideChatClient(client, String(args[6] ?? '')), { snapshotOwner: String(args[0] ?? ''), owner: String(args[1] ?? ''), value: String(args[2] ?? ''), inputType: String(args[4] ?? ''), surface: args[5] === 'preview' ? 'preview' : 'composer' }); // args[6]: a side chat's composer
-  if (source === 'composerField') return composerFieldResource(client, args, composerFieldOwner(client), native);
-  if (source === 'composerFieldObserved') return composerFieldObserved(client, args, composerFieldOwner(client));
-  if (source === 'sideFieldObserved') { const scope = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(scope, args, composerFieldOwner(scope)); } // a side chat's field (side-chat-members.contract)
-  if (source === 'composerFieldAcknowledged') return composerFieldAcknowledged(client, args, composerFieldOwner(client), native);
-  if (source === 'composerIntent') return composerIntentAnswer(client, args);
+  // The composer field the editing engine serves: the window's, or a side chat's (its thread, the last argument).
+  if (source === 'composerField') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldResource(host, args, composerFieldOwner(host), native); }
+  if (source === 'composerFieldObserved') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(host, args, composerFieldOwner(host)); }
+  if (source === 'composerFieldAcknowledged') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldAcknowledged(host, args, composerFieldOwner(host), native); }
+  if (source === 'composerIntent') return composerIntentAnswer(sideChatClient(client, String(args[13] ?? '')), args); // the field's source session: a side chat's is its scope's
   if (source === 'composerChip') return chipPopoverView(client);
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
   if (source === 'composerChipPressed') return composerChipPressed(client, args[0]);

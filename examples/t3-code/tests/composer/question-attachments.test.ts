@@ -11,6 +11,7 @@ import { draftRows } from '../../src/sidebar/sidebar-view';
 import { fileChipLink, foldLimit, stageTextAttachment } from '../../src/composer/composer-editor-files';
 import { toasts } from '../../src/shell/toast';
 import { memoryFiles, png } from '../support/app-files-fixture';
+import { appText } from '../support/app-files';
 import { contractComponent } from '../support/contract-action-fixture';
 
 const uuid = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
@@ -280,5 +281,17 @@ describe('SnapShots during a question', () => {
     await f.client.adoptSnapshots(f.native, f.files);
     expect(f.client.local.snapshotDrafts['env:t']).toMatchObject([{ id: f.id }]);
     expect(f.client.local.snapshotDrafts[f.key]).toBeUndefined();
+  });
+});
+
+describe('a pending question\'s actions are the toolbar\'s end (ComposerFooterPrimaryActions pendingAction)', () => {
+  test('Stop, Previous and Submit take the send cluster\'s place in the toolbar\'s row, not a layer over it', () => {
+    const footer = contractComponent('composer-controls.contract', 'ComposerFooter');
+    const scope = (requestMode: string) => ({ busy: false, text: '', viewportWidth: 800, max: Math.max, data: { requestMode, connected: true, canSend: true, snapshotDrafts: [],
+      composer: { attach: true, noProvider: '', controlsHidden: false, uploadBlock: '', queueEditAttachments: [], toolbarRight: 0, sendTipWidth: 0, modeOverflow: false } } });
+    expect([footer.drawn('QuestionActions(', {}, scope('question')), footer.drawn('PrimaryActions(', {}, scope('question'))]).toEqual([true, false]);
+    expect([footer.drawn('QuestionActions(', {}, scope('')), footer.drawn('PrimaryActions(', {}, scope(''))]).toEqual([false, true]);
+    const row = appText('src/composer/requests.contract').split('\n').find(line => line.includes('testId="question-actions"'))!;
+    expect(row).not.toContain('position=');
   });
 });

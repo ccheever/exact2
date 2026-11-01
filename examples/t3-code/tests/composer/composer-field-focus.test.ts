@@ -2,6 +2,7 @@ import {describe, expect, test} from 'bun:test';
 import { appText } from '../support/app-files';
 
 import {contractComponent, value, type Env} from '../support/contract-action-fixture';
+import { windowField } from '../support/window-field';
 
 const root = contractComponent('app.contract', 'T3Code');
 const lines = appText('app.contract').split('\n');
@@ -22,6 +23,7 @@ function fixture() {
   };
   const scope = () => {
     const current: Env = {...env, ...state};
+    Object.assign(current, windowField(current));
     current.composerFieldFocusCurrent = value(derived, current);
     return current;
   };

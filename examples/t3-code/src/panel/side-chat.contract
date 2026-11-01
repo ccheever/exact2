@@ -13,7 +13,7 @@ use ComposerCard from "../composer/composer.contract"
 use ComposerDock from "../composer/composer-controls.contract"
 use ComposerEditorView, ComposerEditorDock, ComposerDrawerLayer from "../composer/composer-editor.contract"
 use ComposerRichView from "../composer/composer-rich.contract"
-use RequestBanner, RequestActions from "../composer/requests.contract"
+use RequestBanner from "../composer/requests.contract"
 
 component SideChatBody
   inject
@@ -110,32 +110,28 @@ component SideChatThread
     sideOpenModels: action
     sideModelOpenTo: action
     sideOpenOptions: action
-    sideKey: action
-    sideMoved: action
-    sideMenuActive: number
-    sideMenuHover: action
     sideNow: number
+    sideComposerFocus: action
+    composerBlur: action
+    fieldSide: bool
+    fieldIntentNotice: string
+    fieldMenuActive: number
+    sideKeys: bool
+    keyModelsChord: string
     openProviderSettings: action
   props
     still: bool
   derive composerScope = "side-chat-"
-  derive composerFieldInputSerial = 0
-  derive composerIntentNotice = ""
+  // The window's editing engine serves this field while it has the focus (side-chat-members.contract fieldTarget):
+  // its edit notice and command menu highlight show here then.
+  derive composerIntentNotice = fieldSide ? fieldIntentNotice : ""
+  derive composerChords = sideKeys
   derive richComposer = sideRich
   derive richComposerOwner = sideRichOwner
   derive questionDocuments = sideQuestionMarkdown.documents
   derive traceDocuments = sideTraceMarkdown.documents
-  derive composerMenuActive = sideMenuActive
-  action composerMoved(e: InputEvent)
-    sideMoved(e)
-  action composerBeforeInput(e: InputEvent)
-    quiet = 0
-  action composerKeyEvent(k: string, e: KeyboardEvent)
-    sideKey(k, e)
-  action composerKeyReleased(k: string, e: KeyboardEvent)
-    quiet = 0
-  action composerCopied
-    quiet = 0
+  derive composerMenuActive = fieldSide ? fieldMenuActive : 0
+  // A pill's details are the window's composer's (composer-chip-popover.ts reads the window's field).
   action composerChipPress(surface: string, owner: string, value: string, serial: number, start: number, end: number, source: string, comment: bool)
     quiet = 0
   action attachFiles(origin: string, files: string[], picked: Picked[], asText: bool, target: string)
@@ -146,8 +142,6 @@ component SideChatThread
     sideModelMeasure()
   action modelOpenTo(target: string)
     sideModelOpenTo(target)
-  action composerMenuHover(index: number, over: bool)
-    sideMenuHover(index, over)
   // The transcript's tooltips (ChatColumn tipEpoch): a scroll after one was shown closes it until the pointer moves.
   state tipEpoch = 0
   state tipArmed = false
@@ -161,24 +155,18 @@ component SideChatThread
     tipEpoch
     tipArm
     composerScope
-    composerFieldInputSerial
     composerIntentNotice
+    composerChords
     richComposer
     richComposerOwner
     questionDocuments
     traceDocuments
     composerMenuActive
-    composerMoved
-    composerBeforeInput
-    composerKeyEvent
-    composerKeyReleased
-    composerCopied
     composerChipPress
     attachFiles
     chooseAttachments
     modelMeasure
     modelOpenTo
-    composerMenuHover
   // The hovered row and its hovered tooltip part (ChatColumn rowHover, partHover).
   state rowHover = ""
   state partHover = ""
@@ -196,14 +184,13 @@ component SideChatThread
   action dismiss(notice: string, op: string, target: string)
     sideCommand(op, target, "", 0)
   action focused
-    quiet = 0
+    sideComposerFocus()
   action blurred
-    quiet = 0
+    composerBlur()
   // The shelf asks before removing a referenced image (app.contract titleMenuPick); here it removes it.
   action askRemove(target: string, id: string, op: string, title: string, body: string, destructive: bool)
     sideRemoveSnapshot(id)
   derive mine = composerTarget == sideChatThread
-  // What the window's composer does on these (selection and intent tracking, the field's focus) has no side chat part.
   state quiet = 0
   view
     column flex=1 min-height=0 width="100%" position="relative" testId="side-chat-view"
@@ -217,7 +204,5 @@ component SideChatThread
           RequestBanner(data=sideChat, command=sideCommand, maximumHeight=320)
         column width="100%" max-width=sideChat.look.chatMax position="relative"
           ComposerEditorDock(editor=sideEditor, dark=(scheme == "dark"), op=sideEditorOp)
-          ComposerCard(editor=sideEditor, data=sideChat, viewportWidth=inlineDocumentViewportWidth, text=sideText, busy=commandPending, keyModels="", modelsOpen=(modelsOpen and mine), optionsOpen=(mine ? optionsOpen : ""), write=sideWrite, send=sideSend, stop=sideStop, onFocus=focused, onBlur=blurred, openModels=sideOpenModels, openOptions=sideOpenOptions, removeSnapshot=sideRemoveSnapshot, askRemove=askRemove, interaction=sideInteraction, command=sideCommand, openProviders=openProviderSettings, contextOver=false, urls=sideAttachmentUrls.items)
-          if sideChat.requestMode == "question"
-            RequestActions(data=sideChat, command=sideCommand, busy=commandPending, scheme=scheme)
+          ComposerCard(editor=sideEditor, data=sideChat, viewportWidth=inlineDocumentViewportWidth, text=sideText, busy=commandPending, keyModels=keyModelsChord, modelsOpen=(modelsOpen and mine), optionsOpen=(mine ? optionsOpen : ""), write=sideWrite, send=sideSend, stop=sideStop, onFocus=focused, onBlur=blurred, openModels=sideOpenModels, openOptions=sideOpenOptions, removeSnapshot=sideRemoveSnapshot, askRemove=askRemove, interaction=sideInteraction, command=sideCommand, openProviders=openProviderSettings, contextOver=false, urls=sideAttachmentUrls.items)
       ComposerDrawerLayer(editor=sideEditor, dark=(scheme == "dark"), op=sideEditorOp)

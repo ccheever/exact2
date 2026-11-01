@@ -181,6 +181,11 @@ component T3Code
     composerKeyEvent
     composerKeyReleased
     composerCopied
+    composerPasteValue
+    composerPasteStart
+    composerPasteEnd
+    composerPasteAsTextUntil
+    composerPasteTaken
     attachFiles
     chooseAttachments
     composerUploads
@@ -251,11 +256,16 @@ component T3Code
     sideOpenModels
     sideModelOpenTo
     sideOpenOptions
-    sideKey
-    sideMoved
-    sideMenuActive
-    sideMenuHover
     sideNow
+    sideComposerFocus
+    composerBlur
+    fieldSide
+    fieldIntentNotice
+    fieldMenuActive
+    sideKeys
+    composerChords
+    keyModelsChord
+    dispatchCommand
     openProviderSettings
     modelsOpen
     optionsOpen
@@ -1058,7 +1068,7 @@ component T3Code
     releaseUndoClaim() // a paste from a menu, dictation or a drop edits without a key
     let inputSerial = composerFieldInputSerial + 1
     composerFieldInputSerial = inputSerial
-    send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=composerFieldLive, focused=composerFocused, inputSerial=inputSerial), true)
+    send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=composerFieldLive, focused=composerFocused, inputSerial=inputSerial), true, "")
     draft = value
     draftOwner = `${composerOwner}${data.requestKey}`
     composerInputType = e.inputType
