@@ -1,6 +1,5 @@
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 
-export const appId = 'com.example.starter';
 const FILE = 'app:/data/log.json';
 export const grants = `fs.read ${FILE}\nfs.write ${FILE}`;
 

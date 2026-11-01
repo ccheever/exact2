@@ -36,7 +36,6 @@ Use the same check for a server or workspace: its answer names that owner.
 ```ts
 import type { Answer, Result } from './app.contract.d.ts';
 
-export const appId = 'com.example.feed';
 const API = 'https://jsonplaceholder.typicode.com';
 export const grants = `net.fetch ${API}`;
 

@@ -594,7 +594,8 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
   said.unshift(`app.json: ${JSON.stringify({ typescript: app.typescript })}`);
   if (!sources.backend) said.push('app.json mounts no `backend` yet: app.ts imports ./backend/api.ts once ../snapback/generated exists.');
   const ts = existsSync(resolve(dir, 'app.ts')) ? readFileSync(resolve(dir, 'app.ts'), 'utf8') : '';
-  const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
+  // app.ts may name no id (the build takes app.json's); one it names must agree.
+  const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1] ?? app.app?.id;
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build && !online) {
     let compatible = false;
@@ -670,8 +671,6 @@ test "the header's button likes it"
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-// app.json’s app.id: change the two together.
-export const appId = '${id}';
 export const grants = '';
 
 const sources: Sources = {

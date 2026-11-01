@@ -36,7 +36,6 @@ component App
 ```ts
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.notes';
 export const grants = '';
 
 const sources: Sources = {

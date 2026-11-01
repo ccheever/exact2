@@ -2251,8 +2251,10 @@ Hermes bytecode with the compiler from the verified install-once bundle:
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 ```
 
-The app exports `appId`, `grants`, and an `Answer`-typed `answer`; `appId` and
-`grants` are constants the build reads from the source without running it (a
+The app exports `grants` and an `Answer`-typed `answer`, and may export `appId`,
+which must then be `app.json`'s `app.id` (the build supplies that id when it does
+not); `appId` and `grants` are constants the build reads from the source without
+running it (a
 string, a template or `+` of constants, an array of them `.join('\n')`, or a
 top-level `const` holding one). Numbers keep their type: `1 + 2` is `3`, while
 `'a' + 1 + 2` is `'a12'`. Conditional expressions are refused.

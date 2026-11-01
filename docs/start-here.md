@@ -248,7 +248,6 @@ addon is refused by name. Type an untyped one with `@types/<name>` or `declare m
 ```ts
 import type { Answer, Result, Sources, Storage } from './app.contract.d.ts';
 
-export const appId = 'com.example.groceries';
 export const grants = 'fs.read app:/data/items.json\nfs.write app:/data/items.json';
 
 type Item = Result<'loadItems'>[number];

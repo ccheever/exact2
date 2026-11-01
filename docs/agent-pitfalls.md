@@ -1620,8 +1620,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (`com.example.contacts-exact2`, a bake-off's every round): a native drive's
   `--storage s1`, a simulator's container and the installed app are that id's. The
   web keeps a development store by the app's folder too, so there it is the app's
-  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`)
-  and `app.ts`'s `appId`, as `exact new` writes them (`com.example.<name>-3f9a2c`).
+  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`),
+  as `exact new` writes them (`com.example.<name>-3f9a2c`), and in an `appId` its
+  `app.ts` exports.
   (LLP 1116.004 D8, bake-off round 6 contacts.)
 
 - **A save that fails in the background is lost to the person.** An answer that

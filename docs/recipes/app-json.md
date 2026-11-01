@@ -37,7 +37,7 @@ component App
 - **`audio_session`**: `"playback"` where sound is the point (the silent switch leaves it
   on); the default `ambient` mixes with other audio.
 - **`app.id` and `app.name`** are set before the first build (`exact new --name --bundle-id`,
-  [porting-and-release](porting-and-release.md)); `app.ts`'s `appId` matches.
+  [porting-and-release](porting-and-release.md)); `app.ts` takes the id from here.
 - **`host.ios.launchImage`** `{ "src": "assets/splash.png", "width": 276 }`: the launch
   screen's PNG, `width` points wide, on `background_color`.
 - **`host.ios.icon`** `"art/App.icon"`: an Icon Composer `.icon`; the web keeps `icons`.

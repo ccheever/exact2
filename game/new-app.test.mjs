@@ -342,7 +342,8 @@ test('exact new names the app and its bundle id before any build, and refuses an
     createApp(dir, { title: 'Field "Log" $5', id: 'com.yourcompany.fieldlog' });
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     assert.deepEqual([manifest.app, manifest.name, manifest.short_name, manifest.id], [{ id: 'com.yourcompany.fieldlog', name: 'Field "Log" $5' }, 'Field "Log" $5', 'Field "Log" $5', 'com.yourcompany.fieldlog']);
-    assert.match(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /^export const appId = 'com\.yourcompany\.fieldlog';$/m);
+    // The id is app.json's alone: app.ts names none (LLP 1030 D2).
+    assert.doesNotMatch(readFileSync(resolve(dir, 'app.ts'), 'utf8'), /appId/);
     const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
     assert.match(view, /^component FieldLog$/m, 'the component keeps the folder\'s name, which is always an identifier');
     assert.ok(view.includes('text "Field \\"Log\\" \\$5" role="heading"'), view);
@@ -648,7 +649,7 @@ test('a new app\'s id is its own, and update keeps the id an older app has', () 
       const manifest = JSON.parse(read(dir, 'app.json'));
       assert.match(manifest.app.id, /^com\.example\.contacts-[0-9a-f]{6}$/);
       assert.equal(manifest.id, manifest.app.id, 'the web manifest names the same app');
-      assert.ok(read(dir, 'app.ts').includes(`\nexport const appId = '${manifest.app.id}';\n`), 'app.ts names the id app.json does');
+      assert.ok(!read(dir, 'app.ts').includes('appId'), 'app.ts takes the id app.json names');
       assert.equal(readManifest(dir, 'contacts').app.id, manifest.app.id, 'the id is one the schema accepts');
       return manifest.app.id;
     });
@@ -661,7 +662,7 @@ test('a new app\'s id is its own, and update keeps the id an older app has', () 
     assert.equal(JSON.parse(before[0]).app.id, 'com.example.contacts');
     // And a pattern writes the id it has, taking the template's app.ts as untouched.
     assert.match(applyPattern(one, 'one-screen').said, /\(com\.example\.contacts\)$/);
-    assert.ok(read(one, 'app.ts').includes("\nexport const appId = 'com.example.contacts';\n"));
+    assert.ok(!read(one, 'app.ts').includes('appId'));
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
@@ -678,12 +679,12 @@ test('a pattern replaces the template, refuses an edited file unless forced, and
     assert.deepEqual(patterns().map(p => p.name), ['one-screen', 'list-detail', 'tabs', 'dashboard', 'rest', 'site']);
     for (const { line } of patterns()) assert.ok(line.length > 20 && line.length <= 92 && !line.startsWith('//'), line);
     const read = (file) => readFileSync(resolve(dir, file), 'utf8');
-    // The app's own id (LLP 1116.004 D8), which the template's untouched app.ts carries.
+    // The app's own id (LLP 1116.004 D8), which app.json carries.
     const id = JSON.parse(read('app.json')).app.id;
     assert.match(id, /^com\.example\.field-log-[0-9a-f]{6}$/);
     const { said } = applyPattern(dir, 'list-detail');
     assert.equal(said, `list-detail: wrote app.contract, app.ts, app.test.contract as Field Log (${id})`);
-    assert.ok(read('app.ts').includes(`\nexport const appId = '${id}';\n`));
+    assert.ok(!read('app.ts').includes('appId'));
     assert.match(read('app.contract'), /^\/\/ Field Log: a list that pushes a detail/);
     assert.match(read('app.contract'), /text "Field Log" role="heading" aria-level=1/);
     assert.doesNotMatch(read('app.contract') + read('app.ts'), /Starter|com\.example\.starter/);

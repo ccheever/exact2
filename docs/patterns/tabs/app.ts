@@ -1,6 +1,5 @@
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.starter';
 export const grants = '';
 
 const sources: Sources = {

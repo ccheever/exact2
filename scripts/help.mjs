@@ -511,7 +511,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows] [--game [--assets]]',
     flags: [
       ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
-      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
+      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id); default: com.example.<name>-<hex>'],
       ['--with <platforms>', 'name native platforms in app.json now (a native verb names its own the first time it runs)'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],
