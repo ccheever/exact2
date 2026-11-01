@@ -227,7 +227,8 @@ describe('a composer menu follows its trigger (openOptions, frameMoved)', () => 
     expect(run('frameMoved', [0, 0], '', { 'composer-runtime-trigger': { x: 330, width: 96 } })).toMatchObject({ optionsAnchorX: -1 });
   });
   test('a trigger that is not laid out leaves the menu at the card\'s edge', () => {
-    expect(run('measureOptionsTrigger', ['effort'], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
+    expect(run('measureOptionsTrigger', ['more'], '', {})).toMatchObject({ optionsAnchorX: -1, optionsAnchorWidth: 0 });
+    expect(frames.optionsTriggerId!('more')).toBe('composer-more-trigger');
     expect(frames.optionsTriggerId!('context')).toBe('context-window-meter');
     expect(frames.optionsTriggerId!('implement')).toBe('implement-actions');
   });

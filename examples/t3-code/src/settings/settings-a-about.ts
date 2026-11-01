@@ -18,6 +18,9 @@ import { CLIENT_VERSION } from '../connections/connections';
 import { defaultUpdateChannel, writeDesktopSettings, type DesktopUpdateChannel } from '../connections/local-backend';
 import { letGo } from '../client/let-go';
 import { pushToast } from '../shell/toast';
+import { announce } from '../shell/announce';
+import { updateEverythingMachines } from '../sidebar/update-everything';
+import { awaitsTrackSwitch, channelSwitchLabel } from '../sidebar/update-everything-logic';
 
 export type DeliveryFacts = { stream: string; staged: boolean };
 const facts = new WeakMap<T3Client, DeliveryFacts>();
@@ -38,9 +41,19 @@ export const updateChannel = (delivery: DeliveryFacts) => delivery.stream.split(
 /** The saved track (`DesktopSettings.updateChannel`), the reference's `updateState.channel` while it has no feed. */
 const savedChannel = (client: T3Client): DesktopUpdateChannel => client.localBackend?.settings.updateChannel ?? defaultUpdateChannel(CLIENT_VERSION);
 
+/**
+ * AboutVersionSection's unswitchedMachines: this app when its updater runs off the chosen track, and each connected
+ * machine this session maintains that a switch to the track could still move (awaitsTrackSwitch).
+ */
+export function unswitchedMachines(client: T3Client, updaterOn: boolean, channel: DesktopUpdateChannel): number {
+  const appOffTrack = updaterOn && defaultUpdateChannel(CLIENT_VERSION) !== channel;
+  return (appOffTrack ? 1 : 0) + updateEverythingMachines(client).filter(machine => machine.connected && machine.canMaintain && awaitsTrackSwitch(machine, channel)).length;
+}
+
 /** The About rows: Version (with its update button) and Update track. */
 export function aboutRows(client: T3Client, version: string): CoreRow[] {
   const delivery = factsOf(client), enabled = updatesEnabled(delivery), channel = enabled ? updateChannel(delivery) : savedChannel(client);
+  const unswitched = unswitchedMachines(client, enabled, channel);
   const options = [['latest', 'Stable'], ['nightly', 'Nightly']].map(([value, label]) => ({ id: value!, value: value!, label: label!, detail: '', icon: '', selected: value === channel, disabled: false }));
   return [
     coreRow('version', 'Version', delivery.staged ? 'Update available.' : 'Current version of the application.', 'version', {
@@ -52,8 +65,10 @@ export function aboutRows(client: T3Client, version: string): CoreRow[] {
     }),
     // No store: the saved preference, switchable (disabled only while a change runs, the command's busy).
     // A linked stream's channel was fixed when the binary was delivered: shown, not switchable here.
-    coreRow('update-track', 'Update track', 'Use stable releases or nightly builds. Switch back anytime.', 'select', {
-      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0,
+    // With machines on the other track, the description counts them and `label2` is its Review link.
+    coreRow('update-track', 'Update track', unswitched > 0 ? `${unswitched === 1 ? '1 machine still runs' : `${unswitched} machines still run`} ${channelSwitchLabel(channel === 'nightly' ? 'latest' : 'nightly')}.`
+      : 'Switches this app and every connected machine whose database the target release supports.', 'select', {
+      value: channel, label: channel === 'nightly' ? 'Nightly' : 'Stable', options, width: 160, disabled: enabled, menuWidth: 0, label2: unswitched > 0 ? 'Review' : '',
     }),
     mobileAppRow(),
   ];
@@ -70,6 +85,8 @@ export async function copyVersion(client: T3Client, native: Native): Promise<str
     return '';
   }
   versionCopies.set(client, (versionCopies.get(client) ?? 0) + 1);
+  // The anchored toast's live region says it once; the drawn "Copied!" stays out of the accessibility tree.
+  announce(client, 'Copied!', 'version-copy');
   return '';
 }
 

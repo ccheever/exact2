@@ -1,5 +1,6 @@
 // T3 Code 6d450a4284 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
-// components/desktop/DesktopWebLinkCoordinator.tsx for a web link, an HTML file or a `t3code://pair` link the system hands the app.
+// components/desktop/DesktopWebLinkCoordinator.tsx (its commit links at 2359643cff) for a web link, a commit link, an
+// HTML file or a `t3code://pair` link the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -26,6 +27,7 @@ import type { ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { prLinksOpenInApp } from '../panel/pr-surface';
+import { openCommitLink } from '../diff/diff-commit-links';
 import { pullRequestPageSelection } from '../sidebar/row-thread';
 import { readPairingAppLink, resolveRemotePairingTarget } from '../connections/remote';
 import { runConnectionOp } from '../connections/connections';
@@ -37,6 +39,7 @@ const states = new WeakMap<T3Client, State>();
 /** A `t3code://pair` link waiting on its confirmation, and the links already paired (a second click would spend nothing). */
 const pairings = new WeakMap<T3Client, { pairingUrl: string; title: string; busy: boolean }>();
 const paired = new WeakMap<T3Client, Set<string>>();
+const NO_MODIFIERS = { meta: false, ctrl: false, shift: false, alt: false };
 export const promptLinksReady = (client: T3Client): boolean => client.ready && backgroundShellsBootstrapped(client);
 export const dismissPromptLink = (client: T3Client): void => { states.delete(client); };
 export function promptLinkView(client: T3Client) {
@@ -207,6 +210,13 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
   const pairingUrl = readPairingAppLink(value);
   if (pairingUrl !== null) { askPairing(client, pairingUrl); return ''; }
+  // A commit link of the open thread's repository opens as one clicked in the app does; one its workspace lacks, and no
+  // pull request names, continues as a web link. promptLinksReady holds it, as a pull request link, until the projects arrive.
+  if (!promptLinkAppPath(value) && isWebUrl(value)) {
+    let lacked = false;
+    if (await openCommitLink(client, native, value, NO_MODIFIERS, async () => { lacked = true; }) && !lacked) return '';
+    if (lacked) return await openWebLink(client, native, storage, value);
+  }
   if (!promptLinkAppPath(value) && isWebUrl(value) && prLinksOpenInApp(client)) {
     // A pull request link a connected project reads opens the pull request view (openLink tries useOpenChangeRequestLink
     // with a plain click first). promptLinksReady already waits for the environments' projects.

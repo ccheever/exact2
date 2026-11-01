@@ -74,7 +74,7 @@ export function isListedThreadLineage(lineage: unknown): boolean {
  * A project group's organization (projectGrouping.ts buildProjectGroups): clients write every member together, so it is
  * pinned when any member is, and archived only when every member is, which keeps a group whose members disagree visible.
  */
-export function projectGroupOrganization(members: readonly Obj[]): { pinned: boolean; archived: boolean } {
+export function projectGroupOrganization(members: readonly Record<string, unknown>[]): { pinned: boolean; archived: boolean } {
   return { pinned: members.some(member => member.pinnedAt != null), archived: members.length > 0 && members.every(member => member.archivedAt != null) };
 }
 /** pickableProjectGroups (projectGrouping.ts): the groups a project picker offers, archived groups left out, pinned ones first. */

@@ -1,6 +1,6 @@
 // Where a link opens, the "Open links in" setting (MIT reference, see LICENSE-T3, T3 Code
-// 9c161462c9: apps/web/src/browser/browserLinkTarget.ts, useOpenLink.ts, openFileInPreview.ts `openUrlInPreview`,
-// ElectronBrowserHost.tsx `onOpenLink`; apps/web/src/components/preview/openTerminalLinkInPreview.ts;
+// 9c161462c9: apps/web/src/browser/browserLinkTarget.ts (canOpenLinksInApp at 2359643cff), useOpenLink.ts,
+// openFileInPreview.ts `openUrlInPreview`, ElectronBrowserHost.tsx `onOpenLink`; apps/web/src/components/preview/openTerminalLinkInPreview.ts;
 // components/ChatMarkdown.tsx's anchor; components/settings/IntegrationsSettings.tsx `BrowserLinkTargetSetting`).
 //
 // Chat Markdown links (`chatlocal:link-open`, kind "link": ⌘ or Ctrl held is the way out of the in-app default),
@@ -27,6 +27,8 @@ import { mediaFileReference } from '../media/media-reference';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 import { openExternal } from '../client/external-open';
+import { fleet } from '../connections/settings-b-fleet';
+import { sessionScopes } from '../connections/local-primary';
 import { openCommitLink } from '../diff/diff-commit-links'; // a commit link of the thread's repository (useOpenChangeRequestLink)
 
 export type BrowserLinkTarget = 'system' | 'app';
@@ -55,8 +57,13 @@ export function resolveLinkTargetPreference(client: T3Client): BrowserLinkTarget
   if ((client as { preferencesLoaded?: boolean }).preferencesLoaded === false) throw new BrowserSettingsReadError();
   return linkTargetPreference(client);
 }
-/** Whether the in-app target exists: a thread to open beside, on this macOS client (isPreviewSupportedInRuntime). */
-export const canOpenLinksInApp = (hasThread: boolean, native: Native | null | undefined): boolean => hasThread && !!native?.available;
+/** canOpenLinksInApp: a thread to open beside (its environment, null for none), on this macOS client
+ *  (isPreviewSupportedInRuntime), whose environment lets this session operate the browser (`preview:operate`). */
+export function canOpenLinksInApp(client: T3Client, environmentId: string | null, native: Native | null | undefined): boolean {
+  if (!environmentId || !native?.available) return false;
+  const scopes = environmentId === client.environmentId ? client.scopes : [...fleet.entries.values()].find(entry => entry.environmentId === environmentId)?.scopes ?? [];
+  return sessionScopes(environmentId, scopes).includes('preview:operate');
+}
 
 /** browserDefaultOpenViewport / browserDefaultOpenProfileId: what a new tab opens with (`resolveBrowserOpenDefaults`). */
 export type BrowserDefaults = { viewport: PreviewViewportSetting; profileId: string };
@@ -129,7 +136,7 @@ export async function openInSystemBrowser(url: string): Promise<void> {
  *  Unread settings open neither browser (BrowserSettingsReadError is thrown, as the reference rethrows it). */
 export async function openLink(client: T3Client, native: Native, url: string, options: { event?: LinkEvent; threadRef?: ScopedThreadRef | null } = {}): Promise<BrowserLinkTarget> {
   const ref = options.threadRef === undefined ? activeRef(client) : options.threadRef;
-  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: resolveLinkTargetPreference(client), canOpenInApp: canOpenLinksInApp(!!ref, native) });
+  const target = resolveLinkTarget({ url, event: options.event ?? NO_MODIFIER, preference: resolveLinkTargetPreference(client), canOpenInApp: canOpenLinksInApp(client, ref?.environmentId ?? null, native) });
   if (target === 'app' && ref) {
     try { await openUrlInPreview(client, native, ref, url); return 'app'; }
     catch (error) { if (letGo(error) || error instanceof BrowserSettingsReadError) throw error; }

@@ -1,4 +1,4 @@
-// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 9c161462c9:
+// Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 9c161462c9, defaultScheduledTaskProjectId at 2359643cff:
 // apps/web/src/components/settings/scheduledTasksSettings.logic.ts, and scheduleLabel /
 // relativeLabel / statusVariant from ScheduledTasksSettings.tsx). Changes from the
 // reference: `now` is an argument (data sources have no clock,
@@ -40,6 +40,16 @@ export function resolveTaskScope(search: { machine?: string; project?: string; c
   }
   if (environment) return { kind: 'environment', environmentIds: [environment.environmentId], members: [], message: '' };
   return { kind: 'all', environmentIds: environments.map(candidate => candidate.environmentId), members: [], message: '' };
+}
+
+/**
+ * A new task's project: a pinned open project, then any open one. An archived project only when Settings is scoped
+ * to it, so that scope can still save.
+ */
+export function defaultScheduledTaskProjectId(scopedProjects: readonly Obj[], scope: TaskScope): string {
+  const open = scopedProjects.filter(project => project.archivedAt == null);
+  const scopedToProject = scope.kind === 'project' || scope.kind === 'checkout';
+  return str((open.find(project => project.pinnedAt != null) ?? open[0] ?? (scopedToProject ? scopedProjects[0] : undefined))?.id);
 }
 
 /** Project IDs belong to an environment, including when a grouped project spans machines. */

@@ -8,6 +8,8 @@ import { toasts } from '../../src/shell/toast';
 import { endSummary, queuedTurnRows, threadEndRows, threadNowRows } from '../../src/composer/thread-end';
 import { checkMissingEditThreads, queueState, queuedEdit } from '../../src/composer/composer-controls-queue';
 import { opened } from '../support/composer-controls-fixture';
+import { contractFn } from '../support/contract-fn-fixture';
+import { ATTACHMENT_ONLY_PROMPT } from '../../src/composer/attachment-only-prompt';
 
 /** A running, steerable turn on t1 with `count` queued messages, as the server holds them. */
 async function queue(count: number, steerable = true) {
@@ -33,6 +35,17 @@ const bubbles = (rows: ReturnType<typeof queuedTurnRows>) => rows.filter(row => 
 const lost = (client: Awaited<ReturnType<typeof opened>>['client']) => toasts(client).filter(toast => toast.title === 'Queued message is no longer queued');
 
 describe('queued turns at the end of the timeline (QueuedRunsControl)', () => {
+  test('an attachment-only message shows no text, its placeholder prompt included under Ultrathink', async () => {
+    const context = await opened();
+    const projection = obj(context.native.details.t1!.projection);
+    Object.assign(projection, {
+      runs: [{ id: 'r1', ordinal: 1, status: 'running', activeAttemptId: 'a1', providerThreadId: 'pt' },
+        { id: 'q1', ordinal: 2, status: 'queued', queuePosition: 1, userMessageId: 'm1' }, { id: 'q2', ordinal: 3, status: 'queued', queuePosition: 2, userMessageId: 'm2' }],
+      messages: [{ id: 'm1', role: 'user', text: ATTACHMENT_ONLY_PROMPT }, { id: 'm2', role: 'user', text: `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}` }] });
+    await go(context, 't2');
+    await go(context, 't1');
+    expect(bubbles(queuedTurnRows(context.client)).map(row => [row.runId, row.body])).toEqual([['q1', ''], ['q2', '']]);
+  });
   test('a long queue shows its first two bubbles and "Show all N queued"; the button shows the rest', async () => {
     const { client, command } = await queue(4);
     const rows = queuedTurnRows(client);
@@ -293,4 +306,10 @@ describe('a queued message wears its sent form\'s attribution (QueuedMessage, #2
     const { client } = await queue(1);
     expect(queuedTurnRows(client)[0]).toMatchObject({ intent: '', sender: '', summary: '' });
   });
+});
+
+test('ThreadNow\'s elapsed time is formatDuration\'s: tenths under 10 s without a trailing ".0", then whole units', async () => {
+  const duration = await contractFn('src/composer/thread-end.contract', 'threadNowDuration', ['ms'], { round: Math.round, floor: Math.floor });
+  expect([1_000, 2_000, 2_449, 2_450, 9_949, 9_960, 10_000, 59_499, 59_500, 61_000, 3_600_000, 3_723_000].map(ms => duration(ms)))
+    .toEqual(['1s', '2s', '2.4s', '2.5s', '9.9s', '10s', '10s', '59s', '1m', '1m 1s', '1h', '1h 2m 3s']);
 });

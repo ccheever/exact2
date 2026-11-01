@@ -1,8 +1,10 @@
 // General → About's update button and Update track.
 import { describe, expect, test } from 'bun:test';
-import type { T3Client } from '../../src/client/client';
+import { T3Client } from '../../src/client/client';
 import { applyCoreSetting, generalSections, resolveScope, serverContext } from '../../src/settings/settings-core';
-import { DesktopUpdateChannelPersistenceError, rememberDelivery, updateConfirmation } from '../../src/settings/settings-a-about';
+import { copyVersion, DesktopUpdateChannelPersistenceError, rememberDelivery, updateConfirmation } from '../../src/settings/settings-a-about';
+import { awaitsTrackSwitch } from '../../src/sidebar/update-everything-logic';
+import { announcements } from '../../src/shell/announce';
 import { fakeClient, fakeNative } from './settings-a.test';
 import { parseLocalBackendStatus } from '../../src/connections/local-backend';
 import { toasts } from '../../src/shell/toast';
@@ -20,7 +22,7 @@ describe('about: updates over the delivery facts', () => {
     const [version, track] = aboutRows(client);
     expect(version).toMatchObject({ id: 'version', value: '0.1.6', label: 'Check for Updates', value2: 'check', disabled: true, description: 'Current version of the application.' });
     // desktopUpdateChannelOf: this client is a stable release, so with nothing saved the track is Stable.
-    expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Use stable releases or nightly builds. Switch back anytime.', label: 'Stable', value: 'latest', disabled: false });
+    expect(track).toMatchObject({ id: 'update-track', title: 'Update track', description: 'Switches this app and every connected machine whose database the target release supports.', label: 'Stable', label2: '', value: 'latest', disabled: false });
     expect(track!.options.map(option => [option.label, option.selected])).toEqual([['Stable', true], ['Nightly', false]]);
     // desktop-settings.json's saved choice.
     Object.assign(client, { localBackend: parseLocalBackendStatus({ desktopSettings: { updateChannel: 'nightly' } }) });
@@ -102,6 +104,32 @@ describe('about: the Update track with no feed', () => {
   });
 });
 
+// AboutVersionSection unswitchedMachines and updateEverything.logic.ts awaitsTrackSwitch (T3 Code 2359643cff).
+describe('about: machines on the other track', () => {
+  const machine = (serverVersion: string, capabilities: Obj = { serverSelfUpdate: 'boot-service' }, os = 'linux', hostedByThisApp = false) =>
+    ({ hostedByThisApp, serverConfig: { environment: { serverVersion, capabilities, platform: { os } } } });
+  test('a remote host off the track that a switch could move', () => {
+    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4'), 'latest')).toBe(true);
+    expect(awaitsTrackSwitch(machine('0.1.6'), 'latest')).toBe(false);
+    expect(awaitsTrackSwitch(machine('0.1.6'), 'nightly')).toBe(true);
+    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', {}), 'latest')).toBe(false); // needs a manual update
+    expect(awaitsTrackSwitch(machine('0.1.7-preview.20261101.4'), 'latest')).toBe(false);
+    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', { serverSelfUpdate: 'desktop-managed', desktopAppChannelSwitch: true }), 'latest')).toBe(true);
+    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', { serverSelfUpdate: 'desktop-managed', desktopAppChannelSwitch: true }, 'darwin'), 'latest')).toBe(false);
+    expect(awaitsTrackSwitch(machine('0.1.7-nightly.20261101.4', {}, 'linux', true), 'latest')).toBe(false);
+  });
+  test('the description counts them, with the Review link', () => {
+    const client = fakeClient();
+    rememberDelivery(as(client), 'embedded', false);
+    Object.assign(client, { connection: 'connected', origin: 'http://127.0.0.1:16618', scopes: ['environment:maintain'] });
+    (client.config.environment as Obj).serverVersion = '0.1.7-nightly.20261101.4';
+    (client.config.environment as Obj).capabilities = { serverSelfUpdate: 'boot-service' };
+    expect(aboutRows(client)[1]).toMatchObject({ id: 'update-track', description: '1 machine still runs Nightly.', label2: 'Review' });
+    (client.config.environment as Obj).serverVersion = '0.1.6';
+    expect(aboutRows(client)[1]).toMatchObject({ description: 'Switches this app and every connected machine whose database the target release supports.', label2: '' });
+  });
+});
+
 // AboutVersionTitle (T3 Code 2359643cff): the version is a button that copies it, with the anchored "Copied!".
 describe('about: Copy version', () => {
   test('a copy writes the app version to the clipboard and counts on the row, so the title replays "Copied!"', async () => {
@@ -113,6 +141,13 @@ describe('about: Copy version', () => {
     expect(aboutRows(client)[0]!.amount).toBe(1);
     await applyCoreSetting(as(client), native, 'version:copy|||', '');
     expect(aboutRows(client)[0]!.amount).toBe(2);
+  });
+  test('the faded "Copied!" stays drawn, so the copy announces it once instead', async () => {
+    const client = new T3Client();
+    const native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
+    await copyVersion(client, native);
+    announcements(client, 1_000);
+    expect(announcements(client, 1_500).first).toBe('Copied!');
   });
   test('a failed copy says "Could not copy version" and does not count', async () => {
     const client = fakeClient();
@@ -126,5 +161,7 @@ describe('about: Copy version', () => {
     expect(source).toContain('aria-label=`Copy version ${row.value}`');
     expect(source).toContain('text "Copy version"');
     expect(source).toContain('text "Copied!"');
+    expect(source).toMatch(/text "Copied!"[^\n]*aria-hidden=true/);
+    expect(source).not.toMatch(/text "Copied!"[^\n]*role="status"/);
   });
 });

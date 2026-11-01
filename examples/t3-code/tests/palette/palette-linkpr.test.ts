@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { obj, str, type Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
-import { changeRequestTermsForUrl, parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
+import { changeRequestTermsForUrl, claimChangeRequestUrl, parseChangeRequestUrl, parsePullRequestReference, resolveLinkInput, threadPullRequestKey, linkMode, linkPullRequestView, LINK_DESCRIPTION } from '../../src/palette/palette-linkpr';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { paletteView } from '../../src/palette/palette-view';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
@@ -35,6 +35,11 @@ describe('change request references', () => {
     expect(parseChangeRequestUrl('https://dev.azure.com/org/proj/_git/repo/pullrequest/9')!.repository).toBe('org/proj/_git/repo');
     expect(parseChangeRequestUrl('https://github.com/acme/widgets/issues/7')).toBeNull();
     expect(parseChangeRequestUrl('mailto:x@y.z')).toBeNull();
+  });
+  // registry.ts claimChangeRequestUrlsFirst: GitCafe, then Azure DevOps, before the hosts that take routes on any hostname.
+  test('Azure DevOps claims its change requests before Forgejo', () => {
+    const claimed = claimChangeRequestUrl('https://tfs.example.test/org/_git/repo/pullrequest/9/pulls/2');
+    expect(claimed).toEqual({ kind: 'azure-devops', link: { host: 'tfs.example.test', repository: 'org/_git/repo', number: 9 } });
   });
   test('typed references: numbers, #numbers, URLs and checkout commands', () => {
     expect(parsePullRequestReference('#42')).toBe('42');

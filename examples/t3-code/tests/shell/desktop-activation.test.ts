@@ -15,6 +15,7 @@ import { READ_OPS } from '../../src/client/client-ops';
 import { T3Client } from '../../src/client/client';
 import { initialShell, obj, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
+import { toasts } from '../../src/shell/toast';
 
 afterEach(() => resetPrimary());
 
@@ -206,7 +207,7 @@ describe('the window open request', () => {
 });
 
 /** A native module double: the activation ops, ids, the focused transport's requests and the fleet's. */
-function moduleDouble(handed: Obj | null, server: { shells: Obj[][]; fail?: string } = { shells: [] }) {
+function moduleDouble(handed: Obj | null, server: { shells: Obj[][]; fail?: string; hold?: Promise<void> } = { shells: [] }) {
   const calls: Obj[] = [];
   let ids = 0;
   const native: Native = { available: true, watch: () => {}, later: async raw => {
@@ -217,6 +218,7 @@ function moduleDouble(handed: Obj | null, server: { shells: Obj[][]; fail?: stri
     if (op === 'activationRequest') return handed && request.requestId === handed.requestId ? ok(handed) : { ok: false, generation, error: { kind: 'Activation', message: 'withdrawn' } };
     if (op === 'activationComplete') return ok({});
     if (op === 'ids') return ok(Array.from({ length: Number(request.count) || 1 }, () => `id-${++ids}`));
+    if (op === 'request' && request.method === 'projects.mutate' && server.hold) await server.hold;
     if (op === 'request' && request.method === 'projects.mutate') return server.fail ? { ok: false, generation, error: { kind: 'server', message: server.fail } } : ok({ sequence: 1 });
     if (op === 'http') return ok({ projects: server.shells.shift() ?? [], threads: [], snapshotSequence: 2 });
     if (op === 'connect') return ok({ state: 'connecting', origin: str(request.origin), environmentId: '', message: '' });
@@ -251,6 +253,35 @@ describe('a handed request on this client', () => {
     expect(create?.generation).toBe(3);
     expect(response).toMatchObject({ ok: true, projectId: 'id-2' });
     expect(client.projectId).toBe('id-2');
+  });
+
+  // DesktopAppActivationCoordinator openThread at 2359643cff: an archived project's folder unarchives it.
+  test('an archived project: project.update unarchives it and its draft opens; a refusal is a toast and the draft still opens', async () => {
+    for (const fail of ['', 'Project is locked']) {
+      primaryAt(ORIGIN, 'env-primary');
+      const client = focusedClient({ threadId: 'some-thread', projectId: '' });
+      client.shell.projects[0]!.archivedAt = '2026-10-31T00:00:00.000Z';
+      const { native, calls } = moduleDouble(handedRequest('/Users/me/one'), { shells: [], ...(fail ? { fail } : {}) });
+      const response = await openActivation(client, native, 'req-7', activationDependencies(client, native, new EnvironmentFleet()));
+      expect(obj(calls.find(call => call.method === 'projects.mutate')?.payload)).toEqual({ type: 'project.update', commandId: 'id-1', projectId: 'p-1', archived: false });
+      expect(response).toMatchObject({ ok: true, projectId: 'p-1' });
+      expect(client.projectId).toBe('p-1');
+      await Bun.sleep(0);
+      expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual(fail ? [['Failed to unarchive project', fail]] : []);
+    }
+  });
+
+  test('the draft opens and the answer goes back without waiting for the unarchive write (`void updateProject`)', async () => {
+    primaryAt(ORIGIN, 'env-primary');
+    const client = focusedClient({ threadId: 'some-thread', projectId: '' });
+    client.shell.projects[0]!.archivedAt = '2026-10-31T00:00:00.000Z';
+    let release = () => {};
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const { native, calls } = moduleDouble(handedRequest('/Users/me/one'), { shells: [], hold });
+    const response = await openActivation(client, native, 'req-7', activationDependencies(client, native, new EnvironmentFleet()));
+    expect(response).toMatchObject({ ok: true, projectId: 'p-1' });
+    expect(calls.some(call => call.op === 'activationComplete')).toBe(true);
+    release();
   });
 
   test("the server's refusal is project-create-failed with its message, no draft opens and no error banner", async () => {

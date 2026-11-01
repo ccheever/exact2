@@ -253,7 +253,7 @@ shape SidebarView
   scopes: SidebarScope[]
   scopeOpen: bool
   scopeQuery: string
-  scopeFirst: string
+  scopeHighlight: string
   renameId: string
   renameTitle: string
   renameHeld: bool // a double-click's rename waits for its row's environment (sidebar-rename-wait.ts)

@@ -31,6 +31,8 @@ import { fleet, fleetThreadId, focusFleetProject, parseFleetThreadId, type Envir
 import { environmentCall } from '../pull-requests/pages-pr-environments';
 import { findWhenShown } from '../sidebar/sidebar-search';
 import { shownMessageMatch } from './palette-view';
+import { projectScopes } from '../sidebar/sidebar-view';
+import { canPinProjectGroup, setProjectGroupPinned } from '../sidebar/project-pin';
 
 export type PaletteResult = { revision: number; ok: boolean; close: boolean; page: string; query: string; project: string; thread: string; message: string };
 const message = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -45,6 +47,17 @@ function openProject(client: T3Client, projectId: string): PaletteResult {
   const latest = sortedThreads(client.shell.threads.filter(thread => thread.projectId === projectId))[0];
   return latest && latest.settledOverride !== 'settled' ? done(client, '', str(latest.id)) : done(client, projectId);
 }
+async function unarchive(client: T3Client, native: Native, target: AddEnvironment, projectId: string, source: EnvironmentFleet): Promise<void> {
+  try {
+    const [commandId] = await client.restAccess(native).ids(1);
+    const payload = { type: 'project.update', commandId, projectId, archived: false };
+    if (target.focused) await client.restAccess(native).request('projects.mutate', payload, true);
+    else await targetRequest(client, native, target, 'projects.mutate', payload, true, source);
+  } catch (error) {
+    // Nothing awaits this write, so a cancelled one ends here (reportProjectFailure skips an interrupted command).
+    if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: message(error), stacked: true });
+  }
+}
 /**
  * handleAddProjectForEnvironment: an existing project opens; else the project is created on the target
  * environment. Another environment's project opens by its `fleet:` id, which moves the window there.
@@ -52,7 +65,11 @@ function openProject(client: T3Client, projectId: string): PaletteResult {
 async function createProject(client: T3Client, native: Native, storage: Files, target: AddEnvironment, cwd: string, failureTitle: string, source: EnvironmentFleet): Promise<PaletteResult> {
   const access = client.restAccess(native);
   const existing = target.projects.find(project => str(project.workspaceRoot).replace(/\/+$/, '') === cwd);
-  if (existing) return target.focused ? openProject(client, str(existing.id)) : done(client, fleetThreadId(target.environmentId, str(existing.id)));
+  if (existing) {
+    // Adding an archived project's folder again brings the project back; the project opens either way.
+    if (existing.archivedAt != null) void unarchive(client, native, target, str(existing.id), source);
+    return target.focused ? openProject(client, str(existing.id)) : done(client, fleetThreadId(target.environmentId, str(existing.id)));
+  }
   try {
     const [commandId, projectId] = await access.ids(2);
     if (!target.focused) {
@@ -115,6 +132,12 @@ export async function paletteCommand(client: T3Client, native: Native | null | u
     if (op === 'copy-prompt-link') { await copyPromptLink(client, native, composerPromptLink(client, id === 'context')); return done(client); }
     if (op === 'restart-session') return await restartSession(client, native, storage, id);
     if (op === 'open-project') return openProject(client, id);
+    // ProjectPinButton and the pin shortcut on a project row keep the palette open; the Pin project action closes it.
+    if (op === 'project-pin' || op === 'project-pin-action') {
+      const group = projectScopes(client).find(scope => scope.key === id);
+      if (group && canPinProjectGroup(client, group.members, source)) await setProjectGroupPinned(client, native, group.members, !group.pinned, source);
+      return op === 'project-pin' ? stay(client) : done(client);
+    }
     if (op === 'publish-host') { if (newProjectPublishTargets(flow.discovery?.value ?? null).some(target => target.definition.kind === id)) flow.publishKind = id; return stay(client); }
     if (op === 'toggle-publish') { flow.publish = !flow.publish; return stay(client); }
     // switchNewProjectEnvironment: New project moves to the chosen environment, its name and options kept.

@@ -1,4 +1,4 @@
-// Local commands of the pages (pageslocal:*): page preferences, the
+// Local commands of the pages (pageslocal:*): the draft hero's project pin, page preferences, the
 // clipboard actions of the Usage, Pull Requests and Welcome pages, and the
 // pull request writes (pr-act-*), which report their own outcome as toasts.
 import type { T3Client } from '../client/client';
@@ -13,6 +13,7 @@ import { requestChangeBreakdown } from '../pull-requests/pr-change-breakdown';
 import { prCommand, noteCopy } from '../pull-requests/pages-pr-detail';
 import { pushToast } from '../shell/toast';
 import { welcomeLocal } from './pages-welcome';
+import { heroPin } from './pages-home';
 import { CHATGPT_USAGE_URL } from '../providers/chatgpt-plan';
 import { pullRequestLinkPick } from '../panel/context-menu-actions';
 import { openExternal } from '../client/external-open';
@@ -35,6 +36,11 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
   if (op.startsWith('welcome-')) {
     if (!native?.available) throw new ClientError('Open on macOS to set up T3 Code.');
     return welcomeLocal(client, native, op.slice(8), id, value);
+  }
+  // The draft hero menu's ProjectPinButton and the thread pin shortcut on its highlighted row.
+  if (op === 'hero-pin') {
+    if (native?.available) await heroPin(client, native, id);
+    return '';
   }
   // A pull request row number's menu choice (the detail header's goes through chatLocal).
   if (op === 'pr-link-pick') {

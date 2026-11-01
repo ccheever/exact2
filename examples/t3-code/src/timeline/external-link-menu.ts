@@ -87,6 +87,8 @@ const rowsOf = (items: MenuItem[]): LinkMenuRow[] => items.map(item => ({ id: it
 /** A new thread's draft has its thread ref from the start in the reference (a file preview's links offer the Browser
  *  there); here its id is allocated when the Browser opens, as the Browser surface does (addBrowserSurface). */
 const draftBrowser = (client: T3Client): boolean => !client.threadId && !activeRef(client) && !!client.environmentId && !!client.projectId;
+/** The environment a Browser tab would open in: the open thread's, a new thread's draft's, or none. */
+const previewEnvironment = (client: T3Client, draft: boolean): string | null => activeRef(client)?.environmentId ?? (draft ? client.environmentId : null);
 
 /**
  * The `chat-link-menu` popover's rows, before any right-click: over the open thread (or a new thread's draft), on a page
@@ -95,7 +97,7 @@ const draftBrowser = (client: T3Client): boolean => !client.threadId && !activeR
  * rows with the thread action first. Without the data module's storage there is no dispatch path, so no thread action.
  */
 export function chatLinkMenuView(client: T3Client, native: Native | null | undefined, storage: Files | undefined): { thread: LinkMenuRow[]; page: LinkMenuRow[]; pulls: { href: string; rows: LinkMenuRow[] }[] } {
-  const canOpenInPreview = canOpenLinksInApp(!!activeRef(client) || draftBrowser(client), native);
+  const canOpenInPreview = canOpenLinksInApp(client, previewEnvironment(client, draftBrowser(client)), native);
   const pulls = storage ? notedPullRequestLinks().flatMap(href => {
     const threadLinkAction = chatLinkThreadAction(client, href);
     return threadLinkAction ? [{ href, rows: rowsOf(externalLinkContextMenuItems({ canOpenInPreview, threadLinkAction })) }] : [];
@@ -112,7 +114,7 @@ export async function chatExternalLinkPick(client: T3Client, native: Native, sto
   const threadLinkAction = storage && !onPage ? chatLinkThreadAction(client, href) : undefined;
   await showExternalLinkContextMenu({
     href,
-    canOpenInPreview: !onPage && canOpenLinksInApp(!!activeRef(client) || draft, native),
+    canOpenInPreview: !onPage && canOpenLinksInApp(client, previewEnvironment(client, draft), native),
     ...(threadLinkAction ? { threadLinkAction } : {}),
     showContextMenu: async items => (items.some(item => item.id === picked) ? picked : null) as ExternalLinkContextMenuAction | null,
     openInPreview: async target => {

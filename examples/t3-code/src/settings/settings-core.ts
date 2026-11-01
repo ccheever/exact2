@@ -7,7 +7,7 @@
 import { changeCliCommand } from './cli-command';
 import { installedFonts } from '../appearance/appearance-fonts';
 import { pushToast } from '../shell/toast';
-import { arr, num, obj, str, type Json, type Obj } from '../client/domain';
+import { arr, num, obj, projectGroupOrganization, str, type Json, type Obj } from '../client/domain';
 import { ClientError, providerAvailable, type Native } from '../client/protocol';
 import { projectIdentity, providerBadge } from '../client/presentation';
 import { traitsDisplay } from '../composer/composer-controls-model';
@@ -228,7 +228,8 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
     ...projects.map(({ group: candidate, machines }) => {
       const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
       const root = str(candidate.memberProjects[0]?.workspaceRoot);
-      const secondary = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      const location = sameName.length === 0 ? (environments.length > 1 ? root : '') : sameName.some(other => other.machines === machines) ? `${machines} · ${root}` : machines;
+      const secondary = projectGroupOrganization(candidate.memberProjects).archived ? ['Archived', location].filter(Boolean).join(' · ') : location;
       return { id: candidate.projectKey, label: candidate.displayName, secondary, ...markOf(groupMarkName(candidate)), member: str(candidate.memberProjects[0]?.id), selected: candidate.projectKey === projectKey, offline: false };
     })];
   const marks = group ? markOf(groupMarkName(group)) : { mark: '', ink: '', surface: '' };

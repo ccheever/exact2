@@ -1,8 +1,9 @@
 // `t3 app <dir>` opens a project in the running app. Ported from T3 Code
 // (MIT, see LICENSE-T3), reference 1e2ecbd975: apps/web/src/desktopAppActivation.ts
 // (handleDesktopAppActivationRequest), components/desktop/DesktopAppActivationCoordinator.tsx (when
-// the window is ready, and what each step does), packages/contracts/src/desktopAppActivation.ts
-// (the protocol) and packages/shared/src/desktopAppControl.ts (the socket address, at 2359643cff).
+// the window is ready, and what each step does; the unarchive at 2359643cff),
+// packages/contracts/src/desktopAppActivation.ts (the protocol) and packages/shared/src/desktopAppControl.ts
+// (the socket address, at 2359643cff).
 //
 // The socket and the broker are native (modules/apple/T3AppControl.swift); this file is the
 // window's half, the reference's renderer:
@@ -31,6 +32,7 @@ import { findProjectByPath, inferProjectTitleFromPath } from '../shared/project-
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import { sleep } from '../client/command-waits';
 import { letGo } from '../client/let-go';
+import { pushToast } from './toast';
 import { randomBytes } from '../transport/transport-wire'; // drawn ahead: code resumed by a server reply may not draw
 
 // ── The protocol (packages/contracts/src/desktopAppActivation.ts) ─────────
@@ -232,8 +234,26 @@ export function activationDependencies(client: T3Client, native: Native, source:
     },
     // useNewThreadHandler: the project's draft, focused, with its own thread id (newThreadId).
     openThread: async ({ environmentId, projectId }) => {
-      if (!projects().some(project => project.id === projectId)) return null;
+      const project = projects().find(candidate => candidate.id === projectId);
+      if (!project) return null;
       const entry = target?.entry;
+      // Opening an archived project's folder again brings the project back; a failure is a toast, and the draft opens
+      // without waiting for the write (`void updateProject`). A remote machine's write goes before its connection is
+      // replaced below, which would cut it off, so that one is awaited.
+      if (project.archivedAt != null) {
+        const unarchive = (async () => {
+          try {
+            const [commandId] = await client.ids(native, 1);
+            const payload = { type: 'project.update', commandId, projectId, archived: false };
+            if (entry) await fleetCall(native, entry, { op: 'request', method: 'projects.mutate', payload });
+            else await client.rpc(native, 'projects.mutate', payload, true);
+          } catch (error) {
+            // A cancelled write is no failure (reportProjectFailure skips an interrupted command), and blocks nothing.
+            if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+          }
+        })();
+        if (entry) await unarchive;
+      }
       if (entry) {
         client.local.selections[environmentId] = { projectId, threadId: '' };
         source.forget(entry.key);

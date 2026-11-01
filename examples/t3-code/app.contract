@@ -1011,21 +1011,22 @@ component T3Code
   action resetSidebarWidth
     draggedWidth = 0
     send localChanged = command("sidebarlocal:width-reset", "", "", 0)
-  action sidebarNewThread(e: MouseEvent) // ⇧-click creates at once (the press's own modifiers; a chord's press has none)
-    if commandPending and data.draftLaunching and (data.sidebar.projectGroupCount <= 1 or e.shiftKey)
+  // ⇧-click creates at once (the press's own modifiers; a chord's press has none). Where the picker opens
+  // (data.sidebar.newThreadPicks) or there is no current project, the client decides (sidebar-commands.ts).
+  action sidebarNewThread(e: MouseEvent)
+    if commandPending and data.draftLaunching and (not data.sidebar.newThreadPicks or e.shiftKey)
       draftBeside()
     else if not commandPending
-      if data.sidebar.projectGroupCount > 1
+      if data.sidebar.newThreadPicks or data.projectId == ""
         commandPending = true
         send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)
       else
-        if data.projectId != ""
-          draftOwner = "__unset__"
-          commandPending = true
-          send changed = command("new-thread", "", "", 0)
-          jumpRequest = jumpRequest + 1
-          focus("composer")
-          utilityPage = ""
+        draftOwner = "__unset__"
+        commandPending = true
+        send changed = command("new-thread", "", "", 0)
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+        utilityPage = ""
   // The new-thread shortcut while the draft's launch (its worktree setup among it) is in flight: a fresh draft in the
   // same project, beside the launch (ChatView onSend markPromotedDraftThreadByRef).
   action draftBeside
@@ -1048,7 +1049,10 @@ component T3Code
         focus("composer")
         utilityPage = ""
       else
-        projectsOpen = true
+        // startNewThreadFromContext with no current project: the default one, else the New thread in… picker
+        // (sidebar-commands.ts).
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", "shift", 0)
   action write(value: string, e: InputEvent)
     composerIntentInput(value, e)
     releaseUndoClaim() // a paste from a menu, dictation or a drop edits without a key

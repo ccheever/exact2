@@ -98,7 +98,9 @@ export interface SidebarView {
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; newThreadPicks: boolean; scopePinChord: string; dragEnabled: boolean;
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
-  scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
+  scopeOpen: boolean; scopeQuery: string;
+  /** The row Base UI highlights before the pointer moves (scopeHighlight); "\n" for none. */
+  scopeHighlight: string;
   renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoShort: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpModifiers: string[];
   calendar: SnoozeCalendar;
@@ -478,7 +480,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
       // Several projects: the trigger overlaps the first two glyphs.
       scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
-      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeFirst: scopeList[0]?.key ?? '',
+      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeHighlight: scopeHighlight(scopeList, session.scopeQuery),
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
@@ -566,8 +568,18 @@ function scopeItems(client: T3Client, query: string, selected: readonly string[]
     })];
   return needle ? items.filter(item => !item.all && item.label.toLowerCase().includes(needle)) : items;
 }
-/** isProjectPinShortcut: the thread pin binding in effect in an editable field (the filter's search), as a chord. */
-function pinChord(client: T3Client): string {
+/**
+ * The project filter's highlight before the pointer moves (Base UI Combobox, autoHighlight): with a query, the first
+ * match; without one, the selected row (focusItemOnOpen syncs the highlight to selectedIndex), which is All projects
+ * with no project chosen, the project with one, and none ("\n") with several, where the Combobox holds no value.
+ */
+export function scopeHighlight(rows: readonly { key: string; selected: boolean; all: boolean }[], query: string): string {
+  if (query.trim()) return rows[0]?.key ?? '\n';
+  const selected = rows.filter(row => row.selected);
+  return selected.length === 1 ? selected[0]!.key : '\n';
+}
+/** isProjectPinShortcut: the thread pin binding in effect in an editable field (a project list's search), as a chord. */
+export function pinChord(client: T3Client): string {
   const winners = chordWinners(arr(client.config.keybindings), { editableFocus: true, modelPickerOpen: false, composerFocus: false, turnRunning: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false });
   return [...winners].find(([, command]) => command === 'thread.pin')?.[0] ?? '';
 }

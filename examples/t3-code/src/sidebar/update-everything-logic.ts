@@ -3,7 +3,8 @@
 // cliReleaseChannelOf.
 // Port changes: a machine's server config is the server's JSON (`Obj`), and a server target is
 // server-update.ts's (`updateTargetFromConfig`, which also carries the saved environment's key the
-// transport runs the job under). The fleet's Stable and Nightly switch (collectChannelSwitchTargets) is not ported.
+// transport runs the job under). The fleet's Stable and Nightly switch (collectChannelSwitchTargets) is not ported;
+// awaitsTrackSwitch counts the machines it would move, for About's Update track.
 import { obj, str, type Obj } from '../client/domain';
 import { resolveServerSelfUpdateCapability, resolveVersionMismatch, supportsDesktopAppUpdate } from '../connections/version-skew';
 import { updateTargetFromConfig, type ServerUpdateState, type ServerUpdateTarget } from '../connections/server-update';
@@ -71,6 +72,26 @@ export function collectServerUpdateTargets(machines: readonly UpdateEverythingMa
     targets.push({ ...updateTargetFromConfig(config, machine.key, machine.environmentId, machine.label), targetVersion });
   }
   return { targets, skipped };
+}
+
+/** channelSwitchLabel: a track's name. */
+export const channelSwitchLabel = (channel: 'latest' | 'nightly') => (channel === 'nightly' ? 'Nightly' : 'Stable');
+/** desktopUpdateChannelOf (packages/shared/src/cliRelease.ts): nightly for an `x-nightly.YYYYMMDD.N` version, else latest. */
+const trackOf = (version: string): 'latest' | 'nightly' => (/^[^-+]+-nightly\.\d{8}\.\d+$/.test(version) ? 'nightly' : 'latest');
+/**
+ * awaitsTrackSwitch: a remote host on the other track that a switch can still move (trackSwitchMove with another
+ * track: not a preview build, able to update itself, and a desktop-managed one only with the channel switch and not
+ * on a Mac).
+ */
+export function awaitsTrackSwitch(machine: Pick<UpdateEverythingMachine, 'serverConfig' | 'hostedByThisApp'>, channel: 'latest' | 'nightly'): boolean {
+  const config = machine.serverConfig;
+  if (machine.hostedByThisApp || config === null) return false;
+  const environment = environmentOf(config), version = str(environment.serverVersion);
+  if (cliReleaseChannelOf(version) === 'preview') return false;
+  if (trackOf(version) === channel) return false;
+  const selfUpdate = resolveServerSelfUpdateCapability(config);
+  if (selfUpdate === null) return false;
+  return selfUpdate !== 'desktop-managed' || (obj(environment.capabilities).desktopAppChannelSwitch === true && str(obj(environment.platform).os) !== 'darwin');
 }
 
 function unavailableReason(machine: UpdateEverythingMachine): string | null {

@@ -1,9 +1,10 @@
 // Settings → Project view model (reference ProjectsSettings.tsx and
-// ProjectSettingsPanel.tsx): the selected project group's name, icon, new-thread
-// defaults, checkouts and removal copy, over every environment's project groups
+// ProjectSettingsPanel.tsx, its Pin and Archive rows at 2359643cff): the selected project group's name, icon, pin,
+// archive, new-thread defaults, checkouts and removal copy, over every environment's project groups
 // (projects-fleet.ts). Group key and checkout come from the settings scope
 // (settings-core's resolveScope), so this never guesses a target.
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, obj, projectGroupOrganization, str, type Obj } from '../client/domain';
+import { canPinProjectGroup } from '../sidebar/project-pin';
 import type { T3Client } from '../client/client';
 import { projectIdentity } from '../client/presentation';
 import { inheritance, type ScopedRow } from './source-control-view';
@@ -48,7 +49,7 @@ function iconDescription(project: Obj): string {
 export function projectsPage(client: T3Client, projectKey: string, checkout: string, active: boolean) {
   const empty = { ready: false, selected: false, message: '', noticeGroups: [] as ScopeNoticeGroup[], confirmTitle: '', confirmDescription: '', key: '', name: '', mark: '', ink: '', surface: '', icon: 'Automatic', iconCustom: false, nameResettable: false,
     members: [] as { id: string; title: string; path: string; environment: string; first: boolean }[], checkoutGroups: [] as { id: string; label: string; secondary: string; members: { id: string; title: string; path: string }[]; first: boolean }[], hasOther: false, threads: 0,
-    workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[] };
+    workspace: blank, removeTitle: '', removeDescription: '', removeLabel: '', confirm: '', removeTarget: '', names: [] as string[], organize: false, pinned: false, archived: false };
   if (!active) return empty;
   const groups = settingsGroups(client);
   if (!client.ready) return { ...empty, ready: true, message: 'Connect an environment to manage its projects.' };
@@ -83,7 +84,9 @@ export function projectsPage(client: T3Client, projectKey: string, checkout: str
     return { id, label: labels.primary, secondary: labels.secondary, members: entries.map((member, index) => ({ ...member, environment: labels.primary, first: index === 0 })), first: index === 0 };
   }) : [];
   const single = members.length === 1 ? representative : undefined;
-  return { ...empty, ready: true, selected: true, key: group.key, name: group.name, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface,
+  // Pin and archive belong to the whole project, even when one machine is picked.
+  const organization = projectGroupOrganization(group.members);
+  return { ...empty, ready: true, selected: true, key: group.key, organize: canPinProjectGroup(client, group.members), pinned: organization.pinned, archived: organization.archived, name: group.name, mark: identity.projectMark, ink: identity.projectInk, surface: identity.projectSurface,
     icon: iconDescription(representative), iconCustom: group.members.some(member => !hasDefaultProjectIcon(member, memberIsScratch(client, member))),
     // canResetScratchTitle: every member is a Scratch project and one of them was renamed.
     nameResettable: group.members.every(member => memberIsScratch(client, member)) && group.members.some(member => str(member.title) !== SCRATCH_PROJECT_TITLE),

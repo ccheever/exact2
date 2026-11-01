@@ -4,8 +4,8 @@ import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { formatBytes, formatCpuTime, formatInterval, killConfirmation, syncTelemetry, telemetryCommand, telemetryEvent, telemetryLocal, telemetryPage, visibleProcesses } from '../../src/settings/settings-a-telemetry';
-import { diagnosticsPage, visibleLive } from '../../src/settings/diagnostics-view';
+import { formatBytes, formatCpuTime, formatInterval, formatMicros, killConfirmation, syncTelemetry, telemetryCommand, telemetryEvent, telemetryLocal, telemetryPage, visibleProcesses } from '../../src/settings/settings-a-telemetry';
+import { cpuTime, diagnosticsPage, duration, visibleLive } from '../../src/settings/diagnostics-view';
 import { toasts } from '../../src/shell/toast';
 
 const aggregate = (extra: Obj = {}) => ({ processCount: 0, currentCpuPercent: 0, cpuTimeMs: 0, currentRssBytes: 0, peakRssBytes: 0, ioReadBytes: 0, ioWriteBytes: 0, ioReadBytesPerSecond: 0, ioWriteBytesPerSecond: 0, processStarts: 0, processExits: 0, ...extra });
@@ -42,7 +42,11 @@ const NOW = Date.parse('2026-10-04T00:48:00.000Z');
 describe('resource telemetry', () => {
   test('formatting follows ResourceTelemetryDiagnostics', () => {
     expect([formatBytes(0), formatBytes(2048), formatBytes(150 * 1024 * 1024)]).toEqual(['0 B', '2.00 KB', '150 MB']);
-    expect([formatCpuTime(0), formatCpuTime(15000), formatCpuTime(120000)]).toEqual(['0.00s', '15.0s', '2.00m']);
+    // A whole figure drops its zero fraction; other fractions keep their digits.
+    expect([formatCpuTime(0), formatCpuTime(15000), formatCpuTime(15500), formatCpuTime(1500), formatCpuTime(120000), formatCpuTime(7_200_000)]).toEqual(['0s', '15s', '15.5s', '1.50s', '2m', '2h']);
+    expect([formatMicros(800), formatMicros(2000), formatMicros(2500), formatMicros(3_000_000)]).toEqual(['800 µs', '2 ms', '2.50 ms', '3 s']);
+    expect([duration(900), duration(2000), duration(2340), duration(12000), duration(12500)]).toEqual(['900 ms', '2 s', '2.34 s', '12 s', '12.5 s']);
+    expect([cpuTime(3), cpuTime(3.25), cpuTime(600)]).toEqual(['3s', '3.25s', '10m']);
     expect([formatInterval(5000), formatInterval(1000), formatInterval(500)]).toEqual(['5 seconds', '1 second', '500 ms']);
   });
   test('one subscription while the page is open; its snapshot projects every section', async () => {

@@ -1,5 +1,5 @@
-// Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 7c3b3b3605ef:
-// components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
+// Settings → Scheduled tasks view model (MIT reference, see LICENSE-T3; T3 Code 7c3b3b3605ef, the editor's
+// project list at 2359643cff: components/settings/ScheduledTasksSettings.tsx ScheduledTasksSettings,
 // ScheduledTaskEnvironmentSection, ScheduledTaskRow, ScheduledTaskEditorDialog): one section
 // per environment in scope (a heading only when there is more than one), each fed by its live
 // `scheduledTasks.subscribe` list (live-streams.ts) with its loading, error and "Environment
@@ -20,7 +20,7 @@ import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { providerBadge } from '../client/presentation';
 import { triggerModelName } from '../composer/composer-controls-model';
-import { emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
+import { defaultScheduledTaskProjectId, emptyDraft, matchesScheduledTaskScope, resolveTaskScope, scheduledTaskDefaultModel, taskStatus, taskToDraft, type TaskScope } from './scheduled-tasks';
 import { liveEnvironments, watchLive, type LiveEnvironment } from '../client/live-streams';
 import { scopeEnvironments, scopeProjectGroups } from './settings-scope-sources';
 import { settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels } from './settings-scope';
@@ -252,9 +252,10 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     // while the list is loaded (liveTask).
     const task = live ?? opened, liveTask = all ? live : opened;
     const config = editing.config;
-    const projects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
-    const firstProject = projects[0] ?? null;
-    const draft = editorDraft(task, str(firstProject?.id), defaultModelKey(config, str(firstProject?.id), firstProject), editing.environmentId);
+    const scopedProjects = editing.shell.projects.filter(project => matchesScheduledTaskScope(scope, editing.environmentId, str(project.id)));
+    const defaultId = defaultScheduledTaskProjectId(scopedProjects, scope);
+    const defaultProject = scopedProjects.find(project => str(project.id) === defaultId) ?? null;
+    const draft = editorDraft(task, defaultId, defaultModelKey(config, defaultId, defaultProject), editing.environmentId);
     const marks = taskModelMarks(arr(config.providers), draft.modelKey);
     // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), the picker's search and
     // pages for the project it shows, and the base when the shown list does not have it: the picker's selectedRefQuery
@@ -266,6 +267,10 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const key = target?.taskId ? `${editing.environmentId}:${target.taskId}` : 'new';
     const picker = pickerOf(taskBase, key);
     const shown = picker?.project || draft.projectId;
+    // Pinned first. The chosen project stays listed after it is archived.
+    const chosen = new Set([draft.projectId, str(task?.projectId), shown]);
+    const projects = scopedProjects.filter(project => project.archivedAt == null || chosen.has(str(project.id)))
+      .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
     const search = sanitizeNewRefName(picker?.query ?? '').slice(0, 256);
     const wanted = [{ projectId: draft.projectId, ref: draft.baseRef.trim() }, ...(picker ? [{ projectId: shown, ref: picker.ref }] : [])];
     // Once per editor visit: another connection, task or project list starts a new one.

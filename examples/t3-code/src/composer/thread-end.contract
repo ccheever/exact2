@@ -18,8 +18,9 @@ keyframes teFadeIn
 // name (`body`, in the code font when `meta`) and the detail (2pt further, fainter: muted/80, dark /60) as one line that
 // gives way before the actions, so Stop stays reachable; the actions follow 6pt on, 10pt apart, with the one task's
 // elapsed time first (tickTextContent). A cut line offers its whole text from a details button (NoticeText).
-// formatDuration (orchestrationTiming.ts) from a second up: tenths below 10 s, then whole units, rounded first.
-fn threadNowDuration(ms: number): string = ms < 10000 ? (round(ms / 100) >= 100 ? "10s" : `${floor(round(ms / 100) / 10)}.${round(ms / 100) % 10}s`) : round(ms / 1000) < 60 ? `${round(ms / 1000)}s` : `${floor(round(ms / 1000) / 3600) > 0 ? floor(round(ms / 1000) / 3600).toString() + "h " : ""}${floor(round(ms / 1000) % 3600 / 60) > 0 ? floor(round(ms / 1000) % 3600 / 60).toString() + "m " : ""}${round(ms / 1000) % 60 > 0 ? (round(ms / 1000) % 60).toString() + "s" : ""}`.trim()
+// formatDuration (orchestrationTiming.ts) from a second up: tenths below 10 s without a trailing ".0", then whole
+// units, rounded first.
+fn threadNowDuration(ms: number): string = ms < 10000 ? `${floor(round(ms / 100) / 10)}${round(ms / 100) % 10 > 0 ? "." + (round(ms / 100) % 10).toString() : ""}s` : round(ms / 1000) < 60 ? `${round(ms / 1000)}s` : `${floor(round(ms / 1000) / 3600) > 0 ? floor(round(ms / 1000) / 3600).toString() + "h " : ""}${floor(round(ms / 1000) % 3600 / 60) > 0 ? floor(round(ms / 1000) % 3600 / 60).toString() + "m " : ""}${round(ms / 1000) % 60 > 0 ? (round(ms / 1000) % 60).toString() + "s" : ""}`.trim()
 component ThreadNowLine
   inject
     still: bool
