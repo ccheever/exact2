@@ -12,6 +12,7 @@ import { filePatchPayload } from '../../src/diff/diff-lazy';
 import { panelState } from '../../src/panel/panel-surfaces';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 import { noteNow } from '../../src/composer/composer-controls';
+import { toasts } from '../../src/shell/toast';
 
 const SHA = 'a'.repeat(40), OTHER = 'b'.repeat(40);
 const patch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1,1 +1,1 @@\n-one\n+two\n';
@@ -188,6 +189,22 @@ describe('a commit link beside the thread', () => {
     client.local.clientSettings = { ...client.local.clientSettings, pullRequestLinksOpenInApp: false };
     expect(await openCommitLink(client, native, `https://github.com/acme/app/commit/${SHA}`, none)).toBe(false);
     expect(requests(calls, 'review.getDiffPreview')).toHaveLength(0);
+  });
+
+  test('from outside the app (DesktopWebLinkCoordinator): the same, and a commit the workspace lacks goes on as a web link', async () => {
+    const local = harness();
+    await local.command('shelllocal:prompt-link-open', '', `https://github.com/acme/app/commit/${SHA}`);
+    expect([panelState(local.client).active, local.client.diffOpen]).toEqual(['diff', true]);
+    expect(diffSnapshot(local.client, 0).diffScope).toBe(`commit:${SHA}`);
+    const lacking = harness({ localCommits: [] });
+    await lacking.command('shelllocal:prompt-link-open', '', `https://github.com/acme/app/pull/7/commits/${OTHER}`);
+    expect(panelState(lacking.client).surfaces.map(surface => surface.kind)).toEqual(['pull-request']);
+    resetExternalOpensForTests();
+    await lacking.command('shelllocal:prompt-link-open', '', `https://github.com/acme/app/commit/${OTHER}`);
+    expect(requests(lacking.calls, 'review.getDiffPreview').map(payload => payload.commitSha)).toEqual([OTHER, OTHER]);
+    // Not the system browser: the web link path, whose new thread without a project this server cannot start.
+    expect(externalOpensForTests()).toEqual([]);
+    expect(toasts(lacking.client).at(-1)).toMatchObject({ title: 'Could not open the link', description: `https://github.com/acme/app/commit/${OTHER}` });
   });
 
   test('a panel choice made while the lookup runs wins', async () => {

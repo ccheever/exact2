@@ -578,8 +578,8 @@ export function scopeHighlight(rows: readonly { key: string; selected: boolean; 
   const selected = rows.filter(row => row.selected);
   return selected.length === 1 ? selected[0]!.key : '\n';
 }
-/** isProjectPinShortcut: the thread pin binding in effect in an editable field (the filter's search), as a chord. */
-function pinChord(client: T3Client): string {
+/** isProjectPinShortcut: the thread pin binding in effect in an editable field (a project list's search), as a chord. */
+export function pinChord(client: T3Client): string {
   const winners = chordWinners(arr(client.config.keybindings), { editableFocus: true, modelPickerOpen: false, composerFocus: false, turnRunning: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false });
   return [...winners].find(([, command]) => command === 'thread.pin')?.[0] ?? '';
 }

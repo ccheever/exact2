@@ -8,7 +8,7 @@
 // openUrlInPreview's `profileId` and `background`), the tab menu's Mute row, and the "Open links in" setting.
 import { describe, expect, it } from 'bun:test';
 import {
-  TerminalLinkPreviewOpenError, linkTargetPreference, openFrameWindow, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
+  TerminalLinkPreviewOpenError, canOpenLinksInApp, linkTargetPreference, openFrameWindow, openLink, openLinkFromUi, openTerminalLinkInPreview, resolveLinkTarget, resolveLinkTargetPreference, type BrowserLinkTarget,
 } from '../../src/browser/browser-links';
 import { tabAudioState, tabContextMenuItems, tabMuteMenuItem } from '../../src/panel/right-panel-tabs';
 import { browserTabMute } from '../../src/browser/browser-automation-tabs';
@@ -150,7 +150,7 @@ const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, asy
 function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolean } = {}) {
   const client = new T3Client(), rpcs: Array<{ method: string; payload: Obj }> = [], ops: Obj[] = [];
   resetExternalOpensForTests(); // the system browser's opens (external-open.ts) are the latest client's
-  client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p';
+  client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p'; client.scopes = ['preview:operate'];
   Object.assign(client, { loaded: true }); // the saved settings were read: the open defaults refuse unread ones
   client.local.clientSettings = { ...client.local.clientSettings, browserLinkTarget: options.preference ?? 'app' } as typeof client.local.clientSettings;
   client.request = async (_native, method, payload) => {
@@ -186,6 +186,18 @@ describe('openLink (useOpenLink)', () => {
     await expect(openLink(client, native, 'https://example.com/system', { event: { metaKey: true, ctrlKey: false } })).rejects.toBeInstanceOf(BrowserSettingsReadError);
     expect(rpcs.filter(call => call.method === 'preview.open')).toHaveLength(1);
     expect(external(ops)).toEqual([]);
+  });
+  it('opens in the system browser when this session may not operate the thread environment\'s browser (preview:operate)', async () => {
+    const { client, rpcs, ops, native } = linkClient();
+    client.scopes = ['orchestration:operate'];
+    expect(canOpenLinksInApp(client, 'local', native)).toBe(false);
+    expect(await openLink(client, native, 'https://example.com/docs')).toBe('system');
+    expect(rpcs.filter(call => call.method === 'preview.open')).toEqual([]);
+    expect(external(ops)).toEqual(['https://example.com/docs']);
+    client.scopes = ['preview:operate'];
+    expect(canOpenLinksInApp(client, 'local', native)).toBe(true);
+    expect(canOpenLinksInApp(client, null, native)).toBe(false);
+    expect(canOpenLinksInApp(client, 'elsewhere', native)).toBe(false); // an environment this window has no session with
   });
   it('falls back to the system browser when the in-app open fails', async () => {
     const { client, ops, native } = linkClient({ failOpen: true });

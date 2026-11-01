@@ -1,14 +1,14 @@
 // The right panel opens on its own (MIT reference 74541bab17, see LICENSE-T3:
 // apps/web/src/hooks/useProactivePanels.ts, components/ChatView.logic.ts shouldOpenProactivePullRequest,
 // observeProactivePanelUserChoice, shouldRetargetThreadPullRequestPanel, shouldOpenProactiveTurnDiff and
-// resolveProactiveTurnDiffAction, rightPanelStore.ts openProactive and `proactiveDiffTurnId`, and the inputs
-// ChatView.tsx hands the hook). With Settings › General › Proactive panels on, a thread's linked pull requests
+// resolveProactiveTurnDiffAction (at 2359643cff, with threadCheckpoints.ts checkpointFileTotals), rightPanelStore.ts
+// openProactive and `proactiveDiffTurnId`, and the inputs ChatView.tsx hands the hook). With Settings › General › Proactive panels on, a thread's linked pull requests
 // open first; otherwise a completed turn that touched at least 3 files or 50 lines opens the Changes diff. A panel
 // the person opened or closed during the turn wins (PanelState.userRevision is rightPanelStore's
 // userActionRevision). An open panel showing the thread's linked pull request follows it to a new link with the
 // setting off too. panelView runs this on every shell answer, as the hook's effect runs on every render.
 import type { T3Client } from '../client/client';
-import { arr, num, obj, str, type Obj } from '../client/domain';
+import { arr, checkpointFileTotals, num, obj, str, type CheckpointFileTotals, type Obj } from '../client/domain';
 import { gitRepoState } from '../diff/diff';
 import type { PanelState, Surface } from './panel-surfaces';
 import { prSurfaceId, type PrTarget } from './pr-surface';
@@ -20,7 +20,8 @@ export type ProactiveObservation = {
   threadKey: string; runningTurnId: string | null | undefined; targetKey: string | null | undefined;
   userActionTurnId: string | null; userActionRevision: number;
 };
-export type TurnCheckpoint = { runId: string; status: string; files: { additions: number; deletions: number }[] };
+/** A turn's checkpoint; `filesTotal` covers every file when `files` is only a prefix (checkpointFileTotals). */
+export type TurnCheckpoint = { runId: string; status: string; files: { additions: number; deletions: number }[]; filesTotal?: CheckpointFileTotals };
 export type ProactiveRequest = { kind: 'diff'; turnId: string } | { kind: 'pull-requests' } | { kind: 'pull-request'; target: PrTarget };
 export type ProactiveInput = {
   /** The thread's panel key; null for drafts and while the thread is unavailable. */
@@ -64,12 +65,13 @@ export function shouldOpenProactiveTurnDiff(input: { previousRunningTurnId: stri
     && (input.previousRunningTurnId === undefined || input.settledTurnId === input.previousRunningTurnId);
 }
 
-export function resolveProactiveTurnDiffAction(input: { checkpoint: Pick<TurnCheckpoint, 'status' | 'files'> | undefined; isGitRepo: boolean | undefined }): 'defer' | 'ignore' | 'open' {
+export function resolveProactiveTurnDiffAction(input: { checkpoint: Pick<TurnCheckpoint, 'status' | 'files' | 'filesTotal'> | undefined; isGitRepo: boolean | undefined }): 'defer' | 'ignore' | 'open' {
   if (input.checkpoint === undefined || input.checkpoint.status === 'missing') return 'defer';
   if (input.isGitRepo === undefined) return 'defer';
   if (!input.isGitRepo || input.checkpoint.status !== 'ready' || input.checkpoint.files.length === 0) return 'ignore';
-  const changedLines = input.checkpoint.files.reduce((total, file) => total + file.additions + file.deletions, 0);
-  return input.checkpoint.files.length >= 3 || changedLines >= 50 ? 'open' : 'ignore';
+  const totals = input.checkpoint.filesTotal ?? { count: input.checkpoint.files.length,
+    additions: input.checkpoint.files.reduce((total, file) => total + file.additions, 0), deletions: input.checkpoint.files.reduce((total, file) => total + file.deletions, 0) };
+  return totals.count >= 3 || totals.additions + totals.deletions >= 50 ? 'open' : 'ignore';
 }
 
 const surfaceOf = (request: Exclude<ProactiveRequest, { kind: 'diff' }>): Surface => request.kind === 'pull-requests'
@@ -193,8 +195,12 @@ export function proactiveInput(client: T3Client, threadKey: string, sheet: boole
     threadDetailLoading: !!thread && !client.thread,
     runningTurnId, latestRun,
     latestRunSettled: latestRun !== null && !UNSETTLED.has(latestRun.status) && runningTurnId !== latestRun.runId,
-    turnDiffSummaries: arr(projection.checkpoints).flatMap(checkpoint => typeof checkpoint.runId === 'string' && typeof checkpoint.appRunOrdinal === 'number'
-      ? [{ runId: checkpoint.runId, status: str(checkpoint.status), files: arr(checkpoint.files).map(file => ({ additions: num(file.additions), deletions: num(file.deletions) })) }] : []),
+    turnDiffSummaries: arr(projection.checkpoints).flatMap(checkpoint => {
+      if (typeof checkpoint.runId !== 'string' || typeof checkpoint.appRunOrdinal !== 'number') return [];
+      const filesTotal = checkpointFileTotals(checkpoint.filesTotal);
+      return [{ runId: checkpoint.runId, status: str(checkpoint.status), files: arr(checkpoint.files).map(file => ({ additions: num(file.additions), deletions: num(file.deletions) })),
+        ...(filesTotal ? { filesTotal } : {}) }];
+    }),
     isGitRepo: client.thread ? gitRepoState(client) : undefined,
     linkedPullRequest, hasLinkedPullRequestDetail: linkedPullRequest !== null,
     pullRequestsKey: pullRequestsSurfaceAvailable ? JSON.stringify(visible.map(link => [str(link.host), str(link.repository), num(link.number)]).sort()) : linkedKey,

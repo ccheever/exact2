@@ -65,6 +65,13 @@ export function projectGroupKeys(client: Grouping): Map<string, string> {
   return new Map((client.shell?.projects ?? []).map(project => [str(project.id), logicalKey(client, client.environmentId, project)]));
 }
 
+/** The focused environment's checkouts in `projectId`'s group, each with its environment (what a pin writes to). */
+export function heroGroupMembers(client: Grouping, projectId: string): Obj[] {
+  const keys = projectGroupKeys(client), key = keys.get(projectId) ?? projectId;
+  return (client.shell?.projects ?? []).filter(project => (keys.get(str(project.id)) ?? str(project.id)) === key)
+    .map(project => ({ ...project, environmentId: client.environmentId }));
+}
+
 let cache: { client: unknown; revision: number; fleet: number; names: Map<string, string> } | null = null;
 /** projectDisplayNames, kept while neither the client nor the fleet changed. */
 export function cachedDisplayNames(client: Grouping & { revision: number }): Map<string, string> {

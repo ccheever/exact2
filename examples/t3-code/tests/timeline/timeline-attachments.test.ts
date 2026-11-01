@@ -72,6 +72,12 @@ describe('a sent sound is an audio chip (#21363)', () => {
       { name: 'memo.mp3', mimeType: 'text/markdown' },
     ].map(isSentAudio)).toEqual([true, true, true, false, false]);
   });
+  test('the MPEG transport stream types macOS gives `.ts` files are generic, for sounds and SVGs too (shared/image.ts)', async () => {
+    const { isSentAudio, isSvgAttachment } = await import('../../src/timeline/timeline-attachments');
+    expect(isSentAudio({ name: 'memo.mp3', mimeType: 'video/mp2t' })).toBe(true);
+    expect(isSvgAttachment({ name: 'logo.svg', mimeType: 'video/vnd.dlna.mpeg-tts' })).toBe(true);
+    expect(isSvgAttachment({ name: 'logo.svg', mimeType: 'video/mp4' })).toBe(false);
+  });
   test('a live or unknown length reads as none, not "Infinity:NaN" (AudioPreview sets 0)', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const chip = contractComponent('timeline-audio.contract', 'AudioPreview'), state = chip.state();

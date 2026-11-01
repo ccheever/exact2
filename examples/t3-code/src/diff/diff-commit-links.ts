@@ -4,7 +4,8 @@
 // workspace has opens in the Diff pane, selected; one it lacks opens the pull request the link names (a GitHub
 // `/pull/<n>/commits/<sha>`), else follows "Open links in". A panel choice or another Diff selection made while the
 // lookup runs wins over it (rightPanelStore markUserAction). ⌘ and Ctrl open it outside; Shift and Alt keep their
-// browser meaning, as "Open pull requests in T3 Code" turned off does.
+// browser meaning, as "Open pull requests in T3 Code" turned off does. A link from outside the app
+// (DesktopWebLinkCoordinator) passes `unavailable`, which takes a commit the workspace lacks and no pull request names.
 import type { T3Client } from '../client/client';
 import { arr, str } from '../client/domain';
 import type { Native } from '../client/protocol';
@@ -19,7 +20,7 @@ import { openLink } from '../browser/browser-links';
 export type LinkModifiers = { meta: boolean; ctrl: boolean; shift: boolean; alt: boolean };
 
 /** Answers whether the link was taken as a commit link; when it was, it is already open (or a newer choice won). */
-export async function openCommitLink(client: T3Client, native: Native, url: string, held: LinkModifiers): Promise<boolean> {
+export async function openCommitLink(client: T3Client, native: Native, url: string, held: LinkModifiers, unavailable?: () => Promise<unknown>): Promise<boolean> {
   if (!prLinksOpenInApp(client) || held.meta || held.ctrl || !client.threadId) return false;
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   const commit = ownCommitLink(project, url);
@@ -37,6 +38,7 @@ export async function openCommitLink(client: T3Client, native: Native, url: stri
   if (local) { selectCommit(client, commit.sha); await openDiffOnSelection(client, native); return true; }
   const target = prTarget(client, url);
   if (target) { client.diffOpen = false; openPullRequestIn(state, target); return true; }
-  await openLink(client, native, url);
+  if (unavailable) await unavailable();
+  else await openLink(client, native, url);
   return true;
 }

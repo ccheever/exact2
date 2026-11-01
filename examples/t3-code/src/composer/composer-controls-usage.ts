@@ -2,7 +2,7 @@
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // chat/ComposerUsageLimits.tsx (accountLabel, AccountSummary, usageLimitsBannerItem,
 // UsageLimitsBannerBody), usage/UsageLimits.tsx (WindowBar, LimitWindows, ResetCredits,
-// useResetCredit), chat/UsageLimitRecoveryBanner.tsx (at 7c3b3b3605ef) and ChatView.tsx (usageLimitsPanel,
+// useResetCredit; at 2359643cff), chat/UsageLimitRecoveryBanner.tsx (at 7c3b3b3605ef) and ChatView.tsx (usageLimitsPanel,
 // openUsageLimits, limitRecoveryBanner). The report is usage-limits.ts's port of
 // collectProviderUsageLimits over the server's provider snapshots and limit sources; nothing
 // here asks the agent. Changes: the banner body is data for usage-bars.contract (each window's
@@ -38,6 +38,8 @@ export function usageReport(client: T3Client, now: number): UsageLimitsReport | 
   return collectProviderUsageLimits(client.providerId, arr(client.config.providers), arr(client.config.usageLimitSources), now);
 }
 
+/** normalizeProviderAccentColor: a #rrggbb accent, else none. */
+const normalizedAccent = (value: string | undefined) => { const accent = (value ?? '').trim(); return /^#[0-9a-fA-F]{6}$/u.test(accent) ? accent : ''; };
 /** accountLabel: the driver, then the instance when there could be more than one of that driver. */
 function accountLabel(account: UsageLimitsAccount): string {
   if (!account.instanceId) return account.label;
@@ -68,7 +70,8 @@ function accountViews(client: T3Client, report: UsageLimitsReport, panel: Panel)
   const format = client.local.deviceSettings.timestampFormat, now = panel.now;
   return report.accounts.map((account, index) => {
     const limits = account.limits, notice = limitsNotice(limits), credits = obj(limits.resetCredits), redeem = panel.redeems.get(account.id) ?? REDEEM_IDLE;
-    const [light, dark] = barColor(account.driver);
+    // LimitWindows: the instance's accent colours its bars in both schemes; without one, the driver's series colour.
+    const accent = normalizedAccent(account.accentColor), [light, dark]: [string, string] = accent ? [accent, accent] : barColor(account.driver);
     const showCredits = !!creditInput(account) && !!limits.resetCredits && resetCreditsShown(credits, redeem);
     return { key: account.id, slot: String(index), showLabel: report.accounts.length > 1, ...accountSummary(account), notice: notice ?? '',
       windows: notice ? [] : arr(limits.windows).map(window => windowView(window, now, format)), light, dark,
