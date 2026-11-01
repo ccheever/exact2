@@ -282,7 +282,7 @@ final class BackSwipe {
     /// True when it began a swipe, which AppKit then tracks. A script's
     /// wheel is not a trackpad's stream of events, and is never tracked.
     func scroll(_ event: NSEvent, enabled: Bool = NSEvent.isSwipeTrackingFromScrollEventsEnabled && !ExactEnv.agentMode) -> Bool {
-        guard !tracking else { return false }
+        guard !tracking, !Self.kept(event) else { return false }
         let navigation = presenter.navigation
         let (back, forward) = (navigation.canGoBack, navigation.canGoForward)
         guard Self.way(gesture: !event.phase.isEmpty && event.momentumPhase.isEmpty, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
@@ -299,6 +299,15 @@ final class BackSwipe {
             if complete { self?.tracking = false }
         }
         return true
+    }
+
+    /// Whether a scroller under the event keeps a sideways gesture
+    /// (`overscroll-behavior-x: contain` or `none`). `NSScrollView` hands
+    /// one it is pinned for to the view that tracks swipes even so.
+    static func kept(_ event: NSEvent) -> Bool {
+        guard let window = event.window, let frame = window.contentView?.superview ?? window.contentView,
+              let hit = frame.hitTest(frame.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow) else { return false }
+        return sequence(first: hit, next: \.superview).contains { ($0 as? ChainingScrollView).map { $0.containX && $0.scrollsX } ?? false }
     }
 
     /// The three-finger swipe (`NSResponder.swipe(with:)`): `deltaX` is
