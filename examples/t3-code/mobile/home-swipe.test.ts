@@ -16,6 +16,8 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   expect(home).toContain('list id=listId appearance="none"');
   expect(thread).toContain('list id="thread-feed" appearance="none"');
   expect(thread).toContain('scrollFollowEnd=true scroll-behavior="smooth"');
+  expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
+  expect(thread).toContain('overscroll-behavior="contain" virtualized=true');
 });
 
 const capabilities = { serverResolvedCommandContext: true, threadSettlement: true, threadSnooze: true,

@@ -20,9 +20,16 @@ also removes the separator overlay work from these scrolling surfaces.
 The thread feed opts into the host's smooth end-follow behavior. History
 prepend corrections continue to use the root's instant keyed anchor restore;
 only new content while already following the end is eased.
+Home owns a horizontal swipe action, so its vertical list hides incidental
+horizontal overflow and contains edge pans. The thread feed contains edge pans
+while leaving its existing horizontal overflow behavior unchanged for the
+Markdown and code scrollers it contains. Neither setting adds a second scroll
+surface or changes row keys.
 The existing projection emits dividers only between adjacent rows, so no
 first-row or final-row separator was added. List-level horizontal clipping was
-rejected because Markdown and code blocks own their own horizontal scrollers.
+rejected for the thread because Markdown and code blocks own their own
+horizontal scrollers; Home's list has no authored horizontal content and now
+clips only incidental sideways overflow.
 
 ### Needed
 
