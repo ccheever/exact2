@@ -308,6 +308,8 @@ component PaletteRowView
     reduced: bool
     row: PaletteRow
     highlighted: bool
+    // The row Enter runs: the highlighted one, else the first (Base UI's autoHighlight marks it data-highlighted).
+    target: bool
     busy: bool
     dark: bool
     run: action
@@ -375,7 +377,7 @@ component PaletteRowView
               if row.terminalCount > 0
                 TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`palette-terminal-status-${row.key}`)
               if row.pin != ""
-                PalettePinButton(row=row, highlighted=highlighted, dark=dark, run=run)
+                PalettePinButton(row=row, highlighted=target, dark=dark, run=run)
               if row.timestamp != ""
                 text row.timestamp min-width="3rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #a1a1a1b3)"
               if row.shortcut != ""
@@ -637,7 +639,7 @@ component CommandPaletteBody
         scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 26.25 * rem : listMax) width="100%" box-sizing="border-box" testId="palette-list"
           column padding=(view.panel == "fill" ? "0px" : "0.5rem") padding-top="0.5rem" padding-bottom="0.5rem" width="100%" box-sizing="border-box" role="listbox"
             for row in view.rows key=row.key
-              PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
+              PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
       else
         if view.empty != ""
           // The fill panel (content search) keeps its height and centres the hint.
@@ -769,7 +771,7 @@ component PaletteThreadPicker
           scroll scrollTop=scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%" box-sizing="border-box" testId="palette-list"
             column padding="0.5rem" width="100%" box-sizing="border-box" role="listbox" aria-label=view.label
               for row in view.rows key=row.key
-                PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
+                PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), target=(row.index == enterIndex and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
         else
           column padding="0.5rem" width="100%" box-sizing="border-box"
             text view.empty text-align="center" padding-left="0.75rem" padding-right="0.75rem" padding-top="1.5rem" padding-bottom="1.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" testId="palette-empty"
