@@ -538,6 +538,10 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
  * for a route with no authored Back control. Not a batch. */
 uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115.000 D5.5: where the platform's Back goes from the selected
+ * visit, the location beneath the selected stack's top, UTF-8 in exact_out;
+ * length 0 at the stack's root or with no router. Not a batch. */
+uint32_t exact_location_behind(ExactRuntime rt);
 /* LLP 1115.000 D5.5: where the platform's Forward goes, the nearest
  * location Back left on the selected stack, UTF-8 in exact_out; length 0
  * when nothing is ahead. Not a batch. */

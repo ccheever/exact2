@@ -976,6 +976,22 @@ impl<D: DataSource> Runner<D> {
         })
     }
 
+    /// Where the platform's own Back goes from the selected visit, or
+    /// `None` (no router, or the stack's root): the location of the visit
+    /// beneath the selected stack's top, without its fragment, as
+    /// [`Runner::location_beneath`] gives it. A host asks it for a
+    /// navigation root with no routes that hears `navigate`, whose Back
+    /// steps the router's visits as a browser steps session history (LLP
+    /// 1115.000 D5.5).
+    pub fn location_behind(&self) -> Option<String> {
+        let (_, router) = self.carry_router()?;
+        let stack = exact_route::stack(&router);
+        stack
+            .len()
+            .checked_sub(2)
+            .map(|below| stack[below].url.clone())
+    }
+
     /// Where the platform's own Forward goes, or `None` (no router, or
     /// nothing ahead): the nearest location Back left on the selected
     /// stack, as a browser's session history keeps it. A native host
