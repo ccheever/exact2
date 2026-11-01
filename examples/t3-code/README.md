@@ -764,6 +764,9 @@ above.
 - A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
   which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
   over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks.
+  AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
+  palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
+  thread, where ⌘[ and the sidebar arrows do nothing either.
 - A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
   tooltip on hover only, where v0.1.6's opens on a keyboard focus.
 - A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
