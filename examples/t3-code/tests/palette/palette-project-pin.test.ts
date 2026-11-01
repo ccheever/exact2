@@ -75,9 +75,13 @@ describe('project rows carry ProjectPinButton', () => {
     expect(titles(projectSearchItems(client))).toEqual(['alpha', 'beta']);
     resetPaletteOrder(client);
   });
-  test('with every project archived and no No project home, New thread in offers only Add project', () => {
-    const { client } = rig([{ id: 'alpha', title: 'alpha', workspaceRoot: '/alpha', archivedAt: at }]);
-    expect(newThreadInItems(client).map(item => item.row.key)).toEqual(['add-project']);
+  test('with every project archived and no No project home, New thread in offers only Add project', async () => {
+    const { client, native } = rig([{ id: 'alpha', title: 'alpha', workspaceRoot: '/alpha', archivedAt: at }]);
+    expect(newThreadInItems(client)).toEqual([]);
+    expect((await paletteView(client, native, [true, 'command', 'new-thread-in', ''])).rows.map(entry => entry.title)).toEqual(['Add project']);
+    // A root query's suggestions list no "New thread in Add project".
+    expect((await paletteView(client, native, [true, 'command', '', 'add'])).rows.some(entry => entry.title.startsWith('New thread in'))).toBe(false);
+    resetPaletteOrder(client);
   });
 });
 
@@ -129,5 +133,27 @@ describe('archived projects', () => {
     const none = rig([]);
     none.client.projectId = '';
     expect(await sidebarCommand(none.client, none.native, {} as Files, 'new-thread-click', '', 'shift')).toBe('sidebar:palette-new-thread');
+  });
+});
+
+// chatRouteCommands chat.new and chat.newLocal (2359643cff): where the picker opens, or no project is current, the client
+// decides (new-thread-click); one open project and a current one starts the draft at once.
+describe('the root\'s new-thread chords', () => {
+  const root = contractComponent('app.contract', 'T3Code');
+  const press = (action: string, projectId: string, newThreadPicks: boolean, shiftKey = false) => {
+    const sent: unknown[][] = [];
+    const scope: Env = { data: { projectId, draftLaunching: false, sidebar: { newThreadPicks } }, command: (...args: unknown[]) => args, focus() {} };
+    root.call(action, { commandPending: false, jumpRequest: 0, draftOwner: '', utilityPage: '' }, { ...scope, sent: (_mutation: unknown, args: unknown) => sent.push(args as unknown[]) }, action === 'sidebarNewThread' ? [{ shiftKey }] : []);
+    return sent;
+  };
+  test('New thread (⌘N, the button)', () => {
+    expect(press('sidebarNewThread', 'p1', true)).toEqual([['sidebar:new-thread-click', '', '', 0]]);
+    expect(press('sidebarNewThread', 'p1', true, true)).toEqual([['sidebar:new-thread-click', '', 'shift', 0]]);
+    expect(press('sidebarNewThread', '', false)).toEqual([['sidebar:new-thread-click', '', '', 0]]);
+    expect(press('sidebarNewThread', 'p1', false)).toEqual([['new-thread', '', '', 0]]);
+  });
+  test('New thread in current project (⇧⌘N) with no current project asks the client', () => {
+    expect(press('newThread', '', false)).toEqual([['sidebar:new-thread-click', '', 'shift', 0]]);
+    expect(press('newThread', 'p1', false)).toEqual([['new-thread', '', '', 0]]);
   });
 });

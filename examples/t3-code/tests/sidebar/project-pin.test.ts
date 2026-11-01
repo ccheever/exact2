@@ -117,7 +117,7 @@ describe('the filter\'s keys', () => {
   const menu = contractComponent('sidebar-overlays.contract', 'SidebarScopeMenu');
   const press = (highlighted: string, key: string, e: Obj) => {
     const calls: unknown[][] = [];
-    const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: false }], scopeFirst: '' } };
+    const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: false }], scopeHighlight: '' } };
     menu.call('pinKey', { hovered: highlighted, pinOver: '' }, { data, run: (...args: unknown[]) => calls.push(['run', ...args]), preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']) },
       [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...e }]);
     return calls;
@@ -129,13 +129,19 @@ describe('the filter\'s keys', () => {
     expect(press('g1', 'p', { metaKey: true })).toEqual([]);
     expect(press('', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
     expect(press('g2', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
-  });  // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
+  });
+  // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
   test('before the pointer moves, the shortcut pins the chosen project, which Base UI highlights on open', () => {
     const calls: unknown[][] = [];
     const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }], scopeHighlight: 'g1' } };
     menu.call('pinKey', { hovered: '\n', pinOver: '' }, { data, run: (...args: unknown[]) => calls.push(['run', ...args]), preventDefault() {}, stopPropagation() {} },
       ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }]);
     expect(calls).toEqual([['run', 'project-pin', '', 'g1']]);
+  });
+  test('a new query drops the row the pointer rested on, so Return takes the first match', () => {
+    const state = { hovered: 'beta', pinOver: '' }, calls: unknown[][] = [];
+    menu.call('queryInput', state, { data: { sidebar: { scopes: [], scopeHighlight: '' } }, local: (...args: unknown[]) => calls.push(args) }, ['al']);
+    expect([state.hovered, calls]).toEqual(['\n', [['scope-query', '', 'al']]]);
   });
   test('Return picks the highlighted row, and nothing when no row is highlighted', () => {
     const picks = (hovered: string, scopeHighlight: string) => {

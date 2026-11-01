@@ -438,8 +438,7 @@ const NO_PROJECT_KEY = 'new-thread-in:no-project';
  * (the Scratch project) goes where newThreadNoProjectIndex puts it, with its own chat.newWithoutProject shortcut.
  * enumerateCommandPaletteItems numbers the first nine projects as shown by thread.jump.N, whose rules hold only
  * `isDesktop`: this is the desktop build, so each shows its ⌘N and the field runs it by that chord (CommandPalette.tsx
- * handleKeyDown); a pin cannot move a number to another row. With every project archived and no "No project" home,
- * only Add project is left.
+ * handleKeyDown); a pin cannot move a number to another row.
  */
 export function newThreadInItems(client: T3Client): Item[] {
   const root = scratchRoot(client.config), picked = pickerProjects(client);
@@ -453,8 +452,7 @@ export function newThreadInItems(client: T3Client): Item[] {
   }
   const shown = orderWhileOpen(openOrder(client).newThread, items, groupKeyOf(ordered, 'new-thread-in'), true);
   const jumps = new Map(enumerateJumps(client, shown.filter(item => item.row.key !== NO_PROJECT_KEY)).map(item => [item.row.key, item] as const));
-  const numbered = shown.map(item => jumps.get(item.row.key) ?? item);
-  return numbered.length ? numbered : rootActions(client).filter(item => item.row.key === 'add-project');
+  return shown.map(item => jumps.get(item.row.key) ?? item);
 }
 /**
  * CommandPalette.tsx handleKeyDown: a chord that resolves to a thread.jump.N command is the field's, whether or
@@ -506,9 +504,13 @@ export function settingsItems(client: T3Client, query: string): Item[] {
  * `searching` says message results are still on their way.
  */
 export type CommandContext = { page: string; query: string; now: number; scheme: string; matches: Map<string, Obj>; matchQuery: string; searching: boolean; linkedThreads?: Item[] | null };
-/** A submenu's page: New thread in..., Change theme, Change appearance. */
-function submenuGroups(client: T3Client, page: string, scheme: string): Group[] {
-  return page === 'new-thread-in' ? [{ value: 'projects', label: 'Projects', items: newThreadInItems(client) }]
+/**
+ * A submenu's page: New thread in..., Change theme, Change appearance. Shown as the page (`displayed`), New thread in...
+ * with every project archived and no "No project" home offers only Add project; a query's suggestions list no such row.
+ */
+function submenuGroups(client: T3Client, page: string, scheme: string, displayed = false): Group[] {
+  const projects = page === 'new-thread-in' ? newThreadInItems(client) : [];
+  return page === 'new-thread-in' ? [{ value: 'projects', label: 'Projects', items: projects.length || !displayed ? projects : rootActions(client).filter(item => item.row.key === 'add-project') }]
     : page === 'theme' ? [{ value: 'themes', label: 'Change theme', items: themeItems(client, scheme) }]
       : page === 'appearance' ? [{ value: 'appearance', label: 'Change appearance', items: appearanceItems(client) }] : [];
 }
@@ -540,7 +542,7 @@ export function commandView(client: T3Client, context: CommandContext): PaletteV
   const page = context.page, query = context.query;
   const submenu = page !== '';
   const { root, extra } = rootSearch(client, query, submenu || query.startsWith('>') ? '' : query, context.now, context.scheme);
-  const filtered = filterGroups(submenu ? submenuGroups(client, page, context.scheme) : root, query, submenu, { ...extra, threads: context.linkedThreads ?? extra.threads,
+  const filtered = filterGroups(submenu ? submenuGroups(client, page, context.scheme, true) : root, query, submenu, { ...extra, threads: context.linkedThreads ?? extra.threads,
     messages: context.linkedThreads ? [] : messageItems(extra.threads, context.matches, context.matchQuery, context.now) });
   const rows = flatten(filtered);
   const actionsOnly = query.startsWith('>');

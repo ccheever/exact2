@@ -1005,7 +1005,10 @@ component T3Code
         focus("composer")
         utilityPage = ""
       else
-        projectsOpen = true
+        // startNewThreadFromContext with no current project: the default one, else the New thread in… picker
+        // (sidebar-commands.ts).
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", "shift", 0)
   action write(value: string, e: InputEvent)
     composerIntentInput(value, e)
     releaseUndoClaim() // a paste from a menu, dictation or a drop edits without a key

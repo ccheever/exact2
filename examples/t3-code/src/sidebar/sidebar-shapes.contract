@@ -253,7 +253,6 @@ shape SidebarView
   scopes: SidebarScope[]
   scopeOpen: bool
   scopeQuery: string
-  scopeFirst: string
   scopeHighlight: string
   renameId: string
   renameTitle: string

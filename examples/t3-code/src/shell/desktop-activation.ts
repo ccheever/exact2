@@ -245,8 +245,8 @@ export function activationDependencies(client: T3Client, native: Native, source:
           if (entry) await fleetCall(native, entry, { op: 'request', method: 'projects.mutate', payload });
           else await client.rpc(native, 'projects.mutate', payload, true);
         } catch (error) {
-          if (letGo(error)) throw error;
-          pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+          // A cancelled write is no failure (reportProjectFailure skips an interrupted command), and blocks nothing.
+          if (!letGo(error)) pushToast(client, { kind: 'error', title: 'Failed to unarchive project', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
         }
       }
       if (entry) {

@@ -98,7 +98,7 @@ export interface SidebarView {
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; newThreadPicks: boolean; scopePinChord: string; dragEnabled: boolean;
   /** The chosen projects' keys, newline-joined ('' for all), and their names, comma-joined. */
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopeGlyphSecond: ProjectGlyph; scopeCount: number; scopes: SidebarScope[];
-  scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
+  scopeOpen: boolean; scopeQuery: string;
   /** The row Base UI highlights before the pointer moves (scopeHighlight); "\n" for none. */
   scopeHighlight: string;
   renameId: string; renameTitle: string; renameHeld: boolean; selectionCount: number; undoShort: string; undoLabel: string; undoUntil: number;
@@ -480,7 +480,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeGlyph: groupGlyph(client, scope, helpers.projectIdentity),
       // Several projects: the trigger overlaps the first two glyphs.
       scopeGlyphSecond: groupGlyph(client, chosen[1], helpers.projectIdentity), scopeCount: chosen.length,
-      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeFirst: scopeList[0]?.key ?? '', scopeHighlight: scopeHighlight(scopeList, session.scopeQuery),
+      scopes: scopeList, scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery, scopeHighlight: scopeHighlight(scopeList, session.scopeQuery),
       renameId: session.renameId, renameTitle: session.renameTitle, renameHeld: renameHeld(client), selectionCount: session.selection.length,
       undoShort: undo && live ? `${undoShortSummary(undo)},` : '',
       undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)

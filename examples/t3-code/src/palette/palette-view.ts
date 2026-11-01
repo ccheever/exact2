@@ -84,7 +84,7 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   // A list page (Environments, Sources) where nothing matches the query searches the root (filterCommandPaletteGroups allOptions).
   if (isAddProjectPage(page) || (page === '' && isBrowseQuery(query))) {
     const fallback = page !== '' && !isBrowseQuery(query) ? rootFallback(client, query, now, scheme) : undefined;
-    return { ...await addProjectView(client, native, { page, query, highlighted, ...(fallback ? { fallback } : {}) }), jumpKeys };
+    return { ...await addProjectView(client, native, { page, query, highlighted, ...(fallback ? { fallback } : {}) }), jumpKeys, pinKeys: fieldChords(client, 'thread.pin') };
   }
   // The panel's thread picker, and the linked threads' search (the root page, opened on the pull request's URL).
   if (page === 'pr-link-thread') return threadPickerView(client, query, false);
