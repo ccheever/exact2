@@ -1817,6 +1817,8 @@ first-second interval over 25 ms in twenty launches. Softbuffer has none at
 softbuffer by +4.74% and −2.46%, within D15's 10% relative limit and no
 worse than S2.4's +5.2% and +4.7%. The app still opts into Ink through its
 manifest; an unspecified Windows painter remains the CPU painter.
+On 2026-11-01 Charlie made ink the Windows default and kept an explicit CPU
+choice ([LLP 1149 D12](../../llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises)); the numbers above remain the historical record.
 
 ### Method and limits
 
@@ -5758,3 +5760,23 @@ are retained under `target/m10-cut7-final-windows/` on both machines
 (local raw logs in `nucbox/`); the captures show the three-book library
 partly covered by Settings, and both complete-screen markers name the
 requested adapter.
+
+
+## Windows default — qualification (2026-11-01)
+
+Charlie selected ink as Windows' absent painter (LLP 1149 D12). This lane
+changes selection and qualifies it by existing suites and app drives;
+S2.5, S2.9, G6e and G7c remain the performance evidence. No series,
+quiet-machine gate or PresentMon collection runs here.
+
+Before the NucBox runs, predict zero failures in `exact-windows`, both
+Ink device suites, the pinned suites, text and image tests, and all six
+desktop journeys on each device with `EXACT_PAINTER` absent. Predict
+one successful CPU window drive with the environment override and one
+Excord bake with `host.windows.painter: "cpu"` whose smoke reports `cpu`.
+The default Shelf and Excord smoke reports must name `ink` and Direct3D 11.
+The Excord drive must preserve channel scrolling, composer text, menu
+activation and resizing at 100% and 150%. These are functional predictions;
+no timing change is predicted or measured. Raw logs and screenshots stay
+under `target/win-default/` here and in the branch's NucBox mirror,
+`projects/exact2-1149-win-default`.

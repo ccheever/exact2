@@ -16,6 +16,17 @@ fn the_baked_painter_round_trips_per_host_without_changing_bundle_compatibility(
             compatibility_with_trust(&dir, platform, target, m, Some(""), "development").unwrap()
         };
         let default = build(&manifest);
+        assert_eq!(manifest.painter(host).unwrap(), None);
+        let mut cpu = manifest.clone();
+        cpu.json["host"] = serde_json::json!({host: {"painter": "cpu"}});
+        if host == "windows" {
+            let baked = build(&cpu);
+            let json: serde_json::Value = serde_json::from_str(&baked.to_json()).unwrap();
+            assert_eq!(json["painter"], "cpu");
+            assert_eq!(baked.id, default.id);
+        } else {
+            assert!(cpu.painter(host).is_err());
+        }
         let mut selected = manifest.clone();
         selected.json["host"] = serde_json::json!({ host: {"painter": "ink"} });
         let selected = build(&selected);

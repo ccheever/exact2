@@ -215,6 +215,9 @@ impl Manifest {
     pub fn painter(&self, platform: &str) -> Result<Option<&'static str>, String> {
         match self.host(platform).get("painter") {
             None => Ok(None),
+            Some(value) if platform == "windows" && value.as_str() == Some("cpu") => {
+                Ok(Some("cpu"))
+            }
             Some(value)
                 if matches!(platform, "windows" | "linux" | "android")
                     && value.as_str() == Some("ink") =>
@@ -222,7 +225,7 @@ impl Manifest {
                 Ok(Some("ink"))
             }
             Some(_) => Err(format!(
-                "host.{platform}.painter must be \"ink\" on Windows, Linux or Android"
+                "host.{platform}.painter must be \"ink\" on Windows, Linux or Android, or \"cpu\" on Windows"
             )),
         }
     }

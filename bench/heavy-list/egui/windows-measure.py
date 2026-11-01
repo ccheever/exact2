@@ -139,8 +139,9 @@ def run(arm, number, out, full, presentmon, capture=False, *, binary=None, motio
         'bench/heavy-list/exact-heavylist/dist-windows/Heavy list.exe')
     if motion in ('bar', 'caret'):
         env['BENCH_MOTION'] = motion
-    if arm == 'wgpu':
-        env['EXACT_INK_DEVICE']='wgpu'
+    if arm != 'egui':
+        env['EXACT_PAINTER'] = 'ink'
+        env['EXACT_INK_DEVICE'] = 'wgpu' if arm == 'wgpu' else 'd3d11'
     env.pop('EXACT_STARTUP_STACKS', None)
     samples = dict(arm=arm, number=number, launchWallUnix=time.time(), binary=str(binary),
                    sha256=hashlib.sha256(binary.read_bytes()).hexdigest())

@@ -22,6 +22,11 @@ test('each painted host admits ink, carries it in native metadata and refuses gp
       }
       assert.equal(nativeManifestMetadata(read({ [platform]: {} }), platform).host.painter, undefined);
       assert.throws(() => read({ [platform]: { painter: 'gpu' } }), /painter/);
+      if (platform === 'windows') {
+        assert.equal(nativeManifestMetadata(read({ windows: { painter: 'cpu' } }), platform).host.painter, 'cpu');
+      } else {
+        assert.throws(() => read({ [platform]: { painter: 'cpu' } }), /painter/);
+      }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

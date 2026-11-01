@@ -20,6 +20,7 @@
 //!   drawn at and what the kernel is told the display's scale is, so a
 //!   hairline is one of those pixels (LLP 1115.000 D10.3).
 //! - `EXACT_PAINTER=auto|gpu|ink|cpu` — overrides the app's baked painter choice.
+//!   Without a manifest choice, Windows uses ink and Linux uses auto (LLP 1149 D12).
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's

@@ -35,7 +35,7 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
     let _ = CUSTOM.set((name, make));
 }
 impl PainterChoice {
-    /// The baked `host.<platform>.painter`, or this host's existing default.
+    /// The baked painter, otherwise Ink on Windows and Auto elsewhere (LLP 1149 D12).
     pub fn from_baked(compat: &str) -> Self {
         #[derive(Default, serde::Deserialize)]
         struct Baked {
@@ -47,7 +47,8 @@ impl PainterChoice {
             .as_deref()
         {
             Some("ink") => Self::Ink,
-            _ if cfg!(windows) => Self::Cpu,
+            Some("cpu") => Self::Cpu,
+            _ if cfg!(windows) => Self::Ink,
             _ => Self::Auto,
         }
     }
@@ -629,14 +630,17 @@ mod tests {
         assert_eq!(
             PainterChoice::from_baked("{}"),
             if cfg!(windows) {
-                PainterChoice::Cpu
+                PainterChoice::Ink
             } else {
                 PainterChoice::Auto
             }
         );
-        for default in [PainterChoice::Cpu, PainterChoice::Auto] {
+        let cpu = PainterChoice::from_baked(r#"{"painter":"cpu"}"#);
+        assert_eq!(cpu, PainterChoice::Cpu);
+        for default in [cpu, PainterChoice::from_baked("{}")] {
             assert_eq!(default.with_override(None), default);
             assert_eq!(default.with_override(Some("ink")), PainterChoice::Ink);
+            assert_eq!(default.with_override(Some("cpu")), PainterChoice::Cpu);
         }
     }
 

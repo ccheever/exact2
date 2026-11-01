@@ -115,8 +115,8 @@ if (import.meta.main) {
   const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && (outAt < 0 || i !== outAt + 1)));
   const fxc = sdkFxc();
   if (fxc) process.env.PATH = `${fxc}${delimiter}${process.env.PATH}`;
-  else if (app.manifest?.host?.windows?.painter === 'ink' && !String(process.env.PATH).split(delimiter).some((dir) => dir && existsSync(resolve(dir, 'fxc.exe'))))
-    console.error('warning: no fxc.exe on PATH or in the Windows SDK: the window cannot open with host.windows.painter "ink" (install the Windows SDK; headless drives paint on the CPU and still work)');
+  else if (app.manifest?.host?.windows?.painter !== 'cpu' && !String(process.env.PATH).split(delimiter).some((dir) => dir && existsSync(resolve(dir, 'fxc.exe'))))
+    console.error('warning: no fxc.exe on PATH or in the Windows SDK: the default ink painter cannot open its DirectX 11 window (install the Windows SDK, or select host.windows.painter "cpu"; headless drives explicitly use the CPU)');
   const target = bakeTarget('windows');
   const profile = args.includes('--release') ? 'release' : 'gpu-dev';
   const build = buildBake(app, 'windows', target, { profile, env: developmentBuildEnv(app) });

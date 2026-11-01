@@ -1,7 +1,7 @@
 # LLP 1149: The renderer — the painter on the GPU, on every platform
 
 **Type:** RFC (a decision brief: each question carries a proposed answer; §5 lists the ones that are Charlie's)
-**Status:** Draft r4, 2026-10-28. S0 was built the same day (§4 has every chunk's numbers; the two D15 verdicts are earned; the code is on `lane/ink` at `e83558a4d6`). Charlie ruled on it that evening: "land after fixes"; the renderer is to be used "some of the time but not all of the time, depending on what you want", which D12 now states as a per-app choice on every platform with today's painters kept (D13 amended); S2 before S1; §5's proposed answers stand where the proposer is at least 80% confident, and the two where he is not (Q14, the boot rule; Q21, the thresholds) went to the panel blind: GPT-6 Astra (94 and 91) and Muse Wonder Full 1.0 (70 and 75) agree on both and are folded (`llp/reviews/rfc-2026-10-28-1149-r4.{astra,muse}.md`; Grok's run died on a permission prompt); D6.3, D15, §4 and §8 carry their answers, and §5 gains Q25 from Muse. Landing follows the second blind code review's fixes (C6f). Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5.
+**Status:** Draft r4, 2026-10-28. S0 was built the same day (§4 has every chunk's numbers; the two D15 verdicts are earned; the code is on `lane/ink` at `e83558a4d6`). Charlie ruled on it that evening: "land after fixes"; the renderer is to be used "some of the time but not all of the time, depending on what you want", which D12 now states as a per-app choice on every platform with today's painters kept (D13 amended); S2 before S1; §5's proposed answers stand where the proposer is at least 80% confident, and the two where he is not (Q14, the boot rule; Q21, the thresholds) went to the panel blind: GPT-6 Astra (94 and 91) and Muse Wonder Full 1.0 (70 and 75) agree on both and are folded (`llp/reviews/rfc-2026-10-28-1149-r4.{astra,muse}.md`; Grok's run died on a permission prompt); D6.3, D15, §4 and §8 carry their answers, and §5 gains Q25 from Muse. Landing follows the second blind code review's fixes (C6f). Charlie asked for this document and its research record (LLP 1148) on 2026-10-28, with the direction: "I'm up for doing a lot of stuff ourselves and repeating ourselves per platform if that gives us better performance and efficiency", and "we want this renderer to work on every platform"; the code is Astra's to write (Charlie, the same day: "use Astra xhigh to write code for this"). r1 went to three families blind: Muse Wonder Full 1.0 (xhigh) NOT READY, Grok 4.7 (xhigh) READY WITH CHANGES, GPT-6 Astra (xhigh) NOT READY (`llp/reviews/rfc-2026-10-28-1149-r1.{muse,grok,astra}.md`). r2 folded Muse; r3 folds Grok and Astra (§R). The three agree on the direction and on one change r1 did not propose: the performance case for a device layer per platform is unmeasured, so S0 builds one core and decides the device layer per platform by measurement (D5, D15). Sent to Charlie with §5. Charlie ruled on 2026-11-01: "let's use ink by default on windows and optionally on macos and other platforms." D12 records the Windows default and the explicit CPU choice; D13 is unchanged.
 **Systems:** a new crate, `host/ink` (`exact-ink`): the painter's GPU backend, its device trait, a wgpu device layer and direct ones where measured; `host/linux` (the paint walk and `paint/backend.rs`, unchanged in contract; `gpu.rs` gains kept rows as the control arm, then loses its platform branches as each passes; `raster.rs`, kept as the oracle and fallback; `text/catalog.rs`, the glyph rasterizers); `host/windows` (the window presents through a composition swap chain); a painted Apple carrier (new, S1, if S0 earns it); the build (`host/apple/build.mjs`, `host/windows/build.mjs`: shaders compiled at build); `scripts/app.schema.json` (`host.macos.presenter`, `host.ios.presenter`); LLP 1009 D1 (amended narrowly); `rules/DEFERRED.md` §Runtime (a replacement exception, §8)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-10-28; r2 and r3 the same day
@@ -561,30 +561,34 @@ last used it has completed (D4).
 
 ### D12 — Where it is the presenter, and what "the same everywhere" promises
 
-**The renderer is an app's choice, on every platform** (Charlie, 2026-10-28: "we want to
-use it some of the time but not all of the time, depending on what you want"). On Linux,
-Windows and Android, where the painted presenter is already the host, an app selects it in
-its manifest, per platform as the manifest is shaped: `host.windows.painter: "ink"`,
-`host.linux.painter: "ink"`, `host.android.painter: "ink"`; absent, the platform keeps the
-painter it has today (the CPU painter on Windows, vello or the CPU painter on Linux, the
-Canvas host or vello on Android). `EXACT_PAINTER=ink|gpu|cpu` overrides it for the agent,
-the smoke and tests, as it does today. Nothing shipped changes when the renderer lands.
-**On Windows, ink defaults to DirectX 11**; `EXACT_INK_DEVICE=wgpu` selects wgpu's
-DirectX 12 device and `warp` forces DirectX 11's software device. S2.9b's ordinary
-Shelf launches reached the first screen at 859 ms through wgpu's shader translation,
-pipeline build, readback and `softbuffer` present, against 142 ms through DirectX 11
-composition. D15 compares ink with the platform's existing painter; the manifest chooses
-that painter, while ink uses the better device. The startup tail is S2's next chunk in
-`QUEUE.md`, not a gate on this device default: the worst of ten launches was 209 versus
-153 ms fresh at 1920×1080 and 197 versus 137 ms retained at 1024×720 against the CPU
-painter. The stall between runner boot and layout did not recur in 76 diagnostic
-launches; the device thread holding the loader lock remains an unproven hypothesis.
-See `host/ink/MEASUREMENTS.md`, “S2.9”.
+**Windows uses ink when the app names no painter** (Charlie, 2026-11-01:
+"let's use ink by default on windows and optionally on macos and other platforms").
+It presents through the DirectX 11 composition swap chain;
+`host.windows.painter: "cpu"` keeps the CPU painter and its `softbuffer` window.
+`EXACT_PAINTER=ink|gpu|cpu` overrides the manifest and the default for the agent,
+the smoke and tests. S2.5's Shelf first-screen medians against the CPU painter
+are +4.74% and −2.46%; S2.9's are −5.13% to +6.98%, with two of four maxima
+above the 10% guard (+36.99% and +43.59%) and the 100 ms budget unmet by both
+painters (`host/ink/MEASUREMENTS.md`, S2.5 and S2.9).
+The ruling changes the default without closing those boot obligations.
+[The 60 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored)
+and [the 120 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g7c-the-windows-120-hz-fling-rows-and-the-observer-off-cold-control)
+remain the performance record; S2.9 records both devices passing the six desktop journeys.
+`EXACT_INK_DEVICE=wgpu` selects ink's DirectX 12 device and `warp` forces
+DirectX 11's software device. S2.9b's ordinary Shelf launches reached the first
+screen at 859 ms through wgpu's shader translation, pipeline build, readback
+and `softbuffer` present, against 142 ms through DirectX 11 composition.
+
+On Linux and Android an app opts in with `host.linux.painter: "ink"` or
+`host.android.painter: "ink"`. Without the key, Linux keeps vello or the CPU
+painter, and Android keeps its Canvas host or vello. Android refuses ink until
+S4 implements its Vulkan surface presenter.
+
 On Apple the native host stays the default — what an
 author leaves unsaid is the platform's (LLP 1115) — and an app chooses the painted presenter
 in its manifest, per platform as the manifest is shaped: `host.macos.presenter: "painted"`,
 `host.ios.presenter: "painted"` (`scripts/app.schema.json`; the native host is the absent
-value). **The build refuses the key** until the painted carrier exposes the accessibility
+value). **Distribution is refused** until the painted carrier exposes the accessibility
 tree through the kernel's roles, as the native host does (VoiceOver reads it), with text
 editing, the IME, keyboard navigation, focus and the app lifecycle: those are the shipping
 gate of a presenter an app may choose. S1's carrier is a **benchmark carrier** until that

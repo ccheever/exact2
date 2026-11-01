@@ -84,10 +84,12 @@ impl Shelf {
         let log = out().join(format!("{name}.log"));
         let file = File::create(&log).unwrap();
         let mut command = Command::new(exe);
+        let device = std::env::var("EXACT_INK_DEVICE").unwrap_or_else(|_| "d3d11".into());
         command
             .env(
                 "EXACT_INK_DEVICE",
                 match painter {
+                    "default" | "cpu" => device.as_str(),
                     "wgpu" => "wgpu",
                     "warp" => "warp",
                     _ => "d3d11",
@@ -116,6 +118,9 @@ impl Shelf {
             .env_remove("EXACT_AGENT_WINDOW_FRAMES")
             .stdout(Stdio::from(file.try_clone().unwrap()))
             .stderr(Stdio::from(file));
+        if painter == "default" {
+            command.env_remove("EXACT_PAINTER");
+        }
         if painter == "richedit" {
             command.env("EXACT_INK_RICHEDIT", "1");
         }
@@ -171,12 +176,8 @@ impl Shelf {
             let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         }
         let exe = std::env::var("INK_SHELF").expect("INK_SHELF names the built Shelf.exe");
-        let painter = if std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu") {
-            "wgpu"
-        } else {
-            "ink"
-        };
-        let mut app = Self::launch(name, &exe, painter, "1024x720", None, field);
+        let painter = std::env::var("EXACT_PAINTER").unwrap_or_else(|_| "default".into());
+        let mut app = Self::launch(name, &exe, &painter, "1024x720", None, field);
         app.place(1024, 720);
         app
     }
@@ -1025,10 +1026,11 @@ fn shelf_dpi_roundtrip() {
 #[ignore = "NucBox desktop; forces a real GPU TDR with dxcap -forcetdr"]
 fn shelf_device_loss() {
     let wgpu = std::env::var("EXACT_INK_DEVICE").as_deref() == Ok("wgpu");
+    let painter = std::env::var("EXACT_PAINTER").unwrap_or_else(|_| "default".into());
     let mut app = Shelf::launch_fault(
         "device-loss",
         &std::env::var("INK_SHELF").unwrap(),
-        if wgpu { "wgpu" } else { "ink" },
+        &painter,
         "1024x720",
         None,
         false,
