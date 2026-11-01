@@ -191,7 +191,7 @@ fn the_windows_root_removes_the_host_items_the_reference_bar_lacks() {
     assert_eq!(
         prop(runner, "t3-code", "menuRemove").as_deref(),
         Some(concat!(
-            "close-all show-tab-bar show-all-tabs develop back paste-and-match-style find ",
+            "close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find ",
             "spelling-and-grammar substitutions transformations app-help"
         ))
     );

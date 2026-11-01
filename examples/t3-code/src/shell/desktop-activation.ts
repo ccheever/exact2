@@ -2,7 +2,7 @@
 // (MIT, see LICENSE-T3), reference 1e2ecbd975: apps/web/src/desktopAppActivation.ts
 // (handleDesktopAppActivationRequest), components/desktop/DesktopAppActivationCoordinator.tsx (when
 // the window is ready, and what each step does), packages/contracts/src/desktopAppActivation.ts
-// (the protocol) and packages/shared/src/desktopAppControl.ts (the socket address).
+// (the protocol) and packages/shared/src/desktopAppControl.ts (the socket address, at 2359643cff).
 //
 // The socket and the broker are native (modules/apple/T3AppControl.swift); this file is the
 // window's half, the reference's renderer:
@@ -56,7 +56,7 @@ export function parseActivationRequest(value: unknown): DesktopAppActivationRequ
 /**
  * resolveDesktopAppControlAddress: the socket the app listens on and the CLI dials. The state
  * directory (`<T3 home>/userdata`) is hashed so a long T3 home stays under the Unix socket path
- * limit. `sha256` is the digest's hex; the app computes the same address natively
+ * limit, and a temporary directory too long for it gives way to /tmp. `sha256` is the digest's hex; the app computes the same address natively
  * (T3AppControlAddress), and both are held to the reference's vectors.
  */
 export function resolveDesktopAppControlAddress(input: { stateDir: string; platform: string; tempDir: string; userId: number | undefined;
@@ -64,8 +64,14 @@ export function resolveDesktopAppControlAddress(input: { stateDir: string; platf
   const stateHash = input.sha256(input.stateDir).slice(0, 24);
   if (input.platform === 'win32') return { address: `\\\\.\\pipe\\t3code-app-${stateHash}`, directory: null };
   const userKey = input.userId === undefined ? stateHash.slice(0, 12) : input.userId;
-  const directory = input.joinPath(input.tempDir, `t3code-${userKey}`);
-  return { address: input.joinPath(directory, `${stateHash}.sock`), directory };
+  const socketName = `${stateHash}.sock`;
+  // sun_path holds 104 bytes on macOS and 108 on Linux, each with its NUL.
+  const maxPathBytes = input.platform === 'linux' ? 107 : 103;
+  let directory = input.joinPath(input.tempDir, `t3code-${userKey}`);
+  if (new TextEncoder().encode(input.joinPath(directory, socketName)).byteLength > maxPathBytes) {
+    directory = input.joinPath('/tmp', `t3code-${userKey}`);
+  }
+  return { address: input.joinPath(directory, socketName), directory };
 }
 
 // ── apps/web/src/desktopAppActivation.ts ─────────────────────────────────

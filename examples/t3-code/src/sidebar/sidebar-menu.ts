@@ -40,6 +40,13 @@ export function rowConfig(client: T3Client, thread: Obj, source: EnvironmentFlee
   return [...source.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.config ?? {};
 }
 
+/** Whether the row's environment is connected now: the focused one's socket, or a background entry's phase. */
+export function rowConnected(client: T3Client, thread: Obj, source: EnvironmentFleet = fleet): boolean {
+  const ref = parseFleetThreadId(str(thread.id));
+  if (!ref || ref.environmentId === client.environmentId) return client.connection === 'connected';
+  return [...source.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.phase === 'connected';
+}
+
 /** canTurnThreadIntoProject (useThreadActions.ts): a No project thread that already has its own folder, on a server that can promote it. */
 export function canTurnIntoProject(client: T3Client, thread: Obj, source: EnvironmentFleet = fleet): boolean {
   const config = rowConfig(client, thread, source);

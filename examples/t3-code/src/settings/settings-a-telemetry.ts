@@ -12,13 +12,8 @@ import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
 
 // ── Formatting (ResourceTelemetryDiagnostics.tsx) ───────────────────────────
-export function formatBytes(value: number): string {
-  if (value < 1024) return `${Math.round(value)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let next = value, index = -1;
-  do { next /= 1024; index++; } while (next >= 1024 && index < units.length - 1);
-  return `${next.toFixed(next >= 100 ? 0 : next >= 10 ? 1 : 2)} ${units[index]}`;
-}
+import { formatBytes } from './format-bytes';
+export { formatBytes };
 export const formatRate = (value: number) => `${formatBytes(value)}/s`;
 export function formatCpuTime(ms: number): string {
   const seconds = ms / 1000;

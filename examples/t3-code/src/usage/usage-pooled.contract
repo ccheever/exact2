@@ -92,6 +92,7 @@ shape PooledCursor
 shape PooledLink
   key: string
   label: string
+  accounts: string
   chatgpt: bool
   message: string
   url: string
@@ -199,10 +200,10 @@ component PoolWindowCard
       // PoolBar: equal-width segments, one per account; narrow, a legend under the strip.
       box min-width=0 display="grid" grid-template-columns=`repeat(${window.count}, minmax(0, 1fr))` column-gap="0.25rem" row-gap="0.25rem"
         for seg in window.segments key=seg.id
-          PoolSegment(seg=seg, wide=view.wide, light=pool.light, dark=pool.dark, scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
+          PoolSegment(seg=seg, wide=view.wide, light=(seg.accent != "" ? seg.accent : pool.light), dark=(seg.accent != "" ? seg.accent : pool.dark), scheme=scheme, reduced=reduced, open=(shown == seg.id), pinned=(pinned == seg.id), enterSeg=enterSeg, pin=pin)
         if not view.wide
           for seg in window.segments key=seg.id
-            LegendRow(seg=seg, light=pool.light, dark=pool.dark, pin=pinLegend)
+            LegendRow(seg=seg, light=(seg.accent != "" ? seg.accent : pool.light), dark=(seg.accent != "" ? seg.accent : pool.dark), pin=pinLegend)
         for line in window.statuses key=line.key
           row grid-column="1 / -1" grid-row=line.row min-width=0 align-items="center" gap="0.25rem" role="status" testId=`usage-seg-status-${line.key}`
             AccountName(name=line.name, chip=line.chip, chipBg=line.chipBg, chipFg=line.chipFg, size="0.75rem")
@@ -484,6 +485,7 @@ component ExternalUsage
           ProviderMark(driver="codex", size=20, color="light-dark(#18181b, #f5f5f5)")
         column min-width=0 gap="0.25rem"
           text link.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
+          text link.accounts font-size="0.75rem" line-height="1rem" overflow-wrap="break-word" color="light-dark(#71717b, #a1a1a1)" testId="usage-external-accounts"
           if link.message != ""
             text link.message max-width="36rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
       button id=`usage-external-manage-${link.key}` press=op("usage-pool-open", link.url, "") hover=hover data-focus-stop="enabled page" testId="usage-external-manage" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"

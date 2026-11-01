@@ -1,4 +1,4 @@
-// The pooled subscription limits across environments, T3 Code 74541bab17 (MIT, see LICENSE-T3):
+// The pooled subscription limits across environments, T3 Code v0.1.6 (MIT, see LICENSE-T3):
 // packages/shared/src/usageLimits.ts (CURSOR_USAGE_WINDOWS,
 // cursorUsageWindowDetails, collectExternalUsageLinks, LimitAccount, collectLimitAccounts,
 // collectLimitNotices, LimitPoolMember, LimitPoolWindow, LimitPool, displayLimitWindows,
@@ -83,6 +83,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
   const accounts = new Map<string, LimitAccount>();
   const creditSources = new Map<string, LimitAccount>();
   const hubRedeems = new Map<string, LimitAccount>();
+  const planSources = new Map<string, LimitAccount>();
   const merge = (key: string, next: LimitAccount) => {
     // Redeeming through a hub also clears the routing cooldown that hub holds for the account.
     // Redeeming natively against the same subscription resets it upstream but leaves the hub
@@ -92,6 +93,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     if (next.redeem && 'sourceId' in next.redeem.input && (!previousHub || checked(next.limits) > checked(previousHub.limits))) hubRedeems.set(key, next);
     const previousCredit = creditSources.get(key);
     if (next.limits.resetCredits && (!previousCredit || checked(next.limits) > checked(previousCredit.limits))) creditSources.set(key, next);
+    // The plan follows the freshest report that names one, so an upgrade read on one machine wins.
+    const previousPlan = planSources.get(key);
+    if (next.plan && (!previousPlan || checked(next.limits) > checked(previousPlan.limits))) planSources.set(key, next);
     const previous = accounts.get(key);
     if (!previous) { accounts.set(key, next); return; }
     const fresher = checked(next.limits) > checked(previous.limits);
@@ -107,7 +111,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
     accounts.set(key, {
       ...previous,
       displayName: previous.displayName ?? next.displayName,
-      plan: previous.plan ?? next.plan,
+      plan: planSources.get(key)?.plan ?? previous.plan ?? next.plan,
       accentColor: previous.accentColor ?? next.accentColor,
       environments,
       // A hub only names the account when no environment has it natively.

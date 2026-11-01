@@ -39,6 +39,20 @@ describe('the session read', () => {
     native.answer({ _replyError: { kind: 'Network', message: 'the request timed out after 60000 ms', reason: 'timeout' } });
     await client.refresh(native, files);
     expect([client.scopesKnown, client.scopes, client.error, client.shellLoaded]).toEqual([false, [], '', true]);
+    // SessionPermissions says the check is being retried (the transport asks again on this connection).
+    expect(client.sessionCheck).toBe('failed');
+  });
+
+  test('the session check reads pending, then failed, rejected or granted', async () => {
+    const native = new SlowSession(), client = new T3Client(), files = storage().files;
+    await client.refresh(native, files);
+    expect(client.sessionCheck).toBe('pending');
+    for (const [reply, check] of [[{ _replyError: { kind: 'HTTP', message: 'Internal server error' } }, 'failed'], [{ _reply: { authenticated: false } }, 'rejected'],
+      [{ _replyError: { kind: 'HTTP', message: 'Internal server error' } }, 'failed'], [{ _reply: { authenticated: true, scopes: ['orchestration:read'] } }, 'granted']] as const) {
+      native.answer(reply);
+      await client.refresh(native, files);
+      expect(client.sessionCheck).toBe(check);
+    }
   });
 
   test('a session the server no longer accepts asks to pair again, until a read it accepts', async () => {

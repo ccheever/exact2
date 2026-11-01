@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 2359643cff (MIT); see LICENSE-T3.
 // Sidebar drag and drop (Sidebar.tsx handleThreadDragEnd, Sidebar.logic.ts
 // resolveSidebarDropTarget/planSidebarThreadDrop, chat/threadContextDrag.ts;
 // MIT, see LICENSE-T3). The window resolves the destination shelf from the
@@ -16,7 +16,7 @@ import { pushToast } from '../shell/toast';
 import { capabilities, planReorder } from './sidebar-model';
 import { partition, renderedRows } from './sidebar-view';
 import { parkThread, targetOf } from './sidebar-commands';
-import { rowConfig } from './sidebar-menu';
+import { rowConfig, rowConnected } from './sidebar-menu';
 import { fleetThreads } from '../connections/settings-b-fleet';
 import { wall, sidebarSession } from './sidebar-state';
 import { insertContext } from '../composer/composer-editor';
@@ -44,7 +44,8 @@ export interface DropPlan { verb: string; steps: { type: string; threadId: strin
  * planSidebarThreadDrop: what a drop writes, in order, with each step's failure toast. `pinReorder` and `activeReorder`
  * are the lifted thread's environment's; `pinReorderable` and `activeReorderable` name the rows whose environments
  * take order keys (reorderableKeys). Rows outside them are never written: keyless ones sort outside the keyed run, so
- * they leave the arrangement, and keyed ones stay as bounds; a drop that would still write one writes nothing.
+ * they leave the arrangement, and keyed ones stay as bounds; a drop that would still write one, or would place a written
+ * row across a keyless one it cannot write, writes nothing.
  */
 export function planDrop(input: { id: string; from: string; target: string; pinnedIds: string[]; activeIds: string[]; pinnedKeys: Map<string, string | null>;
   activeKeys: Map<string, string | null>; geometry: DropGeometry; supportsSettlement: boolean; pinReorder: boolean; activeReorder: boolean;
@@ -57,7 +58,18 @@ export function planDrop(input: { id: string; from: string; target: string; pinn
     if (!writable) return planReorder(order, keys, id);
     if (!writable.has(id)) return null;
     const assignments = planReorder(order.filter(key => writable.has(key) || keys.get(key) != null), keys, id);
-    return assignments.every(assignment => writable.has(assignment.id)) ? assignments : null;
+    if (assignments.some(assignment => !writable.has(assignment.id))) return null;
+    // Keyless Active rows sort before keyed rows; keyless Pinned rows sort after them.
+    // Materializing any row across a frozen keyless boundary cannot persist that position.
+    const assignedIds = new Set(assignments.map(assignment => assignment.id));
+    let hasFrozenKeylessBefore = false, hasAssignedBefore = false;
+    for (const key of order) {
+      const isFrozenKeyless = !writable.has(key) && keys.get(key) == null, isAssigned = assignedIds.has(key);
+      if ((target === 'active' && isFrozenKeyless && hasAssignedBefore) || (target === 'pinned' && isAssigned && hasFrozenKeylessBefore)) return null;
+      hasFrozenKeylessBefore ||= isFrozenKeyless;
+      hasAssignedBefore ||= isAssigned;
+    }
+    return assignments;
   };
   if (target === 'settled') return from === 'settled' ? none : { verb: 'settle', steps: [{ type: 'thread.settle', threadId: id }], failure: ['Failed to settle thread'] };
   if (target === 'pinned') {
@@ -114,7 +126,8 @@ export async function sidebarDrop(client: T3Client, native: Native, id: string, 
   const ids = (section: string) => rows.filter(entry => entry.section === section).map(entry => str(entry.thread.id));
   const keys = (list: Obj[], name: string) => new Map(list.map(entry => [str(entry.id), entry[name] == null ? null : str(entry[name])] as [string, string | null]));
   const capsOf = (thread: Obj) => capabilities(rowConfig(client, thread)), caps = capabilities(lifted.config);
-  const reorderable = (test: (thread: Obj) => boolean) => new Set(rows.filter(entry => test(entry.thread)).map(entry => str(entry.thread.id)));
+  // A disconnected environment's config is cached for its rows, so its presence does not make a row writable.
+  const reorderable = (test: (thread: Obj) => boolean) => new Set(rows.filter(entry => rowConnected(client, entry.thread) && test(entry.thread)).map(entry => str(entry.thread.id)));
   const plan = planDrop({ id, from, target: geometry.target, pinnedIds: ids('pinned'), activeIds: ids('active'),
     pinnedKeys: keys([...client.shell.threads, ...fleetThreads()].filter(entry => entry.pinnedAt != null), 'pinOrderKey'),
     activeKeys: keys(parts.active, 'activeOrderKey'), geometry, supportsSettlement: caps.settlement, pinReorder: caps.pinReorder, activeReorder: caps.activeReorder,

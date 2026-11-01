@@ -33,11 +33,11 @@ export interface WorkEntry {
 export type GroupAction = 'read' | 'edit' | 'command' | 'thread-create' | 'code-search' | 'search' | 'other' | 'update'
   | 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr' | 'unwatch-pr' | 'browser' | 'device';
 
-/** orchestrationTiming.ts formatDuration (74541bab17). */
+/** orchestrationTiming.ts formatDuration (v0.1.6). */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '0ms';
   if (ms < 1_000) return `${Math.max(1, Math.round(ms))}ms`;
-  if (ms < 10_000) { const tenths = Math.round(ms / 100) / 10; return tenths >= 10 ? '10s' : `${tenths.toFixed(1)}s`; }
+  if (ms < 10_000) return `${Math.round(ms / 100) / 10}s`;
   const total = Math.round(ms / 1_000), parts: string[] = [];
   // Choose the unit after rounding so 59.5 seconds never renders as "60s".
   if (total < 60) return `${total}s`;
@@ -268,19 +268,26 @@ export function toolOutputIndicatesFailure(text: string): boolean {
 export function isToolLike(entry: WorkEntry): boolean {
   return entry.tone === 'tool' || entry.tone === 'thinking' || entry.tone === 'error' || entry.command !== undefined;
 }
-export function displayFailed(entry: WorkEntry): boolean {
+/** workEntryIndicatesToolFailureFromOutput: the detail, and with `includeCommand` the command too, read for failure text. */
+function failedFromOutput(entry: WorkEntry, includeCommand: boolean): boolean {
   if (entry.tone === 'error' || entry.status === 'failed' || entry.status === 'declined') return true;
   // Reasoning detail is the model's own prose, not tool output: "that exit code 2 is expected" is not a failure.
   if (!isToolLike(entry) || entry.itemType === 'reasoning') return false;
   if (t3ToolDefinition(entryToolName(entry)) && t3ToolResultFailed(entryToolOutput(entry))) return true;
   if (entry.itemType === 'command_execution') {
-    if (entry.item.outputIndicatesFailure === true || typeof entry.item.exitCode === 'number' && entry.item.exitCode !== 0) return true;
+    // The exit code outranks text in the output or the command itself.
+    if (typeof entry.item.exitCode === 'number') return entry.item.exitCode !== 0;
+    if (entry.item.outputIndicatesFailure === true) return true;
     if (typeof entry.item.output === 'string' && toolOutputIndicatesFailure(entry.item.output.slice(0, 32_768))) return true;
   }
-  return !!entry.detail && toolOutputIndicatesFailure(entry.detail);
+  const output = [entry.detail, includeCommand ? entry.command : undefined].filter(Boolean).join('\n');
+  return output.length > 0 && toolOutputIndicatesFailure(output);
+}
+export function displayFailed(entry: WorkEntry): boolean {
+  return failedFromOutput(entry, false);
 }
 function succeeded(entry: WorkEntry): boolean {
-  return isToolLike(entry) && !displayFailed(entry) && !(entry.command && toolOutputIndicatesFailure(entry.command))
+  return isToolLike(entry) && !failedFromOutput(entry, true)
     && !(entry.tone === 'thinking' && entry.itemType !== 'reasoning') && !['inProgress', 'stopped', 'idle', 'failed', 'declined'].includes(entry.status);
 }
 export function visibleInGroup(entry: WorkEntry, expanded = false): boolean {

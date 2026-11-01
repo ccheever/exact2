@@ -2,8 +2,8 @@
 // its command, shortcut and condition, so saving one binding leaves the others' unsaved edits in place. The rows'
 // drafts live in the root (app.contract keybindingDrafts), run here with Contract's action semantics.
 import { describe, expect, test } from 'bun:test';
-import { keybindingSettings } from '../../src/settings/keybinding-settings';
-import { buildRows, parseWhen, rowId } from '../../src/settings/keybinding-view';
+import { keptWhen, keybindingSettings } from '../../src/settings/keybinding-settings';
+import { buildRows, conflictLabels, parseWhen, rowId, shortcutConflictKey } from '../../src/settings/keybinding-view';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 
 const rule = (command: string, key: string, when?: string) => {
@@ -97,5 +97,38 @@ describe('one draft per row (app.contract)', () => {
     s.call('keybindingRest', 'b', 'action=save&previous=b&command=terminal.toggle&key=mod%2Bk&when=');
     root.call('commandCompleted', s.state, { ...s.scope, changed: { message: '', relaunch: false, routeReorder: 0 } }, []);
     expect(s.state.keybindingDrafts).toEqual([{ row: 'new', command: 'chat.new', key: '', when: '' }]);
+  });
+});
+
+// KeybindingsSettings at 2359643cff: conflicts compare the chord each shortcut resolves to, and closing the When
+// builder over an unparsed expression keeps the last valid one, so Save is enabled again.
+describe('resolved-chord conflicts and the When builder on close', () => {
+  test('mod+k collides with meta+k on a Mac and with ctrl+k elsewhere, in any modifier order', () => {
+    const rows = [{ id: 'a', command: 'commandPalette.toggle', key: 'mod+k', when: '' }, { id: 'b', command: 'chat.new', key: 'shift+meta+n', when: '' }];
+    expect(conflictLabels(rows, { id: 'x', key: 'meta+k', when: '' })).toEqual(['Command Palette: Toggle']);
+    expect(conflictLabels(rows, { id: 'x', key: 'ctrl+k', when: '' })).toEqual([]);
+    expect(conflictLabels(rows, { id: 'x', key: 'ctrl+k', when: '' }, 'Win32')).toEqual(['Command Palette: Toggle']);
+    expect(conflictLabels(rows, { id: 'x', key: 'mod+shift+n', when: '' })).toEqual(['Chat: New']);
+    expect(conflictLabels(rows, { id: 'x', key: 'mod+', when: '' })).toEqual([]);
+    expect([shortcutConflictKey('mod+k'), shortcutConflictKey('cmd+k'), shortcutConflictKey('mod+k', 'Linux x86_64'), shortcutConflictKey('mod+space'), shortcutConflictKey('k+j')])
+      .toEqual(['k|meta|||', 'k|meta|||', 'k||ctrl||', ' |meta|||', null]);
+  });
+  test('the draft keeps its last valid expression, and closing an invalid builder restores it', async () => {
+    const row = rowId('chat.new', 'mod+n', '!terminalFocus');
+    const page = (when: string) => keybindingSettings({ connection: 'disconnected' } as never, null, '', '', true, row, 'mod+n', when);
+    expect((await page('!terminalFocus')).whenView.fallback).toBe('!terminalFocus');
+    expect((await page('!terminalFocus &&')).whenView).toMatchObject({ fallback: '!terminalFocus', error: 'Use variables with !, &&, ||, and parentheses.' });
+    expect((await page('!terminalFocus && composerFocus')).whenView.fallback).toBe('!terminalFocus && composerFocus');
+    expect((await page('((')).whenView.fallback).toBe('!terminalFocus && composerFocus');
+    expect(keptWhen('other', '((', false)).toBe('');
+    const editor = contractComponent('settings-keybindings.contract', 'WhenEditor');
+    const close = (error: string, newState = 'closed') => {
+      const sent: string[] = [];
+      editor.call('toggled', {}, { view: { error, fallback: 'composerFocus' }, setWhen: (value: string) => sent.push(value) }, [{ newState }]);
+      return sent;
+    };
+    expect(close('Use variables with !, &&, ||, and parentheses.')).toEqual(['composerFocus']);
+    expect(close('')).toEqual([]);
+    expect(close('Use variables with !, &&, ||, and parentheses.', 'open')).toEqual([]);
   });
 });

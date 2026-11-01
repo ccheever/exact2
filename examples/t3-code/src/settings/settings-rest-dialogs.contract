@@ -77,6 +77,6 @@ component SettingsRestDialogs
     if editor == "project-remove" and subject != ""
       SettingsConfirm(title=projects.confirmTitle, description=projects.confirmDescription, confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove", cancel=close, confirm=raw("remove-group-member", subject, label))
     if editor == "project-remove-member"
-      SettingsConfirm(title=`Remove checkout "${label}"?`, description="This permanently clears conversation history for those threads and any archived threads.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove-member", cancel=close, confirm=raw("remove-group-member", subject, projects.key))
+      SettingsConfirm(title=`Remove checkout "${label}"?`, description="Those threads and any archived threads are deleted from T3 Code. Provider sessions are kept.\nOther entries in this grouped project are unaffected.\nThis action cannot be undone.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="project-remove-member", cancel=close, confirm=raw("remove-group-member", subject, projects.key))
     if editor == "archive-delete"
       SettingsConfirm(title=`Delete thread "${label}"?`, description="This permanently clears conversation history for this thread.", confirmLabel="Confirm", destructive=true, busy=busy, error=error, dialogId="archive-delete", cancel=close, confirm=raw("delete-archived-thread", subject, ""))

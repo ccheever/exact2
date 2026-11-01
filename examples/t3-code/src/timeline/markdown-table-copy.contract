@@ -1,0 +1,37 @@
+// MarkdownTable's footer button (ChatMarkdown.tsx, MIT; see LICENSE-T3): Copy table opens the Copy menu
+// (table-menu.contract), its icon morphing to a check after a copy.
+use kmArrow from "../shared/menu-keys.contract"
+use MorphCopyCheck from "../shell/shell-morph.contract"
+
+component TableCopyButton
+  inject
+    still: bool
+    codeCopyDone: number
+  props
+    press: action
+    // ↓ and ↑: the same request, asking the window's menu to focus its first or last item as it mounts.
+    pressFirst: action
+    pressLast: action
+    copied: number
+    open: bool
+    testId: string
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  // The Copy menu opens from the data module; the button lets go of the focus and the
+  // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract). ↓ and ↑ open it too: the menu
+  // mounts at the window, past this tree, so the request itself carries the end (`menu.keyed`).
+  action openMenu
+    blur()
+    press()
+  action menuKey(k: string, e: KeyboardEvent)
+    if kmArrow(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not open
+      preventDefault()
+      blur()
+      if k == "ArrowUp"
+        pressLast()
+      else
+        pressFirst()
+  view
+    button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"), weight=2, still=still)

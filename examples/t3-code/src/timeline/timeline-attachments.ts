@@ -1,5 +1,6 @@
 import { toolImageAction, toolImagePreview, toolImageUrls } from './tool-images';
 import { contextLinks, contextTarget, replaceLinks } from '../composer/context-links';
+import { contextLink } from '../composer/composer-editor-menu';
 // Sent attachments in user messages, adapted from T3 Code (MIT, see
 // LICENSE-T3): MessagesTimeline.tsx UserTimelineRow (a two-column image grid
 // at most 210pt wide, a SnapShot spanning both columns in a 208×112 frame with
@@ -20,7 +21,27 @@ import { draftThreadId } from '../composer/draft-thread-id';
 import { MEDIA_CACHE } from '../media/media-frame';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
-export interface MessageFile { id: string; name: string; icon: string }
+/** A sent file: `label` its name ("Pasted text" for a paste), `detail` its card's line ("TXT · 1.20 KB", a paste's size
+ *  alone), `note` its list row's line (a paste's size), and `sending` while the server has not stored it ("Sending…"). */
+export interface MessageFile { id: string; name: string; icon: string; label: string; detail: string; note: string; sending: boolean }
+
+/** lib/formatBytes.ts (v0.1.6): the unit picked after rounding, so 1023.6 KB reads "1.00 MB". */
+export function formatBytes(value: number): string {
+  const scaled = (next: number) => next.toFixed(next >= 100 ? 0 : next >= 10 ? 1 : 2);
+  if (Math.round(value) < 1_024) return `${Math.round(value)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let next = value / 1_024, unit = 0;
+  while (Number(scaled(next)) >= 1_024 && unit < units.length - 1) { next /= 1_024; unit += 1; }
+  return `${scaled(next)} ${units[unit]}`;
+}
+/** userMessageFileLabel: a paste reads "Pasted text", any other file its name. */
+export const userMessageFileLabel = (attachment: Obj): string => obj(attachment.source)._tag === 'pasted-text' ? 'Pasted text' : str(attachment.name);
+function messageFile(attachment: Obj): MessageFile {
+  const name = str(attachment.name), pasted = obj(attachment.source)._tag === 'pasted-text', sending = attachment.downloadable === false;
+  const size = formatBytes(Number(attachment.sizeBytes) || 0), extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1]?.toUpperCase() ?? 'File';
+  return { id: str(attachment.id), name, icon: fileIconToken(name), label: userMessageFileLabel(attachment),
+    detail: sending ? 'Sending…' : pasted ? size : `${extension} · ${size}`, note: sending ? 'Sending…' : pasted ? size : '', sending };
+}
 
 /** A user message's images (annotation previews stay out, as the reference filters them), audio and files.
  *  A sent video is a grid tile after the images (UserVideoAttachment), a downloadable sound an audio chip
@@ -37,10 +58,45 @@ export function messageAttachments(item: Obj): { images: MessageImage[]; attachF
       images.push({ id, name, snapshot, appName, appInitial: appName.slice(0, 1).toUpperCase(), windowTitle: snapshot ? str(source.windowTitle) || 'Captured window' : '',
         accessible: snapshot && (!!source.accessibility || !!str(source.accessibleText).trim()), video: false });
     } else if (attachment.type === 'file' && isSentVideo(attachment)) videos.push({ id, name, snapshot: false, appName: '', appInitial: '', windowTitle: '', accessible: false, video: true });
-    else if (attachment.type === 'file' && isSentAudio(attachment)) audio.push({ id, name, icon: fileIconToken(name) });
-    else if (attachment.type === 'file') attachFiles.push({ id, name, icon: fileIconToken(name) });
+    else if (attachment.type === 'file' && isSentAudio(attachment)) audio.push(messageFile(attachment));
+    else if (attachment.type === 'file') attachFiles.push(messageFile(attachment));
   }
   return { images: [...images, ...videos], attachFiles, audio };
+}
+
+/**
+ * How TimelineUserMessageRow shapes a sent message that is not folded (v0.1.6): images or videos sent without words show
+ * as media with no bubble (`media`), and sent with words sit above the bubble (`mediaAbove`); files or a voice note sent
+ * without words show as file cards (`files`) or a bubble-shaped audio chip (`audio`). `layout` is the standalone media's:
+ * a lone image keeps its own shape (`lone`), several share one rounded collage (`collage`), and videos or SnapShots
+ * among them sit in a 20rem stack (`stack`). `files` is the files to draw: every file for cards, else those the prose
+ * has no chip for. `copy` is what Copy takes from a wordless media message: its media's references.
+ */
+export function userMessageShape(item: Obj, text: string, attached: ReturnType<typeof messageAttachments>, chipped: ReadonlySet<string>, folded: boolean) {
+  const images = attached.images.filter(image => !image.video), videos = attached.images.filter(image => image.video);
+  const unchipped = attached.attachFiles.filter(file => !chipped.has(file.id));
+  const unknown = arr(item.attachments).filter(attachment => attachment.type !== 'image' && attachment.type !== 'file').length;
+  const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
+  // The prose with the references to `ids` dropped and every other reference read as its label.
+  const wordsBesides = (ids: ReadonlySet<string>) => replaceLinks(text, contextLinks(text), link => {
+    const target = contextTarget(link.href), record = target ? records.get(target.id) : undefined;
+    return record && (str(record.kind) === 'file' || str(record.kind) === 'image') && ids.has(str(record.attachmentId)) ? '' : link.label;
+  }).trim();
+  const media = images.length + videos.length;
+  const mediaOnly = !folded && text.trim() === '' && attached.audio.length === 0 && unchipped.length === 0 && unknown === 0 && media > 0;
+  const mediaAbove = !folded && !mediaOnly && media > 0;
+  const fileCards = !folded && attached.attachFiles.length > 0 && media + attached.audio.length + unknown === 0
+    && wordsBesides(new Set(attached.attachFiles.map(file => file.id))) === '';
+  const audioOnly = !folded && attached.audio.length > 0 && media + attached.attachFiles.length + unknown === 0
+    && wordsBesides(new Set(attached.audio.map(file => file.id))) === '';
+  const standalone = mediaOnly || mediaAbove;
+  const layout = !standalone ? '' : videos.length === 0 && images.length === 1 ? 'lone'
+    : videos.length === 0 && images.length > 1 && images.every(image => !image.snapshot) ? 'collage' : 'stack';
+  const mediaIds = new Set(attached.images.map(image => image.id));
+  const copy = mediaOnly ? arr(obj(item.context).records)
+    .filter(record => (str(record.kind) === 'image' || str(record.kind) === 'file') && mediaIds.has(str(record.attachmentId)))
+    .map(record => contextLink(str(record.kind), str(record.contextId), str(record.label))).join('\n') : '';
+  return { shape: mediaOnly ? 'media' : fileCards ? 'files' : audioOnly ? 'audio' : '', mediaAbove, layout, files: fileCards ? attached.attachFiles : unchipped, copy };
 }
 
 const isSentVideo = (attachment: Obj) => videoMimeType({ name: str(attachment.name), mimeType: str(attachment.mimeType) }) !== null;

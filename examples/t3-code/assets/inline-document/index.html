@@ -24,6 +24,8 @@
   const frame = document.createElement('iframe');
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-downloads');
   frame.setAttribute('referrerpolicy', 'no-referrer');
+  // An HTML render's page may take the screen for its video or image viewer (HtmlRenderDocument's allow="fullscreen").
+  if (config.allow === 'fullscreen') frame.setAttribute('allow', 'fullscreen');
   let revoked = false, loaded = false;
   const validMessage = value => value && typeof value === 'object' && !Array.isArray(value) && value.jsonrpc === '2.0';
   const encoded = value => {

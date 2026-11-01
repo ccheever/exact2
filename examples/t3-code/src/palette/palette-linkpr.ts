@@ -1,5 +1,5 @@
 // The palette's "Link pull request to thread": T3 Code reference pullRequest/LinkPullRequestDialog.tsx and
-// client-runtime/pullRequestLinkInput.ts (7c3b3b3605ef) over each host's parseChangeRequestUrl and changeRequestUrl in
+// client-runtime/pullRequestLinkInput.ts (2359643cff) over each host's parseChangeRequestUrl and changeRequestUrl in
 // the definitions registry's claim order (packages/source-control-*/src/shared/definition.ts), with
 // web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching; 9c161462c9),
 // hooks/usePullRequestLinking.ts and client-runtime/threadPullRequestCompatibility.ts.
@@ -99,7 +99,7 @@ function changeRequestUrlFor(kind: string, host: string, repository: string, num
 
 // ── Typed references (each host's isChangeRequestReference and checkoutCommandArgument) ──────────────────────────────
 const URL_PATTERNS = [/^https?:\/\/[^/\s]+\/(?:[^/\s]+\/)+[^/\s]+\/pulls\/(\d+)(?:[/?#].*)?$/i, /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i,
-  /^https:\/\/[^/\s]*gitlab[^/\s]*\/.+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i,
+  /^https?:\/\/[^/?#\s]+\/[^/?#\s]+(?:\/[^/?#\s]+)+\/-\/merge_requests\/(\d+)(?:[/?#].*)?$/i,
   /^https:\/\/(?:dev\.azure\.com\/[^/\s]+\/[^/\s]+|[^/\s]+\.visualstudio\.com\/[^/\s]+)\/_git\/[^/\s]+\/pullrequest\/(\d+)(?:[/?#].*)?$/i];
 function azureCheckout(args: string): string | null {
   const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -116,8 +116,9 @@ export function parsePullRequestReference(input: string): string | null {
   const normalized = /^tea\s+(?:pr|pulls)\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? /^gh\s+pr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim()
     ?? /^glab\s+mr\s+checkout\s+(.+)$/i.exec(trimmed)?.[1]?.trim() ?? (azure ? azureCheckout(azure) : null) ?? trimmed;
   if (!normalized) return null;
-  // GitCafe's references are its change request URLs, on its own hosts.
-  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1]) || claimChangeRequestUrl(normalized)?.kind === 'gitcafe') return normalized;
+  // GitCafe's and Bitbucket's references are their change request URLs, on their own hosts.
+  const claimed = claimChangeRequestUrl(normalized)?.kind;
+  if (URL_PATTERNS.some(pattern => pattern.exec(normalized)?.[1]) || claimed === 'gitcafe' || claimed === 'bitbucket') return normalized;
   return /^#?(\d+)$/.exec(normalized)?.[1] ?? null;
 }
 

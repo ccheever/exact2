@@ -91,6 +91,38 @@ describe('AcpSessionManagementSection', () => {
   });
 });
 
+// AcpSessionManagementSection.browser.test.tsx (T3 Code 2359643cff), the original name.
+describe('AcpSessionManagementSection refetches', () => {
+  it.each(['save', 'disable'])('keeps other provider edits through a %s refetch', async action => {
+    fake = new Fake();
+    const providers = ['google', 'other'].map(providerId => ({ providerId, supported: ['openai'], required: false, current: { apiType: 'openai', baseUrl: 'https://api.example.test/v1' } }));
+    fake.handlers['server.listAcpRegistryProviders'] = () => ({ providers });
+    await fake.press('providers');
+    await fake.press('draft-url', 'other', 'https://other.example.test/v1');
+    await fake.press('draft-headers', 'other', '{"X-Test":"unsaved"}');
+    await fake.press('draft-headers', 'google', '{"X-Test":"saved"}');
+    const keys = fake.render().providers.map(row => row.key);
+    let resolveReload!: (value: Obj) => void, resolveMutation!: (value: Obj) => void;
+    fake.handlers['server.listAcpRegistryProviders'] = () => new Promise<Obj>(resolve => { resolveReload = resolve; });
+    fake.handlers[action === 'save' ? 'server.setAcpRegistryProvider' : 'server.disableAcpRegistryProvider'] = () => new Promise<Obj>(resolve => { resolveMutation = resolve; });
+    const pressed = fake.press(action, 'google');
+    expect(fake.render().providersDisabled).toBe(true);
+    resolveMutation(action === 'save' ? { configured: true } : { disabled: true });
+    await Bun.sleep(0);
+    for (const row of fake.render().providers) expect([row.saveDisabled, row.disableDisabled]).toEqual([true, true]);
+    await fake.press('draft-url', 'other', 'https://newer.example.test/v1');
+    resolveReload({ providers });
+    await pressed;
+    const [google, other] = fake.render().providers;
+    expect([other!.baseUrl, other!.headers, google!.headers]).toEqual(['https://newer.example.test/v1', '{"X-Test":"unsaved"}', '']);
+    // The reset row mounts again to read its fresh draft; the kept one stays mounted with its fields.
+    expect([google!.key === keys[0], other!.key === keys[1]]).toEqual([false, true]);
+    fake.handlers['server.listAcpRegistryProviders'] = () => ({ providers });
+    await fake.press('providers');
+    expect([fake.render().providers[1]!.baseUrl, fake.render().providers[1]!.headers]).toEqual(['https://api.example.test/v1', '']);
+  });
+});
+
 describe('EnvironmentProviderSettings routing', () => {
   it('routes explicit ACP browser authentication consent to the selected environment', async () => {
     const action = { elicitationId: 'google-login-1', url: 'https://accounts.google.com/login', message: 'Continue with Google' };

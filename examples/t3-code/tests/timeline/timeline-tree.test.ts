@@ -22,5 +22,7 @@ describe('changed files tree', () => {
   });
   test('counts compact like DiffStatLabel', () => {
     expect([999, 1000, 1250, 12_400, 1_500_000, 2_000_000_000].map(compactCount)).toEqual(['999', '1k', '1.3k', '12k', '1.5m', '2b']);
+    // The suffix is chosen after rounding: 999,500 reads 1m, not 1000k.
+    expect([999_499, 999_500, 999_499_999, 999_500_000].map(compactCount)).toEqual(['999k', '1m', '999m', '1b']);
   });
 });

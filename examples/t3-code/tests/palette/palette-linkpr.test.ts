@@ -42,6 +42,25 @@ describe('change request references', () => {
     expect(parsePullRequestReference('https://github.com/a/b/pull/1')).toBe('https://github.com/a/b/pull/1');
     expect(parsePullRequestReference('feature/x')).toBeNull();
   });
+  // gitlab and bitbucket definition.test.ts, pullRequestLinkInput.test.ts at 2359643cff.
+  test('self-hosted GitLab merge request URLs, http included, and only those it can parse', () => {
+    for (const url of ['https://code.example.com/group/project/-/merge_requests/42', 'http://git.internal/group/sub/project/-/merge_requests/7',
+      'https://code.acme.test/a/b/c/-/merge_requests/7?tab=diffs', 'http://git.internal/a/b/c/-/merge_requests/7#note_1', 'https://code.acme.test/a/b/c/-/merge_requests/7/diffs']) {
+      expect(parsePullRequestReference(url)).toBe(url);
+    }
+    for (const url of ['https://gitlab.com/g/p?x=/-/merge_requests/5', 'https://gitlab.com/g/p#/-/merge_requests/5', 'https://gitlab.com?x=/g/p/-/merge_requests/5',
+      'https://gitlab.com#/g/p/-/merge_requests/5', 'https://gitlab.com/t3code/-/merge_requests/12', 'https://gitlab.com/g//-/merge_requests/5']) {
+      expect(parsePullRequestReference(url)).toBeNull();
+    }
+  });
+  test('Bitbucket pull request URLs on Bitbucket hosts', () => {
+    for (const url of ['https://bitbucket.org/workspace/repo/pull-requests/5/diff', 'https://git.bitbucket.acme.test/workspace/repo/pull-requests/5']) {
+      expect(parsePullRequestReference(url)).toBe(url);
+    }
+    for (const url of ['https://scm.example.test/workspace/repo/pull-requests/5', 'https://bitbucket.org/workspace/repo/src/main']) {
+      expect(parsePullRequestReference(url)).toBeNull();
+    }
+  });
   test('resolution against the thread project and the environment host', () => {
     expect(resolveLinkInput('#42', [github], 'p1', 'multiple')).toEqual({ link: { host: 'github.com', repository: 'acme/widgets', number: 42, url: 'https://github.com/acme/widgets/pull/42' } });
     expect(resolveLinkInput('https://github.com/other/repo/pull/7', [github], 'p1', 'multiple')).toMatchObject({ link: { repository: 'other/repo', number: 7 } });

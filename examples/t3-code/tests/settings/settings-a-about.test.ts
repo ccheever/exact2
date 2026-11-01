@@ -101,3 +101,30 @@ describe('about: the Update track with no feed', () => {
     expect(requests).toEqual([]);
   });
 });
+
+// AboutVersionTitle (T3 Code 2359643cff): the version is a button that copies it, with the anchored "Copied!".
+describe('about: Copy version', () => {
+  test('a copy writes the app version to the clipboard and counts on the row, so the title replays "Copied!"', async () => {
+    const client = fakeClient(), sent: Obj[] = [];
+    const native = { available: true, watch() {}, async later(request: unknown) { sent.push(request as Obj); return { ok: true, generation: 0, value: {} }; } } as unknown as Native;
+    expect(aboutRows(client)[0]).toMatchObject({ id: 'version', amount: 0 });
+    expect(await applyCoreSetting(as(client), native, 'version:copy|||', '')).toBe('');
+    expect(sent.map(request => [request.op, request.text])).toEqual([['copyText', '0.1.6']]);
+    expect(aboutRows(client)[0]!.amount).toBe(1);
+    await applyCoreSetting(as(client), native, 'version:copy|||', '');
+    expect(aboutRows(client)[0]!.amount).toBe(2);
+  });
+  test('a failed copy says "Could not copy version" and does not count', async () => {
+    const client = fakeClient();
+    const native = { available: true, watch() {}, async later() { return { ok: false, generation: 0, error: { kind: 'Clipboard', message: 'The pasteboard refused.', uncertain: false } }; } } as unknown as Native;
+    await applyCoreSetting(as(client), native, 'version:copy|||', '');
+    expect(aboutRows(client)[0]!.amount).toBe(0);
+    expect(toasts(as(client)).find(toast => toast.title === 'Could not copy version')).toMatchObject({ kind: 'error', description: 'The pasteboard refused.' });
+  });
+  test('the title is a muted inline button named for the version, with the Copy version tooltip', async () => {
+    const source = await Bun.file(new URL('../../src/settings/settings-a-about.contract', import.meta.url)).text();
+    expect(source).toContain('aria-label=`Copy version ${row.value}`');
+    expect(source).toContain('text "Copy version"');
+    expect(source).toContain('text "Copied!"');
+  });
+});

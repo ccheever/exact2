@@ -1,5 +1,5 @@
 import { providerWritable } from './provider-permissions';
-// Managed Codex with a ChatGPT account, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// Managed Codex with a ChatGPT account, T3 Code 2359643cff (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/CodexSetupSection.tsx (CodexSetupSection :58-156, the
 // state and derivations of ManagedCodexSetup :194-316 and its descriptions, controls and
 // alerts :568-1008, CodexSignInDescription :1082-1107), CodexSetupSection.logic.ts
@@ -215,6 +215,8 @@ export function codexSetupView(host: CodexHost, instanceId: string, provider: Ob
   view.control = status.authActive ? 'waiting' : status.installActive ? 'install' : status.authenticated ? 'authenticated' : 'connect';
   view.controlLabel = view.control === 'waiting' ? waitingLabel : pending ? 'Setting up...' : status.hasSavedAccount ? 'Reconnect account' : 'Continue with ChatGPT';
   view.controlDisabled = view.control === 'waiting' ? waitingDisabled : cannotStart;
+  view.secondary = view.control === 'connect' && options.allowExistingCli ? 'existing' : '';
+  view.secondaryDisabled = options.readOnly || status.busy;
   view.showCancel = view.control === 'waiting' && !status.finishingSignIn;
   view.cancelDisabled = pending || options.readOnly;
   view.accountDisabled = view.differentDisabled = status.unavailable || status.busy;

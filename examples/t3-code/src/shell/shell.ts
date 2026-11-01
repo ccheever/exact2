@@ -1,6 +1,6 @@
 import { coordinateGuides, decodeGuideOpenTarget, guideReader } from '../pull-requests/pages-pr-guide';
 import { can as hasPermission } from '../connections/command-permissions';
-import { npmReleaseProbe, updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
+import { updateEverythingPass, updateEverythingState } from '../sidebar/update-everything';
 // The window shell's projection (MIT reference: apps/web/src/components/ui/
 // toast.tsx, chat/ChatHeader.tsx, chat/PanelLayoutControls.tsx,
 // RightPanelTabs.tsx RightPanelEmptyState, threadActionMenu.logic.ts):
@@ -216,6 +216,8 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
   const items: ShellMenuItem[] = [];
+  // ChatView offers Find in thread where the server can search (threadFindEnabled); it opens the find bar as ⌘F does.
+  if (client.config.threadFind === true) items.push(item('find', 'Find in thread', 'text-search', 'chatlocal:find-open', ''));
   if (branch) items.push(item('new-thread-on-branch', `New thread on ${branch}`, 'message-square-plus', 'ui:new-thread', client.projectId));
   const prefs = client.local.clientSettings, title = str(thread.title);
   if (caps.threadPinning === true) items.push(thread.pinnedAt ? confirmable(item('unpin', 'Unpin thread', 'pin-off', 'shell:unpin', id), prefs.confirmThreadUnpin === true, `Unpin thread "${title}"?`, 'This will move the thread out of your pinned section.') : item('pin', 'Pin thread', 'pin', 'shell:pin', id));
@@ -321,6 +323,5 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     notifications: `${state.status.authorization}${state.status.active ? '' : ' (window inactive)'}`,
     notifySound: notificationSounds(client), // the thread and guide notifications' sounds (app.contract notifyCompletionSound)
     announce,
-    npmProbe: native?.available ? npmReleaseProbe(client, now) : '', // the npmRelease resource's key (npm-release.ts)
   };
 }

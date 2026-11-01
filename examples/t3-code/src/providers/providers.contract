@@ -23,6 +23,7 @@ use ProviderAntigravitySetup from "./providers-setup.contract"
 use RedactedText from "../shared/redacted-text.contract"
 use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract"
 use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManagement, CustomModelEditor from "./providers-upkeep.contract"
+use UpkeepSelect, UpkeepOption from "./providers-upkeep.contract"
 use CodexRuntimeFields from "./codex-setup.contract"
 use CodexSetupRow from "./codex-setup.contract"
 use CodexRuntimeSection from "./codex-setup.contract"
@@ -57,6 +58,9 @@ shape ProviderVariable
   sensitive: bool
   redacted: bool
   label: string
+  // A secret provider's reference: its provider id, and the source picker's options (empty for a plain value).
+  secretProvider: string
+  sources: UpkeepOption[]
 shape ProviderModelRow
   rowKey: string
   slug: string
@@ -526,7 +530,8 @@ component ProviderSecretField
         if field.clearable
           PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page", press=op("provider-env-field", instance, field.key, "", true))
 
-// One environment variable row: NAME = value, sensitivity lock, remove.
+// One environment variable, a bordered card (ProviderEnvironmentSection's layout): the name, the source picker
+// when the value is a secret reference, and remove on top; the value (or the reference) and the sensitivity lock below.
 component ProviderVariableRow
   props
     variable: ProviderVariable
@@ -543,17 +548,25 @@ component ProviderVariableRow
   action editValue(value: string)
     valueDraft = value
     valueEdited = true
+  action pickSource(value: string)
+    op("provider-env-source", instance, `${variable.index}`, value, true)
   derive name = nameEdited ? nameDraft : variable.name
   derive value = valueEdited ? valueDraft : variable.value
+  derive reference = variable.secretProvider != ""
   view
-    row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`provider-variable-${variable.index}`
-      input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
-      text "=" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
-      input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
-      button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}` title="" id=`provider-variable-sensitive-${variable.index}` data-focus-stop=(not writable ? "" : "enabled page")
-        // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes (morphicons' morph, shell-morph.contract).
-        MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
-      PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page", press=op("provider-env-remove", instance, `${variable.index}`, "", true))
+    column width="100%" min-width=0 gap="0.375rem" padding="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" testId=`provider-variable-${variable.index}`
+      row width="100%" min-width=0 gap="0.375rem" align-items="center"
+        input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        if reference
+          row width="12rem" flex-shrink=0
+            UpkeepSelect(selectId=`provider-variable-source-${variable.index}`, label=`Environment variable value ${variable.index + 1} source`, valueLabel=variable.secretProvider, width="auto", small=false, disabled=(not writable), options=variable.sources, area="bottom span-right", choose=pickSource)
+        PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page", press=op("provider-env-remove", instance, `${variable.index}`, "", true))
+      row width="100%" min-width=0 gap="0.375rem" align-items="flex-start"
+        input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(reference ? "" : variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive and not reference ? "password" : "text") aria-label=(reference ? `Environment variable value ${variable.index + 1} reference` : `Environment variable value ${variable.index + 1}`) autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        if not reference
+          button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}` title="" id=`provider-variable-sensitive-${variable.index}` data-focus-stop=(not writable ? "" : "enabled page")
+            // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes (morphicons' morph, shell-morph.contract).
+            MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #a1a1a1)", weight=2, still=false)
 
 // ProviderModelsSection: count, favorites, custom-model add/remove, and the custom model
 // editor (providers-upkeep.contract) under the row its pencil opened.

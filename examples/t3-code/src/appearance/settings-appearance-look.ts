@@ -79,7 +79,11 @@ export function look(client: T3Client): Look {
     message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize),
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
-    fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, promptSize: clampPromptFontSize(prefs.fontSizePrompt), promptFont: fontStack(prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
+    fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize,
+    // applyAppearanceFontVariables (2359643cff): the Prompt font and size apply only with separate fonts on; otherwise the
+    // prompt box is the interface font at --text-sm (0.875rem), so it scales with Interface size.
+    promptSize: prefs.typographyAdvanced ? clampPromptFontSize(prefs.fontSizePrompt) : 0.875 * rootFontSize,
+    promptFont: fontStack(prefs.typographyAdvanced && prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
     codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
     contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior,

@@ -214,11 +214,12 @@ describe('A terminal close confirm that is open refuses the close chord app-wide
     expect(commandWRows(keyboardDispatch(c, [], '', '', { ...thread, terminalClosePending: true }))).toEqual([['terminal.close', 'refuse']]);
   });
 
-  test('the window\'s confirm names it: the drawer\'s, a panel terminal\'s and a Terminal surface\'s close, and no other confirm', () => {
+  // dispatcher.ts (v0.1.6): any confirmation, a terminal close's included, swallows every app chord while it is open.
+  test('while the window\'s confirm is open ⌘W runs nothing, whichever confirm it is', () => {
     const c = client();
     const args = (confirmOp: string) => [[], '', '', false, false, false, false, false, false, true, 0, false, '', '', false, '', '', '', confirmOp];
-    for (const op of TERMINAL_CLOSE_CONFIRMS) expect(commandWRows(keyboardDispatchSource(c, args(op)))).toEqual([['terminal.close', 'refuse']]);
-    for (const op of ['', 'shell:archive', 'sidebar:delete']) expect(commandWRows(keyboardDispatchSource(c, args(op)))).toEqual([['rightPanel.close', 'close-diff']]);
+    for (const op of [...TERMINAL_CLOSE_CONFIRMS, 'shell:archive', 'sidebar:delete']) expect(commandWRows(keyboardDispatchSource(c, args(op)))).toEqual([['confirmation.wait', 'refuse']]);
+    expect(commandWRows(keyboardDispatchSource(c, args('')))).toEqual([['rightPanel.close', 'close-diff']]);
   });
 });
 

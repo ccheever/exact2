@@ -14,6 +14,7 @@ import { bridgeReply, applyConfig, type Native } from '../client/protocol';
 import { announceJobs } from './settings-b-outdated';
 import { announceServerUpdates } from './server-update';
 import type { T3Client } from '../client/client';
+import type { SessionCheck } from './auth-scope-options';
 import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from '../client/live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from '../terminal/terminal-session';
@@ -36,7 +37,7 @@ export interface FleetEntry {
   key: string; origin: string; environmentId: string;
   phase: FleetPhase; message: string; traceId: string;
   generation: number; synchronized: number; lastEvent: number; subscriptions: Record<string, string>;
-  config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; error: string; requested: boolean; busy?: boolean;
+  config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; session?: SessionCheck; error: string; requested: boolean; busy?: boolean;
   /** The route this environment's transport connected over. */
   activeRouteId?: string;
   /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
@@ -271,8 +272,9 @@ export class EnvironmentFleet {
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
         if (key === SESSION_STATE_KEY) {
           // The session read's grants; a failed read grants nothing (sessionHasScope reads a failure as no scope).
-          const auth = item._replyError === undefined ? obj(item._reply) : {};
-          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth); this.revision++;
+          const read = item._replyError === undefined, auth = read ? obj(item._reply) : {};
+          entry.scopes = sessionPermissions(auth); entry.legacyPermissions = sessionHasLegacyPermissions(auth);
+          entry.session = !read ? 'failed' : auth.authenticated === true ? 'granted' : 'rejected'; this.revision++;
           continue;
         }
         if (key === 'device-state') {

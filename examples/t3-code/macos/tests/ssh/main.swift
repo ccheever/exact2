@@ -160,6 +160,14 @@ final class SshTests: XCTestCase {
 
     /// 9688e74112 (tunnel.test.ts / sshHelper.test.ts): a port another server answers on is not free,
     /// even where the loopback bind would succeed beside a wildcard listener.
+    func testRemoteCommandsDetectALostConnection() throws {
+        let ssh = T3Ssh(agent: true)
+        defer { ssh.destroy() }
+        let args = ssh.commandArgs(try T3Ssh.target(["alias": "devbox", "port": 2222]), T3Ssh.Auth(batch: true, environment: nil))
+        XCTAssertEqual(Array(args.suffix(4)), ["-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"])
+        XCTAssertTrue(args.contains("BatchMode=yes") && args.contains("2222"), "\(args)")
+    }
+
     func testPortCheckSkipsAPortAnotherServerAnswersOn() throws {
         let wildcard = try listener(any: true)
         defer { wildcard.stop() }

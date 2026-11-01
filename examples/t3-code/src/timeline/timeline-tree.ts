@@ -49,12 +49,12 @@ export function buildTree(files: readonly TreeFile[]): Node[] {
   return nodes(root);
 }
 
-/** formatCompactDiffCount: 999, 1.2k, 12k, 1.5m. */
+/** formatCompactDiffCount: 999, 1.2k, 12k, 1.5m; a count that rounds up to the next suffix takes it (1m, not 1000k). */
 export function compactCount(value: number): string {
   const short = (scaled: number) => scaled < 10 ? scaled.toFixed(1).replace(/\.0$/, '') : String(Math.round(scaled));
   if (value < 1000) return String(value);
-  if (value < 1_000_000) return `${short(value / 1000)}k`;
-  if (value < 1_000_000_000) return `${short(value / 1_000_000)}m`;
+  if (value < 999_500) return `${short(value / 1000)}k`;
+  if (value < 999_500_000) return `${short(value / 1_000_000)}m`;
   return `${short(value / 1_000_000_000)}b`;
 }
 

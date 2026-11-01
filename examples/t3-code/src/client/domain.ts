@@ -25,9 +25,11 @@ export interface Activity { replArguments?: ReturnType<typeof import('../timelin
   linkPrefix?: string; linkTitle?: string; linkThreadId?: string }
 export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; approval?: import('../timeline/timeline-approvals').TimelineApprovalView[]; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; filesTotal?: CheckpointFileTotals; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; elapsed?: string; detail?: string; status?: string; groupId?: string; continues?: boolean;
-  revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
+  revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number;
   /** A folded automation or agent message's one line. */
   summary?: string;
+  /** A sent message's shape (timeline-attachments.ts userMessageShape), and whether Copy has anything to take. */
+  shape?: string; mediaAbove?: boolean; mediaLayout?: string; copyable?: boolean;
   /** An answer's text as the provider wrote it, before its thread links take their titles: the minimap's preview. */
   rawText?: string;
   /** A queued automation or agent message's fold heading: "Automation", or the sending thread's title. */

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { providerRows, providerPage, providerWizard, acpRegistry, refreshAcpRegistry, runProviderOp, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
+import { providerRows, providerPage, providerWizard, acpRegistry, refreshAcpRegistry, runProviderOp, sourceIdFromUrl, providerFieldValues, healthInterval, type ProviderHost } from '../../src/providers/providers';
 import { withUpkeep, versionAdvisoryPresentation } from '../../src/providers/providers-upkeep';
 import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, validateInstanceId, providerInstanceInitials } from '../../src/providers/providers-meta';
 import { obj, arr, str, type Obj } from '../../src/client/domain';
@@ -79,7 +79,7 @@ test('rows follow T3 order: default slots, custom instances, visible cursor only
   expect(editor.fields.map(field => [field.key, field.value, field.placeholder])).toEqual([
     ['binaryPath', '/fixture/codex', 'codex'], ['homePath', '/fixture/home', '~/.codex'], ['shadowHomePath', '', '~/.codex-t3/personal'], ['launchArgs', '', '']]);
   expect(editor.modelSummary).toBe('1 model');
-  expect(editor.models[0]).toMatchObject({ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna', custom: true, capabilities: 'Reasoning' });
+  expect(editor.models[0]).toMatchObject({ slug: 'gpt-5.6-luna', name: 'GPT-5.6-Luna', custom: true, capabilities: '' });
   const codex = providerPage(server, 'codex', 0).editors[0]!;
   expect([codex.canDelete, codex.canReset, codex.statusLead, codex.title]).toEqual([false, true, 'Disabled', 'Codex']);
 });
@@ -773,6 +773,34 @@ test('environment variables stay local until valid, keep redacted secrets and pu
   expect(arr(obj(obj(server.settings.providerInstances).exact_fixture).environment)).toEqual([{ name: 'BASE_URL', value: 'http://127.0.0.1:9', sensitive: false }]);
 });
 
+test("a variable read from a secret provider keeps its reference through other edits, as ProviderEnvironmentSection's rows do", async () => {
+  const server = new FakeServer();
+  const op = (name: string, key: string, value = '') => runProviderOp(server, native, name, 'exact_fixture', JSON.stringify({ key, value }));
+  const environment = () => arr(obj(obj(server.settings.providerInstances).exact_fixture).environment);
+  // The stored form (contracts providerInstance.ts): the reference beside an empty value.
+  const stored = { name: 'OPENAI_API_KEY', value: '', sensitive: true, secret: { provider: 'onepassword', reference: 'op://Work/OpenAI/key' } };
+  obj(obj(server.settings.providerInstances).exact_fixture).environment = [stored];
+  server.config = server.snapshot();
+  expect(providerPage(server, 'exact_fixture', 0).editors[0]!.variables[0]).toMatchObject({ name: 'OPENAI_API_KEY', value: 'op://Work/OpenAI/key', secretProvider: 'onepassword',
+    sources: [{ value: '__stored__', label: 'Value', note: '', selected: false }, { value: 'onepassword', label: 'onepassword', note: '', selected: true }] });
+  await op('provider-env-add', '');
+  await op('provider-env-name', '1', 'BASE_URL');
+  await op('provider-env-sensitive', '1', 'false');
+  await op('provider-env-value', '1', 'http://127.0.0.1:9');
+  expect(environment()).toEqual([stored, { name: 'BASE_URL', value: 'http://127.0.0.1:9', sensitive: false }]);
+  // The reference field commits a new reference for the same provider, and refuses a reference over two lines.
+  await op('provider-env-value', '0', ' op://Work/OpenAI/other ');
+  expect(environment()[0]).toEqual({ ...stored, secret: { provider: 'onepassword', reference: 'op://Work/OpenAI/other' } });
+  expect(await op('provider-env-value', '0', 'op://a\nb')).toBe('Enter a valid secret reference.');
+  // Value as the source drops the reference, leaving an empty sensitive value to type.
+  await op('provider-env-source', '0', '__stored__');
+  expect(environment()[0]).toEqual({ name: 'OPENAI_API_KEY', value: '', sensitive: true });
+  const card = appText('providers.contract');
+  expect(card).toContain('column width="100%" min-width=0 gap="0.375rem" padding="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" testId=`provider-variable-${variable.index}`');
+  expect(card).not.toContain('text "=" font-size="0.75rem"');
+  expect(appText('providers-wizard.contract')).not.toContain('text "=" font-size="0.75rem"');
+});
+
 test('custom models add and remove with T3 validation (a new bare entry is stored as its slug)', async () => {
   const server = new FakeServer();
   const op = (name: string, key: string, value = '') => runProviderOp(server, native, name, 'exact_fixture', JSON.stringify({ key, value }));
@@ -859,6 +887,12 @@ test('usage hubs add with a host-derived id and remove only that entry', async (
   server.settings.usageLimitSources = { 'cliproxy-hub.example.ts.net-8318': { kind: 'cliproxy', label: 'Team hub', url: 'https://hub.example.ts.net:8318', managementKey: '', enabled: true } };
   server.config = server.snapshot();
   expect(providerPage(server, '', 0).hubs).toEqual([{ id: 'cliproxy-hub.example.ts.net-8318', first: true, label: 'Team hub', description: 'CLI Proxy · https://hub.example.ts.net:8318' }]);
+  // A second hub on the same host keeps the first (AddUsageLimitSourceDialog.logic.test.ts); the same URL again reuses its entry.
+  await op('provider-hub-add', 'Other', 'https://hub.example.ts.net:8318/v2', 'other');
+  expect(Object.keys(obj(obj(writes(server).at(-1)!.payload).patch).usageLimitSources)).toEqual(['cliproxy-hub.example.ts.net-8318-2']);
+  await op('provider-hub-add', 'Renamed', 'https://hub.example.ts.net:8318', 'rotated');
+  expect(Object.keys(obj(obj(writes(server).at(-1)!.payload).patch).usageLimitSources)).toEqual(['cliproxy-hub.example.ts.net-8318']);
+  expect(sourceIdFromUrl('https://hub.example', new URL('https://hub.example'), { 'cliproxy-hub.example': {}, 'cliproxy-hub.example-2': {} })).toBe('cliproxy-hub.example-3');
   await op('provider-hub-remove', '', 'cliproxy-hub.example.ts.net-8318', '');
   expect(obj(writes(server).at(-1)!.payload).patch).toEqual({ usageLimitSources: { 'cliproxy-hub.example.ts.net-8318': null } });
 });
@@ -929,4 +963,26 @@ test('a model name hands its tooltip to the hover layer, with the slug when it d
     ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', true], ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', false]]);
   const { hoverOpenDelay } = contractFns('hover-layer.contract', ['HoverTip']);
   expect(hoverOpenDelay('model-name')).toBe(600);
+});
+
+// ProviderModelsSection describeModelCapabilities at T3 Code 2359643cff: no "Reasoning" or "Thinking" labels; "No reasoning"
+// marks a discovered, non-alias model without a reasoning control, when another model has one.
+test('model rows label only a missing reasoning control, and only when another model has one', () => {
+  const server = new FakeServer();
+  const effort = { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [] }] };
+  server.live = server.live.map(entry => entry.instanceId !== 'exact_fixture' ? entry : { ...entry, models: [
+    { slug: 'gpt-5.6', name: 'GPT-5.6', isCustom: false, capabilities: effort },
+    { slug: 'thinker', name: 'Thinker', isCustom: false, capabilities: { optionDescriptors: [{ id: 'thinking', type: 'boolean' }] } },
+    { slug: 'gpt-5.6-mini', name: 'GPT-5.6 mini', isCustom: false, capabilities: { optionDescriptors: [{ id: 'fastMode', type: 'boolean' }] } },
+    { slug: 'plain', name: 'Plain', isCustom: false, capabilities: { optionDescriptors: [] } },
+    { slug: 'unknown', name: 'Unknown', isCustom: false, capabilities: null },
+    { slug: 'default', name: 'Default', isCustom: false, capabilities: { optionDescriptors: [] } },
+  ] });
+  server.config = server.snapshot();
+  const labels = () => Object.fromEntries(providerPage(server, 'exact_fixture', 0).editors[0]!.models.map(model => [model.slug, model.capabilities]));
+  expect(labels()).toEqual({ 'gpt-5.6': '', thinker: '', 'gpt-5.6-mini': 'Fast mode · No reasoning', plain: 'No reasoning', unknown: '', default: '', 'gpt-5.6-luna': '' });
+  // With no model offering reasoning, none is flagged.
+  server.live = server.live.map(entry => entry.instanceId !== 'exact_fixture' ? entry : { ...entry, models: [{ slug: 'plain', name: 'Plain', isCustom: false, capabilities: { optionDescriptors: [] } }] });
+  server.config = server.snapshot();
+  expect(labels().plain).toBe('');
 });

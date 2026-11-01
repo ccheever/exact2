@@ -1,5 +1,5 @@
 // Network access for the embedded server: DesktopServerExposure, ported with the reference's
-// test names (MIT, see LICENSE-T3; reference 74541bab17: apps/desktop/src/backend/
+// test names (MIT, see LICENSE-T3; reference 2359643cff: apps/desktop/src/backend/
 // DesktopServerExposure.test.ts). The Effect layers become injected functions: the settings store,
 // the interface read, the status reader (the native `tailscale status`, whose per-address cache is
 // macos/tests/local-backend/network.swift's) and the probe.
@@ -66,6 +66,19 @@ describe('DesktopServerExposure', () => {
     expect((await exposure.setMode('local-only')).requiresRelaunch).toBe(false);
   });
 
+  it('advertises the current LAN address after the network changes', async () => {
+    const networkInterfaces: NetworkInterfaces = { ...lanNetworkInterfaces };
+    const { exposure } = harness(networkInterfaces);
+    await exposure.configureFromSettings({ port: 4173 });
+    await exposure.setMode('network-accessible');
+    networkInterfaces.en0 = [{ address: '10.0.0.5', family: 'IPv4', internal: false }];
+    const state = await exposure.getState();
+    expect(state.advertisedHost).toBe('10.0.0.5');
+    expect(state.endpointUrl).toBe('http://10.0.0.5:4173');
+    expect((await exposure.getAdvertisedEndpoints()).map(endpoint => endpoint.httpBaseUrl)).toEqual(['http://127.0.0.1:4173/', 'http://10.0.0.5:4173/']);
+    expect(exposure.backendConfig().bindHost).toBe('0.0.0.0');
+  });
+
   it('persists tailscale serve preferences atomically and reports no-op updates', async () => {
     const { exposure, settings } = harness(emptyNetworkInterfaces);
     await exposure.configureFromSettings({ port: 4173 });
@@ -91,7 +104,7 @@ describe('DesktopServerExposure', () => {
     const store: ExposureSettingsStore = { get: () => DEFAULT_EXPOSURE_SETTINGS, setServerExposureMode: async () => { throw settingsFailure; }, setTailscaleServe: async () => { throw settingsFailure; } };
     const { exposure } = harness(lanNetworkInterfaces, { store });
     await exposure.configureFromSettings({ port: 4173 });
-    const before = exposure.getState();
+    const before = await exposure.getState();
     const modeError = await exposure.setMode('network-accessible').then(() => null, caught => caught);
     expect(modeError).toBeInstanceOf(DesktopServerExposureModePersistenceError);
     expect(modeError.mode).toBe('network-accessible');
@@ -104,7 +117,7 @@ describe('DesktopServerExposure', () => {
     expect([tailscaleError.enabled, tailscaleError.port, tailscaleError.cause, tailscaleError.cause.cause]).toEqual([true, 8443, settingsFailure, diskFailure]);
     expect(tailscaleError.message).toBe('Failed to persist desktop Tailscale Serve settings (enabled: true, port: 8443).');
     expect(tailscaleError.message).not.toContain(diskFailure.message);
-    expect(exposure.getState()).toEqual(before);
+    expect(await exposure.getState()).toEqual(before);
   });
 
   it("uses cached Tailscale identity to exclude another VPN's pairing address", async () => {

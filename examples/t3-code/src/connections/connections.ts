@@ -29,10 +29,12 @@ import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateA
 import { gitHubRoutingConnectionKey, hasSavedBearerRoute, routeHttpBaseUrl, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
 import { letGo } from '../client/let-go';
-import { sessionPermissionRows } from './auth-scope-options';
+import { sessionPermissionRows, sessionPermissionsUnavailableMessage, type SessionCheck } from './auth-scope-options';
 
 export interface ConnectionHost {
   connection: string; origin: string; environmentId: string; statusMessage: string; scopes: string[]; config: Obj;
+  /** What the focused environment's session read has said (T3Client's); a host without one has its grants. */
+  sessionCheck?: SessionCheck;
 }
 export { CLIENT_VERSION, compareSemver, versionMismatch } from './version-skew';
 export const MACHINE_KINDS: [string, string][] = [['server', 'Server'], ['cloud', 'Cloud VM'], ['linux', 'Linux/WSL'], ['desktop', 'Desktop'],
@@ -129,7 +131,7 @@ export function summarizeRouting(entries: { label: string; permission: string }[
 
 // ── Projection ────────────────────────────────────────────────────────────
 export type Source = { key: string; origin: string; environmentId: string; label: string; machine: string; enabled: boolean;
-  phase: FleetPhase; error: string; traceId: string; config: Obj; scopes: string[]; focused: boolean; routes: ConnectionRoute[]; activeRouteId: string;
+  phase: FleetPhase; error: string; traceId: string; config: Obj; scopes: string[]; session: SessionCheck; focused: boolean; routes: ConnectionRoute[]; activeRouteId: string;
   /** The primary environment (local-primary.ts): no row under Environments, first in Load balancing. */
   primary: boolean };
 
@@ -153,7 +155,8 @@ export function environmentSources(host: ConnectionHost, saved: Obj[], entries: 
     // The primary's phase follows its server first (installing and starting connect, a restart reconnects).
     const shown = isPrimary ? primaryPhase(primary.status, { phase: facts.phase, message: facts.message }) : facts;
     return { key, origin, environmentId, label: str(obj(config.environment).label) || str(entry.label) || (isPrimary ? 'This machine' : hostOf(origin)), machine: str(entry.machine),
-      enabled: entry.enabled !== false, phase: shown.phase, error: shown.message, traceId: facts.traceId, config, scopes: focused ? host.scopes : live?.scopes ?? [], focused,
+      enabled: entry.enabled !== false, phase: shown.phase, error: shown.message, traceId: facts.traceId, config, scopes: focused ? host.scopes : live?.scopes ?? [],
+      session: focused ? host.sessionCheck ?? 'granted' : live?.session ?? 'pending', focused,
       routes: isPrimary ? [] : savedRoutes(entry), activeRouteId: focused ? str(focusedFailure.activeRouteId) : live?.activeRouteId ?? '', primary: isPrimary };
   });
 }
@@ -166,7 +169,7 @@ const sourceTransport = (source: Source, ssh: Record<string, SshTarget>) =>
 
 /** The icon menu's row while there is no primary (the shape is fixed; the menu is not shown). */
 const PLACEHOLDER: Source = { key: '', origin: '', environmentId: '', label: 'This machine', machine: 'desktop', enabled: false, phase: 'available', error: '', traceId: '',
-  config: {}, scopes: [], focused: false, routes: [], activeRouteId: '', primary: true };
+  config: {}, scopes: [], session: 'pending', focused: false, routes: [], activeRouteId: '', primary: true };
 /** T3 9c161462c9 presentation.ts environmentMcpUrl: prefer the connected route, then saved routes; SSH has no stable address. */
 export function environmentMcpUrl(source: Pick<Source, 'routes' | 'activeRouteId' | 'phase' | 'origin'>, ssh: Record<string, SshTarget> = {}): string {
   const routes = source.routes.length ? source.routes : [{ id: source.origin, origin: source.origin, kind: ssh[trimOrigin(source.origin)] ? 'ssh' : '' }];
@@ -218,7 +221,9 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
     // EnvironmentRoutesList: the route count control and the list under the row.
     routeCount: routeCountLabel(source.routes.length), routesLabel: `Routes to ${source.label}, preferred first`,
     routes: routeRows(source.environmentId, source.routes, source.activeRouteId, connected),
-    permissionsChecked: connected && Object.keys(source.config).length > 0,
+    // SessionPermissions: the grants once the read accepted this session, else what is known about them.
+    permissionsChecked: connected && Object.keys(source.config).length > 0 && source.session === 'granted',
+    permissionsMessage: sessionPermissionsUnavailableMessage({ connected, failed: source.session === 'failed', rejected: source.session === 'rejected' }),
     permissionContext: source.routes.length > 1 ? 'These permissions apply to your active route. Other routes may have different permissions.' : 'These permissions apply to this client’s current connection.',
     permissions: sessionPermissionRows(source.scopes),
   };

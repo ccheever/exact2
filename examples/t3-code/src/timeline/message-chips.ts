@@ -302,8 +302,10 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       // SvgFileChip: an SVG draws as an image chip with the picture as its thumbnail, named and tipped as the file it
       // opens as (`detail` is its tooltip); `icon` is the file's glyph for when the picture does not load.
       if (isSvgAttachment(attachment)) return { ...base, kind: 'image', label: middleTruncate(name), size, tip: `File attachment, ${name}, ${size}`, detail: `${name}\n${size}`, icon: fileIconToken(name), target };
-      const video = isVideo(attachment);
-      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(name), size, tip: `${name}\n${size}`, icon: video ? '' : fileIconToken(name), target };
+      // A paste is "Pasted text", and a file the server has not stored yet says "Sending…" (userMessageFileLabel).
+      const video = isVideo(attachment), label = obj(attachment.source)._tag === 'pasted-text' ? 'Pasted text' : name;
+      const shown = attachment.downloadable === false ? 'Sending…' : size;
+      return { ...base, kind: video ? 'video' : 'file', label: middleTruncate(label), size: shown, tip: `${label}\n${shown}`, icon: video ? '' : fileIconToken(name), target };
     }
     case 'terminal': return { ...base, kind: 'terminal', label: str(record.label, label), size: num(record.lineStart) === num(record.lineEnd) ? `Line ${num(record.lineStart)}` : `Lines ${num(record.lineStart)}–${num(record.lineEnd)}`,
       tip: str(record.terminalLabel), detail: str(record.text) };

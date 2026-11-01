@@ -54,7 +54,8 @@ export const SHELL_ICON = [
   ['trash', 'trash-2'], 'sparkles', 'mail', 'settings', 'clock', ['settle', 'check'], 'external-link',
   ['refresh', 'refresh-cw'], 'corner-left-up', 'git-fork', 'arrow-right', 'hash', 'mail-open', 'timer',
   'message-square-plus', own('cursor'), 'folder-git', 'folder-git-2', 'cloud-upload', 'cloud-download', 'bot',
-  'eye', 'eye-off', 'folder-plus', 'message-square', 'messages-square', 'ellipsis', 'unplug', 'arrow-up',
+  'eye', 'eye-off', 'folder-plus', 'message-square', 'text-search', 'messages-square', 'ellipsis', 'unplug',
+  'arrow-up',
 ];
 
 /** sidebar-icons.contract SidebarIcon: the sidebar's own glyphs. */
@@ -78,7 +79,7 @@ export const TIMELINE_ICON = [
   'download', 'quote', 'message-square', 'triangle-alert', ['list-collapse', 'list-chevrons-down-up'],
   ['device', 'smartphone'], 'loader-circle', 'minus', 'circle', 'chevron-down', 'chevron-right', 'code',
   'workflow', 'external-link', 'arrow-up-right', 'arrow-right', 'alarm-clock', 'circle-check', 'shield-check',
-  'calendar-clock', 'circle-stop', 'list-todo', 'pause', 'play', 'circle-alert', 'terminal', 'shield',
+  'calendar-clock', 'circle-stop', 'list-todo', 'pause', 'play', 'circle-alert', 'terminal', 'shield', 'pencil',
 ];
 
 /** panel-icons.contract PanelIcon: the right panel's surfaces. */

@@ -19,7 +19,7 @@ import { runTerminalCommand } from '../terminal/terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
 import { setTurnItemOpen, turnItemDetailView, turnItemIsOpen } from './timeline-item-fetch';
 import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-detail';
-import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
+import { arr, checkpointFileTotals, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { latestUnheldRun } from './worktree-card-run';
@@ -29,7 +29,7 @@ import { eventRow } from './timeline-events';
 import { codeTokens, messageCodeBlocks } from '../highlight/timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, withoutSoundReferences } from './timeline-attachments';
+import { openInlineDocumentImage, cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, isSentSvg, messageAttachments, noteChipPreviewFailed, svgPreviewFailed, userMessageShape, withoutSoundReferences } from './timeline-attachments';
 import { revealCitation } from './citation-source';
 import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, noteMermaidFrame, retryMermaid } from './timeline-mermaid';
@@ -95,7 +95,7 @@ export function messageTime(value: unknown, now: number, format: string): string
   return `${numericDateFormatter(date.getFullYear() !== today.getFullYear()).format(date)} ${time}`;
 }
 
-interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
+interface ViewState { open: Set<string>; copies: Map<string, { nonce: number }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
   treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
   /** The View source placing its answer (citation-source.ts), else 0: ChatColumn restores no remembered position meanwhile. A
@@ -204,12 +204,18 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     return '';
   }
   if (op === 'copy-code' || op === 'copy') {
-    const text = op === 'copy-code' ? value : copyText(client, id);
+    const text = op === 'copy-code' ? value : messageCopyText(client, id);
     if (!text || text.length > 1_000_000) throw new ClientError(op === 'copy-code' ? 'That code block is unavailable.' : 'That message is no longer available.');
     const key = op === 'copy' ? id : `code:${id}`;
     try { await client.restAccess(native).call({ op: 'copyText', text }); }
-    catch (error) { if (!letGo(error)) view.copies.set(key, { nonce: ++view.nonce, ok: false }); throw error; }
-    view.copies.set(key, { nonce: ++view.nonce, ok: true });
+    catch (error) {
+      // showAnchoredCopyErrorToast: a refused message copy is an error toast with the reason, at the normal timeout; the
+      // button keeps its copy glyph.
+      if (op !== 'copy' || letGo(error)) throw error;
+      pushToast(client, { kind: 'error', title: 'Failed to copy', description: error instanceof Error ? error.message : String(error) });
+      return '';
+    }
+    view.copies.set(key, { nonce: ++view.nonce });
     if (op === 'copy-code') view.codeCopy = { threadId: client.threadId, text, nonce: view.nonce };
     return op === 'copy' ? 'Copied message' : 'Copied code';
   }
@@ -224,6 +230,15 @@ function copyText(client: T3Client, id: string): string {
   // A user message copies what it shows: an older automation prompt without its schedule prefix (MessageCopyButton's `text`).
   const text = item.type === 'proposed_plan' ? str(item.markdown) : item.type === 'user_message' ? userMessagePresentation(item).text : item.type === 'assistant_message' ? str(item.text) : '';
   return relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(text), client.shell.threads, client.environmentId);
+}
+/** A sent message's Copy: its words, or for media sent without words, the media's references (`copyText` there). */
+function messageCopyText(client: T3Client, id: string): string {
+  const text = copyText(client, id);
+  if (text) return text;
+  const item = obj(arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === id)?.item);
+  if (item.type !== 'user_message') return '';
+  const attached = messageAttachments(item), sender = userMessagePresentation(item);
+  return sender.attribution === 'automation' || sender.attribution === 'agent' ? '' : userMessageShape(item, '', attached, new Set(), false).copy;
 }
 
 /**
@@ -543,8 +558,12 @@ function present(row: Row, context: PresentContext): Message {
         diagrams: messageDiagrams(markdown),
         copied: view.copies.get(row.id)?.nonce ?? 0 };
     }
-    case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
-      sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
+    case 'checkpoint': {
+      const filesTotal = checkpointFileTotals(row.entry.item.filesTotal);
+      return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
+        sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })),
+        ...(filesTotal ? { filesTotal } : {}) };
+    }
     case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
     {
       const event = eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads });
@@ -555,11 +574,11 @@ function present(row: Row, context: PresentContext): Message {
     }
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
-      actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
+      actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0 };
     case 'message': {
       const item = row.entry.item, copy = view.copies.get(row.id);
       const common = { ...base, runId: str(item.runId), sourceThreadId: str(row.entry.row.sourceThreadId), completed: item.status === 'completed',
-        copied: copy?.nonce ?? 0, copyFailed: copy?.ok === false };
+        copied: copy?.nonce ?? 0 };
       if (row.entry.role === 'assistant') {
         const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(str(item.text)), context.threads, context.client.environmentId);
         return { ...common, kind: 'assistant', title: 'Assistant', rawText: str(item.text), canFork: forkable(context.client, row.entry.row, item), body: text || (item.streaming === true ? '' : '(empty response)'), chips: withFileLinkMenus(context.client, messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client)),
@@ -584,8 +603,10 @@ function present(row: Row, context: PresentContext): Message {
       const foldKey = scoped(context.client, 'message', row.id);
       if ((automation || agent) && context.findEntry === row.id) view.open.add(foldKey);
       // A file with a chip in the prose needs no standalone row (images always show); an automation's prompt shows none.
+      const shaped = userMessageShape(item, text, attached, chipped, automation || agent);
       return { ...common, kind: 'user', title: automation ? 'Automation' : agent ? senderTitle : 'You', summary, body: text, revert: row.revert,
-        images: automation ? [] : attached.images, attachFiles: automation ? [] : attached.attachFiles.filter(file => !chipped.has(file.id)), audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
+        images: automation ? [] : attached.images, attachFiles: automation ? [] : shaped.files, audio: automation ? [] : attached.audio, chips, code: messageCodeBlocks(text, 'data', `message:${row.id}`), diagrams: messageDiagrams(text),
+        shape: shaped.shape, mediaAbove: shaped.mediaAbove, mediaLayout: shaped.layout, copyable: sender.text !== '' || shaped.copy !== '',
         collapsible: !automation && !agent && shouldCollapseUserMessage(text),
         // A queued message that was sent reads as any other; only a steer keeps its marker.
         intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
@@ -623,9 +644,14 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
   const rows = transcript.filter(message => message.kind !== 'checkpoint' || (message.files?.length ?? 0) > 0 && (!message.sourceThreadId || message.sourceThreadId === client.threadId)).map(message => {
     const checkpoint = arr(client.projection.checkpoints).find(checkpoint => checkpoint.id === message.checkpointId);
     const files = message.files ?? [], tree = treeState(client, message.runId || message.checkpointId || '');
+    // checkpointFileTotals: a huge checkpoint sends a prefix of its files with the totals of all of them.
+    const totals = message.filesTotal ?? { count: files.length, additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0) };
+    const hidden = message.kind === 'checkpoint' ? totals.count - files.length : 0;
     return { id: message.id, kind: message.kind, title: message.title, body: message.body,
       checkpointId: message.checkpointId ?? '', checkpointOrdinal: num(checkpoint?.appRunOrdinal, -1),
-      additions: files.reduce((sum, file) => sum + file.additions, 0), deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+      additions: totals.additions, deletions: totals.deletions,
+      filesLabel: message.kind === 'checkpoint' ? `${totals.count.toLocaleString('en-US')} changed file${totals.count === 1 ? '' : 's'}` : '',
+      moreFiles: hidden > 0 ? `${hidden.toLocaleString('en-US')} more file${hidden === 1 ? '' : 's'} in the full diff` : '',
       files: message.kind === 'checkpoint' ? treeRows(files, tree.all, tree.overrides) : [],
       runId: message.runId ?? '', sourceThreadId: message.sourceThreadId ?? '',
       // AssistantForkButton: a completed answer of a run whose provider can fork; never a row only this client shows.
@@ -637,13 +663,23 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
       startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
-      attribution: message.attribution ?? '', summary: message.summary ?? '', sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
-      copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
-      collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
+      attribution: message.attribution ?? '', summary: message.summary ?? '', shape: message.shape ?? '', mediaAbove: message.mediaAbove === true,
+      mediaLayout: message.mediaLayout ?? '', copyable: message.copyable !== false, groupedNext: false, groupedPrevious: false, continuesSteer: false, sender: message.sender ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
+      copied: message.copied ?? 0, meta: message.meta !== false,
+      collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? totals.count : 0,
       secret: message.secret ?? [], approval: message.approval ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], audio: message.audio ?? [], md: { ...md, inks: message.kind === 'user' ? bubbleInks : md.inks, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   const rawText = new Map(transcript.map(message => [message.id, message.rawText]));
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body, text: rawText.get(row.id) })) };
+  // deriveMessagesTimelineRows: your back-to-back messages stack as one burst, a run of steers labelled once.
+  const own = (row: typeof rows[number] | undefined) => row?.kind === 'user' && row.attribution === '';
+  rows.forEach((row, index) => {
+    if (!own(row)) return;
+    const previous = rows[index - 1];
+    row.groupedNext = own(rows[index + 1]);
+    row.groupedPrevious = own(previous);
+    row.continuesSteer = row.groupedPrevious && row.intent === 'Steer' && previous!.intent === 'Steer';
+  });
   rows.forEach((row, index) => {
     row.first = index === 0;
     row.last = index === rows.length - 1;
@@ -656,7 +692,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       && (!row.runId || !previous.runId || row.runId === previous.runId)) {
       row.attached = true; row.hoverKey = previous.hoverKey;
       row.actionsId = previous.actionsId; row.actionsFork = previous.actionsFork; row.actionsTime = previous.actionsTime; row.actionsTimeTip = previous.actionsTimeTip;
-      row.copied = previous.copied; row.copyFailed = previous.copyFailed;
+      row.copied = previous.copied;
       previous.actionsId = ''; previous.actionsFork = false; previous.actionsTime = '';
     }
   });

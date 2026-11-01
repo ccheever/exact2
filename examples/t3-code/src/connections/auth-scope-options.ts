@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): packages/shared/src/authScopeOptions.ts.
+// T3 Code 2359643cff (MIT, LICENSE-T3): packages/shared/src/authScopeOptions.ts.
 import { AUTH_STANDARD_CLIENT_SCOPES } from './remote-scopes';
 export type Permission = (typeof AUTH_STANDARD_CLIENT_SCOPES)[number];
 
@@ -92,3 +92,12 @@ export const AUTH_SCOPE_OPTIONS: ReadonlyArray<{
 export const READ_ONLY_SCOPES: readonly Permission[] = ['orchestration:read', 'filesystem:read', 'diagnostics:read', 'terminal:read'];
 export const pairingScopeOptions = () => AUTH_SCOPE_OPTIONS.map((option, index) => ({ ...option, index, readOnly: READ_ONLY_SCOPES.includes(option.scope) }));
 export const sessionPermissionRows = (permissions: readonly string[]) => AUTH_SCOPE_OPTIONS.map(option => ({ scope: option.scope, title: option.title, allowed: permissions.includes(option.scope) }));
+
+/** What the session read has told this client: nothing yet, a failure (retried while connected), not signed in, or the grants. */
+export type SessionCheck = 'pending' | 'failed' | 'rejected' | 'granted';
+/** Shown instead of the granted scopes while they are unknown, so every surface says the same thing. */
+export function sessionPermissionsUnavailableMessage(input: { readonly connected: boolean; readonly failed: boolean; readonly rejected: boolean }): string {
+  if (!input.connected) return 'Connect to this environment to view this session’s permissions.';
+  if (input.rejected) return 'This environment did not accept your session. Reconnect to try again.';
+  return input.failed ? 'Could not verify your permissions. Retrying automatically.' : 'Checking permissions…';
+}

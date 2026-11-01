@@ -1,5 +1,5 @@
 // Deleting a thread's worktree with it,
-// adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
+// adapted from T3 Code 2359643cff (MIT); see LICENSE-T3. Sources:
 // apps/web/src/worktreeCleanup.ts (getOrphanedWorktreePathForThread and
 // formatWorktreePathForDisplay, unchanged), apps/web/src/hooks/useThreadActions.ts
 // deleteThread (the orphan check, the "Delete the worktree too?" confirmation,
@@ -18,19 +18,18 @@ import { pushToast } from '../shell/toast';
 import { shellRuntime } from './sidebar-model';
 import { isScratch, scratchRootOf } from '../composer/scratch-machine';
 import { letGo } from '../client/let-go';
-
-function normalizeWorktreePath(path: unknown): string | null {
-  const trimmed = typeof path === 'string' ? path.trim() : '';
-  return trimmed ? trimmed : null;
-}
+import { normalizeProjectPathForComparison } from '../shared/project-paths';
 
 /** getOrphanedWorktreePathForThread: the thread's worktree when no other given thread uses it. */
 export function getOrphanedWorktreePathForThread(threads: ReadonlyArray<{ id?: unknown; worktreePath?: unknown }>, threadId: string): string | null {
   const targetThread = threads.find(thread => thread.id === threadId);
   if (!targetThread) return null;
-  const targetWorktreePath = normalizeWorktreePath(targetThread.worktreePath);
+  const targetWorktreePath = typeof targetThread.worktreePath === 'string' ? targetThread.worktreePath.trim() : '';
   if (!targetWorktreePath) return null;
-  const isShared = threads.some(thread => thread.id !== threadId && normalizeWorktreePath(thread.worktreePath) === targetWorktreePath);
+  // Threads can store one worktree as `/repo/wt` and `/repo/wt/`, and
+  // confirming deletion force-removes the checkout for every thread on it.
+  const targetKey = normalizeProjectPathForComparison(targetWorktreePath);
+  const isShared = threads.some(thread => thread.id !== threadId && typeof thread.worktreePath === 'string' && normalizeProjectPathForComparison(thread.worktreePath) === targetKey);
   return isShared ? null : targetWorktreePath;
 }
 

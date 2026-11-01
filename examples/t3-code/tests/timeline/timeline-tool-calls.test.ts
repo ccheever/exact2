@@ -93,7 +93,7 @@ describe('runless turns (db51460)', () => {
     const value = live([...imported, user('u', 20, 'new', { runId: 'r1' })]);
     const result = rows(value);
     expect(kinds(result).slice(0, 3)).toEqual(['user', 'work', 'assistant']);
-    expect(result[1]).toMatchObject({ title: 'Worked for 2.0s' });
+    expect(result[1]).toMatchObject({ title: 'Worked for 2s' });
   });
 
   test('a provider-native subagent keeps its latest runless response open while it works', () => {

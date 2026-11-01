@@ -21,7 +21,7 @@ import { advancedBackgroundValue, baseProfile, profileOption } from './settings-
 import { seedDiffState } from '../appearance/settings-appearance-look';
 import { themeEditorCommand } from '../appearance/settings-appearance-editor';
 import { themeImportCommand } from '../appearance/settings-appearance-import';
-import { aboutRows, updateCommand, updateTrackCommand } from './settings-a-about';
+import { aboutRows, copyVersion, updateCommand, updateTrackCommand } from './settings-a-about';
 import { removeThemes, useCollectionDefaults } from '../appearance/settings-a-collections';
 import type { DiffState } from '../diff/diff';
 import { notificationPermission, notificationPermissionMessage } from '../shell/shell-notify';
@@ -325,10 +325,10 @@ function serverState(context: ServerContext, key: string) {
 const MERGE_METHOD_LABELS: Record<string, string> = { merge: 'Merge', squash: 'Squash and merge', rebase: 'Rebase and merge' };
 const SUBMODULE_LABELS: Record<string, string> = { recursive: 'Recursive', 'top-level': 'Top level only', none: 'Skip' };
 const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Repository conventions', conventional_commits: 'Conventional Commits', custom: 'Custom instructions' };
+const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<string, string> = { balanced: 'Balanced', performance: 'Performance', 'battery-saver': 'Battery saver', custom: 'Advanced' };
 /**
  * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
- * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
- * style reads "Custom": Background activity's `{ profile }` has no label of its own there.
+ * Source Control's and Integrations' in source-control-view.ts).
  */
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'
@@ -344,8 +344,12 @@ export function formatSettingValue(key: string, value: unknown): string {
   }
   if (Array.isArray(value)) return `${value.length} ${value.length === 1 ? 'item' : 'items'}`;
   const entry = obj(value);
+  if (key === 'backgroundActivity' && typeof entry.profile === 'string') return BACKGROUND_ACTIVITY_PROFILE_LABELS[entry.profile] ?? entry.profile;
   if (typeof entry.model === 'string') return entry.model;
-  if (typeof entry.mode === 'string') return WRITING_STYLE_LABELS[entry.mode] ?? entry.mode;
+  if (typeof entry.mode === 'string') {
+    if (key === 'worktreeCleanup') return entry.mode === 'off' ? 'Off' : 'Custom';
+    return key === 'sourceControlWritingStyle' ? WRITING_STYLE_LABELS[entry.mode] ?? entry.mode : entry.mode;
+  }
   return 'Custom';
 }
 /** settingInheritanceLayers for the representative target: project, environment, t3.json, built-in. */
@@ -864,6 +868,7 @@ export async function applyCoreSetting(client: T3Client, native: Native, id: str
     if (target.row === 'theme-collection') useCollectionDefaults(local, value); else removeThemes(local, value.split(',').filter(Boolean));
     return '';
   }
+  if (target.row === 'version' && target.part === 'copy') return copyVersion(client, native);
   if (target.row === 'version' || target.row === 'update') return updateCommand(client, target.row, target.part);
   if (target.row === 'update-track') return updateTrackCommand(client, native, value);
   // Appearance › Thread details: an item's `part` is its id and `value` "true" or "false"; reset clears every choice.

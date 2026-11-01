@@ -7,7 +7,7 @@ afterEach(resetPrimary);
 import '../../src/client/client';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
-import { adoptHostLocale, currentTimestampLocale, resolveTimestampLocale, resolveWeekStartsOn, weekStartsOn } from '../../src/shared/timestamp-format';
+import { adoptHostLocale, currentTimestampLocale, resolveTimestampLocale, resolveWeekStartsOn, toSystemLocaleTag, weekStartsOn } from '../../src/shared/timestamp-format';
 import { messageTime, shortTime, timestampTooltip } from '../../src/timeline/timeline-presentation';
 import { snoozePresets } from '../../src/sidebar/sidebar-presentation';
 import { describeOversizedThemeFile, MAX_THEME_FILE_BYTES, readThemeFiles } from '../../src/appearance/settings-appearance-import';
@@ -32,7 +32,17 @@ describe('resolveTimestampLocale', () => {
   });
   test('defers to the runtime default rather than throwing on an unusable tag', () => {
     expect(resolveTimestampLocale('not a locale')).toBeUndefined();
-    expect(resolveTimestampLocale('en_GB')).toBeUndefined();
+  });
+  // toSystemLocaleTag (ElectronApp.ts at v0.1.6): Intl ignores the macOS Region override's rg keyword.
+  test('the macOS Region override replaces the region, and an hour cycle stays', () => {
+    expect(new Intl.DateTimeFormat('en-US-u-rg-gbzzzz').resolvedOptions().locale).toBe('en-US');
+    expect(['en_GB', 'en-US@rg=nlzzzz', 'en_US@rg=nlzzzz', 'de_DE@calendar=buddhist'].map(tag => toSystemLocaleTag(tag))).toEqual(['en-GB', 'en-NL', 'en-NL', 'de-DE']);
+    expect([toSystemLocaleTag('en-US@rg=nlzzzz', 'h12'), toSystemLocaleTag('en-GB', 'h23')]).toEqual(['en-NL-u-hc-h12', 'en-GB-u-hc-h23']);
+    // Contract's formatLocale is Locale.current.identifier(.bcp47): the keywords arrive as a -u- extension.
+    expect(['en-US-u-rg-gbzzzz', 'en-US-u-hc-h23-rg-gbzzzz', 'de-DE-u-ca-buddhist', 'sr-Latn-RS-u-rg-bazzzz', 'en-US-u-rg-419zzzz'].map(resolveTimestampLocale))
+      .toEqual(['en-GB', 'en-GB-u-hc-h23', 'de-DE', 'sr-Latn-BA', 'en-419']);
+    adoptHostLocale('en-US-u-rg-gbzzzz');
+    expect(plain(shortTime(new Date(2026, 3, 7, 15, 44).toISOString(), 'locale'))).toBe('15:44');
   });
 });
 
@@ -168,8 +178,8 @@ describe('full-screen title row', () => {
     expect(workspaceControlsLeft(16, false)).toBe(90);
   });
   test('the sidebar minimum follows the inset (brand probe) in both states', () => {
-    expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([208, 208, 223]);
-    expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 208]);
+    expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([217, 257, 298]);
+    expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 223]);
   });
   // The public display mode (exactViewport().displayMode) is the one source; the
   // native full-screen fact (T3FullScreen.swift) and its t3.status field are gone.

@@ -29,7 +29,22 @@ describe('timeline rows', () => {
     expect(rows[2]).toMatchObject({ attached: true, actionsId: 'a', actionsFork: true, checkpointOrdinal: 1, additions: 3, deletions: 0 });
     expect(rows[2]!.files).toEqual([{ id: 'file:fixture-result.md', path: 'fixture-result.md', additions: 3, deletions: 0, kind: 'file', name: 'fixture-result.md',
       depth: 0, expanded: false, icon: 'markdown', spacer: false, plus: '+3', minus: '-0' }]);
-    expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md' });
+    expect(rows[2]).toMatchObject({ fileCount: 1, targetId: 'fixture-result.md', filesLabel: '1 changed file', moreFiles: '' });
+  });
+
+  test('your back-to-back messages stack as one burst, a run of steers labelled once (#27305, #27978)', () => {
+    const rows = timelineMessages(fakeClient(), [row('u1', 'user'), row('u2', 'user', { intent: 'Steer' }), row('u3', 'user', { intent: 'Steer' }),
+      row('t', 'user', { attribution: 't3code' }), row('a', 'assistant'), row('u4', 'user')], Date.parse(at));
+    expect(rows.map(message => [message.id, message.groupedPrevious, message.groupedNext, message.continuesSteer])).toEqual([
+      ['u1', false, true, false], ['u2', true, true, false], ['u3', true, false, true], ['t', false, false, false], ['a', false, false, false], ['u4', false, false, false]]);
+  });
+
+  test('a huge checkpoint counts and sums its totals and offers the rest in the full diff (#27110)', () => {
+    const files = [{ path: 'src/a.ts', additions: 3, deletions: 1 }, { path: 'src/b.ts', additions: 2, deletions: 0 }];
+    const rows = timelineMessages(fakeClient([{ id: 'cp', appRunOrdinal: 1 }]),
+      [row('a', 'assistant'), row('c', 'checkpoint', { checkpointId: 'cp', files, filesTotal: { count: 1_204, additions: 52_310, deletions: 4_002 } })], Date.parse(at));
+    expect(rows[1]).toMatchObject({ fileCount: 1_204, additions: 52_310, deletions: 4_002, filesLabel: '1,204 changed files', moreFiles: '1,202 more files in the full diff', targetId: 'src/a.ts' });
+    expect(rows[1]!.files.map(file => file.id)).toEqual(['dir:src']);
   });
 
   test('a checkpoint from another run stays standalone; one from another thread or without files is no row', () => {

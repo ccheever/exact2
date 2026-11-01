@@ -1,4 +1,4 @@
-// ProviderSetupSection, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// ProviderSetupSection, T3 Code 2359643cff (MIT, see LICENSE-T3):
 // apps/web/src/components/settings/ProviderSetupSection.tsx:37-93 (readAntigravityAuthMethod,
 // the Environment row, "Setup unavailable", "Update required") and :95-327
 // (ProviderSetupActions: the Runtime row's status text, byte progress, notes, the
@@ -24,7 +24,8 @@ export function providerRuntime(provider: Obj, entry: ProviderSetupEntry, enviro
   const actionsDisabled = entry.installPending !== '' || queryError !== '';
   const total = installation && typeof installation.totalBytes === 'number' ? installation.totalBytes : null;
   const downloaded = num(installation?.downloadedBytes);
-  const statusMessage = phase === 'downloading' ? `Downloading ${megabytes(downloaded)} MB${total === null ? '' : ` of ${megabytes(total)} MB`}.`
+  // While the install state loads the row says so, and Install stays enabled.
+  const statusMessage = installation === null ? 'Checking the Antigravity runtime.' : phase === 'downloading' ? `Downloading ${megabytes(downloaded)} MB${total === null ? '' : ` of ${megabytes(total)} MB`}.`
     : phase === 'extracting' ? 'Extracting Antigravity.' : phase === 'verifying' ? 'Checking the downloaded runtime.'
       : installed ? 'Installed.'
         : usesCustomBinary ? (enabled ? 'The configured Antigravity runtime is unavailable.' : 'The configured Antigravity runtime has not been checked.')
@@ -41,7 +42,7 @@ export function providerRuntime(provider: Obj, entry: ProviderSetupEntry, enviro
     customNote: usesCustomBinary, unavailableNote: !installed && !canInstall,
     token: `${phase}:${str(installation?.operationId)}`,
     showCancel: installActive && str(installation?.operationId) !== '', cancelDisabled: actionsDisabled,
-    showInstall: !installActive && canInstall, installDisabled: actionsDisabled || installation === null || authActive,
+    showInstall: !installActive && canInstall, installDisabled: actionsDisabled || authActive,
     installLabel: installedVersion ? (version && version !== installedVersion ? 'Update Antigravity' : 'Reinstall Antigravity')
       : phase === 'failed' || phase === 'cancelled' ? 'Retry installation' : installed ? 'Install managed runtime' : 'Install Antigravity',
     showRemove: installation?.canRemove === true && !installActive, removeDisabled: actionsDisabled || authActive,
