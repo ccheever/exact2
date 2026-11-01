@@ -197,6 +197,98 @@ package final class TextArea: UITextView {
     /// Where the atom under the pointer starts, and the hover that finds it, while a kind has `:hover` paint.
     package var hoveredAtom: Int?
     var atomHover: (AnyObject, UIGestureRecognizer)?
+    /// Whether the text fits its box, as a browser's textarea scrolls only
+    /// text that overflows: its laid-out height and vertical inset, within
+    /// half a device pixel of the box, which absorbs the arithmetic between
+    /// the kernel's layout and TextKit's. UIKit's content size rounds up to a
+    /// whole point (one line filling a 40.333-point field measures 41), so it
+    /// cannot tell.
+    var fits: Bool {
+        // The usage reaches the empty line a trailing newline leaves for the
+        // caret, as the kernel measures it (LLP 1008); so does TextKit 1's used
+        // rect, after a fallback
+        let text = textLayoutManager.map { $0.usageBoundsForTextContainer.height } ?? layoutManager.usedRect(for: textContainer).height
+        return text + textContainerInset.top + textContainerInset.bottom <= bounds.height + 0.5 / max(1, traitCollection.displayScale)
+    }
+    /// Whether a person may drag the text: only text that overflows, and not
+    /// where the author's `overflow-y` is `hidden` or `clip`, which a person
+    /// cannot scroll (CSS Overflow 3, `overflow`)
+    var pans: Bool { !fits && !["hidden", "clip"].contains(owner?.style["overflow_y"]?.string ?? "") }
+    package override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture === panGestureRecognizer, !pans { return false }
+        return super.gestureRecognizerShouldBegin(gesture)
+    }
+    /// Whether the text stays at the top, wherever UIKit's caret reveal or the
+    /// content's new size would move it: text that fits, and text under the
+    /// author's `overflow-y: clip`, which forbids scrolling by any means (CSS
+    /// Overflow 3).
+    var pinned: Bool { fits || owner?.style["overflow_y"]?.string == "clip" }
+    package override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set {
+            let old = super.contentOffset
+            super.contentOffset = pinned ? CGPoint(x: newValue.x, y: 0) : newValue
+            // A scroll view's own drawing does not move with its content: the
+            // decorations' lines are drawn again at each new offset.
+            if super.contentOffset != old, decorations?.drawsLines == true { setNeedsDisplay() }
+        }
+    }
+    // A new size draws the placeholder and decorations again, which
+    // UIKit would otherwise stretch from the old raster
+    package override var frame: CGRect { didSet { if frame.size != oldValue.size { setNeedsDisplay() } } }
+    package override var bounds: CGRect { didSet { if bounds.size != oldValue.size { setNeedsDisplay() } } }
+    func holdAtTop() {
+        if pinned, super.contentOffset.y != 0 { contentOffset = CGPoint(x: super.contentOffset.x, y: 0) }
+    }
+    /// A tap anywhere in the textarea's border box is the text view's, as a
+    /// browser's textarea takes a click there: on a bare one's border too.
+    package override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) || owner.map { convert($0.bounds, from: $0).contains(point) } ?? false
+    }
+    /// Clips the text at the padding edge's curve (`BorderPaint.clip`). A
+    /// curve the corner radius cannot draw (radii unequal or elliptical, or a
+    /// `corner-shape` the box draws) is a mask, one kept for the view and
+    /// reshaped only when the curve changes.
+    func clip(to size: CGSize, radii: [CGSize], shape: CornerShape?) {
+        let rect = CGRect(origin: .zero, size: size)
+        let outline = BorderPaint.uncircular(in: rect, radii: radii)
+        // One radius the layer draws, in Apple's continuous curve too (its
+        // `cornerCurve`, as the box's own layer takes it), and no radius
+        // needs no mask whatever its shape
+        let rounded = radii.contains { $0 != .zero }
+        let path = shape.flatMap { outline == nil && $0.isAppleContinuous || !rounded ? nil : BorderPaint.roundedRect(rect, BorderPaint.reduced(radii, in: rect), shape: $0) } ?? outline
+        guard let path else {
+            _ = BorderPaint.clip(layer, in: rect, radii: radii)
+            let curve: CALayerCornerCurve = shape?.isAppleContinuous == true ? .continuous : .circular
+            if layer.cornerCurve != curve { layer.cornerCurve = curve }
+            return
+        }
+        layer.cornerRadius = 0
+        layer.masksToBounds = true
+        let mask = layer.mask as? CAShapeLayer ?? CAShapeLayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if mask.path != path { mask.path = path }
+        mask.frame = CGRect(origin: bounds.origin, size: size)
+        CATransaction.commit()
+        if layer.mask !== mask { layer.mask = mask }
+    }
+    package override func layoutSubviews() {
+        super.layoutSubviews()
+        // Text that came to fit, by its box growing or its text shrinking,
+        // shows from the top: UIKit moves the offset only when it is out of
+        // the new range. After UIKit's layout, where TextKit's height is
+        // current; a restyle leaves it stale until then.
+        holdAtTop()
+        // The mask lies in the scrolled coordinates: keep it over the box as
+        // the text scrolls
+        if let mask = layer.mask, mask.frame.origin != bounds.origin {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            mask.frame.origin = bounds.origin
+            CATransaction.commit()
+        }
+    }
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
@@ -402,11 +494,6 @@ package final class TextArea: UITextView {
     var placeholder = "" { didSet { setNeedsDisplay() } }
     /// The authored `::placeholder` colour (LLP 1104 D3); nil, UIKit's.
     var placeholderColor: UIColor?
-    // A scroll view's own drawing does not move with its content: the
-    // decorations' lines are drawn again at each new offset.
-    package override var contentOffset: CGPoint {
-        didSet { if contentOffset != oldValue, decorations?.drawsLines == true { setNeedsDisplay() } }
-    }
     /// The placeholder it draws may be in the tint: drawn again as the tint changes
     package override func tintColorDidChange() {
         super.tintColorDidChange()
@@ -511,6 +598,10 @@ extension NodeView {
         #if os(iOS)
         // Not the screen's scroller: the status bar scrolls that (LLP 1115).
         f.scrollsToTop = false
+        // Its padding alone insets its text: the safe-area inset it reaches
+        // into (a docked composer's bottom, under the home indicator) is no
+        // scroll range, as a browser's textarea takes none from the page
+        f.contentInsetAdjustmentBehavior = .never
         #endif
         addSubview(f)
         textArea = f
@@ -581,15 +672,37 @@ extension NodeView {
         #if os(tvOS)
         area.frame = contentBox() // tvOS keeps its read-only presentation.
         #else
-        if isNativeTextControl {
-            area.frame = bounds
-            if let r = kernelContentBox {
-                // Layout's inset less what the drawn box lost to the pixel
-                // grid, so the text keeps layout's width (`PixelGridIOS.swift`).
-                area.textContainerInset = UIEdgeInsets(top: r.minY, left: r.minX, bottom: max(0, layoutBounds.height - r.maxY) + bounds.height - layoutBounds.height,
-                                                       right: max(0, layoutBounds.width - r.maxX) + bounds.width - layoutBounds.width)
-            }
-        } else { area.frame = contentBox() }
+        // A native textarea fills its border box; the bezel is its own. A bare
+        // one fills its padding box, where a browser's textarea scrolls and
+        // clips its text (CSS Overflow 3): its text scrolls under the padding
+        // and stays off the border, measured as the box's painter measures it.
+        // The text is clipped at the padding edge's curve (CSS Backgrounds 3
+        // §4.2, §4.3). A bare one sent no content box has no padding or
+        // border, and fills layout's box.
+        let bare = !isNativeTextControl
+        let widths = bare && kernelContentBox != nil ? borderWidths : [0, 0, 0, 0]
+        let border = UIEdgeInsets(top: widths[0], left: widths[3], bottom: widths[2], right: widths[1])
+        // The inset before the frame, so the frame's change judges the fit
+        // with it. A native textarea sent no content box keeps the inset its
+        // chrome gave it.
+        if let r = kernelContentBox {
+            let inset = contentInsets(r)
+            area.textContainerInset = UIEdgeInsets(top: inset.top - border.top, left: inset.left - border.left,
+                                                   bottom: inset.bottom - border.bottom, right: inset.right - border.right)
+        } else if bare {
+            area.textContainerInset = .zero
+        }
+        area.frame = bare && kernelContentBox == nil ? contentBox() : bounds.inset(by: border)
+        if bare {
+            (area as? TextArea)?.clip(to: area.frame.size, radii: BorderPaint.contentRadii(cornerSizes(in: bounds), outer: bounds, inner: area.frame), shape: CornerShape(style["corner_shape"]))
+        } else {
+            area.layer.mask = nil
+            area.layer.cornerCurve = .circular
+        }
+        // An `overflow-y` that came to `clip` holds the text at the top. Only
+        // then: a restyle leaves TextKit's usage stale until the next layout,
+        // which `fits` would read
+        if style["overflow_y"]?.string == "clip" { (area as? TextArea)?.holdAtTop() }
         layoutResizeGrip()
         #endif
     }

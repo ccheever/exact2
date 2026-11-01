@@ -5,6 +5,7 @@ import CExact
 import CoreText
 import XCTest
 @testable import ExactKit
+import ExactMarkdown
 
 final class NativeFieldsIOSTests: XCTestCase {
     // scripts/fixtures/fieldless.contract: no data or module, so preparation must still supply a
@@ -272,6 +273,262 @@ final class NativeFieldsIOSTests: XCTestCase {
         XCTAssertEqual(view.textContainerInset, UIEdgeInsets(top: 8, left: 0, bottom: 8, right: 0))
         area.applyFieldContent(["rect": [12.0, 18.0, 312.0, 62.0]])
         XCTAssertEqual(view.layer.cornerRadius, FieldChromeCache.textareaRadius, "out of the row, the extended field look")
+    }
+    /// A bare textarea's editor fills its padding box, its padding the text's inset, as a browser's textarea takes a
+    /// tap anywhere in its box: a tap in the padding (the edge of a chat composer's pill) is the editor's. The
+    /// Markdown editor, never native, is laid out the same way.
+    func testATextareasEditorFillsItsPaddingBoxSoATapInItsPaddingIsItsOwn() throws {
+        ExactMarkdown.install()
+        let session = ExactApp.shared.makeSession(label: "textarea-padding")
+        defer { session.destroy() }
+        for markup in [nil, "markdown"] {
+            let area = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+            area.bounds = CGRect(x: 0, y: 0, width: 324, height: 40)
+            if let markup { area.applyProps(set: ["markup": markup], clear: []) } else { area.applyStyle(["appearance": .string("none")]) }
+            area.applyFieldContent(["rect": [12.0, 6.0, 300.0, 28.0]])
+            let view = try XCTUnwrap(area.textArea as? TextArea)
+            XCTAssertEqual(view.markup != nil, markup != nil, "the Markdown editor's own editing, or none")
+            XCTAssertEqual(view.frame, area.bounds, "the padding box, with no border (\(markup ?? "plain"))")
+            XCTAssertEqual(view.textContainerInset, UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12), "the padding, the text where layout put it")
+            for point in [CGPoint(x: 4, y: 20), CGPoint(x: 320, y: 3)] {
+                let hit = try XCTUnwrap(area.hitTest(point, with: nil), "a point in the padding, \(point)")
+                XCTAssertTrue(hit === view || hit.isDescendant(of: view), "the editor's, not \(type(of: hit)), at \(point)")
+            }
+        }
+    }
+    /// A bare textarea with a border scrolls its text inside the border, as a browser's textarea clips at its
+    /// padding edge (CSS Overflow 3), on that edge's curve (CSS Backgrounds 3 §4.2, §4.3), and a tap on the border is
+    /// still the editor's. Corners the radius cannot draw (unequal or elliptical) clip by a mask, which stays over the
+    /// box as the text scrolls and is the same layer after another layout.
+    func testABorderedTextareaScrollsItsTextInsideItsBorder() throws {
+        let session = ExactApp.shared.makeSession(label: "textarea-border")
+        defer { session.destroy() }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        defer { window.isHidden = true }
+        let area = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+        window.addSubview(area)
+        area.frame = CGRect(x: 0, y: 0, width: 300, height: 60)
+        area.applyStyle(["appearance": .string("none"), "border_width": .number(2), "border_radius": .number(10), "font_size": .number(17)])
+        // A 2-point border around 6 points of padding
+        area.applyFieldContent(["rect": [8.0, 8.0, 284.0, 44.0]])
+        let view = try XCTUnwrap(area.textArea)
+        XCTAssertEqual(view.frame, CGRect(x: 2, y: 2, width: 296, height: 56), "the padding box")
+        XCTAssertEqual(view.textContainerInset, UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6), "the padding")
+        XCTAssertEqual(view.layer.cornerRadius, 8, "the padding edge's radius, the border's less its width")
+        XCTAssertNil(view.layer.mask, "one radius needs no mask")
+        let hit = try XCTUnwrap(area.hitTest(CGPoint(x: 1, y: 30), with: nil), "a point on the border")
+        XCTAssertTrue(hit === view, "the editor's, not \(type(of: hit))")
+        area.applyStyle(["appearance": .string("none"), "border_width": .number(2), "border_radius_top_left": .number(20), "font_size": .number(17)])
+        area.layoutTextArea()
+        let mask = try XCTUnwrap(view.layer.mask, "one corner's radius: a mask")
+        view.text = (1...12).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        view.setContentOffset(CGPoint(x: 0, y: 40), animated: false)
+        view.layoutIfNeeded()
+        XCTAssertEqual(mask.frame.origin, view.bounds.origin, "the mask over the box, scrolled \(view.contentOffset)")
+        area.layoutTextArea()
+        XCTAssertTrue(view.layer.mask === mask, "the same mask after another layout")
+        // A bevel at each corner, which the box draws: a mask in that shape
+        area.applyStyle(["appearance": .string("none"), "border_width": .number(2), "border_radius": .number(10), "font_size": .number(17),
+                         "corner_shape": .array(Array(repeating: .number(0), count: 4))])
+        area.layoutTextArea()
+        let bevel = try XCTUnwrap(view.layer.mask as? CAShapeLayer, "a drawn corner shape: a mask")
+        // Inside a round corner of radius 8 and outside the bevel
+        XCTAssertFalse(try XCTUnwrap(bevel.path).contains(CGPoint(x: 2.5, y: 2.5)), "the bevel cuts the corner")
+    }
+    /// A bare box sent no content box has no padding or border: the editor fills layout's box, its text at its edge,
+    /// though it had padding before. Layout's box, not the one drawn on the pixel grid, so its text wraps at layout's
+    /// width and its fit is judged against layout's height.
+    func testATextareaSentNoContentBoxFillsLayoutsBox() throws {
+        let session = ExactApp.shared.makeSession(label: "textarea-no-box")
+        defer { session.destroy() }
+        let area = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+        area.bounds = CGRect(x: 0, y: 0, width: 200, height: 40)
+        area.applyStyle(["appearance": .string("none")])
+        area.applyFieldContent(["rect": [12.0, 6.0, 176.0, 28.0]])
+        let view = try XCTUnwrap(area.textArea)
+        XCTAssertEqual(view.textContainerInset, UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12), "the premise: its padding")
+        // Drawn a quarter of a point taller and narrower than layout made it
+        area.grid = GridPlace(layout: CGRect(x: 0, y: 0, width: 200.25, height: 39.75), drawn: CGRect(x: 0, y: 0, width: 200, height: 40), origin: .zero)
+        area.applyFieldContent([:])
+        XCTAssertEqual(view.frame, area.layoutBounds)
+        XCTAssertEqual(view.frame.size, CGSize(width: 200.25, height: 39.75), "the premise: layout's size")
+        XCTAssertEqual(view.textContainerInset, .zero)
+    }
+    /// One line filling a chat composer's growing field (40.333 points with its padding) is taller than the box by
+    /// UIKit's content size, which rounds up to a whole point, so UIKit alone lets a finger drag text that fits.
+    /// Text that fits is neither dragged nor scrolled to its caret, and stays at the top; text past the box scrolls.
+    func testATextareaWhoseTextFitsItsBoxDoesNotScroll() throws {
+        let (session, window, area) = textarea(height: 121.0 / 3, lineHeight: 20.287, content: 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea)
+        view.text = "Hello"
+        view.layoutIfNeeded()
+        XCTAssertGreaterThan(view.contentSize.height, view.bounds.height, "the premise: UIKit measures \(view.contentSize) in \(view.bounds)")
+        XCTAssertFalse(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "a finger does not drag text that fits")
+        view.setContentOffset(CGPoint(x: 0, y: 2.0 / 3), animated: false)
+        XCTAssertEqual(view.contentOffset.y, 0, "a scroll leaves its text at the top")
+        view.scrollRangeToVisible(NSRange(location: 5, length: 0))
+        XCTAssertEqual(view.contentOffset.y, 0, "the caret's reveal leaves its text at the top")
+        view.text = (1...12).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        XCTAssertGreaterThan(view.contentSize.height, view.bounds.height + 100)
+        XCTAssertTrue(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "a finger drags text past the box")
+        view.setContentOffset(CGPoint(x: 0, y: 50), animated: false)
+        XCTAssertEqual(view.contentOffset.y, 50, "text past the box scrolls")
+        view.text = "Hello"
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.contentOffset.y, 0, "text that shrinks to fit shows from the top: \(view.contentSize) in \(view.bounds)")
+    }
+    /// Text up to half a device pixel taller than its content box fits it, the slack the arithmetic between the
+    /// kernel's layout and TextKit's needs; more overflows, and a whole point more scrolls by that point. The content
+    /// box is set from the text's own laid-out height, so the case holds wherever TextKit ends the last line
+    /// (`FieldLineHeight.swift`).
+    func testATextareaFitsTextWithinHalfAPixelOfItsBox() throws {
+        let (session, window, area) = textarea(height: 162, lineHeight: 21.15, content: 147.9, top: 10)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea)
+        view.text = (1...7).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        let lines = Double(try XCTUnwrap(view.textLayoutManager).usageBoundsForTextContainer.height)
+        let half = 0.5 / Double(max(1, view.traitCollection.displayScale))
+        area.applyFieldContent(["rect": [16.0, 10.0, 279.0, lines - half * 0.8]])
+        view.layoutIfNeeded()
+        XCTAssertFalse(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "\(lines) points of text in \(lines - half * 0.8)")
+        view.setContentOffset(CGPoint(x: 0, y: 1), animated: false)
+        view.scrollRangeToVisible(NSRange(location: view.text.utf16.count, length: 0))
+        XCTAssertEqual(view.contentOffset.y, 0)
+        area.applyFieldContent(["rect": [16.0, 10.0, 279.0, lines - half * 1.5]])
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "past half a pixel: \(lines) points of text in \(lines - half * 1.5)")
+        area.applyFieldContent(["rect": [16.0, 10.0, 279.0, lines - 1]])
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "a point past the box: \(view.contentSize) in \(view.bounds)")
+        view.setContentOffset(CGPoint(x: 0, y: 1), animated: false)
+        XCTAssertEqual(view.contentOffset.y, 1, "the last point scrolls into view")
+    }
+    /// An author's `overflow-y: hidden` or `clip` keeps a person from dragging text that overflows (CSS Overflow 3).
+    func testATextareaWithOverflowHiddenIsNotDragged() throws {
+        let (session, window, area) = textarea(height: 121.0 / 3, lineHeight: 20.287, content: 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea)
+        view.text = (1...12).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "the premise: text past the box")
+        for overflow in ["hidden", "clip"] {
+            area.applyStyle(["appearance": .string("none"), "font_size": .number(17), "line_height": .string("20.287px"), "overflow_y": .string(overflow)])
+            XCTAssertFalse(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), overflow)
+        }
+    }
+    /// `overflow-y: clip` forbids scrolling by any means (CSS Overflow 3): a caret reveal or a script's offset leaves
+    /// the text at the top. `hidden` lets them scroll it.
+    func testATextareaWithOverflowClipIsHeldAtTheTop() throws {
+        let (session, window, area) = textarea(height: 121.0 / 3, lineHeight: 20.287, content: 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea as? TextArea)
+        view.text = (1...12).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        area.applyStyle(["appearance": .string("none"), "font_size": .number(17), "line_height": .string("20.287px"), "overflow_y": .string("hidden")])
+        view.layoutIfNeeded()
+        view.contentOffset = CGPoint(x: 0, y: 40)
+        XCTAssertEqual(view.contentOffset.y, 40, "`hidden` scrolls by a script")
+        area.applyStyle(["appearance": .string("none"), "font_size": .number(17), "line_height": .string("20.287px"), "overflow_y": .string("clip")])
+        area.layoutTextArea()
+        XCTAssertEqual(view.contentOffset.y, 0, "coming to `clip` returns it to the top")
+        view.contentOffset = CGPoint(x: 0, y: 40)
+        view.scrollRangeToVisible(NSRange(location: view.text.utf16.count, length: 0))
+        XCTAssertEqual(view.contentOffset.y, 0, "`clip` holds it there")
+        XCTAssertTrue(view.pinned)
+    }
+    /// The empty line a trailing newline leaves for the caret is text that can overflow, as the kernel measures it
+    /// (LLP 1008): at the box's last line, a Return leaves the field free to scroll to its caret.
+    func testATrailingNewlinesEmptyLineOverflowsTheBox() throws {
+        // Three lines in a box of three
+        let (session, window, area) = textarea(height: 3 * 20.287 + 2 * 10.0231, lineHeight: 20.287, content: 3 * 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea as? TextArea)
+        view.text = "One\nTwo\nThree"
+        view.layoutIfNeeded()
+        XCTAssertTrue(view.fits, "the premise: three lines fit")
+        view.text = "One\nTwo\nThree\n"
+        view.layoutIfNeeded()
+        XCTAssertFalse(view.fits, "the caret's empty fourth line overflows")
+        XCTAssertTrue(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "a finger can drag to it")
+        view.contentOffset = CGPoint(x: 0, y: 5)
+        XCTAssertEqual(view.contentOffset.y, 5, "a reveal is not held at the top")
+    }
+    /// A growing field that scrolled to its caret before layout grew it shows its text from the top once it fits.
+    func testATextareaThatGrowsToFitItsTextShowsItFromTheTop() throws {
+        let (session, window, area) = textarea(height: 121.0 / 3, lineHeight: 20.287, content: 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea)
+        view.text = "One\nTwo\nThree"
+        view.layoutIfNeeded()
+        view.setContentOffset(CGPoint(x: 0, y: view.contentSize.height - view.bounds.height), animated: false)
+        XCTAssertGreaterThan(view.contentOffset.y, 30, "the caret's line shows in the one-line box")
+        // Three lines in a box UIKit's rounded content overruns by a third of a point
+        area.frame.size.height = 242.0 / 3
+        area.applyFieldContent(["rect": [16.0, 10.0231, 279.0, 3 * 20.287]])
+        area.layoutIfNeeded()
+        view.layoutIfNeeded()
+        XCTAssertGreaterThan(view.contentSize.height, view.bounds.height, "the premise: \(view.contentSize) in \(view.bounds)")
+        XCTAssertEqual(view.contentOffset.y, 0, "three lines fit: \(view.contentSize) in \(view.bounds)")
+    }
+    /// A textarea that reaches into the safe-area inset (a docked composer under the home indicator, or a field
+    /// under the status bar) takes no scroll range from it, as a browser's textarea takes none from the page's
+    /// insets.
+    func testATextareaInTheSafeAreaInsetTakesNoScrollRangeFromIt() throws {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { throw missing("scene", "the safe-area insets are a scene window's") }
+        let window = UIWindow(windowScene: scene), host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let insets = window.safeAreaInsets
+        try XCTSkipIf(insets.bottom < 10 || insets.top < 10, "the simulator's screen has no home indicator or status bar")
+        let session = ExactApp.shared.makeSession(label: "textarea-safe-area")
+        defer { session.destroy() }
+        // 6 points into the bottom inset, and at the screen's top
+        for y in [window.bounds.height - (insets.bottom - 6) - 121.0 / 3, 0] {
+            let area = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+            host.view.addSubview(area)
+            defer { area.removeFromSuperview() }
+            area.frame = CGRect(x: 0, y: y, width: 300, height: 121.0 / 3)
+            area.applyStyle(["appearance": .string("none"), "font_size": .number(17), "line_height": .string("20.287px")])
+            area.applyFieldContent(["rect": [16.0, 10.0231, 279.0, 20.287]])
+            let view = try XCTUnwrap(area.textArea)
+            view.text = (1...4).map { "Line \($0)" }.joined(separator: "\n")
+            view.layoutIfNeeded()
+            XCTAssertGreaterThan(view.safeAreaInsets.top + view.safeAreaInsets.bottom, 0, "the premise: the field reaches into an inset at y \(y)")
+            XCTAssertEqual(view.adjustedContentInset, .zero, "at y \(y)")
+        }
+    }
+    /// A new size draws the editor again: its placeholder and decorations are not the old raster stretched.
+    func testATextareaDrawsAgainWhenItsSizeChanges() throws {
+        let (session, window, area) = textarea(height: 121.0 / 3, lineHeight: 20.287, content: 20.287)
+        defer { session.destroy(); window.isHidden = true }
+        let view = try XCTUnwrap(area.textArea)
+        view.layer.displayIfNeeded()
+        XCTAssertFalse(view.layer.needsDisplay(), "the premise: drawn")
+        view.frame.size.width = 200
+        XCTAssertTrue(view.layer.needsDisplay(), "a new width")
+        view.text = (1...12).map { "Line \($0)" }.joined(separator: "\n")
+        view.layoutIfNeeded()
+        view.layer.displayIfNeeded()
+        view.contentOffset = CGPoint(x: 0, y: 20)
+        XCTAssertEqual(view.contentOffset.y, 20, "the premise: it scrolled")
+        XCTAssertFalse(view.layer.needsDisplay(), "a scroll is no new size")
+    }
+    /// A textarea as a composer lays one out: a box of `height` points whose content box starts `top` points down
+    /// and is `content` points tall, in lines `lineHeight` points apart.
+    private func textarea(height: CGFloat, lineHeight: Double, content: Double, top: Double = 10.0231) -> (ExactSession, UIWindow, NodeView) {
+        let session = ExactApp.shared.makeSession(label: "textarea-fit")
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let area = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+        window.addSubview(area)
+        area.frame = CGRect(x: 0, y: 0, width: 300, height: height)
+        area.applyStyle(["appearance": .string("none"), "font_size": .number(17), "line_height": .string("\(lineHeight)px")])
+        area.applyFieldContent(["rect": [16.0, top, 279.0, content]])
+        return (session, window, area)
     }
     func testRegisteredFontIsThePreferredBodyFontAndChangesWithDynamicType() {
         let cache = FieldChromeCache()

@@ -188,17 +188,20 @@ extension NodeView {
     /// by where a finger at its middle lands, so it asks with this off
     /// (LLP 1116.009 D5): a title under its field read as covered by it.
     package static var touchFallsToCellField = true
+    /// Layout's insets of the content box `rect`, less what the drawn box lost
+    /// to the pixel grid, so the text keeps layout's width (`PixelGridIOS.swift`).
+    func contentInsets(_ rect: CGRect) -> UIEdgeInsets {
+        UIEdgeInsets(top: rect.minY, left: rect.minX,
+                     bottom: max(0, layoutBounds.height - rect.maxY) + bounds.height - layoutBounds.height,
+                     right: max(0, layoutBounds.width - rect.maxX) + bounds.width - layoutBounds.width)
+    }
     func nativeEditorRect(in proposed: CGRect) -> CGRect? {
         guard isNativeTextControl, let rect = kernelContentBox else { return nil }
         // UIKit also asks with a synthetic 100×100 box to derive its insets.
         // Return the published insets applied to that argument, rather than
         // an absolute rect: the latter hid values or moved their baseline.
         // UIKit centres its single line within the resulting content box.
-        // Layout's inset less what the drawn box lost to the pixel grid, so
-        // the text keeps layout's width (`PixelGridIOS.swift`).
-        var insets = UIEdgeInsets(top: rect.minY, left: rect.minX,
-            bottom: max(0, layoutBounds.height - rect.maxY) + bounds.height - layoutBounds.height,
-            right: max(0, layoutBounds.width - rect.maxX) + bounds.width - layoutBounds.width)
+        var insets = contentInsets(rect)
         // A number input's stepper takes the text's trailing end (LLP 1116.007 D4).
         let room = stepperRoom
         if room > 0 { if style["direction"]?.string == "rtl" { insets.left += room } else { insets.right += room } }

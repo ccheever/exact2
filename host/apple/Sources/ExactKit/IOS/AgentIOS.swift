@@ -166,7 +166,8 @@ extension Agent {
         let bottom = min(max(caret.maxY + inset.bottom - editor.bounds.height, minimum), maximum)
         let tolerance = 1 / max(editor.traitCollection.displayScale, 1)
         let offset = editor.contentOffset.y
-        if editor.bounds.height <= 0 || (offset >= min(top, bottom) - tolerance && offset <= max(top, bottom) + tolerance) {
+        // A textarea whose text fits, or that clips it, stays at the top (`TextArea.pinned`)
+        if editor.bounds.height <= 0 || editor.pinned || (offset >= min(top, bottom) - tolerance && offset <= max(top, bottom) + tolerance) {
             pendingTextReveal = nil
             return false
         }
