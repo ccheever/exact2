@@ -208,7 +208,11 @@ private final class T3WorkspaceContainer: UIViewController {
         divider.resize = { [weak self] phase, translation in self?.resize(phase: phase, translation: translation) }
         // The public tabContainer handoff lets this container take the offered stacks in place.
         for (controller, clip) in [(sidebar, sidebarClip), (workspace, workspaceClip), (inspector, inspectorClip)] {
+            if let parent = controller.parent, parent !== self {
+                controller.willMove(toParent: nil); controller.view.removeFromSuperview(); controller.removeFromParent()
+            }
             addChild(controller); clip.addSubview(controller.view); controller.didMove(toParent: self)
+            controller.view.isHidden = false
         }
         if let key = pendingConfiguration?.sidebarRouteKey { hideSidebar(key) }
         applyAppearance(); synchronizeSidebarChrome()
@@ -354,6 +358,10 @@ private final class T3WorkspaceContainer: UIViewController {
     private func layoutChildren() {
         guard isViewLoaded else { return }
         let bounds = view.bounds, split = configuration?.usesSplitView == true
+        // A tab stack can be hidden again when UIKit completes a route
+        // transition. The custom holder owns all stacks after adoption; the
+        // pane clips below are the only visibility boundary.
+        sidebar.view.isHidden = false; workspace.view.isHidden = false; inspector.view.isHidden = false
         let leading = min(bounds.width, max(0, renderedSidebar))
         let inspectorMounted = configuration?.inspectorOwner.isEmpty == false
         let trailing = inspectorMounted ? min(max(0, bounds.width - leading), max(0, renderedInspector)) : 0
