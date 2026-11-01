@@ -55,3 +55,7 @@ retaining the compact/sidebar branch, adapts the swipe-menu action to its child
 arity, and uses an explicit empty environment key for the map lookup. The signed
 iOS simulator build and the focused Home/thread/scroll suite pass after these
 compiler-boundary fixes.
+
+Large project filters now keep selected project references and pending replacement
+membership in sets, so a refresh does not scan a project's environment keys or all
+of its threads for every row.
