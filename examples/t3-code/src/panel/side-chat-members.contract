@@ -81,7 +81,7 @@ members T3Code
   // Send, Return and a question's answer, as the window's `submit` takes them.
   action sideSend(held: string)
     if not commandPending and sideChatThread != "" and sideEditor.overLimit and sideChat.requestMode != "question"
-      sideCommand("editorlocal:arm-limit", "", "", 0)
+      send localChanged = command(`scope:${sideChatThread}|editorlocal:arm-limit`, "", "", 0)
     if not commandPending and sideChatThread != "" and (not sideEditor.overLimit or sideChat.requestMode == "question") and (sideChat.requestMode == "question" or sideChat.composer.uploadBlock == "")
       if sideChat.requestMode == "question" or (sideChat.canSend and (sideText != "" or sideChat.snapshotDrafts.length > 0 or sideChat.composer.queueEditAttachments.length > 0))
         commandPending = true
