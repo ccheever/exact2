@@ -201,6 +201,8 @@ shape ShellDetails
   lineageTitle: string
   lineage: ShellLineage[]
   showLineage: bool
+  // Lineage's heading offers Disconnect agent session (lineage-actions.ts canDetachSession).
+  canDetach: bool
   previousCount: number
   previousFailed: number
   mergeRunId: string
@@ -217,6 +219,7 @@ shape ShellDetails
   itemsMenu: DetailsItemsMenu
   servers: ThreadServersView
   usage: UsageView
+  context: UsageView // the Context window item (thread-details-usage.ts contextView)
   // The branch picker, Git actions and their dialogs (git-card.ts).
   git: GitCard
 // The control a workspace area last held (shell-members.contract workspaceEntered).

@@ -7,7 +7,8 @@ import type { PanelTerminal } from '../terminal/terminal-panel';
 // again when the thread's device session is still open, else lists the devices), a pull request's
 // detail (`pullRequestSurface`: projectId, host, repository, number, url; a malformed one is dropped
 // as the migration drops it) and a sent attachment (`attachment:<id>`, with the attachment's
-// metadata, read again from its signed asset URL).
+// metadata, read again from its signed asset URL), and a side chat (`side-chat:<thread id>`, its thread in `path`;
+// T3 Code 2359643cff rightPanelStore keeps `{ kind: "side-chat", threadId }`).
 import { num, obj, str, type Obj } from '../client/domain';
 import { prSurfaceId, type PrTarget } from './pr-surface';
 import type { AttachmentMeta } from './attachment-surface';
@@ -18,9 +19,10 @@ export type RestoredSurface =
   | { id: 'diff'; kind: 'diff'; path: ''; line: 0 }
   | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
   | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget; detailTab?: string }
-  | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
+  | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta }
+  | { id: string; kind: 'side-chat'; path: string; line: 0 };
 export type SurfaceEntry = { id: string; kind: string; path: string; line: number; folderTrail?: unknown; pr?: unknown; detailTab?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
-export const RESTORED_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
+export const RESTORED_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment', 'side-chat']);
 /** PullRequestDetailTab: the tab a pull request surface was left on (rightPanelStore `detailTab`). */
 export const isDetailTab = (value: unknown): value is string => value === 'summary' || value === 'guide' || value === 'timeline' || value === 'code';
 
@@ -64,6 +66,7 @@ export function keepRestored(surface: SurfaceEntry): RestoredSurface | null {
     const pr = prTargetOf(surface.pr);
     return pr ? { id: prSurfaceId(pr), kind: 'pull-request', path: '', line: 0, pr, ...(isDetailTab(surface.detailTab) ? { detailTab: surface.detailTab } : {}) } : null;
   }
+  if (surface.kind === 'side-chat') return surface.path && surface.id === `side-chat:${surface.path}` ? { id: surface.id, kind: 'side-chat', path: surface.path, line: 0 } : null;
   if (surface.kind === 'attachment') {
     const attachment = attachmentOf(surface.attachment);
     return attachment && surface.id === `attachment:${attachment.id}` ? { id: surface.id, kind: 'attachment', path: attachment.name, line: 0, attachment } : null;

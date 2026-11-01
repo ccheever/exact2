@@ -54,7 +54,7 @@ export const SHELL_ICON = [
   ['trash', 'trash-2'], 'sparkles', 'mail', 'settings', 'clock', ['settle', 'check'], 'external-link',
   ['refresh', 'refresh-cw'], 'corner-left-up', 'git-fork', 'arrow-right', 'hash', 'mail-open', 'timer',
   'message-square-plus', own('cursor'), 'folder-git', 'folder-git-2', 'cloud-upload', 'cloud-download', 'bot',
-  'eye', 'eye-off', 'folder-plus', 'message-square',
+  'eye', 'eye-off', 'folder-plus', 'message-square', 'messages-square', 'ellipsis', 'unplug', 'arrow-up',
 ];
 
 /** sidebar-icons.contract SidebarIcon: the sidebar's own glyphs. */

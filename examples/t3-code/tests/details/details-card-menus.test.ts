@@ -63,7 +63,7 @@ describe('the Workspace row\'s Copy full path', () => {
   });
 
   test('the menu names its popover only while there is a path; without one the right-click reaches the card\'s menu', () => {
-    const derive = (workspacePath: string) => body.derives({ hovered: '' }, { details: { workspacePath, items: {}, git: { branch: {} }, servers: {}, automations: {}, usage: {} }, density: 'full' }).pathMenu;
+    const derive = (workspacePath: string) => body.derives({ hovered: '' }, { details: { workspacePath, items: {}, git: { branch: {} }, servers: {}, automations: {}, usage: {}, lineage: [] }, density: 'full' }).pathMenu;
     expect([derive('/repo'), derive('')]).toEqual(['details-path-menu', '']);
     const select = card.find(line => line.includes('button id="details-workspace"'))!, locked = card.find(line => line.includes('testId="details-folder"'))!;
     for (const row of [select, locked]) expect(row).toContain('contextPopover=pathMenu');

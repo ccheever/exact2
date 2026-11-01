@@ -43,6 +43,7 @@ use KmItem from "../shared/menu-keys.contract"
 use KeyMenu from "../shared/menu-keys.contract"
 use kmKeyEnd from "../shared/menu-keys.contract"
 use kmEndKeyed from "../shared/menu-keys.contract"
+use SideChatBody from "./side-chat.contract" // a side chat tab's pane
 use BrowserSurface from "../browser/browser-surface.contract" // a Browser tab's body, its tab icon and the "+" menu row
 use BrowserTabIcon from "../browser/browser-surface.contract"
 use BrowserAddItem from "../browser/browser-surface.contract"
@@ -253,6 +254,9 @@ component PanelTabChip
                   PlatformGlyph(platform=tab.icon, size=12, color=(tab.active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
                 else
                   ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
+        // A side chat tab's static dot: muted while it runs, info while it asks (RightPanelTabs SideChatTabIcon).
+        if tab.kind == "side-chat" and tab.tone != "" and not over
+          box position="absolute" right=-2 top=-2 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.tone == "running" ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#2b7fff, #51a2ff)") aria-hidden=true
         if tab.pending
           box position="absolute" right=-1 bottom=-1 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
       if tab.audio == "audible" or tab.audio == "muted"
@@ -260,7 +264,7 @@ component PanelTabChip
       if tab.renaming
         PanelTabNameField(tab=tab, local=local)
       else
-        button id=`panel-tab-title-${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey(`panel-tab-title-${tab.id}`) aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+        button id=`panel-tab-title-${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey(`panel-tab-title-${tab.id}`) aria-label=(tab.kind == "side-chat" and tab.tone != "" ? `${tab.title}, ${tab.tone}` : tab.title) testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 
@@ -388,6 +392,8 @@ component SurfaceBody
       DeviceSurfaceBody(device=panel.device, scheme=scheme, local=local, command=command)
     if panel.kind == "browser"
       BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
+    if panel.kind == "side-chat"
+      SideChatBody(view=panel.sideChat, documents=filesDocuments, local=local, command=command, confirm=confirm, still=still)
 
 // ThreadPullRequestsPanel; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
 component LinkedPrsBody

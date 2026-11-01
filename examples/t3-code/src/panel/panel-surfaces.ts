@@ -53,8 +53,10 @@ import { browserTabAudio, browserTabMute } from '../browser/browser-automation-t
 import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix, workspaceRelativeFilePath } from '../timeline/workspace-file-lookup'; // a chat link's file
 import { serverPdfLocal, serverPdfViewer, type PdfPlace } from '../browser/server-pdf-viewer'; // a server tab's PDF in the viewer page
 import type { ViewerFrameView } from './viewer-frames';
+import { emptySideChat, sideChatSurfaceId, sideChatTabState, sideChatTabTitle, sideChatView, startSideChat, deleteSideChatThread, bringBackSideChat, deleteSideChat, sendToSideChat, answerSideChat, stopSideChat, type SideChatView } from './side-chat'; // side chats beside the thread
+import { pinThreads } from '../details/lineage-parent';
 
-export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
+export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser' | 'side-chat';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
   /** Files and file surfaces: set when breadcrumbs moved a folder browser up, the deepest path the crumbs keep offering on the way back down. */
   folderTrail?: string; pr?: PrTarget;
@@ -83,6 +85,8 @@ export type PanelView = {
   /** Bumps when the previewAutomation host hands over a recording request, and names the
    *  queued send to run it on (app.contract automationRecording). */
   automationRecording: AutomationRecordingView;
+  /** The active side chat tab's pane (side-chat.ts). */
+  sideChat: SideChatView;
 };
 
 type Store = { panels: Map<string, PanelState>; deviceSetup: string; terminalClose: { serial: number; title: string; body: string; target: string; op: string } };
@@ -231,9 +235,25 @@ export async function reopenThreadDiff(client: T3Client, native: Native, held: b
   await showDiff(client, native, true);
 }
 
+/** A commit link's Diff (openPullRequestLink, diffPanelStore keepSelectionOnOpen): the tab shows the commit the link just
+ *  selected rather than starting on Changes. */
+export async function openDiffOnSelection(client: T3Client, native: Native): Promise<void> {
+  client.diffState.revealed = '';
+  upsert(panelState(client), singleton('diff'));
+  await showDiff(client, native, true);
+}
+/** rightPanelStore.openSideChat: the side chat's tab on the open thread's panel, active. */
+export function openSideChatIn(client: T3Client, threadId: string): void {
+  client.diffOpen = false;
+  upsert(panelState(client), { id: sideChatSurfaceId(threadId), kind: 'side-chat', path: threadId, line: 0, reveal: 0 });
+}
+/** useSideChat.open from the "+" menu, the launcher or `/side` (the composer's `prompt`): true when it started. */
+export const openNewSideChat = (client: T3Client, native: Native, prompt = ''): Promise<boolean> => startSideChat(client, native, prompt, threadId => openSideChatIn(client, threadId));
+
 /** Opens one surface kind as the reference's onAdd* handlers do; unavailable kinds are ignored. */
 export async function openSurface(client: T3Client, native: Native, value: string): Promise<string> {
   const kind = surfaceKindOf(value), state = panelState(client), can = availability(client);
+  if (value === 'side-chat' || value === 's' || value === 'S') { await openNewSideChat(client, native); return ''; } // Side chat (S)
   if (openThreadPullRequest(client, state, value) !== null) return ''; // Pull request (P)
   if (value === 'browser' || value === 'b' || value === 'B') return addBrowserSurface(client, native, state); // Browser (B), the default profile
   if (!kind || kind === 'file') return '';
@@ -322,6 +342,13 @@ async function surfaceOp(client: T3Client, native: Native, state: PanelState, ta
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
+  if (op === 'side-chat-start') { await openNewSideChat(client, native, value); return ''; } // `/side <prompt>` (the composer's)
+  // openSideChatTab: a Lineage row of one of this thread's side chats opens its tab instead of the thread.
+  if (op === 'side-chat-open') {
+    const thread = client.shell.threads.find(entry => entry.id === id);
+    if (obj(thread?.lineage).sideChat === true && str(obj(thread?.lineage).parentThreadId) === client.threadId) openSideChatIn(client, id);
+    return '';
+  }
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
   if (op === 'file-link') { await openFileLink(client, native, id, value); return ''; }
   if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), '');
@@ -354,6 +381,13 @@ async function surfaceOp(client: T3Client, native: Native, state: PanelState, ta
       .map(surface => ({ surface, entry: captureClosedView(client, targetKey, surface) }));
     await closePanelSurfaces(client, state, op, id);
     for (const entry of closed) if (!state.surfaces.some(surface => surface.id === entry.surface.id)) rememberClosedView(client, entry.entry);
+    // useRightPanelSurfaceClose: a side chat that never ran is deleted with its tab (the server keeps one with a run or
+    // a message); one the live shell no longer has is already gone.
+    for (const { surface } of closed) {
+      if (surface.kind !== 'side-chat' || state.surfaces.some(other => other.id === surface.id) || !can(client, 'orchestration:operate')) continue;
+      if (client.ready && !client.shell.threads.some(thread => thread.id === surface.path)) continue;
+      void deleteSideChatThread(client, native, surface.path, true).catch(() => undefined);
+    }
     if (panelState(client) !== state) return '';
     if (!state.surfaces.some(entry => entry.kind === 'diff')) client.diffOpen = false;
     const next = state.surfaces.find(entry => entry.id === state.active);
@@ -404,9 +438,10 @@ async function surfaceOp(client: T3Client, native: Native, state: PanelState, ta
   }
   throw new ClientError(`Unknown surface action: ${op}`);
 }
-/** `shell:surface-*`: the writes (file saves, pull-request watch/unlink, device hub settings). */
+/** `shell:surface-*`: the writes (file saves, pull-request watch/unlink, device hub settings, the side chat pane's). */
 export async function surfaceCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'reopen') return reopenClosedView(client, native, storage);
+  if (op.startsWith('side-chat-')) return sideChatCommand(client, native, op.slice(10), id, value);
   if (op.startsWith('pr-')) return prsCommand(client, native, storage, op.slice(3), id, value);
   if (op.startsWith('linked-')) return linkedCommand(client, native, storage, op.slice(7), id); // pr-attachment-surfaces.ts
   if (op.startsWith('session-')) {
@@ -425,11 +460,26 @@ export async function surfaceCommand(client: T3Client, native: Native, storage: 
   throw new ClientError(`Unknown surface action: ${op}`);
 }
 
+/** SideChatPane's writes; `id` is the side chat's thread, whose parent is the open thread. */
+async function sideChatCommand(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'bring-back') await bringBackSideChat(client, native, client.threadId, id);
+  else if (op === 'delete') {
+    // On success the parent's panel closes the tab (rightPanelStore.closeSurface), with no delete of its own.
+    if (await deleteSideChat(client, native, id)) closeSurfaceIn(panelState(client), sideChatSurfaceId(id));
+  } else if (op === 'send') await sendToSideChat(client, native, id, value);
+  else if (op === 'answer') { const at = value.indexOf('|'); await answerSideChat(client, native, id, value.slice(0, at), value.slice(at + 1)); }
+  else if (op === 'stop') await stopSideChat(client, native, id);
+  else throw new ClientError(`Unknown side chat action: ${op}`);
+  return '';
+}
+
 function tabOf(client: T3Client, surface: Surface, active: string, pending: ReadonlySet<string>): PanelTab {
   const state = panelState(client), editor = tabRename(state);
   const rename = { closeTarget: `${panelKey(client)}|${surface.id}`, ...terminalSurfaceCloseCopy(client, surface), renaming: editor.id === surface.id, renameValue: editor.id === surface.id ? editor.value : '', menu: tabMenuRows(surface, state.surfaces, entry => browserTabMute(client, entry)), audio: '' };
   const linked = linkedTab(client, surface);
   if (linked) return { id: surface.id, kind: surface.kind, ...linked, ...rename, active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
+  // RightPanelTabs' side chat tab: its thread's title, and a dot (with its state in the title's name) while it works or asks.
+  if (surface.kind === 'side-chat') return { id: surface.id, kind: surface.kind, ...rename, title: sideChatTabTitle(client, surface.path), icon: 'messages-square', tone: sideChatTabState(client.shell.threads.find(thread => thread.id === surface.path)), fileToken: '', active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
   if (surface.kind === 'browser') { const tab = browserTab(client, surface); return { id: surface.id, kind: surface.kind, ...rename, title: tab.title, icon: 'earth', tone: '', fileToken: '', active: surface.id === active, pending: false, favicon: tab.favicon, faviconFallback: tab.faviconFallback, audio: browserTabAudio(client, surface) }; }
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
   const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // The open device's name and mark
@@ -474,6 +524,10 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   if (live && open && active.kind === 'pull-requests') await flushQuickInvalidations(client, live);
   const linked = await linkedViews(client, live, active, open, now);
+  // SideChatPane's useQuietThreadProjection: the shown side chat's stream stays subscribed while its tab shows.
+  const sideChatShown = open && active.kind === 'side-chat' ? active.path : '';
+  await pinThreads(client, native, 'sideChat', sideChatShown);
+  const sideChat = sideChatShown ? sideChatView(client, client.threadId, sideChatShown) : emptySideChat();
   await linkedPrefetch(client, live, state.surfaces, now); // Tab icons from loaded detail
   return {
     terminalClose: store.terminalClose,
@@ -486,6 +540,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
       withPdfViewer(client, 'mini', browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)))), // shouldRenderPreviewMiniPlayer's browser half
     ...annotationDispatchView(client), annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
+    sideChat,
   };
 }
 /** A server tab's PDF in the viewer page (server-pdf-viewer.ts), as the tab or the floating player shows it. */
@@ -510,4 +565,4 @@ export function shownDevice(client: T3Client): DeviceTarget | undefined {
   const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
   return state.visible && active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
 }
-export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), frames: emptyFramesView(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 } });
+export const closedPanel = (): PanelView => ({ key: '', launcher: false, maximized: false, terminalClose: { serial: 0, title: '', body: '', target: '', op: '' }, terminal: emptyTerminalDrawerView(), open: false, kind: '', active: '', count: 0, tabs: [], files: emptyFiles(), prs: emptyPrs(), device: emptyDevice(), deviceSetup: false, pr: emptyPrSurface(), attachment: emptyAttachment(), deviceMini: emptyMini(), tabStrip: NO_TAB_STRIP, browser: emptyBrowserView(), browserMini: emptyBrowserMini(), frames: emptyFramesView(), annotationSend: 0, annotationOwner: '', annotationValue: '', annotationSnapshot: '', annotationGeneration: -1, automationRecording: { serial: 0, slot: 0 }, sideChat: emptySideChat() });

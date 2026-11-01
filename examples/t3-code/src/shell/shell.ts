@@ -30,7 +30,8 @@ import { settleLiveTraces } from '../client/protocol-reader'; // answered reques
 import { permissionUpdateNotices } from './permission-update-notice';
 import { pullRequestPanelTarget } from '../panel/shell-pr';
 import { composerFileView } from '../composer/composer-chip-file';
-import { availability, panelView, surfaceStore } from '../panel/panel-surfaces'; // the tabbed Files / Linked pull requests / Device surfaces
+import { availability, panelView, surfaceStore } from '../panel/panel-surfaces';
+import { sideChatSurfaceRows } from '../panel/side-chat'; // the tabbed Files / Linked pull requests / Device surfaces
 import { syncRightPanels } from '../panel/saved-panel'; // the right panels persist across launches
 import { revealWaiting } from '../panel/files-crumbs-mount'; // a Files reveal still missing a folder retries
 import { gitTicking } from '../details/git-actions'; // a running action's clock
@@ -194,6 +195,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
     row('device', 'Device', 'smartphone', 'M', can.device, 'Available from a thread.'),
+    ...sideChatSurfaceRows(client), // Side chat (S), where side chats are offered (side-chat.ts)
   ];
 }
 
