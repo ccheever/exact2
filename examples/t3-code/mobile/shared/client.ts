@@ -108,6 +108,8 @@ export class T3Client {
   // Mobile history ownership begin: no native handle, promise or transcript graph.
   historyEpoch = 0;
   historyRevision = 0;
+  /** Mobile's production singleton opts accepted automatic pages into indexed storage. */
+  historyStorageEnabled = false;
   private historyRequest: { identity: string; visit: string; visitCurrent: () => boolean; throughEntryId: string } | null = null;
   get historyTargetedLoading(): boolean { return this.historyLoading && !!this.historyRequest?.throughEntryId; }
   private historyIdentity(): string {

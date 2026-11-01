@@ -20,6 +20,14 @@ window is enabled. Stable group summaries, live-tail reconciliation, Copy and
 selection ownership, disk policy, large-item handling, and actual native memory
 acceptance remain separate units.
 
+The automatic mobile paging owner now publishes each accepted page to this
+store asynchronously after the display merge. The same route, owner, cursor
+and history-revision guard must still be current before the ticket and commit;
+storage failure is isolated from the visible page and its Stop or Retry control.
+Targeted citation reads and non-mobile clients remain outside this producer
+boundary. The projection is still authoritative until a later reader-window
+unit proves rehydration and eviction.
+
 The focused TypeScript adapter tests, standalone SQLite cache tests, and cache
 transport tests cover reopen, bidirectional reads, atomic metadata, stale tickets,
 clear, malformed input, and transfer framing. No TestFlight, performance, or

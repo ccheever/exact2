@@ -30,6 +30,7 @@ import { EnvironmentFleet, fleet, trimOrigin } from './shared/settings-b-fleet';
 import type { T3Client } from './shared/client';
 
 export const mobileClient = new MobileDraftClient();
+mobileClient.historyStorageEnabled = true;
 
 /** Mobile QR links wrap a normal hosted/direct pairing URL. The normal parser still validates it. */
 export function mobilePairingUrl(input: string): string {

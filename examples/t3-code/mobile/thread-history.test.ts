@@ -223,6 +223,26 @@ describe('automatic earlier activity', () => {
     expect(commands).toEqual(['older-8', 'older-7', 'older-6', 'older-5', 'older-4', 'older-3', 'older-2', 'older-1', 'older-0', 'current']);
   });
 
+  test('accepted automatic pages publish a bounded range to the opted-in mobile store', async () => {
+    const f = fixture(); f.client.historyStorageEnabled = true;
+    const cache: Obj[] = []; let persisted!: () => void;
+    const done = new Promise<void>(resolve => { persisted = resolve; });
+    const native: Native = { ...f.native, later(input) {
+      const request = obj(input);
+      if (request.op === 'mobileClientCache') {
+        cache.push(request);
+        if (request.action === 'historyTicket') return Promise.resolve({ ok: true, generation: 1, value: { token: 'history-token' } });
+        persisted(); return Promise.resolve({ ok: true, generation: 1, value: { committed: true, stale: false } });
+      }
+      return f.native.later(input);
+    } };
+    const key = view(f).historyRequest, pending = chatLocal(f.client, native, 'history-auto', key, '');
+    f.page(0, 'Stored content'); await pending; await done;
+    expect(cache.map(request => request.action)).toEqual(['historyTicket', 'historyCommit']);
+    expect(cache[1]).toMatchObject({ environmentId: 'env', threadId: 'thread', revision: 1, beforeCursor: null, hasMore: false });
+    expect((cache[1]!.items as Obj[])[0]!.payload).toContain('Stored content');
+  });
+
   test('departure suppresses old errors and returning to the same visit gives a fresh observation key', async () => {
     const f = fixture(), first = view(f).historyRequest;
     const pending = load(f, first).catch(error => error);
