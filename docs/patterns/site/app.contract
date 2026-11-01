@@ -46,8 +46,6 @@ fn arrow(on: bool, descending: bool): string = on ? (descending ? " ↓" : " ↑
 component App
   state sortKey = "au"
   state descending = false
-  // The `id` the focus is on in a planet's page, which a test reads: opened at `#details`, the web puts it there.
-  state focused = ""
   resource planets = loadPlanets() as shape Planet[] else empty()
   derive selected = match stack(nav).filter(e => e.name == "planet").at(-1) { case some(e) => e.params.id, case none => "" }
   // The API is asked only for a planet the list has.
@@ -76,8 +74,6 @@ component App
     nav = go(nav, url)
   action retry
     refresh details
-  action focusMoved(e: FocusEvent)
-    focused = e.target
 
   view
     view navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
@@ -124,7 +120,7 @@ component App
               SiteFooter()
         if e.name == "planet"
           column navigationKey=`${e.id}` navigationScroll="planet-page" position="absolute" inset=0
-            display="flex" flex-direction="column" focusin=focusMoved
+            display="flex" flex-direction="column"
             SiteHeader(current=e.name)
             scroll document id="planet-page" flex=1 min-height=0
               main display="flex" flex-direction="column" gap=16 padding=16 max-width="48rem" margin-left="auto"

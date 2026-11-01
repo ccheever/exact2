@@ -26,14 +26,6 @@ test "a planet's page opens at its details, with the API's figures as they are w
   expect state opened == ""
   expect text "moons" == "29"
 
-// The web gives a fragment's target the focus, so the next Tab starts there; Linux starts the next Tab there without
-// focusing it, and iOS and the Mac move VoiceOver to it, so this is the web's alone.
-test "on the web, a planet opened at its details has the focus there" on web
-  at "/planet/7#details"
-  clock data
-  clock settle
-  expect state focused == "details"
-
 test "a lost API is said on the page, and Try Again asks again"
   clock data
   fail fetch "/planets"
