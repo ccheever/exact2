@@ -366,6 +366,12 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
              `border-bottom` on each cell draws a rule between rows"
                 .into()
         }
+        // No `::marker` (CSS Lists 3 §3): every list is `list-style: none`.
+        None if a.name.starts_with("list-style") => {
+            "; a list here draws no marker, as `list-style=\"none\"` has it, so a reset needs \
+             nothing; a bullet is a `text \"•\"` before the item's text in a row"
+                .into()
+        }
         // LLP 1048.007 D5: the build chooses.
         None if tag == "image" && a.name == "loading" => {
             "; Exact chooses: an image a `for` repeats loads as its row comes into view, and a lone \
