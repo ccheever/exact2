@@ -16,6 +16,7 @@ use PrTerm from "./pr-term.contract"
 shape PrHandoffsView
   pending: string
   canCheckout: bool
+  canPrepareWorktree: bool // Resolve conflicts with no thread to attach to needs it (source-control:write and orchestration:operate)
   threadOwn: bool
   term: PrTerm
 

@@ -9,7 +9,7 @@ import { environmentClient } from '../settings/projects-fleet';
 import { prEnvironments, pullRequestServer } from './pages-pr-environments';
 import { emptyGuideView, generateGuide, guideEntry, guideNavigate, guideReader, presentGuide, readGuide } from './pages-pr-guide';
 import { guideDiffLocal, presentGuideDiff, type GuideDiffCard } from './pages-pr-guide-diff';
-import { checkoutCommand, sourceControlHostName } from '../shared/source-control-hosts';
+import { checkoutCommand, sourceControlHardLineBreaks, sourceControlHostName } from '../shared/source-control-hosts';
 import { sharedPullRequestSummary } from './pages-pr-shared';
 // The pull request detail panel: pullRequests.detail and
 // .activity read for the selected row, presented as PullRequestDetailPanel's
@@ -367,7 +367,10 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const guideReference = { ...reference, environmentId: selection.environmentId };
   const guide = presentGuide(client, guideReference, display), guideDiff = presentGuideDiff({ client, reference: guideReference, detail: display, now }, guideEntry(client, guideReference));
   view.guide = guide.view; view.guideDiff = { cards: guideDiff.cards, code: guideDiff.view, canComment: guideDiff.canComment };
-  view.bodies = [...view.bodies, ...previewBodies(client, reference), ...code.bodies, ...guide.bodies, ...guideDiff.bodies];
+  // PullRequestMarkdownContext `lineBreaks`: the host's text (the description, comments, a draft's preview) breaks lines
+  // where the host does; the review guide's prose never does (GuideProse).
+  const hostText = (bodies: typeof view.bodies) => sourceControlHardLineBreaks(str(display.provider)) ? bodies.map(body => ({ ...body, kind: 'breaks' })) : bodies;
+  view.bodies = [...hostText([...view.bodies, ...previewBodies(client, reference), ...code.bodies]), ...guide.bodies, ...guideDiff.bodies];
   view.copiedCheckout = copyNonce(client, view.checkoutCommand); view.copiedBranch = copyNonce(client, view.headBranch);
   view.actions = presentActions(client, { ...panelContext(client, panel!, view.ref, listEntry), checksState: view.summary.checksState || null, checksStale: view.summary.checksStale,
     refreshing: !!panel!.detail && panel!.detailDue, threadLinks: client.shell.threads.flatMap(thread => arr(thread.pullRequests)), tab: input?.tab ?? '' });

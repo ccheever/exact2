@@ -21,6 +21,8 @@ export const sourceControlHosts = [
 export const sourceControlHost = (kind: string) => sourceControlHosts.find(host => host.kind === kind);
 export const sourceControlHostName = (kind: string) => sourceControlHost(kind)?.label ?? kind;
 export const sourceControlHostActions = (kind: string) => sourceControlHost(kind)?.actions ?? [];
+/** definition.ts `hardLineBreaks` (2359643cff): the hosts whose own rendering keeps a single newline as a line break. */
+export const sourceControlHardLineBreaks = (kind: string) => ['github', 'forgejo', 'azure-devops'].includes(kind);
 /** A host's change request terms, "change request" for a host no definition claims. */
 export const changeRequestTerms = (kind: string): ChangeRequestTerms => sourceControlHost(kind)?.changeRequest ?? CHANGE_REQUEST_TERMS;
 

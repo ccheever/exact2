@@ -1,4 +1,4 @@
-// The pull request Code tab's pure logic, ported from T3 Code 6d450a4284
+// The pull request Code tab's pure logic, ported from T3 Code 2359643cff
 // (MIT, see LICENSE-T3): apps/web/src/components/pullRequest/{pullRequestDiff.logic,
 // pullRequestFilesViewed.logic,pullRequestFileOrder.logic}.ts, pullRequestDetail.logic.ts (the
 // thread comment pages), apps/web/src/reviewCommentContext.ts resolveDiffReviewPosition and resolveDiffReviewAnchor,
@@ -30,15 +30,15 @@ function prFile(file: DiffFileModel): PrDiffFile {
 
 /** getRenderablePatch: the slice's files, or the raw text when nothing in it parses as files. */
 export type RenderablePatch = { kind: 'files'; files: PrDiffFile[]; sourceFiles: PrDiffFile[] } | { kind: 'raw'; text: string; reason: string } | null;
+// The patch is parsed as sent: trimming it would drop the last line's trailing whitespace and a trailing blank line.
 export function renderablePatch(patch: string, ignoreWhitespace: boolean): RenderablePatch {
-  const normalized = patch.trim();
-  if (normalized.length === 0) return null;
+  if (!patch.trim()) return null;
   try {
-    const sourceFiles = parsePatch(normalized).map(prFile);
+    const sourceFiles = parsePatch(patch).map(prFile);
     const files = sourceFiles.map(file => (ignoreWhitespace ? hideWhitespaceChanges(file) : file));
-    return files.length > 0 ? { kind: 'files', files, sourceFiles } : { kind: 'raw', text: normalized, reason: 'Unsupported diff format. Showing raw patch.' };
+    return files.length > 0 ? { kind: 'files', files, sourceFiles } : { kind: 'raw', text: patch, reason: 'Unsupported diff format. Showing raw patch.' };
   } catch {
-    return { kind: 'raw', text: normalized, reason: 'Failed to parse patch. Showing raw patch.' };
+    return { kind: 'raw', text: patch, reason: 'Failed to parse patch. Showing raw patch.' };
   }
 }
 

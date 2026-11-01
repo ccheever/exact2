@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): PullRequestGuideTab and guide/{GuideTour,GuideRail,GuideStop,GuideNotes}.
+// T3 Code 2359643cff (MIT, LICENSE-T3): PullRequestGuideTab and guide/{GuideTour,GuideRail,GuideStop,GuideNotes}.
 use ShellIcon from "../shell/shell-icons.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use ChatMarkdown, ChatDocument, CodeHighlight, MarkdownEnv from "../timeline/markdown.contract"
@@ -55,6 +55,7 @@ fn pgtInk(): string = "light-dark(#18181b, #f5f5f5)"
 fn pgtMuted(): string = "light-dark(#71717b, #a1a1a1)"
 fn pgtBorder(): string = "light-dark(#e4e4e799, #ffffff12)"
 fn pgtWarning(): string = "light-dark(#a65f00, #ffb900)"
+fn pgtFailureHint(): string = "Check the review guide model in Settings → Source control."
 
 keyframes guideTourSpin
   from rotate=0
@@ -95,10 +96,12 @@ component GuideTour
           if guide.phase == "loading"
             GuideTourSpinner(still=still)
           else
-            text (guide.running ? "Writing a review guide" : "No review guide yet") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk() role="heading" aria-level=2
-            text (guide.failure != "" ? guide.failure : guide.error != "" ? guide.error : guide.running ? "An agent is reading the change. A large one takes a few minutes. You can leave; you will be told when it is ready." : "A guide is a tour of the change: stops through the code in reading order, with the calls only a maintainer can make.") max-width="28rem" font-size="0.75rem" line-height="1rem" color=pgtMuted() text-align="center" role=(guide.failure != "" or guide.error != "" ? "alert" : "status")
+            text (guide.running ? "Writing a review guide" : guide.failure == "" ? "No review guide yet" : "Could not write a review guide") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk() role="heading" aria-level=2
+            text (guide.running ? "An agent is reading the change. A large one takes a few minutes. You can leave; you will be told when it is ready." : guide.failure != "" ? pgtFailureHint() : guide.error != "" ? guide.error : "A guide is a tour of the change: stops through the code in reading order, with the calls only a maintainer can make.") max-width="28rem" font-size="0.75rem" line-height="1rem" color=pgtMuted() text-align="center" role=(guide.failure != "" or guide.error != "" ? "alert" : "status")
             if guide.canWrite
               GuideTourWrite(label=(guide.failure != "" ? "Try again" : "Write guide"), running=guide.running, still=still, write=write, testId="pull-request-guide-write")
+            if guide.failure != "" and not guide.running
+              GuideFailureDetails(detail=guide.failure, testId="pull-request-guide-failure-details")
       else
         row id="guide-tour-top" width="100%" max-width="100rem" margin-left="auto" margin-right="auto" padding=(sideNotes ? "1.5rem" : "1rem") box-sizing="border-box" align-items="flex-start" gap=(sideNotes ? "2rem" : "1.5rem")
           if wide
@@ -111,7 +114,10 @@ component GuideTour
                   GuideTourSpinner(still=still)
                 else
                   ShellIcon(name="triangle-alert", size=16, color=pgtWarning())
-                text (guide.running ? "Rewriting this guide. You will be told when the new one is ready." : guide.failure != "" ? guide.failure : "Written before the latest push.") flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=pgtMuted()
+                column flex=1 min-width=0 gap="0.5rem"
+                  text (guide.running ? "Rewriting this guide. You will be told when the new one is ready." : guide.failure != "" ? `Could not rewrite this guide. ${pgtFailureHint()}` : "Written before the latest push.") font-size="0.75rem" line-height="1rem" color=pgtMuted()
+                  if guide.failure != "" and not guide.running
+                    GuideFailureDetails(detail=guide.failure, testId="pull-request-guide-rewrite-details")
                 if not guide.running and guide.canWrite
                   GuideTourWrite(label="Rewrite", running=false, still=still, write=write, testId="pull-request-guide-rewrite")
             if guide.error != ""
@@ -266,6 +272,27 @@ component GuideTourWrite
         ShellIcon(name="sparkles", size=14, color=pgtMuted())
       text (running ? "Reading the change..." : label) font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pgtInk() white-space="nowrap"
 
+// PullRequestGuideTab FailureDetails: the run's error behind a "Technical details" disclosure (a <details>), its text
+// selectable in a bordered mono block that scrolls past 10rem.
+component GuideFailureDetails
+  props
+    detail: string
+    testId: string
+  state open = false
+  state over = false
+  action toggle
+    open = not open
+  action hover(value: bool)
+    over = value
+  view
+    column width="100%" max-width="32rem" font-size="0.75rem" line-height="1rem" testId=testId
+      button press=toggle hover=hover aria-expanded=open title="" testId=`${testId}-toggle` align-self="center" gap="0.25rem" padding=0 border-width=0 border-radius="0.125rem" background-color="#00000000" cursor="pointer" display="flex" flex-direction="row" align-items="center"
+        text (open ? "▾" : "▸") font-size="0.75rem" line-height="1rem" color=(over ? pgtInk() : pgtMuted()) aria-hidden=true
+        text "Technical details" font-size="0.75rem" line-height="1rem" color=(over ? pgtInk() : pgtMuted())
+      if open
+        scroll width="100%" max-height="10rem" margin-top="0.5rem" padding="0.75rem" box-sizing="border-box" border-width=1 border-style="solid" border-color=pgtBorder() border-radius="0.5rem" background-color="light-dark(#f4f4f566, #26262666)" testId=`${testId}-text`
+          text detail width="100%" white-space="pre-wrap" overflow-wrap="break-word" text-align="left" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=pgtMuted() user-select="text"
+
 component GuideTourButton
   props
     label: string
@@ -276,16 +303,19 @@ component GuideTourButton
     press: action
     testId: string
   state over = false
+  // "Next: <title>" is Button size="multiline": a long title wraps over several lines (min-h-8, py and px 1px under 1.5
+  // and 3 spacing units) instead of truncating.
+  derive multiline = label != "" and icon == "arrow-right"
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled aria-label=(label == "" ? ariaLabel : label) title="" testId=testId width=(label == "" ? "1.5rem" : "auto") max-width="100%" min-width=0 height=(label == "" ? "1.5rem" : "1.75rem") padding-left=(label == "" ? "0px" : "0.625rem") padding-right=(label == "" ? "0px" : "0.625rem") box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(primary ? (over ? "light-dark(#3f3f46, #e4e4e7)" : "light-dark(#18181b, #f5f5f5)") : over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.5 : 1) display="flex" align-items="center" justify-content="center" gap="0.375rem"
+    button press=press hover=hover disabled=disabled aria-label=(label == "" ? ariaLabel : label) title="" testId=testId width=(label == "" ? "1.5rem" : "auto") max-width="100%" min-width=0 height=(label == "" ? "1.5rem" : multiline ? "auto" : "1.75rem") min-height=(multiline ? "2rem" : "0px") padding-top=(multiline ? "5px" : "0px") padding-bottom=(multiline ? "5px" : "0px") padding-left=(label == "" ? "0px" : multiline ? "11px" : "0.625rem") padding-right=(label == "" ? "0px" : multiline ? "11px" : "0.625rem") box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(primary ? (over ? "light-dark(#3f3f46, #e4e4e7)" : "light-dark(#18181b, #f5f5f5)") : over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.5 : 1) display="flex" align-items="center" justify-content="center" gap="0.375rem"
       if label != "" and icon != "arrow-right"
         if icon == "message-square"
           PgIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))
         else
           ShellIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))
       if label != ""
-        text label min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(primary ? "light-dark(#fafafa, #27272a)" : pgtInk()) white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text label min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(primary ? "light-dark(#fafafa, #27272a)" : pgtInk()) white-space=(multiline ? "normal" : "nowrap") overflow-wrap=(multiline ? "break-word" : "normal") overflow="hidden" text-overflow=(multiline ? "clip" : "ellipsis")
       if label == "" or icon == "arrow-right"
         ShellIcon(name=icon, size=14, color=(primary ? "light-dark(#fafafa, #27272a)" : pgtMuted()))

@@ -63,7 +63,8 @@ export function quickAction(status: Obj | null, busy: boolean, isDefaultRef = fa
   const defaultDelta = num(status.aheadOfDefaultCount ?? status.aheadCount) > 0;
   if (status.refName == null) return hint('Commit', `Create and checkout a ref before pushing or opening a ${term.singular}.`);
   if (status.hasWorkingTreeChanges === true) {
-    if (!upstream && !hasPrimaryRemote) return run('Commit', 'commit');
+    // Behind upstream, a push would be refused: the commit stays local until the branch is pulled.
+    if (behind || (!upstream && !hasPrimaryRemote)) return run('Commit', 'commit');
     if (hasOpenPr || isDefaultRef) return run('Commit & push', 'commit_push');
     return run(`Commit, push & ${term.shortLabel}`, 'commit_push_pr');
   }

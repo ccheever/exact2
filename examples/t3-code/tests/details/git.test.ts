@@ -24,6 +24,10 @@ describe('quick action (resolveQuickAction)', () => {
     expect(quickAction(status({ hasWorkingTreeChanges: true, hasUpstream: false }), false, false, false)).toMatchObject({ label: 'Commit', action: 'commit' });
     expect(quickAction(status({ hasUpstream: false }), false, false, false)).toMatchObject({ label: 'Publish repository', kind: 'open_publish' });
     expect(quickAction(status({ behindCount: 2 }), false)).toMatchObject({ label: 'Pull', kind: 'run_pull' });
+    // GitActionsControl.logic.test.ts "local changes are behind upstream": Commit alone, with or without an open PR.
+    const commit = { label: 'Commit', disabled: false, kind: 'run_action', action: 'commit' };
+    expect(quickAction(status({ hasWorkingTreeChanges: true, behindCount: 2 }), false)).toEqual(commit);
+    expect(quickAction(status({ hasWorkingTreeChanges: true, behindCount: 2, pr: { number: 13, state: 'open' } }), false)).toEqual(commit);
     expect(quickAction(status({ aheadCount: 1, behindCount: 1 }), false)).toMatchObject({ label: 'Sync ref', disabled: true, hint: 'Branch has diverged from upstream. Rebase/merge first.' });
     expect(quickAction(status(), false)).toMatchObject({ label: 'Commit', disabled: true, hint: 'Branch is up to date. No action needed.' });
     expect(quickAction(status(), true)).toMatchObject({ hint: 'Git action in progress.' });
