@@ -464,7 +464,9 @@ and this RFC says so rather than imitating the wider one.
    re-translated; the author's own tokens stay outside the markers. The subset it
    translates: each `--name: value` on `:root` becomes a token; a redeclaration under
    `@media (prefers-color-scheme: dark)` makes the pair a `light-dark()`, which is what
-   that query means; `--a: var(--b)` becomes a reference to the token `b`. What it does
+   that query means, and a colour without one is written `scheme=fixed`, one colour in
+   both schemes as CSS draws it (not asked for a dark side at every build,
+   `lower-colour-one-scheme`); `--a: var(--b)` becomes a reference to the token `b`. What it does
    not translate it refuses by name, and writes nothing for: a `.dark` or
    `[data-theme="dark"]` scope (an author-controlled switch, which is a Tamber axis the
    author declares), a value composed around a `var()` (`hsl(var(--h) var(--s) var(--l))`),
