@@ -153,6 +153,13 @@ component Home
   derive trailingReservation = homeTrailingReservation(contentGeometry)
   state stateOwner = ""
   state openToken = ""
+  state menuKey = ""
+  state menuEnvironmentId = ""
+  state menuThreadId = ""
+  state swipeMenuKey = ""
+  state swipeMenuEnvironmentId = ""
+  state swipeMenuThreadId = ""
+  state swipeMenuToken = ""
   state dragToken = ""
   state dragOffset = 0
   state dragBase = 0
@@ -163,6 +170,10 @@ component Home
   state scrollGated = false
   state tickOwner = ""
   state tickDeadline = 0
+  derive contextMenuId = `home-menu-${listId}`
+  derive swipeMenuId = `home-snooze-${listId}`
+  derive selectedMenuItems = items.filter(item => item.key == menuKey).flatMap(item => item.menuItems)
+  derive selectedSwipeItems = items.filter(item => item.key == swipeMenuKey).flatMap(item => item.swipe.snoozeItems)
   action chooseThread(id: string)
     openToken = ""
     dragToken = ""
@@ -173,6 +184,19 @@ component Home
     dragToken = ""
     dragOffset = 0
     menuAction(environmentId, threadId, kind, value)
+  action selectMenu(key: string, environmentId: string, threadId: string)
+    if listId != "sidebar-list"
+      menuKey = key
+      menuEnvironmentId = environmentId
+      menuThreadId = threadId
+      swipeMenuKey = ""
+  action selectSwipeMenu(key: string, token: string, environmentId: string, threadId: string)
+    if listId != "sidebar-list"
+      swipeMenuKey = key
+      swipeMenuToken = token
+      swipeMenuEnvironmentId = environmentId
+      swipeMenuThreadId = threadId
+      menuKey = ""
   action chooseSwipe(token: string, environmentId: string, threadId: string, kind: string, value: string)
     if active and stateOwner == swipeOwner and openToken == token and items.filter(item => item.swipe.token == token and item.environmentId == environmentId and item.threadId == threadId and item.swipe.snoozable).length == 1
       openToken = ""
@@ -327,12 +351,12 @@ component Home
         estimated-item-height=88
         testId="home-thread-list"
         for item in items key=item.key
-          HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
-      for item in items key=item.key
-        if item.menuItems.length > 0
-          HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
-        if item.swipe.snoozeItems.length > 0
-          HomeSwipeMenu(token=item.swipe.token, menuId=`home-snooze-${listId}-${item.key}`, items=item.swipe.snoozeItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseSwipe, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+          if listId == "sidebar-list"
+            HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, selectSwipeMenu=selectSwipeMenu, toggleShelf=toggleShelf, showMore=showMore, sharedSwipeMenuId=swipeMenuId, colors=colors)
+          else
+            HomeContextListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, selectMenu=selectMenu, selectSwipeMenu=selectSwipeMenu, toggleShelf=toggleShelf, showMore=showMore, sharedMenuId=contextMenuId, sharedSwipeMenuId=swipeMenuId, colors=colors)
+      HomeMenu(menuId=contextMenuId, items=selectedMenuItems, environmentId=menuEnvironmentId, threadId=menuThreadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
+      HomeSwipeMenu(token=swipeMenuToken, menuId=swipeMenuId, items=selectedSwipeItems, environmentId=swipeMenuEnvironmentId, threadId=swipeMenuThreadId, action=chooseSwipe, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
 
 component HomeListItem
   props
@@ -347,8 +371,10 @@ component HomeListItem
     bottomClearance: number
     selectThread: action
     menuAction: action
+    selectSwipeMenu: action
     toggleShelf: action
     showMore: action
+    sharedSwipeMenuId: string
     colors: HomeColors
   state exitIdentity = ""
   state exitToken = ""
@@ -464,7 +490,6 @@ component HomeListItem
           data-mobile-home-danger=colors.dangerForeground
           data-mobile-home-background=colors.card
           data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
-          contextPopover=(surface != "sidebar-list" and item.menuItems.length > 0 ? menuId : "")
           padding=0
           border-radius=(surface == "sidebar-list" ? 12 : 0)
           background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
@@ -496,7 +521,7 @@ component HomeListItem
       else
         box position="relative" min-width=0 overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
           if item.swipe.primary != ""
-            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground, actionOpacity=(exiting ? (exitPhase == "out" ? 1 - exitEase : 0) : 1))
+            HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, popoverMenuId=sharedSwipeMenuId, environmentId=item.environmentId, threadId=item.threadId, select=selectSwipeMenu, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground, actionOpacity=(exiting ? (exitPhase == "out" ? 1 - exitEase : 0) : 1))
           column translate=`${exitOffset}px 0px` transition=swipeTransition min-width=0 background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
             button appearance="none" press=selectThread(item.id)
               hatch="mobile-home-row"
@@ -511,7 +536,6 @@ component HomeListItem
               data-mobile-home-danger=colors.dangerForeground
               data-mobile-home-background=colors.card
               data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
-              contextPopover=(surface != "sidebar-list" and item.menuItems.length > 0 ? menuId : "")
               padding=0
               text-align="left"
               aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
@@ -569,6 +593,30 @@ component HomeListItem
                   text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
         if item.card and item.trailingDivider and not item.last and not sidebar
           view height=1 min-width=0 box-sizing="border-box" margin-left=17.5 margin-right=17.5 background-color=colors.borderSubtle testId=`home-thread-divider-${item.key}`
+
+component HomeContextListItem
+  props
+    surface: string
+    owner: string
+    active: bool
+    openToken: string
+    dragToken: string
+    dragOffset: number
+    reducedMotion: bool
+    item: HomeItem
+    bottomClearance: number
+    selectThread: action
+    menuAction: action
+    selectMenu: action
+    selectSwipeMenu: action
+    toggleShelf: action
+    showMore: action
+    sharedMenuId: string
+    sharedSwipeMenuId: string
+    colors: HomeColors
+  view
+    column contextmenu=selectMenu(item.key, item.environmentId, item.threadId) contextPopover=(item.menuItems.length > 0 ? sharedMenuId : "")
+      HomeListItem(surface=surface, owner=owner, active=active, openToken=openToken, dragToken=dragToken, dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=selectThread, menuAction=menuAction, selectSwipeMenu=selectSwipeMenu, toggleShelf=toggleShelf, showMore=showMore, sharedSwipeMenuId=sharedSwipeMenuId, colors=colors)
 
 
 component HomeProjectIcon

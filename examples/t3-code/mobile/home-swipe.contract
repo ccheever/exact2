@@ -13,6 +13,10 @@ component HomeSwipeControls
     owner: string
     token: string
     menuId: string
+    popoverMenuId: string
+    environmentId: string
+    threadId: string
+    select: action
     context: string
     enabled: bool
     open: bool
@@ -46,7 +50,7 @@ component HomeSwipeControls
           t3-symbol symbol-name=primarySymbol symbol-weight="regular" symbol-tint=primaryForeground width=(card ? 15 : 13) height=(card ? 15 : 13)
         text primaryLabel font-size=11 line-height="14px" font-weight=500 color=muted padding-top=(card ? 2 : 0)
       if secondary
-        button appearance="none" popovertarget=(surface == "sidebar-list" ? "" : menuId) width=58 padding=0 disabled=(not enabled or not open)
+        button appearance="none" press=select(environmentId, threadId, token) popovertarget=(surface == "sidebar-list" ? "" : popoverMenuId) width=58 padding=0 disabled=(not enabled or not open)
           display="flex" flex-direction="column" align-items="center" justify-content="center"
           aria-label=secondaryAccessibilityLabel
           opacity=secondaryProgress translate=`${22 * (1 - secondaryProgress)}px 0px` scale=(0.78 + secondaryProgress * 0.22)

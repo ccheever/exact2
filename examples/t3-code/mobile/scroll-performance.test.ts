@@ -45,3 +45,20 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('if item.trailingDivider and not item.last and surface != "sidebar-list"');
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
 });
+
+test('Home keeps menus outside the virtualized feed at one bounded resident pair', () => {
+  const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract');
+  const menuHost = home.slice(home.indexOf('        virtualized=true'), home.indexOf('\ncomponent HomeListItem'));
+  expect((menuHost.match(/HomeMenu\(/g) ?? []).length).toBe(1);
+  expect((menuHost.match(/HomeSwipeMenu\(/g) ?? []).length).toBe(1);
+  expect(menuHost).toContain('HomeMenu(menuId=contextMenuId, items=selectedMenuItems');
+  expect(menuHost).toContain('HomeSwipeMenu(token=swipeMenuToken, menuId=swipeMenuId, items=selectedSwipeItems');
+  expect(home).toContain('derive contextMenuId = `home-menu-${listId}`');
+  expect(home).toContain('derive swipeMenuId = `home-snooze-${listId}`');
+  expect(home).toContain('column contextmenu=selectMenu(item.key, item.environmentId, item.threadId) contextPopover=(item.menuItems.length > 0 ? sharedMenuId : "")');
+  const rowBody = home.slice(home.indexOf('component HomeListItem'), home.indexOf('\ncomponent HomeContextListItem'));
+  expect(rowBody).not.toContain('contextmenu=');
+  expect(home).toContain('data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")');
+  expect(home).toContain('popoverMenuId=sharedSwipeMenuId');
+  expect(thread).toContain('virtualized=true estimated-item-height=180');
+});

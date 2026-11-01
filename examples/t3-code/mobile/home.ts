@@ -144,6 +144,11 @@ export function mobileHomeEmpty(catalog: HomeCatalogState, projectCount: number)
 export function projectMobileHome(sources: HomeSource[], now: number, options: HomeOptions = {}) {
   const projects = mobileHomeProjects(sources, options), selectedProject = projects.find(project => project.key === options.projectKey || project.projectKeys.includes(options.projectKey ?? ''));
   const titles = new Map(projects.flatMap(project => project.projectKeys.map(key => [key, project.title] as const)));
+  // Home rows resolve their project and source repeatedly while the projection is rebuilt.
+  // Keep those reads constant-time so a shell refresh does not scan every project for every row.
+  const sourceByEnvironment = new Map(sources.map(source => [source.environmentId, source] as const));
+  const projectsByEnvironment = new Map(sources.map(source => [source.environmentId,
+    new Map(source.shell.projects.map(project => [project.id, project] as const))] as const));
   const parts: Record<SidebarSection, Obj[]> = { pinned: [], active: [], working: [], snoozed: [], settled: [] };
   const ownership = new Map<Obj, HomeSource>(), query = options.query?.trim().toLocaleLowerCase() ?? '';
   let nextSnoozeWakeAt: number | null = null;
@@ -172,7 +177,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   parts.working = sortWorkingThreadsBySend(parts.working); parts.snoozed = sortSnoozed(parts.snoozed); parts.settled = sortSettled(parts.settled);
   const items: HomeItem[] = [], isSelected = (thread: Obj) => scoped(str(thread.environmentId), thread.id) === options.selectedThreadKey;
   const append = (thread: Obj, section: SidebarSection) => {
-    const source = ownership.get(thread)!, key = scoped(source.environmentId, thread.id), project = source.shell.projects.find(project => project.id === thread.projectId);
+    const source = ownership.get(thread)!, key = scoped(source.environmentId, thread.id), project = projectsByEnvironment.get(source.environmentId)?.get(thread.projectId);
     const status = sidebarStatus(thread), card = !['settled', 'snoozed'].includes(section);
     const unread = status === 'ready' && unseenCompletion(thread, lastVisited(thread, undefined));
     const statusLabel = ({ approval: 'Approval', input: 'Input', working: obj(thread.goal).status === 'active' ? 'Goal' : 'Working', failed: 'Failed', limited: 'Limited' } as Record<string, string>)[status] ?? (unread ? 'Done' : '');
@@ -213,7 +218,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   const pendingTitle = (task: MobilePendingTask) => editorTitles.get(task.owner) ?? homeDraftTitle(task.record.text, task.record.attachments.length);
   const pendingRows = projectHomePending([...pendingTasks.values()], { environmentId: options.environmentId, projectRefs })
     .filter(task => (!query || pendingTitle(task).toLocaleLowerCase().includes(query)) && (editorTitles.has(task.owner)
-      || !sources.find(source => source.environmentId === task.record.environmentId)?.shell.threads.some(thread => thread.id === task.record.threadId)));
+      || !sourceByEnvironment.get(task.record.environmentId)?.shell.threads.some(thread => thread.id === task.record.threadId)));
   // Only hide a duplicate if its actual replacement survived this view's filters.
   // Unknown/orphan content without validated marker ownership remains visible.
   const replacedDrafts = new Set(pendingRows.flatMap(task => editorDrafts.has(task.owner) ? [editorDrafts.get(task.owner)!] : []));
@@ -221,7 +226,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
     projectRefs,
     projects: draftProjects, environments: options.draftEnvironments });
   for (const draft of draftRows) {
-    const project = sources.find(source => source.environmentId === draft.environmentId)?.shell.projects.find(project => project.id === draft.projectId);
+    const project = projectsByEnvironment.get(draft.environmentId)?.get(draft.projectId);
     const icon = obj(project?.projectIcon), iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
     const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
     const iconColor = ICON_COLORS.find(color => color.value === icon.color)?.swatch ?? '';
@@ -233,8 +238,8 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
   }
   for (const pending of pendingRows) {
     const record = pending.record, creation = record.creation!;
-    const source = sources.find(source => source.environmentId === record.environmentId);
-    const project = source?.shell.projects.find(project => project.id === creation.projectId);
+    const source = sourceByEnvironment.get(record.environmentId);
+    const project = projectsByEnvironment.get(record.environmentId)?.get(creation.projectId);
     const environment = options.draftEnvironments?.find(environment => environment.environmentId === record.environmentId);
     const icon = obj(project?.projectIcon), iconKind = icon.kind === 'lucide' ? 'monogram' : str(icon.kind);
     const iconText = icon.kind === 'lucide' ? projectIdentity(str(project?.title).normalize('NFKC')).monogram : str(icon.emoji ?? icon.text);
@@ -284,7 +289,7 @@ export function projectMobileHome(sources: HomeSource[], now: number, options: H
       && ((item.kind === 'thread' && next.kind === 'thread')
         || (['draft', 'pending'].includes(item.kind) && ['draft', 'pending'].includes(next.kind) && !next.showPendingDivider));
   });
-  const selectedEnvironment = sources.find(source => source.environmentId === options.environmentId);
+  const selectedEnvironment = sourceByEnvironment.get(options.environmentId);
   const empty = query ? { title: 'No results', detail: `No threads matching "${options.query?.trim()}".` }
     : selectedProject ? { title: `No threads in ${selectedProject.title}`, detail: 'Choose another project or create a new task.' }
     : options.environmentId ? { title: `No threads in ${selectedEnvironment?.label || 'this environment'}`, detail: 'Choose another environment or create a new task.' }
