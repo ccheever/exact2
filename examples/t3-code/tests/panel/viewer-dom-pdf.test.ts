@@ -43,20 +43,28 @@ mock.module('pdfjs-dist', () => ({
 
 viewerDom();
 const { PdfViewer } = await import(`${page}/pdf/pdf-viewer.ts`);
+const { Page } = await import(`${page}/entry.ts`);
 const DomEvent = domWindow.Event;
 
-function mount(title: string) {
-  network.respond = () => new Response(new Uint8Array([37, 80, 68, 70]), { headers: { 'content-length': '4' } });
-  const viewer = new PdfViewer('http://127.0.0.1:1/planning.pdf', title);
-  document.body.append(viewer.element);
-  const region = viewer.element.querySelector<HTMLElement>('[role="region"]')!;
-  let top = 0;
+type View = { page: number; offset: number; zoom: number | null; left: number };
+/** The scroll region at 500 by 600, its scroll offsets kept as happy-dom does not, a scroll event after each scrollTo. */
+function scrolling(region: HTMLElement) {
+  let top = 0, left = 0;
   sized(region, 500, 600);
   Object.defineProperty(region, 'scrollTop', { configurable: true, get: () => top, set: (value: number) => { top = value; } });
+  Object.defineProperty(region, 'scrollLeft', { configurable: true, get: () => left, set: (value: number) => { left = value; } });
   region.scrollTo = ((options: ScrollToOptions) => {
     if (typeof options.top === 'number') top = Math.max(0, options.top);
+    if (typeof options.left === 'number') left = Math.max(0, options.left);
     region.dispatchEvent(new DomEvent('scroll'));
   }) as typeof region.scrollTo;
+  return region;
+}
+function mount(title: string, initialView?: View, onViewChange?: (view: View) => void) {
+  network.respond = () => new Response(new Uint8Array([37, 80, 68, 70]), { headers: { 'content-length': '4' } });
+  const viewer = new PdfViewer('http://127.0.0.1:1/planning.pdf', title, initialView, onViewChange);
+  document.body.append(viewer.element);
+  const region = scrolling(viewer.element.querySelector<HTMLElement>('[role="region"]')!);
   resizeAll(500, 600);
   const find = viewer.element.querySelector<HTMLInputElement>('input[type="search"], input')!;
   const label = () => viewer.element.querySelector('.pdf-pages-label')?.textContent;
@@ -111,6 +119,61 @@ describe('PdfViewer', () => {
     await until(() => text(shown[0]!) && text(shown[1]!), 'their text');
     expect(text(shown[0]!).compareDocumentPosition(text(shown[1]!)) & 4).toBe(4); // DOCUMENT_POSITION_FOLLOWING
     viewer.dispose();
+  });
+
+  test('a new revision opens at the page, offset, zoom and horizontal scroll the reader left', async () => {
+    documents.pages = Array.from({ length: 30 }, (_, index) => ({ width: 612, height: 792, items: [{ str: `[p${index + 1}]`, hasEOL: false }] }));
+    let saved: View | undefined;
+    const first = mount('Report', undefined, view => { saved = view; });
+    await until(() => first.label() === '1 / 30 pages', 'the document');
+    const zoomIn = first.viewer.element.querySelector('[aria-label="Zoom in"]') as HTMLElement;
+    zoomIn.click();
+    await until(() => saved?.zoom !== null && saved?.zoom !== undefined, 'the zoom');
+    const zoom = saved!.zoom!, width = 612 * zoom;
+    const top = 16 + 7 * (width * 792 / 612 + 16) + 40;
+    first.region.scrollTo({ top: top - 16, left: 25 });
+    await until(() => first.label() === '8 / 30 pages', 'page 8');
+    expect({ ...saved, offset: Math.round(saved!.offset) }).toEqual({ page: 7, offset: 40, zoom, left: 25 });
+    first.viewer.dispose();
+
+    // The new revision's page 3 is short: the pages above the one it returns to are measured before it scrolls there.
+    documents.pages[2] = { width: 612, height: 300, items: [{ str: '[p3]', hasEOL: false }] };
+    const restored = top - 16 - (width * 792 / 612 - width * 300 / 612);
+    let reported: View | undefined;
+    const second = mount('Report', saved, view => { reported = view; });
+    await until(() => second.label() === '8 / 30 pages', 'the same page');
+    expect([Math.round(second.region.scrollTop), second.region.scrollLeft, second.viewer.element.querySelector('.pdf-zoom')?.textContent]).toEqual([Math.round(restored), 25, `${Math.round(zoom * 100)}%`]);
+    expect({ ...reported, offset: Math.round(reported!.offset) }).toEqual({ page: 7, offset: 40, zoom, left: 25 });
+    second.viewer.dispose();
+  });
+
+  test('the page opens a new key of the same document where the reader was, and another document at its start', async () => {
+    documents.pages = Array.from({ length: 30 }, (_, index) => ({ width: 612, height: 792, items: [{ str: `[p${index + 1}]`, hasEOL: false }] }));
+    const root = document.createElement('div');
+    document.body.append(root);
+    const shown = new Page(root);
+    const label = () => root.querySelector('.pdf-pages-label')?.textContent;
+    /** Shows `key` of `documentId`, its bytes held until its region is sized, and waits for its document. */
+    const show = async (key: string, documentId: string, expected: string) => {
+      let release = () => {};
+      const held = new Promise<void>(resolve => { release = resolve; });
+      network.respond = async () => { await held; return new Response(new Uint8Array([37, 80, 68, 70]), { headers: { 'content-length': '4' } }); };
+      const before = root.querySelector('[role="region"]');
+      shown.receive({ type: 'config', view: 'pdf', key, documentId, name: 'r.pdf', src: `http://127.0.0.1:1/r.pdf?file-revision=${key}`, text: null, sizeBytes: -1, kind: '',
+        delimiter: null, wrap: true, scheme: 'light', sheet: false, smoothing: true, revealLine: null, revealRequestId: 0 });
+      await until(() => root.querySelector('[role="region"]') && root.querySelector('[role="region"]') !== before, 'the viewer');
+      const region = scrolling(root.querySelector<HTMLElement>('[role="region"]')!);
+      resizeAll(500, 600);
+      release();
+      await until(() => label() === expected, `${key} at ${expected}`);
+      return region;
+    };
+    const first = await show('r1', 'doc:a', '1 / 30 pages');
+    first.scrollTo({ top: 7 * ((500 - 32) * (792 / 612) + 16) + 30 });
+    await until(() => label() === '8 / 30 pages', 'page 8');
+    const second = await show('r2', 'doc:a', '8 / 30 pages');
+    expect(Math.round(second.scrollTop)).toBe(Math.round(first.scrollTop));
+    await show('r3', 'doc:b', '1 / 30 pages');
   });
 
   test('a loaded PDF lets its document go through its loading task, so the page can show the next file', async () => {

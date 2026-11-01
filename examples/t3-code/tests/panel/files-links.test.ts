@@ -13,7 +13,7 @@ import { editFile, filesLocal, filesState, filesView, mediaUnavailableDescriptio
 import { markdownFileMenuRows } from '../../src/timeline/file-link-menu';
 import { loadSshAliases } from '../../src/connections/remote-open';
 import { crumbs } from '../../src/panel/files-surface';
-import { fileBreadcrumbs, isHostPath, isListableHostFolder } from '../../src/panel/files-path';
+import { breadcrumbPathOf, fileBreadcrumbs, isHostPath, isListableHostFolder } from '../../src/panel/files-path';
 import { openFileLink, panelState, type Surface } from '../../src/panel/panel-surfaces';
 import { resetRemoteEditorsForTests } from '../../src/connections/remote-open';
 import { messageChips } from '../../src/timeline/message-chips';
@@ -61,12 +61,16 @@ describe('home-relative host paths', () => {
     expect(isHostPath('~/.claude/CLAUDE.md')).toBe(true);
     expect(isHostPath('docs/~/x.md')).toBe(false);
     expect(fileBreadcrumbs('t3code', '~/.claude/CLAUDE.md')).toEqual([
-      { label: '~', path: '~', kind: 'directory' },
+      { label: '~', path: '~/', kind: 'directory' },
       { label: '.claude', path: '~/.claude', kind: 'directory' },
       { label: 'CLAUDE.md', path: '~/.claude/CLAUDE.md', kind: 'file' },
     ]);
+    expect(isListableHostFolder('~/')).toBe(true);
     expect(isListableHostFolder('~/.claude')).toBe(true);
-    expect(crumbs('repo', '~/.claude/CLAUDE.md').map(crumb => [crumb.label, crumb.navigable, crumb.menu])).toEqual([['~', false, false], ['.claude', true, false], ['CLAUDE.md', false, false]]);
+    expect(breadcrumbPathOf('~/')).toBe('~/');
+    // A project folder named ~ stays inside the project.
+    expect(fileBreadcrumbs('t3code', '~').map(crumb => crumb.path)).toEqual(['', '~']);
+    expect(crumbs('repo', '~/.claude/CLAUDE.md').map(crumb => [crumb.label, crumb.navigable, crumb.menu])).toEqual([['~', true, false], ['.claude', true, false], ['CLAUDE.md', false, false]]);
   });
   test('a ~/ link opens in the file panel as a host file, read through the server and never revealed in the tree', async () => {
     const { client, native, requests } = fixture((method, payload) => method === 'projects.readFile' ? { contents: `read ${String(payload.relativePath)}`, byteLength: 4 } : method === 'projects.listEntries' ? { entries: [] } : {});

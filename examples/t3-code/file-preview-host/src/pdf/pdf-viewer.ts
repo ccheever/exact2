@@ -1,7 +1,9 @@
-// The PDF viewer (MIT reference, see LICENSE-T3: apps/web/src/components/files/PdfViewer.tsx; T3 Code 7c3b3b3605ef),
+// The PDF viewer (MIT reference, see LICENSE-T3: apps/web/src/components/files/PdfViewer.tsx; T3 Code 2359643cff),
 // which the Electron app always takes (BrowserDocumentFrame.tsx PdfDocument). PDF.js renders each page near the
 // viewport to a canvas with its text layer; the toolbar pages, zooms 25–300 % from fit width, and finds a phrase
-// across line ends (pdf-layout.ts). Its React state is this class's fields; `update` is its render.
+// across line ends (pdf-layout.ts). It opens at the page, offset, zoom and horizontal scroll it is given, and reports
+// them as they change, so a new revision of the same document opens where the reader was. Its React state is this
+// class's fields; `update` is its render.
 import { TextLayer, type PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronDown, ChevronUp, Minus, Plus, Scan } from "../icons";
 import { h, observeResize, searchField, surfaceAction, surfaceFailure, surfaceLoading, type IconNode } from "../chrome";
@@ -14,6 +16,9 @@ import {
 
 const MAX_PAGES = 2000;
 const MAX_FIND_TEXT = 4 * 1024 * 1024;
+
+/** Where the reader is: the current page, how far into it, the zoom (null: fit width) and the horizontal scroll. */
+export type PdfViewState = { page: number; offset: number; zoom: number | null; left: number };
 
 /** PdfPage: one page's canvas and text layer, painted again when its width changes. */
 class PdfPage {
@@ -120,8 +125,13 @@ export class PdfViewer {
   private readonly previous; private readonly next; private readonly zoomOut; private readonly zoomIn; private readonly nextMatch;
   private body: HTMLElement | null = null;
   private track: HTMLDivElement | null = null;
+  private readonly initialView: PdfViewState;
+  /** The loaded document whose place was restored; until then a scroll reports nothing. */
+  private restored: PDFDocumentProxy | null = null;
 
-  constructor(private readonly src: string, title: string) {
+  constructor(private readonly src: string, title: string, initialView?: PdfViewState, private readonly onViewChange?: (view: PdfViewState) => void) {
+    this.initialView = initialView ?? { page: 0, offset: 0, zoom: null, left: 0 };
+    this.zoom = this.initialView.zoom;
     this.previous = surfaceAction({ label: "Previous page", icon: ChevronUp as IconNode, disabled: true, onPress: () => this.showPage(this.current() - 1) });
     this.next = surfaceAction({ label: "Next page", icon: ChevronDown as IconNode, disabled: true, onPress: () => this.showPage(this.current() + 1) });
     this.zoomOut = surfaceAction({ label: "Zoom out", icon: Minus as IconNode, onPress: () => this.changeZoom(stepPdfZoom(this.sizes().scale, -1)) });
@@ -144,7 +154,7 @@ export class PdfViewer {
       this.update();
     });
     this.scroll = h("div", { class: "pdf-scroll", role: "region", "aria-label": title, tabindex: 0 });
-    this.scroll.addEventListener("scroll", () => { this.scrollTop = this.scroll.scrollTop; this.update(); });
+    this.scroll.addEventListener("scroll", () => { this.scrollTop = this.scroll.scrollTop; this.update(); this.saveView(); });
     this.scroll.addEventListener("keydown", (event) => {
       if ((event.ctrlKey || event.metaKey) && event.key === "f") {
         event.preventDefault();
@@ -181,9 +191,14 @@ export class PdfViewer {
         const document = await task.promise;
         if (document.numPages > MAX_PAGES) throw new Error("Preview limited to 2,000 pages. Save this PDF to read it in full.");
         const first = (await document.getPage(1)).getViewport({ scale: 1 });
+        // The pages up to the one to restore are measured, so it is laid out where it is.
+        const sizes = await Promise.all(Array.from({ length: Math.min(this.initialView.page + 1, document.numPages) }, async (_, index) => {
+          const size = (await document.getPage(index + 1)).getViewport({ scale: 1 });
+          return size.height / size.width;
+        }));
         if (controller.signal.aborted) return;
         this.pageWidth = first.width;
-        this.ratios = Array.from({ length: document.numPages }, () => first.height / first.width);
+        this.ratios = Array.from({ length: document.numPages }, (_, index) => sizes[index] ?? first.height / first.width);
         this.pdf = document;
         this.search();
         this.update();
@@ -212,6 +227,12 @@ export class PdfViewer {
   }
   private showPage(index: number) {
     this.scroll.scrollTo({ top: pdfPageScrollTop(this.sizes().offsets, index) });
+  }
+  /** PdfViewer's saveView: the reader's place, reported once the document's own place is restored. */
+  private saveView() {
+    if (!this.pdf || this.restored !== this.pdf) return;
+    const { offsets } = this.sizes(), page = this.current();
+    this.onViewChange?.({ page, offset: Math.max(0, this.scroll.scrollTop - (offsets[page]! - 16)), zoom: this.zoom, left: this.scroll.scrollLeft });
   }
   private changeZoom(value: number | null) {
     const { offsets, width } = this.sizes(), current = this.current();
@@ -327,10 +348,20 @@ export class PdfViewer {
       previous = page.element;
       page.layout(offsets[index]!, Math.max(16, (this.viewport.width - width) / 2), width, width * ratio, this.query);
     }
+    // The place it was given, once the loaded document is laid out (PdfViewer's restoreView).
+    if (this.restored !== pdf) {
+      this.restored = pdf;
+      const page = Math.min(this.initialView.page, pdf.numPages - 1);
+      this.scroll.scrollTo({ top: offsets[page]! - 16 + Math.min(this.initialView.offset, Math.max(0, width * this.ratios[page]! - 1)), left: this.initialView.left });
+      this.scrollTop = this.scroll.scrollTop;
+      this.saveView();
+    }
     // The zoom's scroll anchor, restored once the new width is laid out.
     const anchor = this.zoomAnchor;
     this.zoomAnchor = null;
-    if (anchor && anchor.width !== width) this.scroll.scrollTo({ top: offsets[anchor.page]! - 16 + (anchor.offset * width) / anchor.width });
+    if (!anchor) return;
+    if (anchor.width !== width) this.scroll.scrollTo({ top: offsets[anchor.page]! - 16 + (anchor.offset * width) / anchor.width });
+    this.saveView();
   }
 
   // The loading task's `destroy` (closeLoad) lets the document go, as the reference's effect does: PDF.js 6's document

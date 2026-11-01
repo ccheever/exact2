@@ -62,19 +62,73 @@ component FilesSurface
     still: bool
     local: action
     searchFocus: action
+  derive beside = files.path != "" and files.preview != ""
+  // FileExplorerPane: beside a file the explorer is 160 to 560 wide and leaves the file 256; the width is saved when a
+  // drag ends or a key moves it.
+  state rowWidth = 0
+  state userWidth = -1
+  derive explorerMax = max(160, min(560, rowWidth - 256))
+  derive explorerWidth = max(160, min(explorerMax, userWidth >= 0 ? userWidth : files.explorerWidth))
+  action rowSized(width: number, height: number)
+    rowWidth = width
+  action explorerResize(dx: number, dy: number)
+    userWidth = max(160, min(explorerMax, explorerWidth - dx))
+  action explorerResized(vx: number, vy: number)
+    local("surface-files-explorer-width", "", `${explorerWidth}`)
+  action explorerSet(width: number)
+    let next = max(160, min(explorerMax, width))
+    userWidth = next
+    local("surface-files-explorer-width", "", `${next}`)
   view
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
       if files.subheader
         FileHeader(files=files, sheet=sheet, local=local)
       if files.truncatedNote != ""
         text files.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
-      row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
-        if files.path != "" and files.preview != ""
+      row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch" resize=rowSized
+        if beside
           column flex=1 min-width=0 min-height=0 overflow="hidden"
             FilePreview(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
         if files.showExplorer
-          column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" testId="files-explorer"
+          column min-height=0 min-width=0 position="relative" flex-shrink=(beside ? 0 : 1) flex-grow=(beside ? 0 : 1) width=(beside ? `${explorerWidth}px` : "100%") box-sizing="border-box" border-left-width=(beside ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" aria-label="File explorer" testId="files-explorer"
+            if beside
+              ExplorerResizeHandle(width=explorerWidth, max=explorerMax, resize=explorerResize, finish=explorerResized, set=explorerSet)
             FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
+
+// RightPanelResizeHandle over the explorer's left edge (`absolute inset-y-0 -left-1 w-2`, z 20): its 1pt line shows in
+// the border colour on hover and in primary/60 while dragged or focused from the keyboard. ← widens and → narrows the
+// explorer by 16, Home takes the least and End the most.
+component ExplorerResizeHandle
+  props
+    width: number
+    max: number
+    resize: action
+    finish: action
+    set: action
+  state hovered = false
+  state dragging = false
+  state keyFocus = false
+  action hover(over: bool)
+    hovered = over
+  action down(e: PointerEvent)
+    dragging = true
+    keyFocus = false
+  action released(vx: number, vy: number)
+    dragging = false
+    finish(vx, vy)
+  action up(e: PointerEvent)
+    dragging = false
+  action blurred()
+    keyFocus = false
+  action keyed(k: string, e: KeyboardEvent)
+    if not e.altKey and not e.ctrlKey and not e.metaKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "Home" or k == "End")
+      preventDefault()
+      stopPropagation()
+      keyFocus = true
+      set(k == "ArrowLeft" ? width + 16 : k == "ArrowRight" ? width - 16 : k == "Home" ? 160 : max)
+  view
+    box position="absolute" top=0 bottom=0 left="-0.25rem" width="0.5rem" z-index=20 cursor="col-resize" touch-action="none" tabindex=0 pan=resize panrelease=released pointerdown=down pointerup=up hover=hover key=keyed blur=blurred role="separator" aria-orientation="vertical" aria-label="Resize file explorer" aria-valuenow=width aria-valuemin=160 aria-valuemax=max testId="files-explorer-resize"
+      box position="absolute" top=0 bottom=0 left="3.5px" width=1 pointer-events="none" background-color=(dragging or keyFocus ? "light-dark(#1b4ed899, #346bf199)" : hovered ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")
 
 // FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel, 40pt over a hairline in a sheet; 12pt sides, 8pt gaps.
 component FileHeader

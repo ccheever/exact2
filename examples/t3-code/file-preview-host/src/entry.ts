@@ -1,6 +1,6 @@
 // The file preview page (LLP 1020.001: a bundled page under assets/file-preview/, framed by the attachment body,
 // src/panel/viewer-frame.contract). It runs T3 Code's document viewers (MIT reference, see LICENSE-T3:
-// apps/web/src/components/files/; T3 Code 7c3b3b3605ef) without React: PdfViewer (PDF.js), LargeTextViewer for text
+// apps/web/src/components/files/; T3 Code 2359643cff) without React: PdfViewer (PDF.js), LargeTextViewer for text
 // over 1 MB and for CSV and TSV tables, OfficeViewer (Word, Excel, PowerPoint, OpenDocument, RTF, EPUB; a notebook is
 // parsed here and drawn by the app), BinaryViewer (archives and SQLite; an opened entry is drawn by the app) and a
 // notebook's HTML output. The app's subheader keeps the name, Copy and Save; this page draws a viewer's own rows.
@@ -12,6 +12,7 @@
 import "./shared/packed";
 import "./shared/policy-workers";
 import { h, hideTooltip, menuPicked, post, surfaceFailure, surfaceLoading } from "./chrome";
+import type { PdfViewState } from "./pdf/pdf-viewer";
 
 export type Config = {
   readonly type: "config";
@@ -19,6 +20,8 @@ export type Config = {
   readonly view: string;
   /** A viewer's identity: another one mounts a new viewer, as the reference's keys do. */
   readonly key: string;
+  /** A PDF's identity without its revision: a new key of the same document opens where the reader was. */
+  readonly documentId?: string;
   readonly name: string;
   /** The file's signed URL; "" for a draft, whose bytes follow in `bytes` messages or which this page was given. */
   readonly src: string;
@@ -49,6 +52,9 @@ export type Viewer = {
 };
 
 type Message = { readonly type: string; readonly [key: string]: unknown };
+
+/** The PDF last shown (its `documentId`) and where its reader was. */
+type PdfPlace = { id: string; view: PdfViewState | undefined };
 
 /** A message the page takes: from its app (on Apple the host, through the page's own window). */
 export function fromApp(event: Pick<MessageEvent, "source" | "origin" | "data">, view: { parent: unknown; location: { origin: string } }, self: unknown): boolean {
@@ -91,10 +97,15 @@ export function narrowConnections(src: string, at: Document = document): void {
   at.head.append(meta);
 }
 
-async function mount(config: Config, src: string, retry: () => void): Promise<Viewer> {
+async function mount(config: Config, src: string, retry: () => void, pdfView: PdfPlace): Promise<Viewer> {
   if (config.view === "pdf") {
     const { PdfViewer } = await import("./pdf/pdf-viewer");
-    return new PdfViewer(src, config.name);
+    // BrowserDocumentFrame's PdfDocument: the reading position outlives each revision's document.
+    const id = config.documentId ?? config.key;
+    const initialView = pdfView.id === id ? pdfView.view : undefined;
+    pdfView.id = id;
+    pdfView.view = initialView;
+    return new PdfViewer(src, config.name, initialView, (view) => { if (pdfView.id === id) pdfView.view = view; });
   }
   if (config.view === "text") {
     const { LargeTextViewer } = await import("./text/large-text-viewer");
@@ -128,6 +139,7 @@ export class Page {
   private mounting = false;
   /** A Copy asked of the viewer that is loading, or of a draft whose bytes are coming: answered once it is up. */
   private copyWaiting = false;
+  private readonly pdfView: PdfPlace = { id: "", view: undefined };
 
   constructor(private readonly root: HTMLElement) {}
 
@@ -187,7 +199,7 @@ export class Page {
     narrowConnections(src);
     this.show(surfaceLoading());
     this.mounting = true;
-    void mount(config, src, retry)
+    void mount(config, src, retry, this.pdfView)
       .then((viewer) => {
         if (serial !== this.serial) { viewer.dispose(); return; }
         this.mounting = false;

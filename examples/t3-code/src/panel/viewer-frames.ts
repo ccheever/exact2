@@ -24,6 +24,9 @@ export type ViewerConfig = {
   view: 'pdf' | 'text' | 'office' | 'binary' | 'output';
   /** The viewer's identity: a new key mounts a new viewer, as the reference's React keys do. */
   key: string;
+  /** A PDF's identity without its revision: a new key of the same document opens where the reader was
+   *  (BrowserDocumentFrame's `documentId`). */
+  documentId?: string;
   name: string;
   /** The signed URL, or '' for a draft: its bytes posted after it, or the file the page is given (`given`). */
   src: string;
