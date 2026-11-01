@@ -7,7 +7,7 @@ series and are not comparable with round 20's.
 
 | Piece | What it is |
 |---|---|
-| `specs/<id>/SPEC.md`, `data/` | nineteen iPhone apps, each with seeded data; the four service and package specs include frozen servers |
+| `specs/<id>/SPEC.md`, `data/` | nineteen iPhone apps, each with seeded data; the service specs include frozen servers |
 | `pairs.json` | each spec's comparison stack and builder model, fixed so rounds compare pair against pair |
 | `prompts/` | the builder prompt (`common.md` plus the stack's) and the grader's |
 | `native/` | the SwiftUI and UIKit builders' skeleton: `swiftc` and an assembled `.app`, no Xcode project |

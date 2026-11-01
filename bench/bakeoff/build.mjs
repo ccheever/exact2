@@ -62,7 +62,8 @@ const portOpen = () => new Promise((done) => {
   socket.once('error', () => { socket.destroy(); done(false); });
 });
 async function startServer() {
-  if (!existsSync(serverFile) || await portOpen()) return null;
+  if (!existsSync(serverFile)) return null;
+  if (await portOpen()) throw new Error(`server port ${serverPort} already in use`);
   const child = spawn('bun', [serverFile, '--port', String(serverPort)], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const output = [];
   child.stdout.on('data', (data) => output.push(String(data)));

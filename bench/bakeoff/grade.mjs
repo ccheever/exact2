@@ -48,7 +48,8 @@ const portOpen = () => new Promise((done) => {
   socket.once('error', () => { socket.destroy(); done(false); });
 });
 let server = null;
-if (existsSync(serverFile) && !(await portOpen())) {
+if (existsSync(serverFile)) {
+  if (await portOpen()) throw new Error(`server port ${serverPort} already in use`);
   const child = spawn('bun', [serverFile, '--port', String(serverPort)], { cwd: out, stdio: ['ignore', 'pipe', 'pipe'] });
   for (const until = Date.now() + 15000; Date.now() < until && !(await portOpen());) await new Promise((r) => setTimeout(r, 100));
   if (child.exitCode != null || !(await portOpen())) throw new Error(`server failed to listen on ${serverPort}`);
