@@ -846,6 +846,7 @@ fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
     assert_eq!(r.location_beneath(stack[1].id).as_deref(), Some("/"));
     assert_eq!(r.location_beneath(stack[0].id), None);
     assert_eq!(r.location_beneath(u64::MAX), None);
+    assert_eq!(r.location_behind().as_deref(), Some("/t/1"));
     assert_eq!(
         r.visit_location(stack[2].id).as_deref(),
         Some("/t/1/details")
@@ -854,6 +855,7 @@ fn the_location_beneath_a_visit_is_its_stacks_previous_entry() {
     // A retained tab's visit answers too; going there pops as `back` would.
     act(&mut r, "select", "search");
     assert_eq!(r.location_beneath(stack[2].id).as_deref(), Some("/t/1"));
+    assert_eq!(r.location_behind(), None, "the selected stack's root");
     act(&mut r, "select", "home");
     let to = r.location_beneath(stack[2].id).unwrap();
     let change = act(&mut r, "go", &to).unwrap();

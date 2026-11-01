@@ -12,6 +12,12 @@
 // Forward ⌘], the swipe the other way, and a mouse's forward button. The
 // mouse's back and forward buttons go Back and Forward at their release
 // unless a `pointerup` prevented it, which is Chrome's rule.
+//
+// A navigation root with no routes that hears `navigate` (`routerRoot`:
+// one view that follows the router itself) has the same ways, from the
+// router alone: Back while its selected stack has a visit beneath the top,
+// Forward while something is ahead, each delivered to `navigate`, as a
+// browser steps session history.
 #if os(macOS)
 import AppKit
 
@@ -88,9 +94,22 @@ extension NavigationHost {
         return !split.active || pushedRoute != nil
     }
 
+    /// The first navigation root when it has no routes, as an app whose one
+    /// view follows the router, and hears `navigate`: Back and Forward then
+    /// step the router's visits from it (LLP 1115.000 D5.5).
+    var routerRoot: NodeView? {
+        guard routeless, let node = root?.node, node.handlers.contains("navigate") else { return nil }
+        return node
+    }
+
     /// How Back goes from the selected route, resolved at use as iOS's is
-    /// (`NavigationBack.way`); nil when it does not.
-    var back: NavigationBack.Way? { pushedRoute.flatMap { way(from: $0.root, $0.route) } }
+    /// (`NavigationBack.way`), or under `routerRoot` to the visit beneath
+    /// the router's top; nil when it does not.
+    var back: NavigationBack.Way? {
+        if let (root, route) = pushedRoute { return way(from: root, route) }
+        guard routerRoot != nil else { return nil }
+        return presenter.session?.runtime.locationBehind().map { .navigate($0) }
+    }
 
     /// How Back goes from `route`, under `root`.
     private func way(from root: NodeView, _ route: NodeView) -> NavigationBack.Way? {
@@ -114,8 +133,9 @@ extension NavigationHost {
     /// The platform's Back, taken: the authored control pressed, else the
     /// root's `navigate` with the location beneath, else the runner's `back`.
     @discardableResult func goBack() -> Bool {
-        guard canGoBack, let (root, route) = pushedRoute, let how = back else { return false }
-        take(how, from: root, route)
+        guard canGoBack, let how = back else { return false }
+        if let (root, route) = pushedRoute { take(how, from: root, route) }
+        else if case .navigate(let location) = how, let root = routerRoot { presenter.session?.navigate(location, at: root) }
         return true
     }
 
@@ -142,7 +162,7 @@ extension NavigationHost {
     /// left on the selected stack, which the runner keeps as a browser's
     /// session history does, and the navigation root that hears it.
     private var ahead: (root: NodeView, location: String)? {
-        guard let selection, let root = presenter.views[selection.root],
+        guard let root = selection.flatMap({ presenter.views[$0.root] }) ?? routerRoot,
               let location = presenter.session?.runtime.locationAhead() else { return nil }
         return (root, location)
     }
@@ -174,6 +194,7 @@ extension NavigationHost {
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
         if let (_, route) = sheetRoute { return ("sheet", dismiss(route) ?? "") }
+        if routerRoot != nil, back != nil { return ("route", goBack() ? "" : "a dialog or a sheet is open over the page") }
         // A split's detail has no Back (LLP 1115.002 D4). A person leaves
         // it by taking the selection off its row, and the pane's routes go
         // as their stack goes back: that is the way back from it.
@@ -282,11 +303,14 @@ final class BackSwipe {
     /// True when it began a swipe, which AppKit then tracks. A script's
     /// wheel is not a trackpad's stream of events, and is never tracked.
     func scroll(_ event: NSEvent, enabled: Bool = NSEvent.isSwipeTrackingFromScrollEventsEnabled && !ExactEnv.agentMode) -> Bool {
-        guard !tracking, !Self.kept(event) else { return false }
+        let gesture = !event.phase.isEmpty && event.momentumPhase.isEmpty, (dx, dy) = (event.scrollingDeltaX, event.scrollingDeltaY)
+        // Whether the event could start a swipe at all, before asking where
+        // Back and Forward go, which is a call to the owner.
+        guard !tracking, Self.way(gesture: gesture, dx: dx, dy: dy, enabled: enabled, back: true, forward: true) != nil,
+              !Self.kept(event) else { return false }
         let navigation = presenter.navigation
         let (back, forward) = (navigation.canGoBack, navigation.canGoForward)
-        guard Self.way(gesture: !event.phase.isEmpty && event.momentumPhase.isEmpty, dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
-                       enabled: enabled, back: back, forward: forward) != nil else { return false }
+        guard Self.way(gesture: gesture, dx: dx, dy: dy, enabled: enabled, back: back, forward: forward) != nil else { return false }
         tracking = true
         // The side the gesture set out for: one that ends on the other side
         // (the fingers came back past where they started) goes nowhere.

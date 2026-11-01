@@ -664,5 +664,131 @@ final class BackSessionMacTests: XCTestCase {
             XCTAssertTrue(pushed(), "prevented (navigate: \(navigate))")
         }
     }
+
+    /// LLP 1115.000 D5.5: a navigation root that shows no route of its own
+    /// (one view that follows the router) and hears `navigate` steps the
+    /// router's visits: Back while a visit is beneath the top, Forward while
+    /// something is ahead, each delivered to `navigate`. Without `navigate`
+    /// nothing is offered, and no toolbar comes for it.
+    func testARootWithNoRoutesStepsTheRoutersVisitsWhenItHearsNavigate() throws {
+        _ = NSApplication.shared
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu, DevMenu.session)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2; DevMenu.session = previous.3 }
+        for navigate in [true, false] {
+            let source = """
+            routes nav
+              home "/"
+                visit "/v/:n"
+
+            component App
+              state count = 0
+              action next
+                let n = count + 1
+                count = n
+                nav = push(nav, path("visit", n))
+              action follow(location: string)
+                nav = go(nav, location)
+              view
+                main navigationKey="app" navigationBack=""\(navigate ? " navigate=follow" : "") width="100%" height="100%"
+                  text `${top(nav).url}`
+                  button press=next testId="next"
+                    text "Next"
+
+            """
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = view
+            _ = view.attachWindowToolbar(to: window)
+            let p = session.presenter
+            DevMenu.session = session
+            let bar = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: false)
+            let go = try XCTUnwrap(bar.items.first { $0.submenu?.title == "Go" }?.submenu)
+            let back = try XCTUnwrap(go.items.first { $0.title == "Back" }), forward = try XCTUnwrap(go.items.first { $0.title == "Forward" })
+            let target = try XCTUnwrap(back.target as? GoMenuTarget)
+            let next = { p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "next" }).id) }
+            XCTAssertNil(p.navigation.selection, "no route is shown")
+            XCTAssertFalse(target.validateMenuItem(back), "one visit: nowhere to go back to")
+            XCTAssertFalse(view.wantsScrollEventsForSwipeTracking(on: .horizontal))
+            try next(); try next()
+            XCTAssertNil(window.toolbar, "no Back item comes with the router's visits")
+            guard navigate else {
+                XCTAssertNil(p.navigation.back, "a root that does not hear navigate is offered nothing")
+                XCTAssertFalse(target.validateMenuItem(back))
+                XCTAssertFalse(view.wantsScrollEventsForSwipeTracking(on: .horizontal))
+                XCTAssertFalse(p.backSwipe.swiped(deltaX: 1))
+                view.detachWindowToolbar()
+                continue
+            }
+            XCTAssertEqual(p.navigation.back, .navigate("/v/1"))
+            XCTAssertTrue(target.validateMenuItem(back))
+            XCTAssertFalse(target.validateMenuItem(forward), "a visit leaves nothing ahead")
+            XCTAssertTrue(view.wantsScrollEventsForSwipeTracking(on: .horizontal))
+            // Go ▸ Back, then Forward.
+            target.back(back)
+            XCTAssertEqual(p.navigation.back, .navigate("/"), "at /v/1")
+            XCTAssertEqual(p.session?.runtime.locationAhead(), "/v/2")
+            XCTAssertTrue(target.validateMenuItem(forward))
+            target.forward(forward)
+            XCTAssertEqual(p.navigation.back, .navigate("/v/1"), "at /v/2 again")
+            XCTAssertFalse(target.validateMenuItem(forward))
+            // The two-finger swipe back, then forward with both sides open.
+            var bounds: [[CGFloat]] = [], toward: CGFloat = 1
+            p.backSwipe.track = { _, min, max, handler in
+                bounds.append([min, max])
+                handler(0.4 * toward, .changed, false); handler(0.8 * toward, .ended, false); handler(toward, [], true)
+            }
+            func began(_ dx: Int32) throws -> NSEvent {
+                let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: dx, wheel3: 0))
+                cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+                return try XCTUnwrap(NSEvent(cgEvent: cg))
+            }
+            XCTAssertTrue(p.backSwipe.scroll(try began(14), enabled: true))
+            XCTAssertEqual(p.navigation.back, .navigate("/"), "the swipe went back")
+            toward = -1
+            XCTAssertTrue(p.backSwipe.scroll(try began(-14), enabled: true))
+            XCTAssertEqual(bounds, [[0, 1], [-1, 1]], "back alone at the newest visit, then both ways")
+            XCTAssertEqual(p.navigation.back, .navigate("/v/1"), "the swipe went forward")
+            // The three-finger swipe and the agent's back.
+            XCTAssertTrue(p.backSwipe.swiped(deltaX: 1))
+            XCTAssertEqual(p.navigation.back, .navigate("/"))
+            XCTAssertEqual(p.navigation.agentBack()?.refused, "")
+            XCTAssertNil(p.navigation.back, "at the first visit")
+            XCTAssertFalse(target.validateMenuItem(back))
+            view.detachWindowToolbar()
+        }
+        // A root with routes whose key names none of them shows no route
+        // either, and is offered nothing from the router: its routes are its stack.
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let routed = """
+        routes nav
+          home "/"
+            visit "/v/:n"
+
+        component App
+          action follow(location: string)
+            nav = go(nav, location)
+          view
+            main navigationKey="none" navigationBack="" navigate=follow width="100%" height="100%"
+              for e in stack(nav) key=e.id
+                column navigationKey=`${e.id}`
+                  text e.url
+
+        """
+        XCTAssertNil(session.boot(plan: try plan(routed), size: CGSize(width: 400, height: 300)).error)
+        let p = session.presenter
+        p.session?.navigate("/v/1", at: try XCTUnwrap(p.navigation.root?.node))
+        XCTAssertEqual(p.session?.runtime.locationBehind(), "/", "a visit beneath the router's top")
+        XCTAssertNil(p.navigation.selection)
+        XCTAssertFalse(p.navigation.routeless)
+        XCTAssertNil(p.navigation.back)
+        XCTAssertFalse(p.navigation.canGoBack)
+    }
 }
 #endif
