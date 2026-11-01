@@ -11,13 +11,15 @@
 // The header holds a `nav` and says `appearance="none"`, so every host draws it as written, not as a bar.
 // Each page's `scroll document` is the web page's own scroll: the browser's toolbar collapses, `#details`
 // and printing work, and each page keeps its place when the reader comes back to it.
-// The list is a `table` whose sortable columns say `aria-sort`; a planet's figures are a `dl`, and
-// `/planet/7#details` opens at them.
+// The list is a `table` whose sortable columns say `aria-sort`, filtered by a `select` whose choice is the
+// location's query (`/?kind=Rocky`), so a filtered list is a link; a planet's figures are a `dl`, and
+// `/planet/7#details` opens at them. A path no route matches is the `notfound` route, which `serve` answers 404.
 use EmptyState from "exact:content"
 
 routes nav
   planets "/" render=build
     planet "/planet/:id" render=request
+  notfound render=build
 
 shape Planet
   id: string
@@ -50,7 +52,10 @@ component App
   resource details = loadDetails(nameOf(planets, selected) == "" ? "" : selected) as shape Details else empty()
   derive byName = descending ? sortBy(planets, p => p.name, "desc") : sortBy(planets, p => p.name)
   derive byDistance = descending ? sortBy(planets, p => p.au, "desc") : sortBy(planets, p => p.au)
-  derive shown = sortKey == "name" ? byName : byDistance
+  derive sorted = sortKey == "name" ? byName : byDistance
+  // The kind chosen, from the location's query: Back, a reload and a shared link keep it.
+  derive kind = searchParam(top(nav), "kind")
+  derive shown = kind == "" ? sorted : sorted.filter(p => p.kind == kind)
   // What the page shown was opened at after `#` (`details`); the host scrolls there once the page has its data.
   derive opened = fragment(top(nav))
 
@@ -61,6 +66,9 @@ component App
     else
       sortKey = key
       descending = false
+  // A choice that is the location's, so `replace`: it writes the query without adding a Back step.
+  action pickKind(v: string)
+    nav = replace(nav, v == "" ? path("planets") : path("planets") + `?kind=${encodeURIComponent(v)}`)
   // A link's location; the browser's Back, Forward and a deep link arrive here too.
   action follow(url: string)
     nav = go(nav, url)
@@ -81,6 +89,12 @@ component App
             scroll document id="planets-page" flex=1 min-height=0
               column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
                 text "Planets" role="heading" aria-level=1
+                row gap=8 align-items="center"
+                  text "Kind" id="kind-label"
+                  select value=kind change=pickKind aria-labelledby="kind-label" testId="kind"
+                    option "All kinds" value=""
+                    for k in ["Rocky", "Gas giant", "Ice giant"] key=k
+                      option k value=k
                 // A table wider than a phone scrolls sideways, as a web page's does.
                 view overflow-x="auto"
                   table
@@ -104,6 +118,7 @@ component App
                             text p.kind
                           td class=Cell text-align="end"
                             text p.au.toFixed(2) font-variant-numeric="tabular-nums"
+              SiteFooter()
         if e.name == "planet"
           column navigationKey=`${e.id}` navigationScroll="planet-page" position="absolute" inset=0
             display="flex" flex-direction="column" focusin=focusMoved
@@ -142,6 +157,17 @@ component App
                           text details.year
                   else
                     progress aria-label="Loading" testId="loading"
+              SiteFooter()
+        if e.name == "notfound"
+          column navigationKey=`${e.id}` navigationScroll="missing-page" position="absolute" inset=0
+            display="flex" flex-direction="column"
+            SiteHeader(current=e.name)
+            scroll document id="missing-page" flex=1 min-height=0
+              head title="Not Found"
+              EmptyState(symbol="symbol:alert", title="No Such Page", message="Its link may be out of date.")
+                link href="/" testId="notfound-home"
+                  text "All Planets"
+              SiteFooter()
 
 // The site's header on every page: its name, which goes home, and a `nav` of its sections, the one
 // shown marked `aria-current`. Drawn as written (`appearance="none"`), on iOS as on the web.
@@ -156,3 +182,9 @@ component SiteHeader
         nav aria-label="Sections"
           link href="/" aria-current=(current == "planets" ? "page" : "false") testId="nav-planets"
             text "Planets"
+
+// The site's footer on every page, its `contentinfo` landmark.
+component SiteFooter
+  view
+    footer padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
+      text "Figures from the API; the list is the site's own." font="-exact-footnote" color="-exact-secondary-label"

@@ -95,7 +95,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |`list-detail`|search, a detail, an add sheet, a delete alert, empty states, a file; split when wide|
 |`tabs`|two tabs, a stack in each, a saved set kept with `persist`|
 |`rest`|its own server, polled; a signed-in person (`rest-backend`, `fetch-loading-error`, `after-a-write`)|
-|`site`|a website: a sortable `table` built ahead, a page per item rendered per request with a `dl`, an API's origin as a setting (`website`)|
+|`site`|a website: a sortable `table` built ahead and filtered by a `select` in the query, a page per item rendered per request with a `dl`, a not-found page, a footer, an API's origin as a setting (`website`)|
 
 |Not in a pattern|Look up|
 |---|---|
