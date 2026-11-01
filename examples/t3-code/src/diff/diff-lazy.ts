@@ -12,10 +12,12 @@
 import { arr, str, type Obj } from '../client/domain';
 import { letGo } from '../client/let-go';
 
-export type DiffSourceKind = 'working-tree' | 'branch-range';
+export type DiffSourceKind = 'working-tree' | 'branch-range' | 'commit';
 export type FileStat = { path: string; previousPath: string | null; additions: number; deletions: number };
 /** The git source a preview answered: what its per-file and contents requests repeat. */
-export type DiffSource = { kind: DiffSourceKind; cwd: string; baseRef: string | null; headRef: string | null; diffHash: string; truncated: boolean; files: FileStat[] | null };
+export type DiffSource = { kind: DiffSourceKind; cwd: string; baseRef: string | null; headRef: string | null; diffHash: string; truncated: boolean; files: FileStat[] | null;
+  /** A commit's source: the commit's subject line, when it has one. */
+  commitSubject?: string };
 export type FilePatch = { state: 'loading' | 'loaded' | 'error'; diff: string; truncated: boolean };
 export type LazyPatches = { scope: string; files: FileStat[]; requested: number[]; patches: Map<string, FilePatch> };
 
@@ -26,7 +28,7 @@ export function diffSource(result: Obj, kind: DiffSourceKind): DiffSource | null
   const files = Array.isArray(source.files) ? arr(source.files).map(file => ({ path: str(file.path), previousPath: typeof file.previousPath === 'string' ? file.previousPath : null,
     additions: Number(file.additions) || 0, deletions: Number(file.deletions) || 0 })) : null;
   return { kind, cwd: str(result.cwd), baseRef: typeof source.baseRef === 'string' ? source.baseRef : null, headRef: typeof source.headRef === 'string' ? source.headRef : null,
-    diffHash: str(source.diffHash), truncated: source.truncated === true, files };
+    diffHash: str(source.diffHash), truncated: source.truncated === true, files, ...(str(source.commitSubject).trim() ? { commitSubject: str(source.commitSubject).trim() } : {}) };
 }
 
 const filePathCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -56,9 +58,10 @@ export function loadNextFiles(lazy: LazyPatches): number[] { const settled = set
 /** Requested files with no answer yet, in order: what to ask the server for now. */
 export function unanswered(lazy: LazyPatches): FileStat[] { return lazy.requested.map(index => lazy.files[index]!).filter(file => !lazy.patches.has(file.path)); }
 
-/** review.getDiffPreview for one file of the source. */
+/** review.getDiffPreview for one file of the source; a commit's names the commit (its id, which is its head). */
 export function filePatchPayload(source: DiffSource, file: FileStat, ignoreWhitespace: boolean): Obj {
-  return { cwd: source.cwd, ...(source.baseRef ? { baseRef: source.baseRef } : {}), ignoreWhitespace, file: { path: file.path, previousPath: file.previousPath, sourceKind: source.kind } };
+  const commit = source.kind === 'commit' && source.headRef ? { commitSha: source.headRef } : source.baseRef ? { baseRef: source.baseRef } : {};
+  return { cwd: source.cwd, ...commit, ignoreWhitespace, file: { path: file.path, previousPath: file.previousPath, sourceKind: source.kind } };
 }
 /** One file's answer: its source's patch and truncation; an answer without that file counts as an error, as in the reference. */
 export function adoptFilePatch(lazy: LazyPatches, file: FileStat, result: Obj | Error): void {

@@ -1,0 +1,16 @@
+// The Diff panel's Commits submenu and the header's short SHA (diff-commits.ts commitsView).
+shape DiffCommitRow
+  id: string
+  sha: string
+  short: string
+  subject: string
+  time: string
+  url: string
+  selected: bool
+shape DiffCommitsView
+  rows: DiffCommitRow[]
+  // The submenu's disabled status row (an error, file access, loading, empty, "Showing latest N commits"); "" for none.
+  note: string
+  // A commit shown: its short SHA beside the scope trigger and its code host page ("" when the host has none).
+  sha: string
+  url: string

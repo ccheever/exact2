@@ -157,8 +157,10 @@ describe('desktop presentation and model options', () => {
     }
     expect(data.messages[2]!.checkpointId).toBe('cp1');
     await command('checkpoint-diff', '', '', 1);
-    expect(native.calls.at(-1)?.method).toBe('orchestration.getTurnDiff');
-    expect(obj(native.calls.at(-1)?.payload).toTurnCount).toBe(1);
+    // The Diff's answer is followed by the Commits submenu's read (diff-commits.ts).
+    const turnDiff = native.calls.filter(call => call.method !== 'review.getBranchCommits').at(-1);
+    expect(turnDiff?.method).toBe('orchestration.getTurnDiff');
+    expect(obj(turnDiff?.payload).toTurnCount).toBe(1);
     await command('checkpoint-diff', '', '', 99);
     expect(client.diffError).toContain('No completed checkpoint');
   });

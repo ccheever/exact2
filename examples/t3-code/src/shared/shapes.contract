@@ -4,6 +4,7 @@ use SecretCardView from "../timeline/secret-card.contract"
 use TimelineApproval from "../timeline/timeline-approval.contract"
 use CodeToken from "../timeline/markdown.contract"
 use DiffFindView, FindDiffSegment from "../diff/diff-find.contract"
+use DiffCommitsView from "../diff/diff-commits-shapes.contract"
 use CodeHighlight from "../timeline/markdown.contract"
 use MermaidDiagram from "../timeline/mermaid-frame.contract"
 use MathFrame from "../timeline/markdown-math.contract"
@@ -502,6 +503,8 @@ shape Snapshot
   diffScopeLabel: string
   diffScope: string
   diffTurns: DiffTurn[]
+  // The Commits submenu and a shown commit's short SHA (diff-commits.ts).
+  diffCommits: DiffCommitsView
   diffLatestSelected: bool
   diffCanRefresh: bool
   diffLayout: string

@@ -27,6 +27,7 @@ import { mediaFileReference } from '../media/media-reference';
 import { assetUrl } from '../settings/settings-b-icons';
 import { openHome } from '../pages/home-landing';
 import { openExternal } from '../client/external-open';
+import { openCommitLink } from '../diff/diff-commit-links'; // a commit link of the thread's repository (useOpenChangeRequestLink)
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean; readonly button?: number };
@@ -157,6 +158,8 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   // A button on the pull request page ("button-page") has no thread to open beside: the system browser.
   // A work-log web result ("external") is the reference's target=_blank link: always the system browser (setWindowOpenHandler).
   try {
+    // ChatMarkdown asks openChangeRequestLink first: a commit of the thread's repository opens in the Diff pane.
+    if (kind === 'link' && await openCommitLink(client, native, url, { meta: event.metaKey, ctrl: event.ctrlKey, shift: held.includes('shift'), alt: held.includes('alt') })) return '';
     if (kind === 'external') await openInSystemBrowser(url);
     else await openLink(client, native, url, { event, ...(kind === 'button-page' ? { threadRef: null } : {}) });
   }

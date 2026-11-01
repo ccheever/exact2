@@ -23,6 +23,7 @@ import { pullRequestRefreshEpoch } from './pages-pr-refresh';
 import { relativeLabel } from './pages-prs';
 import { row, closedView, type Item, type PaletteView } from '../palette/palette';
 import { openLink as openLinkByTarget } from '../browser/browser-links';
+import { openCommitLink } from '../diff/diff-commit-links';
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { openExternal } from '../client/external-open';
 
@@ -324,6 +325,8 @@ export async function openLink(client: T3Client, native: Native, page: boolean, 
   // No project to open it beside, or "Open pull requests in T3 Code" turned off: an ordinary link, which follows "Open links
   // in" (useOpenPrLink → useOpenLink; browser-links.ts).
   if (!target || !prLinksOpenInApp(client)) { if (href) await openLinkByTarget(client, native, href); return ''; }
+  // Beside a thread, a commit of a pull request (`/pull/<n>/commits/<sha>`) the workspace has opens in the Diff pane.
+  if (!page && kind !== 'reference' && await openCommitLink(client, native, href, { meta: false, ctrl: false, shift: false, alt: false })) return '';
   let url = href;
   if (kind === 'reference') {
     try { url = str((await client.rpc(native, 'pullRequests.preview', obj(JSON.parse(target)))).url); }
