@@ -616,7 +616,7 @@ fn a_status_item_stands_alone_and_a_dock_item_joins_one_menu() {
 
 #[test]
 fn menu_bar_removal_accepts_only_root_literal_standard_ids() {
-    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows back develop paste-and-match-style find spelling-and-grammar substitutions transformations app-help actual-size zoom-in zoom-out";
+    let ids = "close-all autofill show-tab-bar show-all-tabs enter-full-screen minimize zoom bring-all-to-front show-previous-tab show-next-tab move-tab-to-new-window merge-all-windows back forward develop paste-and-match-style find spelling-and-grammar substitutions transformations app-help actual-size zoom-in zoom-out";
     for value in [ids, "", "show-tab-bar show-tab-bar"] {
         let source = format!(
             "component App\n  view\n    column -exact-menu-remove=\"{value}\" testId=\"root\"\n"

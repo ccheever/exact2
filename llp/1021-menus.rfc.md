@@ -1348,6 +1348,7 @@ nobody sees. This is the author's word for a shortcut the platform would
 otherwise list; author over platform (LLP 1115).
 
 **More removal ids.** `back` (Go ▸ Back; Go hides when it has nothing shown),
+`forward` (Go ▸ Forward, LLP 1115.000 D5.5, 2026-11-01),
 `develop` (the Develop menu of a development build), `paste-and-match-style`,
 `find`, `spelling-and-grammar`, `substitutions`, `transformations` (Edit's
 template items, LLP 1115 D8; a removed submenu's items are removed with it,

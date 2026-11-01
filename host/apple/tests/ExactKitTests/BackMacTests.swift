@@ -1,6 +1,7 @@
 // @ref LLP 1115.000 D5.1 — Back on the Mac: Go ▸ Back ⌘[, the toolbar's
 // chevron (kept, disabled, at a stack's root) and the swipe, each going the
-// way iOS's Back goes.
+// way iOS's Back goes; D5.5 — Forward, and the mouse's back and forward
+// buttons.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -260,7 +261,7 @@ final class BackMacTests: XCTestCase {
         XCTAssertTrue(p.navigation.goBack())
         XCTAssertTrue(p.backSwipe.swiped(deltaX: 1))
         var handler: ((CGFloat, NSEvent.Phase, Bool) -> Void)?
-        p.backSwipe.track = { _, tracked in handler = tracked }
+        p.backSwipe.track = { _, _, _, tracked in handler = tracked }
         let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 14, wheel3: 0))
         cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
@@ -308,13 +309,13 @@ final class BackMacTests: XCTestCase {
         // The app's own Back command with ⌘[ stands in for the host's, and gives it back.
         p.apply(wireBatch([["op": "props", "id": 20, "set": ["accessibilityKeyShortcuts": "Meta+[", "accessibilityLabel": "Back to list"]]]))
         XCTAssertTrue(back.isHidden)
-        XCTAssertEqual(go.items.filter { !$0.isHidden }.map(\.title), ["Back to list"])
+        XCTAssertEqual(go.items.filter { !$0.isHidden }.map(\.title), ["Back to list", "Forward"])
         XCTAssertEqual(go.items.filter { $0.keyEquivalent == "[" }.count, 1, "⌘[ is in the bar once")
         p.apply(wireBatch([["op": "props", "id": 20, "set": [:], "clear": ["accessibilityKeyShortcuts"]]]))
         XCTAssertFalse(back.isHidden)
         XCTAssertEqual(back.keyEquivalent, "[")
-        // `-exact-menu-remove="back"` takes Back and its ⌘[ (LLP 1021 §5.3.1), and Go with it.
-        p.apply(wireBatch([["op": "props", "id": 1, "set": ["menuRemove": "back"]]]))
+        // `-exact-menu-remove="back forward"` takes Back and Forward and their chords (LLP 1021 §5.3.1), and Go with them.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["menuRemove": "back forward"]]]))
         XCTAssertTrue(p.navigation.canGoBack)
         XCTAssertTrue(back.isHidden)
         XCTAssertTrue(item.isHidden)
@@ -333,18 +334,19 @@ final class BackMacTests: XCTestCase {
     /// toward the page before, with swipe tracking on and a way back; Back
     /// lands once, when AppKit says the gesture ended where it set out for.
     func testTheSwipeGoesBackWhenAppKitsTrackingEndsOnTheSideItSetOutFor() throws {
-        XCTAssertTrue(BackSwipe.begins(gesture: true, dx: 12, dy: 3, enabled: true, available: true))
-        XCTAssertFalse(BackSwipe.begins(gesture: true, dx: -12, dy: 3, enabled: true, available: true), "toward the page after: there is none")
-        XCTAssertFalse(BackSwipe.begins(gesture: true, dx: 5, dy: 9, enabled: true, available: true), "a vertical scroll")
-        XCTAssertFalse(BackSwipe.begins(gesture: false, dx: 12, dy: 0, enabled: true, available: true), "a mouse wheel, or momentum")
-        XCTAssertFalse(BackSwipe.begins(gesture: true, dx: 12, dy: 0, enabled: false, available: true), "Swipe between pages is off")
-        XCTAssertFalse(BackSwipe.begins(gesture: true, dx: 12, dy: 0, enabled: true, available: false), "nowhere to go back to")
+        XCTAssertEqual(BackSwipe.way(gesture: true, dx: 12, dy: 3, enabled: true, back: true, forward: false), 1)
+        XCTAssertNil(BackSwipe.way(gesture: true, dx: -12, dy: 3, enabled: true, back: true, forward: false), "toward the page after: there is none")
+        XCTAssertEqual(BackSwipe.way(gesture: true, dx: -12, dy: 3, enabled: true, back: false, forward: true), -1, "forward, where Back left")
+        XCTAssertNil(BackSwipe.way(gesture: true, dx: 5, dy: 9, enabled: true, back: true, forward: true), "a vertical scroll")
+        XCTAssertNil(BackSwipe.way(gesture: false, dx: 12, dy: 0, enabled: true, back: true, forward: true), "a mouse wheel, or momentum")
+        XCTAssertNil(BackSwipe.way(gesture: true, dx: 12, dy: 0, enabled: false, back: true, forward: true), "Swipe between pages is off")
+        XCTAssertNil(BackSwipe.way(gesture: true, dx: 12, dy: 0, enabled: true, back: false, forward: true), "nowhere to go back to")
 
         let p = fixture(selected: "b", control: true)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         var handler: ((CGFloat, NSEvent.Phase, Bool) -> Void)?
-        p.backSwipe.track = { _, tracked in handler = tracked }
+        p.backSwipe.track = { _, _, _, tracked in handler = tracked }
         func gesture(dx: Int32, dy: Int32, phase: Int64) throws -> NSEvent {
             let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0))
             cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
@@ -386,6 +388,15 @@ final class BackMacTests: XCTestCase {
         select("a", in: p)
         XCTAssertFalse(p.backSwipe.swiped(deltaX: 1), "nowhere to go back to")
         XCTAssertFalse(p.backSwipe.scroll(began, enabled: true))
+    }
+
+    /// AppKit's button numbers as DOM's (UI Events): left, right, middle,
+    /// back, forward are `button` 0, 2, 1, 3, 4 and `buttons` 1, 2, 4, 8, 16
+    /// (LLP 1115.000 D5.5).
+    func testAppKitsButtonsAreDOMsNumbers() {
+        XCTAssertEqual((0...4).map(NodeView.domButton), [0, 2, 1, 3, 4])
+        XCTAssertEqual((0...4).map(NodeView.domButtons), [1, 2, 4, 8, 16])
+        XCTAssertEqual(NodeView.domButton(7), 1, "a button DOM does not name is the auxiliary's")
     }
 
     /// While the bar tracks, a batch's removal of Back is written on the
@@ -537,7 +548,7 @@ final class BackSessionMacTests: XCTestCase {
                 p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" }).id)
                 XCTAssertNotNil(p.navigation.pushedRoute)
                 var tracked = 0
-                p.backSwipe.track = { _, handler in
+                p.backSwipe.track = { _, _, _, handler in
                     tracked += 1
                     handler(0.4, .changed, false); handler(0.8, .ended, false); handler(1, [], true)
                 }
@@ -553,6 +564,104 @@ final class BackSessionMacTests: XCTestCase {
                 XCTAssertNil(p.navigation.pushedRoute, "the swipe went back (navigate: \(navigate))")
             }
             view.detachWindowToolbar()
+        }
+    }
+
+    /// LLP 1115.000 D5.5: Forward goes where Back left, by Go ▸ Forward ⌘],
+    /// the two-finger swipe the other way, and the mouse's forward button;
+    /// the mouse's back button goes Back. Each button steps at its release,
+    /// a turn after its `pointerup`, which hears DOM's numbers (button 3 and
+    /// 4, buttons 8 and 16) and can prevent the step, as Chrome's mouseup can.
+    func testForwardGoesWhereBackLeftAndTheMouseButtonsStepHistory() throws {
+        _ = NSApplication.shared
+        let previous = (NSApp.servicesMenu, NSApp.windowsMenu, NSApp.helpMenu, DevMenu.session)
+        defer { NSApp.servicesMenu = previous.0; NSApp.windowsMenu = previous.1; NSApp.helpMenu = previous.2; DevMenu.session = previous.3 }
+        for navigate in [true, false] {
+            let pad = """
+                      box testId="pad" width=400 height=200 pointerdown=hear("down") pointerup=hear("up")
+                      button press=keepHistory testId="keep"
+                        text "Keep"
+
+            """
+            let source = source(navigate: navigate)
+                .replacingOccurrences(of: "  action open\n", with: """
+                  state heard = ""
+                  state keep = false
+                  action hear(what: string, e: PointerEvent)
+                    heard = `${heard}${what}${e.button}/${e.buttons} `
+                    if keep and what == "up"
+                      preventDefault()
+                  action keepHistory
+                    keep = true
+                  action open
+
+                """)
+                .replacingOccurrences(of: "          text `${e.name} ${e.url}`\n", with: "          text `${e.name} ${e.url}`\n" + pad)
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = view
+            window.orderFrontRegardless()
+            let p = session.presenter
+            DevMenu.session = session
+            let bar = DevMenu.makeMenu(shortcuts: p.shortcuts, documents: false, develop: false)
+            let go = try XCTUnwrap(bar.items.first { $0.submenu?.title == "Go" }?.submenu)
+            let back = try XCTUnwrap(go.items.first { $0.title == "Back" })
+            let forward = try XCTUnwrap(go.items.first { $0.title == "Forward" })
+            XCTAssertEqual(forward.keyEquivalent, "]")
+            XCTAssertEqual(forward.keyEquivalentModifierMask, .command)
+            let target = try XCTUnwrap(forward.target as? GoMenuTarget)
+            let open = { p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "open" }).id) }
+            let pushed = { p.navigation.pushedRoute != nil }
+            XCTAssertFalse(target.validateMenuItem(forward), "nothing ahead at launch")
+            try open()
+            XCTAssertFalse(target.validateMenuItem(forward), "a push leaves nothing ahead")
+            target.back(back)
+            XCTAssertFalse(pushed())
+            XCTAssertTrue(target.validateMenuItem(forward))
+            XCTAssertTrue(view.wantsScrollEventsForSwipeTracking(on: .horizontal), "a swipe may go forward from the root")
+            target.forward(forward)
+            XCTAssertTrue(pushed(), "Go ▸ Forward (navigate: \(navigate))")
+            XCTAssertFalse(target.validateMenuItem(forward))
+            // The two-finger swipe toward the page after: AppKit's tracking,
+            // bounded on the side with nowhere to go.
+            XCTAssertTrue(p.backSwipe.swiped(deltaX: 1))
+            var bounds: [(CGFloat, CGFloat)] = []
+            p.backSwipe.track = { _, min, max, handler in
+                bounds.append((min, max))
+                handler(-0.4, .changed, false); handler(-0.8, .ended, false); handler(-1, [], true)
+            }
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -14, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+            XCTAssertTrue(p.backSwipe.scroll(try XCTUnwrap(NSEvent(cgEvent: cg)), enabled: true))
+            XCTAssertEqual(bounds.map { [$0.0, $0.1] }, [[-1, 0]], "forward only: Back is not there at the root")
+            XCTAssertTrue(pushed(), "the swipe went forward (navigate: \(navigate))")
+            // The mouse's buttons, at the pad of the pushed route.
+            let at = NSPoint(x: 200, y: 150)
+            let settle = { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+            let heard = { () -> String in
+                let json = try? JSONSerialization.jsonObject(with: Data(session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any]
+                return (json?["slots"] as? [String: Any])?["heard"] as? String ?? ""
+            }
+            XCTAssertTrue(Agent.otherClick(try XCTUnwrap(CGMouseButton(rawValue: 3)), at: at, in: window, clicks: 1, flags: []))
+            XCTAssertEqual(heard(), "down3/8 up3/0 ", "DOM's numbers for the back button")
+            XCTAssertTrue(pushed(), "not before the up has run")
+            settle()
+            XCTAssertFalse(pushed(), "the back button went back (navigate: \(navigate))")
+            XCTAssertTrue(Agent.otherClick(try XCTUnwrap(CGMouseButton(rawValue: 4)), at: at, in: window, clicks: 1, flags: []))
+            settle()
+            XCTAssertTrue(pushed(), "the forward button went forward (navigate: \(navigate))")
+            XCTAssertTrue(heard().hasSuffix("down4/16 up4/0 "), heard())
+            // A `pointerup` that prevents its default keeps the page.
+            p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "keep" && !$0.isHiddenOrHasHiddenAncestor }).id)
+            XCTAssertTrue(Agent.otherClick(try XCTUnwrap(CGMouseButton(rawValue: 3)), at: at, in: window, clicks: 1, flags: []))
+            settle()
+            XCTAssertTrue(pushed(), "prevented (navigate: \(navigate))")
         }
     }
 }

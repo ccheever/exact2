@@ -64,6 +64,7 @@ pub(crate) fn check_menu_remove(attrs: &[Attr], root: bool) -> Result<(), LowerE
         "move-tab-to-new-window",
         "merge-all-windows",
         "back",
+        "forward",
         "develop",
         "paste-and-match-style",
         "find",

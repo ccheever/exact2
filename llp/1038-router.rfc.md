@@ -459,7 +459,11 @@ changed: a batch whose commit changed the router slot carries one op,
 its location, and the ids that left the value in this commit — beside the
 `command` and `request` ops it already carries (LLP 1007 §4). No host reads
 the slot; no host infers intent from a DOM diff; a non-web host keeps the
-op only to answer `state.navigation.url` (D11). The glue keeps `written[]`,
+op only to answer `state.navigation.url` (D11). (*Amended 2026-11-01, LLP
+1115.000 D5.5:* a native host has no session history, so the runner keeps
+its forward half, the locations Back left on the selected stack; a native
+Forward delivers the nearest as this table's Forward row does, to
+`navigate` or the runner's own `go`.) The glue keeps `written[]`,
 the entries it has put into session history, each stamped
 `{exact: index, id, url}`, `gone`, the set of removed ids, and `cursor`,
 the current index. Fresh boot `replaceState`s index 0 with the first op.

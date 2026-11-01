@@ -26,11 +26,11 @@ pub enum InputEvent {
     Absolute(Option<f32>, Option<f32>),
     /// The primary button went down (`true`) or up.
     Button(bool),
-    /// The secondary (2) or middle (4) button, by its `PointerEvent.buttons`
-    /// bit, went down (`true`) or up: a canvas's alone.
+    /// The secondary (2), middle (4), back (8) or forward (16) button, by
+    /// its `PointerEvent.buttons` bit, went down (`true`) or up. Back and
+    /// Forward are the last two's default action on their release (LLP
+    /// 1115.000 D5.5).
     Aux(u32, bool),
-    /// A mouse's back button went down (LLP 1115.000 D5.4): the app goes Back.
-    Back,
     /// Carrier/device loss cancels without manufacturing a successful release.
     Cancel,
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
@@ -355,14 +355,11 @@ impl Input {
                             // BTN_RIGHT, BTN_MIDDLE.
                             0x111 => out.push(InputEvent::Aux(2, down)),
                             0x112 => out.push(InputEvent::Aux(4, down)),
-                            // BTN_SIDE, a mouse's back (thumb) button, and
-                            // BTN_BACK, as some mice report it: Back at the
-                            // press. Its release is nothing.
-                            0x113 | 0x116 => {
-                                if value == 1 {
-                                    out.push(InputEvent::Back);
-                                }
-                            }
+                            // BTN_SIDE and BTN_EXTRA, a mouse's back and
+                            // forward (thumb) buttons, and BTN_BACK and
+                            // BTN_FORWARD, as some mice report them.
+                            0x113 | 0x116 => out.push(InputEvent::Aux(8, down)),
+                            0x114 | 0x115 => out.push(InputEvent::Aux(16, down)),
                             _ => {
                                 if let Some(event) = self.keyboard.event(code, value, None) {
                                     out.push(event);
@@ -521,6 +518,7 @@ pub(crate) fn key(code: u16, shift: bool) -> Option<(&'static str, &'static str)
         126 => ("MetaRight", "Meta", "Meta"),
         // KEY_BACK, a keyboard's own Back key, by the web's name for it.
         158 => ("BrowserBack", "BrowserBack", "BrowserBack"),
+        159 => ("BrowserForward", "BrowserForward", "BrowserForward"),
         _ => return None,
     };
     Some((code, if shift { shifted } else { plain }))

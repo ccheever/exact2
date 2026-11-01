@@ -14,7 +14,7 @@
 // record; moves go out at most once a frame, the latest.
 
 // The record: the point from the element's content box in its own CSS px
-// (a scale undone), DOM's buttons and pressure, the device and its id, the
+// (a scale undone), DOM's button, buttons and pressure, the device and its id, the
 // viewport point (`frame()`'s space, LLP 1094 D11), the modifiers held.
 import { inertAncestor } from './navigation.js';
 export function record(e, ev, lifted = false) {
@@ -23,7 +23,7 @@ export function record(e, ev, lifted = false) {
   const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
   const type = ev.pointerType === "pen" || ev.pointerType === "touch" ? ev.pointerType : "mouse";
   return [(ev.clientX - r.left) / (sx || 1) - left, (ev.clientY - r.top) / (sy || 1) - top,
-    lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId ?? 1, ev.clientX, ev.clientY, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
+    ev.button ?? -1, lifted ? 0 : ev.buttons, lifted ? 0 : Math.min(1, Math.max(0, ev.pressure || 0)), type, ev.pointerId ?? 1, ev.clientX, ev.clientY, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
 }
 let walking = false;
 export function pointer(e, kind, f) {

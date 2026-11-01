@@ -1043,7 +1043,7 @@ and ignore the hint. The agent taps the button. A root
 `-exact-menu-remove="show-tab-bar autofill close-all"` removes selected
 standard items and their menu equivalents. The fixed ids are `close-all`, `autofill`, `show-tab-bar`, `show-all-tabs`, `enter-full-screen`,
 `minimize`, `zoom`, `bring-all-to-front`, `show-previous-tab`, `show-next-tab`,
-`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `develop` (the
+`move-tab-to-new-window`, `merge-all-windows`, `back` (Go ▸ Back), `forward` (Go ▸ Forward), `develop` (the
 Develop menu; its chords stay), `paste-and-match-style`, `find`,
 `spelling-and-grammar`, `substitutions`, `transformations`, `app-help` (Help ▸
 *App* Help), `actual-size`, `zoom-in`, `zoom-out`, and `status-quit` (the

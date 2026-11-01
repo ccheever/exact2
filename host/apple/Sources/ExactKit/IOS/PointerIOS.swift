@@ -59,13 +59,26 @@ final class PointerRecognizer: UIGestureRecognizer {
     /// b5-b 1: a secondary or middle click is 2 or 4, as on the web).
     private var buttons = 1
 
-    /// DOM's `buttons` for UIKit's mask: primary 1, secondary 2, middle 4.
+    /// DOM's `buttons` for UIKit's mask: primary 1, secondary 2, middle 4,
+    /// back 8, forward 16 (UIKit numbers them from 1: middle is its third).
     static func domButtons(_ mask: UIEvent.ButtonMask) -> Int {
         var b = 0
         if mask.contains(.primary) { b |= 1 }
         if mask.contains(.secondary) { b |= 2 }
         if mask.contains(.button(3)) { b |= 4 }
+        if mask.contains(.button(4)) { b |= 8 }
+        if mask.contains(.button(5)) { b |= 16 }
         return b == 0 ? 1 : b
+    }
+    /// DOM's `button` for the lowest of `buttons`' bits: the press's.
+    static func domButton(_ buttons: Int) -> Int {
+        switch buttons & -buttons {
+        case 2: return 2
+        case 4: return 1
+        case 8: return 3
+        case 16: return 4
+        default: return 0
+        }
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
@@ -109,7 +122,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         // this down; the up's path and the hold stay.
         presenter?.defaultPrevented = false
         dispatch(path.compactMap(\.node).filter { $0.handlers.contains("pointerdown") }) { n in
-            if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, at: n)) }
+            if !n.disabled { n.presenter?.pointer(n.id, .down, sample(first, button: Self.domButton(buttons), at: n)) }
         }
         // Prevented, the view it went down on takes no focus from this touch (LLP 1005 §3).
         if presenter?.defaultPrevented == true { presenter?.preventedTouches.add(first) }
@@ -150,12 +163,12 @@ final class PointerRecognizer: UIGestureRecognizer {
         super.touchesMoved(touches, with: event)
         guard let held = touch, touches.contains(held), let node, node.handlers.contains("pointermove") else { return }
         if held.type == .indirectPointer { buttons = Self.domButtons(event.buttonMask) }
-        node.presenter?.pointer(node.id, .move, sample(held))
+        node.presenter?.pointer(node.id, .move, sample(held, button: -1))
     }
     /// The record of `t` as `node` (this one's by default) sees it, from its
     /// content box: a pencil's or a 3D Touch's force over its maximum where
     /// UIKit measures one, else DOM's 0.5 while down.
-    private func sample(_ t: UITouch, lifted: Bool = false, at node: NodeView? = nil) -> PointerSample {
+    private func sample(_ t: UITouch, lifted: Bool = false, button: Int, at node: NodeView? = nil) -> PointerSample {
         guard let node = node ?? self.node else { return PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "touch", id: touchId, clientX: 0, clientY: 0) }
         let point = t.location(in: node), box = node.contentBox()
         let client = node.presenter?.client(t.location(in: nil)) ?? .zero
@@ -164,7 +177,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘ (gallery F20).
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : buttons,
                              pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId,
-                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(modifierFlags))
+                             clientX: Double(client.x), clientY: Double(client.y), held: KeyCodes.held(modifierFlags), button: button)
     }
     /// Whether an enabled pointer node between the touched view and this
     /// one takes the touch: the innermost does, as on the web and macOS.
@@ -192,7 +205,7 @@ final class PointerRecognizer: UIGestureRecognizer {
         presenter?.cancelledPressTouches.remove(held)
         let nodes = path.compactMap(\.node).filter { $0.handlers.contains("pointerup") }
         path = []
-        dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, at: n)) }
+        dispatch(nodes) { n in n.presenter?.pointer(n.id, .up, sample(held, lifted: true, button: Self.domButton(buttons), at: n)) }
         if relay != nil { node = nil }
         state = .failed
     }

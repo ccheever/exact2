@@ -786,6 +786,12 @@ component App
     );
     assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
     assert_rows(&r);
+    // @ref LLP 1115.000 D5.5 — Back left the detail ahead: the platform's
+    // Forward goes there by the runner's own `go`, and nothing is ahead then.
+    assert_eq!(r.location_ahead().as_deref(), Some("/detail"));
+    r.host_go("/detail").unwrap().unwrap();
+    assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 2);
+    assert_eq!(r.location_ahead(), None);
     // Routes now sit where every host finds them, or are refused.
     let wrapped = source.replace(
         "      for e in stack(nav) key=e.id\n        column navigationKey",
