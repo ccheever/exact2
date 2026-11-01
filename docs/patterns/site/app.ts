@@ -28,7 +28,8 @@ function isDetails(value: unknown): value is Omit<Details, 'id'> {
 const sources: Sources = {
   loadPlanets: async () => PLANETS,
   // A planet's figures, the API's, asked when its page renders. A failed fetch or a bad answer fails the
-  // resource, which the page says; the list page asks for none.
+  // resource, which the page says; the list page asks for none. `fetch` keeps each answer as long as its HTTP
+  // headers allow, in the browser and across `serve`'s renders: write no cache of your own (`contract vocab cache`).
   loadDetails: async ([id]): Promise<Details> => {
     if (!id) return { id: '', summary: '', moons: 0, day: '', year: '' };
     const response = await fetch(`${API}/planets/${encodeURIComponent(id)}`);
