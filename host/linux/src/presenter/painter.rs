@@ -35,20 +35,24 @@ pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
     let _ = CUSTOM.set((name, make));
 }
 impl PainterChoice {
-    /// The baked painter, otherwise Ink on Windows and Auto elsewhere (LLP 1149 D12).
+    /// The baked painter; Windows defaults to Ink for apps or CPU for games, others to Auto.
     pub fn from_baked(compat: &str) -> Self {
+        Self::from_baked_on(compat, cfg!(windows))
+    }
+
+    fn from_baked_on(compat: &str, windows: bool) -> Self {
         #[derive(Default, serde::Deserialize)]
         struct Baked {
             painter: Option<String>,
+            #[serde(default)]
+            game: bool,
         }
-        match serde_json::from_str::<Baked>(compat)
-            .unwrap_or_default()
-            .painter
-            .as_deref()
-        {
+        let baked = serde_json::from_str::<Baked>(compat).unwrap_or_default();
+        match baked.painter.as_deref() {
             Some("ink") => Self::Ink,
-            Some("cpu") if cfg!(windows) => Self::Cpu,
-            _ if cfg!(windows) => Self::Ink,
+            Some("cpu") if windows => Self::Cpu,
+            _ if windows && baked.game => Self::Cpu,
+            _ if windows => Self::Ink,
             _ => Self::Auto,
         }
     }
@@ -648,6 +652,36 @@ mod tests {
             assert_eq!(default.with_override(None), default);
             assert_eq!(default.with_override(Some("ink")), PainterChoice::Ink);
             assert_eq!(default.with_override(Some("cpu")), PainterChoice::Cpu);
+        }
+    }
+
+    #[test]
+    fn baked_windows_games_keep_the_module_presenter_unless_the_painter_is_named() {
+        for (compat, windows, other) in [
+            (r#"{}"#, PainterChoice::Ink, PainterChoice::Auto),
+            (r#"{"game":true}"#, PainterChoice::Cpu, PainterChoice::Auto),
+            (
+                r#"{"game":true,"painter":"ink"}"#,
+                PainterChoice::Ink,
+                PainterChoice::Ink,
+            ),
+            (
+                r#"{"game":true,"painter":"cpu"}"#,
+                PainterChoice::Cpu,
+                PainterChoice::Auto,
+            ),
+        ] {
+            for (platform, expected) in [(true, windows), (false, other)] {
+                let painter = PainterChoice::from_baked_on(compat, platform);
+                assert_eq!(painter, expected, "{compat}, windows={platform}");
+                assert_eq!(painter.with_override(Some("ink")), PainterChoice::Ink);
+                assert_eq!(painter.with_override(Some("cpu")), PainterChoice::Cpu);
+                assert_eq!(painter.with_override(Some("gpu")), PainterChoice::Gpu);
+            }
+            assert_eq!(
+                PainterChoice::from_baked(compat),
+                if cfg!(windows) { windows } else { other }
+            );
         }
     }
 

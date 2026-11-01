@@ -17,13 +17,14 @@ const powershell = (command) => spawnSync('powershell', ['-NoProfile', '-NonInte
 
 /** Locate the shader compiler before Cargo can bake empty DXBC into an Ink binary. */
 export function prepareShaders(manifest, env = process.env) {
+  const painter = manifest?.host?.windows?.painter ?? (manifest?.game ? 'cpu' : 'ink');
   const onPath = String(env.PATH ?? '').split(delimiter).find(dir => dir && existsSync(resolve(dir, 'fxc.exe')));
   if (onPath) return;
   const bin = resolve(env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Windows Kits', '10', 'bin');
   let versions = []; try { versions = readdirSync(bin).filter(v => /^\d+(\.\d+)+$/.test(v)); } catch {}
   const newest = versions.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).reverse().find(v => existsSync(resolve(bin, v, 'x64', 'fxc.exe')));
   if (newest) env.PATH = `${resolve(bin, newest, 'x64')}${delimiter}${env.PATH ?? ''}`;
-  else if (manifest?.host?.windows?.painter !== 'cpu')
+  else if (painter !== 'cpu')
     throw new Error('Windows Ink requires fxc.exe: install the Windows SDK, or select host.windows.painter: "cpu".');
 }
 

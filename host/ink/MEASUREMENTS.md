@@ -5995,7 +5995,10 @@ smoke, screenshot and explicit headless launches do not start the window's
 device workers. Repeat the CPU window override and Excord's desktop drive;
 RichEdit remains unqualified. Sleep/wake needs the existing recovery work
 before any new attempt. The exact cleanup tasks and process receipts are
-listed in `QUEUE.md`'s NucBox sleep/wake item.
+listed in `QUEUE.md`'s NucBox sleep/wake item. A game scaffolded by `exact new`
+must also launch with no painter key and no `EXACT_PAINTER`, report `painter
+cpu`, and keep the module's direct presentation; repeat with explicit Ink
+and CPU choices and the environment override.
 
 The zero-failure prediction missed: the first Linux invocation could not
 compile the new test because its helper imports were missing. Adding those
@@ -6018,17 +6021,25 @@ commands are retained below `target/win-default/review/`; the full scaffold
 suite still has the launcher failure described above. This is not a passing
 zero-failure prediction.
 
-The game-path finding remains open. `run_composed` also serves ordinary apps,
-and a game can mount its full-window canvas after Play. A launch-time canvas
-check would miss that case. The scaffold now leaves the painter absent, but
-the Windows game default has not yet been given its CPU exception. Do not
-land this branch until that exception and its tests are in place.
-
 The review repairs rebased onto `origin/main` at `a88bb1e534` (Contract list
 styling). Before rerunning the requested Mac checks on that base, predict
 zero failures in those checks; the unrelated scaffold launcher failure
 remains recorded above. The rebase does not qualify Windows runtime behavior.
 All requested post-rebase checks pass, matching that prediction. Their raw
 output is retained in `target/win-default/review/rebased/`, including the
-source revision, commands and exit statuses. The game exception and NucBox
-qualification remain open.
+source revision, commands and exit statuses. NucBox qualification remains open.
+
+### Game-default ruling (2026-11-01)
+
+The orchestrator ruled that a Windows app declaring `game` defaults to CPU,
+with an explicit painter honoured and `EXACT_PAINTER` still overriding.
+The bake carries `game: true` beside the compatibility id; ordinary apps'
+compat JSON is unchanged. The host resolves the default before starting a
+device or creating a window. The Ink-window handoff remains in `QUEUE.md`.
+
+Before running the Mac checks, predict zero failures in Linux, Ink, guides,
+caps, formatting and Clippy, plus the bake tests, manifest scripts and the
+focused scaffold tests. No performance result is predicted or measured.
+The NucBox remains asleep; this path and the other Windows checks listed
+above are unrun. Raw output will be retained under
+`target/win-default/game-default/`.

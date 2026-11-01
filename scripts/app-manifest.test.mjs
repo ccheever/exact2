@@ -426,6 +426,10 @@ test('Windows Ink builds require fxc from PATH or the SDK; CPU builds do not', a
       assert.throws(() => prepareShaders({ host: { windows: { painter } } }, env()), /install the Windows SDK, or select host.windows.painter: "cpu"/);
     }
     assert.doesNotThrow(() => prepareShaders({ host: { windows: { painter: 'cpu' } } }, env()));
+    const game = { crate: 'world-logic', type: 'World' };
+    assert.doesNotThrow(() => prepareShaders({ game }, env()));
+    assert.doesNotThrow(() => prepareShaders({ game, host: { windows: { painter: 'cpu' } } }, env()));
+    assert.throws(() => prepareShaders({ game, host: { windows: { painter: 'ink' } } }, env()), /install the Windows SDK/);
     const path = resolve(dir, 'tools'); mkdirSync(path); writeFileSync(resolve(path, 'fxc.exe'), '');
     const onPath = { ...env(), PATH: path }; prepareShaders({}, onPath);
     assert.equal(onPath.PATH, path);

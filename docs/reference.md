@@ -41,8 +41,9 @@ same set.
 ### Windows painter
 
 An app with no `host.windows.painter` uses ink on a DirectX 11 composition
-swap chain. `"cpu"` keeps the CPU painter and its `softbuffer` window;
-`"ink"` is also accepted. `EXACT_PAINTER` overrides either choice.
+swap chain, except an app declaring `game`, which keeps the CPU painter so
+its module presents directly. Explicit `"ink"` or `"cpu"` selects that painter;
+CPU keeps the `softbuffer` window. `EXACT_PAINTER` overrides either choice.
 `EXACT_INK_DEVICE=wgpu` selects ink's wgpu device (DirectX 12 with
 `WGPU_BACKEND=dx12`, as the measurements set); `warp` selects software
 DirectX 11. An Ink build requires the Windows SDK's `fxc`; without it,

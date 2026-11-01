@@ -561,7 +561,7 @@ last used it has completed (D4).
 
 ### D12 — Where it is the presenter, and what "the same everywhere" promises
 
-**Windows uses ink when the app names no painter** (Charlie, 2026-11-01:
+**Windows uses ink when the app names neither a painter nor the game engine** (Charlie, 2026-11-01:
 "let's use ink by default on windows and optionally on macos and other platforms").
 It presents through the DirectX 11 composition swap chain;
 `host.windows.painter: "cpu"` keeps the CPU painter and its `softbuffer` window.
@@ -571,12 +571,12 @@ are +4.74% and −2.46%; S2.9's are −5.13% to +6.98%, with two of four maxima
 above the 10% guard (+36.99% and +43.59%) and the 100 ms budget unmet by both
 painters (`host/ink/MEASUREMENTS.md`, S2.5 and S2.9).
 The ruling changes the default without closing those boot obligations.
-The Windows default must also preserve a lone full-window game canvas's
-module-owned presentation (orchestrator ruling, 2026-11-01). A game keeps the
-CPU painter until Ink's window can hand that canvas to the module and match
-LLP 1015.001's frame p50 of 7.22 ms at 1280×720 and 10.83 ms at 1920×1080.
-The default's game exception remains unimplemented in this review round
-(`host/ink/MEASUREMENTS.md`, “Blind-review repairs”); it blocks landing.
+A Windows manifest declaring `game` defaults to CPU to preserve the module's
+direct presentation (LLP 1015.001), while explicit `"ink"` or `"cpu"` and
+`EXACT_PAINTER` retain precedence (orchestrator, 2026-11-01).
+Changing that default waits until Ink's window can hand a lone full-window
+canvas to the module and match LLP 1015.001's frame p50 of 7.22 ms at
+1280×720 and 10.83 ms at 1920×1080.
 [The 60 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g6e-the-full-period-reservation-wait-restored)
 and [the 120 Hz fling](../bench/heavy-list/gpui/RESULTS.md#g7c-the-windows-120-hz-fling-rows-and-the-observer-off-cold-control)
 remain the performance record; S2.9 records both devices passing the six desktop journeys.

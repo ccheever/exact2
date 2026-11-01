@@ -1425,6 +1425,7 @@ component App
             target: "aarch64-apple-ios".into(),
             reach: Value::Null,
             painter: None,
+            game: false,
             embedded: json!({"seq":0,"genesis":true,"entryDigest":null,"plan":{"sha256":head.plan.sha256,"bytes":head.plan.bytes},"assets":assets}),
         };
         (

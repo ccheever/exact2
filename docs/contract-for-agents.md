@@ -58,8 +58,9 @@ This guide is documentation, not an additional policy layer. Documents in
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
 
-Windows apps use ink unless `host.windows.painter` says `"cpu"`;
-`EXACT_PAINTER` overrides both. Headless drives explicitly use CPU unless
+Windows apps default to ink, or CPU when the manifest declares `game`;
+`host.windows.painter: "ink"` or `"cpu"` selects either, and `EXACT_PAINTER`
+overrides both. Headless drives explicitly use CPU unless
 overridden, so inspect the desktop capture too. See the
 [Windows painter choices](reference.md#windows-painter) for device selection
 and the other platforms' defaults.

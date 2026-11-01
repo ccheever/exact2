@@ -795,6 +795,7 @@ mod tests {
             embedded: Value::Null,
             reach: Value::Null,
             painter: None,
+            game: false,
         }
     }
 

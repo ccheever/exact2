@@ -934,7 +934,7 @@
           "properties": {
             "painter": {
               "enum": ["ink", "cpu"],
-              "description": "Absent: ink on the DirectX 11 composition swap chain (LLP 1149 D12); cpu keeps the CPU painter and its softbuffer window. EXACT_PAINTER overrides the choice."
+              "description": "Absent: CPU for an app declaring game, otherwise ink on the DirectX 11 composition swap chain (LLP 1149 D12); explicit ink or cpu selects that painter, cpu keeps the softbuffer window, and EXACT_PAINTER overrides the choice."
             },
             "window": {
               "description": "In logical pixels (effective pixels, as WinUI's). Absent: 1280 by 720, with no minimum. `EXACT_SIZE` overrides the size.",
