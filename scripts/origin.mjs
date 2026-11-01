@@ -70,8 +70,10 @@ const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json'
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
   '.ttf', '.otf', '.woff', '.woff2', '.wgsl', '.hbc', '.model', '.tex']);
 /** Whether a request's `Accept` takes HTML (RFC 9110: the media type, any
- * case, at a quality above zero), as a browser's navigation does. */
-export function acceptsHTML(accept = '') {
+ * case, at a quality above zero), as a browser's navigation does. With
+ * `wildcard`, a range taking any type or any text type, or no header at
+ * all, does too (curl's request) unless it names `text/html` at quality zero. */
+export function acceptsHTML(accept = '', { wildcard = false } = {}) {
   // Split on commas and semicolons outside a quoted parameter value.
   const ranges = [[[]]];
   let quoted = false;
@@ -83,10 +85,13 @@ export function acceptsHTML(accept = '') {
     if (!quoted && c === ';') { range.push([]); continue; }
     param.push(c);
   }
-  return ranges.some(([type, ...params]) => {
+  const types = ranges.map(([type, ...params]) => {
     const q = params.map((p) => p.join('').trim().toLowerCase()).find((p) => p.startsWith('q='));
-    return type.join('').trim().toLowerCase() === 'text/html' && (q === undefined || Number(q.slice(2)) > 0);
+    return [type.join('').trim().toLowerCase(), q === undefined || Number(q.slice(2)) > 0];
   });
+  const html = types.filter(([type]) => type === 'text/html');
+  if (html.length || !wildcard) return html.some(([, taken]) => taken);
+  return !String(accept ?? '').trim() || types.some(([type, taken]) => taken && (type === '*/*' || type === 'text/*'));
 }
 /** Whether a path that names no file is the app's document. A navigation
  * (`acceptsHTML`) to one whose last segment has a dot is too, unless that
