@@ -1715,14 +1715,22 @@ and the Linux headless CPU renderer without claiming display frame timing.
   sleep/wake hang separate: chunk A reached `shelf_sleep_wake` at 18:39:46,
   after the 18:32 paint crash, and the next boot's Kernel-Power 41 reports
   `SleepInProgress=5`, `BugcheckCode=0`. Retain both investigations.
-- **G7b Windows cadence and static rows need foreground qualification**
-  (2026-11-01, LLP 1149.001). At 5120×1440, 120 Hz, the first D3D11 fling
-  and its one retry fail before wheel input. Both identify ChatGPT.exe,
-  title ChatGPT, PID 22076, as foreground. Collection stops without another
-  workaround. Resolve foreground ownership before the five interleaved
-  fling rounds and the separate rest/bar/caret samples; the historical
-  60 Hz rows remain the comparison. G7b's quiet cold carrier endpoints and
-  first-paint pairs are recorded separately in RESULTS.
+- **G7c Windows displayed cadence needs a working PresentMon capture**
+  (2026-11-01, LLP 1149.001). A visible PowerShell task resolves foreground
+  acquisition with the unchanged driver. The post-readiness captures still
+  lose ETW events and produce no CSV, on D3D11 and egui as well as Ink/wgpu.
+  Establish zero-loss captures before reporting 120 Hz fling cadence,
+  late intervals, p99, rest displays or bar/caret display rates. Retained
+  CPU, memory, foreground and snapshot observations are in G7c's RESULTS.
+  Bar also needs a quiet cohort: all three attempts fail one of 15 load
+  observations, with maxima 10.9%, 10.9% and 11.0%; collection stops at three.
+- **G7c observer-off cold control needs a quiet cohort** (2026-11-01,
+  LLP 1149.001). All three ten-launch-per-arm cohorts pass the initial six
+  idle observations but fail the complete-cohort gate: 7/34, 16/34 and
+  1/34 observations reach at least 10% total CPU. Their excluded DWM
+  medians remain above the prediction without PresentMon. A qualified
+  control is still needed to distinguish observer cost from machine state;
+  the session process files do not establish a cause.
 - **G7b Windows startup PresentMon capture remains unqualified**
   (2026-11-01, LLP 1149.001). Three configurations produce no CSV and lose
   ETW events: start before launch and close at readiness, retain the process

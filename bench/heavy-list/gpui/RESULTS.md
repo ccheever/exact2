@@ -11905,18 +11905,18 @@ observations below 10% total CPU with no compiler, then apply that same
 quiet rule to every observation of each complete cohort. Retain all attempts.
 Application, OS and driver caches remain intact.
 
-| Prediction | Instrument and criterion |
-| --- | --- |
-| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon 2.6.0; four gesture windows per process, five rotating rounds per arm. Late means strictly over 12.5 ms. Ink/wgpu cadence stays unavailable if its readback path has no app-owned presents. |
-| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, each within 25%. | G6's process and HWND-owner-thread CPU endpoints over ten seconds; 15.625 ms accounting ticks. |
-| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak at the rest endpoint, with sampled fling peak reported separately. |
-| D3D11 snapshots equal successful frames over the five flings. | Existing exit counters, including startup. |
-| Rest has zero displays and at most two CPU ticks; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame. | One separate ten-second sample per arm and workload, using CPU endpoints and PresentMon. Unobserved wgpu cadence stays unavailable. |
-| Observer-off cold DWM medians return to 150–170 ms on D3D11, 230–250 on egui and 690–730 on Ink/wgpu. | G7's startup driver without PresentMon, ten interleaved fresh processes per arm in one session, with its existing DWM and DXGI endpoints. |
+| Prediction | Instrument and criterion | Result |
+| --- | --- | --- |
+| D3D11 and egui reach 116–120 displays/gesture s, at most 1 late interval/s and p99 at most 12.5 ms. | PresentMon 2.6.0; four gesture windows per process, five rotating rounds per arm. Late means strictly over 12.5 ms. Ink/wgpu cadence stays unavailable if its readback path has no app-owned presents. | Untested: every capture loses ETW events and produces no CSV. |
+| Fling process/main CPU is 168/125 ms/s on D3D11, 243/224 on Ink/wgpu and 50/50 on egui, each within 25%. | G6's process and HWND-owner-thread CPU endpoints over ten seconds; 15.625 ms accounting ticks. | D3D11 process and both egui medians miss low; D3D11 main and wgpu medians pass. Wgpu ranges include low misses. |
+| Peak working set stays within 10% of 153/325/182 MiB for D3D11/Ink-wgpu/egui. | Lifetime peak at the rest endpoint, with sampled fling peak reported separately. | All three medians and ranges pass. |
+| D3D11 snapshots equal successful frames over the five flings. | Existing exit counters, including startup. | Pass: 2,405 / 2,405 in the quiet repeat. |
+| Rest has zero displays and at most two CPU ticks; bar reaches 116–120 displays/s; caret displays 2.0/s within one frame. | One separate ten-second sample per arm and workload, using CPU endpoints and PresentMon. Unobserved wgpu cadence stays unavailable. | Rest CPU passes for all arms; every display prediction remains untested after failed captures. |
+| Observer-off cold DWM medians return to 150–170 ms on D3D11, 230–250 on egui and 690–730 on Ink/wgpu. | G7's startup driver without PresentMon, ten interleaved fresh processes per arm in one session, with its existing DWM and DXGI endpoints. | All three cohorts are excluded for load. Every DWM median misses its band; no qualified control. |
 
 A foreground loss retains the owning process and title and permits one
-retry; a repeated loss to the same application stops collection. G7b's
-predictions above are unchanged. Raw evidence belongs under `target/g7c/`
+retry; a repeated loss to the same application stops collection. The fling and static
+predictions from G7b are unchanged. Raw evidence belongs under `target/g7c/`
 locally and in the reused `exact2-1149-001-win120b` NucBox mirror;
 `target/g7b/` is retained intact.
 
@@ -11952,7 +11952,109 @@ PowerShell task starts with its own console in the foreground: PID
 The same driver, binaries and schedule run beneath it. The retained task
 XML records the interactive SID principal and direct `powershell.exe`
 action. The headless task's failed attempts stay in `series-1`; the visible
-collection is `visible-1`.
+collection is `visible-1`, followed by `visible-2` for fling and
+`visible-bar2` / `visible-bar3` for bar. All **45** visible-task samples
+acquire their own window and record zero focus losses: that prediction
+**passes**. No further foreground retry is needed.
+
+### G7c fling rows
+
+The first visible five-round cohort (`visible-1/warm`) keeps focus but
+fails one of **71** quiet observations, at **11.2%** CPU. It is excluded
+whole. The repeat (`visible-2/warm`) passes **71/71** observations, with
+**7.0%** median and **9.8%** maximum CPU, and completes all fifteen samples
+without retries or focus loss. No sample from the first cohort enters the
+repeat's rows. These are medians [minimum–maximum] over five processes per
+arm; the 60 Hz values remain historical, with different source and refresh.
+
+| Arm / refresh | Displays / gesture s | Late intervals / s | p99, ms | Fling process / main CPU, ms/s | Lifetime peak working set, MiB |
+| --- | ---: | ---: | ---: | --- | ---: |
+| D3D11, 60 Hz (G6e) | 58.15 | 0 | 16.85 | 84.08 / 62.31 | 153.18 |
+| D3D11, 120 Hz (G7c) | Unavailable | Unavailable | Unavailable | 125.36 [115.98–145.61] / 102.32 [98.97–108.34] | 154.52 [153.98–155.50] |
+| Ink/wgpu, 60 Hz (G6) | Unavailable | Unavailable | Unavailable | 121.41 / 112.02 | 324.75 |
+| Ink/wgpu, 120 Hz (G7c) | Unavailable | Unavailable | Unavailable | 191.82 [174.98–202.85] / 181.37 [164.14–193.56] | 328.51 [327.08–331.57] |
+| egui, 60 Hz (G6) | 57.86 | 0 | 16.88 | 24.91 / 24.91 | 181.74 |
+| egui, 120 Hz (G7c) | Unavailable | Unavailable | Unavailable | 37.18 [30.98–46.40] / 35.63 [30.98–40.21] | 181.53 [181.48–181.90] |
+
+| Arm | Fixed process / main CPU bands, ms/s | CPU verdict | Sampled fling peak, MiB | End-of-rest working set, MiB | Lifetime peak prediction / verdict |
+| --- | --- | --- | ---: | ---: | --- |
+| D3D11 | 126–210 / 93.75–156.25 | Process median misses low; main median and range pass | 154.52 [153.98–155.50] | 154.52 [153.98–155.50] | 153 ±10%: median and range pass |
+| Ink/wgpu | 182.25–303.75 / 168–280 | Medians pass; both ranges include a low miss | 326.68 [324.92–329.29] | 326.23 [324.80–329.27] | 325 ±10%: median and range pass |
+| egui | 37.5–62.5 / 37.5–62.5 | Both medians miss low | 171.22 [170.64–171.50] | 169.89 [169.18–170.08] | 182 ±10%: median and range pass |
+
+The lower CPU misses do not establish a saving at equal displayed cadence:
+that cadence is unobserved. Post-fling rest process/main CPU is
+**3.09/3.09**, **3.09/3.09** and **0/0 ms/s** for D3D11/Ink-wgpu/egui.
+These post-fling phases are distinct from the separate rest prediction below.
+
+All fifteen PresentMon processes exit zero but lose events and produce no
+CSV. Per-process loss ranges are **34,546–39,427** (D3D11),
+**50,089–50,656** (Ink/wgpu) and **22,903–23,056** (egui). The predictions
+of **116–120 displays/s**, **at most 1 interval/s over 12.5 ms**, and
+**p99 at most 12.5 ms** are therefore **untested**, not numeric misses.
+Ink/wgpu's displayed cadence remains unavailable; this run also lacks a
+trace for the other arms. No carrier rate limit or its cause can be
+established from these captures. The 60 Hz late threshold was 25 ms.
+The maintained driver and its capture configuration remain unchanged;
+this lane does not repeat G7b's three capture-repair configurations.
+
+D3D11 records **2,405 snapshots / 2,405 successful frames**, including
+startup: **490, 488, 454, 489, 484** per round. The equality prediction
+**passes**. Its excluded first cohort also preserves equality, 2,433/2,433.
+These are successful-frame counters, not displayed-frame timestamps.
+
+The driver posts **483 [476–484]**, **482 [474–484]** and **481 [475–483]**
+wheel events per process on D3D11/Ink-wgpu/egui, with the unchanged integral
+of 600 logical pixels per gesture. Maximum within-gesture posting gaps
+across each arm are **37.45 / 78.97 / 51.34 ms**; the per-process counts
+of gaps over 12.5 ms are **0 [0–3] / 0 [0–2] / 0 [0–2]**. These input gaps
+are retained separately from the unavailable display intervals.
+
+### G7c rest, bar and caret
+
+The separate rest and caret cohorts each pass all **15** quiet observations,
+with maximum CPU **9.7%** and **8.8%**, respectively. The unchanged driver’s
+measured first phases last **10.08–10.13 s**. Static motion continues during
+the driver's following rest phase, so only the first phase supplies these
+CPU rows. The 60 Hz rest values below are historical post-fling medians,
+with a larger retained list, not separate rest launches.
+
+| Arm | 60 Hz rest process / main CPU, ms/s | 60 Hz rest displays | 120 Hz separate rest process / main CPU, ms/s | 120 Hz process / main ticks | Rest CPU prediction / verdict |
+| --- | ---: | --- | ---: | ---: | --- |
+| D3D11 | 0 / 0 | 0 | 3.10 / 3.10 | 2 / 2 | At most two ticks: pass |
+| Ink/wgpu | 1.55 / 1.55 | Unavailable | 1.54 / 0 | 1 / 0 | At most two ticks: pass |
+| egui | 0 / 0 | 0 | 0 / 0 | 0 / 0 | At most two ticks: pass |
+
+The 120 Hz **zero-display rest prediction is untested for every arm**:
+PresentMon loses **6,016 / 6,100 / 6,176** events for D3D11/Ink-wgpu/egui
+and produces no CSV. Separate-rest lifetime peak / ending working set is
+**140.60/140.60**, **300.98/298.70** and **167.77/167.72 MiB**, respectively;
+60 Hz post-fling ending working set was **153.16 / 322.48 / 170.00 MiB**.
+These different retained scenes do not measure a refresh-rate memory saving.
+
+| Arm | 60 Hz bar / caret evidence | 120 Hz caret process / main CPU, ms/s | 120 Hz bar / caret displayed rate | Display prediction / verdict |
+| --- | --- | ---: | --- | --- |
+| D3D11 | Bar unmeasured; caret 2.0 redraws/s (M2b) | 1.55 / 1.55 | Unavailable / unavailable | Bar 116–120/s, caret 2.0/s within one frame: untested |
+| Ink/wgpu | Bar unmeasured; caret 2.0 redraws/s (M2b) | 0 / 0 | Unavailable / unavailable | Same predictions: untested |
+| egui | Unmeasured | 0 / 0 | Unavailable / unavailable | Same predictions: untested |
+
+M2b counts redraws, not displays, and its CPU cohort failed qualification.
+The 120 Hz caret captures lose **8,301 / 9,223 / 8,304** events and produce
+no CSV. Exit counters include startup and both ten-second phases; they
+cannot substitute for the requested displayed cadence in the first phase.
+
+All three bar cohorts complete one sample per arm after six quiet idle
+observations, but each fails one of **15** cohort observations. No bar
+cohort qualifies; collection stops after the third attempt. Every bar
+capture also loses ETW events and produces no CSV. There is no qualified
+bar CPU row or displayed-rate verdict to place beside the unmeasured
+60 Hz bar. All CPU and memory endpoints remain in the excluded raw files.
+
+| Bar cohort | Passing / total observations | CPU median / maximum, % | ETW events lost, D3D11 / Ink-wgpu / egui | Verdict |
+| --- | ---: | ---: | --- | --- |
+| visible-1/bar | 14 / 15 | 7.5 / 10.9 | 136,098 / 191,963 / 71,996 | Excluded whole |
+| visible-bar2/bar | 14 / 15 | 7.5 / 10.9 | 135,972 / 183,960 / 71,788 | Excluded whole |
+| visible-bar3/bar | 14 / 15 | 7.5 / 11.0 | 136,168 / 183,850 / 72,080 | Excluded whole; third attempt |
 
 ### G7c observer-off cold control
 
@@ -11982,16 +12084,16 @@ they are diagnostics, not qualified startup rows. G7 and G7b's qualified
 carrier endpoints remain the comparison. G7b ran PresentMon before each
 launch, but its startup capture failed; G7 and these controls did not.
 
-| Endpoint, ms | G7, 120 Hz | G7b after, 120 Hz | G7c series-1, excluded | G7c series-2, excluded | G7c series-3, excluded |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| D3D11 DWM proxy | 161.18 [146.55–175.67] | 192.98 [172.38–205.10] | 195.82 [173.54–462.77] | 200.21 [194.81–208.68] | 199.22 [186.61–227.43] |
-| D3D11 DXGI display | 167.03 [153.72–181.89] | 199.15 [178.38–209.76] | 201.95 [179.62–477.37] | 206.18 [200.86–215.20] | 205.68 [190.61–233.98] |
-| Ink/wgpu DWM proxy | 723.48 [687.45–834.75] | 730.36 [715.54–767.56] | 798.11 [726.09–952.56] | 764.10 [718.59–801.82] | 745.64 [729.66–758.27] |
-| egui DWM proxy | 239.05 [229.51–263.04] | 275.75 [264.68–280.11] | 286.04 [278.99–319.96] | 282.77 [270.07–316.94] | 279.80 [269.78–306.02] |
+| Endpoint, ms | G6e/G6, 60 Hz | G7, 120 Hz | G7b after, 120 Hz | G7c series-1, excluded | G7c series-2, excluded | G7c series-3, excluded |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| D3D11 DWM proxy | 160.78 [151.81–171.37] | 161.18 [146.55–175.67] | 192.98 [172.38–205.10] | 195.82 [173.54–462.77] | 200.21 [194.81–208.68] | 199.22 [186.61–227.43] |
+| D3D11 DXGI display | 177.66 [170.41–182.54] | 167.03 [153.72–181.89] | 199.15 [178.38–209.76] | 201.95 [179.62–477.37] | 206.18 [200.86–215.20] | 205.68 [190.61–233.98] |
+| Ink/wgpu DWM proxy | 716.21 [706.02–736.88] | 723.48 [687.45–834.75] | 730.36 [715.54–767.56] | 798.11 [726.09–952.56] | 764.10 [718.59–801.82] | 745.64 [729.66–758.27] |
+| egui DWM proxy | 248.76 [240.70–255.15] | 239.05 [229.51–263.04] | 275.75 [264.68–280.11] | 286.04 [278.99–319.96] | 282.77 [270.07–316.94] | 279.80 [269.78–306.02] |
 
-Every excluded median **misses** its predicted band (D3D11 150–170, Ink/wgpu 690–730, egui 230–250 ms),
-but the prediction has no qualified test: none supplies the quiet control needed to attribute G7b's difference
-from G7. These observations establish neither the observer's cost nor a
+Every excluded DWM median **misses** its predicted band (D3D11 150–170,
+Ink/wgpu 690–730, egui 230–250 ms), but the prediction has no qualified test:
+none supplies the quiet control needed to attribute G7b's difference from G7. These observations establish neither the observer's cost nor a
 machine-state cause. D3D11's startup snapshots/frames are 38/38, 40/40 and
 40/40; these are separate from the five-fling invariant.
 
@@ -12014,3 +12116,53 @@ remains present. These are this lane's own endpoint observations, not the
 orchestrator's five-second sample. Defender, indexing, power and display
 settings are unchanged. The clock crosses the daylight-saving transition;
 raw Unix/QPC times, rather than repeated local 01:xx labels, establish order.
+
+### G7c reproduction and verification
+
+Retained evidence is under `target/g7c/` in this worktree and
+`C:\Users\Charlie Cheever\projects\exact2-1149-001-win120b\target\g7c\`
+on the NucBox. No G7b raw files or binaries are removed. The local `nucbox/`
+tree mirrors the cold and visible cohorts, including excluded attempts,
+application and PresentMon logs, PID logs, CPU endpoints, wheel posts,
+foreground owners, quiet waits, session process files and completion records.
+`raw-sha256.json` hashes that tree. Missing CSVs remain missing; none is
+interpreted as zero displays.
+
+`source.tar.gz`, `source-revision.txt` and `input-hashes.json` retain the
+initial sync. `final-source-delta.tar` and `final-source-revision.txt` retain
+the rebased record and upstream changes applied to that mirror.
+`binary-verification.json` checks G7b's two after-binary receipts.
+Neither executable is rebuilt. The unchanged driver and reducer are copied
+as `windows-measure.py` and `windows-summary.py`; the historical G7 driver
+is retained beside them. `collect.py`, `cold-retry.py`, `fling-static.py`,
+`fling-retry.py` and `bar-retry.py`, their PowerShell wrappers and task XML
+retain the schedules and launch methods. The cold path has no PresentMon start;
+its PID logs and boundary process files independently confirm that absence.
+Only this lane's files and scheduled tasks change on the NucBox. Its three
+completed scheduled tasks are removed; their final status is retained in
+`completed-tasks.json`. Final executable and driver hashes still match.
+
+Reproduce all completed cohorts and the independent raw audits:
+
+```sh
+python3 target/g7c/verify.py
+python3 target/g7c/reduce.py
+```
+
+`audit.py` checks all 90 cold endpoints against application logs, receipts,
+interleaving, dimensions, the observer-off PID logs, quiet gates and process
+differences. `audit-visible.py` checks foreground ownership, wheel integrals,
+CPU and memory reductions, snapshot/frame equality and capture losses against
+the PresentMon logs. Both machines reproduce the audits, and all **451** raw-file hashes match.
+These audits verify retained observations; they do not
+turn excluded cohorts or failed captures into qualified measurements.
+
+The six checks pass after rebase, including both Clippy and formatting. Root tests report
+**7,470 passed, 0 failed, 83 ignored** across 113 result lines. Full output,
+exit codes and the verbatim test results are retained in `checks/` and
+`checks-rebased/`; `checks-rebased/verbatim-results.txt` includes every result
+line and command. Staged
+caps is rerun for the final record. No renderer, carrier or maintained driver
+source changes, so native Windows parity and journey suites are not rerun.
+No black-Mac focus or input operation is used. The branch is rebased onto
+`ecf8ea4dac` and committed without a push.
