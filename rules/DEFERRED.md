@@ -1506,6 +1506,17 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   offset, buttons, pressure, type and id) on these two and a new
   `pointermove`, on any node. The paint app's diary (F1) is the consumer.
   Take: none offered.
+  **Expanded (James Ide, 2026-10-30, for the chat template's composer):**
+  `swipe=action` with `swipe-direction` and `touch-count`, each host's own
+  discrete swipe (LLP 1057.001 §8): UIKit's on iOS, AppKit's swipe event on
+  macOS and Android's fling; tvOS, the web, Linux and Windows make none. The
+  chat template's composer bar is the consumer: a flick down on it ends
+  editing.
+  `touch-count` is how many fingers the platform's swipe takes; no finger is
+  tracked on its own, so this block's "no multi-touch" stands. Take: none
+  offered; waived by James, whom Charlie gave the call. Still out: a swipe
+  invented where a platform has none, and LLP 1057.000's composable discrete
+  leaf.
   **Expanded (LLP 1094; waived by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** a reorder spanning
   vertical virtualized lists that share a `reorderGroup`, in one session,
