@@ -692,7 +692,9 @@ Each platform selects independently; tvOS keeps its asset catalogs and does
 not inherit the iOS selection. There is no `.icon` discovery. The selected
 project must be inside the app and cannot coexist with a primary
 `AppIcon.appiconset`, or a set with the project's name, in that platform's
-catalogs; other sets stay alternate icons. Missing paths
+catalogs. On iOS, other `.appiconset` sets in the catalogs compile as alternate
+icons, also with a raster primary. Pass the set's basename, without the extension,
+to `UIApplication.setAlternateIconName`; `nil` restores the primary. Missing paths
 and paths that are not `.icon` directories fail by name. The project and its
 layers compile in the same `actool` pass as the app's catalogs; changing them
 requires a new native build. `icons` still supplies the web and the native
