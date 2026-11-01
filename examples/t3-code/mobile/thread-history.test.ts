@@ -328,6 +328,7 @@ test('history chrome keeps one load control mounted while offline', () => {
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(false);
   data.historyRequest = 'key'; data.historyError = 'Offline';
   expect(history.drawn('testId="thread-history-load-earlier"', {}, scope)).toBe(true);
+    expect(history.drawn('testId="history-error"', {}, scope)).toBe(true);
   expect(history.attribute('testId="thread-history-load-earlier"', 'disabled', {}, scope)).toBe(false);
   data.historyRequest = 'key';
   history.call('loadEarlier', {}, scope, []);

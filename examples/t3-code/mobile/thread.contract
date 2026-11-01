@@ -71,7 +71,7 @@ component ThreadHistory
                 t3-symbol symbol-name="chevron.up" symbol-weight="regular" symbol-tint=colors.iconSubtle width=12 height=12
               text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.primary
         if data.historyError != ""
-          text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+          text data.historyError role="status" testId="history-error" text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
 
 component ThreadMessage
   props
