@@ -42,6 +42,9 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         let italic: Bool
         let lineHeight: CGFloat?
         let ink: PlatformColor
+        /// The opacity of the platform's secondary label colour in the
+        /// appearance the field draws in; the adapters read it there.
+        var secondaryOpacity: CGFloat = 0.5
         /// The node's inline atoms (LLP 1045.000), and the appearance their pills draw for.
         var atoms = MarkdownAtoms()
         /// The app's base direction for each line, `paragraphDirs` (LLP 1045 D11).
@@ -158,11 +161,18 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         directed[.paragraphStyle] = paragraph
         storage.beginEditing()
         storage.setAttributes(directed, range: NSRange(location: 0, length: length))
+        let source = text as NSString
+        var rules: [NSRange] = []
         // Paragraphs: headings scale and embolden; code is monospace on a
         // tint; quotes dim; list items and quotes indent.
         for p in object["p"] ?? [] where p.count >= 6 {
             let range = clamp(p[0], p[1])
             let kind = (p[2] as? Int) ?? 0, level = (p[3] as? Int) ?? 0, depth = (p[4] as? Int) ?? 0, quote = (p[5] as? Int) ?? 0
+            if kind == 5 {
+                // The break's own characters, after any quote's `>`.
+                let marks = source.rangeOfCharacter(from: CharacterSet(charactersIn: "-*_"), options: [], range: range)
+                if marks.location != NSNotFound { rules.append(NSRange(location: marks.location, length: NSMaxRange(range) - marks.location)) }
+            }
             var attributes: [NSAttributedString.Key: Any] = [:]
             let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
             let indent = CGFloat(depth) * 20 + CGFloat(quote) * 16
@@ -228,12 +238,17 @@ final class MarkupEditor: NSObject, MarkdownEditing {
             case 0, 1, 2:
                 // The list marker, dimmed, until a drawn bullet or box replaces it.
                 storage.addAttribute(.foregroundColor, value: look.ink.withAlphaComponent(0.4), range: range)
-            case 3: storage.addAttribute(.foregroundColor, value: look.ink.withAlphaComponent(0.3), range: range)
+            case 3: break // a thematic break, below
             default:
                 // A footnote mark: the label in a small raised run.
                 storage.addAttributes([.font: look.font((look.size * 0.75).rounded(), look.weight, look.family, false), .baselineOffset: look.size * 0.33, .foregroundColor: look.ink.withAlphaComponent(0.62)], range: range)
             }
         }
+        // A thematic break is its source in the field's secondary text (its
+        // ink at the platform's secondary label opacity), whatever the
+        // selection: as faint as other syntax, a dark ground loses it.
+        let secondary = look.ink.withAlphaComponent(look.secondaryOpacity)
+        for range in rules { storage.addAttribute(.foregroundColor, value: secondary, range: range) }
         // A link's `](target)`, whatever the selection, and its `[`
         // (MarkupHidden.swift). One value marks both of a link.
         for (n, l) in (object["l"] ?? []).enumerated() where l.count >= 4 {

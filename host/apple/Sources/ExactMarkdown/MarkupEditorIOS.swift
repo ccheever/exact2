@@ -11,6 +11,7 @@ extension NodeView {
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
             size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
+        look.secondaryOpacity = UIColor.secondaryLabel.resolvedColor(with: f.traitCollection).cgColor.alpha
         look.atoms = markdownAtoms
         look.paragraphDirs = props["paragraphDirs"] ?? ""
         look.rtl = markdownRTL

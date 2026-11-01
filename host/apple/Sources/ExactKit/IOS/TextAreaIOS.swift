@@ -194,7 +194,6 @@ package final class TextArea: UITextView {
     /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
     var atomElements: [AtomElement] = []
     var atomTap: (AnyObject, UITapGestureRecognizer)?
-    var atomLook: (any UITraitChangeRegistration)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {
@@ -487,6 +486,12 @@ extension NodeView {
         // `layoutManager`: that would irreversibly switch back to TextKit 1.
         let f = TextArea(frame: .zero)
         f.owner = self
+        // A Markdown editor's colours and its atoms' pills are drawn for one
+        // appearance: it restyles for another (light or dark, Increase
+        // Contrast), as AppKit's does.
+        f.registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (view: TextArea, _: UITraitCollection) in
+            if view.markup != nil { view.owner?.restyleMarkup() }
+        }
         #if !os(tvOS)
         // A CGColor does not retain UIColor's semantic appearance. The
         // native textarea's drawn separator follows UIKit's trait change.
