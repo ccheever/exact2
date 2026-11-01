@@ -157,6 +157,8 @@ members T3Code
             if result.value == composerText
               send("")
           else if result.then == "models"
+            // As the trigger's press: the anchor, and the pick the effort focus compares against.
+            modelMeasure()
             openModels()
           else if result.then == "mode-plan" or result.then == "mode-default"
             menuPick("interaction", "", result.then == "mode-plan" ? "plan" : "default")

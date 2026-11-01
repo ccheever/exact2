@@ -159,11 +159,11 @@ component ModelPicker
   // highlight; an unsearched list highlights its selected model.
   derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : selectedIndex))
   derive highlight = (count > 0 ? base : -1)
-  // Return's model: any highlighted model row a person can choose, an open Legacy section's rows too (the reference's
-  // Enter parses the highlighted model key); the highlight reaches those rows only while the section is open (`count`).
-  // The Show more row trails them, so it counts them only while they show.
-  derive targetId = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.id).join("")
-  derive targetProvider = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.providerId).join("")
+  // Return's and Right's model: any highlighted model row a person can choose, an open Legacy section's rows too (the
+  // reference's Enter parses the highlighted model key). The Show more row trails the legacy rows and counts them only
+  // while they show, so a closed section's rows, whose raw index it then takes, are not targets.
+  derive targetId = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == "").map((r) => r.id).join("")
+  derive targetProvider = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == "").map((r) => r.providerId).join("")
   derive targetLegacy = catalog.models.filter((r) => r.kind == "legacy" and legacyIndex(r.index, legacyOpen, catalog.legacyCount) == highlight).length > 0
   derive width = (docked and not stacked ? min(554, viewport.width - 10) : min(362, viewport.width - 10))
   // Content height (a6aebbe2e0): the rail (4 + 36 + 4 + 1 + 4 per provider 40, + 4) or the

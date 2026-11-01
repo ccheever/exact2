@@ -116,6 +116,15 @@ describe('editing a queued message with its attachments (G12a)', () => {
     await command('send', '', 'Ultrathink:');
     expect(edits(native.committed).at(-1)).toMatchObject({ text: `Ultrathink:\n${ATTACHMENT_ONLY_PROMPT}` });
   });
+  test('an attachment-only edit, whose field is empty, still reaches send from the root', async () => {
+    const { client, native, command } = await queuedWithAttachments(ATTACHMENT_ONLY_PROMPT);
+    await command('cclocal:queued-edit', 'q1');
+    expect(client.draft).toBe('');
+    await command('send', '', '');
+    expect(edits(native.committed).at(-1)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT });
+    const root = await Bun.file(new URL('../../app.contract', import.meta.url)).text();
+    expect(root).toContain('(data.canSend and (composerText != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0))');
+  });
   test('more than 100 attachments are refused with the reference wording', async () => {
     const { client, native, command } = await queuedWithAttachments();
     client.thread!.projection.messages = [{ id: 'm1', text: 'many', attachments: Array.from({ length: 101 }, (_, index) => ({ type: 'file', id: `f${index}`, name: `f${index}.txt` })) }];

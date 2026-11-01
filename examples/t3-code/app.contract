@@ -1030,7 +1030,7 @@ component T3Code
       send localChanged = command("editorlocal:arm-limit", "", "", 0)
     // Send and Return wait for the draft's uploads; a question's Return goes, and its answer says why it waits.
     if not commandPending and (not editor.overLimit or data.requestMode == "question") and (data.requestMode == "question" or data.composer.uploadBlock == "")
-      if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
+      if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0))
         commandPending = true
         send changed = command("send", gesture, composerText, 0)
         composerTyping = false

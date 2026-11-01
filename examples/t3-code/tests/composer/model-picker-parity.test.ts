@@ -156,7 +156,9 @@ describe('a search highlights its first row a person can choose', () => {
 
   test('Return\'s target is any highlighted model row a person can choose, an open Legacy section\'s rows too', async () => {
     const picker = await block('model-picker.contract', 'component ModelPicker');
-    const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
+    // A closed section's legacy row keeps its raw index, which the Show more row then takes, so Right on Show more
+    // must not pick the hidden model (upstream finds no highlighted model there).
+    const choosable = '(r.kind == "model" or (legacyOpen and r.kind == "legacy-model")) and r.reason == ""';
     expect(picker).toContain(`derive targetId = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.id).join("")`);
     expect(picker).toContain(`derive targetProvider = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.providerId).join("")`);
     // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then. The Show
@@ -166,6 +168,12 @@ describe('a search highlights its first row a person can choose', () => {
     const catalog = modelCatalog(client(), 'claudeAgent', '');
     expect([catalog.count, catalog.legacyCount]).toEqual([5, 1]);
     expect(catalog.models.filter(row => row.kind !== 'model').map(row => [row.kind, row.index, row.id])).toEqual([['legacy-model', 3, 'claude-old'], ['legacy', 4, '']]);
+  });
+  test('/model opens the picker as the trigger does, so the focus stays in the search field', async () => {
+    // modelMeasure records the pick the picker opened on; without it modelEffortFocusTask sees a new pick and moves
+    // the focus to the effort column.
+    const members = await source('composer-members.contract');
+    expect(members).toContain('else if result.then == "models"\n            // As the trigger\'s press: the anchor, and the pick the effort focus compares against.\n            modelMeasure()\n            openModels()');
   });
 });
 
