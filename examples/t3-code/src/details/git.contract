@@ -250,8 +250,7 @@ component GitBranchPicker
               ExtraGlyph(name="search", size=16, color="light-dark(#71717a8c, #a1a1a18c)")
             if git.branch.query == ""
               text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true pointer-events="none"
-            // A normal line: the field centres it in its 26pt box (a line as tall as the box would sit at its top).
-            input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=acceptedReturn focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs" testId="details-branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="normal" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-focus-stop="enabled" data-editable="yes"
+            input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=acceptedReturn focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs" testId="details-branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-focus-stop="enabled" data-editable="yes"
         if git.branch.empty != ""
           text git.branch.empty font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #a1a1a1)"
         RefPageScroll(name="details-refs")
