@@ -51,6 +51,8 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         var paragraphDirs = ""
         /// The field's own direction is right to left: a line without a word takes it.
         var rtl = false
+        /// The field's node, whose app an atom's icon is read from.
+        weak var node: NodeView?
     }
 
     /// The attributes plain typing takes, whatever the caret sits beside.
@@ -260,9 +262,10 @@ final class MarkupEditor: NSObject, MarkdownEditing {
         // Each inline atom, drawn as its pill whatever the selection
         // (MarkupHidden.swift); one covered by the selection draws selected.
         let atoms = object["a"] ?? []
-        let paint = atoms.isEmpty ? [:] : AtomPaint.resolve(look.atoms)
+        let paint = atoms.isEmpty ? [:] : AtomPaint.resolve(look.atoms), metrics = atoms.isEmpty ? [:] : AtomPaint.metrics(look.atoms)
         for row in atoms {
-            guard let (range, atom) = MarkupAtom.of(row, paint: paint, selection: selection, atoms: look.atoms), NSMaxRange(range) <= length else { continue }
+            guard let (range, atom) = MarkupAtom.of(row, paint: paint, metrics: metrics, selection: selection, atoms: look.atoms, node: look.node),
+                  NSMaxRange(range) <= length else { continue }
             storage.addAttribute(.markupAtom, value: atom, range: range)
         }
         storage.endEditing()

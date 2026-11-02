@@ -42,13 +42,16 @@ enum MarkupRuns {
     /// is a link's and `atomColor` an atom's, where it is not `color`. `boldText`:
     /// Bold Text weights `base`, and a piece's own weight takes its step.
     /// An atom (LLP 1045.000 D6) is its label on a rounded inline box, a
-    /// narrow no-break space each side its padding, so a line breaks around
-    /// it and never inside its ends; its label is isolated in the direction
-    /// its face pins, else in the lines' (`atoms.rtl`, D4).
+    /// narrow no-break space each side its padding (none where its kind's
+    /// padding is zero), so a line breaks around it and never inside its
+    /// ends; its label is isolated in the direction its face pins, else in
+    /// the lines' (`atoms.rtl`, D4). Its kind's own paint draws (colours,
+    /// radius, underline); a border, a ring, a state's paint and an icon do
+    /// not, in a reader.
     static func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]? = nil, atomColor: [Double]? = nil, boldText: Bool = false, atoms: MarkdownAtoms = MarkdownAtoms()) -> [Run] {
         var out: [Run] = []
         var text = source
-        let handle = AtomHandle.of(atoms), paint = AtomPaint.resolve(atoms)
+        let handle = AtomHandle.of(atoms), paint = AtomPaint.resolve(atoms), metrics = AtomPaint.metrics(atoms)
         var boxes: UInt32 = 0
         text.withUTF8 { bytes in
             var pieces: UnsafePointer<ExactMarkupPiece>? = nil
@@ -90,15 +93,18 @@ enum MarkupRuns {
                     // One box in the line, as the web's is: isolated in the direction its
                     // face pins, else in its line's (D4).
                     let pinned = ["ltr": "\u{2066}", "rtl": "\u{2067}"][detail["direction"] as? String ?? ""]
-                    run.text = "\u{202F}" + (pinned ?? (atoms.rtl ? "\u{2067}" : "\u{2066}")) + unbroken + "\u{2069}\u{202F}"
-                    // Its press is the atom's, not a link's: never underlined as one.
-                    run.decoration = p.strike != 0 ? "line-through" : "none"
+                    let pad = metrics[kind]?.padding == 0 ? "" : "\u{202F}"
+                    run.text = pad + (pinned ?? (atoms.rtl ? "\u{2067}" : "\u{2066}")) + unbroken + "\u{2069}" + pad
+                    // Its press is the atom's, not a link's: never underlined as one, but as its kind says.
+                    let rows = paint[kind]
+                    run.decoration = [p.strike != 0 ? "line-through" : "", rows?.underline == true ? "underline" : ""].filter { !$0.isEmpty }.joined(separator: " ")
+                    if run.decoration.isEmpty { run.decoration = "none" }
                     // The face's paint over its kind's (D2, D4).
-                    run.background = AtomPaint.face(detail["background"], atoms) ?? paint[kind]?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
-                    if let ink = AtomPaint.face(detail["color"], atoms) ?? paint[kind]?.ink { run.color = ink }
+                    run.background = AtomPaint.face(detail["background"], atoms) ?? rows?.background ?? AtomPaint.token(dark: atoms.dark, contrast: atoms.contrast)
+                    if let ink = AtomPaint.face(detail["color"], atoms) ?? rows?.ink { run.color = ink }
                     boxes += 1
                     run.backgroundBox = 0xA700_0000 | boxes
-                    run.backgroundRadii = Array(repeating: InlineRadius(px: Double(run.size) * 0.3), count: 4)
+                    run.backgroundRadii = Array(repeating: InlineRadius(px: Double(rows?.radius ?? run.size * 0.3)), count: 4)
                     let press: [Any] = [kind, detail["source"] ?? "", detail["href"] ?? "", detail["start"] ?? 0, detail["end"] ?? 0, detail["role"] ?? "button", detail["title"] ?? ""]
                     if let json = try? JSONSerialization.data(withJSONObject: press), let value = String(data: json, encoding: .utf8) {
                         run.href = atomScheme + (value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")

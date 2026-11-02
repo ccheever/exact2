@@ -165,7 +165,10 @@ impl<D: DataSource> Presenter<D> {
                 // no media player (LLP 1042 §8) or floating window (§9): known, and named so.
                 name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
                 | "load" | "exitPictureInPicture") => {
-                    eprintln!("exact: {name} unsupported on the headless/DRM host")
+                    eprintln!("exact: {name} unsupported on the headless/DRM host");
+                    if name == "openURL" {
+                        self.answer_open(&c.args, false);
+                    }
                 }
                 // The image hears the refusal too, once the commands have run (LLP 1042 §9).
                 "requestPictureInPicture" => {

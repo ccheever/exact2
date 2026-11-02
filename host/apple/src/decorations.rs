@@ -98,6 +98,27 @@ mod tests {
         );
     }
 
+    /// An atom kind's state rows (LLP 1045.000 D4) cross as a decoration's
+    /// do, by name: its ring's width, colour and offset, its corners'.
+    #[test]
+    fn an_atoms_state_rows_cross_by_name() {
+        let rows = json!({"mention:checked":[[StyleId::OutlineColor as u16,"#2563eb"],
+            [StyleId::OutlineWidth as u16,2.0],[StyleId::OutlineOffset as u16,-2.0],
+            [StyleId::BorderRadiusTopLeft as u16,"6px"]]})
+        .to_string();
+        let empty = json!({"value":"","spans":[]}).to_string();
+        let reply: Value = serde_json::from_str(&resolve(&empty, "", &rows).unwrap()).unwrap();
+        let checked = &reply["styles"]["mention:checked"];
+        assert_eq!(
+            checked["outline_color"],
+            json!([37, 99, 235, 255]),
+            "{checked}"
+        );
+        assert_eq!(checked["outline_width"].as_f64(), Some(2.0));
+        assert_eq!(checked["outline_offset"].as_f64(), Some(-2.0));
+        assert_eq!(checked["border_radius_top_left"].as_f64(), Some(6.0));
+    }
+
     #[test]
     fn a_bad_request_has_no_reply() {
         let mut count = 7;

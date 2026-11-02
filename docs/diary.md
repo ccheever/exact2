@@ -5,16 +5,51 @@ how Exact went, so it can fix what was rough and keep what was good. The diary
 stays on this machine. Nothing is sent unless the person you work for says yes.
 
 Run `bun exact.mjs feedback status` once at the start (the app's AGENTS.md names it in
-one clause). It prints this project's standing answer first, then, for an answer that
-keeps a diary, the instructions below from "What to keep" on:
+its Feedback section). It prints this project's standing answer first, then, for an
+answer that keeps a diary, where feedback goes and the instructions below from "What to
+keep" on:
 
 - `ask`, the default: keep the diary, and ask before sending (Asking to share).
 - `local`: keep the diary and skip Asking to share; nothing is sent.
 - `always`: keep the diary, and send it at the end of each task without asking,
-  saying each time that you sent it.
+  saying each time that you sent it. A `feedback note` sends the unsent diary at once.
 - `never`: skip everything below: no diary, no asking.
 
 If `feedback status` prints more instructions, follow them too.
+
+## A note
+
+Under any answer but `never`, an agent records friction as it happens in one line (the
+app's AGENTS.md requires it): a doc was wrong or missing, a workaround was needed,
+something took several tries, or a command was confusing.
+
+```
+bun exact.mjs feedback note "verify ios: the signing error never named the setting"
+```
+
+The note joins the diary (`.exact/diary/<date>-notes.md`) with exact2's commit, the last
+command's verb, exit code and duration, and the machine's OS and whether the note was
+written from a terminal. It never carries any command's output, the app's code or files,
+or command arguments: write what went wrong in the note itself (a short error line is
+fine, under "What not to write" below). It is redacted as the diary is. Then the standing answer decides: `always` sends the unsent
+diary, `ask` asks on a terminal and otherwise says how to send it (ask the person
+first), `local` keeps it, and `never` keeps nothing.
+
+A drive, build or verify that fails or runs unusually long ends with one line naming
+this command, and so does a `test` or `verify` that passes; each at most once a day
+(UTC) per project, never under `never`, and never after a signal.
+
+## What is sent, and stopping it
+
+Nothing leaves this machine unless the standing answer allows it: `always`, or a yes to
+`ask`. What is sent goes to Expo, at `https://exact-diaries.ccheever-0f6.workers.dev` (or
+`EXACT_FEEDBACK_URL`): the redacted diary and notes, the command log (verb, exit code,
+duration and exact2 commit of each command), the platform, and the README only with its
+own yes. `bun exact.mjs feedback` prints exactly that before anything goes. The first
+nudge or note on a machine says so once.
+
+To stop it: `bun exact.mjs feedback never` for a project, or `EXACT_FEEDBACK=0` in the
+environment, which silences the nudges and refuses every send on every project.
 
 ## What to keep
 

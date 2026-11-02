@@ -48,6 +48,17 @@ extension TextArea {
         atomFrames().first { $0.frame.contains(point) }
     }
 
+    /// The pointer is at `point` (nil: it left): a pill it moves onto or off
+    /// draws its kind's `:hover` paint or stops (D4), by a restyle.
+    package func hoverAtom(at point: CGPoint?) {
+        let start = point.flatMap { atom(at: $0) }?.range.location
+        guard start != hoveredAtom else { return }
+        hoveredAtom = start
+        owner?.restyleMarkup()
+    }
+    /// Whether a kind the field draws has `:hover` paint, which the pointer is followed for.
+    private var atomsHover: Bool { markup?.atoms.styles.contains(":hover\"") == true }
+
     /// A press on an atom: it is selected, then the field's `atompress`
     /// carries it (D5, D7). The modifiers held: Shift, Control, Option, Command.
     package func pressAtom(_ range: NSRange, held: (shift: Bool, ctrl: Bool, alt: Bool, meta: Bool) = (false, false, false, false)) {
@@ -91,11 +102,15 @@ extension TextArea {
         for (_, atom, frame) in frames where !atom.title.isEmpty { addToolTip(frame, owner: self, userData: nil) }
         window?.invalidateCursorRects(for: self)
         observeAtomLook(!frames.isEmpty)
+        trackAtomHover(!frames.isEmpty && atomsHover)
         if frames.isEmpty { Self.atomFields.remove(self) } else { Self.atomFields.add(self) }
         if changed { NSAccessibility.post(element: owner?.atomParent ?? self, notification: .layoutChanged) }
         for element in renamed { NSAccessibility.post(element: element, notification: .titleChanged) }
         #else
         installAtomTap(!frames.isEmpty)
+        #if os(iOS)
+        trackAtomHover(!frames.isEmpty && atomsHover)
+        #endif
         guard changed, let owner else { return }
         owner.accessibilityElements = atomElements.isEmpty ? nil : [self] + atomElements
         UIAccessibility.post(notification: .layoutChanged, argument: nil)
@@ -126,6 +141,28 @@ extension TextArea: NSViewToolTipOwner {
         atomLook.tokens = [center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: target, queue: .main, using: restyle),
                            center.addObserver(forName: NSWindow.didResignKeyNotification, object: target, queue: .main, using: restyle),
                            center.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main, using: restyle)]
+    }
+
+    /// What follows the pointer over the pills: a tracking area in the key
+    /// window, as AppKit's own hover is.
+    private final class AtomHover: NSObject {
+        weak var field: TextArea?
+        init(_ field: TextArea) { self.field = field }
+        @objc func mouseMoved(_ event: NSEvent) { guard let field else { return }; field.hoverAtom(at: field.convert(event.locationInWindow, from: nil)) }
+        @objc func mouseEntered(_ event: NSEvent) { mouseMoved(event) }
+        @objc func mouseExited(_ event: NSEvent) { field?.hoverAtom(at: nil) }
+    }
+    func trackAtomHover(_ on: Bool) {
+        if on, atomHover == nil {
+            let target = AtomHover(self)
+            let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: target, userInfo: nil)
+            addTrackingArea(area)
+            atomHover = (target, area)
+        } else if !on, let (_, area) = atomHover {
+            removeTrackingArea(area)
+            atomHover = nil
+            hoverAtom(at: nil)
+        }
     }
 
     /// The atom's element at a point in screen coordinates, where assistive
@@ -297,6 +334,28 @@ extension TextArea {
             }
         }
     }
+    #if os(iOS)
+    /// What follows a pointer (a trackpad's, a mouse's) over the pills.
+    private final class AtomHover: NSObject {
+        weak var field: TextArea?
+        init(_ field: TextArea) { self.field = field }
+        @objc func hovered(_ g: UIHoverGestureRecognizer) {
+            guard let field else { return }
+            field.hoverAtom(at: g.state == .began || g.state == .changed ? g.location(in: field) : nil)
+        }
+    }
+    func trackAtomHover(_ on: Bool) {
+        if on, atomHover == nil {
+            let target = AtomHover(self), hover = UIHoverGestureRecognizer(target: target, action: #selector(AtomHover.hovered(_:)))
+            addGestureRecognizer(hover)
+            atomHover = (target, hover)
+        } else if !on, let (_, hover) = atomHover {
+            removeGestureRecognizer(hover)
+            atomHover = nil
+            hoverAtom(at: nil)
+        }
+    }
+    #endif
     func installAtomTap(_ on: Bool) {
         if on, atomTap == nil {
             let target = AtomTap(self), tap = UITapGestureRecognizer(target: target, action: #selector(AtomTap.tapped(_:)))

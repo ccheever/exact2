@@ -934,32 +934,11 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
         )
     };
     let unset = || Expr::Str("unset".into(), span);
-    // The row starts at its text: after a leading symbol, a symbol shown
-    // by a condition included, as `part` styles it. `names` are the inset's
-    // metrics without a symbol and with one.
-    fn inset(first: Option<&Node>, names: [&str; 2], span: Span) -> Expr {
-        match first {
-            Some(Node::When {
-                cond,
-                then,
-                otherwise,
-                ..
-            }) => Expr::Ternary(
-                Box::new(cond.clone()),
-                Box::new(inset(then.iter().find(|c| !hidden(c)), names, span)),
-                Box::new(inset(otherwise.iter().find(|c| !hidden(c)), names, span)),
-                span,
-            ),
-            other => {
-                let icon = other
-                    .and_then(symbol)
-                    .is_some_and(|name| accessory(name).is_none());
-                mv(names[usize::from(icon)], span)
-            }
-        }
-    }
-    let first = children.iter().find(|c| !hidden(c));
-    let start = inset(first, ["row-inset", "row-inset-symbol"], span);
+    // The row's content starts at its inset; a leading symbol stands there
+    // and its text after it, where the line under the row starts too
+    // (`Kernel::grouped_separator`), so an author's start padding moves all
+    // three, the symbol's slot whole.
+    let start = mv("row-inset", span);
     // A `column` row keeps its direction (LLP 1116 D2): its children stack
     // as written, from the text's margin, centred in the cell's height, and
     // a subtitle cell's space above and below (on iOS 15, 52 high for one
@@ -1070,11 +1049,7 @@ fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
                 flagged(
                     attrs,
                     "destructive",
-                    inset(
-                        first,
-                        ["button-padding-start", "button-padding-start-symbol"],
-                        span,
-                    ),
+                    mv("button-padding-start", span),
                     start,
                     span,
                 ),
@@ -1284,16 +1259,14 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
             *texts = Count::Known(1);
             title_face(child)
         }
-        // The leading symbol: in UIKit's cell it stands in the margin the
-        // text is inset by, pulled back into it; in the Mac's form it is the
-        // row's first part. Its tint is the platform's too.
+        // The leading symbol: at the row's inset, in UIKit's cell and the
+        // Mac's form alike, its text after it. Its tint is the platform's too.
         ("image", Some(name)) if i == 0 && accessory(name).is_none() => with(
             child,
             vec![
                 m("width", "symbol-width", at),
                 m("height", "symbol-height", at),
                 s("object-fit", "contain", at),
-                m("margin-left", "symbol-pull", at),
                 m("margin-right", "symbol-gap", at),
                 n("flex-shrink", 0.0, at),
                 attr("-exact-tint-color", tint(mv("symbol-tint", at)), at),

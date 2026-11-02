@@ -10,6 +10,12 @@ guides front to back. `docs/recipes/` answers the common questions in one short 
 `contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
 --help` names its flags, and `apps/shelf` is a whole app to grep.
 
+**Feedback (required when building an app).** When a doc was wrong or missing, a workaround was
+needed, something took several tries or a command confused you, record it from the app's directory:
+`bun exact.mjs feedback note "<what happened>"`. It attaches exact2's commit and the last command's exit
+code, never output or code. It goes to Expo only as `bun exact.mjs feedback status` says (skip it under `never`);
+`EXACT_FEEDBACK=0` stops it on the machine (docs/diary.md).
+
 Working on exact2 itself: read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
 footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`

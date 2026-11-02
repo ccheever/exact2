@@ -76,6 +76,29 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertEqual(line.minX - frame.minX, 16, accuracy: 0.5, "the line where the content now starts")
     }
 
+    /// A leading symbol stands at the row's inset, its content's edge, and the
+    /// line starts at the text after it, as UIKit's does beside a cell's image;
+    /// an accessory after the symbol is no text.
+    func testTheLineStartsAtTheTextAfterALeadingSymbol() throws {
+        let p = presenter { self.customFirst() }
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "image", "props": ["imageSource": "symbol:person", "symbolName": "person.circle"], "style": ["font_size": 17.0, "object_fit": "contain"]],
+            ["op": "create", "id": 32, "kind": "text", "props": ["text": "Profile"]],
+            ["op": "create", "id": 31, "kind": "image", "props": ["imageSource": "symbol:forward-chevron", "symbolName": "chevron.forward"], "style": ["font_size": 17.0]],
+            ["op": "children", "id": 21, "ids": [30, 32, 31]],
+            ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 370.0, "h": 61.0],
+            ["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0],
+            ["op": "frame", "id": 32, "x": 55.0, "y": 21.0, "w": 200.0, "h": 19.0],
+            ["op": "frame", "id": 31, "x": 344.0, "y": 23.0, "w": 10.0, "h": 14.0],
+        ]))
+        let row = try XCTUnwrap(p.views[21])
+        row.kernelContentBox = CGRect(x: 16, y: 0, width: 338, height: 61)
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom"]]]))
+        XCTAssertEqual(try XCTUnwrap(try list(p).lineStart(21)), 55, accuracy: 0.5, "at the text, past the symbol")
+        p.apply(wireBatch([["op": "children", "id": 21, "ids": [30, 31]]]))
+        XCTAssertEqual(try XCTUnwrap(try list(p).lineStart(21)), 16, accuracy: 0.5, "a chevron is no text: the content's edge")
+    }
+
     /// Right to left the kernel mirrors the row's insets, and the line starts
     /// past its symbol from the right; a row the model drops takes its mark
     /// with it.

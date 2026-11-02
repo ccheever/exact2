@@ -840,16 +840,18 @@ fn this_repositorys_own_documents_hold_the_invariants() {
         .unwrap();
     let mut files = vec![
         root.join("README.md"),
-        root.join("QUEUE.md"),
+        root.join("AGENTS.md"),
         root.join("apps/markdown/README.md"),
     ];
-    files.extend(
-        std::fs::read_dir(root.join("llp"))
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|x| x == "md")),
-    );
+    for dir in ["docs", "docs/recipes"] {
+        files.extend(
+            std::fs::read_dir(root.join(dir))
+                .unwrap()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "md")),
+        );
+    }
     assert!(files.len() > 50);
     // The documents are independent: check them on every core.
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());

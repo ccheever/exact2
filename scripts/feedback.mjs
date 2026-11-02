@@ -10,6 +10,7 @@
 //   feedback delete <id>    delete a sent diary by its receipt
 //   feedback always|never|ask|local   this project's standing answer
 //   feedback status         that answer, and what is unsent
+//   feedback note "<text>"  add a one-line note to the diary, then follow that answer (feedback-note.mjs)
 //
 // The standing answer is per user and per project (~/.config/exact/feedback.json,
 // keyed by the app's real path), so cloning an app never carries consent along. A
@@ -22,14 +23,14 @@
 // EXACT_DIARY=detailed set, it also prints the detailed diary's extra instructions
 // (DETAILED below), so only a study's agents carry them in context.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { guardFlags } from './help.mjs';
 
 export const ENDPOINT = process.env.EXACT_FEEDBACK_URL ?? 'https://exact-diaries.ccheever-0f6.workers.dev';
-const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir(), '.config/exact'), 'feedback.json');
+export const SETTINGS = () => resolve(process.env.EXACT_CONFIG_DIR ?? resolve(homedir(), '.config/exact'), 'feedback.json');
 
 const readJson = (path, fallback) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; } };
 
@@ -63,6 +64,9 @@ const SECRETS = [
   /https:\/\/hooks\.slack\.com\/\S+/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /\b((?:api[_-]?key|secret|token|password|passwd|auth)\w*\s*[:=]\s*)["']?[^\s"']{8,}/gi,
+  /\b((?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\b([\w.-]*(?:password|passwd|secret|token|api[_-]?key)\w*\s*[:=]\s*)["']?[^\s"',;]+/gi,
+  /(--?(?:api-?key|secret|token|password|passwd|auth)\w*(?:=|\s+))["']?[^\s"']+/gi,
 ];
 
 /** The home directory, the app's directory and its names become placeholders;
@@ -79,17 +83,19 @@ export function redact(text, dir) {
 }
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Unsent diaries and command-log lines, and the text that would go. */
+/** Unsent diaries and command-log lines, the text that would go, and each diary as it was read (`read`), which is
+ * what a send archives. */
 export function pending(dir) {
   const diaryDir = resolve(dir, '.exact/diary');
   const diaries = existsSync(diaryDir) ? readdirSync(diaryDir).filter(f => f.endsWith('.md')).sort() : [];
   const state = readJson(resolve(dir, '.exact/sent.json'), { commands: 0 });
   const log = existsSync(resolve(dir, '.exact/commands.jsonl')) ? readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').split('\n').filter(Boolean) : [];
   const commands = log.slice(state.commands).map(safeParse).filter(Boolean);
-  const parts = diaries.map(f => `# ${f}\n\n${readFileSync(resolve(diaryDir, f), 'utf8').trim()}\n`);
+  const read = Object.fromEntries(diaries.map(f => [f, readFileSync(resolve(diaryDir, f), 'utf8')]));
+  const parts = diaries.map(f => `# ${f}\n\n${read[f].trim()}\n`);
   if (commands.length) parts.push(`# commands\n\n${commands.map(c => `${c.at} ${c.exact2 ?? '?'} ${c.verb} exit=${c.exit} ${(c.ms / 1000).toFixed(1)}s`).join('\n')}\n`);
   const text = parts.length ? redact(`platform: ${process.platform} ${process.arch}\n\n${parts.join('\n')}`, dir) : '';
-  return { diaries, commands, logLength: log.length, text };
+  return { diaries, commands, logLength: log.length, text, read };
 }
 const safeParse = line => { try { return JSON.parse(line); } catch { return null; } };
 
@@ -126,10 +132,12 @@ async function confirm(question) {
   try { return /^y(es)?$/i.test((await rl.question(question)).trim()); } finally { rl.close(); }
 }
 
-export async function send(dir, { yes = false, readme = false, fetch: post = fetch } = {}) {
+export async function send(dir, { yes = false, readme = false, fetch: post = fetch, env = process.env } = {}) {
+  if (env.EXACT_FEEDBACK === '0') return 'EXACT_FEEDBACK=0 is set, so nothing is sent from this machine.';
   if (standing(dir) === 'never') return 'This project is set to never send feedback (`feedback ask` undoes that).';
   if (standing(dir) === 'local') return 'This project keeps its diary on this machine and never sends it (`feedback ask` undoes that).';
-  const { diaries, commands, logLength, text } = pending(dir);
+  // What is sent is the diary as pending() read it, and only that is archived: a note added since stays unsent.
+  const { diaries, commands, logLength, text, read: sentText } = pending(dir);
   let files = attachments(dir);
   // A README alone is a record too, sent only with its own consent (a workaround with no diary).
   const diary = diaries.length > 0 || commands.length > 0;
@@ -155,12 +163,28 @@ export async function send(dir, { yes = false, readme = false, fetch: post = fet
   const kept = files.filter(f => stored.includes(f.name)), lost = files.filter(f => !stored.includes(f.name));
   const sentDir = resolve(dir, '.exact/diary/sent');
   mkdirSync(sentDir, { recursive: true });
-  for (const f of diaries) renameSync(resolve(dir, '.exact/diary', f), resolve(sentDir, f));
+  archive(dir, sentText);
   const before = readJson(resolve(dir, '.exact/sent.json'), {});
   const attached = { ...before.attachments, ...Object.fromEntries(kept.map(f => [f.name, digest(f.text)])) };
   writeFileSync(resolve(dir, '.exact/sent.json'), JSON.stringify({ commands: logLength, receipts: [...(before.receipts ?? []), id], ...(Object.keys(attached).length ? { attachments: attached } : {}) }) + '\n');
   return `Sent ${diaries.length} ${diaries.length === 1 ? 'diary' : 'diaries'}, ${commands.length} logged commands${kept.length ? ` and ${kept.map(f => f.name).join(' and ')}` : ''}. Receipt: ${id}\nTo delete it: bun exact.mjs feedback delete ${id}`
     + (lost.length ? `\nThe collector did not store ${lost.map(f => f.name).join(' or ')} (it predates attachments); it stays unsent.` : '');
+}
+
+/** Moves each sent diary (`name` → the text that went) to `.exact/diary/sent/`. One sent before under the same name (the
+ * same day's notes, sent again) gains the text rather than being replaced; what was appended since it was read (a note
+ * written during the send) stays, unsent. Two sends at once are not coordinated. */
+function archive(dir, sentText) {
+  const sentDir = resolve(dir, '.exact/diary/sent');
+  for (const [f, text] of Object.entries(sentText)) {
+    const from = resolve(dir, '.exact/diary', f), to = resolve(sentDir, f);
+    // A file that no longer begins with what went (edited, or archived by another send) is kept whole: sent twice,
+    // rather than lost.
+    const now = existsSync(from) ? readFileSync(from, 'utf8') : text, later = now.startsWith(text) ? now.slice(text.length) : now;
+    if (!existsSync(to) && !later) { renameSync(from, to); continue; }
+    appendFileSync(to, existsSync(to) ? `\n${text}` : text);
+    if (later) writeFileSync(from, later); else rmSync(from, { force: true });
+  }
 }
 
 /** The detailed diary (EXACT_DIARY=detailed): what a study of authoring needs beyond docs/diary.md. */
@@ -185,7 +209,7 @@ export function instructions(answer, doc = readFileSync(resolve(import.meta.dir,
 
 const MEANING = {
   ask: 'keep the diary; ask once before sending',
-  always: 'keep the diary; send it at the end of each task, saying so',
+  always: 'keep the diary; send it at the end of each task, saying so; a note sends it at once',
   never: 'keep no diary; never ask',
 };
 
@@ -198,7 +222,9 @@ export function status(dir, env = process.env) {
   const line = answer === 'local' ? `local (keep the diary; ask nothing, send nothing): ${diaries.length} unsent diaries, kept on this machine; ${commands.length} logged commands`
     : `${answer} (${MEANING[answer]}): ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
   if (answer === 'never') return line;
-  return [line, `# The authoring diary\n\n${instructions(answer)}`, ...(env.EXACT_DIARY === 'detailed' ? [DETAILED] : [])].join('\n\n');
+  // Where feedback goes and how to stop it (docs/diary.md, "What is sent, and stopping it").
+  const where = `Feedback goes to Expo (${ENDPOINT}) only as this answer allows; EXACT_FEEDBACK=0 refuses every send.`;
+  return [`${line}\n${where}`, `# The authoring diary\n\n${instructions(answer)}`, ...(env.EXACT_DIARY === 'detailed' ? [DETAILED] : [])].join('\n\n');
 }
 
 async function main([verb = 'preview', ...rest]) {
@@ -207,16 +233,19 @@ async function main([verb = 'preview', ...rest]) {
   if (verb === 'preview') { const { text } = pending(dir), files = attachments(dir); return [text || 'Nothing unsent.', ...(files.length ? [attachmentPreview(files)] : [])].join('\n---\n'); }
   if (verb === 'send') return send(dir, { yes: rest.includes('--yes'), readme: rest.includes('--readme') });
   if (verb === 'status') return status(dir);
+  if (verb === 'note') return (await import('./feedback-note.mjs')).note(dir, rest.join(' '), { send });
   if (ANSWERS.includes(verb)) { setStanding(dir, verb); return `This project's feedback answer is now: ${verb}.`; }
   if (verb === 'delete' && rest[0]) {
     const response = await fetch(`${ENDPOINT}/diary/${encodeURIComponent(rest[0])}`, { method: 'DELETE' });
     if (!response.ok) throw new Error(`the feedback endpoint answered ${response.status}`);
     return `Deleted ${rest[0]}.`;
   }
-  throw new Error('usage: bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|always|never|ask|local|status]');
+  throw new Error('usage: bun exact.mjs feedback [preview|note "<text>"|send [--yes] [--readme]|delete <id>|always|never|ask|local|status]');
 }
 
 if (import.meta.main) {
-  try { console.log(await main(guardFlags('feedback', process.argv.slice(2)))); }
+  // A note's text is the author's own, never a flag.
+  const args = process.argv.slice(2);
+  try { console.log(await main(args[0] === 'note' ? args : guardFlags('feedback', args))); }
   catch (e) { console.error(`feedback: ${e.message}`); process.exit(1); }
 }

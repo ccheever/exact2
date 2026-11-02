@@ -82,6 +82,30 @@ mod tests {
         assert!(css.contains("text-decoration-line:underline"), "{css}");
     }
 
+    /// An atom kind's states (LLP 1045.000 D3) are keys of their own, and
+    /// its ring's rows are CSS `outline`'s.
+    #[test]
+    fn an_atoms_state_and_ring_become_css() {
+        let input = serde_json::json!({"mention": [], "mention:checked": [
+            [StyleId::OutlineColor as u16, "#2563eb"],
+            [StyleId::OutlineWidth as u16, 2.0],
+            [StyleId::OutlineOffset as u16, -2.0],
+            [StyleId::BorderRadiusTopLeft as u16, "6px"]
+        ]});
+        let output: Value =
+            serde_json::from_str(&decoration_styles(&input.to_string(), &[])).unwrap();
+        let css = output["mention:checked"].as_str().unwrap();
+        for part in [
+            "outline-color:",
+            "outline-width:2px",
+            "outline-offset:-2px",
+            "border-top-left-radius:6px",
+        ] {
+            assert!(css.contains(part), "{part} in {css}");
+        }
+        assert_eq!(output["mention"], "");
+    }
+
     #[test]
     fn a_faces_paint_becomes_css_and_anything_else_empty() {
         let faces = serde_json::json!([

@@ -970,19 +970,20 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
         "the sheet's unsaid side mirrors: {}",
         out.css
     );
-    // A grouped row's inset beside a symbol shown by a condition is the
-    // sheet's own binding, no author's: it is bound to the logical side.
+    // A symbol shown by a condition leaves the row's inset as it is: the
+    // sheet binds none.
     let conditional = contract::compile(
         "component App\n  state show = true\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
     )
     .unwrap();
     let js = crate::emit::emit(&conditional, false, false).unwrap().js;
-    assert!(js.contains("\"padding-inline-start\""), "{js}");
-    // Its author binding the other side of the pair, that inset is physical
-    // while the author's side has a value and logical while it is unset (as
-    // the kernel and wasm keep them): each write is gated on the author's.
+    assert!(!js.contains("\"padding-"), "{js}");
+    // A grouped row's inset the sheet binds (a destructive row's, by its
+    // bound flag) beside its author's bound other side is physical while the
+    // author's side has a value and logical while it is unset (as the kernel
+    // and wasm keep them): each write is gated on the author's.
     let mixed = contract::compile(
-        "component App\n  state show = true\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          if show\n            image \"symbol:person\"\n          text \"Name\"\n",
+        "component App\n  state gone = true\n  state wide = false\n  action go\n    gone = not gone\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        button press=go destructive=gone padding-right=(wide ? 12 : none) testId=\"r\"\n          text \"Remove\"\n",
     )
     .unwrap();
     let js = crate::emit::emit(&mixed, false, false).unwrap().js;
@@ -999,8 +1000,7 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
             "{side} is gated on the author's side: {write}"
         );
     }
-    // And beside the sheet's static inset (an unconditional symbol): that
-    // inset stays left in the class; while the author's side is unset,
+    // And beside the sheet's static inset: that inset stays left in the class; while the author's side is unset,
     // neither is the author's, and inline logical sides mirror the pair.
     let mixed = contract::compile(
         "component App\n  state wide = false\n  view\n    list appearance=\"auto\" testId=\"list\"\n      section\n        row padding-right=(wide ? 12 : none) testId=\"r\"\n          image \"symbol:person\"\n          text \"Name\"\n",
@@ -1008,13 +1008,13 @@ fn a_bound_side_stays_its_authors_right_to_left_and_the_sheets_mirror() {
     .unwrap();
     let out = crate::emit::emit(&mixed, false, false).unwrap();
     assert!(
-        out.css.contains("padding-left:3.4375rem") && out.js.contains("\"padding-right\""),
+        out.css.contains("padding-left:16px") && out.js.contains("\"padding-right\""),
         "{}{}",
         out.css,
         out.js
     );
     assert!(!out.css.contains("padding-inline-"), "{}", out.css);
-    for (side, value) in [("start", "3.4375rem"), ("end", "0px")] {
+    for (side, value) in [("start", "16px"), ("end", "0px")] {
         let write = format!("\"padding-inline-{side}\",\"\",()=>(v=>v==null?\"{value}\":null)");
         assert!(out.js.contains(&write), "{write}: {}", out.js);
     }
