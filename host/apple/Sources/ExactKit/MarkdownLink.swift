@@ -17,6 +17,10 @@ package protocol MarkdownCapability: AnyObject {
     /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
     /// piece's own weight (bold) takes the same step.
     func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]?, atomColor: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run]
+    /// A text area's `source` as its editor lays it out, over `base`, for
+    /// measuring: each atom's pill a box no wider than `width`, its runs'
+    /// fonts by `font`.
+    func editorRuns(_ source: String, base: Run, atoms: MarkdownAtoms, width: CGFloat?, font: (Run) -> PlatformFont) -> [Run]
     /// A Markdown text area's styler.
     func editor() -> MarkdownEditing
     /// `range` (UTF-16, the whole source when nil) of `source` without its

@@ -115,4 +115,90 @@ enum MarkupRuns {
         }
         return out
     }
+
+    /// A text area's `source` as its editor lays it out (`MarkupEditor.restyle`,
+    /// MarkupHidden.swift), over `base`, for measuring the field's own text:
+    /// its syntax at full advance; headings, code and the spans' bold, italic
+    /// and monospace in the editor's fonts; a link's destination and each
+    /// atom's other code units as word joiners; each atom's first code unit its
+    /// pill, a box `AtomAttachment` sizes in its run's `font`, no wider than
+    /// `width`. A list item's wrapped lines' deeper head indent is left out.
+    static func editor(_ source: String, base: Run, atoms: MarkdownAtoms, width: CGFloat?, font: (Run) -> PlatformFont) -> [Run] {
+        let units = Array(source.utf16)
+        guard !units.isEmpty else { return [base] }
+        var text = source, json: UnsafePointer<UInt8>? = nil, count = 0
+        let handle = text.withUTF8 { bytes in exact_markup_style(bytes.baseAddress, bytes.count, AtomHandle.of(atoms), 0, 0, &json, &count) }
+        defer { exact_markup_free(handle) }
+        guard handle != 0, let json,
+              let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: count)) as? [String: [[Any]]] else { return [base] }
+        let n = units.count
+        let span = { (a: Any, b: Any) -> Range<Int> in
+            let s = min(max((a as? Int) ?? 0, 0), n), e = min(max((b as? Int) ?? 0, 0), n)
+            return s..<max(s, e)
+        }
+        // Each code unit's run, and what it is drawn as: 0 text, 1 a word joiner, 2 a pill.
+        var blank = base
+        blank.text = ""
+        var runs = [Run](repeating: blank, count: n), shown = [UInt8](repeating: 0, count: n)
+        var pills: [Int: MarkupAtom] = [:]
+        for p in object["p"] ?? [] where p.count >= 6 {
+            let range = span(p[0], p[1]), kind = (p[2] as? Int) ?? 0, level = (p[3] as? Int) ?? 0
+            let indent = CGFloat((p[4] as? Int) ?? 0) * 20 + CGFloat((p[5] as? Int) ?? 0) * 16
+            for i in range {
+                runs[i].indent = indent
+                switch kind {
+                case 1:
+                    let scale: CGFloat = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0][max(0, min(5, level - 1))]
+                    runs[i].size = (base.size * scale).rounded(); runs[i].weight = 700; runs[i].lineHeight = nil
+                case 6, 7, 9:
+                    runs[i].size = (base.size * 0.92).rounded(); runs[i].family = monospaceFamily; runs[i].italic = false
+                default: break
+                }
+            }
+        }
+        for s in object["s"] ?? [] where s.count >= 3 {
+            let flags = (s[2] as? Int) ?? 0
+            guard flags & 7 != 0 else { continue }
+            for i in span(s[0], s[1]) {
+                if flags & 4 != 0 { runs[i].size = (runs[i].size * 0.92).rounded(); runs[i].family = monospaceFamily }
+                if flags & 1 != 0 { runs[i].weight = 700 }
+                if flags & 2 != 0 { runs[i].italic = true }
+            }
+        }
+        // A footnote mark's small run.
+        for r in object["r"] ?? [] where r.count >= 3 && ((r[2] as? Int) ?? 0) > 3 {
+            for i in span(r[0], r[1]) { runs[i].size = (base.size * 0.75).rounded(); runs[i].family = base.family; runs[i].weight = base.weight; runs[i].italic = false }
+        }
+        for l in object["l"] ?? [] where l.count >= 4 { for i in span(l[2], l[3]) { shown[i] = 1 } }
+        let paint = AtomPaint.resolve(atoms), metrics = AtomPaint.metrics(atoms)
+        for row in object["a"] ?? [] {
+            guard let (range, atom) = MarkupAtom.of(row, paint: paint, metrics: metrics, selection: NSRange(location: 0, length: 0), atoms: atoms),
+                  range.location >= 0, NSMaxRange(range) <= n else { continue }
+            for i in range.location..<NSMaxRange(range) { shown[i] = 1 }
+            shown[range.location] = 2
+            pills[range.location] = atom
+        }
+        var out: [Run] = []
+        var i = 0
+        while i < n {
+            if shown[i] == 2, let atom = pills[i] {
+                let face = font(runs[i])
+                let bounds = AtomAttachment.bounds(AtomAttachment(atom).width(face), face: face, line: width ?? .greatestFiniteMagnitude)
+                var pill = runs[i]
+                pill.text = "\u{FFFC}"; pill.hidden = true
+                // A point above the descender, where TextKit's line ends: the
+                // line keeps its height, as the field's does (§5.1).
+                pill.box = InlineBox(width: bounds.width, height: bounds.height - 1, align: 0, shift: bounds.minY + 1)
+                out.append(pill)
+                i += 1; continue
+            }
+            var j = i + 1
+            while j < n, shown[j] != 2, (shown[j] == 1) == (shown[i] == 1), runs[j] == runs[i] { j += 1 }
+            var run = runs[i]
+            run.text = shown[i] == 1 ? String(repeating: "\u{2060}", count: j - i) : String(decoding: units[i..<j], as: UTF16.self)
+            out.append(run)
+            i = j
+        }
+        return out
+    }
 }
