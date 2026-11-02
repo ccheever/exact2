@@ -19,11 +19,12 @@ component PromptFontPreview
     promptPreviewSnapshotOwner: string
     promptPreviewSerial: number
     composerChipPress: action
+    scheme: string
   props
     family: string
     size: number
     pal: CorePalette
-  derive faces = richPromptPreview.chips.map((c) => composerAtomFace(c, ""))
+  derive faces = richPromptPreview.chips.map((c) => composerAtomFace(c, "", scheme))
   action write(value: string, e: InputEvent)
     promptPreviewWrite(value, e)
   action pressed(e: AtomEvent)

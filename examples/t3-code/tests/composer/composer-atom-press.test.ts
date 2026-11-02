@@ -130,11 +130,15 @@ describe('ordinary code-language control retains the current source owner', () =
 
 describe('a chip\'s face is its pill', () => {
   const fns = contractFns('src/composer/composer-rich.contract', {AtomFace: (face: Env) => face, ...contractFns('src/timeline/markdown-chip-inks.contract')}) as {
-    composerAtomFace: (chip: Env, upload: string) => Env; composerAtomSymbol: (icon: string) => string;
+    composerAtomFace: (chip: Env, upload: string, scheme: string) => Env; composerAtomSymbol: (icon: string) => string;
   };
-  const atomFace = (chip: Env, upload = '') => fns.composerAtomFace(chip, upload);
+  const atomFace = (chip: Env, upload = '', scheme = 'light') => fns.composerAtomFace(chip, upload, scheme);
   const face = (patch: Env) => ({kind: 'mention', label: 'README.md', suffix: '', icon: 'at-sign', fileToken: '', imageId: '', available: true,
-    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ink: '', ...patch});
+    interactive: true, comment: false, tip: 'README.md', glyph: {kind: ''}, ariaLabel: 'Preview README.md', ink: '', image: '', imageDark: '', ...patch});
+  test('a file\'s type icon or a thread\'s favicon is its image, in the app\'s scheme', () => {
+    const chip = {kind: 'mention', source: '@a.ts', path: 'a.ts', face: face({image: 'assets/file-icons/typescript-light.svg', imageDark: 'assets/file-icons/typescript-dark.svg'})};
+    expect([atomFace(chip).icon, atomFace(chip, '', 'dark').icon]).toEqual(['assets/file-icons/typescript-light.svg', 'assets/file-icons/typescript-dark.svg']);
+  });
   test('label and suffix, the kind\'s SF Symbol, and the tooltip', () => {
     expect(atomFace({kind: 'mention', source: '@README.md', path: 'README.md', face: face({})})).toEqual({source: '@README.md', label: 'README.md', icon: 'symbol:sf/doc',
       title: 'README.md', color: '', backgroundColor: '', direction: 'ltr', ariaLabel: 'Preview README.md'});
