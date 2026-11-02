@@ -526,7 +526,7 @@ AGENTS.md, package.json and .gitignore. A native verb (ios, mac, linux, android,
 in app.json the first time it runs and builds in a workspace generated under .exact/ (LLP 1153 D1). Give
 --name and --bundle-id here, before the first build: a later change to the id makes the next build cold
 and leaves the old app installed. Then cd there: its exact.mjs runs everything, and bun exact.mjs help
-lists its verbs. Read docs/start-here.md first.
+lists its verbs. Read docs/start-here.md first (a website: docs/start-here-site.md).
 Ports    none. Runs to completion.`,
     example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },

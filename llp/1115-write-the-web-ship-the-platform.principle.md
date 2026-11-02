@@ -178,6 +178,11 @@ the schema changes (LLP 1030 D3a). Agreed in advance: "it's ok if things break a
 - **D7. Docs say less.** The agent guide, `exact new` and the recipe apps omit colours, fonts and
   control metrics; where colour is needed they name roles. A short starter guide is the only
   required reading.
+  > **Amended (2026-11-02).** A website has its own: `docs/start-here-site.md`, which an app
+  > that is pages served to a browser reads in place of `docs/start-here.md`. Most of
+  > start-here is about apps (bars, sheets, phone verbs, the native hosts), and in the Pokédex
+  > agent benchmark its 22 KB, with the card read beside it, was the largest part of what a
+  > site build carried in context on every turn.
 - **D8. Each platform's own conventions** (the Mac's Help and Edit menus, frame autosave,
   non-selectable UI labels, `NSSearchField`; Windows's IME and accessibility) are in scope on the
   same test.

@@ -873,9 +873,9 @@ the manifest: set its \`app.name\` and \`app.id\` before the first build. The ap
 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
-pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
-the only required reading (LLP 1115 D7). \`bun exact.mjs contract vocab <name>\` answers a
-name (none: the card, ${doc('card.md')}); \`bun exact.mjs docs <heading words>\` a guide's
+pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} (a site:
+${doc('start-here-site.md')}) is the only required reading. \`bun exact.mjs contract vocab <name>\` answers a
+name (none: the card); \`bun exact.mjs docs <heading words>\` a guide's
 section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios|android\` at the end for a
 phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun exact.mjs update\` refreshes files.${authoredApp(dir) ? ` \`bun exact.mjs lock\` repairs Cargo lock drift.

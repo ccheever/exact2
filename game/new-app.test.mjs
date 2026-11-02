@@ -425,6 +425,9 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     // The one required read; everything else is start-here's to name (LLP 1116 D3, LLP 1116.007 D2).
     assert.ok(notes.includes(resolve(root, 'docs/start-here.md')));
     assert.ok(existsSync(resolve(root, 'docs/start-here.md')));
+    // A website's starter guide in its place (LLP 1115 D7's amendment).
+    assert.ok(notes.includes(resolve(root, 'docs/start-here-site.md')));
+    assert.ok(existsSync(resolve(root, 'docs/start-here-site.md')));
     assert.match(notes, /the only\s+required reading/);
     // Where to start, not an order of steps (LLP 1116.012 D1): the nearest pattern, the guide, a name in question
     // answered by the card, `verify` when the features work and `verify ios` once at the end; `help` lists the verbs.

@@ -93,7 +93,7 @@ app's directory can't discover:
   `rust-toolchain.toml`, forced-offline `.cargo/config.toml`, and `exact.mjs`
   are rewritten by `bun exact.mjs update`.
 
-> **Amended by LLP 1115 D7.** `docs/start-here.md` is the only required reading; the long
+> **Amended by LLP 1115 D7.** `docs/start-here.md` (a website: `docs/start-here-site.md`) is the only required reading; the long
 > guides are lookup.
 
 The generated text sits between `<!-- exact:begin -->` and `<!-- exact:end -->`

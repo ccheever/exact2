@@ -1,6 +1,6 @@
 # Start here: building an app with Exact
 
-The only required reading; the rest is lookup.
+The only required reading; the rest is lookup. A website reads [start-here-site.md](start-here-site.md) instead.
 
 ## The idea
 
