@@ -103,8 +103,10 @@ final class NativeFieldsMacTests: XCTestCase {
                         control.font = font; control.stringValue = "Hg"
                         XCTAssertEqual(exact.minimum_height, Float(control.fittingSize.height))
                         for height in [CGFloat(exact.minimum_height), 60, 90] {
+                            // The glyphs' box: the field editor sets them in
+                            // from the cell's rect by its line fragment padding.
                             let bounds = NSRect(x: 0, y: 0, width: 240, height: height)
-                            let rect = control.cell!.drawingRect(forBounds: bounds)
+                            let rect = control.cell!.drawingRect(forBounds: bounds).insetBy(dx: NodeView.editorPadding, dy: 0)
                             XCTAssertEqual(exact.left, Float(rect.minX), accuracy: 0.00001)
                             // A search cell centres its text and grows its
                             // buttons in a taller box; the host centres the
@@ -164,9 +166,10 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertEqual(field.attributedStringValue.attribute(.kern, at: 0, effectiveRange: nil) as? CGFloat, 2)
         XCTAssertEqual(field.placeholderAttributedString?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor, .placeholderTextColor)
         XCTAssertEqual(field.frame, node.bounds)
+        // Out by the field editor's padding, which sets the glyphs in to the content box.
         let line = try XCTUnwrap(field.cell?.drawingRect(forBounds: field.bounds))
-        XCTAssertEqual(line.minX, 15)
-        XCTAssertEqual(line.width, 210)
+        XCTAssertEqual(line.minX, 15 - NodeView.editorPadding)
+        XCTAssertEqual(line.width, 210 + 2 * NodeView.editorPadding)
         XCTAssertEqual(line.midY, 40)
         XCTAssertLessThan(line.height, 60)
         let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
@@ -252,8 +255,8 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyStyle([:])
         let standard = NSSearchField(), probe = NSRect(x: 0, y: 0, width: 240, height: 40)
         standard.font = NSFont.systemFont(ofSize: 13)
-        let text = standard.cell!.drawingRect(forBounds: probe)
-        node.applyFieldContent(["rect": [Double(text.minX), 0, Double(text.width), 40]])
+        let text = standard.cell!.drawingRect(forBounds: probe), pad = NodeView.editorPadding
+        node.applyFieldContent(["rect": [Double(text.minX + pad), 0, Double(text.width - 2 * pad), 40]])
         let field = try XCTUnwrap(node.field)
         XCTAssertTrue(field is NSSearchField)
         XCTAssertTrue(field.cell is SearchFieldCell)
@@ -261,7 +264,7 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertEqual(field.frame, node.bounds)
         XCTAssertGreaterThan(text.minX, NSTextField().cell!.drawingRect(forBounds: probe).minX, "room for the magnifier")
         let line = try XCTUnwrap(field.cell?.drawingRect(forBounds: field.bounds))
-        XCTAssertEqual(line.minX, text.minX)
+        XCTAssertEqual(line.minX, text.minX, "AppKit's own placement of the text")
         XCTAssertEqual(line.midY, 20, accuracy: 0.5, "one line centred, as the kernel measures it")
         let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
