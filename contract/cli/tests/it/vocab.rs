@@ -343,6 +343,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("load", "view", "load=done"),
         ("message", "view", "message=got"),
         ("document", "view", "document=true"),
+        ("historyswipe", "view", "historyswipe=done"),
         ("reachstart", "view", "reachstart=done"),
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
@@ -404,6 +405,8 @@ fn contextual_attributes_are_refused_elsewhere() {
         let error = contract::compile(&source).unwrap_err();
         let id = if matches!(*name, "reachstart" | "reachend") {
             "lower-collection-edge"
+        } else if *name == "historyswipe" {
+            "lower-navigate-root"
         } else {
             "lower-attr-tag"
         };
