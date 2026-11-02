@@ -1,7 +1,7 @@
 // A server Browser tab's PDF in the viewer page, drawn as Chromium's PDF viewer (file-preview-host/src/pdf/
 // browser-pdf-viewer.ts), under happy-dom through a stand-in for PDF.js. What a browser measures (the canvases, the
 // text layer's boxes) stays its own; this checks the toolbar's names and states, paging, zoom steps, the fit button's
-// turns, rotation and two page view in the layout, the sidebar's thumbnails and outline, Download and Document
+// turns, rotation and two page view in the layout, the sidebar's thumbnails and outline, Download, Print and Document
 // properties.
 import { describe, expect, mock, test } from 'bun:test';
 import { domWindow, intersectAll, network, page, resizeAll, sized, until, viewerDom } from './viewer-dom';
@@ -32,6 +32,7 @@ mock.module('pdfjs-dist', () => ({
       getMetadata: async () => ({ info: documents.info }),
       getDestination: async () => null,
       getPageIndex: async (ref: { num: number }) => ref.num,
+      getData: async () => new Uint8Array(data),
     };
     return { promise: Promise.resolve(pdf), destroy: async () => {} };
   },
@@ -74,11 +75,9 @@ describe('BrowserPdfViewer', () => {
     const { viewer, $, pageField, zoom } = mount();
     await until(() => $('#pagelength').textContent === '6', 'the document');
     const labels = [...viewer.element.querySelectorAll('#toolbar [aria-label]')].map(node => node.getAttribute('aria-label'));
-    expect(labels).toEqual(['Toggle sidebar', 'Page number', 'Zoom out', 'Zoom level', 'Zoom in', 'Fit to page', 'Rotate counterclockwise', 'Download', 'More actions']);
+    expect(labels).toEqual(['Toggle sidebar', 'Page number', 'Zoom out', 'Zoom level', 'Zoom in', 'Fit to page', 'Rotate counterclockwise', 'Download', 'Print', 'More actions']);
     expect([$('#title').textContent, pageField(), zoom()]).toEqual(['Fixture guide', '1', '73%']);
     expect($('#scroller').getAttribute('aria-label')).toBe('PDF document containing 6 pages');
-    // No Print: the host has no print path, and Chromium hides the button where printing is off.
-    expect(viewer.element.querySelector('[aria-label="Print"]')).toBeNull();
     viewer.dispose();
   });
 
@@ -179,6 +178,25 @@ describe('BrowserPdfViewer', () => {
     expect(rows['Page size:']).toMatch(/^(8\.50 × 11\.00 in|216 × 279 mm) \(portrait\)$/);
     viewer.element.querySelector<HTMLButtonElement>('.dialog .action-button')!.click();
     expect(viewer.element.querySelector('.dialog')).toBeNull();
+    viewer.dispose();
+  });
+
+  test("prints the PDF's bytes in a hidden frame, titled with the file's name, then takes the frame away", async () => {
+    documents.pages = [{ width: 612, height: 792 }];
+    const { viewer, $ } = mount();
+    await until(() => $('#pagelength').textContent === '1', 'the document');
+    $<HTMLButtonElement>('#print').click();
+    await until(() => document.querySelector('iframe.print-frame') !== null, 'the print frame');
+    const frame = document.querySelector<HTMLIFrameElement>('iframe.print-frame')!;
+    expect([frame.getAttribute('aria-hidden'), frame.src.startsWith('blob:')]).toEqual(['true', true]);
+    const printed: string[] = [];
+    Object.defineProperty(frame, 'contentWindow', { configurable: true, get: () => ({ print: () => printed.push(document.title) }) });
+    const title = document.title;
+    $<HTMLButtonElement>('#print').click();
+    expect(document.querySelectorAll('iframe.print-frame').length).toBe(1);
+    frame.dispatchEvent(new DomEvent('load'));
+    await until(() => printed.length === 1, 'the print');
+    expect([printed, document.title, frame.isConnected]).toEqual([['guide.pdf'], title, false]);
     viewer.dispose();
   });
 });
