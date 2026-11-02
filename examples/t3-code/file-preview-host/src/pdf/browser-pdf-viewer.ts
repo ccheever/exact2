@@ -3,9 +3,9 @@
 // `<embed type="application/pdf">`). Its toolbar (sidebar, title, page field, zoom, fit, rotate, download, more
 // actions), its sidebar (thumbnails, and the document outline when there is one), two page view, annotations shown or
 // hidden, Present and Document properties are drawn here over PDF.js, which reads the URL's bytes: an answer that is no
-// PDF draws nothing and runs nothing. What differs: printing (the host has no print path for a page, so Print is
-// hidden, as Chromium hides it where printing is off), drawing on the PDF (Chromium's Ink annotation tools), and
-// Present, which fills the viewer rather than the screen.
+// PDF draws nothing and runs nothing. Print prints the PDF's own pages through the platform's print panel. What
+// differs: drawing on the PDF (Chromium's Ink annotation tools), and Present, which fills the viewer rather than the
+// screen.
 import { AnnotationMode, TextLayer, type PDFDocumentProxy, type PDFPageProxy } from "pdfjs-dist";
 import { h, observeResize, post } from "../chrome";
 import { readBoundedDocument } from "../shared/read-bounded";
@@ -19,6 +19,9 @@ const MAX_PAGES = 2000;
 const MAX_BYTES = 100 * 1024 * 1024;
 const BOOKMARK_INDENT = 20;
 const SIDENAV_KEY = "sidenavCollapsed";
+/** How long a hidden frame's PDF is given after `load` before it prints: WebKit's view of it gets the document a moment
+ *  later, and a print before then prints blank pages (LLP 1020.002 D5, "Printing"). */
+const PRINT_SETTLE_MS = 250;
 
 /** The viewer's Material Symbols (pdf/elements/icons.html; cr's file-download and chevron-right). */
 const ICONS: Record<string, string> = {
@@ -32,6 +35,7 @@ const ICONS: Record<string, string> = {
   check: "M389-267 195-460l51-52 143 143 325-324 51 51-376 375Z",
   thumbnails: "M216-144q-29.7 0-50.85-21.5Q144-187 144-216v-528q0-29 21.15-50.5T216-816h528q29.7 0 50.85 21.5Q816-773 816-744v528q0 29-21.15 50.5T744-144H216Zm0-72h528v-528H216v528Zm48-72h432L552-480 444-336l-72-96-108 144Zm-48 72v-528 528Z",
   "doc-outline": "M323.79-288q15.21 0 25.71-10.29t10.5-25.5q0-15.21-10.29-25.71t-25.5-10.5q-15.21 0-25.71 10.29t-10.5 25.5q0 15.21 10.29 25.71t25.5 10.5Zm0-156q15.21 0 25.71-10.29t10.5-25.5q0-15.21-10.29-25.71t-25.5-10.5q-15.21 0-25.71 10.29t-10.5 25.5q0 15.21 10.29 25.71t25.5 10.5Zm0-156q15.21 0 25.71-10.29t10.5-25.5q0-15.21-10.29-25.71t-25.5-10.5q-15.21 0-25.71 10.29t-10.5 25.5q0 15.21 10.29 25.71t25.5 10.5ZM432-288h240v-72H432v72Zm0-156h240v-72H432v72Zm0-156h240v-72H432v72ZM216-144q-29.7 0-50.85-21.15Q144-186.3 144-216v-528q0-29.7 21.15-50.85Q186.3-816 216-816h528q29.7 0 50.85 21.15Q816-773.7 816-744v528q0 29.7-21.15 50.85Q773.7-144 744-144H216Zm0-72h528v-528H216v528Zm0-528v528-528Z",
+  print: "M648-624v-120H312v120h-72v-192h480v192h-72Zm-480 72h625-625Zm539.79 96q15.21 0 25.71-10.29t10.5-25.5q0-15.21-10.29-25.71t-25.5-10.5q-15.21 0-25.71 10.29t-10.5 25.5q0 15.21 10.29 25.71t25.5 10.5ZM648-216v-144H312v144h336Zm72 72H240v-144H96v-240q0-40 28-68t68-28h576q40 0 68 28t28 68v240H720v144Zm73-216v-153.67Q793-530 781-541t-28-11H206q-16.15 0-27.07 11.04Q168-529.92 168-513.6V-360h72v-72h480v72h73Z",
   download: "M480-336 288-528l51-51 105 105v-342h72v342l105-105 51 51-192 192ZM263.72-192Q234-192 213-213.15T192-264v-72h72v72h432v-72h72v72q0 29.7-21.16 50.85Q725.68-192 695.96-192H263.72Z",
 };
 const CHEVRON = "M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z";
@@ -166,6 +170,7 @@ export class BrowserPdfViewer {
   private readonly annotationsItem: HTMLButtonElement;
   private dialog: HTMLElement | null = null;
   private presenting = false;
+  private printing = false;
   private beforePresent: { zoom: number; fit: Fit } = { zoom: 1, fit: "none" };
 
   constructor(private readonly src: string, private readonly name: string, private readonly scheme: () => "light" | "dark") {
@@ -176,6 +181,7 @@ export class BrowserPdfViewer {
     this.fitButton = iconButton("fit", "fit-to-height", "Fit to page", () => this.toggleFit());
     const rotate = iconButton("rotate", "rotate-left", "Rotate counterclockwise", () => this.rotate(-1));
     const download = iconButton("save", "download", "Download", () => post({ type: "download" }));
+    const print = iconButton("print", "print", "Print", () => this.print());
     this.more = iconButton("more", "more", "More actions", () => this.toggleMenu());
     this.more.setAttribute("aria-haspopup", "menu");
     this.title.textContent = name;
@@ -186,7 +192,7 @@ export class BrowserPdfViewer {
       h("div", { id: "start" }, this.sidenavToggle, this.title),
       h("div", { id: "center" }, selector, separator(),
         h("span", { id: "zoom-controls" }, this.zoomOut, this.zoomInput, this.zoomIn), separator(), this.fitButton, rotate),
-      h("div", { id: "end" }, download, this.more),
+      h("div", { id: "end" }, download, print, this.more),
       this.progress,
     );
     this.twoUpItem = this.menuItem("Two page view", true, () => { this.twoUp = !this.twoUp; this.relayout(true); });
@@ -524,6 +530,32 @@ export class BrowserPdfViewer {
       canvas.style.height = `${viewport.height}px`;
       await page.render({ canvas, viewport, transform: [ratio, 0, 0, ratio, 0, 0], background: "white" }).promise;
     }).catch(() => { delete box.dataset.painted; });
+  }
+
+  /**
+   * Print (viewer-toolbar `pdf:print`) prints the document itself, as Chromium's plugin does, not the viewer: its bytes
+   * in a hidden frame, whose `print()` the host answers with the platform's print panel for that frame's PDF (LLP
+   * 1020.002 D5). The page waits in `print()` until the panel ends; the job takes the file's name.
+   */
+  private print() {
+    const pdf = this.pdf;
+    if (!pdf || this.printing) return;
+    this.printing = true;
+    void pdf.getData().then((data) => {
+      const url = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: "application/pdf" }));
+      const frame = h("iframe", { class: "print-frame", src: url, tabindex: -1, "aria-hidden": "true" });
+      frame.addEventListener("load", () => setTimeout(() => {
+        const title = document.title;
+        document.title = this.name;
+        try { frame.contentWindow?.print(); } finally {
+          document.title = title;
+          frame.remove();
+          URL.revokeObjectURL(url);
+          this.printing = false;
+        }
+      }, PRINT_SETTLE_MS), { once: true });
+      document.body.append(frame);
+    }, () => { this.printing = false; });
   }
 
   private showProperties() {
