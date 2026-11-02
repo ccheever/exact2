@@ -108,6 +108,27 @@ private final class T3FieldDelegate: NSObject, UITextFieldDelegate {
     func textFieldDidEndEditing(_ textField: UITextField) { editing?(textField, false) }
 }
 
+private final class T3CompactTabDelegate: NSObject, UITabBarDelegate {
+    private let select: (String) -> Void
+    init(select: @escaping (String) -> Void) { self.select = select }
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        guard let id = item.accessibilityIdentifier, id.hasPrefix("workspace-tab-") else { return }
+        select(String(id.dropFirst("workspace-tab-".count)))
+    }
+}
+
+private enum T3TabIcon {
+    static func image(_ image: UIImage?) -> UIImage? {
+        guard let image else { return nil }
+        let canvas = CGSize(width: 28, height: 28)
+        let scale = min(24 / image.size.width, 24 / image.size.height)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        return UIGraphicsImageRenderer(size: canvas).image { _ in
+            image.draw(in: CGRect(x: (canvas.width - size.width) / 2, y: (canvas.height - size.height) / 2, width: size.width, height: size.height))
+        }.withRenderingMode(.alwaysTemplate)
+    }
+}
+
 private final class T3HomeChromeView: ExactNativeInstance {
     private weak var owner: T3HomeChrome?
     private weak var route: ExactRoute?
@@ -120,6 +141,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var filter: UIButton?
     private var compose: UIButton?
     private var dismiss: UIButton?
+    private var compactTabBar: UITabBar?
+    private var compactCompose: UIButton?
+    private var compactTabDelegate: T3CompactTabDelegate?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
     private var glassCenter: NSLayoutConstraint?
@@ -211,7 +235,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         if attachedLayout != mode {
             removeSearch()
             attachedLayout = mode
-            if glass { if #available(iOS 26.0, *) { makeGlassToolbar() } }
+            if glass { if #available(iOS 26.0, *) { makeGlassToolbar(route) } }
             else { makeHeaderSearch(route) }
             // Native edits retain their text and caret across asynchronous root echoes.
             replaceQuery(query)
@@ -230,6 +254,20 @@ private final class T3HomeChromeView: ExactNativeInstance {
             // UIKit orders rightBarButtonItems from the trailing edge inward.
             installedRight = [filter, settings]
         } else { installedRight = [settings] }
+        if glass && config.layout == "compact", let searchController {
+            // Exact does not expose react-native-screens' integratedButton
+            // placement. Keep the affordance in the navigation bar and attach
+            // UIKit's search controller only when the button is activated.
+            item.searchController = nil
+            let search = UIBarButtonItem(image: UIImage(systemName: "magnifyingglass"), primaryAction: UIAction { [weak route, weak searchController] _ in
+                guard let route, let searchController else { return }
+                route.controller.navigationItem.searchController = searchController
+                searchController.isActive = true
+            })
+            search.accessibilityLabel = "Search threads"
+            search.accessibilityIdentifier = "workspace-search"
+            installedRight.insert(search, at: 0)
+        }
         item.rightBarButtonItems = installedRight
         if !glass && config.layout == "compact" {
             let filter = UIBarButtonItem(image: UIImage(systemName: config.sidebarFilterIcon), menu: menu())
@@ -282,7 +320,11 @@ private final class T3HomeChromeView: ExactNativeInstance {
         searchController = search
     }
     @available(iOS 26.0, *)
-    private func makeGlassToolbar() {
+    private func makeGlassToolbar(_ route: ExactRoute) {
+        if config?.layout == "compact" {
+            makeCompactTabs(route)
+            return
+        }
         let bar = UIView(); bar.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(bar); self.bar = bar
         let effect = UIGlassEffect(style: .regular); effect.isInteractive = true
@@ -327,6 +369,59 @@ private final class T3HomeChromeView: ExactNativeInstance {
             filter.leadingAnchor.constraint(equalTo: bar.leadingAnchor), compose.trailingAnchor.constraint(equalTo: bar.trailingAnchor), dismiss.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
             field.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor, constant: 14), field.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor, constant: -14),
             field.centerYAnchor.constraint(equalTo: glass.contentView.centerYAnchor), field.heightAnchor.constraint(equalToConstant: 42)])
+    }
+    @available(iOS 26.0, *)
+    private func makeCompactTabs(_ route: ExactRoute) {
+        // New T3 Code keeps Home search in UIKit's integrated header button. The
+        // bottom control is a native tab bar with compose beside it.
+        makeHeaderSearch(route)
+        let item = route.controller.navigationItem
+        item.preferredSearchBarPlacement = .automatic
+        item.searchBarPlacementAllowsToolbarIntegration = false
+
+        let bar = UITabBar()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.accessibilityIdentifier = "workspace-tab-bar"
+        bar.itemPositioning = .fill
+        bar.tintColor = .label
+        let definitions: [(String, String, String)] = [
+            ("threads", "Chats", "text.bubble"),
+            ("pullRequests", "PRs", "arrow.triangle.branch"),
+            ("usage", "Usage", "chart.bar.xaxis"),
+            ("settings", "Settings", "gearshape"),
+        ]
+        bar.items = definitions.map { key, label, symbol in
+            let tab = UITabBarItem(title: nil, image: T3TabIcon.image(UIImage(systemName: symbol)), tag: 0)
+            tab.accessibilityLabel = label
+            tab.accessibilityIdentifier = "workspace-tab-\(key)"
+            if key == "threads" { tab.selectedImage = T3TabIcon.image(UIImage(systemName: "text.bubble.fill")) }
+            return tab
+        }
+        bar.selectedItem = bar.items?.first
+        let tabDelegate = T3CompactTabDelegate { [weak self] key in self?.emit("tab", key) }
+        bar.delegate = tabDelegate
+        root.addSubview(bar)
+
+        var composeConfiguration = UIButton.Configuration.glass()
+        composeConfiguration.cornerStyle = .capsule
+        composeConfiguration.baseForegroundColor = .label
+        composeConfiguration.image = UIImage(systemName: "square.and.pencil")
+        let compose = UIButton(configuration: composeConfiguration, primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
+        compose.translatesAutoresizingMaskIntoConstraints = false
+        compose.accessibilityLabel = "New chat"
+        compose.accessibilityIdentifier = "workspace-compose"
+        root.addSubview(compose)
+        compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
+        NSLayoutConstraint.activate([
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+            bar.trailingAnchor.constraint(equalTo: compose.leadingAnchor, constant: -16),
+            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
+            bar.heightAnchor.constraint(equalToConstant: 56),
+            compose.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
+            compose.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            compose.widthAnchor.constraint(equalToConstant: 56),
+            compose.heightAnchor.constraint(equalToConstant: 56),
+        ])
     }
     private var acceptsSearch: Bool {
         isAttached && !settingQuery && !(config?.layout == "sidebar" && workspaceHidden)
@@ -417,7 +512,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; filter = nil; compose = nil; dismiss = nil
+        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
+        filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
     }
