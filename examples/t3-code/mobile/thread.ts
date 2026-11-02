@@ -180,9 +180,11 @@ export async function mobileThreadPrepare(nativeInput: Native | null | undefined
   const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
   if(native?.available)await prepareThreadOutboxPreviews(mobileClient,native,now);
   if (native?.available && mobileClient.ready && mobileClient.threadId) {
-    await syncWorktreeSetup(mobileClient, native);
-    await refreshTimelineReads(mobileClient, native);
-    await attachmentUrls(mobileClient, native, now);
+    await Promise.all([
+      syncWorktreeSetup(mobileClient, native),
+      refreshTimelineReads(mobileClient, native),
+      attachmentUrls(mobileClient, native, now),
+    ]);
   }
   return { revision: mobileClient.revision, pending: timelineReadsNeeded(mobileClient) };
 }
