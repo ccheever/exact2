@@ -147,6 +147,21 @@ export async function run({ dir, name, game = false, exact2, args }) {
     console.error(`Usage: bun exact.mjs <${[...Object.keys(verbs), ...Object.keys(own)].join('|')}> [arguments for that script]\nbun exact.mjs help says what each does.`);
     return 2;
   }
+  // A failed, slow or finished command says how to write a feedback note (scripts/feedback-note.mjs; skipped in a
+  // checkout without it).
+  const feedback = verb === 'feedback' ? null : await import(resolve(exact2, 'scripts/feedback-note.mjs')).catch(() => null);
+  let interrupted = false;
+  const started = Date.now();
+  // The diary's command log (exact2's docs/diary.md): which exact2, what ran, how it ended. No arguments.
+  const log = (exit) => { if (verb !== 'feedback') try {
+    const commit = spawnSync('git', ['-C', exact2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
+    mkdirSync(resolve(dir, '.exact'), { recursive: true });
+    appendFileSync(resolve(dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2: commit, verb: ['test', 'agent', 'verify'].includes(verb) ? `${verb} ${host}` : verb, exit, ms: Date.now() - started }) + '\n');
+  } catch {}
+  if (feedback) try {
+    for (const line of feedback.nudge(dir, { verb, host, exit, ms: Date.now() - started, args: rest, interrupted })) console.error(line);
+  } catch {}
+  return exit; };
   // A native verb names its platform in app.json the first time, after that platform's setup rows, and keeps the
   // generated workspace current unless the app authored one (LLP 1153 D1.2; scripts/app-shells.mjs). A drive's
   // host counts (`test ios`). Absent from a checkout that lacks the module (the scaffold's test SDK), it is skipped.
@@ -156,7 +171,7 @@ export async function run({ dir, name, game = false, exact2, args }) {
     const named = shells.namesPlatform(existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {}, platform);
     const report = named ? null : await import(resolve(exact2, 'scripts/exact.mjs')).then(({ sdkReport, platformReport }) => platformReport(platform, sdkReport(process.env, { only: platform, device: rest.includes('--device') }), { device: rest.includes('--device') })).catch((error) => ({ error: String(error?.message ?? error) }));
     const brought = await shells.bringPlatform(dir, platform, { report });
-    if (brought.refused) { console.error(brought.refused); return 1; }
+    if (brought.refused) { console.error(brought.refused); return log(1); }
     for (const line of brought.lines) console.error(line);
   }
   // The automatic build reports on stderr, so a drive's stdout stays its reply (`--json`).
@@ -169,22 +184,17 @@ export async function run({ dir, name, game = false, exact2, args }) {
       env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1', EXACT_APP_DIR: dir, EXACT2: exact2, EXACT_LAUNCHER_PID: String(process.pid) },
     });
     piped(child);
-    const pass = (signal) => child.kill(signal), signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+    const pass = (signal) => { interrupted = true; child.kill(signal); }, signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
     for (const signal of signals) process.on(signal, pass);
     child.on('error', () => done(1));
     child.on('exit', (code, signal) => {
       for (const s of signals) process.off(s, pass);
+      // A child a signal ended (here, or sent to it alone) silences the nudge, whatever a later child returns.
+      if (signal || code >= 128) interrupted = true;
       done(code ?? 128 + (constants.signals[signal] ?? 0));
     });
   });
   const script = ([file, ...args], more = [], stdio = 'inherit') => spawned(process.execPath, [resolve(exact2, file), ...args, ...more], stdio);
-  const started = Date.now();
-  // The diary's command log (exact2's docs/diary.md): which exact2, what ran, how it ended. No arguments.
-  const log = (exit) => { if (verb !== 'feedback') try {
-    const commit = spawnSync('git', ['-C', exact2, 'rev-parse', '--short=9', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null;
-    mkdirSync(resolve(dir, '.exact'), { recursive: true });
-    appendFileSync(resolve(dir, '.exact/commands.jsonl'), JSON.stringify({ at: new Date(started).toISOString(), exact2: commit, verb: ['test', 'agent', 'verify'].includes(verb) ? `${verb} ${host}` : verb, exit, ms: Date.now() - started }) + '\n');
-  } catch {} return exit; };
 // exact.mjs runs from any directory, and a file argument is found where you are, else in the app: `app.contract`
 // from the app's parent, `app/app.contract` from inside it (app farm wave 1: 13 builds ran one or the other). Each
 // file found in the app is said, with the app's directory; one found nowhere is named before the command runs.
@@ -216,7 +226,7 @@ if (verb === 'contract') {
   const backendFlag = ['test', 'agent', 'verify'].includes(verb) && host === 'web' ? rest.indexOf('--backend') : -1;
   if (backendFlag >= 0) {
     const value = rest[backendFlag + 1];
-    if (!value || value.startsWith('--')) throw new Error('--backend <url>: name the backend origin');
+    if (!value || value.startsWith('--')) { console.error('--backend <url>: name the backend origin'); return log(2); }
     process.env.EXACT_BACKEND_ORIGIN = value;
     rest.splice(backendFlag, 2);
   }
@@ -242,7 +252,9 @@ if (verb === 'contract') {
   }
   if (drivesWeb || drivesNative) {
     // A flag the drive does not take is refused before the build, not after it (scripts/help.mjs).
-    (await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest);
+    // Its refusal ends here, so the command is logged like any other.
+    const refused = (await import(resolve(exact2, 'scripts/help.mjs')).catch(() => null))?.guardFlags(verb, rest, { exit: (code) => ({ code }) });
+    if (refused?.code != null) return log(refused.code);
     // A server entry that does not read DB is refused before the build too, not after it (verify.mjs `withAppServer`, LLP 1116.008 D1).
     const refusal = verb === 'test' ? (await import(resolve(exact2, 'scripts/verify.mjs'))).appServer(dir)?.refusal : null;
     if (refusal) { console.error(`test: ${refusal}`); return log(1); }

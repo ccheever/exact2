@@ -79,7 +79,7 @@ test('status prints what to keep under ask, local and always, nothing more under
   try {
     // Each answer says what it asks (the chess diary: `ask` read as undefined), first.
     const ask = status(dir, {});
-    assert.ok(ask.startsWith('ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands\n\n# The authoring diary\n\n## What to keep'), ask);
+    assert.ok(ask.startsWith('ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands\nFeedback goes to Expo (https://exact-diaries.ccheever-0f6.workers.dev) only as this answer allows; EXACT_FEEDBACK=0 refuses every send.\n\n# The authoring diary\n\n## What to keep'), ask);
     assert.match(ask, /### Needed[^]*## What not to write[^]*## Asking to share[^]*feedback send --yes/);
     assert.doesNotMatch(ask, /detailed diary/);
     // The instructions are docs/diary.md's from "What to keep" on, not its list of answers.
@@ -88,7 +88,7 @@ test('status prints what to keep under ask, local and always, nothing more under
     // docs/diary.md reads `never` in this output as the opt-out; the detailed instructions must not say it.
     assert.doesNotMatch(DETAILED, /never/);
     setStanding(dir, 'always');
-    assert.match(status(dir, {}), /^always \(keep the diary; send it at the end of each task, saying so\)[^]*## Asking to share/);
+    assert.match(status(dir, {}), /^always \(keep the diary; send it at the end of each task, saying so; a note sends it at once\)[^]*## Asking to share/);
     // `local` keeps the diary but never asks or sends, so it gets no "Asking to share".
     setStanding(dir, 'local');
     assert.match(status(dir, {}), /^local \(keep the diary; ask nothing, send nothing\)[^]*## What to keep[^]*## What not to write/);

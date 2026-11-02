@@ -77,6 +77,8 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "key" | "keycapture" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "toggle" => Some("ToggleEvent"),
+        // @ref LLP 1115.000 D5.5 — the history swipe the host tracks.
+        "historyswipe" => Some("HistorySwipeEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
@@ -218,6 +220,20 @@ pub(super) fn declare(shapes: &mut Shapes) {
         vec![
             ("oldState".into(), Ty::String),
             ("newState".into(), Ty::String),
+        ],
+    );
+    // @ref LLP 1115.000 D5.5 — the runner's `HistorySwipe::value` builds it
+    // in this order: AppKit's phase of the swipe it tracks, the way it would
+    // step, its `gestureAmount` along that way, and where the pointer was
+    // as it began, in the viewport.
+    shapes.map.insert(
+        "HistorySwipeEvent".into(),
+        vec![
+            ("phase".into(), Ty::String),
+            ("direction".into(), Ty::String),
+            ("amount".into(), Ty::Number),
+            ("clientX".into(), Ty::Number),
+            ("clientY".into(), Ty::Number),
         ],
     );
     shapes.map.insert(

@@ -384,33 +384,6 @@ fn swiped(content: &Node, row: &dyn Fn(&Node, bool) -> Node, span: Span) -> (Nod
     outer.push(s(&mark("max-width"), &metric("swipe-max-width"), span));
     let mut inner = vec![s(&inset, &metric("swipe-padding"), span)];
     inner.extend(attrs.into_iter().filter(|a| !boxed(a) && a.name != inset));
-    // A leading symbol stands at the row's inset as in any row, with no
-    // margin to pull it back into.
-    let pull = metric("symbol-pull");
-    let children = children
-        .into_iter()
-        .map(|c| match c {
-            Node::Element {
-                tag,
-                positional,
-                attrs,
-                children,
-                span,
-                instance,
-            } => Node::Element {
-                attrs: attrs
-                    .into_iter()
-                    .filter(|a| !matches!(&a.value, Expr::Str(v, _) if *v == pull))
-                    .collect(),
-                tag,
-                positional,
-                children,
-                span,
-                instance,
-            },
-            other => other,
-        })
-        .collect();
     let content = Node::Element {
         tag,
         positional,
