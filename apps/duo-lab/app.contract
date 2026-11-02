@@ -339,7 +339,7 @@ component DuoLab
                   if entry.name == "combos"
                     column flex=1 min-height=0 margin-left=paneLeft margin-right=paneRight class=Safe padding-left=panePadLeft padding-right=panePadRight
                       text "Combinations" class=Title testId="combos-title"
-                      text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
+                      text "Push a screen, open its sheet, raise the keyboard, then fold. The note screen hides the tab bar on purpose; going back shows it again." class=Note
                       column padding=16 gap=12
                         button press=openNote testId="open-note" padding=14 border-radius=10 background-color="AccentColor"
                           text "Push the note screen" font-size=16 font-weight=600 color="AccentColorText"
@@ -350,7 +350,7 @@ component DuoLab
                         button press=back testId="note-back" padding=8 border-radius=8 background-color="-exact-tertiary-fill"
                           text "Back" font-size=14 font-weight=600 color="AccentColor"
                         text "Note" font-size=20 font-weight=700 testId="note-title"
-                      text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
+                      text "This pushed route hides the tab bar on purpose, to test a route without one; Back shows it again. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
                     // Partially folded like a laptop (two segments down), the sheet keeps below the
                     // header and on the lower segment, where Apple's talk puts controls, down to the
                     // route's end: the viewport's bottom, as this screen hides the tab bar. The
