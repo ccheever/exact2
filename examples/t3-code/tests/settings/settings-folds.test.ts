@@ -105,11 +105,14 @@ describe('page contracts', () => {
     expect(source).not.toContain('Git fetch interval');
   });
 
-  test('Settings pickers are bordered as the selects beside them, with regular text and a 70% chevron', () => {
+  test('Settings pickers are bordered as the selects beside them, with regular text, the model trigger without a chevron', () => {
     const rows = appText('settings-rows.contract');
     const picker = appText('settings-picker.contract');
     expect(picker).toMatch(/style SettingsPickerFace[\s\S]*border-width=1[\s\S]*box-shadow="0 1px 2px #0000000d"[\s\S]*:hover/);
-    expect(picker).toMatch(/component SettingsModelTrigger[\s\S]*class=SettingsPickerFace[\s\S]*box opacity=0\.7/);
+    // ProviderModelPicker's trigger draws no chevron (v0.1.6): the mark and the model's name.
+    const model = picker.split('component SettingsModelTrigger')[1]!;
+    expect(model).toContain('class=SettingsPickerFace');
+    expect(model).not.toContain('chevron-down');
     expect(rows.match(/class=SettingsPickerFace/g)?.length).toBe(2); // the model and traits triggers
     expect(appText('settings-scheduled.contract')).toContain('SettingsModelTrigger(stop="enabled", rowId="task-model"');
   });

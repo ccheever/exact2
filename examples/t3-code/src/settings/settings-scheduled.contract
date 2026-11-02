@@ -550,7 +550,7 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Runs on" class=TkLabel
               box position="relative"
-                button popovertarget="task-environment-menu" key=environmentKey role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" opacity=(draft.id != "" ? 0.64 : 1) title="" data-focus-stop=((draft.id != "" or busy) ? "" : "enabled")
+                button popovertarget="task-environment-menu" key=environmentKey role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" opacity=(draft.id != "" ? 0.64 : 1) title="" data-focus-stop=((draft.id != "" or busy) ? "" : "enabled")
                   LucideLaptop(size=16, color="light-dark(#71717b, #a1a1a1)")
                   text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-environment-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")
@@ -573,8 +573,10 @@ component ScheduledEditor
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
                 box position="relative"
-                  button popovertarget="task-project-menu" id="task-project" testId="task-project" role="combobox" aria-label="Project" disabled=busy width="100%" height="2rem" class=TkOutline data-focus-stop=(busy ? "" : "enabled")
-                    text (chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)) font-size="0.875rem" line-clamp=1
+                  // SelectTrigger size="sm": the value (or the placeholder, muted) at the start, the chevron at the end.
+                  button popovertarget="task-project-menu" id="task-project" testId="task-project" role="combobox" aria-label="Project" disabled=busy width="100%" class=TkOutline justify-content="flex-start" data-focus-stop=(busy ? "" : "enabled")
+                    text (chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)) font-size="0.875rem" line-height="1.25rem" color=(chosenProject == "" ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)") flex=1 min-width=0 line-clamp=1 text-align="left"
+                    LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")
                   SkPopup(menuId="task-project-menu", invoker="task-project", label="Project", width=257, list=true, endAlign=0, items=projectItems, keyed=0)
                     for option in data.projects key=option.value
                       TaskChoiceItem(option=option, menuId="task-project-menu", itemId=`task-project-option-${option.value}`, choose=chooseProject(option.value))
@@ -584,7 +586,7 @@ component ScheduledEditor
             if workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel
-                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start" title="" id="task-base-branch" data-focus-stop=(busy ? "" : "enabled")
+                button press=openRefs popovertarget="task-branch-menu" disabled=(busy or chosenProject == "") aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start" opacity=(chosenProject == "" ? 0.64 : 1) title="" id="task-base-branch" data-focus-stop=(busy or chosenProject == "" ? "" : "enabled")
                   LucideGitBranch(size=14, color="light-dark(#71717b, #a1a1a1)")
                   text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-base-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")

@@ -601,7 +601,14 @@ component ComposerMenus
   action refMenu(name: string)
     menuRef = name
   derive workspaceCurrent = workspaceSession == session ? workspaceFocus : ""
-  derive workspaceItems = branches.envOptions.map((option) => KmItem(id=`run-on-${option.id}`, label=option.label)).concat(branches.envAdd.length > 0 and branches.envOptions.length > 0 ? [KmItem(id="run-on-add", label="Add to another machine")] : []).concat(branches.gitless or branches.forceWorktree ? [] : [KmItem(id="workspace-local", label=(branches.envIcon == "folder-git-1" ? "Current worktree" : "Current checkout"))]).concat(branches.gitless ? [] : [KmItem(id="workspace-worktree", label="New worktree")]).concat(not branches.gitless and branches.previous ? [KmItem(id="workspace-previous", label="Previous worktree")] : [])
+  // The strip's run context menus: "workspace" (the workspace control and composer.workspace) and "environment"
+  // (composer.host). One menu holds both groups (MobileRunContextSelector) until the composer is 36rem wide with a
+  // machine to show; there the machine and the workspace are two Selects, each with its own group.
+  derive picker = which == "workspace" or which == "environment"
+  derive split = not branches.gitless and branches.envShow and data.composer.stripRight - data.composer.stripLeft >= 36 * rem - 44
+  derive runOnShown = which == "environment" or not split
+  derive modeShown = not branches.gitless and (which == "workspace" or not split)
+  derive workspaceItems = (runOnShown ? branches.envOptions.map((option) => KmItem(id=`run-on-${option.id}`, label=option.label)).concat(branches.envAdd.length > 0 and branches.envOptions.length > 0 ? [KmItem(id="run-on-add", label="Add to another machine")] : []) : []).concat(not modeShown or branches.forceWorktree ? [] : [KmItem(id="workspace-local", label=(branches.envIcon == "folder-git-1" ? "Current worktree" : "Current checkout"))]).concat(modeShown ? [KmItem(id="workspace-worktree", label="New worktree")] : []).concat(modeShown and branches.previous ? [KmItem(id="workspace-previous", label="Previous worktree")] : [])
   derive searchActive = (searchSession == session ? searchFocused : true)
   derive active = (focusSession == session ? focusIndex : -1)
   derive hovered = (hoverSession == session ? hoverIndex : -1)
@@ -609,15 +616,15 @@ component ComposerMenus
   // and is the Permissions chip's whole menu; its segments continue the rows' indices.
   derive permissions = which == "runtime" or (which == "more" and data.composer.overflowPermissions)
   derive permissionsBase = (which == "more" ? data.composer.moreCount : 0)
-  derive count = (which == "more" ? data.composer.moreCount + (permissions ? data.composer.runtimeCount : 0) : which == "implement" ? 1 : which == "context" ? (data.composer.contextCompact ? 1 : 0) : which == "workspace" ? workspaceItems.length : which == "branch" ? branches.refs.length + (branches.creatable != "" ? 1 : 0) : data.composer.runtimeCount)
+  derive count = (which == "more" ? data.composer.moreCount + (permissions ? data.composer.runtimeCount : 0) : which == "implement" ? 1 : which == "context" ? (data.composer.contextCompact ? 1 : 0) : picker ? workspaceItems.length : which == "branch" ? branches.refs.length + (branches.creatable != "" ? 1 : 0) : data.composer.runtimeCount)
   // Content-sized menus take their measured widths (composer-menus.ts), within the window
   // (max-w calc(100vw - 2rem)); a previous worktree fixes the workspace menu at min(21rem, 100vw - 2rem).
-  derive width = (which == "more" ? min(permissions ? max(data.composer.moreMenuWidth, 298 * rem / 16) : data.composer.moreMenuWidth, viewport.width - 32) : which == "implement" ? 200 : which == "context" ? 256 : which == "workspace" ? (branches.previous ? min(336, viewport.width - 32) : branches.envOptions.length > 0 ? min(branches.envMenuWidth, viewport.width - 32) : (wideWorkspace ? 154 : 160)) : which == "branch" ? 320 : min(data.composer.runtimeMenuWidth, viewport.width - 32))
-  derive strip = which == "workspace" or which == "branch"
+  derive width = (which == "more" ? min(permissions ? max(data.composer.moreMenuWidth, 298 * rem / 16) : data.composer.moreMenuWidth, viewport.width - 32) : which == "implement" ? 200 : which == "context" ? 256 : which == "environment" and split ? min(branches.envSelectWidth, viewport.width - 32) : picker ? (branches.previous and modeShown ? min(336, viewport.width - 32) : branches.envOptions.length > 0 and runOnShown ? min(branches.envMenuWidth, viewport.width - 32) : (wideWorkspace ? 154 : 160)) : which == "branch" ? 320 : min(data.composer.runtimeMenuWidth, viewport.width - 32))
+  derive strip = picker or which == "branch"
   // A composer at least 36rem wide (its strip 44pt narrower) shows the workspace as the desktop
   // Select (BranchToolbarEnvModeSelector): a listbox 4pt below its trigger, as wide as its rows.
   // The non-Git strip's "Run on" is that Select at every width (SelectPopup side bottom, 4pt).
-  derive wideWorkspace = which == "workspace" and (branches.gitless or data.composer.stripRight - data.composer.stripLeft >= 36 * rem - 44)
+  derive wideWorkspace = picker and (branches.gitless or data.composer.stripRight - data.composer.stripLeft >= 36 * rem - 44)
   // Above the trigger (the flip, and the strip menus): 4pt over the toolbar's measured
   // window position, else the bottom-docked layout's fixed offsets.
   // MenuPopup / SelectPopup default to side="bottom" and flip above only when the window has no
@@ -644,7 +651,8 @@ component ComposerMenus
     else
       chooseTrait(descriptor, value)
   // The implementation menu and the meter's details align to their trigger's end (align end).
-  derive x = (which == "workspace" ? data.composer.stripLeft + 5 : which == "branch" ? max(5, data.composer.stripRight - 9 - width) : which == "implement" or which == "context" ? max(5, actionsEnd - width) : anchor + width <= viewport.width - 5 ? anchor : max(5, anchorEnd - width))
+  // The split workspace Select opens at its trigger's start (measured as it opened), past the machine's.
+  derive x = (which == "workspace" and split and optionsAnchorX >= 0 ? optionsAnchorX : picker ? data.composer.stripLeft + 5 : which == "branch" ? max(5, data.composer.stripRight - 9 - width) : which == "implement" or which == "context" ? max(5, actionsEnd - width) : anchor + width <= viewport.width - 5 ? anchor : max(5, anchorEnd - width))
   action mark(index: number, focused: bool)
     focusIndex = focused ? index : (active == index ? -1 : active)
     focusSession = session
@@ -657,7 +665,7 @@ component ComposerMenus
   // A row's key also bubbles to the menu (origin -1): only the menu's own
   // focus (no focused row) moves from there.
   action move(origin: number, name: string, e: KeyboardEvent)
-    if which == "workspace"
+    if picker
       // Return presses the focused row (kmReturn), as its press does.
       if kmReturn(name, e) and workspaceItems.map((item) => item.id).includes(workspaceCurrent)
         preventDefault()
@@ -701,7 +709,7 @@ component ComposerMenus
     else if not over and workspaceCurrent == id
       focus("composer-menu")
   action menuEntered(e: FocusEvent)
-    if which == "workspace"
+    if picker
       if workspaceItems.map((item) => item.id).includes(e.target) or e.target == "composer-menu"
         workspaceFocus = e.target == "composer-menu" ? "" : e.target
         workspaceSession = session
@@ -715,10 +723,10 @@ component ComposerMenus
         // The meter's details are ContextWindowMeter's PopoverPopup, a dialog with no name
         // of its own ("Context Window, and 4 more items, dialog" under VoiceOver). As a `menu` the column was no element, so
         // AppKit ordered its items with the composer by position and VoiceOver read "Message" between the note and the bar.
-        column id="composer-menu" data-dialog-return=(which == "branch" ? "menu" : "") focusin=menuEntered key=move(-1) width="100%" padding=(which == "branch" ? "0px" : "0.25rem") gap=0 border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "context" ? "dialog" : which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "context" ? "" : which == "more" ? "More composer controls" : which == "implement" ? "Implementation actions" : which == "workspace" ? "Workspace" : which == "branch" ? "Refs" : "Permissions") testId="composer-options"
-          if which == "workspace"
+        column id="composer-menu" data-dialog-return=(which == "branch" ? "menu" : "") focusin=menuEntered key=move(-1) width="100%" padding=(which == "branch" ? "0px" : "0.25rem") gap=0 border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "context" ? "dialog" : which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "context" ? "" : which == "more" ? "More composer controls" : which == "implement" ? "Implementation actions" : which == "environment" and split ? "Run on" : picker ? "Workspace" : which == "branch" ? "Refs" : "Permissions") testId="composer-options"
+          if picker
             // MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.
-            if branches.envOptions.length > 0
+            if runOnShown and branches.envOptions.length > 0
               text "Run on" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717a, #a1a1a1)"
               for option in branches.envOptions key=option.id
                 button id=`run-on-${option.id}` press=command("environment-run-on", "", option.id, 0) hover=workspaceHover(`run-on-${option.id}`) role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=option.selected aria-selected=option.selected testId=`run-on-${option.id}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == `run-on-${option.id}` ? "light-dark(#f4f4f5, #ffffff0a)" : option.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
@@ -727,9 +735,9 @@ component ComposerMenus
                   text option.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
               if branches.envAdd.length > 0
                 RunOnAddRow(branches=branches, select=wideWorkspace, current=(workspaceCurrent == "run-on-add"), hover=workspaceHover("run-on-add"), command=command)
-              if not branches.gitless
+              if modeShown
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff14)"
-            if not branches.gitless
+            if modeShown
               text "Workspace" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom=(wideWorkspace ? "0.375rem" : "0.25rem") color="light-dark(#71717a, #a1a1a1)"
               button press=command("cclocal:env-mode", "", "local", 0) disabled=branches.forceWorktree opacity=(branches.forceWorktree ? 0.64 : 1) hover=workspaceHover("workspace-local") id="workspace-local" role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=(branches.envMode == "local") aria-selected=(branches.envMode == "local") testId="workspace-local" class=Control justify-content="flex-start" width="100%" min-height=(wideWorkspace ? "1.8125rem" : "1.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == "workspace-local" ? "light-dark(#f4f4f5, #ffffff0a)" : branches.envMode == "local" ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
                 box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
@@ -759,24 +767,25 @@ component ComposerMenus
                     CcIcon(name="search", size=16, color="light-dark(#71717a8c, #a1a1a18c)", weight=1.75)
                   if branchQuery == ""
                     text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
-                  input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" data-editable="yes"
+                  // A normal line: the field centres it in its 26pt box (a line as tall as the box would sit at its top).
+                  input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="normal" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" spellcheck="false" outline="none" data-editable="yes"
               RefPageScroll(name="strip-refs")
                 column width="100%" gap=0 padding-left="0.5rem" padding-right="0.625rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box"
                   // A local draft's pull request reference leads (pr-checkout.ts).
                   for item in branches.checkout key=item.reference
-                    button press=command("chatlocal:git-pr-open", "", item.reference, 0) hover=hover(0) testId="branch-checkout-pr" role="option" aria-selected=false class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") id="branch-checkout-pr"
+                    button press=command("chatlocal:git-pr-open", "", item.reference, 0) hover=hover(0) testId="branch-checkout-pr" role="option" aria-selected=false class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" background-color=(hovered <= 0 ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") id="branch-checkout-pr"
                       row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"
                         ExtraGlyph(name=item.mark, size=14, color="light-dark(#71717b, #a1a1a1)")
                         column min-width=0 align-items="flex-start"
                           text item.title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1 text-align="left"
                           text item.reference font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1 text-align="left"
                   for ref in branches.refs key=ref.name
-                    button press=command("cc:branch", "", ref.name, 0) contextmenu=refMenu(ref.name) contextPopover="branch-ref-menu" hover=hover(ref.index) testId=`branch-${ref.name}` role="option" aria-selected=ref.selected class=Control justify-content="space-between" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" border-radius="0.25rem" background-color=(hovered == ref.index or (hovered < 0 and ref.index == 0) ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+                    button press=command("cc:branch", "", ref.name, 0) contextmenu=refMenu(ref.name) contextPopover="branch-ref-menu" hover=hover(ref.index) testId=`branch-${ref.name}` role="option" aria-selected=ref.selected class=Control justify-content="space-between" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" border-radius="0.25rem" background-color=(hovered == ref.index or (hovered < 0 and ref.index == 0) ? "light-dark(#18181b17, #f5f5f517)" : "#00000000")
                       text ref.name font-size="0.875rem" line-height="1.25rem" color=(hovered == ref.index or (hovered < 0 and ref.index == 0) ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#18181b, #f5f5f5)") line-clamp=1 min-width=0 flex=1 text-align="left"
                       if ref.badge != ""
                         text ref.badge font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717a73, #a1a1a173)" flex-shrink=0
                   if branches.creatable != ""
-                    button press=command("cc:branch-create", "", branches.creatable, 0) hover=hover(branches.refs.length + branches.checkout.length) testId="branch-create" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" background-color=(hovered == branches.refs.length + branches.checkout.length or (hovered < 0 and branches.refs.length + branches.checkout.length == 0) ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+                    button press=command("cc:branch-create", "", branches.creatable, 0) hover=hover(branches.refs.length + branches.checkout.length) testId="branch-create" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" background-color=(hovered == branches.refs.length + branches.checkout.length or (hovered < 0 and branches.refs.length + branches.checkout.length == 0) ? "light-dark(#18181b17, #f5f5f517)" : "#00000000")
                       text `Create new ref "${branches.creatable}"` font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=1
                   if branches.refs.length == 0 and branches.creatable == "" and branches.checkout.length == 0
                     text (branches.loading ? "Loading refs..." : "No refs found.") font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #a1a1a1)"
@@ -885,7 +894,7 @@ component StripControl
   view
     // A 1pt transparent border inside px-1.75; glyphs keep no inline margins ([&_svg]:mx-0 since a24ec905c8), so one
     // machine and several line up the same.
-    button press=press contextmenu=context contextPopover=menu hover=hover disabled=disabled testId=testId aria-label=aria aria-expanded=open hatch="t3-anchor" data-anchor=`sc:${anchor}` title="" min-width=0 max-width="17.5rem" height=(inlineDocumentViewportWidth < 640 ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=1 position="relative"
+    button id=`composer-strip-${anchor}` press=press contextmenu=context contextPopover=menu hover=hover disabled=disabled testId=testId aria-label=aria aria-expanded=open hatch="t3-anchor" data-anchor=`sc:${anchor}` title="" min-width=0 max-width="17.5rem" height=(inlineDocumentViewportWidth < 640 ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=1 position="relative"
       if machine != ""
         // showEnvironmentIndicator: the machine glyph stands for the control (BranchToolbar RunContextSelector).
         box display="flex" flex-shrink=0
@@ -964,22 +973,43 @@ component ComposerStrip
             if not compact
               text strip.envMachineLabel font-size=(narrow ? "0.875rem" : "0.75rem") line-height=(narrow ? "1.25rem" : "1rem") color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
         else
-          StripControl(icon="", label=strip.envMachineLabel, testId="workspace-mode", aria="Run on", open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(strip.keyHost == "" ? strip.envMachineLabel : `${strip.envMachineLabel} · ${strip.keyHost}`), tipIcon=false, machine=strip.envMachine, compact=compact, anchor="workspace")
+          StripControl(icon="", label=strip.envMachineLabel, testId="workspace-mode", aria="Run on", open=(open == "workspace" or open == "environment"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(strip.keyHost == "" ? strip.envMachineLabel : `${strip.envMachineLabel} · ${strip.keyHost}`), tipIcon=false, machine=strip.envMachine, compact=compact, anchor="workspace")
         // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
         if not composer.permissionsInStrip
           box flex=1 min-width=0
       else
-        if strip.envLocked
-          row height=(narrow ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="48%" testId="workspace-locked" hatch="t3-anchor" data-anchor="sc:locked"
-            box display="flex" flex-shrink=0
-              CcIcon(name=strip.envIcon, size=12, color="light-dark(#18181bb3, #a1a1a1)", weight=1.75)
-            if not compact
-              text strip.envLabel font-size=(narrow ? "0.875rem" : "0.75rem") line-height=(narrow ? "1.25rem" : "1rem") color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
+        if wide and strip.envShow
+          // BranchToolbar at @xl/composer-surface: the machine's Select (BranchToolbarEnvironmentSelector), a vertical
+          // Separator (mx-0.5 h-3.5) and the workspace's Select (BranchToolbarEnvModeSelector) share a flex-1 group, so
+          // the branch selector sits at the end beside the permissions.
+          row flex=1 min-width=0 gap="0.25rem" align-items="center"
+            if strip.envLocked
+              row height=(narrow ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 testId="run-on-locked" aria-label=strip.envMachineLabel hatch="t3-anchor" data-anchor="sc:environment"
+                CnMachineIcon(kind=strip.envMachine, size=12, color="light-dark(#18181bb3, #a1a1a1)")
+                if not compact
+                  text strip.envMachineLabel font-size=(narrow ? "0.875rem" : "0.75rem") line-height=(narrow ? "1.25rem" : "1rem") color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:environment"
+              box width=1 height="0.875rem" margin-left="0.125rem" margin-right="0.125rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+              row height=(narrow ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 testId="workspace-locked" hatch="t3-anchor" data-anchor="sc:locked"
+                box display="flex" flex-shrink=0
+                  CcIcon(name=strip.envIcon, size=12, color="light-dark(#18181bb3, #a1a1a1)", weight=1.75)
+                if not compact
+                  text strip.envLabel font-size=(narrow ? "0.875rem" : "0.75rem") line-height=(narrow ? "1.25rem" : "1rem") color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
+            else
+              StripControl(icon="", label=strip.envMachineLabel, testId="run-on", aria="Run on", open=(open == "environment"), disabled=busy, press=openOptions("environment"), context=command("cclocal:noop", "", "", 0), menu="", tip=(strip.keyHost == "" ? strip.envMachineLabel : `${strip.envMachineLabel} · ${strip.keyHost}`), tipIcon=false, machine=strip.envMachine, compact=compact, anchor="environment")
+              box width=1 height="0.875rem" margin-left="0.125rem" margin-right="0.125rem" flex-shrink=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+              StripControl(icon=strip.envIcon, label=strip.envLabel, testId="workspace-mode", aria="Workspace", open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(strip.keyWorkspace != "" ? `${strip.envLabel} · ${strip.keyWorkspace}` : strip.envLabel), tipIcon=false, machine="", compact=compact, anchor="workspace")
         else
-          StripControl(icon=strip.envIcon, label=(strip.envShow ? strip.envMachineLabel : strip.envLabel), testId="workspace-mode", aria=(wide ? "Workspace" : `Workspace: ${strip.envLabel}`), open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(wide and strip.keyWorkspace != "" ? `${strip.envLabel} · ${strip.keyWorkspace}` : strip.envLabel), tipIcon=(not wide), machine=(strip.envShow ? strip.envMachine : ""), compact=compact, anchor="workspace")
-        // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
-        if not composer.permissionsInStrip
-          box flex=1 min-width=0
+          if strip.envLocked
+            row height=(narrow ? "1.75rem" : "1.5rem") padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="48%" testId="workspace-locked" hatch="t3-anchor" data-anchor="sc:locked"
+              box display="flex" flex-shrink=0
+                CcIcon(name=strip.envIcon, size=12, color="light-dark(#18181bb3, #a1a1a1)", weight=1.75)
+              if not compact
+                text strip.envLabel font-size=(narrow ? "0.875rem" : "0.75rem") line-height=(narrow ? "1.25rem" : "1rem") color="light-dark(#18181bb3, #a1a1a1)" line-clamp=1 hatch="t3-anchor" data-anchor="sl:locked"
+          else
+            StripControl(icon=strip.envIcon, label=(strip.envShow ? strip.envMachineLabel : strip.envLabel), testId="workspace-mode", aria=(wide ? "Workspace" : `Workspace: ${strip.envLabel}`), open=(open == "workspace" or open == "environment"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), menu="", tip=(wide and strip.keyWorkspace != "" ? `${strip.envLabel} · ${strip.keyWorkspace}` : strip.envLabel), tipIcon=(not wide), machine=(strip.envShow ? strip.envMachine : ""), compact=compact, anchor="workspace")
+          // A new thread's Permissions take the free space (ms-auto), so its controls stay together at the start.
+          if not composer.permissionsInStrip
+            box flex=1 min-width=0
         if strip.prShow
           StripPrBadge(text=strip.prText, icon=strip.prIcon, tone=strip.prState, label=strip.prLabel, list=strip.prList, url=strip.prUrl, target=strip.prTarget, tips=strip.prTips, disabled=busy, command=command)
         BranchNameMenu(menuId="branch-name-menu", name=strip.branch, command=command)

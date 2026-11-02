@@ -240,7 +240,7 @@ describe('A14: keys', () => {
       shell: { projects: [{ id: 'pa', workspaceRoot: '/repos/shared', repositoryIdentity: identity }], threads: [] }, local: { groupingMode: 'repository', groupingOverrides: {} } } as unknown as T3Client;
     const added: string[][] = [];
     hostKeyRows((command, kind, target, _label, extra = '') => { added.push([command, kind, target, extra]); }, client, source);
-    expect(added).toEqual([['composer.host', 'options', 'workspace', ''], ['composer.cycleHost', 'command-value', 'environment-run-on', 'b']]);
+    expect(added).toEqual([['composer.host', 'options', 'environment', ''], ['composer.cycleHost', 'command-value', 'environment-run-on', 'b']]);
     added.length = 0;
     hostKeyRows((command, kind, target, _label, extra = '') => { added.push([command, kind, target, extra]); }, { ...client, threadId: 't1' } as unknown as T3Client, source);
     expect(added).toEqual([]);

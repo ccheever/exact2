@@ -1,7 +1,7 @@
 // A composer image chip's expanded preview, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // composerContextPresentation.tsx ImageContextChip (`expandImage`), ChatComposer.tsx's buildExpandedImagePreview over the
 // draft's images and ExpandedImageDialog (the window dimmed, Previous and Next wrapping around the draft's images, the
-// close button 40pt above the image's top-right corner, the name and position below) with its ZoomableImage. The draft
+// close button at the popup's top-right corner, the name and position below) with its ZoomableImage. The draft
 // image is a local file the host's `image` does not load (only http(s) and assets), so the snapshot tile hatch paints it
 // (T3SnapShot.swift `preview:`) in a box the size the image takes: its natural size (the module reads it, as `onLoad`
 // does), fitted into 92% of the window less 6rem wide and min(86vh, 100vh − 160pt) high. A size the module could not
@@ -178,15 +178,15 @@ component ComposerImageDialog
       // DialogTitle, sr-only.
       text "Expanded image preview" role="heading" aria-level=2 position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
       button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 aria-hidden=true position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
+      // DialogPopup's media variant: the X (icon-sm, media-close) at the 92vw × 92vh popup's top-right corner, inside
+      // its 1pt border; the first of the dialog's items.
+      button id="chip-image-close" press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" testId="chip-image-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+        svg width="1rem" height="1rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+          path d="M18 6 6 18M6 6l12 12"
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between" pointer-events="none"
         box pointer-events="auto"
           PreviewStep(label="Previous media", shown=preview.many, flip=true, press=command("editorlocal:chip-image-previous", "", "", 0), elementId="chip-image-previous", testId="chip-image-previous")
         column min-width=0 align-items="center" pointer-events="auto" position="relative"
-          // 40pt above the picture's top-right corner. The picture is centred in this column, which a long name can
-          // widen, so the button is placed from the centre. It comes first, before the group, as the reference's Close.
-          button id="chip-image-close" press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" testId="chip-image-close" position="absolute" left="50%" margin-left=(viewWidth / 2 - 1.5 * rem) top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
-            svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
-              path d="M18 6 6 18M6 6l12 12"
           // MediaActions, the reference's context menu trigger, holds the picture, its zoom and its name: one group.
           column align-items="center" role="group"
             box position="relative" width=viewWidth height=viewHeight

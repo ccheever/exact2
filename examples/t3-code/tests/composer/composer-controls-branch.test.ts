@@ -155,7 +155,9 @@ describe('one Run on and Workspace keyboard order', () => {
     if (!expression) throw new Error(`ComposerMenus is missing ${name}`);
     return value(expression, scope);
   };
-  const items = (branches: typeof base) => derive('workspaceItems', { branches, KmItem: (fields: { id: string; label: string }) => fields });
+  // One menu holds both groups unless the strip is split (`runOnShown`, `modeShown`).
+  const items = (branches: typeof base, shown = { runOnShown: true, modeShown: !branches.gitless }) =>
+    derive('workspaceItems', { branches, ...shown, KmItem: (fields: { id: string; label: string }) => fields });
 
   test('order includes Run on first, omits disabled checkout, and covers previous, auto-balance and gitless variants', async () => {
     expect(await items(base)).toEqual([item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio'),
@@ -170,6 +172,15 @@ describe('one Run on and Workspace keyboard order', () => {
     // "Add to another machine" follows the Run on rows (74541bab17).
     expect(await items({ ...base, envOptions: [primary], envAdd: [remote], previous: false })).toEqual([item('run-on-primary', 'This Mac'),
       item('run-on-add', 'Add to another machine'), item('workspace-local', 'Current checkout'), item('workspace-worktree', 'New worktree')]);
+    // A wide strip's machine Select keeps the Run on group, its workspace Select the Workspace group.
+    expect(await derive('runOnShown', { which: 'environment', split: true })).toBe(true);
+    expect(await derive('modeShown', { which: 'environment', split: true, branches: base })).toBe(false);
+    expect(await derive('runOnShown', { which: 'workspace', split: true })).toBe(false);
+    expect(await derive('modeShown', { which: 'workspace', split: true, branches: base })).toBe(true);
+    expect(await items({ ...base, envOptions: [primary], envAdd: [remote] }, { runOnShown: true, modeShown: false })).toEqual([
+      item('run-on-primary', 'This Mac'), item('run-on-add', 'Add to another machine')]);
+    expect(await items(base, { runOnShown: false, modeShown: true })).toEqual([item('workspace-local', 'Current checkout'),
+      item('workspace-worktree', 'New worktree'), item('workspace-previous', 'Previous worktree')]);
   });
 
   test('arrows wrap both ends, Home/End and typeahead follow hover, and a new session forgets the old row', async () => {
@@ -184,7 +195,7 @@ describe('one Run on and Workspace keyboard order', () => {
     let workspaceItems = await items(base);
     const calls: unknown[][] = [];
     let focused = 'composer-menu';
-    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn, branches: base,
+    const scope = async () => ({ which: 'workspace', picker: true, session: 7, workspaceItems, kmTarget, kmReturn, branches: base,
       workspaceCurrent: await derive('workspaceCurrent', { ...state, session: 7 }),
       focus: (id: string) => { calls.push(['focus', id]); focused = id; },
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']) });
@@ -245,7 +256,7 @@ describe('one Run on and Workspace keyboard order', () => {
     expect(calls).toEqual([['composer-menu', 'branch-selector', event]]);
     const text = await source;
     expect(text).toContain('data-dialog-return=(which == "branch" ? "menu" : "") focusin=menuEntered');
-    const workspace = text.split('          if which == "workspace"\n')[1]!.split('          if which == "branch"\n')[0]!;
+    const workspace = text.split('          if picker\n')[1]!.split('          if which == "branch"\n')[0]!;
     expect(workspace).not.toMatch(/key=move|focus=mark|hover=hover|composer-menu-item-/);
     for (const button of workspace.split('\n').filter(line => line.trimStart().startsWith('button '))) {
       expect(button).toContain('role=(wideWorkspace ? "option" : "menuitemradio")');
@@ -256,7 +267,7 @@ describe('one Run on and Workspace keyboard order', () => {
   test('each row keeps one command binding and delegates selection, close and Message focus to its root owner', async () => {
     const { value } = await import('../support/contract-action-fixture');
     const text = await source;
-    const workspace = text.split('          if which == "workspace"\n')[1]!.split('          if which == "branch"\n')[0]!;
+    const workspace = text.split('          if picker\n')[1]!.split('          if which == "branch"\n')[0]!;
     const buttons = workspace.split('\n').filter(line => line.trimStart().startsWith('button '));
     expect(buttons).toHaveLength(4);
     const calls: unknown[][] = [];

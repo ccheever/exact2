@@ -147,7 +147,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
  * there is a machine to pick (or the only one is remote), and its menu leads with
  * the "Run on" group. The menu sizes to its longest label, as the reference's does.
  */
-export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envAdd: [] as EnvironmentOption[], envMenuWidth: 160, envAddMenuWidth: 160, originShown: false, originOn: false };
+export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envAdd: [] as EnvironmentOption[], envMenuWidth: 160, envSelectWidth: 160, envAddMenuWidth: 160, originShown: false, originOn: false };
 export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON {
   const options = environmentOptions(client), shown = options.find(option => option.selected);
   const pick = !client.threadId && options.length > 1;
@@ -159,5 +159,7 @@ export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON
   // The menu's width from its measured labels (composer-menus.ts); the window caps it in the view.
   return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed, envAdd: add,
     envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree), 0, add.length > 0),
+    // The wide strip's machine Select holds the "Run on" group alone.
+    envSelectWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), [], 0, add.length > 0),
     envAddMenuWidth: addMenuWidth(client, add) };
 }

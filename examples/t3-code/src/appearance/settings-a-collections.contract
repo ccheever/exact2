@@ -49,7 +49,7 @@ component CollectionOrbs
               ThemeOrbView(orb=o.orb, id=`${card.id}-${v.mode}-${o.themeId}`, ring=pal.thumb)
       if tip != ""
         row position="absolute" left=0 right=0 top="-1.625rem" justify-content="center" pointer-events="none" z-index=60
-          text tip padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="tooltip" testId="theme-variant-tip" id="theme-variant-tip" data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
+          text tip padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" role="tooltip" testId="theme-variant-tip" id="theme-variant-tip" data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
 
 // AlertDialog: "Remove themes from “<collection>”?" — a 2-column grid of variant tiles,
 // each a checkbox; "Remove selected (N)" stays disabled until one is checked.

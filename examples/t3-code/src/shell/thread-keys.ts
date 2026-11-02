@@ -45,7 +45,7 @@ export function hostKeyRows(add: DispatchAdd, client: T3Client, source: Environm
   if (client.threadId || !client.projectId) return;
   const options = environmentOptions(client, source);
   if (options.length < 2) return;
-  add('composer.host', 'options', 'workspace', 'Run On');
+  add('composer.host', 'options', 'environment', 'Run On');
   const at = options.findIndex(option => option.selected);
   const next = options[(at + 1) % options.length];
   if (next && !next.selected) add('composer.cycleHost', 'command-value', 'environment-run-on', 'Cycle Host', next.id);

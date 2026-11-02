@@ -78,7 +78,9 @@ export function resolveContextStripLabelsCompact(input: { compact: boolean; need
 
 /** A label in the strip and the anchor names its control and text report under (ComposerStrip: `sc:` and `sl:`). */
 export type StripLabel = { anchor: string; text: string };
-type StripLayout = { labels: StripLabel[]; controls: string[]; compact: boolean };
+// `wide`: the layout of a strip at least 36rem wide with a machine to show, whose machine and workspace are two
+// controls (ComposerStrip); null when it lays out as the narrow one does.
+type StripLayout = { labels: StripLabel[]; controls: string[]; wide: { labels: StripLabel[]; controls: string[] } | null; compact: boolean };
 const stripLayouts = new WeakMap<T3Client, StripLayout>();
 type StripFields = { show: boolean; gitless: boolean; envLocked: boolean; envShow: boolean; envLabel: string; envMachineLabel: string; branchLabel: string; prShow: boolean };
 /** The controls and labels the strip view draws, for the measurement below (composer-controls-branch.ts calls it). */
@@ -87,11 +89,15 @@ export function noteStripLayout(client: T3Client, view: StripFields): void {
     : { anchor: 'workspace', text: view.gitless || view.envShow ? view.envMachineLabel : view.envLabel };
   const labels = !view.show ? [] : view.gitless ? [workspace] : [workspace, { anchor: 'branch', text: view.branchLabel }];
   const controls = !view.show ? [] : view.gitless ? [workspace.anchor] : [workspace.anchor, ...(view.prShow ? ['pr'] : []), 'branch'];
-  stripLayouts.set(client, { labels, controls, compact: stripLayouts.get(client)?.compact ?? false });
+  const machine = { anchor: 'environment', text: view.envMachineLabel }, mode = { anchor: view.envLocked ? 'locked' : 'workspace', text: view.envLabel };
+  const wide = view.show && view.envShow && !view.gitless ? { labels: [machine, mode, { anchor: 'branch', text: view.branchLabel }],
+    controls: [machine.anchor, mode.anchor, ...(view.prShow ? ['pr'] : []), 'branch'] } : null;
+  stripLayouts.set(client, { labels, controls, wide, compact: stripLayouts.get(client)?.compact ?? false });
 }
 /** The strip's label texts, laid out by the composer's text probes for their natural widths. */
 export function stripLabelTexts(client: T3Client): string[] {
-  return (stripLayouts.get(client)?.labels ?? []).map(label => label.text).filter(Boolean);
+  const layout = stripLayouts.get(client);
+  return [...new Set([...(layout?.labels ?? []), ...(layout?.wide?.labels ?? [])].map(label => label.text).filter(Boolean))];
 }
 /**
  * useLabelsOverflow: the labels give way to their icons once the controls, each label at its natural width (up to its
@@ -105,9 +111,11 @@ export function stripLabelsCompact(client: T3Client, rootFontSize: number): bool
   const stripWidth = Array.isArray(strip) ? Number(strip[2]) : NaN;
   if (!(stripWidth > 0)) return layout.compact;
   const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) || 0 : 0; };
-  const rem = rootFontSize / 16, widths = layout.controls.map(name => width(`sc:${name}`)).filter(value => value > 1);
-  let needed = widths.reduce((sum, value) => sum + value, 0) + 4 * rem * Math.max(0, widths.length - 1);
-  for (const label of layout.labels) needed += Math.max(0, Math.min(width(probeKey(label.text, 12, 400)) * rem, 240 * rem) - width(`sl:${label.anchor}`));
+  const rem = rootFontSize / 16, wide = layout.wide && stripWidth >= 36 * rootFontSize - 44 ? layout.wide : null;
+  const { labels, controls } = wide ?? layout, widths = controls.map(name => width(`sc:${name}`)).filter(value => value > 1);
+  // The wide layout's separator between the machine and the workspace (mx-0.5, 1pt).
+  let needed = widths.reduce((sum, value) => sum + value, 0) + 4 * rem * Math.max(0, widths.length - 1) + (wide ? 5 * rem : 0);
+  for (const label of labels) needed += Math.max(0, Math.min(width(probeKey(label.text, 12, 400)) * rem, 240 * rem) - width(`sl:${label.anchor}`));
   layout.compact = resolveContextStripLabelsCompact({ compact: layout.compact, neededWidth: needed, availableWidth: stripWidth - 16 * rem });
   return layout.compact;
 }

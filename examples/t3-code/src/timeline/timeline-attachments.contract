@@ -129,8 +129,8 @@ component ChipThumb
     image url error=failed aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
 
 // ExpandedImageDialog: the image at its own size up to 92% of the window
-// (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, its close
-// button 40pt above the top-right corner, "name (1/2)" below it, and the
+// (less 96pt for the arrows) and min(86vh, 100vh − 160pt) high, the close
+// button at the popup's top-right corner, "name (1/2)" below the image, and the
 // previous/next arrows at the dialog's edges. The media and its caption sit in
 // MediaActions (Save, Copy image); an image with no URL says it is unavailable, and a video that
 // fails shows ExpandedMediaFailure's black panel with Retry video.
@@ -197,6 +197,10 @@ component ImagePreviewDialog
       FocusGuard(guardId="image-preview-guard-start", targets=dialogTargets, popup="image-preview")
       DialogOpenFocus(target="image-preview-close")
       button press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
+      // DialogPopup's media variant: the X (icon-sm, media-close) at the 92vw × 92vh popup's top-right corner, inside
+      // its 1pt border; the first of the dialog's items.
+      button id="image-preview-close" press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+        Icon(name="x", size=16, color="#ffffff")
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
         MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions")
@@ -221,8 +225,6 @@ component ImagePreviewDialog
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size="0.875rem" line-height="1.25rem" color="#ffffff"
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading image"
-              button id="image-preview-close" press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
-                Icon(name="x", size=14, color="#ffffff")
             text (position != "" ? `${name} ${position}` : name) margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
         PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), elementId="image-preview-next", testId="image-preview-next")
       FocusGuard(guardId="image-preview-guard-end", targets=dialogTargets, popup="image-preview")
