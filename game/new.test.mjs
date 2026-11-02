@@ -464,6 +464,17 @@ test('game and generated shell workspaces inherit every root vendor patch', asyn
   } finally {rmSync(root, {recursive:true, force:true});}
 });
 
+test('a Windows game shell links the shared presenter its baked entry uses', () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-windows-host-')));
+  try {
+    const app = resolve(root, 'windows-game');
+    createGame(app);
+    const manifest = Bun.TOML.parse(readFileSync(resolve(app, '.shells/windows/Cargo.toml'), 'utf8'));
+    assert.deepEqual(manifest.dependencies['exact-linux'], {workspace:true});
+    assert.deepEqual(manifest.dependencies['exact-windows'], {workspace:true});
+  } finally {rmSync(root, {recursive:true, force:true});}
+});
+
 test('the SDK lock decides every version; a game that adds packages captures its own lock', async () => {
   const {outsideSdkLock,sdkLock}=await import('./app/shells.mjs');
   const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
