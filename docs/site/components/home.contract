@@ -1,0 +1,68 @@
+use Page, Nav, NavItem from "./shapes.contract"
+use CopyButton, Terminal from "./code.contract"
+
+style SectionTitle
+  font-size="var(--text-xl)" font-weight=600 letter-spacing="-0.25px" color="var(--color-text-default)"
+
+style Grid
+  display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 14rem), 1fr))" gap=12 margin-top=16
+
+component Avatar
+  props
+    icon: string
+    fill: string
+    ink: string
+    first: bool
+  view
+    view display="flex" align-items="center" justify-content="center" width=20 height=20 flex-shrink=0 border-radius="50%" border="1px solid var(--color-background-default)" background-color=fill margin-left=(first ? 0 : -4)
+      image icon aria-hidden=true width=12 height=12 color=ink
+
+component Card
+  props
+    item: NavItem
+    icon: string
+  view
+    link href=item.href padding=16 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId=`card-${item.route}`
+      column gap=6
+        image icon aria-hidden=true width=20 height=20 color="var(--color-icon-default)"
+        text item.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+        text item.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
+
+// Nico's Home frame, for Exact: a hero, the one prompt an agent needs, the first commands, and the pages
+// as cards. The commands are pages/home.md's; the cards are the sidebar's own items and descriptions.
+component Home
+  props
+    page: Page
+    nav: Nav
+  view
+    column testId="home-page"
+      column align-items="center" text-align="center" padding="clamp(16px, 6vw, 56px) 0 8px"
+        h1 font-size="var(--text-4xl)" font-weight=600 letter-spacing="-2px" line-height=1.2 color="var(--color-text-default)"
+          text page.title
+        text page.description margin-top=12 font-size="var(--text-base)" color="var(--color-text-secondary)"
+        row margin-top=24 flex-wrap="wrap" justify-content="center" align-items="center" column-gap=8 row-gap=2 padding="4px 4px 4px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)" background-color="var(--color-background-subtle)" max-width="100%" testId="agent-pill"
+          row flex-shrink=0 aria-hidden=true
+            Avatar(icon="symbol:icon.claude", fill="light-dark(#D77655, #D77655)", ink="light-dark(#FFFFFF, #FFFFFF)", first=true)
+            Avatar(icon="symbol:icon.codex", fill="light-dark(#FFFFFF, #FFFFFF)", ink="light-dark(#000000, #000000)", first=false)
+            Avatar(icon="symbol:icon.openai", fill="light-dark(#FFFFFF, #FFFFFF)", ink="light-dark(#000000, #000000)", first=false)
+            Avatar(icon="symbol:icon.cursor", fill="light-dark(#000000, #000000)", ink="light-dark(#FFFFFF, #FFFFFF)", first=false)
+          text "Teach your agent how to use Exact:" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+          text "docs/start-here.md" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-default)" white-space="nowrap"
+          CopyButton(source="Read https://github.com/ccheever/exact2/blob/main/docs/start-here.md before building an app with Exact. It is the only required reading.")
+      column margin-top=56
+        h2 class=SectionTitle
+          text "Set up Exact"
+        text "Install the toolchain once, then make an app and start its dev loop." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
+        for b in page.blocks.filter(x => x.kind == "terminal") key=b.id
+          view margin-top=16
+            Terminal(source=b.text, lines=b.lines)
+      for g in nav.groups key=g.id
+        column margin-top=48
+          h2 class=SectionTitle
+            text g.title
+          view class=Grid
+            for i in g.items key=i.id
+              if i.depth == 0
+                Card(item=i, icon=(g.title == "Learn" ? "symbol:book" : g.title == "Recipes" ? "symbol:layers" : "symbol:home"))
+              else
+                Card(item=i, icon="symbol:document")

@@ -1,3 +1,13 @@
+test "the home page has the hero, the agent prompt, the setup commands and the cards"
+  size 1440x900
+  expect tree has "home-page"
+  expect tree has "agent-pill"
+  expect tree has "terminal"
+  expect tree has "card-startHere"
+  expect tree has "card-learnContractForHumansRunAnApp"
+  tap "card-startHere"
+  expect tree has "toc"
+
 test "a section of a split guide is its own page"
   at "/learn/contract-for-humans/resources-and-mutations"
   expect tree has "page"
