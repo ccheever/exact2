@@ -15,6 +15,5 @@ The latest upstream layout uses Chats, PRs, Usage and Settings tabs, with New ch
 ## Checkpoints
 
 - Focused Home, native configuration and layout tests pass.
-- iOS simulator build installs and launches on bake-b2 (iOS 27.2).
-- Captured `/tmp/t3-mobile-parity/iphone18-host-aligned.png` after porting Expo's absolute 128pt native host: the host is bottom anchored, the tab bar reserves the compact 64pt compose slot, and New chat uses the measured row height plus 8pt. The accessibility tree reports the Home chrome at y=784..874, the tab bar and New chat both at y=791..853, and header Search remains native.
-- The two iPhone Duo simulators and the spare `exact-chat duo` simulator are occupied by other agent-device sessions; this change therefore has iPhone 18 visual evidence only until a Duo session is released.
+- iOS simulator build installs and launches on the fresh `t3-native-tabs duo` (iOS 27.2, iPhone19.4).
+- Captured `/tmp/t3-mobile-parity/t3-native-tabs-duo-final.png`. UIKit reports the four system rail buttons at x=396 with 44x58 frames at y=410, 460, 510 and 560; New chat and Search remain native navigation-bar actions above the rail.

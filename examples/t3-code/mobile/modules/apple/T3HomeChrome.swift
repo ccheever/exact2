@@ -117,6 +117,18 @@ private final class T3CompactTabDelegate: NSObject, UITabBarDelegate {
     }
 }
 
+private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
+    private let select: (String) -> Void
+    private let keys: [String]
+    init(keys: [String], select: @escaping (String) -> Void) {
+        self.keys = keys; self.select = select
+    }
+    func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+        guard let index = tabBarController.viewControllers?.firstIndex(where: { $0 === viewController }), keys.indices.contains(index) else { return }
+        select(keys[index])
+    }
+}
+
 private final class T3WorkspaceTabBar: UITabBar {
     var onContentLayout: ((CGRect) -> Void)?
     override func layoutSubviews() {
@@ -135,6 +147,89 @@ private final class T3WorkspaceTabBar: UITabBar {
             if subview is UIControl, match(subview) { return [subview] }
             return tabButtons(in: subview, matching: match)
         }
+    }
+}
+
+private final class T3TabPlaceholderController: UIViewController {
+    override func loadView() {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        self.view = view
+    }
+}
+
+private final class T3TabControllerOverlay: UIView {
+    weak var tabBar: UITabBar?
+    var barFrame = CGRect.zero
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let tabBar else { return nil }
+        let pointInBar = convert(point, to: tabBar)
+        guard barFrame.contains(point) || tabBar.bounds.contains(pointInBar) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+}
+
+private final class T3SystemTabController: UITabBarController {
+    var onBarLayout: ((CGRect) -> Void)?
+
+    override func loadView() {
+        super.loadView()
+        let nativeView = view!
+        let overlay = T3TabControllerOverlay()
+        overlay.backgroundColor = .clear
+        overlay.addSubview(nativeView)
+        nativeView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            nativeView.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+            nativeView.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+            nativeView.topAnchor.constraint(equalTo: overlay.topAnchor),
+            nativeView.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
+        ])
+        view = overlay
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        (view as? T3TabControllerOverlay)?.tabBar = tabBar
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        refreshBarLayout()
+    }
+
+    func refreshBarLayout() {
+        let frame = currentBarFrame()
+        guard frame.width > 0, frame.height > 0 else { return }
+        (view as? T3TabControllerOverlay)?.barFrame = frame
+        onBarLayout?(frame)
+    }
+
+    func currentBarFrame() -> CGRect {
+        let root = view!
+        var best: CGRect?
+        func visit(_ candidate: UIView) {
+            let frame = candidate.convert(candidate.bounds, to: root)
+            let name = NSStringFromClass(type(of: candidate))
+            let verticalCandidate = frame.width >= 36 && frame.width <= 96 && frame.height >= 120 && frame.minX > root.bounds.midX
+            let namedRail = name.contains("TabBarPlatter") && verticalCandidate
+            if frame.width > 0 && frame.height > 0 && (namedRail || verticalCandidate) {
+                if best == nil || frame.width * frame.height > best!.width * best!.height { best = frame }
+            }
+            candidate.subviews.forEach(visit)
+        }
+        visit(root)
+        return best ?? tabBar.convert(tabBar.bounds, to: root)
+    }
+}
+
+private extension UIViewController {
+    var t3UsesVerticalSystemBar: Bool {
+        if #available(iOS 27.1, *) { return traitCollection.verticalBarEdge != .unspecified }
+        return false
     }
 }
 
@@ -166,6 +261,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var compactTabBar: UITabBar?
     private var compactCompose: UIButton?
     private var compactTabDelegate: T3CompactTabDelegate?
+    private var systemTabController: T3SystemTabController?
+    private var systemTabDelegate: T3SystemTabDelegate?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
     private var glassCenter: NSLayoutConstraint?
@@ -199,7 +296,14 @@ private final class T3HomeChromeView: ExactNativeInstance {
         fieldDelegate.editing = { [weak self] field, active in
             guard let self, self.field === field, self.acceptsSearch else { return }; self.editing(active)
         }
-        root.layoutChanged = { [weak self] in self?.updateWidth() }
+        root.layoutChanged = { [weak self] in
+            self?.updateWidth()
+            if let controller = self?.systemTabController {
+                controller.view.setNeedsLayout()
+                controller.view.layoutIfNeeded()
+                controller.refreshBarLayout()
+            }
+        }
         searchDelegate.changed = { [weak self] bar, text in
             guard let self, self.searchController?.searchBar === bar else { return }; self.searchChanged(text)
         }
@@ -276,6 +380,12 @@ private final class T3HomeChromeView: ExactNativeInstance {
             // UIKit orders rightBarButtonItems from the trailing edge inward.
             installedRight = [filter, settings]
         } else { installedRight = [settings] }
+        if config.layout == "compact" && route.controller.t3UsesVerticalSystemBar {
+            let compose = UIBarButtonItem(image: UIImage(systemName: "square.and.pencil"), primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
+            compose.accessibilityLabel = "New chat"
+            compose.accessibilityIdentifier = "workspace-compose"
+            installedRight.insert(compose, at: 0)
+        }
         if glass && config.layout == "compact", let searchController {
             // Exact does not expose react-native-screens' integratedButton
             // placement. Keep the affordance in the navigation bar and attach
@@ -394,6 +504,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     @available(iOS 26.0, *)
     private func makeCompactTabs(_ route: ExactRoute) {
+        if route.controller.t3UsesVerticalSystemBar {
+            makeSystemTabs(route)
+            return
+        }
         // New T3 Code keeps Home search in UIKit's integrated header button. The
         // bottom control is a native tab bar with compose beside it.
         makeHeaderSearch(route)
@@ -456,6 +570,56 @@ private final class T3HomeChromeView: ExactNativeInstance {
             bar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
         ])
+    }
+
+    @available(iOS 26.0, *)
+    private func makeSystemTabs(_ route: ExactRoute) {
+        // A UITabBarController is the UIKit owner that opts the app into the
+        // iPhone Duo's vertical system rail. A standalone UITabBar is always a
+        // bottom overlay, even when the scene exposes verticalBarEdge.
+        makeHeaderSearch(route)
+        let keys = ["threads", "pullRequests", "usage", "settings"]
+        let labels = ["Chats", "PRs", "Usage", "Settings"]
+        let symbols = ["text.bubble", "arrow.triangle.branch", "chart.bar.xaxis", "gearshape"]
+        let controller = T3SystemTabController()
+        let children = keys.map { _ in T3TabPlaceholderController() }
+        controller.viewControllers = children
+        controller.tabBar.accessibilityIdentifier = "workspace-system-tab-bar"
+        controller.tabBar.isHidden = false
+        controller.tabBar.tintColor = .label
+        controller.tabBar.unselectedItemTintColor = .secondaryLabel
+        for (index, item) in (controller.tabBar.items ?? []).enumerated() where index < keys.count {
+            item.title = nil
+            item.image = T3TabIcon.image(UIImage(systemName: symbols[index]))
+            item.accessibilityLabel = labels[index]
+            item.accessibilityIdentifier = "workspace-tab-\(keys[index])"
+            if index == 0 { item.selectedImage = T3TabIcon.image(UIImage(systemName: "text.bubble.fill")) }
+        }
+        controller.selectedIndex = 0
+        let delegate = T3SystemTabDelegate(keys: keys) { [weak self] key in self?.emit("tab", key) }
+        controller.delegate = delegate
+        controller.view.translatesAutoresizingMaskIntoConstraints = false
+        route.controller.addChild(controller)
+        root.addSubview(controller.view)
+        NSLayoutConstraint.activate([
+            controller.view.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            controller.view.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            controller.view.topAnchor.constraint(equalTo: root.topAnchor),
+            controller.view.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+        ])
+        controller.didMove(toParent: route.controller)
+        systemTabController = controller
+        systemTabDelegate = delegate
+        DispatchQueue.main.async { [weak controller] in
+            guard let controller else { return }
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            controller.refreshBarLayout()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak controller] in controller?.refreshBarLayout() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak controller] in controller?.refreshBarLayout() }
+        }
     }
     private var acceptsSearch: Bool {
         isAttached && !settingQuery && !(config?.layout == "sidebar" && workspaceHidden)
@@ -546,7 +710,14 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabHost?.removeFromSuperview(); compactTabHost = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
+        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabHost?.removeFromSuperview(); compactTabHost = nil; compactTabDelegate = nil
+        if let controller = systemTabController {
+            controller.willMove(toParent: nil)
+            controller.view.removeFromSuperview()
+            controller.removeFromParent()
+        }
+        systemTabController = nil; systemTabDelegate = nil
+        compactCompose?.removeFromSuperview(); compactCompose = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
