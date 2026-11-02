@@ -90,6 +90,16 @@ describe('F6 between workspace areas', () => {
     expect(w.state.workspaceArea).toBe('panel');
   });
 
+  // workspaceFocus.ts focusArea: the panel's `data-workspace-focus-default` control (DiffPanel's scope menu, the surface
+  // launcher, FileBrowserPanel's search, the Browser's URL field) before the panel itself.
+  test('F6 into the right panel focuses its surface\'s default stop, the Diff scope menu first', () => {
+    for (const [controls, target] of [[['diff-scope'], 'diff-scope'], [['surface-chooser'], 'surface-chooser'], [['field-files-search'], 'field-files-search'], [['browser-url'], 'browser-url'], [[], 'workspace-panel']] as const) {
+      const w = window(['sidebar', 'conversation', 'composer', 'panel'], { controls: [...controls] });
+      w.enter('composer', 'composer');
+      w.move(1);
+      expect([w.state.workspaceArea, w.focused.at(-1)]).toEqual(['panel', target]);
+    }
+  });
   test('a sidebar control that has closed (a rename field after Escape) gives F6 the open thread\'s row, which takes the focus', () => {
     const w = window(['sidebar', 'conversation', 'composer', 'panel', 'terminal']);
     // F2 on the row, then Escape: the sidebar last held the rename field, which is gone.

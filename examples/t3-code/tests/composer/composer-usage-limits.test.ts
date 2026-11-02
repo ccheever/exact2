@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { arr, obj, type Obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { Fake, opened } from '../support/composer-controls-fixture';
+import { appPath } from '../support/app-files';
 import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const now = Date.parse('2026-10-08T03:00:00.000Z');
@@ -106,6 +107,18 @@ describe('/usage-limits banner', () => {
     // The value travels for the reveal; the title row draws only the same-shape mask until a click.
     expect(notice.redactMask).toHaveLength(notice.redact.length);
     expect(notice.redactMask).not.toContain('example');
+  });
+
+  // AccountSummary sits in one `truncate` span: a long label keeps its width and the " · plan" after it is cut first
+  // (v0.1.6 with a hub's long account labels reads "… · ChatGPT Pro 200 Subscript…"). Read from the Contract source.
+  test('the account label keeps its width and the plan after it is cut first', async () => {
+    const source = await Bun.file(appPath('src/usage/usage-bars.contract')).text();
+    const start = source.indexOf('component UsageAccountLabel'), component = source.slice(start, source.indexOf('\ncomponent ', start + 1));
+    expect(component).toContain('box flex-shrink=0 min-width=0 max-width="100%"\n          UsageRedacted(');
+    expect(component).toMatch(/text label flex-shrink=0 min-width=0 max-width="100%" /);
+    const plan = /\n {8}text plan ([^\n]+)/.exec(component)?.[1] ?? '';
+    expect(plan).toContain('text-overflow="ellipsis"');
+    expect(plan).not.toContain('flex-shrink=0');
   });
 });
 

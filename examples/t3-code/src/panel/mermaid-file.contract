@@ -23,12 +23,17 @@ component MermaidFileView
             MermaidFileDiagram(diagram=diagram, scheme=scheme, local=local, testId=testId)
 
 component MermaidFileDiagram
+  inject
+    dialogOpener: action
   props
     diagram: MermaidDiagram
     scheme: string
     local: action
     testId: string
   derive frame = scheme == "dark" ? diagram.dark : diagram.light
+  action expand(id: string, code: string)
+    dialogOpener(`${testId}-expand`)
+    local("diagram-open", id, code)
   view
     if frame.diagram == "error"
       // DiagramError: the message (with Retry when another load may help), then the source.
@@ -43,4 +48,4 @@ component MermaidFileDiagram
       box position="relative" width="100%"
         MermaidFrameView(src=(scheme == "dark" ? diagram.srcDark : diagram.srcLight), frame=frame, width=0, height=0, placeholder=diagram.code, local=local, testId=`${testId}-frame`)
         if frame.diagram == "rendered"
-          button press=local("diagram-open", diagram.id, diagram.code) aria-label="Expand diagram" testId=`${testId}-expand` cursor="zoom-in" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" title="" id=`${testId}-expand`
+          button press=expand(diagram.id, diagram.code) aria-label="Expand diagram" testId=`${testId}-expand` cursor="zoom-in" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" title="" id=`${testId}-expand`

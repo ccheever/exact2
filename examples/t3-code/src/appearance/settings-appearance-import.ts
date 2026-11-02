@@ -333,13 +333,64 @@ export function readThemeFiles(files: PickedThemeFile[], taken: string[]): Theme
     if (oversized) throw new ClientError(oversized);
     return { kind: 'single', json: file.text.slice(0, 1_048_576), fileName: file.name };
   }
-  const themes: CustomTheme[] = [], failures: string[] = [];
+  const parsed: { theme: CustomTheme; sourceName: string }[] = [], failures: string[] = [];
   for (const file of files) {
     if (describeOversizedThemeFile(file.size)) { failures.push(`${file.name}: too large`); continue; }
-    try { const theme = importThemeText(file.text, taken); taken.push(theme.id); themes.push(theme); }
+    try { parsed.push({ theme: importThemeText(file.text, taken), sourceName: file.name }); }
     catch (cause) { failures.push(`${file.name}: ${cause instanceof Error ? cause.message : 'not a theme file'}`); }
   }
-  return { kind: 'batch', themes, failures };
+  return { kind: 'batch', themes: pairVsCodeThemes(resolveThemeLabelCollisions(parsed)), failures };
+}
+
+const renamedOrNull = (theme: CustomTheme, name: string): CustomTheme | null => { try { return renamed(theme, name.slice(0, 48)); } catch { return null; } };
+/**
+ * resolveThemeLabelCollisions (vscodeThemeImport.ts): themes of one batch that share an id take their file's
+ * humanized name where it differs from the label; any still alike become "<label> 2", "<label> 3"….
+ */
+export function resolveThemeLabelCollisions(entries: { theme: CustomTheme; sourceName?: string }[]): CustomTheme[] {
+  const counts = new Map<string, number>();
+  for (const { theme } of entries) counts.set(theme.id, (counts.get(theme.id) ?? 0) + 1);
+  const relabelled = entries.map(({ theme, sourceName }) => {
+    if ((counts.get(theme.id) ?? 0) < 2) return theme;
+    const stem = sourceName?.replace(/\.[^.]+$/, '');
+    const fromFile = stem ? humanizeThemeName(stem) : null;
+    return (fromFile && fromFile.toLowerCase() !== theme.label.toLowerCase() ? renamedOrNull(theme, fromFile) : null) ?? theme;
+  });
+  const seen = new Set<string>();
+  return relabelled.map(theme => {
+    if (!seen.has(theme.id)) { seen.add(theme.id); return theme; }
+    for (let suffix = 2; suffix < 100; suffix += 1) {
+      const candidate = renamedOrNull(theme, `${theme.label} ${suffix}`);
+      if (candidate && !seen.has(candidate.id)) { seen.add(candidate.id); return candidate; }
+    }
+    return theme;
+  });
+}
+/**
+ * pairVsCodeThemes: a batch's one light and one dark theme whose labels differ only by "Light" and "Dark" become
+ * one theme with both appearances, named without them, where the first of the two stood.
+ */
+export function pairVsCodeThemes(themes: CustomTheme[]): CustomTheme[] {
+  const stripAppearance = (label: string) => label.replace(/\b(?:light|dark)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  type Group = { light: CustomTheme[]; dark: CustomTheme[]; order: number };
+  const groups = new Map<string, Group>(), entries: { theme: CustomTheme; order: number }[] = [];
+  themes.forEach((theme, order) => {
+    const key = stripAppearance(theme.label);
+    if ((theme.light && theme.dark) || key === theme.label || !/[a-z0-9]/i.test(key)) { entries.push({ theme, order }); return; }
+    const group = groups.get(key) ?? { light: [], dark: [], order };
+    group[theme.appearance].push(theme);
+    groups.set(key, group);
+  });
+  for (const [key, group] of groups) {
+    if (group.light.length === 1 && group.dark.length === 1) {
+      try {
+        entries.push({ order: group.order, theme: parseThemeFile(JSON.stringify({ version: 1, name: key, appearance: 'light', colors: group.light[0]!.light, variants: { dark: group.dark[0]!.dark } }), []) });
+        continue;
+      } catch { /* each stays as it was */ }
+    }
+    for (const theme of [...group.light, ...group.dark]) entries.push({ theme, order: group.order });
+  }
+  return entries.sort((left, right) => left.order - right.order).map(entry => entry.theme);
 }
 
 /** settings-core theme-add rows: search, sort, install, choose (files), json, add. */

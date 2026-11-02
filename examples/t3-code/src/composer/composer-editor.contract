@@ -52,6 +52,10 @@ shape ComposerDrawer
   cardHeight: number
   // The expanded stack's height, kept while the composer rests (composerStackHold).
   hold: number
+  // The card's box in the chat column, from its left and its foot, once both are measured (ComposerGlass).
+  glass: bool
+  glassLeft: number
+  glassBottom: number
 shape ComposerEditorView
   owner: string
   menu: ComposerMenu
@@ -293,6 +297,18 @@ component ComposerEditorDock
           if editor.stash.menuOpen and editor.drawer.cardWidth > 2.75 * rem
             StashMenu(stash=editor.stash, layered=false, op=op)
 
+// ComposerSurface's glass (its ::before: backdrop-blur 12px and saturate 1.14, 16px and 1.08 in dark mode, under the
+// card's fill at the glass opacity). A macOS backdrop samples only its parent's subtree (LLP 1053.000 §3), so the blur is
+// this layer in the chat column, a later sibling of the transcript and an earlier one of the overlay that holds the card,
+// at the card's measured box; the card paints its translucent fill over it.
+component ComposerGlass
+  props
+    editor: ComposerEditorView
+    dark: bool
+  view
+    if editor.drawer.glass
+      box position="absolute" left=editor.drawer.glassLeft bottom=editor.drawer.glassBottom width=editor.drawer.cardWidth height=editor.drawer.cardHeight border-radius="1rem" overflow="hidden" backdrop-filter=(dark ? "blur(16px) saturate(1.08)" : "blur(12px) saturate(1.14)") pointer-events="none" aria-hidden=true testId="composer-glass"
+
 // ComposerCommandMenuLayer: the open drawer over the chat column, 22pt inside
 // the card's edges, its last 17pt (the seam) under the card. Nothing in the
 // transcript or the composer moves when it opens, and the banners stay under it.
@@ -323,6 +339,8 @@ component ComposerDrawerLayer
 // The thumbnail is the "Preview <name>" button that opens the expanded preview,
 // then Remove follows, in the reference's DOM order; the frame itself is unnamed.
 component ImageDraftTile
+  inject
+    dialogOpener: action
   props
     id: string
     name: string
@@ -345,6 +363,9 @@ component ImageDraftTile
     remove(id)
     if removeFocused
       focus(after)
+  action askRemove
+    dialogOpener(`remove-snapshot-${id}`)
+    ask(removeFocused ? `ui:confirm:${after}` : "ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true)
   view
     column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff10)" background-color="light-dark(#fcfcfc, #000000)" testId=`image-draft-${id}`
       ImagePreviewButton(id=id, name=name, command=command)
@@ -354,7 +375,7 @@ component ImageDraftTile
         // Asking first, a focused Remove names where the focus goes after the confirmed removal; the confirm moves the
         // focus there on Confirm, or back to this Remove on Cancel, before it closes (app.contract confirmUi).
         if referenced
-          button id=`remove-snapshot-${id}` press=ask(removeFocused ? `ui:confirm:${after}` : "ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
+          button id=`remove-snapshot-${id}` press=askRemove focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
         else
           button id=`remove-snapshot-${id}` press=removeNow focus=removeFocus(true) blur=removeFocus(false) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
@@ -428,10 +449,15 @@ component UploadLine
 // `image.previewUrl` button, cursor-zoom-in): a press opens the expanded preview
 // over the draft's images, as the image's chip does.
 component ImagePreviewButton
+  inject
+    dialogOpener: action
   props
     id: string
     name: string
     command: action
+  action preview
+    dialogOpener(`preview-image-${id}`)
+    command("editorlocal:chip-image-open", id, "", 0)
   view
-    button press=command("editorlocal:chip-image-open", id, "", 0) aria-label=`Preview ${name}` testId=`preview-image-${id}` id=`preview-image-${id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" cursor="zoom-in" title=""
+    button press=preview aria-label=`Preview ${name}` testId=`preview-image-${id}` id=`preview-image-${id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" cursor="zoom-in" title=""
       box hatch="t3-snapshot-tile" data-snapshot-id=id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${id}`

@@ -187,7 +187,56 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertFalse(field.isBezeled)
         XCTAssertFalse(field.drawsBackground)
         XCTAssertEqual(field.focusRingType, .exterior)
-        XCTAssertEqual(field.frame, node.contentBox())
+        XCTAssertEqual(field.frame, node.contentBox().insetBy(dx: -NodeView.editorPadding, dy: 0))
+    }
+    /// An input the author draws (`appearance: none`) centres its one line in
+    /// a content box taller than it, as CSS does; AppKit's cell top-aligns it.
+    func testAnAuthorDrawnInputCentresItsLine() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "authored-field-line")
+        defer { session.destroy() }
+        for type in ["text", "password"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 48)
+            node.applyProps(set: ["type": type, "placeholder": "Search keybindings"], clear: [])
+            node.applyStyle(["appearance": .string("none"), "font_size": .number(14), "padding_left": .number(12), "padding_top": .number(4)])
+            node.applyFieldContent(["rect": [12.0, 4.0, 228.0, 40.0]])
+            let field = try XCTUnwrap(node.field)
+            // Out by the field editor's padding, its text starts at the content box's edge.
+            XCTAssertEqual(field.frame, node.contentBox().insetBy(dx: -NodeView.editorPadding, dy: 0))
+            let plain = type == "password" ? NSSecureTextField() : NSTextField()
+            plain.isBezeled = false
+            plain.isBordered = false
+            plain.font = field.font
+            let topAligned = plain.cell!.drawingRect(forBounds: field.bounds)
+            for line in [field.cell!.drawingRect(forBounds: field.bounds), field.cell!.titleRect(forBounds: field.bounds)] {
+                XCTAssertEqual(line.midY, field.bounds.midY, accuracy: 0.5, "\(type): one line centred in the content box")
+                XCTAssertLessThan(line.height, field.bounds.height)
+                XCTAssertEqual(line.minX, topAligned.minX, "\(type): AppKit's horizontal placement kept")
+                XCTAssertEqual(line.width, topAligned.width)
+            }
+        }
+    }
+    /// A line box as tall as its input's box puts the glyphs half its
+    /// leading below its top, as CSS does; the cell draws its line at the
+    /// rect's top, so the rect starts there, native or author-drawn.
+    func testALineAsTallAsTheBoxKeepsItsHalfLeading() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "field-half-leading")
+        defer { session.destroy() }
+        for appearance in ["auto", "none"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 28)
+            node.applyProps(set: ["placeholder": "Search"], clear: [])
+            node.applyStyle(["appearance": .string(appearance), "font_size": .number(14), "line_height": .string("28px")])
+            node.applyFieldContent(["rect": [0.0, 0.0, 240.0, 28.0]])
+            let field = try XCTUnwrap(node.field)
+            let font = try XCTUnwrap(field.font) as CTFont
+            let glyphs = CTFontGetAscent(font).rounded() + CTFontGetDescent(font).rounded()
+            let line = field.cell!.titleRect(forBounds: field.bounds)
+            XCTAssertEqual(line.minY, (28 - glyphs) / 2, accuracy: 1, "\(appearance): the glyphs half the leading down")
+            XCTAssertEqual(line.maxY, 28, accuracy: 1, "\(appearance): the rect ends at the line box's bottom")
+        }
     }
     /// LLP 1115 D8: a native `input type="search"` is AppKit's search field
     /// (its magnifier and clear button, Escape clearing it), its text in the
@@ -424,6 +473,83 @@ final class NativeFieldsMacTests: XCTestCase {
             window.close()
         }
     }
+    /// A key handler's `blur()` ends the field's editing, and AppKit tells
+    /// the delegate before it takes the editor away, so the app's `blur`
+    /// handler runs while the field still has one. What that handler
+    /// writes to the field lands, and its ring goes with the focus (here
+    /// the value it writes restyles the field). A textarea's `blur`
+    /// handler runs while it is still the first responder; a style it
+    /// changes leaves no ring either, and a placeholder written to an
+    /// empty field as it leaves does not bring its editor back.
+    @MainActor
+    func testABlurHandlersWriteLandsAndLeavesNoRing() throws {
+        let f = try SheetFixture(page: """
+        component Proof
+          state draft = ""
+          state focused = false
+          state notesFocused = false
+          state searchFocused = false
+          state searchBlurs = 0
+          action notesFocus(on: bool)
+            notesFocused = on
+          action searchFocus(on: bool)
+            searchFocused = on
+            searchBlurs = on ? searchBlurs : searchBlurs + 1
+          action focusField(on: bool)
+            focused = on
+            draft = on ? "https://example.com/" : draft
+          action edit(text: string)
+            draft = text
+          action fieldKey(k: string)
+            if k == "Enter"
+              preventDefault()
+              blur()
+          view
+            column width="100%" height="100%" padding=20
+              input testId="address" value=(focused ? draft : "https://example.com/") input=edit key=fieldKey focus=focusField(true) blur=focusField(false) width=240 border-width=0
+              textarea testId="notes" value="" focus=notesFocus(true) blur=notesFocus(false) width=240 height=60 padding=(notesFocused ? 4 : 6)
+              input testId="search" value="" placeholder=(searchFocused ? "Type to search" : "Search") focus=searchFocus(true) blur=searchFocus(false) width=240 border-width=0
+        """, size: CGSize(width: 420, height: 200))
+        defer { f.close() }
+        let node = try f.node("address"), field = try XCTUnwrap(node.field)
+        XCTAssertTrue(f.window.makeFirstResponder(field))
+        f.settle()
+        XCTAssertTrue(node.fieldFocused, "a bare field takes Exact's ring")
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.selectAll(nil)
+        editor.insertText("example.org", replacementRange: editor.selectedRange())
+        f.settle()
+        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: f.window.windowNumber,
+                                                   context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        XCTAssertTrue(f.presenter.routeKey(enter, focused: true, in: f.window), "the handler prevents Return")
+        f.settle()
+        XCTAssertNil(field.currentEditor())
+        XCTAssertFalse(node.fieldFocused, "no ring once the field has no focus")
+        XCTAssertEqual(field.stringValue, "https://example.com/", "the value the blur handler wrote")
+        let notes = try f.node("notes"), area = try XCTUnwrap(notes.textArea)
+        func ring() -> CALayer? { notes.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        XCTAssertTrue(f.window.makeFirstResponder(area))
+        f.settle()
+        XCTAssertNotNil(ring(), "a textarea takes Exact's ring")
+        XCTAssertTrue(f.window.makeFirstResponder(nil))
+        f.settle()
+        XCTAssertNil(ring(), "no ring once the textarea has no focus")
+        // An empty field's new placeholder ends its editor's editing and begins it again (`keepingEditing`): not as it leaves.
+        let search = try f.node("search"), searchField = try XCTUnwrap(search.field)
+        XCTAssertTrue(f.window.makeFirstResponder(searchField))
+        f.settle()
+        XCTAssertTrue(f.window.makeFirstResponder(nil))
+        f.settle()
+        XCTAssertNil(searchField.currentEditor(), "the placeholder the blur handler wrote does not begin editing again")
+        XCTAssertFalse(search.fieldFocused)
+        XCTAssertEqual(searchField.placeholderString ?? searchField.placeholderAttributedString?.string, "Search")
+        XCTAssertEqual(state(f, "searchBlurs"), "1")
+    }
+    @MainActor
+    private func state(_ f: SheetFixture, _ name: String) -> String {
+        let json = try? JSONSerialization.jsonObject(with: Data(f.session.agent(#"{"op":"state"}"#).utf8)) as? [String: Any]
+        return ((json?["slots"] as? [String: Any])?[name]).map { "\($0)" } ?? ""
+    }
 
     /// LLP 1115.000 D7.9: the focus ring leaves a border the author wrote
     /// alone, as a native control with a border of its own keeps it under
@@ -457,6 +583,7 @@ final class NativeFieldsMacTests: XCTestCase {
             node.wantsLayer = true
             node.applyProps(set: ["value": "Field"], clear: [])
             node.applyStyle(style)
+            node.applyFieldContent(["rect": [2.0, 2.0, 236.0, 36.0]]) // inside the border, as layout publishes it
             XCTAssertEqual(node.bordersItself, authored, what)
             let field = try XCTUnwrap(node.field)
             let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)

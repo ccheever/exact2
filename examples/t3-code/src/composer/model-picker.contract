@@ -79,12 +79,13 @@ component ModelRow
   view
     if row.kind == "legacy"
       // The trailing Show more row (2359643cff): expanding it reveals the older models above it.
-      button press=toggleLegacy hover=hover class=Control width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      button press=toggleLegacy hover=hover class=Control width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#18181b17, #f5f5f517)" : "#00000000")
         text (legacyOpen ? "Show less" : "Show more") font-size="0.875rem" font-weight=400 line-height="1.203125rem" color=(highlighted or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)")
     else
       // One row shape in every tab (c96c1b69f5): the provider's logo, then the name, the sub-provider, NEW; the
-      // selected row has no fill of its own (selectedFill false), only its check.
-      row id=`model-row-${row.key}` hover=hover width="100%" min-height="2rem" border-radius="0.25rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      // selected row has no fill of its own (selectedFill false), only its check. Hover and the highlight fill
+      // foreground/9% (ComboboxItem).
+      row id=`model-row-${row.key}` hover=hover width="100%" min-height="2rem" border-radius="0.25rem" align-items="center" gap="0.5rem" padding-right="0.25rem" box-sizing="border-box" role="option" aria-selected=row.selected title=row.reason opacity=(row.reason != "" ? 0.64 : 1) background-color=((highlighted or over) and row.reason == "" ? "light-dark(#18181b17, #f5f5f517)" : "#00000000")
         // The logo is decorative, so the name carries the provider for VoiceOver.
         button -exact-menu="none" press=pick key=rowKey disabled=(busy or row.reason != "") testId=`model-${row.id}` aria-label=[`${row.name}, ${row.providerName}`, row.label, (row.isNew ? "New model" : "")].filter((part) => part != "").join(" ") aria-keyshortcuts=row.jumpKey class=Control flex=1 min-width=0 align-self="stretch" padding-left="0.5rem" padding-right=0 padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" justify-content="flex-start" gap="0.5rem"
           ComposerInstanceMark(driver=row.driver, icon=row.icon, size=16, color="light-dark(#18181b, #f5f5f5)", badge=row.providerBadge, accent=row.providerBadgeColor)
@@ -100,9 +101,9 @@ component ModelRow
         button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "" or not favoriteWritable) testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar focus=starFocused(true) blur=starFocused(false) class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 opacity=((row.favorite and not starOnHover) or highlighted or over or starFocus ? 1 : 0) background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #a1a1a1)"), weight=1.75)
         // ModelListRow: the check comes last and keeps its column on every row, so stars and checks line up;
-        // it shows on the composer's model, or on each model a multi-model draft chose.
+        // it shows on the composer's model, or on each model a multi-model draft chose, muted as the row's unclassed icons are.
         box display="flex" flex-shrink=0 opacity=(row.selected ? 1 : 0) aria-hidden=true testId=`model-check-${row.id}`
-          CcIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+          CcIcon(name="check", size=14, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
 
 component ModelPicker
   inject
@@ -144,6 +145,10 @@ component ModelPicker
   // The search field's caret, for Right at its end (selectionchange).
   state caret = 0
   state caretSession = -1
+  // The effort column's locked note as laid out (its text and pb-1.5), which effortHeight counts as three lines.
+  state noteHeight = 0
+  action noteSized(width: number, height: number)
+    noteHeight = height
   derive navigated = navSession == session
   derive legacyOpen = (legacySession == session) != catalog.legacyDefault
   derive railOver = (railSession == session ? railHoverIndex : -1)
@@ -186,7 +191,8 @@ component ModelPicker
   derive listNatural = max(floor, catalog.searching ? max(rails > 0 ? 49 + 40 * rails : 0, 43 + restListHeight) : max(sidebar ? 49 + 40 * rails : 0, 43 + listHeight)) + updateHeight
   // Docked: the list and the effort column share a row capped at 346 (stacked: a 224pt list over at most 256 of
   // column), then the 45pt footer (py-2 round a 28pt control, and its border).
-  derive rowHeight = (stacked ? 224 + min(256, data.composer.effortHeight) : min(346, max(listNatural, data.composer.effortHeight)))
+  derive effortNatural = data.composer.effortHeight + (noteHeight > 0 and data.composer.effortGroups.filter((g) => g.note != "").length > 0 ? noteHeight - 54 : 0)
+  derive rowHeight = (stacked ? 224 + min(256, effortNatural) : min(346, max(listNatural, effortNatural)))
   derive natural = (docked ? rowHeight + 45 + sharing : min(346, listNatural + sharing))
   // The trigger's window-space edges: its top sits 4pt under the given bottom edge.
   // A Settings row's picker opens under its trigger, start-aligned (PopoverPopup align start), flipped above when it does not fit.
@@ -324,7 +330,7 @@ component ModelPicker
                       text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #a1a1a1)"
                       ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
           if docked
-            ModelEffortColumn(data=data, stacked=stacked, pick=pickerPick, move=effortKey)
+            ModelEffortColumn(data=data, stacked=stacked, pick=pickerPick, move=effortKey, noteSized=noteSized)
         // ComposerPickerFooter: speed stays one click away, Permissions sit one menu deeper.
         if docked
           ModelPickerFooter(data=data, permissionsOpen=permissionsOpen, pick=pickerPick, permissions=modelPermissions)
@@ -372,6 +378,7 @@ component ModelEffortColumn
     stacked: bool
     pick: action
     move: action
+    noteSized: action
   view
     column width=(stacked ? "100%" : "12rem") flex-shrink=0 min-height=0 max-height=(stacked ? "16rem" : "none") height=(stacked ? "auto" : "100%") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" border-left-width=(stacked ? 0 : 1) border-top-width=(stacked ? 1 : 0) border-right-width=0 border-bottom-width=0 background-color="light-dark(#fafafa66, #ffffff03)" testId="model-picker-effort"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" flex-shrink=0
@@ -395,7 +402,8 @@ component ModelEffortColumn
                   text group.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #a1a1a1)" aria-hidden=true
                 // "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
                 if group.note != ""
-                  text group.note font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)" testId="effort-ultrathink-note"
+                  column width="100%" resize=noteSized
+                    text group.note font-size="0.75rem" line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #a1a1a1cc)" testId="effort-ultrathink-note"
                 for option in group.options key=option.key
                   EffortLevel(row=option, pick=pick, move=move)
 

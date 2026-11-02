@@ -4,11 +4,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
-import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
 import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
 import { PLATFORMS, authoredCrate, namePlatform, withoutPlatformKeys } from '../scripts/app-shells.mjs';
 import { APP_CRATES } from '../scripts/cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
+// Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
+const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in), the template's own and those it imports. */
@@ -532,6 +533,7 @@ const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').re
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
 export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false, rebuild = false } = {}) {
+  if (!snapbackDevice) throw new Error('this checkout has no Snapback client (snapback4/), so it cannot wire an app to Snapback');
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
@@ -599,7 +601,7 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build && !online) {
     let compatible = false;
-    try { compatible = readDeviceStamp(resolve(dir,'assets/snapback4.wasm')).version === version; } catch { /* Missing or malformed: rebuild. */ }
+    try { compatible = snapbackDevice.readDeviceStamp(resolve(dir,'assets/snapback4.wasm')).version === version; } catch { /* Missing or malformed: rebuild. */ }
     if (rebuild || !compatible || port===null) buildSnapbackDevice(dir);
     said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }
@@ -873,9 +875,9 @@ the manifest: set its \`app.name\` and \`app.id\` before the first build. The ap
 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 
 This file is already in your instructions. Start from the nearest pattern: \`bun exact.mjs
-pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here.md')} is the guide,
-the only required reading (LLP 1115 D7). \`bun exact.mjs contract vocab <name>\` answers a
-name (none: the card, ${doc('card.md')}); \`bun exact.mjs docs <heading words>\` a guide's
+pattern\` lists them and \`pattern <name>\` writes one, tested. ${doc('start-here-site.md')} (a site) or
+${doc('start-here.md')} is the only required reading. \`bun exact.mjs contract vocab <name>\` answers a
+name (none: the card); \`bun exact.mjs docs <heading words>\` a guide's
 section. Run \`bun exact.mjs verify\` when the features work, and \`verify ios|android\` at the end for a
 phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"commands"\`.
 \`bun exact.mjs update\` refreshes files.${authoredApp(dir) ? ` \`bun exact.mjs lock\` repairs Cargo lock drift.
@@ -883,11 +885,12 @@ phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"c
 \`windows\`) names its platform in app.json the first time it runs and builds it in a generated
 workspace; \`update --without <platform>\` stops it.`}
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
-${DIARY_LINE}
 ${snapbackNotes(dir)}
 
 Generated, so don't edit: \`exact.mjs\`${authoredApp(dir) ? `, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\`` : ''} and this block.
+
+${DIARY_LINE}
 ${END}
 `;
 }
@@ -896,9 +899,15 @@ ${END}
  * own): a workspace manifest or a crate beside app.json. Otherwise its native workspace is generated (scripts/app-shells.mjs). */
 export const authoredApp = dir => existsSync(resolve(dir, 'Cargo.toml')) || APP_CRATES.some(kind => existsSync(resolve(dir, kind, 'Cargo.toml')));
 
-/** The one line that stands for the authoring diary (docs/diary.md): \`feedback
- * status\` prints the instructions when the project keeps a diary. */
-const DIARY_LINE = 'The authoring diary: `bun exact.mjs feedback status` says whether this project keeps one.';
+/** Feedback, required of every agent (Charlie, 2026-11-01): the triggers and the one-line note
+ * (scripts/feedback-note.mjs), and \`feedback status\`, which prints the authoring diary's instructions
+ * when the project keeps one; a \`never\` project skips both (docs/diary.md, LLP 1116 D3). Last in the block. */
+const DIARY_LINE = `## Feedback (required)
+
+When a doc was wrong or missing, a workaround was needed, something took several tries or a
+command confused you, record it: \`bun exact.mjs feedback note "<what happened>"\`. It attaches
+exact2's commit and the last exit code, never output or code. \`bun exact.mjs feedback status\` says
+whether notes are sent and whether to keep a diary; under \`never\`, skip all of this.`;
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {

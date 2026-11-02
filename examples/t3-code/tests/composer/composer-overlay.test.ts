@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { composerOverlay, composerOverlaySnapshot, contentKey, newOverlayHold, UNMEASURED_INSET } from '../../src/composer/composer-overlay';
+import { composerOverlay, composerOverlaySnapshot, contentKey, newOverlayHold, OVERLAY_TOP, UNMEASURED_INSET } from '../../src/composer/composer-overlay';
 import type { Obj } from '../../src/client/domain';
 import { noteTranscriptFacts } from '../../src/timeline/transcript-facts';
 import { setLayoutFrames } from '../support/layout-frames';
@@ -37,8 +37,8 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
   test('the reserved composer height follows the overlay', () => {
     const hold = newOverlayHold();
     expect(composerOverlay(hold, input({ frames: {} })).composerReserved).toBe(UNMEASURED_INSET);
-    expect(composerOverlay(hold, input({ frames: frames(290, 238), atEnd: false })).composerReserved).toBe(290);
-    expect(composerOverlay(hold, input({ frames: frames(170) })).composerReserved).toBe(170);
+    expect(composerOverlay(hold, input({ frames: frames(290, 238), atEnd: false })).composerReserved).toBe(290 + OVERLAY_TOP);
+    expect(composerOverlay(hold, input({ frames: frames(170) })).composerReserved).toBe(170 + OVERLAY_TOP);
   });
   test('a shorter composer releases the reservation at once', () => {
     const hold = newOverlayHold();
@@ -76,7 +76,7 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     const client = { origin: 'o', projectId: 'p', threadId: 't' };
     setLayoutFrames(client, frames(170));
     noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', true, 0]);
-    expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182, composerReserved: 170 });
+    expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182, composerReserved: 170 + OVERLAY_TOP });
     setLayoutFrames(client, frames(250, 198));
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(182);
     noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, 0]);

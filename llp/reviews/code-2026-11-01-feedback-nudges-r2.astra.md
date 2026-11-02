@@ -1,0 +1,22 @@
+# Code review: feedback nudges and one-line notes, round 2 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra, `codex exec -m gpt-6-astra -c model_reasoning_effort="xhigh" -s read-only --ephemeral`, a throwaway worktree at `2e7a214d38`.
+- **Method:** one brief (sha256 `fb156b9ed13d14d8f7746fb3f0aeae6cc32c9c8977b711d7079536473dba119e`), shared by both reviewers, blind to the other review. The author (Claude, fb1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Response:** every finding is addressed in `88cffa5258`; round 3 reviews it.
+
+1. **BLOCKER — [scripts/feedback-note.mjs:64](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback-note.mjs:64): source, secrets and arguments still enter notes.** The “allowlist” accepts any line containing a diagnostic word. Read-only evaluation confirmed that `const error = loadSecretLedger();`, `error: login failed ... password=hunter2`, URL credentials, and `error: unknown argument --customer alice@example.com` survive both filtering and redaction. Quoted values exceeding 400 characters bypass replacement entirely. Under `always`, these are uploaded automatically. Replace keyword matching with format-specific extraction of approved diagnostic fields, excluding source, runtime values and echoed arguments; remove the long-quote bypass. Add regression cases for these examples.
+
+2. **MAJOR — [scripts/app-cli.mjs:206](/Users/admin/x2scratch/fb1-rv-astra/scripts/app-cli.mjs:206): native stdout bypasses drainage and deadline cleanup.** `[0, 2, 2]` now creates two relayed pipes, but completion watches only stderr. If stderr ends first, the function returns or cancels the timer while stdout remains open. A grandchild retaining only stdout therefore escapes the 300-ms cleanup; late output can mix with the following drive or disappear when the launcher exits. Track both relayed streams, await both within the deadline, and close every outstanding relay on expiry. Cover each independently retained pipe in integration tests.
+
+3. **MAJOR — [scripts/app-cli.mjs:268](/Users/admin/x2scratch/fb1-rv-astra/scripts/app-cli.mjs:268): preflight failures still bypass feedback.** `agent web --bad-flag` invokes `guardFlags`, which directly calls `process.exit(2)`. A missing `--backend` value throws at line 244. Neither reaches `log`, so neither records the failed command nor prints the required nudge; subsequent notes can describe an older command. The `bringPlatform` fix addresses only one early-exit path. Route eligible preflight exits and exceptions through a common finalizer, preserving their exit codes, and test both examples.
+
+4. **MAJOR — [scripts/feedback.mjs:163](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback.mjs:163): concurrent notes can be archived without being sent.** `pending()` snapshots the diary before awaiting confirmation/network activity, but archival subsequently moves or reads and removes the entire current file. A second `feedback note` appended during that wait is absent from the POST yet gets archived with the acknowledged content. The same-day fix preserves sequential sends but still loses unsent feedback under concurrency. Serialize append/send/archive operations, or archive only the acknowledged snapshot while retaining subsequent additions. Test with a deferred POST and an intervening note.
+
+5. **MINOR — [scripts/app-cli.mjs:199](/Users/admin/x2scratch/fb1-rv-astra/scripts/app-cli.mjs:199): signal silence depends on the final numeric exit code.** The signal handler records no interruption state. In a multi-file test run, an interrupted child’s 130 can be overwritten by a later failure’s 1 at line 310, causing a nudge after interruption. A child that handles a signal and exits normally has the same problem. Latch interruption across the whole invocation and suppress nudges independently of the final exit code; add signal integration coverage.
+
+6. **MINOR — [scripts/feedback-note.mjs:50](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback-note.mjs:50): throttle and disclosure claims are not atomic.** Parallel commands can both read an unclaimed timestamp and print the same daily nudge; competing writes can also erase the other nudge kind’s timestamp. The disclosure’s existence-check/write sequence has the same race. Serialize throttle updates and claim disclosure with exclusive creation; test simultaneous processes.
+
+The permitted test run produced **2 passes and 11 failures**, with temporary-directory creation blocked by sandbox `EPERM`; integration behavior remains unverified.
+
+VERDICT: CHANGES

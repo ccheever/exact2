@@ -3,7 +3,7 @@
   "version": "0.4.33",
   "revision": "3653cae823145170df3e720f5e321bd1b5b4d79d",
   "registry": "https://registry.npmjs.org/",
-  "date": "2026-10-20",
+  "date": "2026-11-02",
   "examples": [
     {
       "name": "A complete app",
@@ -32,7 +32,7 @@
     }
   ],
   "files": {
-    "snapback4/README.md": "64c94df93faa3d1022451d6ca23a08cb7daebee1e6478a38cfbb5a7a8526d4d4",
+    "snapback4/README.md": "3410c5104590510cc39678ccff455b2f477ffe12875d6f21f2bbeed604e7f3d7",
     "docs/recipes/snapback-auth.md": "9f4c5d4728e9cf0f5a739773f226842faffbfb61df4d3f0766d5df031fc98b02",
     "snapback4/ts/snapback.ts": "ccddc3a82dbe0d9a0b633f2531d0ac58afb497ec0d9abf69fc6c38e5ce617aa4",
     "snapback4/online/snapback.ts": "6b6bc3474d71b75d803c85fdf43135c651b5d124d7cddbf3d68ed923c7aedd03",
@@ -41,15 +41,15 @@
     "snapback4/online/projection.ts": "45b05724a82a558b3cb5d4e2fc8f1f4e6b65e9ec7adacf9e025e8a7e7d5148c4",
     "snapback4/ts/release.ts": "9b657e46c2cf12e0f8f6982f31b98d8fc29dae3d7602c96cb7b5d2a512555cc5",
     "snapback4/online/release.ts": "9b657e46c2cf12e0f8f6982f31b98d8fc29dae3d7602c96cb7b5d2a512555cc5",
-    "game/new.mjs": "fad80c1dd1f61526f8cf60b00fec9455e1cd105edec5b669fbdc205cce3224a3",
-    "contract/cli/src/typescript.rs": "0133c9c01b0b714de1ad6e2737881e96cd2d0e8c18e0cc06511c67fe98e788cb",
-    "js/bake/src/typescript.mjs": "ead3e87b1fd0cbf9ea4d9a1d735481d2bc0ea02dd266bb66146f923726223282",
-    "host/web-js/agent.js": "d7676abb8a9016b03544a60eff681a6107dae901137e4d75446002d572c6869e",
-    "scripts/agent-test.mjs": "6a0eb272f64f7ecb45f718cc892d663ae07bafd62fc058387dc30afec5c5f32c",
-    "scripts/agent.mjs": "b485bbbee3d4ce53e8d005997bb3ba7ab242443ddad760e58f1e480031535c89",
+    "game/new.mjs": "9b3919496a95dd12a83c69e4bacfa5b1925493c7e536c9fdab11888793495246",
+    "contract/cli/src/typescript.rs": "de2ee4576544cc740e91161a5a0b0077355a0a7c7e2adce2942588883cb8d86b",
+    "js/bake/src/typescript.mjs": "7579eb35864c7e7b647643fd22bd6b3237d787d4e8ebc3d96fabfec9a9cb110a",
+    "host/web-js/agent.js": "004f77df799c72d54efd297388e3a1d3cb251536bb19ac42eadd64cb6af5051e",
+    "scripts/agent-test.mjs": "1fb1bc5e07b2d7114a90623252de4dd072b382543ef3fc8d931b618c60ebd8dd",
+    "scripts/agent.mjs": "e7a71df2b79247846aea52d3210dcc354081aa4975891f07f152abca690a5d9d",
     "scripts/retest-snapback-readme.mjs": "a9c59fd5d5f1420d8da2f0bb549ed3bcc67f3b0de5ff252e1a43cc7971f660a6",
     "scripts/check-snapback-readme.mjs": "500c83789325bc6c50c60e67fad11433dabe132db582dd12776975e17a4cca21",
-    "snapback4/Cargo.toml": "d35e7740b601d8ab100faafd79cab6b55de2aef53731b18a101e6b0c2490dbdf",
+    "snapback4/Cargo.toml": "cc3fac3e5cbf7d5c6bff3131a80e3604cf559c80cf91fcf53b8b016073517f30",
     "snapback4/Cargo.lock": "17102f864c79f5d6dda98f72514fe6b7b643ac2e97d76f1ac1d4539f0f106e63"
   }
 }

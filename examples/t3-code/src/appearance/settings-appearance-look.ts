@@ -18,7 +18,7 @@ import { clampInterfaceFontSize, clampPromptFontSize } from './appearance-fonts'
 export type Look = {
   themed: boolean; mode: string;
   canvas: string; sidebar: string; sidebarBorder: string; sidebarText: string; sidebarMuted: string; rowActive: string;
-  surface: string; popover: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
+  surface: string; popover: string; glass: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
   /** ui/wizard.tsx: WizardSteps' bg-background (dark:bg-white/4) and WizardPanel's bg-background/80 (dark:bg-white/2). */
   wizardSteps: string; wizardPanel: string;
   chatMax: number; diff: string;
@@ -76,7 +76,7 @@ export function look(client: T3Client): Look {
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
     terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode, prefs.fontSmoothing),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
-    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
+    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, glass: pal.glass, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize),
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize,
@@ -152,7 +152,9 @@ export function terminalTheme(id: string, mode: 'light' | 'dark', custom: Custom
   const builtIn = own ? undefined : TERMINAL_PALETTES[id]?.[mode === 'dark' ? 1 : 0].split(' ');
   const rgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
   return JSON.stringify({ dark: mode === 'dark',
-    background: rgb(builtIn?.[0] ?? roles.terminalBackground ?? '#fcfcfc'),
+    // The standard theme sets no --app-theme-* roles, so index.css's `--terminal-background: var(--background)` applies:
+    // the canvas (true black in dark), not the palette's terminal role.
+    background: rgb(builtIn?.[0] ?? (own ? roles.terminalBackground : roles.canvas) ?? '#fcfcfc'),
     foreground: rgb(builtIn?.[1] ?? roles.terminalForeground ?? '#27272a'),
     cursor: rgb(builtIn?.[2] ?? roles.terminalCursor ?? '#26384e'),
     selectionBackground: builtIn?.[3] ?? (own ? roles.terminalSelection : mode === 'dark' ? 'rgba(180, 203, 255, 0.25)' : 'rgba(37, 63, 99, 0.2)'),

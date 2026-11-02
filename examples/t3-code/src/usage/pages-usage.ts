@@ -444,7 +444,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   page.environmentIcon = !limits && selected.some(status => status.error !== null || environmentStatusText(status, false) === 'Update required') ? 'issue' : '';
   if (!input.open || !native?.available || !state.window) return page;
   if (limits) {
-    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat, md: (input.viewport ?? 1280) >= 768,
+    page.pooled = pooledView(state, statuses, { barWidth: poolBarWidth(input.viewport ?? 1280, input.sidebar ?? 0), format: client.local.deviceSettings.timestampFormat,
       hiddenDrivers: new Set([...hidden].map(provider => PROVIDERS[provider as ProviderKind]?.driver ?? provider)) });
     return page;
   }

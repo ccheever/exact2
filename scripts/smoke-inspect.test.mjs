@@ -25,4 +25,4 @@ test('the form-control smoke waits for a chooser that presents after the tap ret
     } });
   assert.deepEqual(failures, []);
   assert.deepEqual(pictures, [1, 2, 3, 1, 2, 3]);
-});
+}, 600_000); // The fixture's compile builds the contract binary first on a fresh checkout.

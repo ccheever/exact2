@@ -294,6 +294,7 @@ component LiveLabel
 // panel (body), flush with the row, its JSON input highlighted (code).
 component WorkEntry
   inject
+    dialogOpener: action
     linkOpen: action
     rem: number
   props
@@ -321,6 +322,9 @@ component WorkEntry
     hovering = over
   action rowSized(width: number, height: number)
     sized(entry.id, expanded ? max(0, height - 1.5 * rem) : 0)
+  action previewTool(picture: string)
+    dialogOpener(`tool-image-${picture}`)
+    command("chatlocal:image-tool-open", picture, entry.id, 0)
   view
     column hover=setHover resize=rowSized width="100%" padding-left="0.125rem" padding-right="0.125rem" padding-top=(grouped ? "0px" : "0.125rem") padding-bottom=(grouped ? "0px" : "0.125rem") box-sizing="border-box" border-radius="0.5rem" background-color="#00000000"
       if entry.tone == "provider-error" or entry.tone == "provider-warning"
@@ -395,9 +399,9 @@ component WorkEntry
                 for item in entry.results key=item.id
                   InspectorItem(item=item, codeSize=codeSize, open=linkOpen)
             for picture in entry.toolImages key=picture.id
-              MediaActions(source=picture.source, tip=picture.name, local=mediaLocal, testId=`tool-media-${picture.id}`, elementId="")
+              MediaActions(source=picture.source, tip=picture.name, local=mediaLocal, testId=`tool-media-${picture.id}`, elementId="", full=false)
                 for url in urls.filter((url) => url.id == picture.id) key=url.id
-                  button press=command("chatlocal:image-tool-open", picture.id, entry.id, 0) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" title="" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="block"
+                  button press=previewTool(picture.id) testId=`tool-image-${picture.id}` id=`tool-image-${picture.id}` aria-label="Preview tool output image" title="" padding=0 border-width=0 background-color="#00000000" max-width="100%" display="block"
                     image url.url aria-label="Tool output image" max-width="100%" max-height="16rem" object-fit="contain" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e766, #ffffff06)"
                 if urls.filter((url) => url.id == picture.id).length == 0
                   text (urls.filter((url) => url.id == `failed:${picture.id}`).length > 0 ? "Image unavailable" : "Loading image…") font-size=codeSize color="light-dark(#71717b, #a1a1a1)"
@@ -512,9 +516,9 @@ component SystemDivider
       box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
       row min-width=0 flex-shrink=1 align-items="center" justify-content="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="62.4375rem"
         TimelineIcon(name=icon, size=12, color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)"))
-        text label flex-shrink=0 font-size="0.6875rem" font-weight=500 line-height="0.9375rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+        text label flex-shrink=0 font-size="0.6875rem" font-weight=500 line-height="1rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
         if detail != ""
-          text `· ${detail}` min-width=0 max-width="20rem" line-clamp=1 opacity=0.7 font-size="0.6875rem" line-height="0.9375rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+          text `· ${detail}` min-width=0 max-width="20rem" line-clamp=1 opacity=0.7 font-size="0.6875rem" line-height="1rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
       box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
 
 // HandoffRow (V2LifecycleRow.tsx at 74541bab17): the divider's pill with the label and, with no separator and no
@@ -532,13 +536,13 @@ component HandoffDivider
       box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0e)"
       row min-width=0 flex-shrink=1 flex-wrap="wrap" align-items="center" justify-content="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="62.4375rem"
         TimelineIcon(name="arrow-right-left", size=12, color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)"))
-        text label flex-shrink=0 font-size="0.6875rem" font-weight=500 line-height="0.9375rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+        text label flex-shrink=0 font-size="0.6875rem" font-weight=500 line-height="1rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
         row min-width=0 flex-wrap="wrap" align-items="center" justify-content="center" gap="0.375rem" opacity=0.7
           for endpoint in endpoints.filter((entry) => entry.status == "from") key=endpoint.id
             row min-width=0 align-items="center"
               HandoffEndpoint(endpoint=endpoint, danger=danger)
               if endpoint.answer != ""
-                text endpoint.answer margin-left="0.125rem" aria-hidden=true font-size="0.6875rem" line-height="0.9375rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+                text endpoint.answer margin-left="0.125rem" aria-hidden=true font-size="0.6875rem" line-height="1rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
           if endpoints.filter((entry) => entry.status == "from").length > 0
             box aria-hidden=true flex-shrink=0
               TimelineIcon(name="arrow-right", size=12, color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)"))
@@ -563,7 +567,7 @@ component HandoffEndpoint
           if endpoint.badge != ""
             box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #000000)" background-color=(endpoint.badgeColor != "" ? endpoint.badgeColor : "light-dark(#ffffff, #111111)") display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`handoff-badge-${endpoint.id}`
               text endpoint.badge font-size="0.4375rem" font-weight=600 line-height=1 color=(endpoint.badgeColor != "" ? providerAccentInk(endpoint.badgeColor) : "light-dark(#71717b, #a3a3a3)")
-        text endpoint.label min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="0.9375rem" color=(endpoint.iconLight != "" ? `light-dark(${endpoint.iconLight}, ${endpoint.iconDark})` : danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+        text endpoint.label min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="1rem" color=(endpoint.iconLight != "" ? `light-dark(${endpoint.iconLight}, ${endpoint.iconDark})` : danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
 
 // AgentElapsed's formatElapsedSeconds: "0s", "12s", "1m 05s", "1h 02m".
 fn elapsedLabel(seconds: number): string = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${floor(seconds / 60)}m ${seconds % 60 < 10 ? "0" : ""}${seconds % 60}s` : `${floor(seconds / 3600)}h ${floor(seconds % 3600 / 60) < 10 ? "0" : ""}${floor(seconds % 3600 / 60)}m`

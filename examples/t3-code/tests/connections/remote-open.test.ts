@@ -124,11 +124,11 @@ describe('parseSafeExternalUrl', () => {
     expect(parseSafeExternalUrl('zed://ssh/admin-user@example.com/home/user/project')).toBe('zed://ssh/admin-user@example.com/home/user/project');
     expect(parseSafeExternalUrl('vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1')).toBe('vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1');
   });
-  test('openExternal hands an accepted URL to Contract\'s openURL once per serial and refuses the rest', () => {
+  test('openExternal hands an accepted URL to Contract\'s openURL once per serial and refuses the rest', async () => {
     const before = externalOpenRequest().serial;
-    expect(openExternal('https://example.com/a b')).toBe(true);
+    expect(await openExternal('https://example.com/a b')).toBe(true);
     expect(externalOpenRequest()).toEqual({ serial: before + 1, url: 'https://example.com/a%20b' });
-    expect([openExternal('file:///etc/passwd'), openExternal('javascript:alert(1)'), openExternal(42)]).toEqual([false, false, false]);
+    expect(await Promise.all([openExternal('file:///etc/passwd'), openExternal('javascript:alert(1)'), openExternal(42)])).toEqual([false, false, false]);
     expect(externalOpenRequest().serial).toBe(before + 1);
     expect(externalOpensForTests()).toEqual(['https://example.com/a%20b']);
   });

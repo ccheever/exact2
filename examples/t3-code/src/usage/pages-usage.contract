@@ -192,7 +192,8 @@ component UsagePage
   // The pooled segments' popovers (usage-pooled.contract, drawn in the scroll content by UsagePopups): the one the
   // pointer opened (the window's hover state: segment, popover or email, then a 50 ms crossing
   // grace), else the pressed one, which holds until a press outside it (`pinnedAt` is `outside` when it was pinned);
-  // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
+  // at its trigger's rect in the content (x, y, w, h), with the scroll area's edges there and the trigger's top in the
+  // scroll area, taken when it opens. A press outside the page closes the
   // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
   // A popover whose segment is no longer drawn (ActiveSegmentPopover) closes at once, with no fade: each opening
   // keeps its segment's `id=identity.appearance` (`pinnedDrawn`, `hoverDrawn`, `lastDrawn`; "" for a trigger that is not a
@@ -206,6 +207,9 @@ component UsagePage
   state popY = 0
   state popW = 0
   state popH = 0
+  state popLo = 0
+  state popHi = 0
+  state popTop = 0
   state popPlace = ""
   state pinnedDrawn = ""
   state hoverDrawn = ""
@@ -218,12 +222,16 @@ component UsagePage
   action place(id: string, trigger: string)
     let box = frame(`usage-${trigger}-${id}`)
     let content = frame("usage-content")
+    let port = frame("usage-scroll")
     last = id
     lastDrawn = usageDrawnOf(page.pooled.drawn, id)
     popX = box.x - content.x
     popY = box.y - content.y
     popW = box.width
     popH = box.height
+    popLo = port.x - content.x
+    popHi = port.x + port.width - content.x
+    popTop = box.y - port.y
     popPlace = trigger == "legend" ? (box.y - content.y >= 17 * rem ? "top" : "bottom") : ""
   action enterSeg(id: string, inside: bool)
     if inside
@@ -322,7 +330,7 @@ component UsagePage
             UsageRefresh(limits=(page.metric == "limits"), busy=page.refreshing, reduced=reduced, reload=reload)
           // AppRouteModalClose; UsageKeys holds Escape (a showing popover closes first).
           AppRouteModalClose(closeId="close-usage", escape=false, color="light-dark(#18181b, #f5f5f5)", hoverFill="light-dark(#f4f4f5, #ffffff0a)", dismiss=back)
-      scroll flex=1 min-height=0 width="100%" testId="usage-scroll"
+      scroll id="usage-scroll" flex=1 min-height=0 width="100%" testId="usage-scroll"
         // A press on the port's empty ground (below or beside the content) reaches the page's pointerdown and pointerup:
         // main 3998e650e passes an empty scroll port's press on to the scroll node and its ancestors (issues/closed/20261009-macos-empty-scroll-pointer.md).
         column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
@@ -331,7 +339,7 @@ component UsagePage
           else
             if page.metric == "limits"
               UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=held, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend, op=op)
-              UsagePopups(view=page.pooled, shown=shown, last=(usageDrawn(page.pooled.drawn, lastDrawn) ? last : ""), pinned=held, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
+              UsagePopups(view=page.pooled, shown=shown, last=(usageDrawn(page.pooled.drawn, lastDrawn) ? last : ""), pinned=held, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, lo=popLo, hi=popHi, top=popTop, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
             else
               if page.total == ""
                 UsageSkeleton(lg=lg, md=md)
@@ -783,6 +791,8 @@ component UsageChartView
 // Each row is a button over the whole row (the reference's after:inset-0
 // overlay); focus or hover shows as the row's bg-muted/50 fill.
 component ModelTable
+  inject
+    dialogOpener: action
   props
     page: UsageView
     scheme: string
@@ -791,6 +801,9 @@ component ModelTable
   state hovered = ""
   action hover(rowKey: string, over: bool)
     hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
+  action openModel(key: string)
+    dialogOpener(`usage-model-${key}`)
+    op("usage-model-open", "", key)
   view
     box width="100%" display="grid" grid-template-columns=(sm ? "auto minmax(0, 1fr) auto auto auto" : "auto minmax(0, 1fr) auto auto") role="table" testId="usage-model-table"
       box grid-row=1 grid-column="1 / -1" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
@@ -820,7 +833,7 @@ component ModelTable
         if sm
           text model.share grid-row=model.row grid-column=4 align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" opacity=usageDim(model.loading) transition=usageFade(model.loading)
         text model.tokens grid-row=model.row grid-column=(sm ? 5 : 4) align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" opacity=usageDim(model.loading) transition=usageFade(model.loading)
-        button id=`usage-model-${model.key}` press=op("usage-model-open", "", model.key) data-focus-stop="enabled page" hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
+        button id=`usage-model-${model.key}` press=openModel(model.key) data-focus-stop="enabled page" hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
 
 // Breakdown → Day / Hour (UsagePage, 805ff51e58): a table whose columns are never narrower than their
 // figures (whitespace-nowrap), the period column 40% when there is room; a narrow page scrolls it

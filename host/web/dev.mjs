@@ -1250,7 +1250,7 @@ function rebuildNow(files) {
       portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
-      for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
+      for (const {directory} of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
       gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs();
       if (tuning) await tuning.reload();
       watchCompilerInputs();

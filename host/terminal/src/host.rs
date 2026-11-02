@@ -10,7 +10,7 @@ use exact_kernel::invocation::Action;
 use exact_kernel::style::cells::{COLUMN, ROW};
 use exact_kernel::{AxisOffer, Kernel, NodeKey, NodeType, Offer, PropId, ViewId};
 use exact_plan::{EventKind, Plan};
-use exact_runner::{DataSource, Event, Runner, RunnerError, Viewport};
+use exact_runner::{ControlValue, DataSource, Event, Runner, RunnerError, Viewport};
 use std::collections::HashMap;
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
@@ -131,6 +131,9 @@ enum ById {
     /// `scrollBy("id", x, y)`: the scroller moves by `y` pixels (its rows
     /// are 16), as the web's `Element.scrollBy`.
     ScrollBy(String, f32),
+    /// `openURL(url, "id")`: `change` there hears whether the URL was
+    /// handed to the system's opener.
+    Opened(String, bool),
 }
 
 impl ById {
@@ -140,7 +143,8 @@ impl ById {
             | ById::Close(id)
             | ById::Focus(id)
             | ById::IntoView(id, _)
-            | ById::ScrollBy(id, _) => id,
+            | ById::ScrollBy(id, _)
+            | ById::Opened(id, _) => id,
         }
     }
 }
@@ -439,7 +443,12 @@ impl<D: DataSource> Host<D> {
                     layer_ops.push(ById::ScrollBy(id, y as f32));
                 }
                 ("preventDefault", _) => self.prevented = true,
-                ("openURL", Some(url)) => self.open_url(&url),
+                ("openURL", Some(url)) => {
+                    let opened = self.open_url(&url);
+                    if let Some(id) = command.args.get(1).filter(|v| v.is_str()) {
+                        layer_ops.push(ById::Opened(id.text().to_string(), opened));
+                    }
+                }
                 _ => {}
             }
         }
@@ -494,6 +503,10 @@ impl<D: DataSource> Host<D> {
                 ById::Focus(_) => self.focus(Some(node)),
                 ById::IntoView(_, block) => self.reveal_to(node, &block),
                 ById::ScrollBy(_, y) => self.scroll_node_by(node, y),
+                ById::Opened(_, opened) => {
+                    let answer = if opened { "opened" } else { "failed" };
+                    self.dispatch(node, Event::Change(ControlValue::Text(answer.into())));
+                }
                 _ => {}
             }
         }
@@ -1033,13 +1046,16 @@ impl<D: DataSource> Host<D> {
 
     /// `openURL`: an absolute `http`, `https`, `mailto` or `tel` URL, for the
     /// system to open (the web's one allowlist); anything else is refused.
-    pub(crate) fn open_url(&mut self, url: &str) {
+    /// Whether it was handed on.
+    pub(crate) fn open_url(&mut self, url: &str) -> bool {
         let allowed = ["http://", "https://", "mailto:", "tel:"]
             .iter()
             .any(|p| url.len() > p.len() && url[..p.len()].eq_ignore_ascii_case(p));
-        if allowed && !url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        let handed = allowed && !url.chars().any(|c| c.is_control() || c.is_whitespace());
+        if handed {
             self.outbound.push(url.to_string());
         }
+        handed
     }
 
     /// A press that moves the focus to what was pressed only when `take`:

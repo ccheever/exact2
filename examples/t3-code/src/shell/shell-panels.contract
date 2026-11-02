@@ -10,6 +10,7 @@ use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
 use MorphMaximize from "./shell-morph.contract"
 use PanelHeader from "../panel/panel.contract"
+use PanelResizeRail from "../panel/panel.contract"
 use SurfaceBody from "../panel/panel.contract"
 use AddSurfaceMenu from "../panel/panel.contract"
 use PrSurfaceBody from "../panel/pr-attachment.contract"
@@ -56,6 +57,8 @@ component SurfacePanel
     closePending: bool
     // The panel's width (the pull request header's labels go below 30rem).
     width: number
+    resize: action // the left edge's drag (app.contract resizeDiff), as the Diff panel's
+    finishResize: action
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -80,7 +83,7 @@ component SurfacePanel
         if shell.panel.kind == "pull-request"
           PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480), width=width)
         if shell.panel.kind == "attachment"
-          AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="")
+          AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="", loading=false)
       else
         // RightPanelTabs draws "Add panel surface" whenever the panel is open (`props.open !== false`), so the
         // launcher's bar has it at the left, where the first tab would be.
@@ -105,6 +108,8 @@ component SurfacePanel
               ShellIcon(name="panel-right", size=16, color="light-dark(#18181bcc, #f5f5f5cc)")
             TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
         SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)
+      if not sheet and not maximized
+        PanelResizeRail(label="Resize panel", resize=resize, finish=finishResize, testId="panel-resize")
 
 // RightPanelEmptyState's launcher (RightPanelTabs.tsx): it takes the focus as it mounts (`autofocus`, focusOnMount), and
 // its letters open their surfaces. One highlight runs over the available rows: a pointer over a row sets it, leaving that
@@ -351,7 +356,7 @@ component AppConfirm
   derive dialogTargets = [`${confirmId}-cancel`, `${confirmId}-confirm`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="app-confirm-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby=`${confirmId}-description` aria-modal=dialogSeated.includes(confirmId) aria-label=title testId="app-confirm" id=confirmId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(confirmId) key=dialogFallback(confirmId, dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby=`${confirmId}-description` aria-modal=dialogSeated.includes(confirmId) aria-label=title testId="app-confirm" id=confirmId tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered(confirmId) key=dialogFallback(confirmId, dialogTargets)
         DialogOpenFocus(target=`${confirmId}-cancel`)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2

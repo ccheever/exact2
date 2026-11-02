@@ -24,6 +24,7 @@ mod module_work;
 mod trace;
 pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
+pub use host_kinds::HistorySwipe;
 mod pointer;
 pub use pointer::{AtomEvent, DropEvent, MouseEvent, PointerEvent, WheelEvent};
 mod intersect;

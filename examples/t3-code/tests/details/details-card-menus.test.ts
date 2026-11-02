@@ -1,8 +1,9 @@
 // The thread details card's right-click menus (T3 Code v0.1.5 BranchToolbar.tsx showWorkspaceContextMenu, the
 // RunContextSelector's onContextMenu in the panel form; ThreadDetailsPanel's items menu on the card): the Workspace row
-// offers Copy full path while it has a path, and the rest of the card opens Show in thread details. Both are
-// menu-shaped, so macOS presents them as its own menu at the pointer: a row with an icon box beside its label opened
-// nothing on a right-click (exact2 issues/closed/20261031-macos-context-popover-not-menu-shaped.md).
+// offers Copy full path while it has a path, and the rest of the card opens Show in thread details. The path menu is
+// menu-shaped, so macOS presents it as its own menu at the pointer. The items menu has an icon box beside each label, so
+// macOS draws it as the app does, at the point the card gives it, and a checkbox row's choice keeps it open, as v0.1.6's
+// Base UI menu does (exact2 issues/closed/20261031-macos-context-popover-not-menu-shaped.md: such a popover opens).
 import { describe, expect, test } from 'bun:test';
 import { shellDetails } from '../../src/details/shell-details';
 import { shellLocal } from '../../src/shell/shell-commands';
@@ -24,29 +25,43 @@ function view(name: string): { depth: number; text: string }[] {
   return lines.map(line => ({ depth: line.length - line.trimStart().length, text: line.trim() }));
 }
 
-describe('the card\'s menus are menu-shaped, so macOS presents them as its own menu at the pointer (LLP 1021 D3)', () => {
-  for (const name of ['ItemsMenuPopover', 'PathMenuPopover']) test(name, () => {
-    const lines = view(name);
+describe('the path menu is menu-shaped, so macOS presents it as its own menu at the pointer (LLP 1021 D3)', () => {
+  test('PathMenuPopover: each row is text alone, with no heading', () => {
+    const lines = view('PathMenuPopover');
     const rows = lines.filter(line => line.text.startsWith('button '));
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) {
       const at = lines.indexOf(row);
       const inside = lines.slice(at + 1).filter((line, i, all) => all.slice(0, i + 1).every(entry => entry.depth > row.depth));
-      // Each row is text alone: no box, icon or image beside its label, and any other text is aria-hidden.
-      const texts = inside.map(line => line.text);
-      expect([row.text.slice(0, 40), texts.map(line => line.split(' ')[0])]).toEqual([row.text.slice(0, 40), texts.map(() => 'text')]);
-      for (const text of texts.slice(0, -1)) expect(text).toContain('aria-hidden=true');
+      expect(inside.map(line => line.text.split(' ')[0])).toEqual(inside.map(() => 'text'));
     }
+    expect(lines.find(line => line.text.startsWith('column id="details-path-menu"'))!.text).not.toContain('aria-label');
   });
+});
 
-  test('the items menu is headed by its label and checks each shown item; the path menu has no heading', () => {
-    const items = view('ItemsMenuPopover').map(line => line.text), path = view('PathMenuPopover').map(line => line.text);
-    // A menu-shaped popover's aria-label heads the Mac's menu (MenuHost.menu(of:)).
+describe('Show in thread details on the card is drawn, and stays open after a choice (ThreadDetailsItemsMenuItems)', () => {
+  const lines = () => view('ItemsMenuPopover').map(line => line.text);
+  test('a check icon box beside each label keeps it from being menu-shaped', () => {
+    const items = lines();
     expect(items.find(line => line.startsWith('column id="details-items-menu"'))).toContain('aria-label="Show in thread details"');
     expect(items.find(line => line.includes('id=`details-items-${item.id}`'))).toContain('role="menuitemcheckbox" aria-checked=item.checked');
-    // The painted form shows the check too (the web, the agent's screenshots).
-    expect(items.find(line => line.startsWith('text (item.checked ? "✓" : "")'))).toContain('aria-hidden=true');
-    expect(path.find(line => line.startsWith('column id="details-path-menu"'))).not.toContain('aria-label');
+    expect(items).toContain('box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"');
+    expect(items).toContain('ShellIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")');
+  });
+
+  test('a checkbox row keeps the menu open; Reset to default closes it', () => {
+    const items = lines();
+    expect(items.find(line => line.includes('id=`details-items-${item.id}`'))).not.toContain('popovertarget');
+    expect(items.find(line => line.startsWith('button id="details-items-reset"'))).toContain('popovertargetaction="hide"');
+  });
+
+  test('it opens where the card says: at a right-click, or under Choose what to show', () => {
+    const state = { hovered: 'x', menuLeft: '0px', menuTop: '0px' };
+    body.call('menuOpened', state, {}, [{ clientX: 1200, clientY: 205 }]);
+    expect(state).toEqual({ hovered: '', menuLeft: '1200px', menuTop: '205px' });
+    expect(card.find(line => line.includes('scroll width="100%" min-height=0'))).toContain('contextmenu=menuOpened contextPopover="details-items-menu"');
+    expect(lines().find(line => line.startsWith('column id="details-items-menu"'))).toContain('margin=0 left=left top=top');
+    expect(card.find(line => line.includes('button id="details-choose-items"'))).toContain('press=chooseOpened');
   });
 });
 
@@ -67,7 +82,6 @@ describe('the Workspace row\'s Copy full path', () => {
     expect([derive('/repo'), derive('')]).toEqual(['details-path-menu', '']);
     const select = card.find(line => line.includes('button id="details-workspace"'))!, locked = card.find(line => line.includes('testId="details-folder"'))!;
     for (const row of [select, locked]) expect(row).toContain('contextPopover=pathMenu');
-    expect(card.find(line => line.includes('scroll width="100%" min-height=0'))).toContain('contextPopover="details-items-menu"');
   });
 
   test('its one item copies the path and toasts it, as the reference\'s does', async () => {
@@ -84,4 +98,17 @@ describe('the Workspace row\'s Copy full path', () => {
     await shellLocal(client, failing, 'details-copy-path', '', '/repo');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Failed to copy path' });
   });
+});
+
+describe('Show in thread details in Settings › Appearance stays open after a choice (ThreadDetailsItemsRow)', () => {
+  const menu = appText('src/appearance/thread-details-items-menu.contract').split('\n').map(line => line.trim());
+  test('a checkbox row keeps the menu open; Reset to default closes it', () => {
+    expect(menu.find(line => line.startsWith('button id=`${menuId}-${item.id}`'))).not.toContain('popovertarget');
+    expect(menu.find(line => line.startsWith('button id=`${menuId}-reset`'))).toContain('popovertargetaction="hide"');
+  });
+  test('its keys are Base UI Menu\'s: the arrows on the trigger open it at a row, and move among the rows', () => {
+    expect(menu.find(line => line.startsWith('button popovertarget=menuId'))).toContain('key=triggerKey');
+    expect(menu.find(line => line.startsWith('KeyMenu('))).toBe('KeyMenu(menuId=`${menuId}-keys`, items=keyItems, keyed=0, gap="0px", modal=true)');
+  });
+
 });

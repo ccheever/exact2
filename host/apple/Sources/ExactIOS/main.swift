@@ -52,22 +52,25 @@ final class Adapter: ExactSessionDelegate {
             default: window?.overrideUserInterfaceStyle = .unspecified
             }
         // The app's page in Settings (LLP 1133.002 D11); under the agent, journaled only.
+        // `change` at the second argument's id hears whether it opened (OpenURL.swift `answerOpenURL`).
         case "openURL" where args.first as? String == UIApplication.openSettingsURLString:
+            let answer = { (opened: Bool) in session.answerOpenURL(args, opened: opened) }
             session.log("openURL app-settings: opens the app's page in Settings\(agentMode ? " (not under the agent)" : "")")
-            if !agentMode, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            if agentMode { answer(true) } else if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url, options: [:], completionHandler: answer) }
         case "openURL":
+            let answer = { (opened: Bool) in session.answerOpenURL(args, opened: opened) }
             // A scheme the app declares (OpenURL.swift), else the web's, mail's and the phone's.
             if let value = args.first as? String, let url = URL(string: value),
-               session.openDeclaredScheme(url, open: { url, done in UIApplication.shared.open(url, options: [:], completionHandler: done) }) { return }
-            guard args.count == 1, let value = args.first as? String,
+               session.openDeclaredScheme(url, open: { url, done in UIApplication.shared.open(url, options: [:], completionHandler: done) }, answer: answer) { return }
+            guard (1...2).contains(args.count), let value = args.first as? String,
                   let url = URL(string: value),
                   ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else {
                 fputs("exact: openURL requires an external web, email or telephone URL\n", stderr)
-                return
+                return answer(false)
             }
             // Under the agent the drive keeps its app: opening another would suspend this one (LLP 1143 D1).
-            if agentMode { session.log("openURL \(value): opens outside the app (not under the agent)"); return }
-            UIApplication.shared.open(url)
+            if agentMode { session.log("openURL \(value): opens outside the app (not under the agent)"); return answer(true) }
+            UIApplication.shared.open(url, options: [:], completionHandler: answer)
         // A scene is the system's to close; an app cannot (studio diary R17).
         case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
         // Bare `focus()`: a phone app is in front or not running (LLP 1133.005 D10).

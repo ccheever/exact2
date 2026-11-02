@@ -170,7 +170,7 @@ export async function providerSetupOp(host: Host, native: Native, op: string, id
       // Consent is recorded on the environment before the provider URL opens here.
       if (interaction.type === 'browser' && interaction.requiresConsent === true && !(await respond({ type: 'browser', action: 'accept' }))) return;
       try {
-        if (!openExternal(url)) throw new ClientError('Unable to open link.');
+        if (!(await openExternal(url))) throw new ClientError('Unable to open link.');
         entry.authError = '';
       } catch (error) { if (letGo(error)) throw error; entry.authError = 'Could not open the sign-in page. Copy the link and open it in your browser.'; }
       return;

@@ -22,12 +22,11 @@ its data.
 ## Serving
 
 `bun exact.mjs web-build --out dist` writes the site to `dist/`, and `bun exact.mjs serve
-dist` serves it on 127.0.0.1:8765 (`--port`, else `PORT`), building it again when you edit:
-leave it running and reload. A page it renders asks the API as it is made: start the
-stand-in first (`bun server.ts`), or set `API_BASE_URL` to an API that answers.
+dist` serves it on 127.0.0.1:8765 (`--port`, else `PORT`), building it again when you edit.
+A page it renders asks the API as it is made: start the stand-in first (`bun server.ts`),
+or set `API_BASE_URL` to an API that answers.
 `npm run build` and `npm start` do the same, as hosts run them. A static host serves
-`dist/` by the rule `serve --help` states, with a `request` or `cached` route's shell,
-whose client draws the page.
+`dist/` by the rule `serve --help` states.
 
 ## The markup
 

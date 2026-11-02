@@ -1,0 +1,25 @@
+// Right to left, a grouped row's sheet inset beside a side its author
+// binds: physical while the author's side has a value; unset, neither side
+// is the author's and the sheet's pair mirrors (the kernel's
+// `mirror_unsaid`), as a row with no authored side does. A symbol shown by
+// a condition makes the sheet's inset a binding of its own.
+component RtlSides
+  state wide = false
+  state shown = true
+  action toggle
+    wide = not wide
+  view
+    column testId="root" width=420 height=400 direction="rtl"
+      button "Toggle" press=toggle testId="toggle"
+      list appearance="auto" testId="list"
+        section
+          row padding-right=(wide ? 12 : none) testId="bound"
+            image "symbol:person" testId="bound-symbol"
+            text "Bound" testId="bound-text"
+          row padding-right=(wide ? 12 : none) testId="conditional"
+            if shown
+              image "symbol:person" testId="conditional-symbol"
+            text "Conditional" testId="conditional-text"
+          row testId="plain"
+            image "symbol:person" testId="plain-symbol"
+            text "Plain" testId="plain-text"

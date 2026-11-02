@@ -81,6 +81,7 @@ describe('the markup', () => {
     'settings-a-telemetry.contract:${head.width}': 'a table column width, not a bar',
     'settings-a-telemetry.contract:${part.width}': 'a table column width, not a bar',
     'timeline-audio.contract:${duration > 0 ? min(100, elapsed / duration * 100) : 0}': 'AudioPreview.tsx AudioChip: the elapsed fill, aria-hidden',
+    'preview-player.contract:${progress * 100}': "Chromium's media timeline: the played fill, in the slider named \"video time scrubber\"",
   };
 
   test('every drawn track and fill is classified against the reference', async () => {

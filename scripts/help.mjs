@@ -440,13 +440,16 @@ Ports    none. Runs to completion.`,
     example: 'bun exact.mjs update',
   },
   feedback: {
-    line: 'the authoring diary: preview, send, or set this project\'s standing answer',
-    usage: 'bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|status|always|never|ask|local]',
+    line: 'the authoring diary: a one-line note, preview, send, or set this project\'s standing answer',
+    usage: 'bun exact.mjs feedback [preview|note "<text>"|send [--yes] [--readme]|delete <id>|status|always|never|ask|local]',
     flags: [['--yes', 'with send: do not ask first on a terminal'], ['--readme', 'with send: attach the README (and AGENTS.md\'s own notes) too']],
-    body: `  preview (the default)    exactly what send would send, redacted; the README offered beside it
+    body: `  note "<text>"            add a note to the diary (with exact2's commit and the last command's verb,
+                           exit code and time; no output or code), then follow the standing answer
+  preview (the default)    exactly what send would send, redacted; the README offered beside it
   send · delete <id>       send it · delete a sent diary by its receipt
   status                   the standing answer, and what is unsent
   always|never|ask|local   set the answer (local: keep the diary, never ask or send)
+EXACT_FEEDBACK=0 silences the one-line nudges after commands and refuses every send.
 Ports    none; send makes one HTTPS request. Runs to completion.`,
     example: 'bun exact.mjs feedback status',
   },
@@ -526,7 +529,7 @@ AGENTS.md, package.json and .gitignore. A native verb (ios, mac, linux, android,
 in app.json the first time it runs and builds in a workspace generated under .exact/ (LLP 1153 D1). Give
 --name and --bundle-id here, before the first build: a later change to the id makes the next build cold
 and leaves the old app installed. Then cd there: its exact.mjs runs everything, and bun exact.mjs help
-lists its verbs. Read docs/start-here.md first.
+lists its verbs. Read docs/start-here-site.md first for a website, else docs/start-here.md.
 Ports    none. Runs to completion.`,
     example: 'bun scripts/exact.mjs new ~/notes --name Notes --bundle-id com.yourcompany.notes && cd ~/notes && bun exact.mjs test web',
   },

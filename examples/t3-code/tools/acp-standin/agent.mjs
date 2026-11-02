@@ -33,6 +33,8 @@
 //                                   n seconds later (0 by default), a sequence diagram, a table and two display
 //                                   formulas, so a drive sees a closed fence drawn while the reply streams
 //   "Show the italic sample"        replies with emphasis (ITALIC_SAMPLE), so a font's italic face is drawn
+//   "Show the prose sample"         replies with headings, lists, inline and fenced code, a quote, a link and a rule
+//                                   (PROSE_SAMPLE), the blocks a transcript draws besides diagrams, tables and math
 //   "Hold the turn"                 streams "Holding the turn." and keeps the turn running until `install.mjs
 //                                   release` writes `release` beside this file, or the server cancels the turn
 //                                   (`session/cancel`, as a steer or Stop does), then replies or stops "cancelled"
@@ -74,6 +76,11 @@ export const MARKDOWN_SAMPLE = [
 
 /** "Show the italic sample": emphasis with both markers, in prose and in a list. */
 export const ITALIC_SAMPLE = "Italic in an answer: *the notes stay in one place*, and _each plan has an owner_.\n\n- A list item with *emphasis*\n- **Bold and *italic* together**\n";
+/** "Show the prose sample": every common Markdown block once. */
+export const PROSE_SAMPLE = "# Release notes\n\nThe notes now live in **one place**, with `notes/plan.md` as the index. See [the plan](https://example.com/plan).\n\n"
+  + "## What changed\n\n1. The plan moved to `notes/`.\n2. Each outline has an owner:\n   - drafts stay in `notes/drafts/`\n   - reviews go to the thread\n3. Old links redirect.\n\n"
+  + "### Example\n\n```ts\nexport function outline(title: string): string[] {\n  return [`# ${title}`, \"\", \"- First point\"];\n}\n```\n\n"
+  + "> A quote from the review: keep the outline short, and link the plan rather than copying it.\n\n---\n\nThat is all for this release.\n";
 /** The reasoning effort select each session advertises: three levels drawn as bars, and Max, which is named. */
 export const EFFORT = { id: "reasoning_effort", name: "Reasoning effort", description: "How long the stand-in thinks", category: "thought_level", type: "select",
   currentValue: "medium", options: [{ value: "low", name: "Low" }, { value: "medium", name: "Medium" }, { value: "high", name: "High" }, { value: "max", name: "Max" }] };
@@ -195,6 +202,8 @@ if (process.argv.includes("--fixture-login")) {
         text = MARKDOWN_SAMPLE[1];
       } else if (/^show the italic sample/i.test(first)) {
         text = ITALIC_SAMPLE;
+      } else if (/^show the prose sample/i.test(first)) {
+        text = PROSE_SAMPLE;
       } else if (/^which effort\?/i.test(first)) {
         text = `Stand-in reply: effort ${efforts.get(sessionId) ?? EFFORT.currentValue}`;
       } else if (/^hold the turn/i.test(first)) {

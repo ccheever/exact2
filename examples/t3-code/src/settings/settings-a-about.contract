@@ -50,6 +50,8 @@ component AboutVersionTitle
 // Check runs deliveryCheck (Checking… until the store stages an entry);
 // Install asks first (the root dialog), then deliveryActivate.
 component AboutUpdateButton
+  inject
+    dialogOpener: action
   props
     row: CoreRow
     pal: CorePalette
@@ -62,10 +64,13 @@ component AboutUpdateButton
     deliveryCheck()
   action hover(over: bool)
     hovered = over
+  action install
+    dialogOpener("setting-version-update")
+    change(row.id, "install", "")
   view
     box position="relative" flex-shrink=0
       if row.value2 == "install"
-        button press=change(row.id, "install", "") hover=hover disabled=busy class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) id="setting-version-update" testId="setting-version-update" data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy ? "" : "enabled page")
+        button press=install hover=hover disabled=busy class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) id="setting-version-update" testId="setting-version-update" data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy ? "" : "enabled page")
           text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap" opacity=(busy ? 0.64 : 1) id=`paint-AboutUpdateButton-2-${row.id}` data-paint="text" data-pick="text"
       else
         button press=check hover=hover disabled=(row.disabled or checking) aria-label=(checking ? "Checking…" : row.label) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(row.disabled or checking ? "none" : "0 1px 2px #0000000d") opacity=(row.disabled or checking ? 0.64 : 1) id="setting-version-update" testId="setting-version-update" data-paint="input canvas" data-pick="canvas" data-focus-stop=(row.disabled or checking ? "" : "enabled page")

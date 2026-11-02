@@ -202,6 +202,8 @@ component AttachmentBody
     local: action
     // The header actions' element ids are `<actionIds>-<action>` in a dialog that moves the focus to them; "" elsewhere.
     actionIds: string
+    // Holds back the header's wrap and copy buttons, which the reference mounts only once the content has loaded.
+    loading: bool
   // The viewer page's messages ride in the op, so every owner of this body passes them on as they are.
   action viewerSaid(payload: string)
     local(`surface-linked-att-viewer:${payload}`, att.id, "")
@@ -214,7 +216,7 @@ component AttachmentBody
   view
     // AttachmentFilePreview paints bg-background over the panel (the sheet's own fill is white).
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" background-color="light-dark(#fcfcfc, #000000)" testId="attachment-surface"
-      AttachmentHeader(att=att, sheet=sheet, local=local, actionIds=actionIds)
+      AttachmentHeader(att=att, sheet=sheet, local=local, actionIds=actionIds, loading=loading)
       if att.truncatedNote != ""
         text att.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
       if att.preview == "loading"
@@ -281,6 +283,7 @@ component AttachmentHeader
     sheet: bool
     local: action
     actionIds: string
+    loading: bool
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -296,9 +299,9 @@ component AttachmentHeader
           text att.size margin-left="0.5rem" flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=surfaceMuted() testId="attachment-size"
       if att.canRender
         FileSurfaceAction(id="render", ids=actionIds, label=att.renderLabel, icon=att.renderIcon, toggle=true, pressed=att.rendered, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-render", att.id, ""))
-      if att.showWrap
+      if att.showWrap and not loading
         FileSurfaceAction(id="wrap", ids=actionIds, label=(att.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", toggle=true, pressed=att.wrap, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-wrap", att.id, ""))
-      if att.canCopy
+      if att.canCopy and not loading
         FileSurfaceAction(id="copy", ids=actionIds, label=att.copyLabel, icon=(att.copied ? "check" : "copy"), toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-linked-att-copy", att.id, ""))
       if att.canSave
         FileSurfaceAction(id="save", ids=actionIds, label=att.saveLabel, icon="download", toggle=false, pressed=false, disabled=att.saving, hovered=hovered, hover=hover, press=local("surface-linked-att-save", att.id, ""))

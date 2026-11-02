@@ -17,12 +17,13 @@ import { relativeLabel } from '../pull-requests/pages-prs';
 import { letGo } from '../client/let-go';
 import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, type BreakdownTarget, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
 import { formatDiffCount } from '../details/diff-count';
+import { splitForMiddleTruncate } from '../details/middle-truncate';
 
 export type LinkedRow = {
-  key: string; index: number; number: number; title: string; url: string; host: string; repository: string; depth: number;
+  key: string; index: number; number: number; title: string; url: string; host: string; repository: string; repositoryHead: string; repositoryTail: string; depth: number;
   state: string; stateLabel: string; waiting: boolean; conflict: string; open: boolean; watching: boolean;
   checks: string; checksLabel: string; review: string; reviewLabel: string; additions: string; deletions: string; breakdown: PrBreakdown;
-  author: string; avatar: string; initial: string; head: string; base: string; age: string; stackSize: number; stackLabel: string;
+  author: string; avatar: string; initial: string; head: string; headStart: string; headEnd: string; base: string; age: string; stackSize: number; stackLabel: string;
   sourceLabel: string; unlinkLabel: string; canWatch: boolean; context: string;
   speed: ReturnType<typeof quickRow>['speed']; speedPending: boolean; quickLabel: string;
 };
@@ -36,6 +37,9 @@ const STATE_LABELS: Record<string, string> = { open: 'Open', draft: 'Draft', clo
 const CHECKS_LABELS: Record<string, string> = { passing: 'Checks passing', failing: 'Checks failing', pending: 'Checks running', none: 'No checks' };
 const REVIEW_LABELS: Record<string, string> = { approved: 'Approved', changes_requested: 'Changes requested', 'changes-requested': 'Changes requested', review_required: 'Review required', 'review-required': 'Review required' };
 
+// PullRequestRowBranches and the repository's MiddleTruncate (ThreadPullRequestsPanel): the end stays whole.
+const splitRepository = (value: string) => { const split = splitForMiddleTruncate(value); return { repositoryHead: split?.head ?? value, repositoryTail: split?.tail ?? '' }; };
+const splitHead = (value: string) => { const split = splitForMiddleTruncate(value); return { headStart: split?.head ?? value, headEnd: split?.tail ?? '' }; };
 const keyOf = (link: Obj) => `${str(link.host).toLowerCase()}/${str(link.repository).toLowerCase()}#${num(link.number)}`;
 const snapshotOf = (link: Obj): Obj | null => (link.snapshot && typeof link.snapshot === 'object' ? obj(link.snapshot) : null);
 
@@ -128,14 +132,14 @@ export function prsView(client: T3Client, now: number): PrsView {
     const login = str(author.login, 'ghost');
     return {
       key: keyOf(link), index, number: num(link.number), title: snapshot ? str(snapshot.title, str(link.repository)) : str(link.repository), url: str(link.url),
-      host: str(link.host), repository: str(link.repository), depth: Math.min(depth, 3), state, stateLabel: STATE_LABELS[state] ?? 'Open', waiting: !snapshot,
+      host: str(link.host), repository: str(link.repository), ...splitRepository(str(link.repository)), depth: Math.min(depth, 3), state, stateLabel: STATE_LABELS[state] ?? 'Open', waiting: !snapshot,
       conflict: open && snapshot?.mergeability === 'conflicting' && snapshot.isDraft !== true ? `Conflicts with ${str(snapshot.baseBranch, 'the base branch')}` : '',
       open, watching: link.watch != null, checks: open ? str(snapshot?.checksState) : '', checksLabel: CHECKS_LABELS[str(snapshot?.checksState)] ?? '',
       review: open ? str(snapshot?.reviewDecision) : '', reviewLabel: REVIEW_LABELS[str(snapshot?.reviewDecision)] ?? '',
       additions: measured ? `+${formatDiffCount(additions)}` : '', deletions: measured ? `-${formatDiffCount(deletions)}` : '',
       // A thread without a project keeps the bare +/- (no reference to read the split through).
       breakdown: projectId ? presentChangeBreakdown(client, linkBreakdown(projectId, link)) : emptyBreakdown(),
-      author: snapshot?.author ? login : '', avatar: str(author.avatarUrl), initial: login.slice(0, 1).toUpperCase(), head: str(snapshot?.headBranch), base: str(snapshot?.baseBranch),
+      author: snapshot?.author ? login : '', avatar: str(author.avatarUrl), initial: login.slice(0, 1).toUpperCase(), head: str(snapshot?.headBranch), ...splitHead(str(snapshot?.headBranch)), base: str(snapshot?.baseBranch),
       age: snapshot ? relativeLabel(snapshot.updatedAt, now) : '', stackSize: stack?.size ?? 0,
       // The link's host by its URL; one no host claims says "change requests" (UNKNOWN_SOURCE_CONTROL_CLIENT).
       stackLabel: stack ? (stack.kind === 'native' ? `${hostLabelForUrl(str(link.url))} stack of ${stack.size}: merging a layer lands the ones below it.`

@@ -1708,7 +1708,11 @@ router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser'
 Forward and a `link` to a declared route do the same with no handler: the runner goes
 there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
 still needs the handler. A declared but disabled
-control refuses them, as does `closedby="none"` on a sheet. A route whose scroller opens
+control refuses them, as does `closedby="none"` on a sheet. Where the app's own Back and
+Forward go less far than its router (a palette open over the page, a history capped at
+so many visits), bind the root's `navigationHistory` to the ways it offers now (`"back
+forward"`, the default, `"back"`, `"forward"` or `"none"`): on the Mac a way withheld is
+no swipe, menu item or mouse button (`contract vocab navigationHistory`). A route whose scroller opens
 with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
 the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
 transparent header on the web, and the bar's material comes as the content scrolls. On a pushed iOS
@@ -2123,7 +2127,16 @@ image's `pictureinpictureerror(message)`, on every host that cannot float it
 too, so handle it where a press asked: a toast, the control unpressed. The
 image may be a hidden 1-point one that a stream of its own paints; removing it
 closes the window. macOS and the web's JS target float it
-([LLP 1042 §9](../llp/1042-video.spec.md)).
+([LLP 1042 §9](../llp/1042-video.spec.md)). Leave the window to the platform
+unless the app must look like another: `presentation="window"` asks for a
+browser's picture-in-picture window as Chromium draws it on the Mac, and
+`presentation="panel"` for a floating panel with a title bar, each with
+`title=`, `width=` and `height=` (LLP 1042 §9.1); the web shows either in
+Document Picture-in-Picture's window where the browser has one. On macOS
+each image asked for in a panel gets a panel of its own, while the
+picture-in-picture window (the platform's or `"window"`) holds one image
+at a time, as a browser's does, and moves to the next that asks
+(LLP 1042 §9.2).
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media
@@ -2218,6 +2231,10 @@ chip must read left to right in right-to-left text, `direction="ltr"`, and its
 accessible name when the drawn label is not what a screen reader should say,
 `ariaLabel=`) and hear `atompress=`
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
+Unsaid, a pill is the platform's token; when the design draws its chips another
+way, write that on the `atom` as CSS (`padding-inline`, `border`,
+`border-radius`, a ring in a `:checked` block, an underline in a `:hover`
+block) and leave the rest to the platform.
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
@@ -3547,6 +3564,8 @@ the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
 
+### The driver's operations
+
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,
@@ -4585,6 +4604,11 @@ negative on mac). A shadow token's lengths may be any of these
 every column the same way (a blur negative on mac is refused); a literal
 `box-shadow` row's lengths stay px, so name a shadow token there. A base name
 times a length, and `rem`, `em` or `%` beside one, are refused.
+A row's own value may be a `calc()`, `min()`, `max()` or `clamp()` over length
+tokens (`margin-top="calc(var(--space-2) * -1)"`, or `calc(space-2 * -1)`):
+each token is read where the row is drawn, so a `rem` token stays `rem` and
+one that varies by mode follows it. A value computed from state or data
+names a token only whole.
 A package that is `"private": true` and ships a design is a library (LLP
 1139): each component its entry declares or re-exports is held to its rules.
 Its spacing, corner and colour rows (a shorthand's each side; `border`'s

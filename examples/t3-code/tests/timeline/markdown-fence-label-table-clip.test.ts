@@ -27,9 +27,10 @@ describe('plain-text fences and rules (index.css)', () => {
     expect(source.split('text color=(plainFence(block.href) ? ink : synColor(token.cls))').length - 1).toBe(4);
     expect(source).not.toContain('text color=synColor(token.cls) font-style=synSlant(token.cls)');
   });
+  // Its only space is the blocks' own margins (preflight's `hr` has none), which block_gap gives.
   test('a rule in dark mode takes the muted foreground, not the border colour (#22367)', async () => {
     const source = await Bun.file(appPath('markdown.contract')).text();
-    expect(source).toContain('if block.kind == "rule"\n      box width="100%" height=1 margin-top="0.5rem" margin-bottom="0.5rem" background-color="light-dark(#e4e4e7, #a1a1a1)"');
+    expect(source).toContain('if block.kind == "rule"\n      box width="100%" height=1 background-color="light-dark(#e4e4e7, #a1a1a1)"');
   });
 });
 

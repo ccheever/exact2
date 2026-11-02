@@ -147,6 +147,9 @@ pub struct LayoutTree {
     // hidden or not under the root); empty between layouts.
     walks: IdMap<NodeId, Option<Option<NodeId>>>,
     offers: IdMap<NodeId, Offer>,
+    /// Each table row's or row group's displacement as publication last
+    /// placed what it holds by (`table::displacement`), by slot.
+    pub(super) displacements: IdMap<u32, (f32, f32)>,
     #[cfg(test)]
     pub(crate) publication_visits: usize,
     /// Since the tree was made: nodes publication visited, and leaves the
@@ -364,6 +367,11 @@ impl LayoutTree {
         self.taffy.multicol_bounds(node)
     }
 
+    /// Where a grid last placed `node`'s box from, in the grid's coordinates (patch 69).
+    pub(crate) fn grid_origin(&self, node: NodeId) -> Option<taffy::geometry::Point<f32>> {
+        self.taffy.grid_origin(node)
+    }
+
     /// An empty tree.
     pub fn new() -> Self {
         // Frames are CSS pixel geometry, not a host's raster grid. Rounding
@@ -384,6 +392,7 @@ impl LayoutTree {
             deferred: IdMap::default(),
             walks: IdMap::default(),
             offers: IdMap::default(),
+            displacements: IdMap::default(),
             #[cfg(test)]
             publication_visits: 0,
             #[cfg(test)]
@@ -504,6 +513,7 @@ impl LayoutTree {
                 self.remove(anon);
             }
             self.flowing.remove(&slot);
+            self.displacements.remove(&slot);
             if let Some(prefix) = self.alert_prefixes.remove(&slot) {
                 self.remove(prefix);
             }

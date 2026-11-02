@@ -153,7 +153,8 @@ component UsageRedacted
       if over
         CnTooltip(tip=(revealed ? "Click to hide account" : "Click to reveal account"), tipId=`${testId}-tip`, above=20)
 
-// AccountSummary: the account's label (redacted when it holds an address), then " · plan".
+// AccountSummary: the account's label (redacted when it holds an address), then " · plan", in one truncating line: the
+// label takes up to the whole width and the plan's end is cut first, as the reference's inline span cuts it.
 component UsageAccountLabel
   props
     label: string
@@ -164,25 +165,31 @@ component UsageAccountLabel
   view
     row min-width=0 max-width="100%" align-items="baseline" overflow="hidden" testId=testId
       if redact != ""
-        UsageRedacted(value=redact, placeholder=redactMask, testId=`${testId}-redacted`)
+        box flex-shrink=0 min-width=0 max-width="100%"
+          UsageRedacted(value=redact, placeholder=redactMask, testId=`${testId}-redacted`)
       else
-        text label min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+        text label flex-shrink=0 min-width=0 max-width="100%" font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
       if plan != ""
-        text plan flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
+        text plan min-width=0 font-size="0.75rem" line-height="1rem" white-space="pre" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
 
 // ResetCredits: "N reset credits banked · next expires in …", "Use reset" (outline xs; "Using…"
 // while the redeem runs) and the last outcome. The confirm is mounted over the window
 // (ResetCreditDialog in app-overlays.contract), never inside the banner.
 component ResetCreditsRow
+  inject
+    dialogOpener: action
   props
     account: UsageAccount
     busy: bool
     command: action
+  action askReset
+    dialogOpener(`usage-reset-${account.slot}`)
+    command("cclocal:usage-reset-ask", account.key, "", 0)
   view
     row width="100%" flex-wrap="wrap" align-items="center" column-gap="0.75rem" row-gap="0.25rem" testId=`usage-credits-${account.slot}`
       text account.credits font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
       if account.canRedeem
-        button id=`usage-reset-${account.slot}` press=command("cclocal:usage-reset-ask", account.key, "", 0) disabled=(busy or account.busy) data-focus-stop=(busy or account.busy ? "" : "enabled page") testId=`usage-reset-${account.slot}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(busy or account.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+        button id=`usage-reset-${account.slot}` press=askReset disabled=(busy or account.busy) data-focus-stop=(busy or account.busy ? "" : "enabled page") testId=`usage-reset-${account.slot}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(busy or account.busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
           text (account.busy ? "Using…" : "Use reset") font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color="light-dark(#18181b, #f5f5f5)"
       if account.status != ""
         text account.status font-size="0.75rem" line-height="1rem" role="status" color="light-dark(#18181b, #f5f5f5)" testId=`usage-reset-status-${account.slot}`
@@ -269,7 +276,7 @@ component ResetCreditDialog
   derive dialogTargets = ["reset-credit-cancel", "reset-credit-confirm"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="reset-credit-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="reset-credit-description" aria-modal=dialogSeated.includes("reset-credit-dialog") aria-label="Use a reset credit?" testId="reset-credit-dialog" id="reset-credit-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("reset-credit-dialog") key=dialogFallback("reset-credit-dialog", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="reset-credit-description" aria-modal=dialogSeated.includes("reset-credit-dialog") aria-label="Use a reset credit?" testId="reset-credit-dialog" id="reset-credit-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("reset-credit-dialog") key=dialogFallback("reset-credit-dialog", dialogTargets)
         DialogOpenFocus(target="reset-credit-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Use a reset credit?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2

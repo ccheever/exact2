@@ -109,4 +109,13 @@ describe('Stop\'s spinner is motion-safe (Spinner)', () => {
     const spin = (still: boolean) => row.attribute('animation=(still', 'animation', {}, { still, row: { id: 'x', canStop: true }, hovered: '', focused: '' });
     expect([spin(false), spin(true)]).toEqual(['lineageSpin 1s linear infinite', 'none']);
   });
+  test('Merge back spins and is disabled while its merge runs', () => {
+    const row = contractComponent('shell-details.contract', 'LineageRow');
+    const scope = (busy: boolean, stopping: string) => ({ busy, stopping, still: false, row: { id: 'p', kind: 'thread', mergeTarget: true, canStop: false }, hovered: '', focused: '',
+      details: { mergeSourceId: 'fork', mergeTargetId: 'p', mergeRunId: 'r1' } });
+    const spinning = (busy: boolean, stopping: string) => row.drawn('testId=`details-merge-spinner-${row.id}`', {}, scope(busy, stopping));
+    expect([spinning(true, 'merge:fork'), spinning(true, 'fork'), spinning(false, 'merge:fork')]).toEqual([true, false, false]);
+    const disabled = (busy: boolean) => row.attribute('testId=`details-merge-${row.id}`', 'disabled', {}, scope(busy, ''));
+    expect([disabled(true), disabled(false)]).toEqual([true, false]);
+  });
 });

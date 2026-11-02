@@ -330,10 +330,15 @@ final class FieldCell: NSTextFieldCell {
         return node?.presenter?.fieldEditor ?? super.fieldEditor(for: controlView)
     }
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+        let node = controlView?.superview as? NodeView, appKit = super.drawingRect(forBounds: rect)
+        return node?.nativeEditorRect(in: rect) ?? node?.authoredEditorRect(appKit, in: rect) ?? appKit
     }
     override func titleRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+        let node = controlView?.superview as? NodeView, appKit = super.titleRect(forBounds: rect)
+        return node?.nativeEditorRect(in: rect) ?? node?.authoredEditorRect(appKit, in: rect) ?? appKit
+    }
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
@@ -366,10 +371,15 @@ final class FieldCell: NSTextFieldCell {
 /// A password field's, as `FieldCell`.
 final class SecureFieldCell: NSSecureTextFieldCell {
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.drawingRect(forBounds: rect)
+        let node = controlView?.superview as? NodeView, appKit = super.drawingRect(forBounds: rect)
+        return node?.nativeEditorRect(in: rect) ?? node?.authoredEditorRect(appKit, in: rect) ?? appKit
     }
     override func titleRect(forBounds rect: NSRect) -> NSRect {
-        (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+        let node = controlView?.superview as? NodeView, appKit = super.titleRect(forBounds: rect)
+        return node?.nativeEditorRect(in: rect) ?? node?.authoredEditorRect(appKit, in: rect) ?? appKit
+    }
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }

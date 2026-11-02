@@ -3,7 +3,7 @@
 // KeybindingsSettings.tsx as precomputed next expressions, so every builder
 // control only replaces the draft expression with a string computed here.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { shortcutInput, whenExpression, keybindingDefaults, keybindingCommands } from './keybinding-settings';
+import { shortcutInput, whenExpression, keybindingDefaults, keybindingCommands, serverOnlyKeybindingDefaults } from './keybinding-settings';
 import { PLATFORM } from './desktop-shell-favicon';
 
 export type WhenNode = { type: 'identifier'; name: string } | { type: 'not'; node: WhenNode } | { type: 'and' | 'or'; left: WhenNode; right: WhenNode };
@@ -243,7 +243,7 @@ export function rowId(command: string, key: string, when: string): string {
   return encodeURIComponent(JSON.stringify([command, key, when]));
 }
 export function buildRows(bindings: Obj[], query: string): KeybindingRowView[] {
-  const defaults = keybindingDefaults.map(binding => ({ command: binding.command, key: binding.key, when: binding.when || '' }));
+  const defaults = [...keybindingDefaults, ...serverOnlyKeybindingDefaults].map(binding => ({ command: binding.command, key: binding.key, when: binding.when || '' }));
   // buildKeybindingRows: one row per command, shortcut and condition, the last binding of a resolved duplicate, so a
   // row's id holds while other bindings are saved, added or removed (its draft stays with it).
   const byId = new Map<string, { id: string; command: string; key: string; when: string; source: string; defaultKey: string; defaultWhen: string }>();

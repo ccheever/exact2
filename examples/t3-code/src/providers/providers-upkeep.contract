@@ -223,6 +223,57 @@ component UpkeepSelectOption
         if option.selected
           CnGlyph(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")
 
+// SecretSourceInput's source picker: an icon-only size-sm SelectTrigger (TypeIcon for Value, KeyRoundIcon for a
+// provider this build does not offer) titled with the source, its popup starting at the trigger with each source's
+// icon and label.
+component SecretSourceSelect
+  props
+    selectId: string
+    label: string
+    provider: string
+    disabled: bool
+    options: UpkeepOption[]
+    choose: action
+  action dismiss
+    focus(selectId)
+  view
+    box position="relative" flex-shrink=0
+      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label aria-haspopup="listbox" title=(provider == "" ? "Value" : provider) disabled=disabled id=selectId testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : "enabled page")
+        SecretSourceGlyph(stored=(provider == ""), color="light-dark(#71717bcc, #a1a1a1cc)")
+        CnGlyph(name="chevron-down", size=14, color="light-dark(#71717bb3, #a1a1a1b3)")
+      column id=`${selectId}-menu` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem"
+        column padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-modal=true aria-label=label testId=`${selectId}-menu`
+          button press=dismiss popovertarget=`${selectId}-menu` popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" title=""
+          for option in options key=option.value
+            SecretSourceOption(option=option, menuId=`${selectId}-menu`, testId=`${selectId}-option-${option.value}`, choose=choose(option.value))
+
+component SecretSourceOption
+  props
+    option: UpkeepOption
+    menuId: string
+    testId: string
+    choose: action
+  state over = false
+  action hover(inside: bool)
+    over = inside
+  view
+    button press=choose popovertarget=menuId popovertargetaction="hide" hover=hover role="option" aria-selected=option.selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      row flex=1 min-width=0 gap="0.375rem" align-items="center"
+        SecretSourceGlyph(stored=(option.value == "__stored__"), color="currentColor")
+        text option.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" line-clamp=1
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+        if option.selected
+          CnGlyph(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")
+
+// lucide-react 0.564.0's TypeIcon and KeyRoundIcon at size-3.5.
+component SecretSourceGlyph
+  props
+    stored: bool
+    color: string
+  view
+    svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      path d=(stored ? "M12 4v16M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M9 20h6" : "M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4zM16 7.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0")
+
 // versionAdvisoryNode: the advisory icon (icon-micro in a list row, icon-xs in the editor) with
 // its tooltip, and the details popover below it, end-aligned (side="bottom" align="end", w-80).
 // The tooltip (TooltipPopup side="top") is the window's hover layer's (hover-layer.contract): drawn

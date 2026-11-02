@@ -21,6 +21,20 @@ test('filesystem metadata distinguishes dotted folders and extensionless files i
   const faces = composerChipFaces(client, value, composerChips(value));
   expect(faces[0]).toMatchObject({ icon: 'folder', fileToken: '', interactive: true, tip: 'release.v1' });
   expect(faces[1]).toMatchObject({ icon: 'at-sign', fileToken: 'image', interactive: true });
+  // Each draws its icon as PierreEntryIcon does: Lucide's folder, and the file's type icon, one file per scheme.
+  expect(faces.map(face => [face.image, face.imageDark])).toEqual([
+    ['assets/file-icons/folder-light.svg', 'assets/file-icons/folder-dark.svg'], ['assets/file-icons/image-light.svg', 'assets/file-icons/image-dark.svg']]);
+});
+
+test('an attached file, the settings sample and a favicon project give their chips images; other chips keep their glyphs', () => {
+  const client = new T3Client();
+  Object.assign(client, { environmentId: 'env', threadId: 't1' });
+  setDraftFiles(client.local, [{ id: 'n', contextId: 'file_n', draftKey: client.draftKey, environmentId: 'env', name: 'notes.pdf', mimeType: 'application/pdf',
+    sizeBytes: 2048, source: 'attached', attachmentId: '', status: 'staged' as const }]);
+  const value = '[notes.pdf](t3-context://v1/file/file_n) $tidy ';
+  expect(composerChipFaces(client, value, composerChips(value)).map(face => face.image)).toEqual(['assets/file-icons/pdf-light.svg', '']);
+  const sample = '[surface.test.ts](apps/web/surface.test.ts) ';
+  expect(composerChipFaces(client, sample, composerChips(sample), true)[0]?.imageDark).toBe('assets/file-icons/typescript-dark.svg');
 });
 
 test('context availability and pull-request state use existing product records', () => {

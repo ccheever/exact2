@@ -181,6 +181,21 @@ test('split geometry reserves a persistent sidebar while compact geometry stays 
   expect(mobileWorkspace([home, thread], { ...options, width: 932, height: 430 })).toMatchObject({ usesSplitView: false, sidebarTargetWidth: 0, contentSettledWidth: 932 });
 });
 
+test('fullscreen routes request the viewport width before native presentation', () => {
+  const route = expandedElements(expandedAppView()).find(node => {
+    const width = elementAttribute(node, 'width');
+    return width !== undefined && JSON.stringify(width).includes('mobileRoutePresentation');
+  });
+  expect(route).toBeDefined();
+  const width = elementAttribute(route!, 'width');
+  expect(Array.isArray(width) && width[0]).toBe('.ternary');
+  const expression = JSON.stringify(width);
+  expect(expression).toContain('mobileRoutePresentation');
+  expect(expression).toContain('fullscreen');
+  expect(expression).toContain('viewport');
+  expect(expression).toContain('contentSettledWidth');
+});
+
 test('real file registration reserves inspector; leaving focus retains content only for exit', () => {
   const visible = mobileWorkspace([home, files], { ...options, inspector, fileInspectorPreferredVisible: true });
   expect(visible).toMatchObject({ inspectorMounted: true, inspectorVisible: true, inspectorTargetWidth: 260,

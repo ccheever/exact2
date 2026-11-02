@@ -358,11 +358,21 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     }()
     /// Unsaid, as Safari has them (@ref LLP 1020.002 D1, D5): a scripted
     /// window needs a person's gesture, and a page's `requestFullscreen()`
-    /// takes the screen.
-    static func preferences() -> WKPreferences {
+    /// takes the screen. A frame that says `inactiveSchedulingPolicy` `none`
+    /// also has a hidden page's timers unclamped (@ref LLP 1020.002 §9):
+    /// WebKit holds them to about one a second whatever the public policy,
+    /// with no public switch, so this sets the private
+    /// `WKPreferencesPrivate.h` keys, under the ruling DevTools' `_inspector`
+    /// has (D11). The page reads them as it is made, so a policy said later
+    /// waits for the next web view; a WebKit without them is left as it is.
+    static func preferences(policy: String? = nil) -> WKPreferences {
         let preferences = WKPreferences()
         preferences.javaScriptCanOpenWindowsAutomatically = false
         preferences.isElementFullscreenEnabled = true
+        for key in ["HiddenPageDOMTimerThrottlingEnabled", "HiddenPageDOMTimerThrottlingAutoIncreases", "PageVisibilityBasedProcessSuppressionEnabled"]
+        where policy == "none" && preferences.responds(to: NSSelectorFromString("_set\(key):")) {
+            preferences.setValue(false, forKey: key.prefix(1).lowercased() + key.dropFirst())
+        }
         return preferences
     }
     var wrapperURL: URL
@@ -416,7 +426,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // hatch may write on them, or that says its own scheduling policy,
         // has its own, so no other frame's change.
         if hatched || options["inactiveSchedulingPolicy"] != nil {
-            configuration.preferences = WebArm.preferences()
+            configuration.preferences = WebArm.preferences(policy: options["inactiveSchedulingPolicy"] as? String)
             configuration.defaultWebpagePreferences = WKWebpagePreferences()
         }
         configuration.userContentController = controller
@@ -478,7 +488,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = Partitions.store(partition!, agent: agent, app: app, session: session)
         configuration.userContentController = controller
-        let preferences = WebArm.preferences()
+        let preferences = WebArm.preferences(policy: options["inactiveSchedulingPolicy"] as? String)
         if #available(macOS 14.0, iOS 17.0, *) { preferences.inactiveSchedulingPolicy = .throttle }
         configuration.preferences = preferences
         #if os(iOS)

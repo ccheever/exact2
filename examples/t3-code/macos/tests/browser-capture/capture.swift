@@ -4,46 +4,13 @@ import WebKit
 import XCTest
 
 // What a Browser frame hands the `t3-browser-page` hatch, end to end over a real page in a window (T3BrowserPage.swift):
-// a frame's capture and an agent's download adopted into the artifact directory, the artifact actions, the separate
-// preview window, the recording ops, the agent's cursor and a profile's old cookies moved into its partition. Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own
-// names: Manager.test.ts `fitPictureInPictureContentSize` (2) and `recordingFileExtension` (1). The Manager tests of
+// a frame's capture and an agent's download adopted into the artifact directory, the artifact actions, the recording ops,
+// the agent's cursor and a profile's old cookies moved into its partition. Ported reference tests (T3 Code 1e2ecbd975,
+// MIT, see LICENSE-T3), under their own names: Manager.test.ts `recordingFileExtension` (1). The Manager tests of
 // captureScreenshot's file name, revealArtifact and copyArtifactToClipboard are clone rows here (`testACapture…`,
 // `testArtifactActions…`): the reference's mocks of Electron's shell and clipboard become the Finder (recorded in an agent
 // run) and a private pasteboard.
 final class BrowserCaptureReferenceTests: XCTestCase {
-    func testPreservesThePiPContentAreaAcrossAspectRatioChanges() {
-        let wide = T3BrowserPictureInPicture.fit(current: NSSize(width: 480, height: 320), aspect: 16 / 9)
-        XCTAssertEqual([wide.width, wide.height], [523, 294])
-        let tall = T3BrowserPictureInPicture.fit(current: NSSize(width: 480, height: 320), aspect: 9 / 16)
-        XCTAssertEqual([tall.width, tall.height], [294, 523])
-    }
-
-    func testDoesNotCollapseTowardTheMinimumSizeWhenOrientationChangesRepeatedly() {
-        let portrait = T3BrowserPictureInPicture.fit(current: NSSize(width: 523, height: 294), aspect: 9 / 16)
-        let landscape = T3BrowserPictureInPicture.fit(current: NSSize(width: portrait.width, height: portrait.height), aspect: 16 / 9)
-        XCTAssertEqual([portrait.width, portrait.height], [294, 523])
-        XCTAssertEqual([landscape.width, landscape.height], [523, 294])
-    }
-
-    // Manager.test.ts "shows picture-in-picture and keeps capturing after stalled captures" (2359643cff): a snapshot that
-    // never answers is given up after a second, and the window goes on capturing.
-    func testKeepsCapturingAfterStalledCaptures() {
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
-        let image = NSImage(size: NSSize(width: 320, height: 200))
-        var calls = 0
-        let pip = T3BrowserPictureInPicture(web: web, title: "Stalled", agent: true) { _, done in
-            calls += 1
-            if calls > 2 { done(image) } // the first two never answer
-        }
-        defer { pip.window.close() }
-        XCTAssertEqual(calls, 1)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        XCTAssertEqual([calls, pip.frames], [1, 0])
-        RunLoop.main.run(until: Date().addingTimeInterval(2.4))
-        XCTAssertGreaterThanOrEqual(calls, 3)
-        XCTAssertGreaterThan(pip.frames, 0)
-    }
-
     func testDerivesTheArtifactExtensionFromTheRecordersActualMimeType() {
         XCTAssertEqual(T3BrowserArtifacts.fileExtension("video/mp4;codecs=avc1.640028"), "mp4")
         XCTAssertEqual(T3BrowserArtifacts.fileExtension("video/webm;codecs=vp9"), "webm")
@@ -192,27 +159,6 @@ final class BrowserCaptureTests: XCTestCase {
                 XCTAssertEqual((refused["error"] as? [String: Any])?["kind"] as? String, "ArtifactPath")
             }
         }
-    }
-
-    func testTheSeparateWindowFloatsTheLivePageAndFollowsItsAspect() throws {
-        page("frame-pip", "/pip", "<!doctype html><title>Floating page</title><body style='margin:0;background:#0a0'><h1>pip</h1>")
-        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "open"]))["open"] as? Bool, true)
-        let pip = try XCTUnwrap(pages.pages["frame-pip"]?.pip)
-        XCTAssertEqual(report("frame-pip")["pip"] as? Bool, true)
-        XCTAssertEqual(pip.window.title, "Preview · Floating page")
-        XCTAssertEqual(pip.window.level, .floating)
-        XCTAssertTrue(pip.window.collectionBehavior.contains(.canJoinAllSpaces))
-        XCTAssertEqual(pip.window.contentMinSize, NSSize(width: 240, height: 160))
-        CaptureSpin.until({ pip.frames >= 3 }, timeout: 5)
-        XCTAssertGreaterThanOrEqual(pip.frames, 3, "about 12 frames a second")
-        let content = pip.window.contentRect(forFrameRect: pip.window.frame).size
-        XCTAssertEqual(Double(content.width / content.height), 640.0 / 360.0, accuracy: 0.03, "the window follows the page's aspect ratio")
-        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "open"]))["open"] as? Bool, true, "opening again shows the same window")
-        XCTAssertTrue(pages.pages["frame-pip"]?.pip === pip)
-        pip.window.performClose(nil)
-        CaptureSpin.until({ pages.pages["frame-pip"]?.pip == nil }, timeout: 3)
-        XCTAssertEqual(report("frame-pip")["pip"] as? Bool, false, "closing the window ends it")
-        XCTAssertEqual(value(op(["op": "browserPip", "frame": "frame-pip", "action": "close"]))["open"] as? Bool, false)
     }
 
     func testTheRecordingOpsMakeAnArtifact() throws {

@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
 import { adoptFrameEvent, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
+import { captureDesktopPips, closeDesktopPictureInPicture, desktopPipViews, openDesktopPictureInPicture } from '../../src/browser/browser-desktop-pip';
 import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { annotateState } from '../../src/browser/browser-annotate';
@@ -33,6 +34,7 @@ import { DEFAULT_SEND_RULES } from '../../src/composer/composer-editor-intent';
 import { activeRef } from '../../src/terminal/terminal-drawer-view';
 import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { contractFn } from '../support/contract-fn-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
@@ -128,7 +130,7 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
     const client = fakeClient();
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: false, pickDisabled: false, pickTip: 'Annotate elements, regions, and drawings',
       captureDisabled: false, recording: false, floating: false, floatDisabled: false, separateWindow: false });
-    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
+    openDesktopPictureInPicture(client, runtimeId);
     fakePage(() => new Promise(() => {}));
     await captureLocal(client, fakeModule({}).native, browserPanel(), 'annotate', target, 'dark');
     useAutomationCalls(null);
@@ -446,7 +448,8 @@ describe('the floating player and the separate window', () => {
   });
 
   it('shows the floating tab unless the panel shows it (shouldRenderPreviewMiniPlayer), sized by its page', () => {
-    const client = fakeClient({ size: [640, 360], pip: true });
+    const client = fakeClient({ size: [640, 360] });
+    openDesktopPictureInPicture(client, runtimeId);
     browserHost(client).store.applyServerSnapshot(ref, { threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' });
     browserHost(client).store.reconcileServerSessions(ref, { sessions: [{ threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' }], serverEpoch: 'epoch-1', revision: 1 });
     miniStoreOf(client).open('thread-1', { kind: 'browser', tabId: 'tab-1' });
@@ -484,10 +487,20 @@ describe('the floating player and the separate window', () => {
 
   it('handleNativePictureInPicture opens and closes the separate window, and the More menu names it', async () => {
     const client = fakeClient(), module = fakeModule({});
+    adoptFrameEvent(client, frameIdOf(runtimeId), 'event=currententrychange&id=1&title=Floating%20page&url=https%3A%2F%2Fexample.com%2F', 0);
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
+    // Manager.ts openPictureInPicture: "Preview · " and the page's title, read as the window opens.
+    expect(desktopPipViews(client)).toMatchObject([{ show: true, runtimeId, frameId: frameIdOf(runtimeId), title: 'Preview · Floating page' }]);
+    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false).separateWindow).toBe(true);
+    const first = desktopPipViews(client)[0]!.request;
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    expect(module.calls.map(call => [call.action, call.frame])).toEqual([['open', frameIdOf(runtimeId)], ['close', frameIdOf(runtimeId)]]);
+    expect(desktopPipViews(client)).toEqual([]);
+    expect(module.calls).toEqual([]); // Exact's window, no app module call
+    // The window's own close (`leavepictureinpicture`) ends it; another open is a new request.
+    await captureLocal(client, module.native, browserPanel(), 'window', target, '');
+    expect(desktopPipViews(client)[0]!.request).toBeGreaterThan(first);
+    closeDesktopPictureInPicture(client, runtimeId);
+    expect(desktopPipViews(client)).toEqual([]);
     expect(browserView(client, browserPanel().surfaces[0]!).capture.separateWindow).toBe(false); // no session: the empty view
   });
 });
@@ -644,5 +657,69 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     const held = await run(pans(['7.1', '7.1', '7.1', '7.1'])), fresh = await run(pans(['7.1', '8.1', '9.1', '10.1']));
     expect([held.last.width, held.last.height]).toEqual([305, 423]);
     expect(fresh.last.width).toBeGreaterThan(305 + 40);
+  });
+});
+
+// Manager.ts openPictureInPicture's windows over Exact's panels (LLP 1042 §9.1, §9.2): one per tab, each tab's frame
+// captured about 12 times a second into three files in turn, the latest one its window's picture; each panel opens
+// titled, at Electron's 480 × 320, at its image's first picture.
+describe('the separate preview windows (openPictureInPicture)', () => {
+  const window = contractComponent('src/browser/browser-capture.contract', 'DesktopBrowserPip');
+  const other = previewRuntimeTabId(ref, 'epoch-1', 'tab-2');
+
+  it('keeps a window per tab, and closing one leaves the others', () => {
+    const client = fakeClient();
+    syncFrames(client, [runtimeId, other].map(id => ({ runtimeId: id, url: '', environment: 'local', profile: 'default', zoom: 1, colorScheme: 'system' as const })));
+    adoptFrameEvent(client, frameIdOf(runtimeId), 'event=currententrychange&id=1&title=Page%20a&url=https%3A%2F%2Fexample.com%2Fa', 0);
+    adoptFrameEvent(client, frameIdOf(other), 'event=currententrychange&id=1&title=Page%20b&url=https%3A%2F%2Fexample.com%2Fb', 0);
+    openDesktopPictureInPicture(client, runtimeId);
+    openDesktopPictureInPicture(client, other);
+    expect(desktopPipViews(client).map(pip => pip.title)).toEqual(['Preview · Page a', 'Preview · Page b']);
+    // A tab whose window is open keeps it, as the reference's open returns the existing session.
+    const requests = desktopPipViews(client).map(pip => pip.request);
+    openDesktopPictureInPicture(client, runtimeId);
+    expect(desktopPipViews(client).map(pip => pip.request)).toEqual(requests);
+    closeDesktopPictureInPicture(client, runtimeId);
+    expect(desktopPipViews(client).map(pip => pip.runtimeId)).toEqual([other]);
+    closeDesktopPictureInPicture(client);
+    expect(desktopPipViews(client)).toEqual([]);
+  });
+
+  it('captures each tab into three files in turn, the last good one its picture', async () => {
+    const client = fakeClient(), calls = fakePage(() => null);
+    syncFrames(client, [runtimeId, other].map(id => ({ runtimeId: id, url: '', environment: 'local', profile: 'default', zoom: 1, colorScheme: 'system' as const })));
+    openDesktopPictureInPicture(client, runtimeId);
+    openDesktopPictureInPicture(client, other);
+    const [a, b] = desktopPipViews(client).map(pip => pip.request);
+    const first = await captureDesktopPips(client), second = await captureDesktopPips(client);
+    expect(first.shots.map(shot => shot.request)).toEqual([a, b]);
+    expect(second.seq).toBe(first.seq + 1);
+    expect(calls.filter(call => call.call === 'captureScreenshot').map(call => call.id)).toEqual([frameIdOf(runtimeId), frameIdOf(other), frameIdOf(runtimeId), frameIdOf(other)]);
+    const paths = async () => (await captureDesktopPips(client)).shots[0]!.path;
+    expect(new Set([first.shots[0]!.path, second.shots[0]!.path, await paths(), await paths()]).size).toBe(3);
+    // A failed capture keeps the picture before it and moves on; a closed window gets none.
+    const kept = await captureDesktopPips(client);
+    fakePage(() => null, { captureScreenshot: true });
+    expect((await captureDesktopPips(client)).shots).toEqual(kept.shots);
+    closeDesktopPictureInPicture(client, runtimeId);
+    expect((await captureDesktopPips(client)).shots.map(shot => shot.request)).toEqual([b]);
+    useAutomationCalls(null);
+  });
+
+  it('floats each picture in its own titled panel at 480 × 320 once it has one, and its close or failure reaches the tab', () => {
+    const floated: unknown[][] = [], local: unknown[][] = [];
+    const desktopPip = { show: true, runtimeId, frameId: 'frame-a', title: 'Preview · Example', request: 2 };
+    const scope = { pip: desktopPip, local: (...args: unknown[]) => local.push(args), requestPictureInPicture: (...args: unknown[]) => floated.push(args) };
+    const shots = [{ request: 1, path: 'app:/tmp/other.png' }, { request: 2, path: 'app:/tmp/a.png' }];
+    expect(window.drawn('id=`browser-desktop-pip-', {}, { ...scope, desktopPipPictures: shots.slice(0, 1) })).toBe(false);
+    expect(window.drawn('id=`browser-desktop-pip-', {}, { ...scope, desktopPipPictures: shots })).toBe(true);
+    // Its first picture opens it; the pictures after it only show in it.
+    const state = window.state({ ...scope, desktopPipPictures: shots });
+    window.call('loaded', state, scope, []);
+    window.call('loaded', state, scope, []);
+    expect(floated).toEqual([['browser-desktop-pip-2', { presentation: 'panel', title: 'Preview · Example', width: 480, height: 320 }]]);
+    window.call('left', state, scope, []);
+    window.call('failed', state, scope, ['not possible']);
+    expect(local).toEqual([['surface-browser-desktop-pip-left', runtimeId, ''], ['surface-browser-desktop-pip-failed', runtimeId, 'not possible']]);
   });
 });

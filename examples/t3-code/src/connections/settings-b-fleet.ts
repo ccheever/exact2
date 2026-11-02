@@ -40,6 +40,8 @@ export interface FleetEntry {
   config: Obj; shell: Shell; scopes: string[]; legacyPermissions?: boolean; session?: SessionCheck; error: string; requested: boolean; busy?: boolean;
   /** The route this environment's transport connected over. */
   activeRouteId?: string;
+  /** The failed attempt its retry waits after, 0 while none waits (transport-session.ts status). */
+  backoffAttempt?: number;
   /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
   primary?: boolean;
   terminalMetadata?: ReadonlyArray<TerminalSummary> | null;
@@ -184,8 +186,9 @@ export class EnvironmentFleet {
       void native.later({ op: 'connect', fleet: entry.key, origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) }).catch(() => {});
       return;
     }
-    if (next.phase !== entry.phase || next.message !== entry.message || next.traceId !== entry.traceId || str(value.activeRouteId) !== (entry.activeRouteId ?? '')) {
-      entry.phase = next.phase; entry.message = next.message; entry.traceId = next.traceId; entry.activeRouteId = str(value.activeRouteId); this.revision++;
+    const backoffAttempt = Number(value.backoffAttempt) || 0;
+    if (next.phase !== entry.phase || next.message !== entry.message || next.traceId !== entry.traceId || str(value.activeRouteId) !== (entry.activeRouteId ?? '') || backoffAttempt !== (entry.backoffAttempt ?? 0)) {
+      entry.phase = next.phase; entry.message = next.message; entry.traceId = next.traceId; entry.activeRouteId = str(value.activeRouteId); entry.backoffAttempt = backoffAttempt; this.revision++;
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {}; entry.terminalMetadata = null; entry.terminalAttempted = false;

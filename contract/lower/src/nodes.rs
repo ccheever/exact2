@@ -347,20 +347,22 @@ impl Lowerer<'_> {
         let expanded = sheet_page.as_deref().unwrap_or(expanded);
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
         // @ref LLP 1038 D8 — only the first root selects navigation; an
-        // iframe's `navigate` is its guest's (LLP 1020.002 D2).
-        if tag != "iframe"
-            && has(&["navigate"])
-            && (parent_tag.is_some()
-                || arm.is_some()
-                || order != 0
-                || !has(&["navigationKey"])
-                || !has(&["navigationBack"]))
-        {
-            return err(
-                "lower-navigate-root",
-                "`navigate` belongs to the navigation root (the first root, with navigationKey)",
-                *span,
-            );
+        // iframe's `navigate` is its guest's (LLP 1020.002 D2). The history
+        // swipe and the ways through history offered are the root's too
+        // (LLP 1115.000 D5.5).
+        let elsewhere = parent_tag.is_some()
+            || arm.is_some()
+            || order != 0
+            || !has(&["navigationKey"])
+            || !has(&["navigationBack"]);
+        for name in ["navigate", "historyswipe", "navigationHistory"] {
+            if (tag != "iframe" || name != "navigate") && has(&[name]) && elsewhere {
+                return err(
+                    "lower-navigate-root",
+                    format!("`{name}` belongs to the navigation root (the first root, with navigationKey)"),
+                    *span,
+                );
+            }
         }
         // @ref LLP 1121 D8 — the state parts, folded or recorded.
         let target = if control.is_some() || t.node_type == NodeType::Control {

@@ -788,7 +788,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     theirs.run("INSERT INTO items (title, notes, by) VALUES ('Theirs', '', 'Ada')");
     theirs.close();
     const before = readFileSync(resolve(dir, 'data.db'));
-    const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000 }); return { ...r, lines: r.stdout.trim().split('\n') }; };
+    const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } }); return { ...r, lines: r.stdout.trim().split('\n') }; };
     const clean = verify();
     assert.equal(clean.status, 0, clean.stdout + clean.stderr);
     assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database (.exact/verify/db.sqlite, removed after)`, clean.stdout);
@@ -800,7 +800,7 @@ test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on
     assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
     // LLP 1116.007 D2: `test` runs the same server on the same terms (it was the builder's to start, and `api-test`'s to know),
     // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
-    const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
     const tested = plain();
     assert.equal(tested.status, 0, tested.stdout + tested.stderr);
     assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
@@ -947,7 +947,7 @@ test.skipIf(!!chromium().unavailable)('agent on a server app: its server for the
     createApp(dir);
     applyPattern(dir, 'rest');
     const port = onPort(dir), url = `http://127.0.0.1:${port}`;
-    const agent = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'web', ...args], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const agent = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'web', ...args], { cwd: dir, encoding: 'utf8', timeout: 240_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
     const started = (storage) => new RegExp(`^agent: started server\\.ts at ${url} for this drive \\(database \\.exact/agent/${storage}/db\\.sqlite, kept for --storage ${storage}\\); stopped after$`, 'm');
     const added = agent('--storage', 's1', 'clock data', 'tap add-item', 'clock settle', 'type add-title Milk', 'tap add-save', 'clock data', 'state lib.items.0.title');
     assert.equal(added.status, 0, added.stdout + added.stderr);
@@ -982,7 +982,8 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
     const dir = resolve(parent, 'field-log');
     createApp(dir);
     const exact = (verb, ...args) => {
-      const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
+      // EXACT_FEEDBACK=0: no feedback nudge after the command, whose stderr is compared whole.
+      const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000, env: { ...process.env, EXACT_FEEDBACK: '0' } });
       return { ...r, lines: r.stdout.trim().split('\n') };
     };
     // `contract verify`'s summary and receipt come after verify's own report and before its verdict, the last line (LLP 1151 D8).
@@ -1068,8 +1069,8 @@ test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing tes
 
     // A call the host refuses is the report's first line (LLP 1116.010 D5), and a count kept only in memory is lost by a
     // reload: the page's URL and storage hold nothing of it (D6). The starter's greeting source goes with its view.
-    const appId = readFileSync(resolve(dir, 'app.ts'), 'utf8').match(/appId = '([^']+)'/)[1];
-    writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = '${appId}';\nexport const grants = '';\nconst sources: Sources = {};\nexport const answer: Answer = (name, args, store, storage, native) => (sources as any)[name](args, store, storage, native);\n`);
+    // The app's id is app.json's alone (029cd282d3): app.ts need not name it.
+    writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const grants = '';\nconst sources: Sources = {};\nexport const answer: Answer = (name, args, store, storage, native) => (sources as any)[name](args, store, storage, native);\n`);
     writeFileSync(view, 'component App\n  state which = "nope"\n  state count = 0\n  action poke\n    showPicker(which)\n    count = count + 1\n  view\n    column padding=16\n      button press=poke testId="poke"\n        text "Poke"\n      text `Pokes: ${count}` testId="count"\n');
     writeFileSync(tests, 'test "poking counts, and asks for a picker nobody has"\n  tap "poke"\n  tap "poke"\n  clock settle\n  expect text "count" == "Pokes: 2"\n');
     const poked = verify();

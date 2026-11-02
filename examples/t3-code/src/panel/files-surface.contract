@@ -15,7 +15,7 @@ use ShellIcon from "../shell/shell-icons.contract"
 use ShellEditorIcon from "../shell/shell-icons-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use FileTypeIcon from "../shared/timeline-files.contract"
-use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
+use synColor, synSlant from "../highlight/syntax-ink.contract"
 use DiffCommentCard, DiffDraftCard from "../diff/diff-comments.contract"
 use diffSel from "../diff/diff-rows.contract"
 use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
@@ -64,10 +64,10 @@ component FilesSurface
     searchFocus: action
   derive beside = files.path != "" and files.preview != ""
   // FileExplorerPane: beside a file the explorer is 160 to 560 wide and leaves the file 256; the width is saved when a
-  // drag ends or a key moves it.
+  // drag ends or a key moves it. Until the row is measured the cap is 560, so the first frame has the saved width.
   state rowWidth = 0
   state userWidth = -1
-  derive explorerMax = max(160, min(560, rowWidth - 256))
+  derive explorerMax = rowWidth > 0 ? max(160, min(560, rowWidth - 256)) : 560
   derive explorerWidth = max(160, min(explorerMax, userWidth >= 0 ? userWidth : files.explorerWidth))
   action rowSized(width: number, height: number)
     rowWidth = width
@@ -473,7 +473,7 @@ component FilePreview
           FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
     // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
     if files.preview == "attachment"
-      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="")
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="", loading=false)
     // WorkspaceLargeTextPreview: the full file's URL was not signed.
     if files.preview == "full-error"
       FileSurfaceFailure(message=files.previewError, canRetry=true, retry=local("surface-files-full-retry", files.absolutePath, ""), testId="file-full-failed")
@@ -485,17 +485,19 @@ component FilePreview
         MediaFrame(src=files.url, name=files.path, testId="file-html")
     if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
-        // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
-        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=beginEdit role="code" aria-label=files.path testId="file-lines"
-          for line in files.lines key=line.id
-            if line.kind == "line"
-              FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
-            if line.kind == "note"
-              DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
-            if line.kind == "draft"
-              // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
-              // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
-              DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
+        // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end); the code's
+        // surface is only as tall as its lines, as the reference's <pre> is.
+        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" box-sizing="border-box" press=beginEdit role="code" aria-label=files.path testId="file-lines"
+          column width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)"
+            for line in files.lines key=line.id
+              if line.kind == "line"
+                FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
+              if line.kind == "note"
+                DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
+              if line.kind == "draft"
+                // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
+                // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
+                DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           if editing
             // A change from outside replaces the text: the editor mounts again on it (EditableFileSurface's externalFile).
@@ -565,7 +567,8 @@ component FilesCodeRow
       box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
       text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family=family font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         for run in line.runs key=run.id
-          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
+          // The file preview's highlighter keeps one weight: a Markdown heading is coloured, not bold (the Diff's is).
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
       if not open and (line.pin or not line.pinned or dragging)
         button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true

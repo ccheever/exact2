@@ -16,7 +16,7 @@ import { pagesLocal } from '../../src/pages/pages-commands';
 import { fleet, environmentKey, EnvironmentFleet } from '../../src/connections/settings-b-fleet';
 import { initialShell } from '../../src/client/domain';
 import { forgetUsageState } from '../../src/usage/usage-environments';
-import { popoverSides } from '../../src/usage/usage-pooled-view';
+import { popoverHeight } from '../../src/usage/usage-pooled-view';
 import { providerInstanceInitials } from '../../src/client/presentation';
 import { usageFleetEvent, usageFleetReset } from '../../src/usage/usage-replies';
 import { forgetLimitsRefreshes } from '../../src/usage/usage-refresh';
@@ -136,7 +136,7 @@ describe('pooled limits across environments', () => {
       expect(source).toContain(`${call}light=(seg.accent != "" ? seg.accent : pool.light), dark=(seg.accent != "" ? seg.accent : pool.dark)`);
   });
 
-  it('wide segments carry their labels, narrow ones a legend; the first card hangs its popover below', async () => {
+  it('wide segments carry their labels, narrow ones a legend; each carries its popover height', async () => {
     const two = laptop();
     (two.providers as Obj[]).push(provider({ instanceId: 'codex-work', displayName: 'Work', auth: { status: 'authenticated', email: 'work@example.com' },
       usageLimits: { checkedAt: iso(-60_000), windows: [session(10, { resetsAt: iso(3 * HOUR) })] } }));
@@ -144,11 +144,10 @@ describe('pooled limits across environments', () => {
     const wide = (await rig.page({ viewport: 1280, sidebar: 256 })).pooled;
     expect(wide.wide).toBe(true);
     const row = wide.pools[0]!.windows[0]!;
-    expect(row.segments.map(segment => [segment.name, segment.column, segment.side, segment.align, segment.showName])).toEqual([['Codex', 1, 'bottom', 'start', true], ['Work', 2, 'bottom', 'end', true]]);
+    expect(row.segments.map(segment => [segment.name, segment.column, segment.showName])).toEqual([['Codex', 1, true], ['Work', 2, true]]);
+    expect(row.segments.map(segment => segment.popHeight)).toEqual(row.segments.map(segment => popoverHeight(segment)));
     expect(row.refill).toBe('↻ +20%'); // the soonest reset that hands anything back
     expect(row.remaining).toBe(75);
-    // The weekly bar's top lies about 223 pt down the scroll area, short of the popover's ~250: it flips below too.
-    expect(wide.pools[0]!.windows[1]!.segments[0]!.side).toBe('bottom');
     expect((await rig.page({ viewport: 840, sidebar: 256 })).pooled.wide).toBe(false);
   });
 
@@ -216,13 +215,46 @@ describe('pooled limits across environments', () => {
   });
 });
 
-describe('popover sides (Base UI collision flip on an unscrolled page)', () => {
-  test('a bar too near the top opens its popover below; one with room above opens above', () => {
-    const segment = () => ({ side: '', email: 'a@b.c', plan: 'Pro', whereLabel: 'Signed in', resetsAt: 'x', evenPace: '', restores: '+1% of pool', redeemable: true });
-    const window = () => ({ count: 2, refill: '↻ +5%', description: '', statuses: [], segments: [segment(), segment()] });
-    const pools = [{ cursorBefore: false, windows: [window(), window()] }, { cursorBefore: false, windows: [window(), window()] }];
-    popoverSides(pools, { wide: true, md: true, cursorRows: 0 });
-    expect(pools.flatMap(pool => pool.windows.map(entry => entry.segments[0]!.side))).toEqual(['bottom', 'bottom', 'top', 'top']);
+// UsageLimitsPooled.tsx ActiveSegmentPopover: PopoverPopup side="top" sideOffset 6 around SegmentPopover's w-72 column,
+// placed by Base UI (align center, collision shift and flip, collisionPadding 5). The page's fns, evaluated as written,
+// with the scroll area that clips the clone's card as the bounds. Measured on v0.1.6 at 1280 x 840 with a hub of three
+// Codex and four Claude accounts: the first Codex segment's popover is 320 pt wide and centred on it.
+describe('segment popover placement (Base UI, within the scroll area)', () => {
+  const fns = async () => {
+    const source = await Bun.file(appPath('usage-pooled.contract')).text();
+    const fn = (name: string, params: string[]) => {
+      const body = new RegExp(`^fn ${name}\\([^)]*\\): \\w+ = (.+)$`, 'm').exec(source)?.[1];
+      expect(body).toBeDefined();
+      return new Function(...params, 'max', 'min', `return ${body};`) as (...args: unknown[]) => unknown;
+    };
+    const card = fn('popCardWidth', ['rem']), left = fn('popLeft', ['x', 'w', 'card', 'lo', 'hi']), side = fn('popSide', ['top', 'height']);
+    return { card: (rem: number) => card(rem, Math.max, Math.min) as number,
+      left: (x: number, w: number, c: number, lo: number, hi: number) => left(x, w, c, lo, hi, Math.max, Math.min) as number,
+      side: (top: number, height: number) => side(top, height, Math.max, Math.min) as string };
+  };
+
+  test('the card is the w-72 column in 1rem of padding and a 1px border, centred on its segment', async () => {
+    const { card, left } = await fns();
+    expect(card(16)).toBe(322);
+    // A segment 245 pt wide at 98 pt into content inset 88 pt in a 1200 pt scroll area.
+    expect(left(98, 245, 322, -88, 1112)).toBe(98 + 245 / 2 - 161);
+  });
+
+  test('a card that would cross the scroll area\'s edge keeps 5 pt inside it', async () => {
+    const { left } = await fns();
+    expect(left(-80, 40, 322, -88, 1112)).toBe(-83);
+    expect(left(1060, 40, 322, -88, 1112)).toBe(1112 - 5 - 322);
+  });
+
+  test('it opens above when the scroll area has its height and the 5 pt padding above the segment, else below', async () => {
+    const { side } = await fns();
+    const claude = popoverHeight({ email: 'a@b.c', plan: 'Claude Subscription', whereLabel: 'Via', resetsAt: 'x', evenPace: 'y', restores: '+8% of pool', redeemable: false });
+    expect(claude).toBe(230);
+    // v0.1.6's weekly Claude segment 225 pt down the scroll area opens above, over the header, which the clone's
+    // clipped card cannot: it opens below. The next card down has room.
+    expect([side(225, claude), side(314, claude), side(claude + 5, claude), side(claude + 4, claude)]).toEqual(['bottom', 'top', 'top', 'bottom']);
+    // A Codex account with banked credits adds its credits row.
+    expect(popoverHeight({ email: 'a@b.c', plan: 'Pro', whereLabel: 'Via', resetsAt: 'x', evenPace: 'y', restores: '+33% of pool', redeemable: true })).toBe(275);
   });
 });
 

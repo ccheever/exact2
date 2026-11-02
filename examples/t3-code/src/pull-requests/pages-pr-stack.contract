@@ -62,6 +62,7 @@ fn psPrimary(): string = "light-dark(#1b4ed8, #346bf1)"
 // The header's stack controls, before the thread links and the primary control.
 component PrdStackControls
   inject
+    dialogOpener: action
     dialogMenuEntered: action
   props
     stack: PrStackView
@@ -80,6 +81,9 @@ component PrdStackControls
         let target = kmTriggerTarget(stackItems, k)
         if target != ""
           focus(target)
+  action askMergeStack
+    dialogOpener("pull-request-stack-merge")
+    local("pr-ui-stack-ask", ref, "merge")
   view
     if stack.retryLookup
       PsGhostButton(label="Retry stack lookup", press=local("pr-ui-stack-retry", ref, ""), testId="pull-request-stack-retry-lookup")
@@ -117,7 +121,7 @@ component PrdStackControls
           box width="1rem" height=1 flex-shrink=0
       if stack.mergeButton
         Tip(label=stack.mergeTooltip, side="top", align="center", offset=20)
-          button press=local("pr-ui-stack-ask", ref, "merge") disabled=stack.mergeDisabled aria-label="Merge stack" testId="pull-request-stack-merge" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d" opacity=(stack.mergeDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
+          button id="pull-request-stack-merge" press=askMergeStack disabled=stack.mergeDisabled aria-label="Merge stack" testId="pull-request-stack-merge" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=psPrimary() background-color=psPrimary() box-shadow="inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d" opacity=(stack.mergeDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
             PgIcon(name="git-merge", size=14, color="#ffffff")
             text "Merge stack" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="#ffffff"
 

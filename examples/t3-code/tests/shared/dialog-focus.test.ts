@@ -23,25 +23,28 @@ const testId = (line: string) => /testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.sl
 describe('dialog focus lifecycle uses the actual previous focus', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   function fixture() {
-    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
-    const live = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
+    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogPressId: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
+    // `live`: the open dialogs; `controls`: other laid-out elements a frame() finds.
+    const live = new Set<string>(), controls = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
     const scope = {
       none: null,
       querySelectorAll: (selector: string) => {
-        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]']).toContain(selector);
-        return selector.includes('editable') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
+        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]', '[data-confirmation~="open"]']).toContain(selector);
+        return selector.includes('editable') || selector.includes('confirmation') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
       },
-      frame: (id: string) => ({ unavailable: !live.has(id), width: live.has(id) ? 400 : 0, height: live.has(id) ? 300 : 0 }),
+      frame: (id: string) => { const laid = live.has(id) || controls.has(id); return { unavailable: !laid, width: laid ? 400 : 0, height: laid ? 300 : 0 }; },
       dialogFrame: (owner: string, returns: { owner: string; target: string }[]) => ({ owner, returns }),
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
+      dialogBack: (owner: string, target: string, popup: string, invoker: string, pressed: string, shown: boolean) => pressed !== '' && shown ? { owner, target: pressed, popup: '', invoker: '' } : { owner, target, popup, invoker },
       dialogLineage: (frames: { owner: string; returns: { owner: string; target: string }[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       focus: (id: string) => focused.push(id), stopPropagation() {},
       chipFocusChanged: (id: string) => observedFocus.push(id),
+      confirmationFocused() {}, confirmationClosed() {},
     };
     const call = (action: string, ...args: unknown[]) => window.call(action, state, scope, args);
     const outside = (id: string) => call('windowFocused', { target: id });
     const inside = (owner: string, id: string) => call('dialogEntered', owner, { target: id });
-    return { state, live, menus, inert, focused, observedFocus, call, outside, inside };
+    return { state, live, controls, menus, inert, focused, observedFocus, call, outside, inside };
   }
   test('ordinary, menu and dialog focus facts reach root chip completion without changing dialog return ownership', () => {
     const rig = fixture();
@@ -93,6 +96,51 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       }
     });
   }
+  // Chromium focuses a pressed button and Base UI returns there; a Mac click or an accessibility press focuses nothing,
+  // so the opener names itself at its press.
+  test('a pressed opener is the return of the dialog it opens, inside a parent dialog too', () => {
+    const f = fixture(); f.outside('composer'); f.controls.add('project-remove-one');
+    f.call('dialogOpener', 'project-remove-one');
+    f.live.add('project-remove'); f.inside('project-remove', 'project-remove-cancel');
+    expect(f.state.dialogPressId).toBe('');
+    f.live.delete('project-remove'); f.call('dialogClosed', 'project-remove');
+    expect(f.focused).toEqual(['project-remove-one']);
+    f.live.add('provider-dialog'); f.inside('provider-dialog', 'provider-field'); f.controls.add('provider-sign-out');
+    f.call('dialogOpener', 'provider-sign-out');
+    f.live.add('sign-out-confirm'); f.call('dialogOpened', 'sign-out-confirm'); f.inside('sign-out-confirm', 'sign-out-cancel');
+    f.live.delete('sign-out-confirm'); f.call('dialogClosed', 'sign-out-confirm');
+    expect(f.focused).toEqual(['project-remove-one', 'provider-sign-out']);
+  });
+  test('a focus since the opener\'s press, or an opener gone, leaves the focus held as it opened; a key or a press forgets it', async () => {
+    for (const [between, held] of [['focus', 'settings-search'], ['gone', 'composer']] as const) {
+      const f = fixture(); f.outside('composer'); f.controls.add('opener');
+      f.call('dialogOpener', 'opener');
+      if (between === 'focus') f.outside('settings-search');
+      else f.controls.delete('opener');
+      f.live.add('opened-dialog'); f.inside('opened-dialog', 'dialog-cancel');
+      f.live.delete('opened-dialog'); f.call('dialogClosed', 'opened-dialog');
+      expect([between, f.focused]).toEqual([between, [held]]);
+    }
+    // The root's key capture and pointerdown run on every key and press; both read far more of the window than this rig.
+    const text = await source('src/shell/app-window.contract');
+    expect(text).toContain('  action modifierDown(k: string, e: KeyboardEvent)\n    dialogPressId = ""\n');
+    expect(text).toContain('  action outsidePressDown(e: PointerEvent)\n    interacted()\n    dialogPressId = ""\n');
+  });
+  // Each opener names itself (or a parent's opener: openFrom, uiFrom) by an element id its file declares.
+  test('every pressed opener names an element id', async () => {
+    const shape = (expr: string) => expr.replace(/\$\{[^}]*\}/g, '${}');
+    let count = 0;
+    for (const file of appFiles().filter(name => name.endsWith('.contract'))) {
+      const text = await source(file), ids = new Set([...text.matchAll(/ id=("[^"]*"|`[^`]*`|[A-Za-z]+)/g)].map(m => shape(m[1]!)));
+      const named = [...text.matchAll(/(?<!action )dialogOpener\(([^)]*)\)/g)].map(m => m[1]!);
+      const passed = [...text.matchAll(/(?:openFrom|uiFrom)\(("[^"]*"|`[^`]*`)/g)].map(m => m[1]!);
+      for (const expr of [...named.filter(expr => expr !== 'opener'), ...passed]) {
+        count++;
+        expect([file, expr, ids.has(shape(expr))]).toEqual([file, expr, true]);
+      }
+    }
+    expect(count).toBeGreaterThan(50);
+  });
   test('an ordinary outside field clears menu metadata and keeps the actual pointer return', () => {
     const f = fixture(); f.call('dialogMenuEntered', 'usage-environment-menu', 'usage-environment', { target: 'usage-model-prices-km' });
     f.outside('settings-search'); f.live.add('opened-dialog'); f.inside('opened-dialog', 'dialog-cancel');

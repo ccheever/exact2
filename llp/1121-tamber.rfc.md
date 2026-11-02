@@ -2918,7 +2918,12 @@ sent to that build only, and a contrast pin is applied.
   SVG attribute's `…a` writing values, never `var()`), so a name of a kind the row does not take
   stands, as the kernel leaves it. A bound `opacity`'s layer test reads a constant token's value (a
   varying one may be below 1). A grid track's `var()` of a token passes the target's grid check
-  (each tuple's value was checked at build).
+  (each tuple's value was checked at build). A static row whose whole value is a `calc()`,
+  `min()`, `max()` or `clamp()` over length tokens (`calc(space-2 * -1)`) is read by the kernel
+  with each token's text in its place (`style::theme::math_with`), the read recorded as a whole
+  name's is; on the JS target, where the page declares a token it names, the row is written from
+  the literal with that token's `var()` (`modes.rs` `math_rows`), since the kernel's arithmetic
+  would have folded the sentinel.
 - **What the JS target does not read:** a varying token's name computed (from state or data) into
   an SVG attribute row stands there, since no tuple's rule reaches an attribute; and in a
   development build a token computed into one is written as its value, so a live edit of it waits

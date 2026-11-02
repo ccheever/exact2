@@ -127,6 +127,18 @@ describe('the pane (SideChatPane)', () => {
       deleteDisabled: false, confirmDelete: true, deleteTitle: 'Delete side chat "Side question"?', deleteBody: 'This permanently clears its conversation history.',
       loading: true });
   });
+  // Base UI opens Bring back's tooltip on a visible focus: the focus a side chat started from the keyboard gives it, or
+  // Tab's; not the focus a click gave (Chromium's :focus-visible for a script's focus follows the last input).
+  test("Bring back's tooltip shows on hover, and on a focus while the last press was a key", () => {
+    const pane = contractComponent('side-chat.contract', 'SideChatBody');
+    const shown = (state: Record<string, unknown>, keyboardLast: boolean) =>
+      pane.attribute('TipBubble(label=view.bringBackTip', 'shown', { hovered: '', bringBackFocused: false, ...state }, { keyboardLast, view: {} });
+    expect([shown({}, true), shown({ hovered: 'bring-back' }, false), shown({ bringBackFocused: true }, true), shown({ bringBackFocused: true }, false)])
+      .toEqual([false, true, true, false]);
+    const members = contractComponent('side-chat-members.contract', 'T3Code'), state = { keyboardLast: true };
+    members.call('pointerPressed', state, {}, []);
+    expect(state.keyboardLast).toBe(false);
+  });
   test('a side chat the live shell no longer has reads as deleted', () => {
     expect(sideChatView(client([parent()]).client, 'main', 'gone')).toMatchObject({ deleted: true, deleteDisabled: true });
   });
@@ -180,10 +192,11 @@ describe('the pane (SideChatPane)', () => {
   test('Delete asks first while Confirm thread deletion is on', () => {
     const body = contractComponent('side-chat.contract', 'SideChatBody'), local = body.state(), calls: unknown[][] = [];
     const view = { threadId: 'side', canSend: true, confirmDelete: true, deleteTitle: 'Delete side chat "S"?', deleteBody: 'Body', bringBackDisabled: false };
-    const scope = { view, command: (...args: unknown[]) => calls.push(['command', ...args]), confirm: (...args: unknown[]) => calls.push(['confirm', ...args]) };
+    const scope = { view, command: (...args: unknown[]) => calls.push(['command', ...args]), confirm: (...args: unknown[]) => calls.push(['confirm', ...args]), dialogOpener: (...args: unknown[]) => calls.push(['opener', ...args]) };
     body.call('remove', local, scope, []);
     body.call('bringBack', local, scope, []);
     expect(calls).toEqual([
+      ['opener', 'side-chat-delete'],
       ['confirm', 'ui:confirm:side-chat-delete', 'side', 'shell:surface-side-chat-delete', 'Delete side chat "S"?', 'Body', true],
       ['command', 'shell:surface-side-chat-bring-back', 'side', '', 0],
     ]);

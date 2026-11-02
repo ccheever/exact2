@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import { arr, obj, str, type Obj } from '../../src/client/domain';
 import { Backend, storage } from '../support/client-fixture';
-import { promptLinkView } from '../../src/prompt-links/prompt-link-handler';
+import { promptLinkView, promptLinksReady } from '../../src/prompt-links/prompt-link-handler';
 import { readPairingAppLink } from '../../src/connections/remote';
 import { toasts } from '../../src/shell/toast';
 import { paletteCommand } from '../../src/palette/palette-commands';
@@ -358,3 +358,29 @@ test('a t3code://pair link asks to add the backend, spends its code only once co
   expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not add backend', description: 'Pairing URL is missing its token.' });
 });
 
+
+test('only a source control link or a t3code:// link waits for every environment\'s projects (DesktopWebLinkCoordinator receiveLink)', () => {
+  const client = new T3Client();
+  client.environmentId = 'env1'; client.connection = 'connected'; client.configLive = true; client.shellLive = true; client.shellLoaded = true;
+  const key = environmentKey('http://slow.test', 'slow');
+  fleet.entries.set(key, { key, origin: 'http://slow.test', environmentId: 'slow', phase: 'connecting', message: '', traceId: '', generation: 1,
+    synchronized: -1, lastEvent: 0, subscriptions: {}, config: {}, shell: { projects: [], threads: [], sequence: 0 }, scopes: [], error: '', requested: true } as FleetEntry);
+  try {
+    const pullRequest = 'https://github.com/acme/app/pull/12', commit = `https://github.com/acme/app/commit/${'a'.repeat(40)}`;
+    expect(promptLinksReady(client, pullRequest)).toBe(false);
+    expect(promptLinksReady(client, commit)).toBe(false);
+    expect(promptLinksReady(client, 't3code://new?prompt=hi')).toBe(false);
+    expect(promptLinksReady(client, 'https://example.com/docs')).toBe(true);
+    expect(promptLinksReady(client, 'file:///tmp/page.html')).toBe(true);
+    // With pull request links opening in the browser, a source control link is an ordinary one.
+    client.local.clientSettings = { ...client.local.clientSettings, pullRequestLinksOpenInApp: false };
+    expect(promptLinksReady(client, pullRequest)).toBe(true);
+    expect(promptLinksReady(client, commit)).toBe(true);
+    // Its third attempt failed: nothing waits for it any longer.
+    fleet.entries.set(key, { ...fleet.entries.get(key)!, phase: 'reconnecting', backoffAttempt: 3 });
+    expect(promptLinksReady(client, 't3code://new?prompt=hi')).toBe(true);
+    // No link runs before the window's own environment is ready.
+    client.shellLive = false;
+    expect(promptLinksReady(client, 'https://example.com/docs')).toBe(false);
+  } finally { fleet.entries.delete(key); }
+});

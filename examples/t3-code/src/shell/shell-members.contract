@@ -248,8 +248,8 @@ members T3Code
     if op == "ui:workflow-phase"
       lineagePhasesOpen = value == "open" ? lineagePhasesOpen.concat([target]) : lineagePhasesOpen.filter((id) => id != target)
       lineagePhasesClosed = value == "open" ? lineagePhasesClosed.filter((id) => id != target) : lineagePhasesClosed.concat([target])
-    if (op == "shell:stop-subagent" or op == "shell:stop-workflow") and not commandPending
-      lineageStopping = target
+    if (op == "shell:stop-subagent" or op == "shell:stop-workflow" or op == "shell:merge-back") and not commandPending
+      lineageStopping = op == "shell:merge-back" ? `merge:${target}` : target
     detailsOpen = op == "toggle" ? (not detailsShown and detailsPopover) : (detailsOpen and op != "ui:project-settings" and op != "ui:scheduled-tasks" and op != "select-thread" and op != "ui:changes" and op != "dismiss") // inline: toggle remembers the thread's docked card
     detailsEpoch = op == "toggle" ? canvas.popoverEpoch : detailsEpoch
     if op == "ui:project-settings"
@@ -344,12 +344,22 @@ members T3Code
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
+  // dispatcher.ts isInsideConfirmation: the confirmation (role="alertdialog", marked `data-confirmation`) that holds the
+  // focus, under which the window's chords run nothing (the root's `shortcuts`, keyboard-dispatch.ts
+  // waitForConfirmation). The window's focus actions report it (app-window.contract dialogEntered, confirmationEntered).
+  state confirmationFocus = ""
+  action confirmationFocused(owner: string)
+    confirmationFocus = owner
+  action confirmationClosed(owner: string)
+    if confirmationFocus == owner
+      confirmationFocus = ""
   // Workspace areas (lib/workspaceFocus.ts): F6 and ⇧F6 move the focus to the next or previous shown area, in the
   // order sidebar, conversation, composer, thread details, right panel and terminal; in Settings, its sections and its
   // page. An area takes back the control it last held while that control is still shown (the conversation's only while
   // it is in view, so the timeline keeps following a running turn), else its own stop: the open thread's row or the
-  // sidebar's search, the conversation itself, the composer, the card's first control, the panel itself, the terminal's
-  // page. A modal keeps the key, as only its own shortcut buttons hear chords while it shows.
+  // sidebar's search, the conversation itself, the composer, the card's first control, the panel's surface default
+  // (else the panel itself), the terminal's page. A modal keeps the key, as only its own shortcut buttons hear chords
+  // while it shows.
   state workspaceArea = ""
   state workspaceTargets: WorkspaceTarget[] = []
   action workspaceEntered(area: string, e: FocusEvent)
@@ -421,7 +431,9 @@ members T3Code
         case none
           focus(workspaceContainer(area))
     else
-      focus(workspaceContainer(area))
+      // The panel's shown surface takes its default stop (the reference's data-workspace-focus-default): the Diff scope
+      // menu, the surface launcher, the files search or the Browser's address field.
+      focus(area == "panel" ? ["diff-scope", "surface-chooser", "field-files-search", "browser-url"].filter((id) => frame(id).width > 0 and frame(id).x >= lane.x and frame(id).x < lane.x + lane.width).concat([workspaceContainer(area)]).slice(0, 1).join("") : workspaceContainer(area))
   // TriageDraftHero's "or run npx t3 triage": the command is copied and the button reads "Copied" for 1.5 s.
   state triageCopied = 0
   task triageCopiedShown when triageCopied > 0 key=triageCopied

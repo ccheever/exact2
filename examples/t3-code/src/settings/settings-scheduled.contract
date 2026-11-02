@@ -192,18 +192,25 @@ style TkOutline
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" flex-shrink=0
 
 component ScheduledPanel
+  inject
+    dialogOpener: action
   props
     data: ScheduledPage
     busy: bool
     error: string
     open: action
     rest: action
+  action openFrom(opener: string, op: string, id: string, value: string)
+    dialogOpener(opener)
+    open(op, id, value)
   view
     column width="100%" gap="0.625rem" testId="scheduled-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
         text "Scheduled tasks" font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
-        button press=open("task", "", "") disabled=(busy or not data.creatable or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.creatable or not data.writable ? 0.64 : 1) data-focus-stop=((busy or not data.creatable or not data.writable) ? "" : "enabled page")
-          LucidePlus(size=12, color="light-dark(#71717b, #a1a1a1)")
+        button press=openFrom("new-scheduled-task", "task", "", "") disabled=(busy or not data.creatable or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.creatable or not data.writable ? 0.64 : 1) data-focus-stop=((busy or not data.creatable or not data.writable) ? "" : "enabled page")
+          // Button xs ghost-muted: px 7 inside a transparent 1pt border, the icon's -mx-0.5.
+          box display="flex" margin-left="-0.125rem" margin-right="-0.125rem"
+            LucidePlus(size=12, color="light-dark(#71717b, #a1a1a1)")
           text "New task" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
       if error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="scheduled-error" padding-left="1rem"
@@ -360,6 +367,7 @@ component ScheduledEditor
   // Model is the provider picker (ProviderModelPicker, no setup and no disabled reasons), opened by the
   // root's `pickModel`; its pick is the root's `taskModelPick` until this editor closes.
   inject
+    dialogOpener: action
     dialogEntered: action
     dialogFallback: action
     pickModel: action
@@ -379,6 +387,8 @@ component ScheduledEditor
   state enabled = draft.enabled
   state confirmRotate = false
   action askRotate(on: bool)
+    if on
+      dialogOpener("task-webhook-rotate")
     confirmRotate = on
   action rotate
     confirmRotate = false
@@ -792,7 +802,7 @@ component WebhookRotateDialog
   derive targets = ["task-webhook-rotate-cancel", "task-webhook-rotate-confirm"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=50 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
-      column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
+      column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
         FocusGuard(guardId="webhook-rotate-guard-start", targets=targets, popup="webhook-rotate-dialog")
         DialogOpenFocus(target="task-webhook-rotate-cancel")
         text "Rotate this webhook URL?" font-size="1rem" font-weight=600 role="heading" aria-level=2

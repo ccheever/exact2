@@ -108,3 +108,74 @@ fn the_request_names_one_element() {
         assert!(error.contains("type-media-command"), "{statement}: {error}");
     }
 }
+
+#[test]
+fn the_window_option_names_exacts_window() {
+    let source = APP.replace(
+        r#"requestPictureInPicture("page")"#,
+        r#"requestPictureInPicture("page", presentation="window", title="Preview", width=480, height=320)"#,
+    );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.take_commands();
+    r.act("float", vec![]).unwrap();
+    let ran: Vec<_> = r.take_commands().into_iter().map(|c| c.args).collect();
+    assert_eq!(
+        ran,
+        [vec![
+            Value::str("page"),
+            Value::str("window"),
+            Value::str("Preview"),
+            Value::Number(480.0),
+            Value::Number(320.0)
+        ]]
+    );
+    let bare = APP.replace(
+        r#"requestPictureInPicture("page")"#,
+        r#"requestPictureInPicture("page", presentation="panel")"#,
+    );
+    let mut r = Runner::boot(
+        contract::compile(&bare).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.take_commands();
+    r.act("float", vec![]).unwrap();
+    let ran: Vec<_> = r.take_commands().into_iter().map(|c| c.args).collect();
+    assert_eq!(
+        ran,
+        [vec![
+            Value::str("page"),
+            Value::str("panel"),
+            Value::Option(None),
+            Value::Option(None),
+            Value::Option(None)
+        ]]
+    );
+}
+
+#[test]
+fn the_window_options_are_checked() {
+    for statement in [
+        r#"requestPictureInPicture("page", presentation="system")"#,
+        r#"requestPictureInPicture("page", title="Preview")"#,
+        r#"requestPictureInPicture("page", presentation="window", width="480")"#,
+        r#"requestPictureInPicture("page", presentation="window", size=3)"#,
+        r#"requestPictureInPicture("page", presentation="window", presentation="window")"#,
+        r#"exitPictureInPicture(presentation="window")"#,
+        r#"load("page", presentation="window")"#,
+    ] {
+        let source = APP.replace(r#"requestPictureInPicture("page")"#, statement);
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(error.contains("type-media-command"), "{statement}: {error}");
+    }
+}

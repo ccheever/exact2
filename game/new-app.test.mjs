@@ -60,15 +60,20 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).host, { web: {} });
     assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).deploy, { store: { web: '0' } });
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
-    // The diary is one clause that names `feedback status`, which prints its instructions (LLP 1116 D3), and
-    // orders nothing first: builders load this file as instructions, so each order is a step (LLP 1116.012 D1).
+    // Feedback is a required section, last: its triggers and the one-line note, and `feedback status`, which prints
+    // the diary's instructions (LLP 1116 D3). It orders nothing first: builders load this file as instructions, so
+    // each order is a step (LLP 1116.012 D1).
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
-    assert.match(agents(), /<!-- exact:begin[^]*`bun exact\.mjs feedback status` says whether this project keeps one\.[^]*<!-- exact:end -->/);
+    const feedback = /\n## Feedback \(required\)\n[^]*(?=<!-- exact:end -->)/.exec(agents())?.[0] ?? '';
+    assert.match(feedback, /doc was wrong or missing, a workaround was needed, something took several tries or a\ncommand confused you/);
+    assert.match(feedback, /`bun exact\.mjs feedback note "<what happened>"`[^]*never output or code\. `bun exact\.mjs feedback status` says\nwhether notes are sent and whether to keep a diary; under `never`, skip all of this\.\n$/);
     assert.doesNotMatch(agents(), /first;|before writing code|Read the card|Run `bun exact\.mjs feedback/, 'no ordered preface');
     assert.doesNotMatch(agents(), /## The authoring diary|### Needed/);
-    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), besides the checkout's path in each path it names
-    const checkout = realpathSync(resolve(import.meta.dir, '..')), text = Buffer.byteLength(agents()) - (agents().split(checkout).length - 1) * checkout.length;
-    assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths`);
+    // 1.5 KB, read at step one and carried to the end (LLP 1116.007 D2), besides the checkout's path in each path it
+    // names and the Feedback section, which is held to 400 bytes of its own.
+    const checkout = realpathSync(resolve(import.meta.dir, '..')), text = Buffer.byteLength(agents()) - (agents().split(checkout).length - 1) * checkout.length - Buffer.byteLength(feedback);
+    assert.ok(text <= 1536, `AGENTS.md is ${text} bytes besides the checkout's paths and Feedback`);
+    assert.ok(Buffer.byteLength(feedback) <= 400, `Feedback is ${Buffer.byteLength(feedback)} bytes`);
     assert.match(agents(), /exact\.mjs setup --check/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // A setting's local value (`import.meta.env`, LLP 1153 D4) stays out of the repository.
@@ -284,6 +289,7 @@ test('a game outside this checkout gets an app\'s runner, with its own verbs and
     for (const file of ['AGENTS.md', 'exact.mjs', 'app.test.contract']) assert.ok(existsSync(resolve(dir, file)), file);
     assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.ok(!existsSync(resolve(dir, 'app.json')), 'a game\'s manifest stays optional');
+    assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /\n## Feedback \(required\)\n[^]*`bun exact\.mjs feedback note "<what happened>"`[^]*\n<!-- exact:end -->\n$/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     for (const file of ['game/app/shells.mjs', 'game/prove.mjs', 'host/web/build.mjs', 'scripts/agent.mjs', 'scripts/feedback.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
@@ -425,6 +431,9 @@ test('a new app tells its agent where the guides are, and update keeps what the 
     // The one required read; everything else is start-here's to name (LLP 1116 D3, LLP 1116.007 D2).
     assert.ok(notes.includes(resolve(root, 'docs/start-here.md')));
     assert.ok(existsSync(resolve(root, 'docs/start-here.md')));
+    // A website's starter guide in its place (LLP 1115 D7's amendment).
+    assert.ok(notes.includes(resolve(root, 'docs/start-here-site.md')));
+    assert.ok(existsSync(resolve(root, 'docs/start-here-site.md')));
     assert.match(notes, /the only\s+required reading/);
     // Where to start, not an order of steps (LLP 1116.012 D1): the nearest pattern, the guide, a name in question
     // answered by the card, `verify` when the features work and `verify ios` once at the end; `help` lists the verbs.
@@ -487,13 +496,18 @@ test('a native verb names its platform, and the generated workspace follows app.
     assert.match(readFileSync(resolve(first.workspace, 'android/build.rs'), 'utf8'), /exact_js_bake::build_android\(std::path::Path::new\("\.\.\/\.\.\/\.\."\)\)/);
     assert.match(readFileSync(resolve(first.workspace, 'android/src/lib.rs'), 'utf8'), /exact_linux::canvas_jni!\(super::AppData, hatches = crate::android::exact_hatches\(\)\);/);
     assert.ok(!existsSync(resolve(dir, 'Cargo.toml')) && !existsSync(resolve(dir, 'linux')), 'nothing Rust in the author\'s tree');
-    // resolveApp takes the generated workspace, with the target at the app, when nothing authored one.
-    const was = process.env.EXACT_APP_DIR;
+    // resolveApp takes the generated workspace, with the target at the app, when nothing authored one (and no
+    // CARGO_TARGET_DIR names another, as a run with its own target directory does).
+    const was = process.env.EXACT_APP_DIR, target = process.env.CARGO_TARGET_DIR;
     process.env.EXACT_APP_DIR = dir;
+    delete process.env.CARGO_TARGET_DIR;
     try {
       const app = resolveApp();
       assert.deepEqual([app.generated, app.workspace, app.target, app.crate('linux'), app.cargoPackage('linux')?.name], [true, realpathSync(first.workspace), resolve(realpathSync(dir), 'target'), 'field-log-linux', 'field-log-linux']);
-    } finally { if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was; }
+    } finally {
+      if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+      if (target !== undefined) process.env.CARGO_TARGET_DIR = target;
+    }
     // A platform dropped takes its crate with it; the last native one may go (deploy reads none as none, D1.5).
     assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed host\.android\)/);
     assert.deepEqual(ensureShells(dir).crates, ['web', 'apple']);

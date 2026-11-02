@@ -21,7 +21,7 @@ test('custom Home and thread feeds opt out of platform row separators', () => {
   expect(thread).toContain('button appearance="none" press=action(row.toggleOp, row.toggleId, "")');
   expect(thread).toContain('scrollFollowEnd=true scroll=historyScroll');
   expect(thread).not.toContain('scroll-behavior="smooth"');
-  expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain"');
+  expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain"');
   expect(thread).not.toContain('border-bottom-width=(row.kind == "work"');
   expect(home).toContain('overflow-x="hidden" overscroll-behavior="contain"');
   expect(home).toContain('scrollbar-width="none" touch-action="pan-y"');

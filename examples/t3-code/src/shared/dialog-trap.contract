@@ -22,6 +22,8 @@ shape DialogFocusFrame
   returns: DialogFocusReturn[]
 fn dialogReturn(owner: string, target: string, popup: string, invoker: string): DialogFocusReturn = DialogFocusReturn(owner=owner, target=target, popup=popup, invoker=invoker)
 fn dialogFrame(owner: string, returns: DialogFocusReturn[]): DialogFocusFrame = DialogFocusFrame(owner=owner, returns=returns)
+// A dialog's return: the control a press named as its opener while that is shown, else the focus as it opened.
+fn dialogBack(owner: string, target: string, popup: string, invoker: string, pressed: string, shown: bool): DialogFocusReturn = (pressed != "" and shown) ? dialogReturn(owner, pressed, "", "") : dialogReturn(owner, target, popup, invoker)
 fn dialogLineage(frames: DialogFocusFrame[], owner: string): DialogFocusReturn[] = match frames.filter(item => item.owner == owner).at(0) { case some(item) => item.returns, case none => [] }
 
 

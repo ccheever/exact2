@@ -42,6 +42,7 @@ import { pushToast } from '../shell/toast';
 import { miniStoreOf, deviceThreadId } from '../device/device-session';
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { primaryEnvironmentId } from '../connections/local-primary';
+import { closeDesktopPictureInPicture } from './browser-desktop-pip';
 import { closeServerPictureInPicture, serverPipOf, settleServerPictureInPicture } from './server-browser-pip';
 import { drainServerNotices, prepareServerStream, retainServerStreams, serverStreamUrl, serverStreamFrame, sendServerCommand } from './server-browser-runtime';
 import { adoptAutomationTabs, automationOverlay, automationPrepare, toggleFrameMute } from './browser-automation';
@@ -521,6 +522,12 @@ export async function browserLocal(client: T3Client, native: Native, state: Pane
   if (op === 'pip-failed') {
     closeServerPictureInPicture(client);
     pushToast(client, { kind: 'error', title: 'Unable to pop out preview', description: value || 'An error occurred.' });
+    return '';
+  }
+  if (op === 'desktop-pip-left') { closeDesktopPictureInPicture(client, id); return ''; } // the separate window's close
+  if (op === 'desktop-pip-failed') {
+    closeDesktopPictureInPicture(client, id);
+    pushToast(client, { kind: 'error', title: 'Unable to update popped-out preview', description: value || 'An error occurred.' });
     return '';
   }
   if (op === 'annotation-held') return annotationAttachedToDraft(client); // an annotation's ⌘Return the window could not send

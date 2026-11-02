@@ -7,6 +7,7 @@ use UpdateDialogView from "./sidebar-shapes.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 component UpdateEverything
   inject
+    dialogOpener: action
     rem: number
   props
     v: UpdateEverythingView
@@ -14,6 +15,9 @@ component UpdateEverything
   state hovered = false
   action hover(on: bool)
     hovered = on
+  action review
+    dialogOpener("update-everything")
+    run("ue:open", "", "")
   view
     column margin-left="auto" flex=(v.running ? "1" : "none") min-width=0 position="relative"
       if v.running
@@ -41,7 +45,7 @@ component UpdateEverything
               button press=run("ue:dismiss", "", "") testId="update-everything-dismiss" margin-left="auto" border-width=0 background-color="#00000000" cursor="pointer"
                 text "Dismiss" font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
       else
-        button press=run("ue:open", "", "") hover=hover title=v.summary aria-label=v.summary testId="update-everything" width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
+        button id="update-everything" press=review hover=hover title=v.summary aria-label=v.summary testId="update-everything" width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
           CircleArrowUp()
 
 // Lucide CircleArrowUp at size-4 in the sidebar foreground.
@@ -81,7 +85,7 @@ component UpdateEverythingDialog
       focus("update-everything-confirm-confirm")
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="update-everything-overlay"
-      column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("update-everything-confirm") aria-label=d.title testId="update-everything-confirm" id="update-everything-confirm" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("update-everything-confirm") key=dialogFallback("update-everything-confirm", dialogTargets)
+      column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("update-everything-confirm") aria-label=d.title testId="update-everything-confirm" id="update-everything-confirm" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("update-everything-confirm") key=dialogFallback("update-everything-confirm", dialogTargets)
         DialogOpenFocus(target="update-everything-confirm-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box" flex-shrink=0
           text d.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color=ink role="heading" aria-level=2

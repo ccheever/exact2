@@ -16,10 +16,12 @@ describe('a press on the backdrop keeps the focus in the dialog, so closing give
   test.each([['composer-chip-file.contract', 'chip-file-preview-backdrop'], ['composer-chip-image.contract', 'chip-image-backdrop']])('%s', (file, testId) => {
     const backdrop = line(file, `testId="${testId}"`);
     // A clicked button takes no focus on the Mac, whatever its tabindex: the focus stays on the dialog's control.
-    expect(backdrop).toContain('tabindex=-1 position="absolute"');
+    expect(backdrop).toMatch(/tabindex=-1 (aria-hidden=true )?position="absolute"/);
     expect(backdrop).not.toContain('retainFocus');
     // The file preview is aria-modal and its backdrop outside it, so its Escape is the dialog's Close.
     if (file === 'composer-chip-image.contract') expect(backdrop).toContain('aria-keyshortcuts="Escape"');
+    // The reference's backdrop is no element VoiceOver reaches, so the image preview has one Close (with 3 items).
+    if (file === 'composer-chip-image.contract') expect(backdrop).toContain('aria-hidden=true');
   });
 });
 

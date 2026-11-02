@@ -264,6 +264,8 @@ component ThisAppSection
 // while this machine can be managed the Version row (`version · url`, "Loading…", "Up to date", the update's progress
 // or its action), then Network access, its endpoints and Tailscale HTTPS, and the Permissions disclosure.
 component ThisMachineSection
+  inject
+    dialogOpener: action
   props
     machine: ThisMachine
     net: NetworkView
@@ -284,12 +286,16 @@ component ThisMachineSection
         let target = kmTriggerTarget(menuItems, k)
         if target != ""
           focus(target)
+  action update
+    dialogOpener("this-machine-update")
+    op("environment-update", machine.updateKey, machine.updateVersion)
   view
     column width="100%" gap="0.625rem" id="connections-environment" tabindex=-1 testId="connections-environment"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%" id="connections-environment-scroll-target"
         row min-height="1.75rem" gap="0.5rem" align-items="center" min-width=0
-          CnMachineIcon(kind=machine.kind, size=16, color="light-dark(#18181bb3, #f5f5f5b3)")
-          text machine.title font-size="0.875rem" line-height="1.25rem" font-weight=400 line-clamp=1 color="light-dark(#18181bb3, #f5f5f5b3)" role="heading" aria-level=2 testId="this-machine-title"
+          // SettingsSection's title with its icon: text-base font-semibold in the foreground.
+          CnMachineIcon(kind=machine.kind, size=16, color="light-dark(#18181b, #f5f5f5)")
+          text machine.title font-size="1rem" line-height="1.5rem" font-weight=600 line-clamp=1 color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2 testId="this-machine-title"
         row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
           if machine.menu
             box position="relative"
@@ -314,7 +320,7 @@ component ThisMachineSection
                   text machine.progressFailed font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="this-machine-update-failure"
               row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
                 if machine.update != ""
-                  button id="this-machine-update" press=op("environment-update", machine.updateKey, machine.updateVersion) class=PvOutline disabled=busy testId="this-machine-update" data-focus-stop=(busy ? "" : "enabled page")
+                  button id="this-machine-update" press=update class=PvOutline disabled=busy testId="this-machine-update" data-focus-stop=(busy ? "" : "enabled page")
                     text machine.update font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
                 if machine.updateNote != ""
                   text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="this-machine-update-note"
@@ -339,6 +345,7 @@ component ThisMachineSection
 // override, the trace ID and removal.
 component EnvironmentRow
   inject
+    dialogOpener: action
     routeKeyboard: RouteKeyboard
     routeKeyboardInput: action
   props
@@ -370,6 +377,9 @@ component EnvironmentRow
         let target = kmTriggerTarget(menuItems, k)
         if target != ""
           focus(target)
+  action update
+    dialogOpener(`environment-update-${environment.environmentId}`)
+    op("environment-update", environment.key, environment.updateVersion)
   view
     column width="100%" position="relative" border-top-style="solid" border-top-width=(environment.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)"
       // EnvironmentRow dims only the identity, so a switched-off row's controls stay readable and distinct from disabled ones.
@@ -406,7 +416,7 @@ component EnvironmentRow
             text environment.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId=`environment-update-note-${environment.environmentId}`
           if environment.update != ""
             box position="relative" hover=hover("update")
-              button id=`environment-update-${environment.environmentId}` press=op("environment-update", environment.key, environment.updateVersion) class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}` title="" data-focus-stop=(busy ? "" : "enabled page")
+              button id=`environment-update-${environment.environmentId}` press=update class=PvIconButton aria-label=`${environment.update} for ${environment.label} server` disabled=busy testId=`environment-update-${environment.environmentId}` title="" data-focus-stop=(busy ? "" : "enabled page")
                 CnGlyph(name="update", size=14, color="light-dark(#71717b, #a1a1a1)")
               if tip == "update"
                 CnTooltip(tip=environment.update, tipId=`environment-update-tip-${environment.environmentId}`, above=28)
@@ -530,7 +540,7 @@ component EnvironmentRemoveDialog
   derive dialogTargets = ["environment-remove-cancel", "environment-remove-confirm"]
   view
     column class=CnOverlay testId="environment-remove-overlay"
-      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #000000cc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-describedby="environment-remove-description" aria-modal=dialogSeated.includes("environment-remove-dialog") aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog" id="environment-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("environment-remove-dialog") key=dialogFallback("environment-remove-dialog", dialogTargets)
+      column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #000000cc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-describedby="environment-remove-description" aria-modal=dialogSeated.includes("environment-remove-dialog") aria-label=`Remove ${environment.label} from this device?` testId="environment-remove-dialog" id="environment-remove-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("environment-remove-dialog") key=dialogFallback("environment-remove-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="environment-remove-guard-start", targets=dialogTargets, popup="environment-remove-dialog")
         DialogOpenFocus(target="environment-remove-cancel")

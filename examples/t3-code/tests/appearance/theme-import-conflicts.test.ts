@@ -1,7 +1,7 @@
 // Add a theme's conflict step (ThemeImportDialog.tsx at v0.1.6): an installed theme asks Update existing or Keep
 // both, and a batch shows that step even when another file failed.
 import { describe, expect, test } from 'bun:test';
-import { importView, searchState, themeImportCommand } from '../../src/appearance/settings-appearance-import';
+import { importView, readThemeFiles, searchState, themeImportCommand } from '../../src/appearance/settings-appearance-import';
 import type { CustomTheme } from '../../src/appearance/settings-themes';
 import { toasts } from '../../src/shell/toast';
 import type { T3Client } from '../../src/client/client';
@@ -61,5 +61,26 @@ describe('theme import conflicts', () => {
     expect(importView(client).conflicts).toBe('Aurora');
     await themeImportCommand(client, native, 'conflict-update', '');
     expect(importView(client).conflicts).toBe('');
+  });
+
+  // resolveThemeLabelCollisions and pairVsCodeThemes (vscodeThemeImport.ts at v0.1.6), which installThemeBatch runs.
+  test('a batch relabels themes that share an id from their file names, then numbers any still alike', () => {
+    const picked = (name: string, text: string) => ({ name, size: text.length, text });
+    const result = readThemeFiles([picked('nord-frost.json', file('Nord', '#8fbcbb')), picked('nord-aurora.json', file('Nord', '#bf616a')),
+      picked('nord.json', file('Nord', '#2e3440')), picked('copy.json', file('Nord', '#3b4252'))], []);
+    if (result.kind !== 'batch') throw new Error('expected a batch');
+    expect(result.themes.map(theme => [theme.id, theme.label])).toEqual([['nord-frost', 'Nord Frost'], ['nord-aurora', 'Nord Aurora'], ['nord', 'Nord'], ['copy', 'copy']]);
+    const same = readThemeFiles([picked('nord.json', file('Nord', '#2e3440')), picked('NORD.json', file('Nord', '#3b4252'))], []);
+    if (same.kind !== 'batch') throw new Error('expected a batch');
+    expect(same.themes.map(theme => [theme.id, theme.label])).toEqual([['nord', 'Nord'], ['nord-2', 'Nord 2']]);
+  });
+
+  test('a batch pairs one light and one dark theme named alike into one theme with both appearances', () => {
+    const picked = (name: string, text: string) => ({ name, size: text.length, text });
+    const result = readThemeFiles([picked('solar-light.json', file('Solar Light', '#fdf6e3')), picked('other.json', file('Other', '#ffffff')),
+      picked('solar-dark.json', file('Solar Dark', '#002b36', 'dark'))], []);
+    if (result.kind !== 'batch') throw new Error('expected a batch');
+    expect(result.themes.map(theme => [theme.id, theme.label, theme.appearance, theme.light?.canvas ?? null, theme.dark?.canvas ?? null]))
+      .toEqual([['solar', 'Solar', 'light', '#fdf6e3', '#002b36'], ['other', 'Other', 'light', '#ffffff', null]]);
   });
 });

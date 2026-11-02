@@ -23,7 +23,7 @@ use ProviderAntigravitySetup from "./providers-setup.contract"
 use RedactedText from "../shared/redacted-text.contract"
 use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract"
 use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManagement, CustomModelEditor from "./providers-upkeep.contract"
-use UpkeepSelect, UpkeepOption from "./providers-upkeep.contract"
+use UpkeepOption, SecretSourceSelect from "./providers-upkeep.contract"
 use CodexRuntimeFields from "./codex-setup.contract"
 use CodexSetupRow from "./codex-setup.contract"
 use CodexRuntimeSection from "./codex-setup.contract"
@@ -50,6 +50,9 @@ shape ProviderFieldRow
   redacted: bool
   clearable: bool
   options: ProviderOption[]
+  // A dedicated variable read from a secret provider: its provider id, and the source picker's options.
+  secretProvider: string
+  sources: UpkeepOption[]
 shape ProviderVariable
   rowKey: string
   index: number
@@ -215,6 +218,12 @@ component ProvidersPanel
     coreMenuOpen = (id == "" or coreMenuOpen == id) ? "" : id
   action coreMenuClose
     coreMenuOpen = ""
+  // A pressed opener takes the focus, as Chromium's pressed button does, so the dialog it opens gives the focus back to
+  // it. The window's `dialogOpener` would do it without moving the focus, but injected here it grows the provider ops'
+  // expanded bodies past the compiler's statement bound.
+  action uiFrom(opener: string, what: string, id: string)
+    focus(opener)
+    ui(what, id)
   view
     column width="100%" gap="2rem" testId="providers-settings"
       if not page.available
@@ -229,7 +238,7 @@ component ProvidersPanel
               text "Providers" font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2
               if page.writable
                 Tip(label="Add provider", side="top", align="center", offset=28)
-                  button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=busy testId="add-provider" id="add-provider" title="" data-focus-stop=(busy ? "" : "enabled page")
+                  button press=uiFrom("add-provider", "open", "add") class=PvIconButton aria-label="Add provider" disabled=busy testId="add-provider" id="add-provider" title="" data-focus-stop=(busy ? "" : "enabled page")
                     PvIcon(name="plus", size=14, color="light-dark(#71717b, #a1a1a1)")
             row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end" margin-right="-0.5rem"
               if page.updateAll.show
@@ -285,7 +294,7 @@ component ProvidersPanel
           column width="100%" id="usage-providers-scroll-target"
             PvSectionTitle(title="Usage providers")
               if page.writable
-                button id="add-usage-hub" press=ui("open", "hub") class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" disabled=busy testId="add-usage-hub" data-focus-stop=(busy ? "" : "enabled page")
+                button id="add-usage-hub" press=uiFrom("add-usage-hub", "open", "hub") class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" disabled=busy testId="add-usage-hub" data-focus-stop=(busy ? "" : "enabled page")
                   PvIcon(name="plus", size=12, color="light-dark(#18181b, #f5f5f5)")
                   text "Add hub" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
           PvGroup()
@@ -299,7 +308,7 @@ component ProvidersPanel
             for hub in page.hubs key=hub.id
               PvRow(title=hub.label, description=hub.description, status="", policy="", wide=(width - 34 >= 512), divided=(page.macos or not hub.first))
                 if page.writable
-                  button id=`remove-usage-hub-${hub.id}` press=ui("hub-remove", hub.id) class=PvGhost height="1.5rem" disabled=busy testId=`remove-usage-hub-${hub.id}` data-focus-stop=(busy ? "" : "enabled page")
+                  button id=`remove-usage-hub-${hub.id}` press=uiFrom(`remove-usage-hub-${hub.id}`, "hub-remove", hub.id) class=PvGhost height="1.5rem" disabled=busy testId=`remove-usage-hub-${hub.id}` data-focus-stop=(busy ? "" : "enabled page")
                     text "Remove" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
         column width="100%" gap="0.625rem"
           PvSectionTitle(title="Advanced")
@@ -508,7 +517,8 @@ component ProviderConfigField
       else
         input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? "14rem" : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}` id=`field-provider-field-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
 
-// A dedicated environment secret (Cursor API key).
+// A dedicated environment secret (Cursor API key). One that holds a secret provider's reference shows
+// SecretSourceInput's parts instead of the password field: the source picker and the reference.
 component ProviderSecretField
   props
     field: ProviderFieldRow
@@ -522,11 +532,20 @@ component ProviderSecretField
   action edit(value: string)
     draft = value
     edited = true
+  // Value drops the reference, as committing an empty one does; the reference's own provider changes nothing.
+  action pickSource(value: string)
+    if value == "__stored__"
+      op("provider-env-field", instance, field.key, "", true)
   derive value = edited ? draft : field.value
   view
     PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=divided)
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
-        input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off" id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        if field.secretProvider != ""
+          row flex=1 min-width=0 gap="0.375rem" align-items="flex-start"
+            SecretSourceSelect(selectId=`provider-env-source-${field.key}`, label=`${field.label} source`, provider=field.secretProvider, disabled=(not writable), options=field.sources, choose=pickSource)
+            input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) aria-label=`${field.label} reference` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-env-${field.key}` id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        else
+          input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off" id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
         if field.clearable
           PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page", press=op("provider-env-field", instance, field.key, "", true))
 
@@ -558,8 +577,7 @@ component ProviderVariableRow
       row width="100%" min-width=0 gap="0.375rem" align-items="center"
         input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
         if reference
-          row width="12rem" flex-shrink=0
-            UpkeepSelect(selectId=`provider-variable-source-${variable.index}`, label=`Environment variable value ${variable.index + 1} source`, valueLabel=variable.secretProvider, width="auto", small=false, disabled=(not writable), options=variable.sources, area="bottom span-right", choose=pickSource)
+          SecretSourceSelect(selectId=`provider-variable-source-${variable.index}`, label=`Environment variable value ${variable.index + 1} source`, provider=variable.secretProvider, disabled=(not writable), options=variable.sources, choose=pickSource)
         PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page", press=op("provider-env-remove", instance, `${variable.index}`, "", true))
       row width="100%" min-width=0 gap="0.375rem" align-items="flex-start"
         input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(reference ? "" : variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive and not reference ? "password" : "text") aria-label=(reference ? `Environment variable value ${variable.index + 1} reference` : `Environment variable value ${variable.index + 1}`) autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
@@ -727,7 +745,11 @@ component AddProviderRow
   state over = false
   action hover(value: bool)
     over = value
+  // As ProvidersPanel's `uiFrom`.
+  action pressed
+    focus("add-provider-row")
+    open()
   view
-    button press=open hover=hover disabled=busy testId="add-provider-row" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.75rem" width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-width=0 border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff0a)" background-color=(over ? "light-dark(#f4f4f540, #ffffff0a)" : "#00000000") title="" id="add-provider-row" data-focus-stop=(busy ? "" : "enabled page")
+    button press=pressed hover=hover disabled=busy testId="add-provider-row" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.75rem" width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-width=0 border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff0a)" background-color=(over ? "light-dark(#f4f4f540, #ffffff0a)" : "#00000000") title="" id="add-provider-row" data-focus-stop=(busy ? "" : "enabled page")
       PvIcon(name="plus", size=16, color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)"))
       text "Add provider" font-size="0.875rem" line-height="1.25rem" text-align="left" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")

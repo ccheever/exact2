@@ -77,7 +77,7 @@ export const alpha = (color: string, amount: number) => { const [r, g, b, a] = p
 /** The tokens this module paints, in the stock index.css vocabulary, per appearance. */
 type Tokens = Record<'canvas' | 'sidebar' | 'sidebarBorder' | 'rowActive' | 'sidebarText' | 'sidebarMuted' | 'sidebarIcon' | 'text' | 'muted'
   | 'card' | 'cardBorder' | 'divider' | 'input' | 'field' | 'accent' | 'accentText' | 'switchOff' | 'thumb' | 'thumbOff' | 'popover' | 'popoverBorder' | 'highlight' | 'optionHighlight' | 'optionSelected' | 'kbd' | 'output' | 'line' | 'rowHover' | 'sectionMuted' | 'tileActive'
-  | 'border' | 'backdrop' | 'footer' | 'surface', string>;
+  | 'border' | 'backdrop' | 'footer' | 'surface' | 'glass' | 'nav' | 'navActive' | 'navHover', string>;
 function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custom: CustomTheme[], glass = 80): Tokens {
   const stock = themeId === 't3-code' || !(themeId in THEMES || custom.some(theme => theme.id === themeId));
   const r = themeRoles(themeId, mode, custom);
@@ -107,6 +107,8 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     switchOff: edge(input, text), thumb: canvas, // The reference blurs what is behind a glass surface; the native top layer has no backdrop
     // filter, so the glass mix is composited over the canvas it would mostly show.
     popover: mix(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, 0.18 + 0.82 * glass / 100, canvas),
+    // ComposerSurface's --chat-composer-glass-surface at the glass opacity, over the composer's own backdrop blur.
+    glass: alpha(stock ? (dark ? '#111111' : '#ffffff') : r.surfaceOverlay, glass / 100),
     popoverBorder: dark ? '#ffffff1a' : alpha(text, 0.1), highlight: alpha(text, dark ? 0.06 : 0.08), kbd: alpha(ink(text, canvas), 0.07), // ui/kbd.tsx bg-foreground/[0.07]
     // ui/combobox.tsx ComboboxItem: highlighted bg-foreground/[0.09], selected bg-foreground/[0.06].
     optionHighlight: alpha(ink(text, canvas), 0.09), optionSelected: alpha(ink(text, canvas), 0.06),
@@ -115,6 +117,10 @@ function tokens(themeId: string, mode: 'light' | 'dark', contrast: number, custo
     tileActive: alpha(stock ? (dark ? '#ffffff0a' : '#f4f4f5') : r.accentSurface, 0.3),
     // Dialogs (ui/dialog.tsx): full-strength border, the blurred backdrop, the muted footer and the bg-card panel.
     border: edge(border, text), backdrop: alpha(canvas, dark ? 0.64 : 0.6), footer: stock ? (dark ? '#ffffff06' : '#fafafab8') : alpha(r.muted, 0.72), surface: card,
+    // Settings' nav sits outside [data-app-sidebar], so in dark mode its --sidebar is the card (#111) and its rows take
+    // --accent (index.css); a theme's sidebar role paints both alike.
+    nav: stock && dark ? card : sidebar, navActive: stock && dark ? '#ffffff08' : stock ? '#ffffff' : r.sidebarRowActive,
+    navHover: stock && dark ? '#ffffff0a' : stock ? '#fcfcfc' : mix(r.sidebarRowActive, 0.5, sidebar),
   };
 }
 export type Palette = Tokens;

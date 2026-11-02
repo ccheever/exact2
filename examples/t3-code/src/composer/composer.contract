@@ -93,6 +93,8 @@ component ComposerCard
     attachFiles: action
     // The upload resources' answers (composer-controls-members.contract), for the image tiles' percentages.
     composerUploads: ComposerUpload[]
+    // The app's resolved light or dark scheme, which picks a chip icon's file (composerAtomFace).
+    scheme: string
   props
     editor: ComposerEditorView
     data: Snapshot
@@ -120,7 +122,7 @@ component ComposerCard
     // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
   // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
-  derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
+  derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads), scheme))
   derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0)
   // The field's events go straight to the window's editing engine (composer-members.contract), which serves the
   // focused field: a handler names the engine's action, where a call would copy its body into each composer. The
@@ -151,7 +153,7 @@ component ComposerCard
       preventDefault()
       attachFiles("fold", [`${fold}\t${data.snapshotOwner}\t${richComposerOwner}\t${start}\t${end}\t${round(performanceNow() * 1000)}`, text, e.text], [], false, "")
   view
-    column width="100%" border-radius="1rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 1px 2px light-dark(#0000000d, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId=`${composerScope}composer-surface` position="relative" resize=frameMoved id=`${composerScope}composer-surface` data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
+    column width="100%" border-radius="1rem" border-style="solid" border-width=1 border-color=(contextOver ? "light-dark(#1b4ed8b3, #346bf1b3)" : (data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)")) background-color=(data.look.themed ? data.look.glass : "light-dark(#ffffffcc, #111111cc)") box-shadow="0 1px 2px light-dark(#0000000d, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" testId=`${composerScope}composer-surface` position="relative" resize=frameMoved id=`${composerScope}composer-surface` data-paint=`${(contextOver ? "" : (data.look.themed ? "border" : ""))} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((contextOver ? "" : (data.look.themed ? "border" : "")) != "" ? (contextOver ? "" : (data.look.themed ? "border" : "")) : ""))
       // bg-accent/45 and ring-primary/70 while a thread is held over the composer.
       // ultrathink-frame, a static 2pt spectrum ring over the card's edge (index.css .ultrathink-frame::before:
       // the 120deg six-stop spectrum at 220% size shows its first 45%; saturate(.82) brightness(.92) baked into the stops). An SVG
