@@ -1,0 +1,116 @@
+import XCTest
+import WebKit
+@testable import ExactKit
+#if os(macOS)
+import AppKit
+#endif
+
+#if os(macOS) || os(iOS)
+final class IframePostMessageTests: XCTestCase {
+    func testOrderedRepliesStayWithTheAddressedDocument() throws {
+        guard let module = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
+        }
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let html = """
+        <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>FRAME</title><body>Guest<script>
+        window.received=[];
+        addEventListener('message', e => { received.push(e.data); parent.postMessage(JSON.stringify({frame:document.title,text:e.data}),'*'); });
+        parent.postMessage(JSON.stringify({frame:document.title,text:'ready'}),'*');
+        </script>
+        """
+        for name in ["guest", "sibling", "replacement"] {
+            try Data(html.replacingOccurrences(of: "FRAME", with: name).utf8).write(to: directory.appendingPathComponent("\(name).html"))
+        }
+        let session = ExactApp.shared.makeSession(label: "iframe-replies")
+        session.webviews.moduleLocation = { module }
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try fixturePlan("IFRAME_POST_MESSAGES"), size: CGSize(width: 640, height: 500)).error)
+        AppFiles.learn(["roots": ["data": directory.path]])
+        let guest = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "guest" })
+        let sibling = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "sibling" })
+        #if os(macOS)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = ExactView(session: session)
+        window.orderFrontRegardless()
+        defer { window.close() }
+        #else
+        session.drawReceipt().drawn()
+        #endif
+        let activationDeadline = Date(timeIntervalSinceNow: 30)
+        while !session.dataActivated && Date() < activationDeadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+        XCTAssertTrue(session.dataActivated, "storage activation must finish before installing the fixture root")
+        guard session.dataActivated else { return }
+        let activatedFile = AppFiles.url("app:/data/replacement.html")
+        fputs("iframe activated data root: \(activatedFile?.path ?? "missing"); fixture: \(directory.path)\n", stderr)
+        // First-pixel activation learns the runtime's roots after boot.
+        AppFiles.learn(["roots": ["data": directory.path]])
+        let ready = expectation(description: "both committed guest documents are ready")
+        ready.expectedFulfillmentCount = 2
+        let replies = expectation(description: "two ordered replies from the addressed guest")
+        replies.expectedFulfillmentCount = 2
+        var observed: [[String: String]] = []
+        let original = session.presenter.onMessage
+        session.presenter.onMessage = { id, text in
+            original?(id, text)
+            guard let bytes = text.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: String] else { return }
+            if value["text"] == "ready" { ready.fulfill() }
+            else { observed.append(value); replies.fulfill() }
+        }
+        let mount = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "mount" })
+        session.presenter.press(mount.id)
+        wait(for: [ready], timeout: 30)
+        XCTAssertEqual(guest.props["src"], "app:/data/guest.html")
+        XCTAssertEqual(sibling.props["src"], "app:/data/sibling.html")
+        let button = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "reply" })
+        session.presenter.press(button.id)
+        wait(for: [replies], timeout: 30)
+        XCTAssertEqual(observed, [["frame": "guest", "text": "one"], ["frame": "guest", "text": "two"]])
+        let untouched = expectation(description: "sibling received no replies")
+        let siblingWeb = try XCTUnwrap(sibling.web as? WKWebView)
+        siblingWeb.evaluateJavaScript("JSON.stringify(window.received)", in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): XCTAssertEqual(value as? String, "[]")
+            case .failure(let error): XCTFail("\(error)")
+            }
+            untouched.fulfill()
+        }
+        wait(for: [untouched], timeout: 30)
+        let reset = expectation(description: "replacement document ready")
+        session.presenter.onMessage = { id, text in
+            original?(id, text)
+            guard let bytes = text.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: String] else { return }
+            if value["frame"] == "replacement" && value["text"] == "ready" { reset.fulfill() }
+        }
+        let replacementFile = directory.appendingPathComponent("replacement.html")
+        let resolvedFile = try XCTUnwrap(AppFiles.url("app:/data/replacement.html"))
+        XCTAssertEqual(resolvedFile.standardizedFileURL, replacementFile.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.isReadableFile(atPath: resolvedFile.path))
+        fputs("iframe replacement read: \(resolvedFile.path), readable=true\n", stderr)
+        let replace = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "replace" })
+        session.presenter.press(replace.id)
+        XCTAssertEqual(guest.props["src"], "app:/data/replacement.html")
+        wait(for: [reset], timeout: 30)
+        let checked = expectation(description: "new document has no inherited posts")
+        let web = try XCTUnwrap(guest.web as? WKWebView)
+        XCTAssertNotEqual(web.url?.absoluteString, "about:blank", "committed src: \(guest.props["src"] ?? "missing")")
+        web.evaluateJavaScript("JSON.stringify({title:document.title,received:window.received})", in: nil, in: .page) { result in
+            switch result {
+            case .success(let value): XCTAssertEqual(value as? String, "{\"title\":\"replacement\",\"received\":[]}", "WK URL: \(web.url?.absoluteString ?? "missing")")
+            case .failure(let error): XCTFail("\(error)")
+            }
+            checked.fulfill()
+        }
+        wait(for: [checked], timeout: 30)
+    }
+}
+#endif

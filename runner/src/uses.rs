@@ -1,0 +1,632 @@
+//! What a plan uses beyond the core, derived from its bytes.
+//!
+//! Beyond the core, a capability is linked or loaded. The use-set is a pure
+//! function of the plan, and a host refuses a plan that uses what it doesn't
+//! link.
+//!
+//! No author declares a capability: a plan's rows say which it needs. This
+//! lives in the runner, not the plan crate, because a use is a kernel prop or
+//! style row, and the plan crate declares no kernel vocabulary.
+//! A binding whose value the plan computes counts as a use of whatever it
+//! might select, so the set is never smaller than what a run can reach.
+
+use exact_kernel::{PropId, StyleId};
+use exact_plan::{BindingKind, EventKind, Opcode, Plan, Stdlib, StrId};
+use std::fmt;
+
+/// A capability beyond the core, linked into an artifact only when its plan
+/// uses it (each one as it moves behind its seam).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capability {
+    /// `markup="markdown"` text: its source styled as pieces.
+    Markdown,
+    /// Springs and holds: a `transition` that can be a `-exact-spring()`, and the
+    /// gestures that hold a value (a swipe, a height, transform or reorder
+    /// drag). CSS plays every other transition.
+    Motion,
+    /// Lists the host windows: a `virtualized` list,
+    /// or a handler for a list's edges.
+    Collections,
+    /// Drags a host tracks at every commit: height, transform and reorder
+    /// handles. A drag holds a value, so it uses motion too.
+    Drag,
+    /// GPU canvas surfaces: a canvas with a surface, or a resource reading a
+    /// surface's record; the host answers both (the GPU module is loaded).
+    Surfaces,
+    /// The router: a plan that declares `routes`.
+    Router,
+    /// `formatDate` and `formatNumber`: a plan whose
+    /// code calls one.
+    Format,
+    /// `backgroundMaterial`: the materials table, and on
+    /// the web its approximation's CSS.
+    Materials,
+    /// `backdrop-filter`: its grammar and named refusals.
+    Backdrop,
+    /// `share(…)`: a plan whose code runs the command.
+    Share,
+    /// `saveFile` and the three file pickers: a plan whose
+    /// code runs one, or that hears a `drop` of files.
+    Documents,
+    /// `input type="file"` and `showPicker`: a plan with a
+    /// file input, or whose code runs the command.
+    Picker,
+    /// Drag timelines: `-exact-drag-timeline`, `animation-timeline`,
+    /// `animation-range` and `timeline-scope`, their grammar, lowering and
+    /// name lookup. A timeline follows a held value, so it uses motion too.
+    Timelines,
+    /// `text-transform`: its Unicode case mapping, for a plan
+    /// that binds the row.
+    TextTransform,
+    /// `filter` and `clip-path`: their grammars, for
+    /// a plan that binds either row.
+    Effects,
+    /// CSS animations: the `animation` shorthand's and
+    /// `@keyframes`' grammars, for a plan that declares keyframes or binds
+    /// `animation` or `-exact-exit-animation`.
+    Animations,
+    /// `background-image`'s gradients: its grammar, for a plan
+    /// that binds the row.
+    Gradients,
+    /// CSS grid's track, placement and keyword grammars, for a plan that
+    /// binds any of the six grid rows.
+    Grid,
+    /// `frame` and `measure`: a plan whose actions read
+    /// geometry. Native hosts answer from the kernel; the web links a
+    /// synchronous import the page answers.
+    Geometry,
+    /// `env(viewport-segment-*)` lengths: the segment grammar,
+    /// resolution and wire decode, for a plan whose strings name a segment.
+    /// The fold's `exactViewport` fields are the core's.
+    Segments,
+    /// `data-*` words: a plan that binds `dataset`. The
+    /// web writes each word as its own attribute.
+    Dataset,
+    /// A navigation root's tabs: a plan that binds
+    /// `aria-controls`. The web's document shows each tab's stack.
+    Tabs,
+    /// A native grouped list: a `list` whose appearance is `auto`, which
+    /// Contract marks with `listStyle`. A native host draws it
+    /// with the platform's list; the web draws its authored nodes, so the web
+    /// links nothing for it.
+    GroupedLists,
+    /// The host's I/O: the requests a data source makes (fetch, sockets,
+    /// files, SQLite) and the kept secrets and answers it stores. A plan
+    /// uses it when a resource keeps its answer (a reader); an app's grants
+    /// link it too, which the bake reads. The browser does
+    /// its own, so the web links nothing for it.
+    Io,
+    /// What a native engine plays that CSS plays on the web: a `transition`,
+    /// a `-exact-layout-transition` or a shared element's flight. A native
+    /// host's motion engine moves them; without them it only settles values.
+    /// The browser plays them, so the web links nothing for
+    /// it.
+    Transitions,
+    /// iOS's photo picker: a file input whose `accept`
+    /// is only images and videos, or is computed. Linking it costs every
+    /// launch PhotosUI's images, so a document input does not; the picker
+    /// itself is [`Capability::Picker`].
+    MediaPicker,
+    /// The sign-in sheet behind `openAuthSession`:
+    /// never set by a plan, since a data source's requests are the source's;
+    /// the bake links it for an app whose grants name `auth.session`, and a
+    /// manifest's `link` may name it.
+    AuthSession,
+    /// A text's numerals rolling as they change, per glyph
+    /// (`-exact-content-transition`): on Apple, SwiftUI's
+    /// numeric text, whose framework an app links only for this.
+    /// A plan uses it when it binds the row.
+    Numerals,
+    /// A date or time control (`input type="date"`, `"time"` or
+    /// `"datetime-local"`): on Android its picker is Compose Material 3's,
+    /// which an app links only for it. Every other
+    /// host shows its platform's own picker and links nothing for it.
+    Dates,
+}
+
+impl Capability {
+    /// Every capability, in bit order.
+    pub const ALL: [Capability; 29] = [
+        Capability::Markdown,
+        Capability::Motion,
+        Capability::Collections,
+        Capability::Drag,
+        Capability::Surfaces,
+        Capability::Router,
+        Capability::Format,
+        Capability::Materials,
+        Capability::Backdrop,
+        Capability::Share,
+        Capability::Documents,
+        Capability::Picker,
+        Capability::Timelines,
+        Capability::TextTransform,
+        Capability::Effects,
+        Capability::Animations,
+        Capability::Gradients,
+        Capability::Grid,
+        Capability::Geometry,
+        Capability::Segments,
+        Capability::Dataset,
+        Capability::Tabs,
+        Capability::GroupedLists,
+        Capability::Io,
+        Capability::Transitions,
+        Capability::MediaPicker,
+        Capability::AuthSession,
+        Capability::Numerals,
+        Capability::Dates,
+    ];
+
+    /// The name an entry, a refusal and a report use.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Capability::Markdown => "markdown",
+            Capability::Motion => "motion",
+            Capability::Collections => "collections",
+            Capability::Drag => "drag",
+            Capability::Surfaces => "surfaces",
+            Capability::Router => "router",
+            Capability::Format => "format",
+            Capability::Materials => "materials",
+            Capability::Backdrop => "backdrop",
+            Capability::Share => "share",
+            Capability::Documents => "documents",
+            Capability::Picker => "picker",
+            Capability::Timelines => "timelines",
+            Capability::TextTransform => "text_transform",
+            Capability::Effects => "effects",
+            Capability::Animations => "animations",
+            Capability::Gradients => "gradients",
+            Capability::Grid => "grid",
+            Capability::Geometry => "geometry",
+            Capability::Segments => "segments",
+            Capability::Dataset => "dataset",
+            Capability::Tabs => "tabs",
+            Capability::GroupedLists => "grouped_lists",
+            Capability::Io => "io",
+            Capability::Transitions => "transitions",
+            Capability::MediaPicker => "media_picker",
+            Capability::AuthSession => "auth_session",
+            Capability::Numerals => "numerals",
+            Capability::Dates => "dates",
+        }
+    }
+
+    /// The capability `name` names ([`Capability::name`]), as a manifest's
+    /// `link` list does.
+    pub fn from_name(name: &str) -> Option<Capability> {
+        Capability::ALL.into_iter().find(|c| c.name() == name)
+    }
+
+    const fn bit(self) -> u32 {
+        1 << self as u32
+    }
+}
+
+/// A set of capabilities.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Uses(u32);
+
+impl Uses {
+    /// The core alone.
+    pub const NONE: Uses = Uses(0);
+
+    /// This set and `capability`.
+    pub const fn with(self, capability: Capability) -> Uses {
+        Uses(self.0 | capability.bit())
+    }
+
+    /// Whether the set holds `capability`.
+    pub const fn has(self, capability: Capability) -> bool {
+        self.0 & capability.bit() != 0
+    }
+
+    /// What this set holds that `linked` doesn't.
+    pub const fn beyond(self, linked: Uses) -> Uses {
+        Uses(self.0 & !linked.0)
+    }
+
+    /// Whether the set is the core alone.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The capabilities in the set, in bit order.
+    pub fn iter(self) -> impl Iterator<Item = Capability> {
+        Capability::ALL.into_iter().filter(move |c| self.has(*c))
+    }
+}
+
+/// The names, comma-separated: `markdown, router`.
+impl fmt::Display for Uses {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, capability) in self.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            f.write_str(capability.name())?;
+        }
+        Ok(())
+    }
+}
+
+/// The capabilities `plan` uses.
+pub fn uses(plan: &Plan) -> Uses {
+    let mut uses = Uses::NONE;
+    if !plan.keyframes.is_empty() {
+        uses = uses.with(Capability::Animations);
+    }
+    if plan.router.is_some() {
+        uses = uses.with(Capability::Router);
+    }
+    // A reader's last answer is kept in the host's store.
+    if plan.resources.iter().any(|r| r.reader) {
+        uses = uses.with(Capability::Io);
+    }
+    // A segment length is a value, not a row: any string of the plan's
+    // naming one (a literal, a template's piece) can reach a dimension row,
+    // so the set is never smaller than what a run can reach.
+    if plan.strings.iter().any(names_segment) {
+        uses = uses.with(Capability::Segments);
+    }
+    if !plan.surfaces.is_empty()
+        || plan
+            .resources
+            .iter()
+            .any(|r| plan.str(r.source) == crate::surface_record::SOURCE)
+    {
+        uses = uses.with(Capability::Surfaces);
+    }
+    let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {
+        constant_str(plan, plan.code(binding.expr)).is_none_or(used)
+    };
+    for binding in plan.bindings.iter() {
+        match binding.kind {
+            BindingKind::Prop => match PropId::from_wire(binding.id) {
+                Some(PropId::Markup) if can_be(&binding, &|v| v == "markdown") => {
+                    uses = uses.with(Capability::Markdown);
+                }
+                Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
+                    uses = uses.with(Capability::Motion).with(Capability::Drag);
+                }
+                // A shared element flies between its two places.
+                Some(PropId::SharedElement) => uses = uses.with(Capability::Transitions),
+                Some(PropId::Virtualized)
+                    if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
+                {
+                    uses = uses.with(Capability::Collections);
+                }
+                Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::ListStyle) => uses = uses.with(Capability::GroupedLists),
+                Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
+                Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
+                Some(PropId::Type) if can_be(&binding, &|v| v == "file") => {
+                    uses = uses.with(Capability::Picker);
+                }
+                Some(PropId::Type)
+                    if can_be(&binding, &|v| {
+                        matches!(v, "date" | "time" | "datetime-local")
+                    }) =>
+                {
+                    uses = uses.with(Capability::Dates);
+                }
+                _ => {}
+            },
+            BindingKind::Style => {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropFilter) {
+                    uses = uses.with(Capability::Backdrop);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::DragTimeline
+                            | StyleId::AnimationTimeline
+                            | StyleId::AnimationRange
+                            | StyleId::TimelineScope
+                    )
+                ) {
+                    uses = uses.with(Capability::Timelines).with(Capability::Motion);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
+                    uses = uses.with(Capability::TextTransform);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::ContentTransition) {
+                    uses = uses.with(Capability::Numerals);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Filter | StyleId::ClipPath)
+                ) {
+                    uses = uses.with(Capability::Effects);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Animation | StyleId::ExitAnimation)
+                ) {
+                    uses = uses.with(Capability::Animations);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::BackgroundImage | StyleId::MaskImage)
+                ) {
+                    uses = uses.with(Capability::Gradients);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::GridTemplateColumns
+                            | StyleId::GridTemplateRows
+                            | StyleId::GridColumn
+                            | StyleId::GridRow
+                            | StyleId::GridAutoFlow
+                            | StyleId::JustifyItems
+                    )
+                ) {
+                    uses = uses.with(Capability::Grid);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
+                    && can_be(&binding, &|v| v.contains("spring"))
+                {
+                    uses = uses.with(Capability::Motion);
+                }
+                // A native engine plays every transition, a layout's too.
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Transition | StyleId::LayoutTransition)
+                ) && can_be(&binding, &|v| !matches!(v.trim(), "" | "none"))
+                {
+                    uses = uses.with(Capability::Transitions);
+                }
+            }
+        }
+    }
+    for handler in &plan.handlers {
+        match handler.event {
+            // A pan's release velocity is the engine's tracker where the
+            // platform measures none.
+            EventKind::Swiperight | EventKind::Panrelease => uses = uses.with(Capability::Motion),
+            EventKind::Heightrelease
+            | EventKind::Transformgeometry
+            | EventKind::Transformrelease
+            | EventKind::Reorderdrop => {
+                uses = uses.with(Capability::Motion).with(Capability::Drag);
+            }
+            // Dropped and pasted files become `doc:` handles; the web's file
+            // drag is heard beside its drop (files.js).
+            EventKind::Drop | EventKind::Dragenter | EventKind::Dragleave | EventKind::Paste => {
+                uses = uses.with(Capability::Documents)
+            }
+            _ => {}
+        }
+    }
+    if plan
+        .handlers
+        .iter()
+        .any(|h| matches!(h.event, EventKind::Reachstart | EventKind::Reachend))
+    {
+        uses = uses.with(Capability::Collections);
+    }
+    let (format, geometry, lowercase) = stdlib_calls(plan);
+    if format {
+        uses = uses.with(Capability::Format);
+    }
+    // `toLowerCase` and `toUpperCase` map through the same case tables.
+    if lowercase {
+        uses = uses.with(Capability::TextTransform);
+    }
+    if runs_command(plan, &["share"]) {
+        uses = uses.with(Capability::Share);
+    }
+    if runs_command(
+        plan,
+        &[
+            "saveFile",
+            "showOpenFilePicker",
+            "showDirectoryPicker",
+            "showSaveFilePicker",
+            "requestPermission",
+        ],
+    ) {
+        uses = uses.with(Capability::Documents);
+    }
+    if runs_command(plan, &["showPicker"]) {
+        uses = uses.with(Capability::Picker);
+    }
+    if geometry {
+        uses = uses.with(Capability::Geometry);
+    }
+    if shows_media_picker(plan) {
+        uses = uses.with(Capability::MediaPicker);
+    }
+    uses
+}
+
+/// Whether a file input of `plan` can take iOS's photo picker: its `type`
+/// can be `file` and its `accept`, as the host reads it, is a non-empty list
+/// of only `image/…` and `video/…` types, or is computed. `showPicker` names
+/// an input, so the inputs decide.
+fn shows_media_picker(plan: &Plan) -> bool {
+    let media = |accept: &str| {
+        let types: Vec<String> = accept
+            .split(',')
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        !types.is_empty()
+            && types
+                .iter()
+                .all(|t| t.starts_with("image/") || t.starts_with("video/"))
+    };
+    plan.nodes.iter().any(|node| {
+        let prop = |id: PropId| {
+            node.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .find(|b| b.kind == BindingKind::Prop && b.id == id as u16)
+        };
+        let file = prop(PropId::Type)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(|v| v == "file"));
+        file && prop(PropId::Accept)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(media))
+    })
+}
+
+/// Whether `plan` can show an SVG island: a `mask`
+/// or `filter` element, or `filter` bound on an SVG element (its functions
+/// need no element). A host whose island module is loaded on demand (the
+/// loaded tier; Apple's `libexact_svg.dylib`) opens it off the
+/// main thread at boot when this holds, and never for a plan without one.
+pub fn svg_islands(plan: &Plan) -> bool {
+    use exact_kernel::NodeType;
+    svg_filters(plan)
+        || plan
+            .nodes
+            .iter()
+            .any(|node| NodeType::from_wire(node.node_type) == Some(NodeType::SvgMask))
+}
+
+/// Whether `plan` can show an SVG filter: a `filter` element, or `filter`
+/// bound on an SVG element. A host that draws a filtered picture on the GPU
+/// (Apple's `SvgFilterMetal`) makes its pipelines off the main thread at
+/// boot when this holds: they compile on first use, and the first picture
+/// is drawn in the commit that shows it.
+pub fn svg_filters(plan: &Plan) -> bool {
+    use exact_kernel::NodeType;
+    plan.nodes
+        .iter()
+        .any(|node| match NodeType::from_wire(node.node_type) {
+            Some(NodeType::SvgFilter) => true,
+            Some(t) if t == NodeType::Svg || t.is_svg_element() => node.bindings.iter().any(|b| {
+                let b = plan.binding(b);
+                b.kind == BindingKind::Style
+                    && StyleId::from_bit(u32::from(b.id)) == Some(StyleId::Filter)
+            }),
+            _ => false,
+        })
+}
+
+/// Whether any code range calls a `format` entry, whether any reads
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase` or `toUpperCase`: each
+/// validated body walked whole, so no call a run can reach is missed.
+fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
+    let (mut format, mut geometry, mut lowercase) = (false, false, false);
+    plan.each_code(&mut |code| {
+        for i in crate::vm::instructions(plan.code(code)).flatten() {
+            if i.op == Opcode::Call {
+                match Stdlib::from_wire(i.args[0] as u8) {
+                    Some(
+                        Stdlib::FormatDate
+                        | Stdlib::FormatNumber
+                        | Stdlib::ToFixed
+                        | Stdlib::FormatDecimal
+                        | Stdlib::FormatDay,
+                    ) => format = true,
+                    Some(
+                        Stdlib::Frame
+                        | Stdlib::RangeFrame
+                        | Stdlib::Measure
+                        | Stdlib::ElementFromPoint
+                        | Stdlib::ElementsFromPoint
+                        | Stdlib::QuerySelectorAll,
+                    ) => geometry = true,
+                    Some(Stdlib::ToLowerCase | Stdlib::ToUpperCase) => lowercase = true,
+                    _ => {}
+                }
+            }
+        }
+    });
+    (format, geometry, lowercase)
+}
+
+/// Whether any code range runs a host command named one of `names`.
+/// Whether `plan` declares a sound or a sequence, or runs one of the voice
+/// table's commands: what links the JS target's
+/// table and its output.
+pub fn runs_sounds(plan: &Plan) -> bool {
+    !plan.sounds.is_empty()
+        || !plan.sequences.is_empty()
+        || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+}
+
+/// Whether `plan` asks for MIDI ports or hears an input:
+/// it reads `exactMIDI`, runs `sendMIDI` or `requestMIDIAccess`, declares a
+/// `midimessage` handler, or plays a sequence with `clockOut=`. What loads a
+/// host's MIDI arm; a sequence's notes alone do not, since
+/// without access no note is sent.
+pub fn uses_midi(plan: &Plan) -> bool {
+    plan.resources
+        .iter()
+        .any(|r| plan.str(r.source) == crate::midi::SOURCE)
+        || runs_command(plan, &["sendMIDI", "requestMIDIAccess"])
+        || plan.nodes.iter().any(|n| {
+            n.handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
+        })
+        || plan.sequences.iter().any(|q| {
+            constant_str(plan, plan.code(q.clock_out)) != Some("")
+                || constant_str(plan, plan.code(q.clock)) != Some("")
+        })
+}
+
+/// Whether the plan floats an image in picture in picture,
+/// which the video arm carries on Apple.
+pub fn uses_picture_in_picture(plan: &Plan) -> bool {
+    runs_command(plan, &["requestPictureInPicture"])
+}
+
+/// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
+/// for a plan that [`uses_midi`] or declares a sequence, whose notes and
+/// clock go on it. The JS target bundles midi.js then.
+pub fn keeps_midi(plan: &Plan) -> bool {
+    uses_midi(plan) || !plan.sequences.is_empty()
+}
+
+fn runs_command(plan: &Plan, names: &[&str]) -> bool {
+    let mut runs = false;
+    plan.each_code(&mut |code| {
+        runs = runs
+            || crate::vm::instructions(plan.code(code)).any(|i| {
+                i.is_ok_and(|i| {
+                    i.op == Opcode::Command
+                        && plan
+                            .strings
+                            .get(i.args[0] as usize)
+                            .is_some_and(|_| names.contains(&plan.str(StrId(i.args[0] as u32))))
+                })
+            });
+    });
+    runs
+}
+
+/// The boolean a binding always evaluates to, when its code is one constant:
+/// `Bool`, then `Return`.
+fn constant_bool(code: &[u8]) -> Option<bool> {
+    match code {
+        [op, value, ret] if *op == Opcode::Bool as u8 && *ret == Opcode::Return as u8 => {
+            Some(*value != 0)
+        }
+        _ => None,
+    }
+}
+
+/// The string a binding always evaluates to, when its code is one constant:
+/// `Str`, then `Return`.
+fn constant_str<'a>(plan: &'a Plan, code: &[u8]) -> Option<&'a str> {
+    match code {
+        [op, a, b, c, d, ret] if *op == Opcode::Str as u8 && *ret == Opcode::Return as u8 => {
+            let id = u32::from_le_bytes([*a, *b, *c, *d]);
+            plan.strings.get(id as usize).map(|_| plan.str(StrId(id)))
+        }
+        _ => None,
+    }
+}
+
+/// Whether a string names a viewport segment variable (`viewport-segment-`
+/// anywhere in it): a byte scan, so the core carries no string searcher
+/// for it.
+fn names_segment(s: &str) -> bool {
+    const NAME: &[u8] = b"viewport-segment-";
+    s.as_bytes().windows(NAME.len()).any(|w| w == NAME)
+}

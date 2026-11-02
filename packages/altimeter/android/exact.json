@@ -1,0 +1,29 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/altimeter@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "barometer": {
+      "samplingPeriodUs": "number"
+    },
+    "altimeter": {
+      "samplingPeriodUs": "number"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "sensorManager"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.altimeter.AltimeterModule"
+}

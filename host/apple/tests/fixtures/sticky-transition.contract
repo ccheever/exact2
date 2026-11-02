@@ -1,0 +1,12 @@
+component StickyTransition
+  state moved = false
+  action move
+    moved = not moved
+  view
+    column width=300
+      button testId="move" press=move
+        text "Move"
+      scroll testId="port" width=300 height=200
+        column
+          box testId="pinned" position="sticky" top=0 width=100 height=40 translate=(moved ? "100px 0px" : "0px 0px") transition="translate 1s linear" background-color="#3366cc"
+          box height=1000

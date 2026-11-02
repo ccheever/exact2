@@ -1,0 +1,7 @@
+// # expect property false "at most one"
+component App
+  state n = 0
+  action add
+    n = n + 1
+  view
+    button "Add" testId="add" press=add

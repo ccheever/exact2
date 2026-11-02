@@ -1,0 +1,45 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Duo Lab",
+  "short_name": "Duo Lab",
+  "id": "com.exact.duolab",
+  "start_url": "/",
+  "display": "standalone",
+  "icons": [{ "src": "assets/icon.png", "sizes": "1024x1024", "type": "image/png" }],
+  "app": {
+    "id": "com.exact.duolab",
+    "name": "Duo Lab"
+  },
+  "data": ["keyboard-screen", "focus-on-show"],
+  "hatches": { "keyboard-field": ["ios"], "keyboard-route": ["ios"] },
+  "host": {
+    "ios": {
+      "icon": "art/DuoLab.icon",
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "icon": "art/DuoLab.icon",
+      "minimumOS": "14.0",
+      "window": {
+        "width": 951,
+        "height": 669,
+        "minWidth": 320,
+        "minHeight": 420
+      }
+    },
+    "web": {},
+    "linux": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

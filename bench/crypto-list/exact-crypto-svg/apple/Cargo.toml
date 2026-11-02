@@ -1,0 +1,28 @@
+[package]
+name = "exact-crypto-svg-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Crypto list (SVG) on the Apple host: the app's static library"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_crypto_svg_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-crypto-svg-data = { path = "../data" }
+exact-apple = { path = "../../../../host/apple" }
+
+[build-dependencies]
+exact-crypto-svg-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }
+
+[dev-dependencies]
+exact-kernel = { path = "../../../../kernel" }
+exact-runner = { path = "../../../../runner" }
+contract = { path = "../../../../contract/cli" }
+exact-plan = { path = "../../../../plan" }
+serde_json = "1.0"

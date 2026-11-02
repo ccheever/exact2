@@ -1,0 +1,31 @@
+// The transfer probe's fixture: a button starts an upload through the
+// host's carrier; the root's `probed` handler tells the suite's server what
+// the registration's ending carried, so a wake with no view is seen there.
+use probed from "@fixture/transfer-probe"
+
+shape Said
+  text: string
+
+component Probe
+  mutation started as shape Said
+  mutation noted as shape Said
+  action start(id: string)
+    send started = startUpload(id)
+  action heard(id: string, status: number, body: string, lost: bool)
+    send noted = note(id, status, body, lost)
+  view
+    column probed=heard gap=8 padding=16
+      match started
+        case some(s)
+          text s.text testId="started"
+        case none
+          text "none" testId="started"
+      match noted
+        case some(n)
+          text n.text testId="noted"
+        case none
+          text "none" testId="noted"
+      button press=start("u1") testId="start-u1"
+        text "Upload u1"
+      button press=start("u2") testId="start-u2"
+        text "Upload u2"

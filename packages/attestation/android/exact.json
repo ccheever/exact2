@@ -1,0 +1,31 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/attestation@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "attest": {
+      "cloudProjectNumber": "string",
+      "request": "enum<standard|classic>"
+    },
+    "prepareAttestation": {
+      "cloudProjectNumber": "string"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.android.play:integrity:1.6.0"
+  ],
+  "artifacts": [],
+  "class": "exact.attestation.AttestationModule"
+}

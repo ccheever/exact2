@@ -1,0 +1,1432 @@
+use super::*;
+use exact_kernel::{Kernel, PropValue};
+use exact_plan::{asm::Asm, builder::PlanBuilder, BindingsRow, Opcode, TypeKind};
+
+#[path = "fill_tests.rs"]
+mod fill;
+#[path = "key_reads_tests.rs"]
+mod key_reads;
+#[path = "ownership_tests.rs"]
+mod ownership;
+#[path = "position_tests.rs"]
+mod position;
+#[path = "rekey_tests.rs"]
+mod rekey;
+#[path = "smooth_tests.rs"]
+mod smooth;
+#[path = "text_tests.rs"]
+mod text;
+
+fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
+    let mut a = Asm::new();
+    emit(&mut a);
+    b.code(a)
+}
+fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
+    BindingsRow {
+        kind,
+        id,
+        expr,
+        written: true,
+    }
+}
+fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
+    plan_with(n, row_state, follow, false)
+}
+fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
+    plan_opening(n, row_state, follow, smooth, false, false)
+}
+/// `start_end`: the list opens at its end (`scroll-start: end`);
+/// `horizontal`: a flex row, its main axis horizontal.
+fn plan_opening(
+    n: usize,
+    row_state: bool,
+    follow: bool,
+    smooth: bool,
+    start_end: bool,
+    horizontal: bool,
+) -> Plan {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let num = b.primitive(TypeKind::Number);
+    let list = b.list(num);
+    let zero = b.constant(&Value::Number(0.0));
+    let initial = b.constant(&values(n));
+    let data = b.slot("items", list, initial);
+    let body = b.slot("body", num, zero);
+    let key_dep = b.slot("key_dep", num, zero);
+    let font = b.constant(&Value::Number(16.0));
+    let font = b.slot("font", num, font);
+    let font = code(&mut b, |a| {
+        a.load_slot(font);
+    });
+    let enabled = b.constant(&Value::Bool(true));
+    let follow = b.constant(&Value::Bool(follow));
+    let height = b.constant(&Value::Number(320.0));
+    let behavior = b.constant(&Value::str(if smooth { "smooth" } else { "auto" }));
+    let start = b.constant(&Value::str(if start_end { "end" } else { "start" }));
+    let mut bindings = vec![
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::ScrollBehavior as u16,
+            behavior,
+        ),
+        binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
+        binding(BindingKind::Prop, PropId::ScrollFollowEnd as u16, follow),
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::FontSize as u16,
+            font,
+        ),
+        binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::Height as u16,
+            height,
+        ),
+    ];
+    if start_end {
+        bindings.push(binding(
+            BindingKind::Prop,
+            PropId::ScrollStart as u16,
+            start,
+        ));
+    }
+    if horizontal {
+        let flex = b.constant(&Value::str("flex"));
+        bindings.push(binding(
+            BindingKind::Style,
+            exact_kernel::StyleId::Display as u16,
+            flex,
+        ));
+    }
+    let root = b.node(NodeType::List as u8, None, None, 0, &bindings, &[], None);
+    let subject = code(&mut b, |a| {
+        a.load_slot(data);
+    });
+    let key = code(&mut b, |a| {
+        a.load_item(0).load_slot(key_dep).op(Opcode::Add, &[]);
+    });
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    let state = if row_state {
+        let slot = b.slot("counter", num, zero);
+        b.set_slot_owner(slot, arms[0]);
+        slot
+    } else {
+        body
+    };
+    let text = code(&mut b, |a| {
+        a.load_slot(state).call(exact_plan::Stdlib::ToString);
+    });
+    b.node(
+        NodeType::Text as u8,
+        None,
+        Some(arms[0]),
+        0,
+        &[binding(BindingKind::Prop, PropId::Text as u16, text)],
+        &[],
+        None,
+    );
+    b.finish().unwrap()
+}
+struct Harness {
+    plan: Plan,
+    slots: Vec<Value>,
+    /// The plan's interned strings and site index, built once as a runner builds them
+    strings: &'static crate::vm::Strings,
+    sites: crate::instance::SiteIndex,
+    tree: Tree,
+    ids: Ids,
+    kernel: Kernel,
+    batch: u64,
+}
+fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
+    // Test harnesses outlive every Env they build; leak one table per call.
+    env_with(plan, slots, Box::leak(Box::new(crate::vm::intern(plan))))
+}
+fn env_with<'a>(plan: &'a Plan, slots: &'a [Value], strings: &'a crate::vm::Strings) -> Env<'a> {
+    Env {
+        plan,
+        strings,
+        slots,
+        router: None,
+        lists: Some(&crate::instance::LISTS),
+        format: None,
+        geometry: None,
+        derives: &[],
+        resources: &[],
+        params: &[],
+        frames: &[],
+        now_ms: 0.0,
+        pending_resources: &[],
+        failed_resources: &[],
+        failed_why: &[],
+        pending_mutations: &[],
+        failed_mutations: &[],
+        store_dependent_derives: &[],
+        store_dependent_resources: &[],
+    }
+}
+fn values(n: usize) -> Value {
+    Value::list((0..n).map(|i| Value::Number(i as f64)).collect())
+}
+impl Harness {
+    fn new(n: usize, row_state: bool, follow: bool) -> Self {
+        let plan = plan(n, row_state, follow);
+        let slots = vec![
+            values(n),
+            Value::Number(0.0),
+            Value::Number(0.0),
+            Value::Number(16.0),
+            Value::Unit,
+        ];
+        Self::from_parts(plan, slots)
+    }
+    fn from_parts(plan: Plan, slots: Vec<Value>) -> Self {
+        Self::try_from_parts(plan, slots).unwrap()
+    }
+    fn try_from_parts(plan: Plan, slots: Vec<Value>) -> Result<Self, InstanceError> {
+        let mut ids = Ids::default();
+        let mut kernel = Kernel::with_monospace();
+        let strings: &'static crate::vm::Strings = Box::leak(Box::new(crate::vm::intern(&plan)));
+        let sites = crate::instance::SiteIndex::new(&plan);
+        let mut u = Update::new(env_with(&plan, &slots, strings), &sites, &mut ids);
+        let tree = Tree::create(&mut u)?;
+        kernel.apply(0, 1, &u.ops).unwrap();
+        Ok(Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch: 1,
+        })
+    }
+    fn snapshot(&self) -> CollectionSnapshot {
+        self.tree.collections().pop().unwrap()
+    }
+    fn feedback(&self, top: f64) -> CollectionFeedback {
+        let s = self.snapshot();
+        CollectionFeedback {
+            view: s.view,
+            revision: s.revision,
+            scroll_sequence: s.scroll_sequence + 1,
+            offset: top,
+            port_cross: 640.0,
+            port_main: 320.0,
+            cross: 640.0,
+            padding: [0.0; 2],
+            measurements: vec![],
+            focus_view: None,
+            interaction_view: None,
+        }
+    }
+    fn send(&mut self, feedback: CollectionFeedback) -> bool {
+        self.send_filled(feedback, CollectionFill::default())
+    }
+    fn try_send_filled(
+        &mut self,
+        feedback: CollectionFeedback,
+        fill: CollectionFill,
+    ) -> Result<bool, InstanceError> {
+        self.feed(feedback, fill).map(|(changed, _)| changed)
+    }
+    fn send_filled(&mut self, feedback: CollectionFeedback, fill: CollectionFill) -> bool {
+        let (changed, rows_keyed) = self.feed(feedback, fill).unwrap();
+        assert_eq!(rows_keyed, 0, "geometry never keys records");
+        changed
+    }
+    /// Feedback applied and its ops applied to the kernel: whether it changed the collection,
+    /// and how many records it keyed.
+    fn feed(
+        &mut self,
+        feedback: CollectionFeedback,
+        fill: CollectionFill,
+    ) -> Result<(bool, usize), InstanceError> {
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
+        let changed = tree.update_collection(&mut u, feedback, fill)?.0;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
+        Ok((changed, u.work.rows_keyed))
+    }
+    fn update(&mut self) -> Result<(), InstanceError> {
+        self.update_with(Default::default())
+    }
+    fn update_with(&mut self, rows: crate::instance::RowWrites) -> Result<(), InstanceError> {
+        let Self {
+            plan,
+            slots,
+            strings,
+            sites,
+            ids,
+            tree,
+            kernel,
+            batch,
+        } = self;
+        let mut u = Update::new(env_with(plan, slots, strings), sites, ids);
+        u.rows = rows;
+        tree.update(&mut u)?;
+        *batch += 1;
+        kernel.apply(0, *batch, &u.ops).unwrap();
+        Ok(())
+    }
+    fn collection(&self) -> &Collection {
+        let Child::Node(root) = &self.tree.children[0] else {
+            panic!()
+        };
+        root.collection().unwrap()
+    }
+}
+#[test]
+fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
+    for n in [1_000, 25_000] {
+        let mut h = Harness::new(n, true, false);
+        assert_eq!(h.snapshot().rows.len(), BOOTSTRAP_ROWS);
+        assert_eq!(h.tree.last_work.rows_keyed, n);
+        let weak = Rc::downgrade(h.collection().mounted[0].row.slots.as_ref().unwrap());
+        let original = h.snapshot().rows[0].root;
+        for traversal in 0..20 {
+            for step in 0..20 {
+                let offset = (if traversal % 2 == 0 { step } else { 19 - step }) as f64
+                    * (n - 20) as f64
+                    * 32.0
+                    / 19.0;
+                let feedback = h.feedback(offset);
+                h.send(feedback);
+                assert!(h.snapshot().rows.len() <= 31);
+                assert!(h.collection().mounted.len() <= 31);
+                assert!(h.collection().spacers.len() <= 2);
+                assert!(h.kernel.arena().live_count() <= 1 + 31 * 2 + 2);
+                assert!(h.kernel.arena().slot_count() <= 1 + 62 * 2 + 4);
+            }
+        }
+        assert!(weak.upgrade().is_none(), "no historical row-slot cache");
+        assert!(
+            h.kernel.node(original).is_none(),
+            "retired kernel root is destroyed"
+        );
+        assert_eq!(h.collection().keys.len(), n);
+        assert_eq!(h.collection().index.len(), n);
+    }
+}
+#[test]
+fn an_offwindow_repeated_key_takes_the_next_identity_in_order() {
+    let mut h = Harness::new(25_000, false, false);
+    let mut data: Vec<_> = (0..25_000).map(|i| Value::Number(i as f64)).collect();
+    data[24_999] = Value::Number(24_998.0);
+    h.slots[0] = Value::list(data);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 25_000);
+    assert_eq!(h.collection().index.key(24_998), Some("n:24998"));
+    assert_eq!(h.collection().index.key(24_999), Some("d1:n:24998"));
+    // Scrolled to the end, both rows mount as their own rows.
+    h.send(h.feedback(25_000.0 * 32.0));
+    let s = h.snapshot();
+    assert!(s.rows.iter().any(|r| r.index == 24_998));
+    assert!(s.rows.iter().any(|r| r.index == 24_999));
+}
+#[test]
+fn body_and_key_dependencies_are_independent_and_surviving_keys_reuse_views() {
+    let mut h = Harness::new(1_000, false, false);
+    h.send(h.feedback(640.0));
+    let before = h.snapshot();
+    h.slots[1] = Value::Number(9.0);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    for row in &h.snapshot().rows {
+        assert_eq!(
+            h.kernel.node(row.root).unwrap().props.str(PropId::Text),
+            Some("9")
+        );
+        assert_eq!(
+            row.root,
+            before
+                .rows
+                .iter()
+                .find(|r| r.index == row.index)
+                .unwrap()
+                .root
+        );
+    }
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0, "nothing changed");
+    h.slots[2] = Value::Number(1.0);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 1_000);
+}
+#[test]
+fn variable_heights_stale_epochs_width_changes_and_noop_feedback() {
+    let mut h = Harness::new(1_000, false, false);
+    h.send(h.feedback(640.0));
+    let s = h.snapshot();
+    let mut feedback = h.feedback(640.0);
+    feedback.measurements = s
+        .rows
+        .iter()
+        .map(|r| RowMeasurement {
+            view: r.view,
+            epoch: r.epoch,
+            size: if r.index == 10 { 96.0 } else { 32.0 },
+        })
+        .collect();
+    h.send(feedback);
+    let measured = h.snapshot();
+    assert_eq!(measured.total_extent, 32_064.0);
+    assert_eq!(measured.correction.unwrap().offset, 704.0);
+    // An anchor's correction is relative to the offset it was taken at.
+    assert_eq!(measured.correction.unwrap().from, Some(640.0));
+    let mut noop = h.feedback(704.0);
+    h.send(noop.clone()); // correction acknowledgement
+    noop = h.feedback(704.0);
+    assert!(!h.send(noop));
+    let stale = h.feedback(704.0);
+    let before_width = h.snapshot();
+    let mut width = h.feedback(704.0);
+    width.cross = 320.0;
+    width.port_cross = 320.0;
+    h.send(width);
+    let after_width = h.snapshot();
+    assert_eq!(after_width.total_extent, measured.total_extent);
+    assert!(after_width.rows.iter().all(|r| !r.measured));
+    assert!(!h.send(stale));
+    let mut old_epoch = h.feedback(704.0);
+    old_epoch.cross = 320.0;
+    old_epoch.measurements = vec![RowMeasurement {
+        view: before_width.rows[0].view,
+        epoch: before_width.rows[0].epoch,
+        size: 900.0,
+    }];
+    assert!(!h.send(old_epoch));
+    assert_eq!(h.snapshot(), after_width);
+}
+/// Two insertions before the list with no report between: one correction,
+/// from where the first began, so a host that applied the first (relative,
+/// mid-fling) adds only what the second moved.
+#[test]
+fn an_unacknowledged_anchor_correction_grows_from_where_it_began() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(642.0));
+    let list = |n: i32| Value::list((-n..100).map(|i| Value::Number(f64::from(i))).collect());
+    h.slots[0] = list(1);
+    h.update().unwrap();
+    let first = h.snapshot().correction.unwrap();
+    assert_eq!((first.offset, first.from), (674.0, Some(642.0)));
+    h.slots[0] = list(2);
+    h.update().unwrap();
+    let second = h.snapshot().correction.unwrap();
+    assert_eq!((second.offset, second.from), (706.0, Some(642.0)));
+}
+#[test]
+fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(642.0));
+    let before = h.snapshot();
+    h.slots[0] = Value::list(
+        std::iter::once(Value::Number(-1.0))
+            .chain((0..100).map(|i| Value::Number(i as f64)))
+            .collect(),
+    );
+    h.update().unwrap();
+    let after = h.snapshot();
+    assert_eq!(after.correction.unwrap().offset, 674.0);
+    assert_eq!(after.correction.unwrap().from, Some(642.0));
+    assert_eq!(
+        after.rows.iter().find(|r| r.index == 21).unwrap().root,
+        before.rows.iter().find(|r| r.index == 20).unwrap().root
+    );
+    h.send(h.feedback(674.0));
+    h.slots[0] = Value::list((0..100).rev().map(|i| Value::Number(i as f64)).collect());
+    h.update().unwrap();
+    assert_eq!(h.snapshot().correction.unwrap().offset, 79.0 * 32.0 + 2.0);
+    h.send(h.feedback(79.0 * 32.0 + 2.0));
+    h.slots[0] = Value::list(
+        (0..100)
+            .rev()
+            .filter(|i| *i != 20)
+            .map(|i| Value::Number(i as f64))
+            .collect(),
+    );
+    h.update().unwrap();
+    assert_eq!(h.snapshot().correction, None); // successor 19 occupies deleted 20's old position
+    let mut end = Harness::new(100, false, true);
+    end.send(end.feedback(2880.0));
+    end.slots[0] = values(200);
+    end.update().unwrap();
+    assert_eq!(end.snapshot().correction.unwrap().offset, 6080.0);
+    end.send(end.feedback(640.0));
+    end.slots[0] = values(300);
+    end.update().unwrap();
+    assert!(end.snapshot().correction.is_none());
+}
+#[test]
+fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
+    let mut h = Harness::new(25_000, true, false);
+    h.send(h.feedback(0.0));
+    let first = h.snapshot().rows[0].clone();
+    let mut feedback = h.feedback(25_000.0 * 16.0);
+    feedback.focus_view = Some(first.root);
+    h.send(feedback);
+    let middle = h.snapshot().rows[2].clone();
+    let mut feedback = h.feedback(25_000.0 * 32.0);
+    feedback.focus_view = Some(first.root);
+    feedback.interaction_view = Some(middle.root);
+    h.send(feedback);
+    let s = h.snapshot();
+    assert!(s.rows.len() <= 32);
+    assert!(h.collection().spacers.len() <= 3);
+    assert!(s.rows.iter().any(|r| r.root == first.root));
+    assert!(s.rows.iter().any(|r| r.root == middle.root));
+    let parent = |v| h.kernel.node(v).and_then(|n| n.parent);
+    assert!(h.tree.find(first.view, parent, &mut 0).is_none());
+    assert!(h.tree.site(first.view).is_none());
+    let (_, path) = h.tree.site(first.root).unwrap();
+    assert!(matches!(path[0], InstanceStep::Row { .. }));
+    let (_, frames) = h.tree.find(first.root, parent, &mut 0).unwrap();
+    let row = frames[0].row.clone().unwrap();
+    row.borrow_mut().insert(4, Value::Number(7.0));
+    let mut written = crate::instance::RowWrites::default();
+    written.record(&frames, &row, 4);
+    h.update_with(written).unwrap();
+    assert_eq!(
+        h.kernel.node(first.root).unwrap().props.str(PropId::Text),
+        Some("7")
+    );
+    assert!(h.ids.site(first.view).is_none(), "a wrapper is no site");
+    for (view, _) in &h.collection().spacers {
+        assert_eq!(
+            h.kernel
+                .node(*view)
+                .unwrap()
+                .props
+                .get(PropId::AccessibilityElementsHidden),
+            Some(&PropValue::Bool(true))
+        );
+    }
+}
+#[test]
+fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
+    let h = Harness::new(10, false, false);
+    let mut f = h.feedback(12.0);
+    f.padding = [92.0, 83.5];
+    let row = &h.snapshot().rows[0];
+    f.measurements.push(RowMeasurement {
+        view: row.view,
+        epoch: row.epoch,
+        size: 20.5,
+    });
+    let bytes = f.encode().unwrap();
+    assert_eq!(bytes.len(), 120);
+    assert_eq!(CollectionFeedback::decode(&bytes).unwrap(), f);
+    let fill = CollectionFill {
+        velocity: -1200.5,
+        limit: Some(3),
+        ancestor_moving: true,
+        ..Default::default()
+    };
+    let filled = f.encode_with(fill).unwrap();
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&filled).unwrap(),
+        (f.clone(), fill)
+    );
+    let lean = CollectionFill { lean: true, ..fill };
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&f.encode_with(lean).unwrap()).unwrap(),
+        (f.clone(), lean)
+    );
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
+        CollectionFill::default()
+    );
+    for version in [1u32, 3] {
+        let mut old = bytes.clone();
+        old[..4].copy_from_slice(&version.to_le_bytes());
+        assert!(CollectionFeedback::decode(&old).is_err());
+    }
+    // The padding the host laid out is a length: a negative
+    // or nonfinite one is refused at either end
+    for (end, bad) in [0, 1]
+        .into_iter()
+        .flat_map(|end| [(end, -1.0), (end, f64::NAN)])
+    {
+        let mut sent = bytes.clone();
+        sent[56 + end * 8..64 + end * 8].copy_from_slice(&bad.to_le_bytes());
+        assert!(CollectionFeedback::decode(&sent).is_err());
+        let mut wrong = f.clone();
+        wrong.padding[end] = bad;
+        assert!(wrong.encode().is_err());
+    }
+    let mut fast = filled.clone();
+    fast[80..88].copy_from_slice(&f64::INFINITY.to_le_bytes());
+    assert!(CollectionFeedback::decode(&fast).is_err());
+    for length in 0..bytes.len() {
+        assert!(CollectionFeedback::decode(&bytes[..length]).is_err());
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(CollectionFeedback::decode(&trailing).is_err());
+    let mut bad = bytes.clone();
+    bad[92..96].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(CollectionFeedback::decode(&bad).is_err());
+    f.measurements.push(f.measurements[0]);
+    assert!(f.encode().is_err());
+    f.measurements.pop();
+    f.cross = f64::NAN;
+    assert!(f.encode().is_err());
+    assert!(h.snapshot().json().contains("\"totalExtent\""));
+}
+
+#[test]
+fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
+    let snapshot = CollectionSnapshot {
+        view: 1,
+        axis: ListAxis::Vertical,
+        parent: None,
+        restored: false,
+        seeking: false,
+        revision: (1_u64 << 53) + 1,
+        scroll_sequence: u64::MAX - 1,
+        count: 3,
+        total_extent: 96.0,
+        rows: vec![CollectionRow {
+            view: 2,
+            root: 3,
+            index: 1,
+            start: 32.0,
+            size: 32.0,
+            epoch: u64::MAX,
+            measured: true,
+        }],
+        correction: Some(AnchorCorrection {
+            scroll_sequence: (1_u64 << 53) + 3,
+            offset: 16.5,
+            from: None,
+            smooth: false,
+        }),
+        pending: true,
+    };
+    let expected = concat!(
+        r#"{"view":1,"axis":"y","revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
+        r#"{"view":2,"root":3,"index":1,"start":32,"size":32,"epoch":"18446744073709551615","measured":true}],"pending":true,"#,
+        r#""correction":{"scrollSequence":"9007199254740995","offset":16.5}}"#,
+    );
+    assert_eq!(snapshot.json(), expected);
+    assert_eq!(
+        snapshots_json(std::slice::from_ref(&snapshot)),
+        format!("[{expected}]")
+    );
+    let mut batch = String::from("prefix:");
+    snapshot.write_json(&mut batch);
+    assert_eq!(batch, format!("prefix:{expected}"));
+
+    let mut initial = snapshot;
+    initial.revision = 1;
+    initial.scroll_sequence = 0;
+    initial.rows[0].epoch = 1;
+    initial.correction.as_mut().unwrap().scroll_sequence = 0;
+    let json = initial.json();
+    assert!(json.contains(r#""revision":"1","scrollSequence":"0""#));
+    assert!(json.contains(r#""epoch":"1""#));
+    assert!(json.contains(r#""correction":{"scrollSequence":"0""#));
+}
+
+#[test]
+fn pending_correction_survives_another_commit_until_host_acknowledges_it() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(640.0));
+    h.slots[0] = Value::list(
+        std::iter::once(Value::Number(-1.0))
+            .chain((0..100).map(|i| Value::Number(i as f64)))
+            .collect(),
+    );
+    h.update().unwrap();
+    let correction = h.snapshot().correction;
+    assert_eq!(correction.unwrap().offset, 672.0);
+    h.slots[1] = Value::Number(4.0);
+    h.update().unwrap();
+    assert_eq!(h.snapshot().correction, correction);
+    h.send(h.feedback(672.0));
+    assert!(h.snapshot().correction.is_none());
+}
+
+#[test]
+fn height_resize_preserves_end_only_when_previously_following_and_new_sequence_wins() {
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut resized = h.feedback(2880.0);
+    resized.port_main = 160.0;
+    h.send(resized);
+    assert_eq!(h.snapshot().correction.unwrap().offset, 3040.0);
+    let mut reading = h.feedback(640.0);
+    reading.port_main = 160.0;
+    h.send(reading);
+    assert!(h.snapshot().correction.is_none());
+    let before = h.snapshot();
+    let mut stale = h.feedback(0.0);
+    stale.scroll_sequence = before.scroll_sequence - 1;
+    assert!(!h.send(stale));
+    assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn invalidated_zero_heights_do_not_hide_newly_nonempty_offwindow_rows() {
+    let mut h = Harness::new(1000, false, false);
+    h.send(h.feedback(0.0));
+    let Child::Node(root) = &mut h.tree.children[0] else {
+        panic!()
+    };
+    let c = root.collection_mut().unwrap();
+    // Compact metadata after previously traversing a document of empty rows.
+    for position in 0..c.index.len() {
+        let key = c.index.key(position).unwrap().to_owned();
+        let token = c.index.measurement_token(&key).unwrap();
+        c.index.set_measured_height(&key, token, 0.0).unwrap();
+        c.zero_heights.insert(key);
+    }
+    h.slots[1] = Value::Number(1.0);
+    h.update().unwrap();
+    assert_eq!(h.snapshot().total_extent, 32_000.0);
+    assert!(h.snapshot().rows.len() <= 31);
+    h.send(h.feedback(900.0 * 32.0));
+    let snapshot = h.snapshot();
+    assert!(snapshot.rows.iter().any(|r| r.index == 900));
+    assert!(snapshot.rows.iter().all(|r| !r.measured));
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+}
+
+#[test]
+fn typography_change_remounts_a_fully_zero_measured_collection() {
+    let mut h = Harness::new(1000, false, false);
+    h.send(h.feedback(0.0));
+    for _ in 0..100 {
+        let snapshot = h.snapshot();
+        if snapshot.rows.is_empty() {
+            break;
+        }
+        let mut feedback = h.feedback(0.0);
+        feedback.measurements = snapshot
+            .rows
+            .iter()
+            .map(|r| RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                size: 0.0,
+            })
+            .collect();
+        h.send(feedback);
+    }
+    assert_eq!(h.snapshot().total_extent, 0.0);
+    assert!(h.snapshot().rows.is_empty());
+    let stale = h.feedback(0.0);
+    // Only inherited typography changes; data/key/body dependencies do not.
+    h.slots[3] = Value::Number(24.0);
+    h.update().unwrap();
+    let snapshot = h.snapshot();
+    assert_eq!(snapshot.total_extent, 32_000.0);
+    assert!(
+        !snapshot.rows.is_empty(),
+        "typography must remount a measurable window"
+    );
+    assert!(snapshot.rows.len() <= 31);
+    assert!(snapshot.rows.iter().all(|r| !r.measured));
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert!(!h.send(stale));
+    h.kernel
+        .compute_layout(snapshot.view, exact_kernel::Offer::definite(640.0, 320.0))
+        .unwrap();
+    let mut feedback = h.feedback(0.0);
+    feedback.measurements = snapshot
+        .rows
+        .iter()
+        .map(|r| RowMeasurement {
+            view: r.view,
+            epoch: r.epoch,
+            size: h.kernel.node(r.view).unwrap().frame.height as f64,
+        })
+        .collect();
+    h.send(feedback);
+    assert!(h.snapshot().rows.iter().any(|r| r.measured && r.size > 0.0));
+    h.send(h.feedback(900.0 * 32.0));
+    assert!(h.snapshot().rows.iter().any(|r| r.index >= 890));
+}
+
+struct NoData;
+impl crate::DataSource for NoData {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, crate::DataError> {
+        panic!("collection geometry must not query resources")
+    }
+}
+fn runner_feedback(r: &crate::Runner<NoData>) -> CollectionFeedback {
+    let c = &r.collections()[0];
+    CollectionFeedback {
+        view: c.view,
+        revision: c.revision,
+        scroll_sequence: c.scroll_sequence + 1,
+        offset: 0.0,
+        port_cross: 640.0,
+        port_main: 320.0,
+        cross: 640.0,
+        padding: [0.0; 2],
+        measurements: vec![],
+        focus_view: None,
+        interaction_view: None,
+    }
+}
+
+#[test]
+fn typography_restores_zero_prefix_without_moving_the_reading_anchor() {
+    let mut h = Harness::new(1000, false, false);
+    h.send(h.feedback(0.0));
+    let mut measured = h.feedback(0.0);
+    measured.measurements = h
+        .snapshot()
+        .rows
+        .iter()
+        .map(|row| RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            size: if row.index < 10 { 0.0 } else { 32.0 },
+        })
+        .collect();
+    h.send(measured);
+    h.send(h.feedback(640.0));
+    let before = h.snapshot();
+    let anchor = before.rows.iter().find(|row| row.index == 30).unwrap();
+    let old_epoch = anchor.epoch;
+    let old_root = anchor.root;
+    h.slots[3] = Value::Number(24.0);
+    h.update().unwrap();
+    let after = h.snapshot();
+    assert_eq!(after.correction.unwrap().offset, 960.0);
+    assert_eq!(
+        after.correction.unwrap().scroll_sequence,
+        before.scroll_sequence
+    );
+    let anchor = after.rows.iter().find(|row| row.index == 30).unwrap();
+    assert_eq!(anchor.root, old_root);
+    assert_ne!(anchor.epoch, old_epoch);
+    assert!(!anchor.measured);
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    h.kernel
+        .compute_layout(after.view, exact_kernel::Offer::definite(640.0, 320.0))
+        .unwrap();
+    for (view, height) in &h.collection().spacers {
+        assert_eq!(
+            h.kernel.node(*view).unwrap().frame.height as f64,
+            *height,
+            "the same typography commit must publish restored spacer heights"
+        );
+    }
+}
+
+#[test]
+fn aggregate_measurement_overflow_is_atomic_and_does_not_poison_runner() {
+    for across_batches in [false, true] {
+        let mut r = crate::Runner::boot(
+            plan(5, false, false),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.collection_feedback(runner_feedback(&r)).unwrap();
+        let rows = r.collections()[0].rows.clone();
+        if across_batches {
+            let mut feedback = runner_feedback(&r);
+            feedback.focus_view = Some(rows[1].root);
+            feedback.measurements.push(RowMeasurement {
+                view: rows[0].view,
+                epoch: rows[0].epoch,
+                size: f32::MAX as f64 * 0.75,
+            });
+            r.collection_feedback(feedback).unwrap();
+        }
+        let before = r.collections();
+        let live = r.kernel().live_count();
+        let mut feedback = runner_feedback(&r);
+        feedback.focus_view = Some(rows[1].root);
+        feedback.measurements = if across_batches {
+            vec![RowMeasurement {
+                view: rows[1].view,
+                epoch: rows[1].epoch,
+                size: f32::MAX as f64 * 0.75,
+            }]
+        } else {
+            rows.iter()
+                .map(|row| RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: f32::MAX as f64 * 0.75,
+                })
+                .collect()
+        };
+        // Every field separately fits f32. The combined extent cannot.
+        let wire = feedback.encode().unwrap();
+        assert!(
+            matches!(
+                r.collection_feedback_bytes(&wire),
+                Err(crate::RunnerError::Instance(
+                    InstanceError::InvalidCollectionFeedback
+                ))
+            ),
+            "reject the aggregate extent before mutation"
+        );
+        assert!(
+            !r.is_poisoned(),
+            "bad host geometry must not poison the runner"
+        );
+        assert_eq!(
+            r.collections(),
+            before,
+            "reject before mutating epochs, geometry or heights"
+        );
+        assert_eq!(r.kernel().live_count(), live);
+        let mut valid = runner_feedback(&r);
+        valid.measurements = r.collections()[0]
+            .rows
+            .iter()
+            .map(|row| RowMeasurement {
+                view: row.view,
+                epoch: row.epoch,
+                size: 24.0,
+            })
+            .collect();
+        r.collection_feedback(valid).unwrap();
+        assert!(!r.is_poisoned());
+        assert_eq!(r.last_instance_work().rows_keyed, 0);
+    }
+}
+
+#[test]
+fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
+    const COUNT: usize = 25_000;
+    const MAX_MOUNTED: usize = 33; // Visible + overscan + at most two pins.
+    let mut h = Harness::new(COUNT, true, false);
+    let bootstrap = h.snapshot();
+    let focus = bootstrap.rows[1].root;
+    let interaction = bootstrap.rows[2].root;
+    let retired_root = bootstrap.rows[3].root;
+    let retired_slots = Rc::downgrade(h.collection().mounted[3].row.slots.as_ref().unwrap());
+    let pinned_slots = Rc::downgrade(h.collection().mounted[1].row.slots.as_ref().unwrap());
+    let mut first = h.feedback(0.0);
+    first.focus_view = Some(focus);
+    first.interaction_view = Some(interaction);
+    h.send(first);
+    let mut measured = std::collections::BTreeSet::new();
+    // Discover every zero through actual mounted-row feedback, retaining only
+    // the positive endpoints and the two explicitly pinned zero-height rows.
+    for _ in 0..COUNT {
+        let snapshot = h.snapshot();
+        let pending: Vec<_> = snapshot.rows.iter().filter(|row| !row.measured).collect();
+        if pending.is_empty() {
+            break;
+        }
+        let mut feedback = h.feedback(0.0);
+        feedback.focus_view = Some(focus);
+        feedback.interaction_view = Some(interaction);
+        feedback.measurements = pending
+            .into_iter()
+            .map(|row| {
+                assert!(measured.insert(row.index), "row unexpectedly remounted");
+                RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    size: if row.index == 0 || row.index == COUNT - 1 {
+                        32.0
+                    } else {
+                        0.0
+                    },
+                }
+            })
+            .collect();
+        h.send(feedback);
+        assert!(h.snapshot().rows.len() <= MAX_MOUNTED);
+        assert!(h.collection().mounted.len() <= MAX_MOUNTED);
+        assert!(h.collection().spacers.len() <= 3);
+        assert!(h.kernel.arena().live_count() <= 1 + MAX_MOUNTED * 2 + 3);
+        assert!(h.kernel.arena().slot_count() <= 1 + MAX_MOUNTED * 4 + 6);
+    }
+    assert_eq!(measured.len(), COUNT, "all 25k rows were actually sampled");
+    assert_eq!(h.snapshot().total_extent, 64.0);
+    assert_eq!(
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|row| row.index)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2, COUNT - 1]
+    );
+    assert!(retired_slots.upgrade().is_none());
+    assert!(h.kernel.node(retired_root).is_none());
+    assert!(pinned_slots.upgrade().is_some());
+    // Releasing the pins also releases the last zero-height UI and row state.
+    h.send(h.feedback(0.0));
+    assert_eq!(h.snapshot().rows.len(), 2);
+    assert!(pinned_slots.upgrade().is_none());
+    assert!(h.kernel.node(focus).is_none());
+    assert!(h.kernel.node(interaction).is_none());
+    assert!(h.kernel.arena().live_count() <= 5);
+    assert_eq!(h.collection().keys.len(), COUNT);
+    assert_eq!(h.collection().index.len(), COUNT);
+}
+
+#[test]
+fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(0.)); // establish width before reporting measurements
+    let before = h.snapshot();
+    let mut measured = h.feedback(0.);
+    measured.measurements = before
+        .rows
+        .iter()
+        .map(|row| RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            size: 20.,
+        })
+        .collect();
+    h.send(measured);
+    let before = h.snapshot();
+    let old_row = before.rows[0].clone();
+    assert!(old_row.measured);
+    let key = h.collection().index.key(old_row.index).unwrap().to_owned();
+    let old_token = h.collection().index.measurement_token(&key).unwrap();
+    // Fresh list with unchanged scalar items can reuse certified keys. Changed
+    // text still needs body and layout invalidation in this same update.
+    h.slots[0] = values(100);
+    h.slots[1] = Value::Number(9.);
+    h.update().unwrap();
+    assert_eq!(
+        h.tree.last_work.rows_keyed, 0,
+        "key reuse must not suppress body or measurement invalidation"
+    );
+    assert!(h.tree.last_work.nodes_visited > 0);
+    let after = h.snapshot();
+    assert!(after.revision > before.revision);
+    let row = after
+        .rows
+        .iter()
+        .find(|row| row.index == old_row.index)
+        .unwrap();
+    assert_eq!(row.view, old_row.view);
+    assert_eq!(row.root, old_row.root);
+    assert_ne!(row.epoch, old_row.epoch);
+    assert!(!row.measured);
+    assert_ne!(
+        h.collection().index.measurement_token(&key),
+        Some(old_token)
+    );
+    assert_eq!(
+        h.kernel.node(row.root).unwrap().props.str(PropId::Text),
+        Some("9")
+    );
+    h.kernel
+        .compute_layout(after.view, exact_kernel::Offer::definite(640., 320.))
+        .unwrap();
+    let frame = h.kernel.node(row.root).unwrap().frame;
+    assert!(frame.height.is_finite() && frame.height > 0.);
+    let mut stale = h.feedback(0.);
+    stale.measurements = vec![RowMeasurement {
+        view: old_row.view,
+        epoch: old_row.epoch,
+        size: 99.,
+    }];
+    assert!(!h.send(stale));
+    let fresh = h.snapshot();
+    let mut next = h.feedback(0.);
+    next.measurements = fresh
+        .rows
+        .iter()
+        .map(|row| RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            size: 24.,
+        })
+        .collect();
+    assert!(h.send(next));
+    assert!(h
+        .snapshot()
+        .rows
+        .iter()
+        .any(|row| row.measured && row.size == 24.));
+}
+
+// Key reuse must be earned by immutable item identity AND key-environment
+// equality, not by the fresh outer list or by unchanged rendered row bodies.
+fn key_reuse_row(id: f64, text: &str) -> Value {
+    Value::record(vec![
+        Value::Number(id),
+        Value::some(Value::Number(0.)),
+        Value::str(text),
+    ])
+}
+
+fn key_reuse_harness(clock_key: bool) -> Harness {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let string = b.primitive(TypeKind::String);
+    let optional = b.option(number);
+    let row = b.record(
+        "KeyReuseRow",
+        &[("id", number), ("gate", optional), ("text", string)],
+    );
+    let list = b.list(row);
+    let items = Value::list((0..128).map(|i| key_reuse_row(i as f64, "old")).collect());
+    // Harness supplies the live records directly; the typed slot's unused
+    // initializer is empty (record constants require explicit Asm::record).
+    let initial = b.constant(&Value::list(Vec::new()));
+    let zero = b.constant(&Value::Number(0.));
+    let data = b.slot("items", list, initial);
+    let dep = b.slot("keyDependency", number, zero);
+    let enabled = b.constant(&Value::Bool(true));
+    let root = b.node(
+        NodeType::List as u8,
+        None,
+        None,
+        0,
+        &[binding(
+            BindingKind::Prop,
+            PropId::Virtualized as u16,
+            enabled,
+        )],
+        &[],
+        None,
+    );
+    let subject = code(&mut b, |a| {
+        a.load_slot(data);
+    });
+    let key = code(&mut b, |a| {
+        // A later row can trap, so duplicate-vs-trap precedence is observable.
+        a.load_item(0)
+            .field(1)
+            .simple(Opcode::Unwrap)
+            .simple(Opcode::Pop);
+        a.load_item(0).field(0).load_slot(dep).simple(Opcode::Add);
+        if clock_key {
+            a.call(exact_plan::Stdlib::PerformanceNow)
+                .simple(Opcode::Add);
+        }
+    });
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    let body = code(&mut b, |a| {
+        a.load_item(0).field(2);
+    });
+    b.node(
+        NodeType::Text as u8,
+        None,
+        Some(arms[0]),
+        0,
+        &[binding(BindingKind::Prop, PropId::Text as u16, body)],
+        &[],
+        None,
+    );
+    Harness::from_parts(b.finish().unwrap(), vec![items, Value::Number(0.)])
+}
+
+fn key_reuse_items(h: &Harness) -> Vec<Value> {
+    let Value::List(items) = &h.slots[0] else {
+        panic!("list fixture")
+    };
+    items.to_vec()
+}
+
+#[test]
+fn key_reuse_fresh_outer_list_of_the_same_records_is_no_change() {
+    let mut h = key_reuse_harness(false);
+    let keys = h.collection().keys.as_ptr();
+    let index_key = h.collection().index.key(0).unwrap().as_ptr();
+    let revision = h.snapshot().revision;
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    assert_eq!(h.collection().index.key(0).unwrap().as_ptr(), index_key);
+    assert_eq!(h.snapshot().revision, revision);
+}
+
+#[test]
+fn key_reuse_one_changed_record_evaluates_once_and_updates_measured_body() {
+    let mut h = key_reuse_harness(false);
+    h.send(h.feedback(0.));
+    let mut measured = h.feedback(0.);
+    measured.measurements = h
+        .snapshot()
+        .rows
+        .iter()
+        .map(|r| RowMeasurement {
+            view: r.view,
+            epoch: r.epoch,
+            size: 20.,
+        })
+        .collect();
+    h.send(measured);
+    let old = h.snapshot().rows[0].clone();
+    let keys = h.collection().keys.as_ptr();
+    let mut items = key_reuse_items(&h);
+    items[0] = key_reuse_row(0., "new body");
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 1);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    let new = h.snapshot().rows[0].clone();
+    assert_eq!(new.root, old.root);
+    assert_ne!(new.epoch, old.epoch);
+    assert!(!new.measured);
+    assert_eq!(
+        h.kernel.node(new.root).unwrap().props.str(PropId::Text),
+        Some("new body")
+    );
+    h.kernel
+        .compute_layout(h.snapshot().view, exact_kernel::Offer::definite(640., 320.))
+        .unwrap();
+    assert!(h.kernel.node(new.root).unwrap().frame.height > 0.);
+    h.send(h.feedback(0.));
+    assert_eq!(
+        h.tree.last_work.rows_keyed, 0,
+        "feedback has its own zero-key Update"
+    );
+}
+
+#[test]
+fn key_reuse_equal_content_fresh_records_are_no_change() {
+    let mut h = key_reuse_harness(false);
+    let keys = h.collection().keys.as_ptr();
+    h.slots[0] = Value::list((0..128).map(|i| key_reuse_row(i as f64, "old")).collect());
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+}
+
+#[test]
+fn key_reuse_external_slot_change_invalidates_all_identical_items() {
+    let mut h = key_reuse_harness(false);
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    h.slots[1] = Value::Number(500.);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 128);
+    assert_eq!(h.collection().index.key(0), Some("n:500"));
+    assert_eq!(h.collection().index.key(127), Some("n:627"));
+}
+
+#[test]
+fn key_reuse_clock_change_invalidates_all_identical_items() {
+    let mut h = key_reuse_harness(true);
+    h.slots[0] = Value::list(key_reuse_items(&h));
+    let mut input = env(&h.plan, &h.slots);
+    input.now_ms = 500.;
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut u = Update::new(input, &sites, &mut h.ids);
+    h.tree.update(&mut u).unwrap();
+    assert_eq!(u.work.rows_keyed, 128);
+    assert_eq!(h.collection().index.key(0), Some("n:500"));
+}
+
+#[test]
+fn key_reuse_is_positional_not_a_cross_position_identity_cache() {
+    let mut h = key_reuse_harness(false);
+    let old = h.snapshot();
+    let mut items = key_reuse_items(&h);
+    items.swap(0, 1);
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.tree.last_work.rows_keyed, 2);
+    assert_eq!(h.collection().index.key(0), Some("n:1"));
+    assert_eq!(h.collection().index.key(1), Some("n:0"));
+    assert_eq!(h.snapshot().rows[0].root, old.rows[1].root);
+    let mut items = key_reuse_items(&h);
+    items.push(key_reuse_row(500., "inserted"));
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 129);
+    let mut items = key_reuse_items(&h);
+    items.remove(0);
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 128);
+    assert_eq!(h.collection().index.position("n:1"), None);
+}
+
+#[test]
+fn a_repeated_key_is_kept_and_a_later_vm_trap_refuses_without_publication() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let keys = h.collection().keys.as_ptr();
+    let items = h.collection().items.clone();
+    let mut next = key_reuse_items(&h);
+    next[2] = key_reuse_row(0., "duplicate reused prefix");
+    next[3] = Value::record(vec![Value::Number(3.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+    ));
+    assert_eq!(h.snapshot(), before);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
+    assert!(Items::ptr_eq(&h.collection().items, &items));
+}
+
+#[test]
+fn a_key_repeating_a_reused_row_still_refuses_at_a_later_vm_trap() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let mut next = key_reuse_items(&h);
+    next[0] = key_reuse_row(2., "collides with unchanged row two");
+    next[3] = Value::record(vec![Value::Number(3.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+    ));
+    assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn a_repeated_key_mounts_as_its_own_row_with_its_own_identity() {
+    let mut h = key_reuse_harness(false);
+    let mut next = key_reuse_items(&h);
+    next[0] = key_reuse_row(2., "the first row, keyed like row two");
+    h.slots[0] = Value::list(next);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.key(0), Some("n:2"));
+    assert_eq!(h.collection().index.key(2), Some("d1:n:2"));
+    let s = h.snapshot();
+    let first = s.rows.iter().find(|r| r.index == 0).unwrap();
+    let third = s.rows.iter().find(|r| r.index == 2).unwrap();
+    assert_ne!(first.root, third.root);
+    assert_eq!(
+        h.kernel.node(first.root).unwrap().props.str(PropId::Text),
+        Some("the first row, keyed like row two")
+    );
+}
+
+#[test]
+fn key_reuse_changed_row_trap_is_not_hidden_by_unchanged_key_field() {
+    let mut h = key_reuse_harness(false);
+    let before = h.snapshot();
+    let mut next = key_reuse_items(&h);
+    next[127] = Value::record(vec![Value::Number(127.), Value::NONE, Value::str("trap")]);
+    h.slots[0] = Value::list(next);
+    assert!(matches!(
+        h.update(),
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
+    ));
+    assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn key_reuse_repeated_answers_do_not_retain_historical_records() {
+    let mut h = key_reuse_harness(false);
+    h.send(h.feedback(0.));
+    for turn in 0..16 {
+        // Held here only: the count says whether anything else still does.
+        let old = h.collection().items.clone();
+        let Value::Record(row) = &old[100] else {
+            panic!()
+        };
+        let old_row = row.clone();
+        let mut next = key_reuse_items(&h);
+        next[100] = key_reuse_row(100., &format!("answer {turn}"));
+        h.slots[0] = Value::list(next);
+        h.update().unwrap();
+        assert_eq!(h.tree.last_work.rows_keyed, 1);
+        assert_eq!(Items::strong_count(&old), 1);
+        drop(old);
+        assert_eq!(Items::strong_count(&old_row), 1);
+        assert_eq!(h.collection().keys.len(), 128);
+        assert!(h.collection().mounted.len() <= 31);
+    }
+}
+
+#[test]
+fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
+    let mut h = Harness::new(10_000, false, false);
+    let ordinary = h.tree.collections();
+    let rows = ordinary.iter().map(|c| c.rows.len()).sum::<usize>();
+    assert_eq!(
+        h.tree.collections_bounded(1, rows, 4096, 1 << 20).unwrap(),
+        ordinary
+    );
+    assert!(h.tree.collections_bounded(0, rows, 4096, 1 << 20).is_err());
+    assert!(h
+        .tree
+        .collections_bounded(1, rows - 1, 4096, 1 << 20)
+        .is_err());
+    assert!(h.tree.collections_bounded(1, rows, 0, 1 << 20).is_err());
+    assert!(h.tree.collections_bounded(1, rows, 4096, 0).is_err());
+    assert_eq!(
+        h.tree.collections(),
+        ordinary,
+        "refusal never mutates epochs or revisions"
+    );
+    h.send(h.feedback(640.0));
+    let current = h.tree.collections();
+    assert_eq!(
+        h.tree.collections_bounded(2, 4096, 4096, 1 << 20).unwrap(),
+        current
+    );
+    assert_ne!(current, ordinary);
+}
+
+/// The keyboard going down grows a transcript's port in two frames between
+/// reports (UIKit: its frame without, then with, the bottom safe area). The
+/// host clamped the port to the end of the first, which is short of the
+/// second's end; a reader at the end before the resize is still there.
+#[test]
+fn an_unreported_resize_the_reader_did_not_make_keeps_the_end() {
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut hidden = h.feedback(2500.0);
+    hidden.port_main = 660.0;
+    h.send(hidden);
+    assert_eq!(h.snapshot().correction.unwrap().offset, 2540.0);
+    // A reader moving the port as it resizes (an interactive dismissal)
+    // chose where it is.
+    let mut h = Harness::new(100, false, true);
+    h.send(h.feedback(2880.0));
+    let mut dragged = h.feedback(2500.0);
+    dragged.port_main = 660.0;
+    h.send_filled(
+        dragged,
+        CollectionFill {
+            velocity: -400.0,
+            ..CollectionFill::default()
+        },
+    );
+    assert!(h.snapshot().correction.is_none());
+}
+
+#[test]
+fn measured_row_operations_count_scroll_and_whole_list_retirement() {
+    let mut h = Harness::new(3000, false, false);
+    assert!(
+        h.ids.work.sites.is_empty(),
+        "ordinary execution collects nothing"
+    );
+    h.ids.work.sites = vec![crate::perf::SiteWork::default(); h.plan.nodes.len()];
+    let site = h.ids.site(h.snapshot().view).unwrap().0 as usize;
+    h.send(h.feedback(16000.0));
+    let counts = h.ids.work.sites[site];
+    assert!(counts.row_constructed > 0 && counts.row_constructed < 100);
+    assert!(counts.row_retired > 0, "scrolled-out rows retire");
+    let mounted = h.snapshot().rows.len() as u64;
+    let mut u = Update::new(env_with(&h.plan, &h.slots, h.strings), &h.sites, &mut h.ids);
+    let children = std::mem::take(&mut h.tree.children);
+    super::super::destroy_all(&mut u, children);
+    assert_eq!(
+        h.ids.work.sites[site].row_retired,
+        counts.row_retired + mounted
+    );
+}

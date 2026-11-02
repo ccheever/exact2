@@ -1,0 +1,1498 @@
+#!/usr/bin/env bun
+// Resident wasm dev loop; the JS target uses host/web-js/dev.mjs.
+// LAN clients can read plans, errors and generations; the agent
+// carrier and installer stay loopback-only. Games serve HTTP during the first build.
+import { buildingServer } from '../../game/dev.mjs';
+import { failedPhase, phased } from './dev-phase.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+let tuning = null;
+import { createHash, randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
+import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
+import { filesystem } from '../../scripts/filesystem.mjs';
+import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile, writeSync } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
+import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
+import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, devBinRun, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { developmentLinks } from '../apple/build.mjs';
+import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
+import { guardFlags } from '../../scripts/help.mjs';
+import { webPortRange } from '../../scripts/agent-launch.mjs';
+import { localInstaller } from './local-install.mjs';
+import { startupBuilds } from './dev-startup.mjs';
+import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
+import { pluginOnLoopback, remoteArgs } from '../../scripts/tamber-remote.mjs'; import { openRemoteCanvas } from '../../scripts/tamber-canvas.mjs';
+import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
+import { relayChannel, serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
+import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, listenDelay, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, devGenerationDigest, MODULE_FILES, moduleCards } from './serve.mjs';
+const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
+const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
+// The dev wasm links every capability: a new plan that adds
+// one restarts in place, never waiting on a wasm rebuild.
+const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
+let app = resolveApp(arg('--app', undefined));
+if (app.manifest.game) buildEnv.EXACT_GAME_PROOF_PROFILE ??= 'gpu-dev';
+const lan = argv.includes('--lan');
+/** The first of 100 ports from `from` up that `host` can listen on: another app's loop holding 8765 is common.
+ * A probe does not reserve it; a loop started at the same moment can still take it, and its listen error says so. */
+async function freePort(from, host) {
+  const range = webPortRange() ?? [from, Math.min(from + 99, 65535)];
+  for (let p = range[0]; p <= range[1]; p++) {
+    const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
+    // And on [::1], which a localhost URL (the design tool's canvas) reaches.
+    if (free && await freeOnIPv6Loopback(p)) return p;
+  }
+  console.error(`ports ${range[0]}–${range[1]} are all in use; --port <n> picks another`);
+  process.exit(1);
+}
+// An explicit --port (or EXACT_PORT: one variable for every listener the app's commands start) is kept, and fails
+// loudly if taken; the default moves to a free one.
+const named = argv.includes('--port') ? arg('--port') : process.env.EXACT_PORT || null;
+if (named != null && !(Number.isInteger(Number(named)) && Number(named) >= 1 && Number(named) <= 65535)) { console.error(`${argv.includes('--port') ? '--port' : 'EXACT_PORT'} ${named}: a port number, 1–65535`); process.exit(2); }
+const port = named != null || argv.includes('--serve-as') ? Number(named ?? 8765) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
+if (port !== 8765 && named == null && !webPortRange() && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port <n> or EXACT_PORT picks one)`);
+// `--serve-as <port>` (internal): the resident loop's producers behind the
+// JS loop on that port (host/web-js/dev.mjs forwards a native client's
+// requests here): its names are that port's, and it listens on loopback.
+const servedAs = arg('--serve-as', null) == null ? null : Number(arg('--serve-as'));
+const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
+// The addresses printed at startup are the only names requests may use.
+const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
+const allowHosts = allowHostArgs(argv);
+let doors = null; const remoteAsked = remoteArgs(argv, { exit: true }); /* the wire's remote doors, refused without a design */ if ((remoteAsked.remote || remoteAsked.tunnel != null || remoteAsked.plugin || remoteAsked.relay) && servedAs == null && !designPath(app.dir)) { const named = [remoteAsked.remote && '--remote', remoteAsked.tunnel != null && '--trust-tunnel', remoteAsked.plugin && '--allow-plugin-origin', remoteAsked.relay && '--relay'].filter(Boolean); console.error(`${named.join(' and ')} ${named.length > 1 ? 'serve' : 'serves'} the design wire: this app has no design (app.tamber)`); process.exit(2); }
+const gate = developmentGate(origins, servedAs ?? port, allowHosts);
+const root = resolve(new URL('../..', import.meta.url).pathname);
+// An outside app's wasm loop builds apart from the JS target's `target/web-dist`,
+// so `web` and `web --wasm` can run at once without one serving the other's files.
+if (argv.includes('--wasm') && servedAs == null && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST)
+  process.env.EXACT_WEB_DIST = buildEnv.EXACT_WEB_DIST = resolve(app.target, 'web-dist-wasm');
+const dist = webDist();
+const source = resolve(app.dir, 'app.contract');
+// The JS target: the runtime the app ships, rebuilt and reloaded
+// on an edit (host/web-js/dev.mjs); a build it refuses shows in the page.
+// A game (its runtime is on wasm), and `--wasm` (the loop a
+// native client opening the dev URL reads), run the resident wasm loop below.
+if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, remoteAsked, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), residentPort: named != null && !webPortRange() ? port + 1 : 0 });
+}
+// Behind the JS loop (`--serve-as`) an app's resident loop is its producers
+// alone: nothing loads its page, so its builds are the web crate's bake
+// without the wasm (`host/web/build.mjs --bake`), and a program is named by
+// the bake's receipt rather than its wasm bytes ("Retiring the
+// wasm target on the web"). A game's is the wasm loop.
+const producersOnly = servedAs != null && app.manifest.game === undefined;
+const hostBuild = producersOnly ? '--bake' : '--wasm';
+let typescript = existsSync(resolve(app.dir, 'app.ts'));
+let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
+let rebuildOn = rebuildPolicy(app.manifest);
+let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
+let rustInputFiles = new Set();
+let changed = new Set(), timer=null, building=false, buildPending=false, rustPending=false, builds=0;
+// A failed wasm build: its files ride with the next build, and the files its
+// diagnostics named are watched (the receipt names only a built wasm's inputs).
+let lastFailed = new Set(), failedInputs = new Set();
+const plan = resolve(dist, 'app.plan');
+const graphPath = resolve(dist, 'bake.json');
+buildEnv.EXACT_DEV_BAKE = graphPath;
+async function currentWebBuild() {
+  if (!(producersOnly ? existsSync(plan) : await builtAppMatches(dist, app))) return false;
+  try {
+    const build = JSON.parse(readFileSync(graphPath, 'utf8'));
+    return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
+      && (!app.manifest.game || ['gpu', ...gpuModules(app.manifest).map(({name}) => `gpu-${name}`)].every(kind => build.products?.some(p => p.path === resolve(app.target, 'wasm32-unknown-unknown', buildEnv.EXACT_GAME_PROOF_PROFILE === 'gpu-dev' ? 'gpu-dev' : 'web', app.crate(kind).replaceAll('-', '_') + '.wasm'))))
+      && pendingBuildInputs(build).length === 0;
+  } catch { return false; }
+}
+const early = app.manifest.game && servedAs == null ? await buildingServer({app:app.dir, host, port, gate, origins}) : null;
+const startup = startupBuilds();
+if (app.manifest.game) {
+  const code = await startup.run(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:'inherit'});
+  if (code !== 0) process.exit(code);
+}
+if (!await currentWebBuild()) {
+  early?.phase('host', 'build');
+  const code = await startup.run(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: 'inherit' });
+  if (code !== 0) process.exit(code);
+}
+// The last complete cdylib links name their transitive source files, including
+// path dependencies outside this workspace. Unknown/shared inputs take the full build.
+let gpuInputs = new Set(), appInputs = new Set();
+const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
+// A server epoch pairs function-scoped glue with its Wasm bytes.
+let gpuVersion = Date.now(), gpuBuildChild = null;
+// Side builds by version: which artifact, and where. `gpuSides` is each
+// artifact's newest, which a page connecting later loads first.
+const gpuTimings = new Map(), gpuVersions = new Map(), gpuSides = new Map();
+function readGpuInputs(profile = buildEnv.EXACT_GAME_PROOF_PROFILE === 'gpu-dev' ? 'gpu-dev' : 'web', stems = null) {
+  const inputs = (kind, profile) => {
+    const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
+    return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
+  };
+  if (!stems) appInputs = gameRuntimeInputs(inputs('web', 'web'));
+  if (!stems) gpuArtifactInputs = new Map();
+  for (const { stem, kind } of gpuArtifacts()) if (!stems || stems.includes(stem)) gpuArtifactInputs.set(stem, inputs(kind, profile));
+  gpuInputs = new Set([...gpuArtifactInputs.values()].flatMap(set => [...set]));
+}
+// Every GPU artifact the web serves: the primary `gpu`, then
+// each declared module `gpu/<name>`, with the inputs its last link named.
+const gpuArtifacts = () => [{ stem: 'gpu', kind: 'gpu' },
+  ...gpuModules(app.manifest).map(({ name }) => ({ stem: `gpu/${name}`, kind: `gpu-${name}`, module: name }))];
+let gpuArtifactInputs = new Map();
+function gameRuntimeInputs(inputs) {
+  if (!app.manifest.game || !inputs.size) return inputs;
+  // A generated game's bake reads Game::NAME/Args::FIELDS; its logic is not
+  // linked into the app. Cargo's summary .d includes that build-only closure.
+  const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], {cwd:app.workspace, env:buildEnv, encoding:'utf8', maxBuffer:128*1024*1024});
+  if (result.status !== 0) throw new Error(`cargo metadata failed: ${result.stderr || result.error || result.status}`);
+  const metadata = JSON.parse(result.stdout), packages = new Map(metadata.packages.map(p => [p.id,p]));
+  const nodes = new Map(metadata.resolve.nodes.map(n => [n.id,n]));
+  const root = metadata.packages.find(p => p.name === app.crate('web'));
+  if (!root) return inputs;
+  const runtime = new Set(), pending = [root.id];
+  while (pending.length) {
+    const id = pending.pop(); if (runtime.has(id)) continue; runtime.add(id);
+    // Keep build inputs of runtime dependencies: their generated Rust can be
+    // part of the app. Only the known generated game bake is metadata-only.
+    for (const dep of nodes.get(id)?.deps ?? [])
+      if (dep.dep_kinds.some(k => k.kind === null || (id !== root.id && k.kind === 'build'))) pending.push(dep.pkg);
+  }
+  const sources = new Set([...runtime].flatMap(id => packages.get(id).targets
+    .filter(t => t.kind.some(k => ['lib','rlib','cdylib','proc-macro'].includes(k)) || (id !== root.id && t.kind.includes('custom-build')))
+    .map(t => resolve(t.src_path))));
+  const included = new Set(), found = new Set();
+  // Units in Cargo's build-dir: `build/<name>-<hash>/` beside `deps/`, or, in
+  // the new layout (the web toolchain's), `build/<name>/<hash>/` with the
+  // unit's files in `out/` and a script's stdout in `run/stdout`.
+  const subdirectories = (dir) => existsSync(dir) ? readdirSync(dir,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>resolve(dir,e.name)) : [];
+  for (const profile of [resolve(app.target,'web'), resolve(app.target,'wasm32-unknown-unknown/web')]) {
+    const units = [{directory:resolve(profile,'deps'),output:null,name:''}];
+    for (const entry of subdirectories(resolve(profile,'build'))) {
+      const name = entry.slice(entry.lastIndexOf('/')+1), nested = subdirectories(entry).filter(d => /^[a-f0-9]+$/.test(d.slice(d.lastIndexOf('/')+1)));
+      if (nested.length) for (const unit of nested) units.push({directory:resolve(unit,'out'),output:resolve(unit,'run/stdout'),name});
+      else units.push({directory:entry,output:resolve(entry,'output'),name:name.replace(/-[a-f0-9]+$/,'')});
+    }
+    for (const {directory,output,name} of units) if (existsSync(directory)) {
+      if (output && existsSync(output)) for (const id of runtime) {
+        const pkg=packages.get(id);
+        if (id===root.id || name!==pkg.name) continue;
+        for (const line of readFileSync(output,'utf8').split('\n')) {
+          const changed=/^cargo::?rerun-if-changed=(.+)$/.exec(line); if (!changed) continue;
+          const watched=resolve(pkg.manifest_path,'..',changed[1]);
+          for (const path of inputs) if (path===watched || path.startsWith(watched+'/')) included.add(path);
+        }
+      }
+      for (const file of readdirSync(directory)) {
+        if (!file.endsWith('.d')) continue;
+        const paths = compilerPaths(readFileSync(resolve(directory,file),'utf8'),app.workspace);
+        const roots = paths.filter(path=>sources.has(path));
+        if (roots.length) { for (const path of roots) found.add(path); for (const path of paths) included.add(path); }
+      }
+    }
+  }
+  // Exact rustc unit files retain include! inputs outside their package. If
+  // evidence for a compiled runtime source is missing, keep the full rebuild.
+  if ([...sources].some(path=>inputs.has(path) && !found.has(path))) return inputs;
+  const owners = metadata.packages.map(p=>({id:p.id,dir:resolve(p.manifest_path,'..')})).sort((a,b)=>b.dir.length-a.dir.length);
+  return new Set([...inputs].filter(path=>{
+    const owner = owners.find(p=>path===p.dir || path.startsWith(p.dir+'/'));
+    return !owner || runtime.has(owner.id) || included.has(path);
+  }));
+}
+readGpuInputs();
+const gpuOnly = files => !tuning?.paths.size && !producersOnly && files.length > 0 && appInputs.size > 0
+  && files.every(path => path.endsWith('.rs') && gpuInputs.has(path) && !appInputs.has(path));
+const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
+const assetTrees = [...[['assets', 'assets'], ['deck', 'deck']].map(([from, to]) => [resolve(app.dir, from), to]), ...shaderWatchRoots(app).map(root => [root, 'shaders'])];
+const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
+const shaderDigests = new Map();
+const toolingEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
+const reflectBin = resolve(app.target, 'debug/exact-gpu-reflect');
+function reflectShaders(tree) {
+  if (!existsSync(reflectBin)) {
+    const built = phased('the GPU tools (exact-gpu-reflect)', 'cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: root, env: toolingEnv });
+    if (built.status !== 0) throw new Error(`exact-gpu-reflect did not build (exit ${built.status ?? built.signal})`);
+  }
+  return shaderInterfaceDigests(tree, reflectBin);
+}
+// A completed build may predate a source-tree deletion or restoration. Mirror
+// every declared tree before any compiler/server process starts. A truly
+// absent root removes stale output; a dangling root link is a refusal. The
+// complete shader candidate reflects before the old served tree is replaced.
+for (const [from, to] of assetTrees.filter(([,to]) => to !== 'shaders')) {
+  let reflected = new Map();
+  const present = syncStaticTree(from, resolve(dist, to), to === 'shaders' ? (candidate) => { reflected = reflectShaders(candidate); } : null);
+  if (present && to === 'shaders') for (const [name, digest] of reflected) shaderDigests.set(name, digest);
+}
+applyShaderTreeChange(app, resolve(dist,'shaders'), candidate => { for (const [name,digest] of reflectShaders(candidate)) shaderDigests.set(name,digest); });
+const clients = new Set();
+let seq = 0;
+const pending = new Map(); // seq -> { saved, ready }
+const push = (data) => { if (data.error) failedPhase(data.error); for (const res of clients) res.write(`data: ${JSON.stringify(data)}\n\n`); };
+// The live table: a value-only design edit publishes no
+// plan; its batch goes to every build, and its snapshot is kept for a build
+// that connects (or missed a batch) until the next plan.
+let designSnapshot = null, designSource = null;
+const designBytes = () => { try { return createHash('sha256').update(readFileSync(designPath(app.dir))).digest('hex'); } catch { return null; } };
+// A frame larger than this, in UTF-8 bytes, goes as a notice instead: a
+// native host's event frames are bounded (PlanURL.swift's 64 KiB).
+const DESIGN_FRAME = 32 * 1024;
+const designNotice = (s) => ({ kind: 'tamber-batch', structure: s.structure, base: s.design, design: s.design, tokens: [], ...(s.scrub ? { scrub: s.scrub } : {}) }); // a scrub's mark kept
+// The TypeScript producer's last design (`{structure, digest, tokens}`).
+let moduleDesign = null;
+/** The batch and snapshot from design `from` to `to`, or null when the
+ * structure differs (a token's name included). */
+function designBatch(from, to) {
+  if (from.structure !== to.structure || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  const same = (a, b) => a.value === b.value && a.slices.length === b.slices.length && a.slices.every((s, i) => s === b.slices[i]);
+  return {
+    batch: { kind: 'tamber-batch', structure: to.shape, base: from.digest, design: to.digest, tokens: to.tokens.filter((t, i) => !same(t, from.tokens[i])) },
+    snapshot: { kind: 'tamber-snapshot', structure: to.shape, base: null, design: to.digest, tokens: to.tokens },
+  };
+}
+function pushDesign({ batch, snapshot }) {
+  // Serving as another loop's producers, that loop is the one source of
+  // batches (relayed onto these streams), so a resident loop sends none.
+  if (servedAs != null) return;
+  designSnapshot = snapshot;
+  let frame = JSON.stringify(batch);
+  if (Buffer.byteLength(frame) > DESIGN_FRAME) frame = JSON.stringify(designNotice(snapshot));
+  for (const res of clients) streamFrame(res, frame, () => designSnapshot && designNotice(designSnapshot)); // a build behind gets the latest
+  tamber?.channel.broadcast(JSON.parse(frame));
+}
+/** A scrub's batch and snapshot (`live`, or a compiler's reply) shown, each marked `frame` (*1.11*). */
+function scrubShown(live, frame) {
+  const mark = (e) => (e && frame ? { ...e, scrub: frame } : e);
+  if (live.batch?.tokens.length) pushDesign({ batch: mark(live.batch), snapshot: mark(live.snapshot) }); else if (live.snapshot) designSnapshot = mark(live.snapshot);
+}
+/** A scrub's batch and snapshot from design `from` to `to`: by the design's shape, since the TypeScript producer's scrub
+ * design is unbaked and its plan structure is not the generation's. */
+function scrubBatch(from, to) {
+  if (from.shape !== to.shape || from.tokens.length !== to.tokens.length
+    || from.tokens.some((t, i) => t.name !== to.tokens[i].name)) return null;
+  return designBatch({ ...from, structure: to.structure }, to);
+}
+// A scrub's previews and its end, asked of the resident compiler (dev.rs's
+// `scrub`/`restore` lines, the TypeScript producer's `{scrub}` request).
+// Each answer is applied (`apply`) as its line is read, in order with the
+// compiler's other lines, so a later edit's batch never goes out before it.
+// The compiler answers each in turn; one stopped answers those it had not
+// (`unasked`), and its next starts with no preview.
+const scrubAsks = new Map();
+let scrubAskId = 0;
+const scrubAsk = (line, apply) => new Promise((done) => {
+  const child = dev;
+  if (!child?.stdin?.writable) return done({ error: 'no resident compiler runs' });
+  const id = `scrub-${++scrubAskId}`;
+  scrubAsks.set(id, (v) => { scrubAsks.delete(id); done(v.error && v.stopped ? v : apply(v)); });
+  child.stdin.write(`${line(id)}\n`);
+});
+const unasked = () => { for (const answer of [...scrubAsks.values()]) answer({ error: 'the compiler stopped', stopped: true }); moduleScrubbed = null; moduleReleased = false; };
+// The design the builds run while a TypeScript app's scrub previews.
+let moduleScrubbed = null, moduleReleased = false;
+/** Preview a scrub's texts on every build: the batch from the design they
+ * run; nothing written. */
+// A scrub previewing: the design the builds run is no committed one, so it
+// certifies no file.
+let previewing = false, releaseMark = null; // and the released scrub's mark, which its build carries (*1.11*)
+async function scrubPreview(texts, frame) {
+  previewing = true;
+  if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  const file = relative(app.dir, designPath(app.dir));
+  // Texts that leave the design file as it is: the committed design.
+  if (!(file in texts)) { await scrubRestore(frame); return {}; }
+  if (typescript) {
+    return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
+      if (!reply.ok) return { error: reply.error ?? 'the producer refused it' };
+      const from = moduleScrubbed ?? moduleDesign;
+      const live = from && scrubBatch(from, reply.design);
+      if (!live) return { error: 'it changes the design\'s shape: a rebuild applies on release' };
+      // A new preview is no released scrub's.
+      moduleScrubbed = reply.design; moduleReleased = false;
+      scrubShown(live, frame);
+      return {};
+    });
+  }
+  return scrubAsk((id) => `scrub ${id} ${JSON.stringify(texts[file])}`, (reply) => {
+    if (reply.error) return { error: reply.error };
+    scrubShown(reply, frame);
+    return {};
+  });
+}
+/** A scrub's frame patched (tamber-scrub.mjs `patch`), compiling nothing; `{fallback}`: compile it instead. */
+async function scrubPatch(values, frame, files) {
+  previewing = true;
+  if (!typescript && portableRust) return { error: 'this app\'s own producer publishes every plan: its design edits reload' };
+  const source = files?.[relative(app.dir, designPath(app.dir))] ?? null;
+  if (typescript) {
+    if (source !== designSource) return { fallback: true }; // its design is not built from them yet
+    const next = moduleDesign && patchDesign(moduleDesign, values);
+    const live = next && scrubBatch(moduleScrubbed ?? moduleDesign, next);
+    if (!live) return { fallback: true };
+    moduleScrubbed = next; moduleReleased = false;
+    scrubShown(live, frame);
+    return {};
+  }
+  return scrubAsk((id) => `patch ${id} ${JSON.stringify({ source, values: values.map(({ name, css }) => [name, css]) })}`, (reply) => { // patched only on a design compiled from those bytes
+    if (reply.error || reply.fallback) return reply.error ? { error: reply.error } : { fallback: true };
+    scrubShown(reply, frame);
+    return {};
+  });
+}
+/** The patched frame shown against its texts compiled in full: `{mismatch}` naming what differs. */
+async function scrubVerify(texts) {
+  const file = relative(app.dir, designPath(app.dir)); if (!(file in texts)) return {};
+  const answer = (mismatch) => { if (mismatch) console.log(`scrub: the patched frame is not its compile (${mismatch}); the builds get the committed design back`); return mismatch ? { mismatch } : {}; };
+  if (typescript) {
+    const shown = moduleScrubbed;
+    return scrubAsk((id) => JSON.stringify({ id, scrub: texts[file] }), (reply) => {
+      if (!shown || moduleScrubbed !== shown) return {};
+      if (!reply.ok) return answer(reply.error ?? 'it does not compile');
+      const t = reply.design.tokens, i = t.findIndex((x, i) => designDigest([x]) !== designDigest([shown.tokens[i] ?? { name: '', value: '', slices: [] }]));
+      return answer(i >= 0 ? `\`${t[i].name}\`: compiled ${JSON.stringify(t[i])}, patched ${JSON.stringify(shown.tokens[i])}` : t.length !== shown.tokens.length || reply.design.shape !== shown.shape ? 'the designs differ' : null);
+    });
+  }
+  return scrubAsk((id) => `verify ${id} ${JSON.stringify(texts[file])}`, (reply) => answer(reply.mismatch ?? reply.error ?? null));
+}
+/** A scrub being written: the build of what it writes goes from it. */
+async function scrubReleased(frame) {
+  previewing = false; releaseMark = frame ?? null;
+  if (typescript) { moduleReleased = moduleScrubbed != null; return; }
+  if (portableRust) return;
+  await scrubAsk((id) => `release ${id}`, () => {});
+}
+/** A scrub ended without its write: every build back on the committed design. */
+async function scrubRestore(frame) {
+  previewing = false;
+  if (typescript) {
+    const live = moduleScrubbed && moduleDesign && scrubBatch(moduleScrubbed, moduleDesign);
+    moduleScrubbed = null; moduleReleased = false;
+    if (live) scrubShown(live, frame);
+    return;
+  }
+  if (portableRust) return;
+  await scrubAsk((id) => `restore ${id}`, (reply) => scrubShown(reply, frame));
+}
+// A revision owns its plan and complete asset namespace. Its process epoch
+// makes a restarted server's seq=1 newer than the previous server's seq=N.
+const epoch = randomBytes(16).toString('hex');
+const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
+// The design tool uses the map for a build's plan digest, falling back to the current
+// generation. The parent JS loop owns Tamber under --serve-as.
+const plannedMaps = new Map(), mapsBySha = new Map();
+function keepMap(digest, bytes) {
+  plannedMaps.delete(digest); plannedMaps.set(digest, bytes);
+  while (plannedMaps.size > 8) plannedMaps.delete(plannedMaps.keys().next().value);
+  mapsBySha.set(createHash('sha256').update(bytes).digest('hex'), bytes);
+  while (mapsBySha.size > 16) mapsBySha.delete(mapsBySha.keys().next().value);
+}
+// The parent JS loop retains maps only after checking their cards.
+const mapFd = servedAs != null && /^\d+$/.test(process.env.EXACT_MAP_FD ?? '') ? Number(process.env.EXACT_MAP_FD) : null;
+function announcePlan(plan, bytes) {
+  if (mapFd == null) return;
+  const sha = bytes && createHash('sha256').update(bytes).digest('hex');
+  try { writeSync(mapFd, JSON.stringify({ plan, map: bytes ? { sha256: sha, bytes: bytes.length, url: `/__dev/map/${sha}` } : null }) + '\n'); } catch { /* the parent went */ }
+}
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), remote: () => doors?.list() ?? [], live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+// The resident compiler's map beside the plan it wrote (a generation from a
+// Rust producer carries none); the server checks its digest.
+function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }
+// A polled stream (Linux) is told the design to run when it opens.
+tamber?.channel.greet(() => designSnapshot && designNotice(designSnapshot));
+const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
+let current = null;
+let currentModule = null;
+let currentRust = null;
+let currentRustId = null;
+let assetsNeedRebuild = false;
+// This names the actual programs already served, including optional GPU code.
+// A changed program stays terminal even when its compatibility metadata agrees.
+const programIdentity = () => {
+  if (producersOnly) return JSON.parse(readFileSync(graphPath, 'utf8')).binary.sha256;
+  const files = ['app.wasm', 'gpu_bg.wasm', ...gpuModules(app.manifest).map(({ name }) => `gpu/${name}_bg.wasm`), 'markup-editor.wasm', 'textflow.wasm'].map((name) => {
+    const encoded = filesystem({ op: 'get', root: dist, path: name });
+    if (encoded === null && name === 'app.wasm') throw new Error('the app wasm is missing');
+    return { name, sha256: encoded === null ? null : createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex') };
+  });
+  return createHash('sha256').update(canonicalBytes({ files })).digest('hex');
+};
+let program = programIdentity();
+const announcement = () => current ? {
+  epoch, program, seq: current.seq, generation: current.generation, ...(tuning?.paths.size ? {surfaceAssets:['assets/exact-tables.json']} : {}),
+  digest: current.envelope.plan.sha256, envelope: current.url,
+} : { epoch, ready: false };
+const hello = (nonce) => JSON.stringify({ hello: true, ...announcement(), ...(nonce ? { nonce } : {}) });
+let retentionToken = null;
+const tableGenerations = new Map();
+const isEntryFile = name => name.startsWith('plans/') || name.startsWith('activities/');
+function captureGeneration(reuseCurrentAssets = false, tableUpdate = null) {
+  // A mixed app publishes one complete candidate. A producer may finish
+  // first, but neither language may reset the other's last admitted module.
+  if (!tableUpdate && typescript && portableRust && (!currentModule || !currentRust)) return;
+  const encodedPlan = currentModule || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
+  if (!currentModule && !tableUpdate && encodedPlan === null) throw new Error('the plan is missing');
+  const planBytes = (tableUpdate ? current?.files.get('app.plan') : undefined) ?? currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
+  const files = tableUpdate ? new Map(current.files) : currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
+  // Source metadata stays beside the dev generation, never in its assets or
+  // module receipt. A static/Rust bake may have replaced the plan without a map.
+  const encodedMap = currentModule || currentRust || tableUpdate ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
+  const mapBytes = tableUpdate ? current.files.get('app.plan.map.json') : currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
+  files.delete('app.plan.map.json');
+  if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
+    try {
+      const planDigest = createHash('sha256').update(planBytes).digest('hex');
+      if (JSON.parse(mapBytes.toString('utf8')).digest === planDigest) files.set('app.plan.map.json', mapBytes);
+    } catch { /* Unavailable metadata must not prevent a valid app reload. */ }
+  }
+  const module = (tableUpdate ? current.envelope.module : currentModule) ? moduleCards(files, app.id) : null;
+  if (!tableUpdate && currentRust) for (const [name, body] of currentRust) {
+    if (name === 'app.plan' || name === 'app.plan.map.json' || (currentModule && isEntryFile(name))) continue;
+    // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
+    // its receipt to the new common plan; each client validates both
+    // executors together before restart with carry.
+    if (currentModule && name.endsWith('/app.module.json')) {
+      const receipt = JSON.parse(body);
+      receipt.plan = {file:'app.plan',bytes:planBytes.length,sha256:createHash('sha256').update(planBytes).digest('hex')};
+      files.set(name, Buffer.from(JSON.stringify(receipt)));
+    } else files.set(name, body);
+  }
+  const rust = (tableUpdate ? current.envelope.rust : currentRust) ? rustCards(files) : null;
+  const assets = [];
+  const entryFiles = currentModule ?? currentRust;
+  const fromProducer = name => !tableUpdate && entryFiles && isEntryFile(name);
+  // Logic edits reuse the last admitted static snapshot. Asset events capture
+  // through owned filesystem reads again before publishing their own revision.
+  if (reuseCurrentAssets && current) {
+    for (const asset of current.envelope.assets) {
+      if (fromProducer(asset.name)) continue;
+      const body = tableUpdate?.get(asset.name) ?? current.files.get(asset.name);
+      files.set(asset.name, body);
+      assets.push({ name: asset.name, sha256: tableUpdate?.has(asset.name) ? createHash('sha256').update(body).digest('hex') : asset.sha256, bytes: body.length });
+    }
+  } else {
+    const captured = new Map([...captureAssets(dist)].filter(([name]) => !fromProducer(name)));
+    for (const [name, body] of captured) files.set(name, body);
+    assets.push(...assetCards(captured));
+  }
+  if (!tableUpdate && entryFiles) {
+    const entries = new Map([...entryFiles].filter(([name]) => isEntryFile(name)));
+    for (const [name, body] of entries) files.set(name, body);
+    assets.push(...assetCards(entries));
+  }
+  assets.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+  if ([planBytes, ...files.values()].some((body) => body.length > 64 * 1024 * 1024)
+    || [...files.values()].reduce((sum, body) => sum + body.length, 0) > 256 * 1024 * 1024) throw new Error('generation exceeds the payload budget');
+  const envelope = webEnvelope(app, planBytes, assets);
+  const generation = devGenerationDigest({ sha256: envelope.plan.sha256, bytes: planBytes.length }, assets, module, rust);
+  const prefix = `/__dev/generation/${epoch}/${seq}/`;
+  envelope.dev = { epoch, program, seq, generation, events: '/__dev' };
+  if (files.has('app.plan.map.json')) {
+    const body = files.get('app.plan.map.json');
+    envelope.dev.sourceMap = { url: prefix + 'app.plan.map.json', sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length };
+  }
+  envelope.plan.url = prefix + 'app.plan';
+  if (rust) envelope.rust = Object.fromEntries(Object.entries(rust).map(([kind, variant]) => [kind, { ...variant, receipt:{...variant.receipt,url:prefix+variant.receipt.url},module:{...variant.module,url:prefix+variant.module.url} }]));
+  if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
+  for (const asset of envelope.assets) asset.url = prefix + asset.name.split('/').map(encodeURIComponent).join('/');
+  const envelopeBytes = Buffer.from(JSON.stringify(envelope) + '\n');
+  if (envelopeBytes.length > 64 * 1024) throw new Error('generation envelope exceeds 64 KiB');
+  files.set('exact.json', envelopeBytes);
+  if (tableUpdate) {
+    // Table edits retain immutable bytes in this session; no filesystem helper is launched.
+    tableGenerations.set(prefix, files);
+    while (tableGenerations.size > 3) tableGenerations.delete(tableGenerations.keys().next().value);
+  } else retentionToken = retainDevGeneration(generationCache, epoch, seq, files, undefined, retentionToken).token;
+  const revision = { epoch, seq, generation, envelope, files, prefix, url: prefix + 'exact.json' };
+  const classification=classifyGeneration(planBytes,assets);
+  current = revision;
+  // Published: its map kept, and its plan (with its map's card, or none)
+  // said to a parent loop. A refused candidate changes neither.
+  if (files.has('app.plan.map.json')) keepMap(envelope.plan.sha256, files.get('app.plan.map.json'));
+  announcePlan(envelope.plan.sha256, files.get('app.plan.map.json') ?? null);
+  console.log(classification.map(line=>`  ${line}`).join('\n'));
+}
+
+// A ready line waits for the server to listen ([::1] too) and its doors to open: a test or an agent connects on it.
+let dev = null; let announced = false, listening = false; const readyLines = [], sayReady = line => { if (listening) console.log(line); else readyLines.push(line); };
+let contractStamp, contractTreeStamp, compiledContract; const readinessContracts = new Set([source]);
+const contractBytes = () => { try { return createHash('sha256').update(readFileSync(source)).digest('hex'); } catch { return null; } };
+const contractInputsStamp = () => createHash('sha256').update([...readinessContracts].sort().map(path => { try { return path + ':' + readFileSync(path); } catch { return path + ':missing'; } }).join('\0')).digest('hex');
+function contractReady(compiled = compiledContract) { contractStamp = compiled; contractTreeStamp = contractInputsStamp(); early?.phase('contract', compiled === contractBytes() ? 'ready' : 'build'); }
+function startCompiler() {
+  early?.phase('contract','build');
+  if (portableRust) startRustCompiler();
+  if (typescript) { startModuleCompiler(); return; }
+  if (portableRust) return;
+  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
+  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
+  // The app's dev bin is `<app>-dev` (`dev` before the rename); a
+  // web crate without one bakes through the generic compiler.
+  const web = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'));
+  const devBin = web?.targets.find(t=>t.kind.includes('bin')&&(t.name==='dev'||t.name.endsWith('-dev')))?.name;
+  const run = devBinRun(app, devBin, buildEnv); dev = spawn('cargo', [...run.args, '--', source, plan], { cwd: run.cwd, env: run.env, stdio: ['pipe', 'pipe', 'inherit'], detached: true });
+  dev.stdin.on('error', () => {});
+  const me = dev;
+  console.log(`compiler pid ${dev.pid}`);
+  let buffered = '';
+  let first = true;
+  dev.stdout.on('data', (chunk) => {
+    if (dev !== me) return;
+    buffered += chunk;
+    const lines = buffered.split('\n');
+    buffered = lines.pop();
+    for (const line of lines) {
+      const [kind, ...rest] = line.split(' ');
+      if (kind === 'source') { designSource = rest[0] === '-' ? null : rest[0]; compiledContract = rest[1]; } // the design bytes the build compiled (the patch gate)
+      else if (kind === 'scrubbed') {
+        let reply;
+        try { reply = JSON.parse(rest.slice(1).join(' ')); } catch { reply = { error: 'an unreadable scrub reply' }; }
+        scrubAsks.get(rest[0])?.(reply);
+      } else if (kind === 'design') {
+        contractReady();
+        const [saved, compile, bake, ready] = rest.slice(0, 4).map(Number);
+        let live;
+        try { live = JSON.parse(rest.slice(4).join(' ')); } catch { console.error('dev compiler: unreadable design line'); continue; }
+        console.log(`edit → batch ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no plan`);
+        if (releaseMark) { scrubShown(live, releaseMark); releaseMark = null; } else pushDesign(live);
+      } else if (kind === 'plan') {
+        if (assetsNeedRebuild) continue;
+        designSnapshot = null; tamber?.compete(); // a new plan ends a scrub
+        const [bytes, saved, compile, bake, ready] = rest.map(Number);
+        seq += 1;
+        if (!first) pending.set(seq, { saved, ready });
+        try { captureGeneration(); contractReady(); } catch (error) { early?.phase('contract','failed'); push({ error: `generation refused: ${error.message}` }); continue; }
+        // The first ready plan completes discovery. Every subscriber reconciles
+        // its full generation; only later saves contribute edit timings.
+        if (first) { first = false; for (const res of clients) res.write(`data: ${hello()}\n\n`); if (!announced) { announced = true; sayReady(`plan ready: ${bytes} bytes (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms) — edit ${source.replace(root + '/', '')} and watch`); } continue; }
+        sayReady(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
+        push({ ...announcement(), bytes });
+      } else if (kind === 'error') {
+        contractStamp = contractBytes(); contractTreeStamp = contractInputsStamp(); early?.phase('contract','failed');
+        let error = rest.join(' ');
+        try { error = JSON.parse(error); } catch { /* a plain message */ }
+        console.log(`error: ${error}`);
+        push({ error });
+      }
+    }
+  });
+  dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); killCompiler(); process.exit(code ?? 1); } });
+}
+// Direct file watchers avoid recursive-directory event coalescing on macOS.
+// The directory watcher discovers new paths; file metadata suppresses its
+// delayed duplicate events. Bounds match the producer's byte limits, with a
+// finite traversal/descriptor budget for the development watcher itself.
+function watchModuleSources(directory, ignore, changed) {
+  const files = new Map();
+  let identity = '', refusal = null, closed = false, queued = false;
+  const metadata = stat => [stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].join(':');
+  const rescan = () => {
+    if (closed || queued) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; if (!closed) scan(true); });
+  };
+  function scan(notify) {
+    const next = new Map(), state = [];
+    let entries = 0, bytes = 0;
+    try {
+      const rootStat = lstatSync(directory);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('module source root is not a regular directory');
+      function walk(at, prefix = '', depth = 0) {
+        if (depth > 64) throw new Error('module watcher source graph is too deep');
+        for (const entry of readdirSync(at, { withFileTypes: true })) {
+          const name = prefix + entry.name;
+          if (ignore(name)) continue;
+          if (++entries > 4096) throw new Error('module watcher source graph exceeds 4096 entries');
+          const path = resolve(directory, name), stat = lstatSync(path, { bigint: true });
+          // A link is what it leads to: retargeting it is an edit.
+          if (stat.isSymbolicLink()) {
+            let target = '';
+            try { const to = statSync(path, { bigint: true }); target = `${readlinkSync(path)}:${metadata(to)}:${to.dev}:${to.ino}`; } catch { target = 'dangling'; }
+            state.push([name, `symlink:${target}`]);
+            continue;
+          }
+          if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
+          // A design (`.tamber`) is a source: a value-only edit goes as a batch.
+          if (!/\.(ts|contract|json|tamber)$/.test(name) && !['.exact/backend-origin', '.env.local', '.env'].includes(name)) continue;
+          if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
+          bytes += Number(stat.size);
+          if (stat.size > 16n*1024n*1024n || bytes > 64*1024*1024 || next.size >= 2048) throw new Error('module watcher source graph exceeds its file/byte budget');
+          const stamp = metadata(stat);
+          next.set(path,{ stamp, inode:stat.dev+':'+stat.ino });
+          state.push([name,stamp]);
+        }
+      }
+      walk(directory);
+      for (const [path, old] of files) if (!next.has(path) || next.get(path).inode !== old.inode) { old.watch.close(); files.delete(path); }
+      for (const [path, record] of next) {
+        const old = files.get(path);
+        const handle = old?.watch ?? watch(path, rescan);
+        if (!old) handle.on('error',()=>{handle.close();if(files.get(path)?.watch===handle)files.delete(path);rescan();});
+        files.set(path,{ ...record,watch:handle });
+      }
+      const value = JSON.stringify(state.sort(([a],[b])=>a<b?-1:a>b?1:0));
+      const different = value !== identity || refusal !== null;
+      identity = value; refusal = null;
+      if (notify && different) changed(null);
+    } catch (error) {
+      const different = refusal?.message !== error.message;
+      refusal = error;
+      if (notify && different) changed(error);
+    }
+  }
+  const rootStat = lstatSync(directory);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('module source root is not a regular directory');
+  scan(false);
+  const directoryWatch = watch(directory,{recursive:true},(_event,name)=>{ if(!name || !ignore(String(name))) rescan(); });
+  directoryWatch.on('error',error=>{refusal=error;changed(error);});
+  // FSEvents delivery is not guaranteed: Bun 1.4.2's fs.watch on macOS can
+  // report a save minutes late or never (oven-sh/bun#43870). A stat poll of
+  // the same identity bounds edit → plan at the compiler-input watcher's
+  // 100 ms, whatever the watchers deliver; a no-change scan is a few lstats.
+  const poll = setInterval(() => scan(true), 100);
+  poll.unref?.();
+  return { get error(){return refusal;}, close(){closed=true;clearInterval(poll);directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
+}
+let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
+/** The Contract sources the app reads from packages, and
+ * the directories to watch for them: each package's root, and the nearest
+ * existing directory of a file resolution looked for and did not find. */
+function contractGraph() {
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(app.dir, 'app.contract')], { cwd: root, env: toolingEnv, encoding: 'utf8' });
+  const nearest = (path) => { while (!existsSync(path) && dirname(path) !== path) path = dirname(path); return path; };
+  try {
+    const graph = JSON.parse(r.stdout);
+    const files = new Set([...graph.sources.filter(s => s.origin === 'package').map(s => s.path), ...graph.consulted]);
+    // A file looked for and not found: its nearest existing directory, but
+    // only inside a package or a node_modules — never the app or above it.
+    // A consulted manifest's directory is a package even when resolution
+    // then refused it.
+    // Either separator: `contract sources` prints the platform's paths.
+    const under = (d, root) => { const r = relative(root, d); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
+    const inside = d => graph.packages.some(p => under(d, p.root)) || /(^|[\\/])node_modules([\\/]|$)/.test(d)
+      || graph.consulted.some(c => basename(c) === 'package.json' && dirname(c) === d);
+    // Watched where they really are: a watch root that is a link is refused.
+    const real = d => { try { return realpathSync(d); } catch { return d; } };
+    const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
+    // One entry of a directory: where a node_modules not made yet would be
+    // (its making is an install), and an install that is a link (its
+    // retargeting is an edit no file inside sees).
+    const shallow = new Map();
+    for (const c of graph.consulted) {
+      const match = [...c.matchAll(/[\\/]node_modules[\\/]/g)].pop();
+      if (match) {
+        const parent = c.slice(0, match.index);
+        if (!existsSync(resolve(parent, 'node_modules')) && existsSync(parent)) shallow.set(`${parent}\0node_modules`, [parent, 'node_modules']);
+      }
+      // Every link on the way to it — the install, a linked node_modules,
+      // a linked scope — is one entry of its directory.
+      for (let dir = dirname(c); dirname(dir) !== dir; dir = dirname(dir)) {
+        try { if (lstatSync(dir).isSymbolicLink()) shallow.set(`${dirname(dir)}\0${basename(dir)}`, [dirname(dir), basename(dir)]); } catch {}
+      }
+    }
+    // Every source and every path resolution looked at: a hidden import not
+    // made yet, or a link whose target is elsewhere, is scanned by its path.
+    const sources = new Set([...graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path), ...graph.consulted]);
+    return { files, dirs, shallow: [...shallow.values()], sources };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
+}
+function startModuleCompiler() {
+  const built = phased('the module producer (exact-js-bake --release; the first run takes a few minutes)', 'cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv });
+  if (built.status !== 0) throw new Error('the module producer did not build');
+  const scratch = resolve(app.target, 'module-dev');
+  mkdirSync(scratch, { recursive: true });
+  const child = dev = spawn(resolve(app.target, 'release/exact-js-bake'), [app.dir, '--serve'], {
+    cwd: root, env: toolingEnv, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  console.log(`compiler pid ${child.pid}`);
+  let active = null, buffered = '', errors = '';
+  const produce = () => {
+    clearImmediate(moduleTimer);
+    if (dev !== child || active || moduleWatch?.error) return;
+    const started = Date.now(), stage = mkdtempSync(resolve(scratch, 'candidate-'));
+    moduleStage = stage;
+    early?.phase('typescript','build');
+    active = { id: moduleRun, started, saved: moduleSaved || started, stage, output: resolve(stage, 'generation'), design: designBytes(), contract:contractBytes() }; // its bytes if still so after
+    // The served plan and receipt seed what the producer cannot compute: a
+    // resource only Rust owns keeps its last Cargo-baked first-frame value.
+    child.stdin.write(JSON.stringify({ id: active.id, out: active.output, previous: resolve(dist, 'app.plan'), receipt: resolve(dist, 'app.module.json') }) + '\n');
+  };
+  manualTypescript = () => { moduleRun++; moduleSaved = Date.now(); produce(); };
+  child.stderr.on('data', chunk => {  errors = (errors + chunk).slice(-65536); });
+  child.stdout.on('data', chunk => {
+    if (dev !== child) return;
+    buffered += chunk;
+    if (buffered.length > 1024 * 1024) {
+      console.error('module producer response exceeds 1 MiB');
+      killCompiler(); process.exit(1);
+    }
+    const lines = buffered.split('\n'); buffered = lines.pop();
+    for (const line of lines) {
+      let response = null;
+      try { response = JSON.parse(line); } catch { /* answered below */ }
+      if (typeof response?.id === 'string' && scrubAsks.has(response.id)) { scrubAsks.get(response.id)(response); continue; }
+      const request = active, produced = Date.now();
+      try {
+        const reply = JSON.parse(line);
+        if (!request || reply.id !== request.id) throw new Error('unexpected module producer response');
+        // An edit arriving during compilation supersedes its entire candidate.
+        if (request.id !== moduleRun) continue;
+        if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
+        early?.phase('typescript','ready'); contractReady(request.contract);
+        const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
+        for (const [name, body] of captureAssets(request.output)) candidate.set(name, body);
+        // A value-only design edit: the same structure and
+        // the same module, so no generation; its tokens go out as a batch.
+        // The executables, not the receipt, which names the plan's digest.
+        const sameEntries = currentModule && JSON.stringify(assetCards(new Map([...currentModule].filter(([name]) => isEntryFile(name))))) === JSON.stringify(assetCards(new Map([...candidate].filter(([name]) => isEntryFile(name)))));
+        const sameModule = sameEntries && [MODULE_FILES.native, MODULE_FILES.web].every(name => currentModule.get(name)?.equals(candidate.get(name)));
+        const live = sameModule && moduleDesign && reply.design && designBatch(moduleDesign, reply.design);
+        // While a scrub previews, the builds stay on it: a value-only edit
+        // changes only what its end restores; a generation ends it. A
+        // released scrub's edit (what it wrote) goes from it, and ends it.
+        if (live && moduleScrubbed && moduleReleased) live.batch = scrubBatch(moduleScrubbed, reply.design)?.batch ?? live.batch;
+        if (!live || moduleReleased) { moduleScrubbed = null; moduleReleased = false; }
+        const source = designBytes() === request.design ? request.design : null;
+        if (reply.design) { moduleDesign = reply.design; designSource = source; }
+        if (live && moduleScrubbed) continue;
+        if (live) {
+          // No generation, but the map may have moved (an edit of locations
+          // only, under the same plan): the fresh one is kept and said.
+          // Only for the plan the builds run: a value edit changes the plan
+          // bytes (the batch carries it), so its candidate's map is no one's.
+          const freshMap = candidate.get('app.plan.map.json'), freshPlan = candidate.get('app.plan');
+          if (freshMap && freshPlan && current) {
+            try {
+              const digest = createHash('sha256').update(freshPlan).digest('hex');
+              if (digest === current.envelope.plan.sha256 && JSON.parse(freshMap.toString('utf8')).digest === digest) { currentModule?.set('app.plan.map.json', freshMap); keepMap(digest, freshMap); announcePlan(digest, freshMap); }
+            } catch { /* no map: the last one stays */ }
+          }
+          if (live.batch.tokens.length) {
+            console.log(`edit → batch ready ${Date.now() - request.saved} ms · ${live.batch.tokens.length} token${live.batch.tokens.length === 1 ? '' : 's'} to ${clients.size} build${clients.size === 1 ? '' : 's'}, no generation`);
+            if (releaseMark) { scrubShown(live, releaseMark); releaseMark = null; } else pushDesign(live);
+          }
+          continue;
+        }
+        designSnapshot = null; designSource = source; tamber?.compete(); // a new plan ends a scrub
+        moduleCards(candidate, app.id);
+        const previous = currentModule;
+        currentModule = candidate;
+        seq++;
+        try { captureGeneration(true); } catch (error) { currentModule = previous; throw error; }
+        if (previous) pending.set(seq, { saved: request.saved, ready: Date.now() });
+        sayReady(`module generation ready in ${Date.now() - request.started} ms (producer ${produced-request.started} ms, publish ${Date.now()-produced} ms); restart with carry, no native rebuild`);
+        push(announcement());
+      } catch (error) { early?.phase('typescript','failed'); console.error(error.message); push({ error: error.message }); }
+      finally {
+        // A failed generation still names the packages to watch for its fix.
+        watchPackages();
+        if (request) rmSync(request.stage, { recursive: true, force: true });
+        active = null; moduleStage = null;
+        if (request && request.id !== moduleRun) produce();
+      }
+    }
+  });
+  child.on('error', error => { console.error(`module producer: ${error.message}`); killCompiler(); process.exit(1); });
+  child.stdin.on('error', error => { if (dev === child) console.error(`module producer input: ${error.message}`); });
+  child.on('exit', code => {
+    if (dev !== child) return;
+    console.error(`module producer exited ${code}: ${errors}`);
+    killCompiler(); process.exit(code || 1);
+  });
+  const moduleChanged = error => {
+    moduleRun++; moduleSaved = Date.now(); clearImmediate(moduleTimer);
+    if (error) { console.error(error.message); push({error:error.message}); return; }
+    if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
+  };
+  // The declarations the producer writes beside app.ts are its output, not a source.
+  // A Contract source the compile read is an input even in a dot directory.
+  const contractSources = new Set(contractGraph().sources);
+  // A source, or a directory on the way to one: the scan descends into it.
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const dotInput = name => /^\.exact(?:[\\/]backend-origin)?$|^\.env(?:\.local)?$/.test(name); // the backend selection, and the settings' files
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
+    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)) && !dotInput(name))
+    || (assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')) && !contractInput(resolve(app.dir, name))), moduleChanged)];
+  // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
+  for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
+    watches.push(watchModuleSources(realpathSync(resolve(app.dir, path)), name => skipped.test(name) || /(^|\/)\./.test(name), moduleChanged));
+  }
+  // And the Contract packages it uses, wherever installed (a package's own
+  // dot directories are its sources too; only its node_modules is not).
+  const packageDirs = new Set();
+  const watchPackages = () => {
+    const graph = contractGraph();
+    for (const source of graph.sources) contractSources.add(source);
+    for (const dir of graph.dirs) {
+      if (packageDirs.has(dir) || !existsSync(dir)) continue;
+      packageDirs.add(dir);
+      // A package that cannot be watched is said, never a stop to the producer.
+      try {
+        const handle = watchModuleSources(dir, name => /(^|\/)node_modules(\/|$)/.test(name), moduleChanged);
+        if (handle.error) { console.error(`cannot watch ${dir}: ${handle.error.message}`); handle.close(); }
+        else watches.push(handle);
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+    for (const [dir, entry] of graph.shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packageDirs.has(key)) continue;
+      packageDirs.add(key);
+      try {
+        const handle = watch(dir, (_event, name) => { if (String(name) === entry) moduleChanged(); });
+        watches.push({ error: null, close: () => handle.close() });
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+  };
+  watchPackages();
+  moduleWatch = { get error() { return watches.find(w => w.error)?.error ?? null; }, close() { for (const w of watches) w.close(); } };
+  if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
+
+  produce();
+}
+function readRustGeneration() {
+  if (building || changed.size) return;
+  const directory = rustOutput(app), id = readFileSync(resolve(directory, 'current'), 'utf8');
+  if (!/^[0-9a-f]{64}$/.test(id)) throw new Error('invalid Rust generation pointer');
+  if (id === currentRustId && current) return;
+  const candidate = new Map();
+  const walk = (dir, prefix = '') => {
+    for (const entry of readdirSync(dir, {withFileTypes:true})) {
+      const name = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Rust generation contains a link');
+      if (entry.isDirectory()) walk(resolve(dir, entry.name), name + '/');
+      else candidate.set(name, readFileSync(resolve(dir, entry.name)));
+    }
+  };
+  walk(resolve(directory, id));
+  if (!rustCards(candidate)) throw new Error('Rust generation contains no module');
+  const previous = currentRust; currentRust = candidate; seq++;
+  try { captureGeneration(true); } catch (error) { currentRust = previous; throw error; }
+  currentRustId = id;
+  rustInputFiles = new Set(rustInputs(app, buildEnv, {reloadOnly:true}));
+  watchCompilerInputs();
+  pending.set(seq, {saved:rustSaved || Date.now(),ready:Date.now()});
+  push(announcement());
+  sayReady(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
+}
+function produceRust() { rustPending = true; drainBuilds(); }
+function drainBuilds() {
+  if (building || rustActive) return;
+  if (buildPending || changed.size) {
+    buildPending = false;
+    // A GPU-only save after a failed app build still rebuilds the wasm.
+    const files = [...new Set([...lastFailed, ...changed])]; lastFailed = new Set(); changed = new Set();
+    if (app.manifest.game) {
+      building = true; early?.phase('check', 'build');
+      const check = hostBuildChild = spawn(process.execPath, [resolve(root, 'game/app/shells.mjs'), app.dir, '--check'], {cwd:root, env:buildEnv, stdio:['ignore','pipe','pipe']});
+      let output = '';
+      for (const stream of [check.stdout, check.stderr]) stream.on('data', bytes => { output += bytes; process.stdout.write(bytes); });
+      check.on('exit', code => {
+        building = false; hostBuildChild = null; early?.phase('check', code === 0 ? 'ready' : 'failed');
+        if (code === 0) { if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files); }
+        else {
+          lastFailed = new Set(files); push({error:output});
+          for (const [, name] of output.matchAll(/^\s*--> (.+?):\d+:\d+\s*$/gm)) { const path = [root, app.workspace].map(base => resolve(base,name)).find(existsSync); if (path) failedInputs.add(path); }
+          watchCompilerInputs(); if (changed.size) drainBuilds();
+        }
+      });
+    } else if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
+  } else if (rustPending) { rustPending = false; produceRustNow(); }
+}
+function produceRustNow() {
+  if (!rustChild) {
+    const child=rustChild=spawn(process.execPath,[resolve(root,'scripts/rust.mjs'),app.name,'--serve'],{cwd:root,env:buildEnv,detached:true,stdio:['pipe','pipe','pipe']});
+    let buffer='';
+    const failed=error=>{
+      if(rustChild!==child)return;
+      rustChild=null;rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
+      console.error(error.message);push({error:error.message});
+      try{process.kill(-child.pid,'SIGTERM');}catch{}
+      drainBuilds();
+    };
+    child.on('error',failed);
+    child.on('exit',(code,signal)=>failed(new Error(`Rust producer exited (${code??signal})`)));
+    child.stdin.on('error',failed);
+    child.stderr.on('data',data=>process.stderr.write(data));
+    child.stdout.on('data',data=>{
+      buffer+=data;
+      let end;
+      while((end=buffer.indexOf('\n'))>=0) {
+        const line=buffer.slice(0,end);buffer=buffer.slice(end+1);
+        try {
+          const reply=JSON.parse(line);
+          if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
+          rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
+          if(!reply.ok){early?.phase('rust','failed');console.error(reply.error);push({error:reply.error});}
+          // The reply follows the pointer's rename; the directory watch would
+          // see it a filesystem event later and then finds it current.
+          else try{readRustGeneration();early?.phase('rust','ready');contractReady();}catch(error){console.error(error.message);push({error:error.message});}
+          if(rustDirty && rebuildOn.rust==='save') rustPending = true;
+          drainBuilds();
+        } catch(error){failed(error);return;}
+      }
+    });
+  }
+  early?.phase('rust','build');
+  rustDirty=false;rustActive=true;rustRun++;
+  const started=Date.now();
+  console.log(`Rust build ${rustRun} started; the current generation stays active`);
+  rustHeartbeat=setInterval(()=>console.log(`Rust build ${rustRun} still running (${Math.round((Date.now()-started)/1000)} s); waiting for compiler/baker`),10000);
+  rustChild.stdin.write(JSON.stringify({id:rustRun})+'\n');
+}
+function startRustCompiler() {
+  rustInputFiles = new Set(rustInputs(app, buildEnv, {reloadOnly:true}));
+  const directory = rustOutput(app); mkdirSync(directory, {recursive:true});
+  rustOutputWatch = watch(directory, (_event,name) => {
+    if (name !== 'current') return;
+    try { readRustGeneration(); } catch (error) { console.error(error.message); push({error:error.message}); }
+  });
+  rustSourceWatch = watchModuleSources(app.dir, rustWatchIgnores, error => {
+    if (error) { push({error:error.message}); return; }
+    // The TS producer owns mixed Contract edits. If a Contract changes
+    // during a Rust bake, its before/after guard will refuse that bake;
+    // remember to build the latest snapshot once the in-flight job ends.
+    if (typescript) { if (rustActive) rustDirty = true; return; }
+    // The watcher already coalesces a save's events; the producer serializes
+    // builds and reruns once for edits that arrive during one.
+    rustSaved = Date.now(); rustDirty = true;
+    if (rebuildOn.rust === 'save') { clearTimeout(timer); timer=setTimeout(produceRust,0); }
+  });
+  produceRust();
+}
+// App-relative names the Rust source watcher leaves to other producers (a
+// design edit is the TypeScript producer's, as a batch or a generation).
+const rustWatchIgnores = name => skipped.test(name) || /(^|\/)\./.test(name)
+  || /\.(ts|json|tamber)$/.test(name) || gpuOnly([resolve(app.dir, name)])
+  || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/'));
+const killCompiler = () => {
+  const gpuChild = gpuBuildChild; gpuBuildChild = null;
+  if (gpuChild) { try { process.kill(-gpuChild.pid, 'SIGKILL'); } catch {} }
+  manualTypescript = null;
+  rustSourceWatch?.close(); rustSourceWatch = null; rustOutputWatch?.close(); rustOutputWatch = null;
+  clearInterval(rustHeartbeat); rustHeartbeat = null; rustActive = false;
+  const rust = rustChild; rustChild = null; if (rust) { try { process.kill(-rust.pid, 'SIGKILL'); } catch {} }
+
+  moduleWatch?.close(); moduleWatch = null; clearImmediate(moduleTimer); moduleRun++;
+  const d = dev; dev = null; if (d) { try { process.kill(-d.pid, 'SIGKILL'); } catch {} }
+  unasked();
+  if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
+};
+startCompiler();
+if (early) {
+  const watcher = watchModuleSources(app.dir, name => skipped.test(name) || (!name.endsWith('.contract') && /\.[^/]+$/.test(name)), () => {
+    if (contractStamp !== contractBytes() || contractTreeStamp !== contractInputsStamp()) early.phase('contract','build');
+  });
+  process.once('exit', () => watcher.close());
+}
+const stop = async () => {
+  const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
+  const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
+  tuning?.close(); killCompiler();
+  // The design server lets go of its lock before this exits.
+  exits.push(tamber?.close(), doors?.close());
+  installer.child?.kill('SIGTERM');
+  // A rebuild in flight would otherwise swap dist under the next dev server.
+  hostBuildChild?.kill('SIGTERM');
+  await Promise.all(exits); process.exit(process.exitCode ?? 0);
+};
+
+// Asset edits carry state. A shader interface change rebuilds the host and
+// wasm because Rust binds the layout.
+let assetChanges = new Map(); // dist-relative name -> { root, relative }
+let assetTimer = null;
+try {
+  watchStaticTrees(app.dir, assetTrees, (change) => {
+    if (tuning && change.name === 'assets/exact-tables.json') return;
+    if (change.targetRoot === 'shaders') change = {...change,tree:true,relative:'',name:'shaders'};
+    if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
+    if (change.tree) {
+      for (const name of assetChanges.keys()) if (name === change.targetRoot || name.startsWith(`${change.targetRoot}/`)) assetChanges.delete(name);
+      assetChanges.set(change.targetRoot, change);
+    } else if (!assetChanges.has(change.targetRoot)) assetChanges.set(change.name, change);
+    clearTimeout(assetTimer);
+    assetTimer = setTimeout(pushAssets, 20);
+  });
+} catch (e) { console.error(`cannot watch static trees under ${app.dir}: ${e.message}`); }
+function pushAssets() {
+  const edits = [...assetChanges]; assetChanges = new Map();
+  const rows = [];
+  const carriers = [];
+  let needsRebuild = false;
+  for (const [name, source] of edits) {
+    const target = resolve(dist, name);
+    if (source.tree) {
+      let nextDigests = new Map();
+      try {
+        const change = source.targetRoot === 'shaders'
+          ? applyShaderTreeChange(app, target, candidate => { nextDigests = reflectShaders(candidate); })
+          : applyStaticTreeChange(source.root, target);
+        for (const file of change.files) {
+          const changedName = `${source.targetRoot}/${file.name}`;
+          const shader = changedName.startsWith('shaders/') && changedName.endsWith('.wgsl');
+          const stem = shader ? changedName.slice('shaders/'.length, -'.wgsl'.length) : null;
+          if (file.removed) {
+            rows.push({ name: changedName, removed: true });
+            carriers.push(`asset ${changedName} removed`);
+            continue;
+          }
+          const row = { name: changedName, sha256: createHash('sha256').update(file.bytes).digest('hex'), bytes: file.bytes.length };
+          if (shader) {
+            const digest = nextDigests.get(stem);
+            const before = shaderDigests.get(stem);
+            row.interface = digest;
+            if (before === digest) carriers.push(`asset ${changedName} → live on the web, macOS, iOS (the client validates it)`);
+            else { needsRebuild = true; carriers.push(`shader ${changedName}: interface ${before ?? '?'} → ${digest} — rebuild the native host; the wasm rebuilds now`); }
+          } else carriers.push(`asset ${changedName} → live on the web, macOS, iOS`);
+          rows.push(row);
+        }
+        if (source.targetRoot === 'shaders') {
+          shaderDigests.clear();
+          for (const [stem, digest] of nextDigests) shaderDigests.set(stem, digest);
+        }
+      } catch (error) {
+        const reason = error.message || String(error);
+        carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
+        push({ error: `${name}: ${reason}` });
+      }
+      continue;
+    }
+    const shader = name.startsWith('shaders/') && name.endsWith('.wgsl');
+    let digest = null;
+    let bytes;
+    try {
+      const change = applyStaticChange(source.root, source.relative, target, shader ? (candidate) => {
+        if (!existsSync(reflectBin)) reflectShaders(resolve(app.dir, 'gpu/shaders'));
+        digest = reflectShaderFiles([candidate], reflectBin).values().next().value;
+      } : null);
+      bytes = change.bytes;
+      if (change.removed) {
+        for (const suffix of change.removedFiles) {
+          const removedName = suffix ? `${name}/${suffix}` : name;
+          if (removedName.startsWith('shaders/') && removedName.endsWith('.wgsl')) {
+            shaderDigests.delete(removedName.slice('shaders/'.length, -'.wgsl'.length));
+          }
+          rows.push({ name: removedName, removed: true });
+          carriers.push(`asset ${removedName} removed`);
+        }
+        continue;
+      }
+    } catch (error) {
+      const reason = error.message || String(error);
+      carriers.push(`asset ${name}: rejected — ${reason}; keeping the last good bytes`);
+      push({ error: `${name}: ${reason}` });
+      continue;
+    }
+    const row = { name, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };
+    if (shader) {
+      const stem = name.slice('shaders/'.length, -'.wgsl'.length);
+      const before = shaderDigests.get(stem);
+      shaderDigests.set(stem, digest);
+      row.interface = digest;
+      if (before === digest) carriers.push(`asset ${name} → live on the web, macOS, iOS (the client validates it)`);
+      else { needsRebuild = true; carriers.push(`shader ${name}: interface ${before ?? '?'} → ${digest} — rebuild the native host; the wasm rebuilds now`); }
+    } else {
+      carriers.push(`asset ${name} → live on the web, macOS, iOS`);
+    }
+    rows.push(row);
+  }
+  if (!rows.length) return;
+  if (needsRebuild) {
+    assetsNeedRebuild = true;
+    for (const [name] of edits) changed.add(name);
+    clearTimeout(timer); timer = setTimeout(rebuild, 200);
+    return;
+  }
+  if (assetsNeedRebuild) return;
+  seq += 1;
+  try { captureGeneration(); } catch (error) { push({ error: `generation refused: ${error.message}` }); return; }
+  console.log(`edit → assets ${rows.map((r) => r.name).join(', ')} · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  ${carriers.filter(c=>c.includes('rejected')).join('\n  ')}`);
+  push({ ...announcement(), changes: rows });
+}
+
+// Classification follows the actual producers. Native builds remain frozen
+// until rebuilt; changed compiler inputs are reported as pending, never as
+// a guessed target or compatibility id.
+let builtReceipts=readBuilds(app,buildEnv);
+const nativePending=new Map();
+function refreshNativePending(){nativePending.clear();for(const r of builtReceipts)if(r.compat.inputs.platform!=='web')nativePending.set(r.compat.target+'/'+r.compat.inputs.platform,pendingBuildInputs(r));}
+refreshNativePending();
+let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
+function classifyGeneration(planBytes, assets) {
+  if (currentModule || currentRust) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
+  const web=JSON.parse(readFileSync(graphPath,'utf8'));
+  const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
+  const lines=[];
+  for(const platform of ['web','macos','ios','linux']) {
+    const receipts=platform==='web'?[web]:builtReceipts.filter(r=>r.compat.inputs.platform===platform);
+    if(!receipts.length){lines.push(`${platform}: unbuilt; no actual target/grants receipt`);continue;}
+    for(const build of receipts) {
+      const cohort=platform==='web'?previousWeb:cohortReceipt(build);
+      const changes=platform==='web'?[]:nativePending.get(build.compat.target+'/'+platform)??[];
+      const checked=classifyArtifacts({...candidate,binary:build.binary,pendingInputs:changes},cohort);
+      if(platform==='web')lines.push(`web: origin; ${checked.binary?'new program, reload':'plan/assets, restart with carry'}`);
+      else lines.push(`${platform} ${build.compat.target} ${build.compat.id.slice(0,8)}: ${checked.bundle?'bundle candidate':checked.missing.join('; ')}${changes.length?`; binary inputs changed (${changes.slice(0,3).join(', ')}); rebuild to complete classification`:''}`);
+      lines.push(...checked.warnings);
+    }
+  }
+  return lines;
+}
+function classifyRebuild() {
+  builtReceipts=readBuilds(app,buildEnv);
+  refreshNativePending();
+  const web=JSON.parse(readFileSync(graphPath,'utf8'));
+  const check=classifyArtifacts(web,previousWeb);
+  previousWeb=cohortReceipt(web);
+  watchCompilerInputs();
+  return [`web: actual binary inputs ${check.binary?'changed':'unchanged'}; cohort ${web.compat.id}`, ...builtReceipts.filter(r=>r.compat.inputs.platform!=='web').map(r=>`${r.compat.inputs.platform}: ${nativePending.get(r.compat.target+'/'+r.compat.inputs.platform)?.length?'binary inputs changed; rebuild the actual target':'loaded inputs unchanged'} (${r.compat.target})`)];
+}
+const watched=new Map();
+let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
+const optionalRoots = () => ['assets', 'deck', 'gpu', 'gpu/shaders'].map(root => existsSync(resolve(app.dir, root)) ? 1 : 0).join('');
+let optionalRootsSeen = optionalRoots();
+function watchCompilerInputs() {
+  // Poll declared file metadata: saves and replacement survive directory-event
+  // coalescing. Only open-ended source discovery needs a directory watch.
+  // A Contract package's files are inputs wherever they are installed,
+  // node_modules included.
+  const contract=contractGraph(); for (const path of contract.sources) readinessContracts.add(path);
+  const outside=p=>skipped.test(p)&&!contract.files.has(p);
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs,...contract.files].filter(p=>!outside(p)&&!p.includes('/.cargo/')));
+  for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
+  files.add(resolve(app.dir,'app.json'));
+  compilerInputFiles = files;
+  compilerInputTrees = builtReceipts.flatMap(r=>r.binary.directories.map(d=>d.path));
+  compilerMissingInputs = builtReceipts.flatMap(r=>r.binary.missing);
+  swiftSourceDirectories = new Set([...files].filter(path=>path.endsWith('.swift')).map(path=>resolve(path,'..')));
+  const directories=new Set([...compilerInputTrees,...swiftSourceDirectories]);
+  const targets=new Set([...files,...directories]);
+  for(const [path,handle] of watched)if(!targets.has(path)){handle.close();watched.delete(path);}
+  for(const target of targets) {
+    if(outside(target)||target.includes('/.cargo/')||watched.has(target))continue;
+    const file=files.has(target),dir=file?resolve(target,'..'):target;
+    const changedPath=name=>{
+      if(file)name=target.slice(target.lastIndexOf('/')+1);
+      if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name)===tree||resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
+      // Parent-directory notifications include unrelated documents and output.
+      // Only receipt inputs, declared trees/missing paths, and Swift's implicit
+      // source discovery can invalidate the host. Rust additions are reached
+      // when their declaring module or build input changes.
+      const path = resolve(dir, name);
+      if (tuning?.paths.has(path)) return;
+      if(!file&&compilerInputFiles.has(path))return;
+      // The resident Contract compiler already watches generated game arguments.
+      // Rebuilding the host afterward would discard the carried world.
+      if (app.manifest.game && path === resolve(app.dir, '.shells/surfaces.json')) return;
+      if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
+        && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
+        && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
+      // The TypeScript producer takes the app's sources and its design (a
+      // value-only design edit is a batch, never a host rebuild).
+      if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract|tamber)$/.test(name)) return;
+      if (portableRust && rustInputFiles.has(path)) {
+        // A Contract source the Rust source watcher sees has already started
+        // its build (that watcher tracks .contract names, never .rs).
+        if (rustSourceWatch && path.endsWith('.contract') && path.startsWith(app.dir + '/') && !rustWatchIgnores(path.slice(app.dir.length + 1))) return;
+        rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return;
+      }
+      changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
+      if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,gpuOnly([...changed]) ? 20 : 200);}
+    };
+    try {
+      if(file){
+        const listener=(now,previous)=>{
+          if(!['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))return;
+          // Root metadata changes matter only when an optional source root appears or disappears.
+          if(target===app.dir){const roots=optionalRoots();if(roots===optionalRootsSeen)return;optionalRootsSeen=roots;}
+          changedPath();
+        };
+        watchFile(target,{bigint:true,interval:100},listener);
+        watched.set(target,{close:()=>unwatchFile(target,listener)});
+      }else if(existsSync(target))watched.set(target,watch(target,(_event,name)=>changedPath(name)));
+    }catch(error){console.error(`cannot watch ${target}: ${error.message}`);}
+  }
+}
+watchCompilerInputs();
+if (app.manifest.game) {
+  const {watchTables} = await import('../../game/app/tables.mjs');
+  tuning = await watchTables({app:app.dir, dist, refused:(error,text)=>{ console.error(error); push({error, ...(text ? {surfaceAttempt:{name:'assets/exact-tables.json',text}} : {})}); },
+    reported:timing=>console.log(`table: validated and published in ${timing.milliseconds.toFixed(1)} ms; subprocesses ${timing.processes}`),
+    publish:(name, bytes)=>{ if (!current) return false; seq++; captureGeneration(true, new Map([[name,bytes]])); push({...announcement(), surfaceAssets:[name]}); }});
+}
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', input => {
+  for (const command of input.trim().split(/\s+/)) {
+    if (command === 'f') push({fresh:true});
+    if (command === 't') manualTypescript?.();
+    if (command === 'r') { if (portableRust && !changed.size && !lastFailed.size) produceRust(); else rebuild(); }
+  }
+});
+console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript, f + Enter starts a fresh page`);
+let hostBuildChild = null;
+function rebuild() { buildPending = true; drainBuilds(); }
+function rebuildNow(files) {
+  building = true; early?.phase('host', 'build');
+  const t = Date.now();
+  console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the ${producersOnly ? "bake" : "wasm"}`);
+  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web'), hostBuild], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  b.stdout.on('data', (d) => { out += d; });
+  b.stderr.on('data', (d) => { out += d; process.stderr.write(d); });
+  b.on('exit', async (code) => {
+    building = false; hostBuildChild = null;
+    const ms = Date.now() - t;
+    if (code === 0) {
+      builds += 1; early?.phase('host', 'ready', {lastDurationMs:ms});
+      tuning?.close(); killCompiler();
+      app = resolveApp(arg('--app', undefined));
+      typescript = existsSync(resolve(app.dir, 'app.ts'));
+      portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
+      rebuildOn = rebuildPolicy(app.manifest);
+      current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
+      for (const {directory} of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
+      gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs();
+      if (tuning) await tuning.reload();
+      watchCompilerInputs();
+      program = programIdentity();
+      rustPending = false;
+      startCompiler();
+      console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
+      push({ rebuilt: builds });
+    } else {
+      const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
+      early?.phase('host', 'failed');
+      console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
+      push({ error: `the ${producersOnly ? "bake" : "wasm"} did not build:\n${errors}` });
+      lastFailed = new Set(files);
+      // Watch new sources named by a failed build until a receipt covers them.
+      for (const [, named] of out.matchAll(/^\s*--> (.+?):\d+:\d+\s*$/gm)) {
+        const path = [root, app.workspace].map(base => resolve(base, named)).find(existsSync);
+        if (path) failedInputs.add(path);
+      }
+      watchCompilerInputs();
+      // A Rust generation the producer replied with while this build was
+      // pending was skipped; the old wasm stays, so it is admitted now.
+      if (portableRust && existsSync(resolve(rustOutput(app), 'current'))) try { readRustGeneration(); } catch (error) { console.error(error.message); push({ error: error.message }); }
+    }
+    drainBuilds();
+  });
+}
+async function produceGpu(files) {
+  building = true; early?.phase('gpu', 'build');
+  try {
+    const results = [];
+    for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) results.push(await produceGpuArtifact(files, artifact));
+    early?.phase('gpu', results.every(Boolean) ? 'ready' : 'failed');
+  } finally {
+    building = false;
+    drainBuilds();
+  }
+}
+async function produceGpuArtifact(files, { stem, kind, module }) {
+  const start = Date.now();
+  const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
+  if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
+  mkdirSync(gpuSideRoot, { recursive: true });
+  const stage = mkdtempSync(resolve(gpuSideRoot, 'build-'));
+  const run = (command, args) => new Promise((ok, fail) => {
+    const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
+    let output = '';
+    child.stdout.on('data', data => { output += data; });
+    child.stderr.on('data', data => { output += data; process.stderr.write(data); });
+    child.on('error', fail);
+    child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
+  });
+  try {
+    console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate(kind)} (${profile})`);
+    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate(kind),'--target','wasm32-unknown-unknown','--profile',profile]);
+    const compiled = Date.now();
+    // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
+    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
+    if (tuning && stem === 'gpu' && (await (await import('../../game/app/tables.mjs')).tableValidator(stage, true)).names.length) {
+      changed.add(source); buildPending = true; early?.phase('host', 'build'); rmSync(stage, {recursive:true,force:true}); return true;
+    }
+    gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
+    // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
+    // than silently pairing exports from one build with another build's wasm.
+    const own = [...gpuVersions].filter(([, side]) => side.stem === stem);
+    for (const [version, side] of own.slice(0, Math.max(0, own.length - 3))) { rmSync(side.directory, {recursive:true,force:true}); gpuVersions.delete(version); }
+    readGpuInputs(profile, [stem]); watchCompilerInputs();
+    const ms = Date.now() - start;
+    gpuTimings.set(gpuVersion, { ms, start });
+    console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
+    push({gpu:gpuVersion, ...(module ? {module} : {})}); return true;
+  } catch (error) {
+    rmSync(stage, {recursive:true,force:true});
+    early?.phase('gpu', 'failed');
+    console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
+    push({error:`GPU module did not build:\n${error.message}`,source:'gpu'}); return false;
+  }
+}
+
+const serve = async (req, res) => {
+  // Every HTML answer is framed by the design tool only; a sandboxed page's wire request is the wire's first.
+  frameOnlyByTool(res); if (remoteAsked.plugin && tamber && await pluginOnLoopback(tamber, req, res)) return;
+  const access = gate.check(req);
+  if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
+  const url = webRequestURL(req.url);
+  if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+  if (tamber && await tamber.handle(req, res, url, access)) return; if (url.pathname === '/__dev/gallery' || url.pathname.startsWith('/__dev/gallery/')) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('the gallery runs on the JS dev loop (host/web-js/dev.mjs), not this one\n'); return; } // the variant gallery's
+  const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
+  // The build channel: a build's reports up, with its stream's
+  // nonce; a build that holds no stream (Linux) opens a polled one.
+  if (url.pathname === '/__dev/report' && req.method === 'POST') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    await serveReport(tamber.channel, req, res);
+    return;
+  }
+  if ((url.pathname === '/__dev/hello' || url.pathname === '/__dev/commands') && req.method === 'GET') {
+    if (!tamber) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    serveCommands(tamber.channel, url, res, url.pathname === '/__dev/hello' ? announcement() : {});
+    return;
+  }
+  const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
+  const trace = url.pathname === '/__exact/trace';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall || trace))) { res.writeHead(405); res.end(); return; }
+  if (trace) return saveTrace(req, res, { app, dist, root });
+  if (url.pathname === '/__dev/gpu') {
+    const timing = gpuTimings.get(Number(url.searchParams.get('g')));
+    if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
+    res.writeHead(204); res.end(); return;
+  }
+  if (gpuVersions.size && url.searchParams.has('g') && /^\/gpu(?:\/[a-z0-9-]+)?(?:\.js|_bg\.wasm)$/.test(url.pathname)) {
+    const directory = gpuVersions.get(Number(url.searchParams.get('g')))?.directory;
+    if (!directory || !existsSync(resolve(directory, url.pathname.slice(1)))) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
+    res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});
+    res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(directory,url.pathname.slice(1)))); return;
+  }
+  if (await installer.handle(req, res, url, access)) return;
+  if (url.pathname === '/__dev/open') {
+    // The page's own address (the gate admitted its Host) and the opening
+    // links this Mac's development clients admit for it.
+    const page = new URL('/' + url.search, `http://${req.headers.host}`).href;
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
+    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page, access), page));
+    return;
+  }
+  if (url.pathname.startsWith('/__dev/generation/')) {
+    // These are the same immutable bytes admitted to the retained cache before
+    // publication. Keep current requests on that snapshot; older generations
+    // still use the verified disk reader, including after server restart.
+    let retained;
+    if (current && url.pathname.startsWith(current.prefix)) {
+      try {
+        const name = decodeURIComponent(url.pathname.slice(current.prefix.length));
+        const body = current.files.get(name);
+        if (body) retained = { name, body };
+      } catch { /* malformed URL */ }
+    } else {
+      const prefix = url.pathname.slice(0, url.pathname.indexOf('/', '/__dev/generation/'.length + 33) + 1);
+      const files = tableGenerations.get(prefix);
+      if (files) { try { const name = decodeURIComponent(url.pathname.slice(prefix.length)); if (files.has(name)) retained = {name,body:files.get(name)}; } catch {} }
+      else retained = await readDevGenerationAsync(generationCache, url.pathname);
+    }
+    if (!retained) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    const { name, body } = retained;
+    res.writeHead(200, { 'content-type': name === 'exact.json' ? 'application/vnd.exact.envelope+json' : webContentType('/' + name), 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : body);
+    return;
+  }
+  // A plan's source map by its SHA-256, for a parent loop that was told the card (above).
+  if (url.pathname.startsWith('/__dev/map/') && req.method === 'GET') {
+    const bytes = mapsBySha.get(url.pathname.slice('/__dev/map/'.length));
+    if (!bytes) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(bytes); return;
+  }
+  if (url.pathname === '/__dev/design') {
+    // The design builds should run: the last value-only edit's, or (204) the
+    // published plan's own.
+    if (!designSnapshot) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(designSnapshot));
+    return;
+  }
+  if (url.pathname === '/__dev') {
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
+    res.write(':\n\n');
+    // A build's nonce for the build channel: this loop's own, or, serving as
+    // another loop's producers, that loop's, whose commands are relayed.
+    const write = frame => res.write(`data: ${JSON.stringify(frame)}\n\n`);
+    // Its close heard before the relay's (slow) hello; ended once, by either close (Bun: a handed-off socket's req never closes).
+    let gone = false, opened = null;
+    const end = () => { if (gone) return; gone = true; opened?.close(); clients.delete(res); };
+    req.on('close', end); res.on('close', end);
+    opened = tamber?.channel.open(write) ?? (servedAs != null ? await relayChannel(`http://127.0.0.1:${servedAs}`, write, 250, () => res.end()) : null);
+    if (gone) { opened?.close(); return; }
+    res.write(`data: ${hello(opened?.nonce)}\n\n`);
+    for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
+    // A build that connects learns the design to run; one that runs another
+    // fetches the snapshot (/__dev/design).
+    if (designSnapshot) res.write(`data: ${JSON.stringify(designNotice(designSnapshot))}\n\n`);
+    clients.add(res);
+    console.log(`page connected (${clients.size})`);
+    return;
+  }
+  if (url.pathname === '/__dev/reloaded') {
+    const n = Number(url.searchParams.get('seq'));
+    const p = url.searchParams.get('epoch') === epoch ? pending.get(n) : null;
+    if (p) {
+      const total = Number(url.searchParams.get('dom')) - p.saved;
+      console.log(`  → page: fetch ${url.searchParams.get('fetch')} ms, restart ${url.searchParams.get('boot')} ms; edit → first frame in the DOM ${total.toFixed(0)} ms (budget ${budget})${total > 100 ? '  OVER BUDGET' : ''}`);
+      console.log(`reloaded seq=${n} total_ms=${total.toFixed(0)}`);
+    }
+    res.writeHead(204); res.end();
+    return;
+  }
+  if (url.pathname === '/__dev/painted') {
+    const p = url.searchParams.get('epoch') === epoch ? pending.get(Number(url.searchParams.get('seq'))) : null;
+    if (p) console.log(`  → painted ${(Number(url.searchParams.get('paint')) - p.saved).toFixed(0)} ms after the save`);
+    res.writeHead(204); res.end();
+    return;
+  }
+  // Negotiate the live envelope from current plan bytes.
+  // Resolve files and extensionless locations first.
+  const { found, index } = await readWebRequest(dist, url.pathname, acceptsHTML(req.headers.accept) ? 'text/html' : '', current?.files.get('app.plan'));
+  const wantsEnvelope = url.pathname === '/exact.json'
+    || (index && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'));
+  if (wantsEnvelope) {
+    try {
+      if (!current) throw new Error('no current generation');
+      res.writeHead(200, { 'content-type': 'application/vnd.exact.envelope+json', vary: 'Accept', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : current.files.get('exact.json'));
+    } catch { res.writeHead(404); res.end(); }
+    return;
+  }
+  const file = url.pathname === '/' ? '/index.html' : url.pathname;
+  if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
+  // The module artifact as it is now, not as the last build copied it: a reload picks up an edit.
+  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(dirname(app.modules.web), file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
+  try {
+    if (!found) { res.writeHead(404); res.end(); return; }
+    let body = found.body;
+    // The page's first boot is the current generation, named here for
+    // dev.js to fetch, never app.wasm's older baked plan.
+    const first = current ? `<meta name="exact-dev-generation" content="${JSON.stringify(announcement()).replace(/[&"<>]/g, c => `&#${c.charCodeAt(0)};`)}">\n` : '';
+    if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', `${first}<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>`);
+    body = installer.page(found.route, body, access);
+    sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
+  } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
+};
+const server = early?.server ?? createServer(serve);
+let six = null; server.on('error', async (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); six?.close(); killCompiler(); await tamber?.close(); process.exit(1); });
+await readStaticFileAsync(dist, '/index.html'); if (!early) await listenDelay(); // warm the reader before advertising readiness (a test may wait too)
+// (and on [::1], for a localhost URL: the design tool's canvas)
+if (servedAs == null) six = await alsoOnIPv6Loopback(server, port).catch(async (e) => { console.error(`cannot listen on [::1]:${port}: ${e.code} (another server there would answer a localhost URL; --port <n> picks another)`); killCompiler(); await tamber?.close(); process.exit(1); });
+early?.phase('host', 'ready'); early?.serve(serve);
+const banner = () => {
+  // Every usable IPv4 with --lan, none silently picked: a utun/VPN
+  // address printed alone is a silent failure on the phone.
+  const urls = origins.map(o => `${o.origin}/`);
+  if (lan && urls.length === 1) console.log('no LAN interface found; serving loopback only in effect');
+  console.log(urls.join('\n'));
+  console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
+  console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
+};
+if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); ok(); }));
+startup.handoff(stop); doors = servedAs == null && tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
+watchLauncher(stop); listening = true; for (const line of readyLines.splice(0)) console.log(line); // once it answers and its doors are open

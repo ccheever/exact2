@@ -1,0 +1,13 @@
+// The scale gate's app: two
+// packages restyled together from one app value. @exact/scale-fixture-cards and
+// @exact/scale-fixture-notes each read space.md (and radius.md, radius.lg) through their
+// own tokens; the app's design sets space.md = 20px once, so both move, and
+// sets scale-fixture-notes.rule by its full name.
+use Card from "@exact/scale-fixture-cards"
+use Note from "@exact/scale-fixture-notes"
+
+component App
+  view
+    column testId="root" width=360 gap=8 padding-top=120 background-color="probe.ground"
+      Card(title="A card")
+      Note(body="A note")

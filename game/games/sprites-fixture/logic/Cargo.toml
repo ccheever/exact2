@@ -1,0 +1,14 @@
+# This fixture adds SDK crates beyond exact-game; they resolve against the SDK lock.
+[package]
+name = "sprites-fixture-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game.workspace = true
+
+[dev-dependencies]
+exact-game-bake.workspace = true
+exact-game-render.workspace = true

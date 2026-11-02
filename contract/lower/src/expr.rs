@@ -1,0 +1,764 @@
+//! Expression codegen: one assembler, every construct. Each construct
+//! returns the type of the value it leaves, built from the checked types of
+//! the names it reads, so no expression is inferred again while lowering
+//! (a re-inference at every node made deep expressions quadratic).
+
+use crate::{err, LowerError, Lowerer};
+use contract_syntax::{BinOp, Expr, TemplatePart, UnOp};
+use contract_types::{Ref, Scope, Ty};
+use exact_plan::asm::Asm;
+use exact_plan::{Opcode, Stdlib};
+
+/// A host command's arguments in the order its hosts read them. `share`'s
+/// are named and lower as `(title, text, url, files)`,
+/// `None` for an absent one, so the plan's `Command` op stays positional.
+pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+    let named = |want: &str| {
+        args.iter().find_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
+            _ => None,
+        })
+    };
+    // The list, the key, then the options in a fixed
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's is four, the id and the
+    // options, which the runner leaves to its host.
+    if name == "scrollIntoView" {
+        let mut out: Vec<_> = args
+            .iter()
+            .filter(|a| !matches!(a, Expr::NamedArg(..)))
+            .map(Some)
+            .collect();
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+            out.push(named("offset"));
+        }
+        return out;
+    }
+    // A frame's `reload(id, ignoreCache=)`: the id,
+    // then the flag (`none` for a plain reload). Bare `reload()` stays empty.
+    if name == "reload" && !args.is_empty() {
+        return vec![args.first(), named("ignoreCache")];
+    }
+    // The id, the `app:/` path, then the clip (`none`
+    // for the whole viewport).
+    if name == "captureScreenshot" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("clip")];
+    }
+    if matches!(name, "showPopover" | "togglePopover") {
+        return vec![args.first(), named("source")];
+    }
+    // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
+    // suggestedName, text)`: four, where the copy of a file is three.
+    if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return vec![args.first(), None, named("suggestedName"), named("text")];
+    }
+    // The sound first, then `at`, `gain`,
+    // `group`, `playbackRate` and `pan`, `none` where the author left the
+    // default (now, 1, no group, 1, centred).
+    if name == "playSound" {
+        let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
+        return std::iter::once(src)
+            .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
+            .collect();
+    }
+    // The output and the data, then `at` (`none` for now).
+    if name == "sendMIDI" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("at")];
+    }
+    // The Web Share API's members and `stopSounds`' group, in a fixed
+    // order, `none` where the author gave none.
+    let order: &[&str] = match name {
+        "share" => &["title", "text", "url", "files"],
+        "stopSounds" => &["group"],
+        _ => return args.iter().map(Some).collect(),
+    };
+    order
+        .iter()
+        .map(|want| {
+            args.iter().find_map(|a| match a {
+                Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
+                _ => None,
+            })
+        })
+        .collect()
+}
+
+/// [`compile`] an argument, or push `none` for an absent one.
+pub(crate) fn compile_or_none(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    e: Option<&Expr>,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    match e {
+        Some(e) => compile(l, asm, e, scope, locals),
+        None => {
+            asm.simple(Opcode::None);
+            Ok(Ty::Option(Box::new(Ty::String)))
+        }
+    }
+}
+
+/// Emit `e` onto `asm` in `scope` and return its type. `locals` counts
+/// inline-`match` bindings in force, so nested ones index the VM's locals
+/// stack correctly.
+pub(crate) fn compile(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    e: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    Ok(match e {
+        Expr::Number(n, _) => {
+            asm.number(*n);
+            Ty::Number
+        }
+        Expr::Str(s, _) => {
+            let id = l.b.str(s);
+            asm.str(id);
+            Ty::String
+        }
+        Expr::Bool(b, _) => {
+            asm.bool(*b);
+            Ty::Bool
+        }
+        Expr::NamedArg(_, _, span) => {
+            return err(
+                "lower-named-argument",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
+                *span,
+            )
+        }
+        Expr::None(_) => {
+            asm.simple(Opcode::None);
+            Ty::Option(Box::new(Ty::Unknown))
+        }
+        // `[a, b]`: the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
+        }
+        Expr::Some(inner, _) => {
+            let t = compile(l, asm, inner, scope, locals)?;
+            asm.simple(Opcode::Some);
+            Ty::Option(Box::new(t))
+        }
+        Expr::Template(parts, _) => {
+            // Component expansion can make every interpolated string literal.
+            // Reuse should then cost the same as spelling the final text once.
+            if parts.iter().all(|part| {
+                matches!(
+                    part,
+                    TemplatePart::Text(_) | TemplatePart::Expr(Expr::Str(..))
+                )
+            }) {
+                let text: String = parts
+                    .iter()
+                    .map(|part| match part {
+                        TemplatePart::Text(text) | TemplatePart::Expr(Expr::Str(text, _)) => {
+                            text.as_str()
+                        }
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                asm.str(l.b.str(&text));
+                return Ok(Ty::String);
+            }
+            let mut first = true;
+            for p in parts {
+                match p {
+                    TemplatePart::Text(t) => {
+                        let id = l.b.str(t);
+                        asm.str(id);
+                    }
+                    TemplatePart::Expr(x) => {
+                        if !compile(l, asm, x, scope, locals)?.is_string() {
+                            asm.call(Stdlib::ToString);
+                        }
+                    }
+                }
+                if !first {
+                    asm.simple(Opcode::Concat);
+                }
+                first = false;
+            }
+            if parts.is_empty() {
+                let id = l.b.str("");
+                asm.str(id);
+            }
+            Ty::String
+        }
+        Expr::Ident(name, span) => match scope.lookup(name) {
+            Some((Ref::Slot(i), t)) => {
+                asm.load_slot(l.slots[i as usize]);
+                t.clone()
+            }
+            Some((Ref::Derive(i), t)) => {
+                asm.load_derive(l.derives[i as usize]);
+                t.clone()
+            }
+            Some((Ref::Resource(i), t)) => {
+                asm.load_resource(l.resources[i as usize]);
+                t.clone()
+            }
+            Some((Ref::Mutation(i), t)) => {
+                asm.load_slot(l.mutation_slots[i as usize]);
+                t.clone()
+            }
+            Some((Ref::Param(i), t)) => {
+                asm.load_param(i as u16);
+                t.clone()
+            }
+            Some((Ref::Item(d), t)) => {
+                asm.load_item(d as u16);
+                t.clone()
+            }
+            Some((Ref::Index(d), t)) => {
+                asm.load_index(d as u16);
+                t.clone()
+            }
+            Some((Ref::Bound(d), t)) => {
+                asm.load_bound(d as u16);
+                t.clone()
+            }
+            Some((Ref::Local(i), t)) => {
+                asm.load_local(i as u16);
+                t.clone()
+            }
+            Some((Ref::Prop(_), _)) => {
+                return err(
+                    "lower-prop-in-root",
+                    format!("`{name}` is a prop; props are inlined away"),
+                    *span,
+                )
+            }
+            Some((Ref::Action(_), _)) => {
+                return err(
+                    "lower-action-as-value",
+                    format!("`{name}` is an action, not a value"),
+                    *span,
+                )
+            }
+            None => {
+                return err(
+                    "lower-unknown-name",
+                    format!("unknown name `{name}`"),
+                    *span,
+                )
+            }
+        },
+        Expr::Member(obj, field, span) => {
+            let t = compile(l, asm, obj, scope, locals)?;
+            let Some((index, ty)) = l.types.shapes.member(&t, field) else {
+                let Ty::Record(shape) = t else {
+                    return err("lower-not-a-record", format!("`{t}` has no fields"), *span);
+                };
+                return err(
+                    "lower-unknown-field",
+                    format!("`{shape}` has no field `{field}`"),
+                    *span,
+                );
+            };
+            let ty = ty.clone();
+            asm.field(index as u16);
+            ty
+        }
+        Expr::Call(name, args, span) => {
+            if name == "path" && !l.fns.contains_key(name.as_str()) {
+                let template = l.path_expr(args, *span, scope)?;
+                return compile(l, asm, &template, scope, locals);
+            }
+            if !l.fns.contains_key(name.as_str())
+                && contract_types::strings::is_text_call(name, scope)
+            {
+                return l.text_call(asm, args, *span, scope, locals);
+            }
+            if name == "failed" || name == "failure" {
+                let [Expr::Ident(target, _)] = args.as_slice() else {
+                    return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
+                };
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => {
+                        let r = l.resources[i as usize];
+                        if name == "failed" { asm.failed_resource(r); } else { asm.failure_resource(r); }
+                    }
+                    Some((Ref::Mutation(i), _)) => {
+                        let m = l.mutations[i as usize];
+                        if name == "failed" { asm.failed_mutation(m); } else { asm.failure_mutation(m); }
+                    }
+                    _ => return err("lower-failed", format!("`{target}` is not a resource or mutation"), *span),
+                }
+                if name == "failed" { return Ok(Ty::Bool); }
+                return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
+            }
+            if name == "pending" {
+                // Typed already: one name, a resource or a mutation.
+                let Some(Expr::Ident(target, _)) = args.first() else {
+                    return err(
+                        "lower-pending",
+                        "`pending(x)` names one resource or mutation",
+                        *span,
+                    );
+                };
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => asm.pending_resource(l.resources[i as usize]),
+                    Some((Ref::Mutation(i), _)) => asm.pending_mutation(l.mutations[i as usize]),
+                    _ => {
+                        return err(
+                            "lower-pending",
+                            format!("`{target}` is not a resource or a mutation"),
+                            *span,
+                        )
+                    }
+                };
+                return Ok(Ty::Bool);
+            }
+            if contract_types::records::is_record_call(name, &l.types.shapes) {
+                return record(l, asm, name, args, scope, locals);
+            }
+            if let Some((f, shared)) = l.fns.get(name.as_str()).copied() {
+                // A `fn`, expanded here: each argument bound
+                // as a local, the body compiled in a scope of the parameters
+                // only, the locals dropped after — no new opcode, no table,
+                // and (the type pass having refused a cycle) no recursion.
+                if l.fn_depth > 32 {
+                    return err(
+                        "lower-fn-depth",
+                        format!("`{name}` expands too deeply"),
+                        *span,
+                    );
+                }
+                let base = *locals;
+                for a in args {
+                    compile(l, asm, a, scope, locals)?;
+                    asm.bind_local();
+                    *locals += 1;
+                }
+                let param_tys = &l.types.shapes.fns[name].0;
+                let mut inner = Scope::default();
+                inner.push(
+                    f.params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            (
+                                p.name.clone(),
+                                Ref::Local((base + i as u16) as u32),
+                                param_tys[i].clone(),
+                            )
+                        })
+                        .collect(),
+                );
+                l.fn_depth += 1;
+                let body = compile(l, asm, shared, &inner, locals);
+                l.fn_depth -= 1;
+                body?;
+                for _ in &f.params {
+                    *locals -= 1;
+                    asm.drop_local();
+                }
+                return Ok(l.types.shapes.fns[name].1.clone());
+            }
+            if let (Some(f @ (Stdlib::Map | Stdlib::Filter)), [list, callback]) =
+                (Stdlib::from_name(name), args.as_slice())
+            {
+                return callback_call(l, asm, f, list, callback, scope, locals);
+            }
+            if let (Some(Stdlib::SortBy), [list, callback, rest @ ..]) =
+                (Stdlib::from_name(name), args.as_slice())
+            {
+                return sort_by(l, asm, list, callback, rest, scope, locals);
+            }
+            let Some(f) = Stdlib::from_name(name) else {
+                return err(
+                    "lower-unknown-function",
+                    format!("`{name}` is not in the stdlib roster"),
+                    *span,
+                );
+            };
+            // `x.length` of a record reads its `length` field, as the checker
+            // resolved it (contract_types `infer_length`).
+            if let (Stdlib::Length, [obj]) = (f, args.as_slice()) {
+                let t = compile(l, asm, obj, scope, locals)?;
+                if let Ty::Record(shape) = &t {
+                    let Some((index, ty)) = l.types.shapes.field(shape, "length") else {
+                        return err("lower-unknown-field", format!("`{shape}` has no field `length`"), *span);
+                    };
+                    let ty = ty.clone();
+                    asm.field(index as u16);
+                    return Ok(ty);
+                }
+                asm.call(f);
+                return Ok(Ty::Number);
+            }
+            let mut given = Vec::with_capacity(args.len());
+            for a in args {
+                given.push(compile(l, asm, a, scope, locals)?);
+            }
+            // The defaults of trailing optional parameters the call omitted:
+            // the plan's call always carries the full arity.
+            for &d in f.omitted(args.len()) {
+                match d {
+                    exact_plan::StdlibDefault::Number(n) => {
+                        asm.number(n);
+                    }
+                    exact_plan::StdlibDefault::Str(s) => {
+                        let id = l.b.str(s);
+                        asm.str(id);
+                    }
+                }
+            }
+            asm.call(f);
+            match (f, given.first(), given.get(1)) {
+                // `first(T[])` is `option<T>`.
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's.
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Flat, Some(Ty::List(item)), _) => match &**item {
+                    Ty::List(_) => (**item).clone(),
+                    _ => Ty::List(Box::new(Ty::Unknown)),
+                },
+                (Stdlib::Concat | Stdlib::Slice | Stdlib::Flat, ..) => Ty::Unknown,
+                _ => Ty::from_roster(f.returns()),
+            }
+        }
+        Expr::Unary(op, inner, _) => {
+            compile(l, asm, inner, scope, locals)?;
+            match op {
+                UnOp::Neg => {
+                    asm.simple(Opcode::Neg);
+                    Ty::Number
+                }
+                UnOp::Not => {
+                    asm.simple(Opcode::Not);
+                    Ty::Bool
+                }
+            }
+        }
+        Expr::Binary(op, a, b, _) => {
+            match op {
+                BinOp::And | BinOp::Or => {
+                    // Short-circuit: evaluate `a`; if it decides, keep it.
+                    compile(l, asm, a, scope, locals)?;
+                    let end = asm.label();
+                    let other = asm.label();
+                    // Stack: [a]. Duplicate by re-evaluating is wrong (effects are none, but cost);
+                    // instead branch on a copy via BindLocal/LoadLocal.
+                    asm.bind_local();
+                    asm.load_local(*locals);
+                    if *op == BinOp::And {
+                        asm.jump_if_false(other);
+                    } else {
+                        asm.simple(Opcode::Not);
+                        asm.jump_if_false(other);
+                    }
+                    asm.drop_local();
+                    compile(l, asm, b, scope, locals)?;
+                    asm.jump(end);
+                    asm.place(other);
+                    asm.load_local(*locals);
+                    asm.drop_local();
+                    asm.place(end);
+                    Ty::Bool
+                }
+                _ => {
+                    let ta = compile(l, asm, a, scope, locals)?;
+                    let tb = compile(l, asm, b, scope, locals)?;
+                    asm.simple(match op {
+                        BinOp::Add if ta.is_string() => Opcode::Concat,
+                        BinOp::Add => Opcode::Add,
+                        BinOp::Sub => Opcode::Sub,
+                        BinOp::Mul => Opcode::Mul,
+                        BinOp::Div => Opcode::Div,
+                        BinOp::Rem => Opcode::Rem,
+                        BinOp::Eq => Opcode::Eq,
+                        BinOp::Ne => Opcode::Ne,
+                        BinOp::Lt => Opcode::Lt,
+                        BinOp::Le => Opcode::Le,
+                        BinOp::Gt => Opcode::Gt,
+                        BinOp::Ge => Opcode::Ge,
+                        BinOp::And | BinOp::Or => unreachable!(),
+                    });
+                    match op {
+                        BinOp::Add if ta.is_string() && tb.is_string() => Ty::String,
+                        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                            if ta == Ty::Number && tb == Ty::Number =>
+                        {
+                            Ty::Number
+                        }
+                        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                            Ty::Unknown
+                        }
+                        _ => Ty::Bool,
+                    }
+                }
+            }
+        }
+        Expr::Ternary(c, a, b, _) => {
+            compile(l, asm, c, scope, locals)?;
+            let otherwise = asm.label();
+            let end = asm.label();
+            asm.jump_if_false(otherwise);
+            let ta = compile(l, asm, a, scope, locals)?;
+            asm.jump(end);
+            asm.place(otherwise);
+            let tb = compile(l, asm, b, scope, locals)?;
+            asm.place(end);
+            ta.unify(&tb).unwrap_or(Ty::Unknown)
+        }
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            let bound_ty = match compile(l, asm, subject, scope, locals)? {
+                Ty::Option(t) => *t,
+                _ => Ty::Unknown,
+            };
+            let is_none = asm.label();
+            let end = asm.label();
+            asm.jump_if_none(is_none);
+            asm.simple(Opcode::Unwrap);
+            asm.bind_local();
+            let index = *locals;
+            *locals += 1;
+            let mut inner = scope.clone();
+            inner.push(vec![(var.clone(), Ref::Local(index as u32), bound_ty)]);
+            let ta = compile(l, asm, some, &inner, locals)?;
+            *locals -= 1;
+            asm.drop_local();
+            asm.jump(end);
+            asm.place(is_none);
+            asm.simple(Opcode::Pop);
+            let tb = compile(l, asm, none, scope, locals)?;
+            asm.place(end);
+            ta.unify(&tb).unwrap_or(Ty::Unknown)
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            // Evaluated once, then read from the locals stack, as an inline
+            // `match` binds its value.
+            let ty = compile(l, asm, value, scope, locals)?;
+            asm.bind_local();
+            let index = *locals;
+            *locals += 1;
+            let mut inner = scope.clone();
+            inner.push_let(name, index as u32, ty);
+            let ty = compile(l, asm, body, &inner, locals)?;
+            *locals -= 1;
+            asm.drop_local();
+            ty
+        }
+        Expr::Typed(value, ty, span) => {
+            let t = compile(l, asm, value, scope, locals)?;
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span, scope).map_err(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            })?
+        }
+        Expr::Arrow { span, .. } => {
+            return err(
+                "lower-arrow-position",
+                "an arrow function is only the argument of `xs.map(…)` or `xs.filter(…)`",
+                *span,
+            )
+        }
+    })
+}
+
+/// `Shape(field=expr, …)` or `Shape(base, field=expr, …)`, checked already:
+/// each field's value in declaration order, then
+/// `Record`. A copy binds its base once as a local and reads each field it
+/// keeps from there.
+fn record(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    shape: &str,
+    args: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let fields: Vec<String> = l.types.shapes.map[shape]
+        .iter()
+        .map(|(f, _)| f.clone())
+        .collect();
+    let base = match contract_types::records::base(args) {
+        Some(b) => {
+            compile(l, asm, b, scope, locals)?;
+            asm.bind_local();
+            *locals += 1;
+            Some(*locals - 1)
+        }
+        None => None,
+    };
+    for (i, field) in fields.iter().enumerate() {
+        let named = args.iter().find_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == field => Some(value.as_ref()),
+            _ => None,
+        });
+        match (named, base) {
+            (Some(value), _) => {
+                compile(l, asm, value, scope, locals)?;
+            }
+            (None, Some(local)) => {
+                asm.load_local(local);
+                asm.field(i as u16);
+            }
+            (None, None) => {
+                return err(
+                    "lower-record-field",
+                    format!("`{shape}(…)` has no `{field}`"),
+                    args.first().map(Expr::span).unwrap_or_default(),
+                )
+            }
+        }
+    }
+    let ty = Ty::Record(shape.to_owned());
+    let id = l.ty_id(&ty)?;
+    asm.record(id);
+    if base.is_some() {
+        *locals -= 1;
+        asm.drop_local();
+    }
+    Ok(ty)
+}
+
+/// `sortBy(list, callback, direction?)`: the list
+/// bound as the next local, then the roster's `sortBy` on that list, its keys
+/// (a `Map` of the callback over it) and whether it is descending:
+///
+/// ```text
+/// <list> BindLocal; LoadLocal n; LoadLocal n; Map end <key> end:
+/// Bool desc; Call sortBy; DropLocal
+/// ```
+///
+/// So each key is computed once, on the `Map`'s list step, and the call
+/// orders the items without running code.
+fn sort_by(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    list: &Expr,
+    callback: &Expr,
+    rest: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let descending = match rest {
+        [] => false,
+        [Expr::Str(d, _)] if d == "asc" => false,
+        [Expr::Str(d, _)] if d == "desc" => true,
+        _ => {
+            return err(
+                "lower-sort-direction",
+                "the direction of `sortBy` is `\"asc\"` or `\"desc\"`",
+                callback.span(),
+            )
+        }
+    };
+    let listed = compile(l, asm, list, scope, locals)?;
+    asm.bind_local();
+    let at = *locals;
+    *locals += 1;
+    asm.load_local(at);
+    asm.load_local(at);
+    let keys = callback_body(l, asm, Opcode::Map, listed.clone(), callback, scope, locals);
+    *locals -= 1;
+    keys?;
+    asm.bool(descending);
+    asm.call(Stdlib::SortBy);
+    asm.drop_local();
+    Ok(listed)
+}
+
+/// `map(list, callback)` or `filter(list, callback)`:
+/// the list, then `Map`/`Filter` with the callback's body inline, the item
+/// and its index the next two locals, which the VM binds for each run.
+fn callback_call(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    f: Stdlib,
+    list: &Expr,
+    callback: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let listed = compile(l, asm, list, scope, locals)?;
+    let op = if f == Stdlib::Map {
+        Opcode::Map
+    } else {
+        Opcode::Filter
+    };
+    let result = callback_body(l, asm, op, listed.clone(), callback, scope, locals)?;
+    Ok(if f == Stdlib::Map {
+        Ty::List(Box::new(result))
+    } else {
+        listed
+    })
+}
+
+/// `op` (`Map` or `Filter`) over the list on the stack, of type `listed`,
+/// with `callback`'s body inline: the type of what the body leaves.
+fn callback_body(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    op: Opcode,
+    listed: Ty,
+    callback: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let Expr::Arrow { params, body, span } = callback else {
+        return err(
+            "lower-arrow-position",
+            "a callback is an arrow function",
+            callback.span(),
+        );
+    };
+    let item = match &listed {
+        Ty::List(item) => (**item).clone(),
+        _ => Ty::Unknown,
+    };
+    if params.len() > 2 {
+        return err(
+            "lower-arrow-parameters",
+            "a callback takes the item and its index",
+            *span,
+        );
+    }
+    let end = asm.label();
+    asm.each_item(op, end);
+    let base = *locals;
+    *locals += 2;
+    let mut inner = scope.clone();
+    inner.push(
+        params
+            .iter()
+            .zip([item, Ty::Number])
+            .enumerate()
+            .map(|(i, (p, t))| (p.clone(), Ref::Local((base + i as u16) as u32), t))
+            .collect(),
+    );
+    let result = compile(l, asm, body, &inner, locals);
+    *locals -= 2;
+    let result = result?;
+    asm.place(end);
+    Ok(result)
+}

@@ -1,0 +1,10 @@
+{
+  "SPHardwareDataType": [
+    {
+      "_name": "hardware_overview",
+      "machine_model": "Mac17,16",
+      "platform_UUID": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+      "provisioning_UDID": "00006000-0011223344556677"
+    }
+  ]
+}

@@ -1,0 +1,697 @@
+//! Admission failures occupy the already-bounded current target ticket, never
+//! a separate failure queue. Supersession drops them with the old ticket.
+use super::{CommitReceipt, DataSource, Outcome, Runner, RunnerError, Target};
+use crate::failure::Failure;
+use crate::FailureKind;
+
+impl<D: DataSource> Runner<D> {
+    /// Ask `which` resources again in one commit — what a host fact that
+    /// changed does, such as the delivery facts `set_delivery` hands the
+    /// runner. A refusal puts the store, the slots, and every
+    /// settled resource back as they were, and fails what was owed an ask
+    /// ([`Runner::commit_again`]). `None` when the list is empty — there
+    /// was nothing to ask.
+    pub(super) fn recommit(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if which.is_empty() {
+            return Ok(None);
+        }
+        self.commit_again(which, what).map(Some)
+    }
+
+    /// [`Runner::recommit`]'s one commit, even when it asks nothing again:
+    /// a pending set that changed outside a commit still reaches the view.
+    /// When it is refused for a reason other than an answer (the app's own
+    /// gate, a derive) while reconciling asks are owed, those resources are
+    /// marked failed, keeping what they show, and a further commit publishes
+    /// that; `refresh` asks them again, as after a failed reply. Asking them
+    /// at every later commit would refuse each one.
+    pub(super) fn commit_again(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<CommitReceipt, RunnerError> {
+        let what = format!("{what} ({} asked again)", which.len());
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        self.refresh_next.extend(which);
+        let result = if self.poisoned {
+            Err(RunnerError::Poisoned)
+        } else {
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        match result {
+            Err(e) if !self.poisoned && !self.reconciling.is_empty() => {
+                let owed = std::mem::take(&mut self.reconciling);
+                self.give_up(&owed, &e);
+                self.commit_again(Vec::new(), "the reads a refused commit owed")
+            }
+            result => result,
+        }
+    }
+
+    /// Marks each resource in `owed` failed, with the refusal as the
+    /// reason: it keeps what it shows and is not asked again until `refresh`.
+    pub(super) fn give_up(&mut self, owed: &[usize], why: &RunnerError) {
+        for &i in owed {
+            self.inspect_request(i);
+            self.failed_args[i] = self.resources[i].as_ref().map(|s| s.args.clone());
+            let failure = Failure::error(format!(
+                "the commit that asked it again was refused: {why:?}"
+            ));
+            self.count_failure(i);
+            self.alert(super::lines::failed_now(
+                self.plan.str(self.plan.resources[i].name),
+                &failure.message,
+            ));
+            self.failed_why[i] = Some(failure);
+            self.awaiting[i] = false;
+            self.refresh_next.retain(|r| *r != i);
+            // An older ask still in flight would answer over the failure
+            self.forget_ticket(Target::Resource(i));
+        }
+        self.sync_pending_flags();
+    }
+
+    /// Record a host admission refusal on a still-current ticket. Repeating
+    /// refusals cannot grow a queue: there is at most one ticket per target.
+    pub fn refuse_request(&mut self, ticket: u64, reason: &'static str, ordered: bool) {
+        if let Some(pending) = self.pending.iter_mut().find(|p| p.ticket == ticket) {
+            pending.refusal = Some((reason, ordered));
+        } else if self.is_background(ticket) {
+            // The module's background round: settled through its own
+            // completion, so its ticket is let go and, if ordered, the host's
+            // fence lifts once it has (a host would otherwise wait on it).
+            self.background.refusal = Some((ticket, reason, ordered));
+        } else if self.is_tool(ticket) {
+            self.refuse_tool(ticket, reason, ordered);
+        } else if self.is_module_work(ticket) {
+            self.refuse_module_work(ticket, reason, ordered);
+        }
+    }
+
+    /// Hear the fetches the app aborted (after each module turn the runner
+    /// makes, and when a host collects them, [`Runner::collect_aborts`]), and
+    /// match each to the request it names.
+    pub(super) fn hear_aborted(&mut self) {
+        for fetch in self.data.take_aborted() {
+            self.heard_aborts.push((fetch, 0));
+        }
+        self.match_aborts();
+    }
+
+    /// Each heard abort, by the request it names: the pending one whose
+    /// fetch is that module ticket, so a later reply or re-ask of the same
+    /// target is another request; else one let go that may still run. One
+    /// that names neither yet waits for its request to be enqueued.
+    pub(super) fn match_aborts(&mut self) {
+        let pending = &self.pending;
+        let module_aborts = &mut self.module_aborts;
+        let retired = &mut self.retired_fetches;
+        let kept = &self.module_work.fetches;
+        self.heard_aborts.retain(|&(fetch, _)| {
+            let named = pending
+                .iter()
+                .find(|p| p.fetch == Some(fetch) && p.continuation.is_none() && p.stream.is_none());
+            // A request a newer send replaced still runs (a write is let
+            // run), so the host cancels it. Whether an answer is owed is the
+            // pump's to say (`take_aborted_answer`), from what is pending
+            // then: a refused commit may have put it back.
+            // A let-go write kept as module work is named
+            // for as long as it runs, past the retired records' cap.
+            let ticket = match named {
+                Some(p) => p.ticket,
+                None => match kept.get(&fetch) {
+                    Some(&ticket) => ticket,
+                    None => match retired.iter().position(|r| r.0 == fetch) {
+                        Some(pos) => retired.remove(pos).1,
+                        None => return true,
+                    },
+                },
+            };
+            if !module_aborts.contains(&ticket) {
+                module_aborts.push(ticket);
+            }
+            false
+        });
+    }
+
+    /// Collect the module's aborted fetches now: a host calls this after the
+    /// turns it ran itself (a dispatched continuation, released work, a
+    /// let-go), then wakes a pump while [`Runner::has_module_aborts`]. A heard
+    /// abort whose request never comes is let go after 64 collections, and at
+    /// most 64 wait.
+    pub fn collect_aborts(&mut self) {
+        self.hear_aborted();
+        for heard in &mut self.heard_aborts {
+            heard.1 += 1;
+        }
+        self.heard_aborts.retain(|heard| heard.1 <= 64);
+        let over = self.heard_aborts.len().saturating_sub(64);
+        self.heard_aborts.drain(..over);
+    }
+
+    /// A request let go while it may still run (a newer send replaced it),
+    /// kept so the app's abort still cancels it, until its reply comes: at
+    /// most 256, the oldest let go first. Once each: a refused commit puts
+    /// the request back without undoing this, and may retire it again. (A
+    /// native host drops a let-go request's reply, so its record waits for
+    /// the cap; there the app's abort can only come in the turn that
+    /// replaced it, as the prelude settles a let-go call's fetches.)
+    pub(super) fn note_retired(&mut self, p: &super::PendingReq) {
+        let Some(fetch) = p.fetch else { return };
+        if self.retired_fetches.iter().any(|r| r.1 == p.ticket) {
+            return;
+        }
+        if self.retired_fetches.len() == 256 {
+            self.retired_fetches.remove(0);
+        }
+        self.retired_fetches.push((fetch, p.ticket));
+    }
+
+    /// [`Runner::collect_aborts`], then whether a pump is owed for them.
+    pub fn collected_aborts(&mut self) -> bool {
+        self.collect_aborts();
+        self.has_module_aborts()
+    }
+
+    /// Whether an aborted fetch's answer waits for the host's next pump.
+    pub fn has_module_aborts(&self) -> bool {
+        !self.module_aborts.is_empty()
+    }
+
+    /// The tickets answered aborted since the last take: the host cancels
+    /// each request, whatever its method (a running one's transport is
+    /// aborted, a queued one is dropped unsent), as a browser does.
+    pub fn take_explicit_aborts(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.explicit_aborts)
+    }
+
+    /// An aborted fetch's answer: its request, answered aborted now (a host
+    /// with no pump takes it directly, as the web's does). One no longer in
+    /// flight (answered, replaced or let go) has no answer to give, but its
+    /// request is still cancelled: a write the runner let go still runs.
+    pub fn take_aborted_answer(&mut self) -> Option<(u64, Outcome)> {
+        while !self.module_aborts.is_empty() {
+            let ticket = self.module_aborts.remove(0);
+            self.explicit_aborts.push(ticket);
+            // Kept module work is answered aborted too: its cancelled reply
+            // never comes, and the let-go answer's continuation hears this
+            // as a browser's aborted fetch rejects.
+            if !self.pending.iter().any(|p| p.ticket == ticket) && !self.is_module_work(ticket) {
+                continue;
+            }
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "the app aborted the fetch".into(),
+                },
+            ));
+        }
+        None
+    }
+
+    /// Take one refusal for ordinary transactional parsing/settlement. A
+    /// source that shapes the failure settles it like any reply. A failure
+    /// it cannot take ends the request without automatically asking again:
+    /// earlier source turns may already have executed effects.
+    pub fn take_request_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
+        // An auth session's answer, settled by the runner or
+        // reported by the host, rides the same path.
+        if let Some(settled) = crate::auth::take_any_settled(self) {
+            return Some(settled);
+        }
+        if let Some(aborted) = self.take_aborted_answer() {
+            return Some(aborted);
+        }
+        if let Some((ticket, reason)) = self.module_work_refusal(allow_ordered) {
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    message: reason.into(),
+                },
+            ));
+        }
+        if let Some((ticket, reason)) = self.tool_refusal(allow_ordered) {
+            let message = reason.into();
+            return Some((
+                ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    message,
+                },
+            ));
+        }
+        let at = self.pending.iter().position(|p| {
+            p.refusal
+                .is_some_and(|(_, ordered)| !ordered || allow_ordered)
+        });
+        // The background round's refusal, in its turn among the others.
+        if let Some((ticket, reason)) = self.background_refusal(allow_ordered) {
+            if at.is_none_or(|at| ticket < self.pending[at].ticket) {
+                self.background.refusal = None;
+                return Some((
+                    ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Refused,
+                        message: reason.into(),
+                    },
+                ));
+            }
+        }
+        let pending = &mut self.pending[at?];
+        let (reason, ordered) = pending.refusal.take().unwrap();
+        pending.refused = ordered;
+        Some((
+            pending.ticket,
+            Outcome::Failed {
+                kind: FailureKind::Refused,
+                message: reason.into(),
+            },
+        ))
+    }
+
+    /// A reply the source failed to take (it threw, ran over its budget, or
+    /// answered outside its shape). The refused commit's rollback restored
+    /// the request to the pending set, but the host has already delivered
+    /// its one reply: left there it would be pending forever, and a button
+    /// disabled on `pending(…)` with it. It is let go instead. A resource
+    /// keeps the value it had and is not asked again here (a source that
+    /// fails the same way every time would loop); `refresh` asks again. A
+    /// mutation is not retried; effects from earlier turns are not undone.
+    pub(super) fn release_failed(
+        &mut self,
+        ticket: u64,
+        target: Target,
+        why: Failure,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let (failed_args, ask_again, write, upload, sent) = self
+            .pending
+            .iter()
+            .find(|p| p.ticket == ticket)
+            .map(|p| (Some(p.args.clone()), p.ask_again, p.write, p.upload, p.sent))
+            .unwrap_or_default();
+        self.pending.retain(|p| p.ticket != ticket);
+        self.forgot = true;
+        self.sync_pending_flags();
+        let name = self.target_name(target);
+        // Why, on the line the test runner quotes for a mutation (which has
+        // no `state.failed`).
+        let reason = why.message.clone();
+        let mut again = Vec::new();
+        let next = match target {
+            Target::Resource(i) => {
+                // Keep the standing answer's arguments. Failure suppresses
+                // another ask independently of that answer's store revision.
+                // An upload's failure is never asked again at its arguments,
+                // unless it never reached the network.
+                if upload {
+                    self.upload_over(ticket, sent, super::UploadEnd::Failed(why.clone()));
+                }
+                self.failed_args[i] = failed_args;
+                self.failed_why[i] = Some(why);
+                self.count_failure(i);
+                // Unless a watched topic changed while it was in flight: the
+                // answer may differ now, so it is asked once more, forced.
+                if ask_again {
+                    again.push(i);
+                }
+                "it keeps its last value"
+            }
+            Target::Mutation(m) => {
+                self.failed_mut[m] = Some(why);
+                // Its write ends, and what it showed in is asked again.
+                self.end_write(m, write);
+                "it is not retried"
+            }
+        };
+        let what =
+            format!("request {ticket} ({name}) failed and is no longer pending: {next}: {reason}");
+        self.alert(what.clone());
+        if ask_again {
+            self.log(super::lines::asked_again(ticket, &name));
+        }
+        self.commit_again(again, "a failed request").map(Some)
+    }
+
+    /// The host must keep later ordered admissions behind these refusals.
+    pub fn has_ordered_request_refusals(&self) -> bool {
+        self.has_ordered_module_work_refusal()
+            || self.has_ordered_tool_refusal()
+            || self
+                .background
+                .refusal
+                .is_some_and(|(ticket, _, ordered)| ordered && self.is_background(ticket))
+            || self
+                .pending
+                .iter()
+                .any(|p| p.refusal.is_some_and(|(_, ordered)| ordered))
+    }
+
+    /// More refused admissions need a future host pump.
+    pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
+        !self.module_aborts.is_empty()
+            || self.auth.has_settled_for(|t| self.holds(t))
+            || self.has_module_work_refusal(allow_ordered)
+            || self.has_tool_refusal(allow_ordered)
+            || self.background_refusal(allow_ordered).is_some()
+            || self.pending.iter().any(|p| {
+                p.refusal
+                    .is_some_and(|(_, ordered)| !ordered || allow_ordered)
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::failure::FailureCode;
+    use crate::{Answer, DataError, Request, RequestOut, Response, Store};
+    use exact_kernel::{Kernel, NodeType};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, TypeKind, Value};
+
+    #[derive(Default)]
+    struct Source {
+        deferred: bool,
+        write_first: bool,
+        shape_refusal: bool,
+        none_reply: bool,
+        asks: usize,
+        synchronous_effects: usize,
+        delivered_writes: usize,
+    }
+
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!("the fixture implements answer")
+        }
+
+        fn answer(&mut self, store: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+            self.asks += 1;
+            store.observe_topic("value");
+            if !self.deferred {
+                return Ok(Answer::Now(Value::some(Value::str("standing"))));
+            }
+            // Like a synchronous native.call write before the first await:
+            // this effect is outside Store's rollback and cannot be replayed.
+            self.synchronous_effects += 1;
+            Ok(Answer::Later(if self.write_first {
+                Request::post_json("https://example.test/write", "{}")
+            } else {
+                Request::get("https://example.test/read")
+            }))
+        }
+
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            outcome: Outcome,
+        ) -> Result<Answer, DataError> {
+            match outcome {
+                Outcome::Response(Response { status: 201, .. }) => {
+                    self.delivered_writes += 1;
+                    Ok(Answer::Later(Request::get("https://example.test/read")))
+                }
+                Outcome::Response(_) if self.none_reply => Ok(Answer::Now(Value::NONE)),
+                Outcome::Response(_) => Ok(Answer::Now(Value::some(Value::str("fresh")))),
+                Outcome::Failed { .. } if self.shape_refusal => Ok(Answer::Now(Value::NONE)),
+                Outcome::Failed { kind, message } => Err(DataError::Failed(
+                    FailureCode::of_kind(kind),
+                    message,
+                    String::new(),
+                )),
+                other => panic!("unexpected outcome: {other:?}"),
+            }
+        }
+    }
+
+    fn boot(unwrap: bool) -> Runner<Source> {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let optional = b.option(string);
+        let value = b.resource("value", "read", &[], optional, None);
+        if unwrap {
+            let mut body = Asm::new();
+            body.load_resource(value).simple(Opcode::Unwrap);
+            let body = b.code(body);
+            b.derive("shown", string, body);
+        }
+        let mut body = Asm::new();
+        body.refresh(value);
+        let body = b.code(body);
+        b.action("refresh", &[], &[], body);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        Runner::boot(
+            b.finish().unwrap(),
+            Source::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    }
+
+    fn one_request(r: &mut Runner<Source>) -> RequestOut {
+        let mut requests = r.take_requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        requests.pop().unwrap()
+    }
+
+    fn ask(r: &mut Runner<Source>) -> RequestOut {
+        r.data().deferred = true;
+        r.act("refresh", vec![]).unwrap();
+        one_request(r)
+    }
+
+    fn refuse(r: &mut Runner<Source>, ticket: u64) {
+        r.refuse_request(ticket, "native executor admission limit reached", true);
+        assert!(r.take_request_refusal(false).is_none());
+        let (refused, outcome) = r.take_request_refusal(true).unwrap();
+        assert_eq!(refused, ticket);
+        assert!(r.fulfill(ticket, outcome).unwrap().is_some());
+    }
+
+    /// An unordered request's refusal (an independent HTTP request the host would not run): taken in any turn.
+    fn refuse_unordered(r: &mut Runner<Source>, ticket: u64) {
+        r.refuse_request(
+            ticket,
+            "the app's grants do not reach https://example.test",
+            false,
+        );
+        let (refused, outcome) = r.take_request_refusal(false).unwrap();
+        assert_eq!(refused, ticket);
+        assert!(r.fulfill(ticket, outcome).unwrap().is_some());
+    }
+
+    fn response(status: u16) -> Outcome {
+        Outcome::Response(Response {
+            status,
+            headers: vec![],
+            body: vec![],
+        })
+    }
+
+    fn assert_failed_without_replay(r: &mut Runner<Source>, ticket: u64) {
+        assert!(!r.has_pending());
+        assert!(!r.holds(ticket));
+        assert!(!r.has_ordered_request_refusals());
+        assert!(r.take_requests().is_empty());
+        assert_eq!(r.data().asks, 2, "boot and the explicit refresh only");
+        assert_eq!(r.data().synchronous_effects, 1);
+        assert_eq!(
+            r.resource("value"),
+            Some(&Value::some(Value::str("standing")))
+        );
+        assert_eq!(r.failed_args[0], Some(vec![]));
+        // An unrelated pump and a stale completion cannot restart it either.
+        r.advance(1.).unwrap();
+        assert!(r.fulfill(ticket, response(200)).unwrap().is_none());
+        assert!(r.take_requests().is_empty());
+        assert_eq!(r.data().synchronous_effects, 1);
+    }
+
+    #[test]
+    fn refusing_the_first_request_does_not_repeat_prior_synchronous_effects() {
+        let mut r = boot(false);
+        let request = ask(&mut r);
+        assert_eq!(request.request.method, "GET");
+        refuse(&mut r, request.ticket);
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert_eq!(failure.code, FailureCode::Refused);
+        assert_eq!(failure.message, "native executor admission limit reached");
+        // A user refresh remains an intentional new source invocation.
+        let next = ask(&mut r);
+        assert_ne!(next.ticket, request.ticket);
+        r.fulfill(next.ticket, response(200)).unwrap();
+        assert_eq!(r.data().synchronous_effects, 2);
+        assert!(r.failed_resources().is_empty());
+    }
+
+    #[test]
+    fn refusing_a_later_read_does_not_replay_a_write_that_already_completed() {
+        let mut r = boot(false);
+        r.data().write_first = true;
+        let write = ask(&mut r);
+        assert_eq!(write.request.method, "POST");
+        // The host has executed the write and reports its successful response.
+        r.fulfill(write.ticket, response(201)).unwrap();
+        let read = one_request(&mut r);
+        assert_eq!(read.request.method, "GET");
+        assert_eq!(r.data().delivered_writes, 1);
+        refuse(&mut r, read.ticket);
+        assert_failed_without_replay(&mut r, read.ticket);
+        assert_eq!(r.data().delivered_writes, 1);
+    }
+
+    #[test]
+    fn a_refusal_that_traps_in_a_derive_releases_its_ticket_without_replay() {
+        let mut r = boot(true);
+        r.data().shape_refusal = true;
+        let request = ask(&mut r);
+        // `none` conforms to the resource's type, but the derive's unwrap
+        // traps before updating the tree. The standing value is restored.
+        refuse(&mut r, request.ticket);
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert_eq!(failure.code, FailureCode::Error);
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn an_unordered_refusal_that_traps_in_a_derive_releases_its_ticket_too() {
+        let mut r = boot(true);
+        r.data().shape_refusal = true;
+        let request = ask(&mut r);
+        // As the ordered one above: the host has no later reply for it, so the trapped commit lets it go rather
+        // than leaving it pending forever (and a clock or a `pending(…)` waiting on it).
+        refuse_unordered(&mut r, request.ticket);
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn a_delivered_reply_that_traps_in_a_derive_releases_its_ticket() {
+        let mut r = boot(true);
+        r.data().none_reply = true;
+        let request = ask(&mut r);
+        // The host delivers its one reply; the source takes it (`none` conforms), and the derive's unwrap traps the
+        // commit. Nothing is left to answer it: it is let go, keeping the standing value, not pending forever.
+        assert!(r.fulfill(request.ticket, response(200)).unwrap().is_some());
+        assert!(!r.is_poisoned());
+        assert_failed_without_replay(&mut r, request.ticket);
+        let failure = r.failed_why[0].as_ref().unwrap();
+        assert!(failure.message.contains("UnwrapNone"), "{failure:?}");
+    }
+
+    #[test]
+    fn a_topic_change_still_refreshes_once_after_a_refused_request() {
+        let mut r = boot(false);
+        let request = ask(&mut r);
+        for _ in 0..3 {
+            r.changed("value").unwrap();
+        }
+        assert!(r.holds(request.ticket));
+        assert!(r.take_requests().is_empty());
+        refuse(&mut r, request.ticket);
+        let next = one_request(&mut r);
+        assert_ne!(next.ticket, request.ticket);
+        assert_eq!(r.data().asks, 3, "one re-ask for all topic announcements");
+        r.fulfill(next.ticket, response(200)).unwrap();
+        assert!(!r.has_pending());
+        assert!(r.take_requests().is_empty());
+        assert_eq!(r.resource("value"), Some(&Value::some(Value::str("fresh"))));
+        assert!(r.failed_resources().is_empty());
+    }
+
+    /// Each refused answer is counted while measuring, a
+    /// success does not reset the count, and each failure line reaches the
+    /// host once; a runner that measures nothing collects none of it.
+    #[test]
+    fn refused_answers_are_counted_and_alerted_once_while_measuring() {
+        let mut quiet = boot(false);
+        let request = ask(&mut quiet);
+        refuse(&mut quiet, request.ticket);
+        assert!(quiet.failure_counts().is_empty());
+        assert!(quiet.take_alerts().is_empty());
+
+        let mut r = boot(false);
+        r.measure(true, false);
+        for _ in 0..2 {
+            let request = ask(&mut r);
+            refuse(&mut r, request.ticket);
+        }
+        let next = ask(&mut r);
+        r.fulfill(next.ticket, response(200)).unwrap();
+        assert!(r.failed_resources().is_empty());
+        let request = ask(&mut r);
+        refuse(&mut r, request.ticket);
+        let counts = r.failure_counts();
+        assert_eq!(counts.len(), 1);
+        assert_eq!((counts[0].0, counts[0].1.count), ("value", 3));
+        let alerts = r.take_alerts();
+        assert_eq!(alerts.len(), 3, "{alerts:?}");
+        assert!(
+            alerts
+                .iter()
+                .all(|l| l.contains("(value) failed and is no longer pending")),
+            "{alerts:?}"
+        );
+        assert!(r.take_alerts().is_empty(), "each line is taken once");
+    }
+
+    /// The queue a host has not taken is bounded, and says what it dropped.
+    #[test]
+    fn untaken_alerts_are_bounded() {
+        let mut r = boot(false);
+        r.measure(true, false);
+        for i in 0..crate::perf::ALERTS + 6 {
+            r.alert(format!("line {i}"));
+        }
+        let alerts = r.take_alerts();
+        assert_eq!(alerts.len(), crate::perf::ALERTS + 1);
+        assert!(
+            alerts[0].starts_with("6 earlier alert lines were dropped"),
+            "{}",
+            alerts[0]
+        );
+        assert_eq!(alerts[1], "line 6");
+    }
+
+    /// While measuring, every other journal line
+    /// reaches the host once, apart from the alerts, and nothing is queued
+    /// for a runner that measures nothing.
+    #[test]
+    fn journal_lines_reach_the_host_once_apart_from_alerts() {
+        let mut quiet = boot(false);
+        quiet.log("unmeasured");
+        assert!(quiet.take_journal().is_empty());
+        let mut r = boot(false);
+        r.measure(true, false);
+        r.take_journal();
+        r.log("a line");
+        r.alert("a failure");
+        assert_eq!(r.take_journal(), ["a line"]);
+        assert_eq!(r.take_alerts(), ["a failure"]);
+        assert!(r.take_journal().is_empty(), "each line is taken once");
+        assert!(
+            r.journal().any(|l| l.ends_with("a line"))
+                && r.journal().any(|l| l.ends_with("a failure"))
+        );
+    }
+}

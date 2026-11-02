@@ -1,0 +1,75 @@
+//! The web host's linked capabilities, above the core host.
+//!
+//! `exact-web` names no capability's crate; each capability's adapter lives
+//! here, over both. An app's generated entry names the ones its plan uses
+//! with [`linked!`], and the linker drops the rest: an app that renders no
+//! Markdown carries no `exact_markdown` code.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+pub mod animations;
+pub mod auth;
+pub mod backdrop;
+pub mod collections;
+pub mod dataset;
+pub mod documents;
+pub mod drag;
+pub mod effects;
+pub mod format;
+pub mod geometry;
+pub mod gradients;
+pub mod grid;
+pub mod inspection;
+pub mod markdown;
+pub mod materials;
+pub mod motion;
+pub mod picker;
+pub mod router;
+pub mod segments;
+pub mod share;
+pub mod surfaces;
+pub mod tabs;
+pub mod text_transform;
+pub mod timelines;
+pub mod wide_colors;
+
+/// The [`exact_web::Linked`] of the named capabilities, as a constant:
+/// `linked!(markdown)`. The generated entry writes one; nothing else should.
+#[macro_export]
+macro_rules! linked {
+    ($($capability:ident),* $(,)?) => {{
+        let linked = ::exact_web::Linked::CORE;
+        $(let linked = $crate::$capability::link(linked);)*
+        linked
+    }};
+}
+
+/// Every capability: what a development build and a native renderer link.
+pub const ALL: exact_web::Linked = linked!(
+    markdown,
+    motion,
+    collections,
+    drag,
+    surfaces,
+    router,
+    format,
+    inspection,
+    wide_colors,
+    materials,
+    backdrop,
+    auth,
+    share,
+    documents,
+    picker,
+    timelines,
+    text_transform,
+    effects,
+    animations,
+    gradients,
+    grid,
+    geometry,
+    segments,
+    dataset,
+    tabs
+);

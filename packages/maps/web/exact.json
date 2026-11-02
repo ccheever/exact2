@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/maps@^1.0",
+  "platform": "web",
+  "targets": [
+    "web"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-map"
+  ],
+  "hatches": [],
+  "sources": {
+    "javascript": [
+      "index.js"
+    ]
+  },
+  "artifacts": []
+}

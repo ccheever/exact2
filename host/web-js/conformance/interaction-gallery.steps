@@ -1,0 +1,9 @@
+# The gallery's gestures by finger: a swipe to keep a study, the deck's top
+# card thrown (a transform drag), Arrange's reorder drag, and the reading
+# sheet's height drag.
+drag swipe-card-1 150 0 250
+drag deck-handle 180 20 250
+tap mode-reorder
+drag arrange-grip-photo-00001 0 150 400
+tap mode-sheet
+drag sheet-handle 0 -150 300

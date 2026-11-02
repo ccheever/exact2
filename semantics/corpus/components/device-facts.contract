@@ -1,0 +1,76 @@
+shape Viewport
+  width: number
+shape Page
+  onLine: bool
+
+fn pick(n: number): number = n + 1
+fn online(value: bool): string = value ? "online" : "offline"
+
+component App
+  resource data = load() as shape Viewport else fallback()
+  resource pick = exactViewport() as shape Viewport
+  view
+    column
+      text `${pick(pick.width) == pick.width + 1}` testId="root"
+      Child(id="a")
+      Child(id="b")
+
+component Unused
+  resource online = exactPage() as shape Page
+  resource pick = exactViewport() as shape Viewport
+  view
+    text `${pick.width} ${online.onLine}`
+
+component Child
+  props
+    id: string
+  resource pick = exactViewport() as shape Viewport
+  resource online = exactPage() as shape Page
+  state initial = pick(5)
+  state shown = "waiting"
+  derive computed = `${pick(pick.width) == pick.width + 1} ${online(online.onLine)}`
+  provide
+    label = computed
+  action update()
+    shown = `${computed} ${pick(pick.width) == pick.width + 1} ${online(online.onLine)}`
+    refresh pick
+    refresh online
+  action relay()
+    update()
+  view
+    column
+      text `${computed} ${initial}` testId=`direct-${id}`
+      text shown testId=`shown-${id}`
+      text `${pending(pick)} ${failed(online)}` testId=`pending-${id}`
+      Frame()
+        text computed testId=`fill-${id}`
+      Label(id=id, value=computed)
+      button "Update" press=update testId=`update-${id}`
+      button "Relay" press=relay testId=`relay-${id}`
+
+component Frame
+  slot
+  view
+    children
+
+component Label
+  props
+    id: string
+    value: string
+  inject
+    label: string
+  view
+    text `${value} ${label}` testId=`label-${id}`
+
+test "child device facts share declarations and preserve function calls"
+  expect text "root" == "true"
+  expect text "direct-a" == "true online 6"
+  expect text "direct-b" == "true online 6"
+  expect text "pending-a" == "false false"
+  expect text "fill-a" == "true online"
+  expect text "label-b" == "true online true online"
+  tap "update-a"
+  expect text "shown-a" == "true online true online"
+  expect text "shown-b" == "waiting"
+  tap "relay-b"
+  expect text "shown-b" == "true online true online"

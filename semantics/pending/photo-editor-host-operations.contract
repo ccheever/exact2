@@ -1,0 +1,22 @@
+// Photo Editor's camera and photo-library sends are outside the data
+// oracle. The runner handles them through its module interface.
+use getUserMedia, MediaStream from "@exact/media-capture"
+use copyPhotoAsset, PhotoCopy from "@exact/photos"
+
+component App
+  mutation opened as shape MediaStream
+  mutation copied as shape PhotoCopy
+  action takePicture
+    send opened = getUserMedia(video=true)
+  action openRecent
+    send copied = copyPhotoAsset(asset="asset-1")
+  view
+    column
+      button "Take photo" press=takePicture testId="take-photo"
+      button "Recent photo" press=openRecent testId="recent"
+
+test "camera acquisition bypasses the data oracle"
+  tap "take-photo"
+
+test "copying a photo asset bypasses the data oracle"
+  tap "recent"

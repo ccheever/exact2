@@ -1,0 +1,17 @@
+component App
+  state mode = "idle"
+  state n = 0
+  action chooseMode(value: string)
+    mode = value
+    n = n + 1
+  action forward(value: string)
+    chooseMode(value)
+  view
+    column
+      button "Ready" testId="ready" press=chooseMode("ready")
+      if n > 1000
+        input testId="input" input=forward
+
+test "the observed button does not bound the input"
+  tap "ready"
+  tap "ready"

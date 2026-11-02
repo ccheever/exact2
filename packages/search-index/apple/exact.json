@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/search-index@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "SearchIndex.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "SearchIndexModule"
+}

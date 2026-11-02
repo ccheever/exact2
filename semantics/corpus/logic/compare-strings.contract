@@ -1,0 +1,29 @@
+// String equality is exact (code points, no normalisation); `<` is not
+// defined on strings, so only == and != are used.
+component App
+  state s = "abc"
+  derive isAbc = s == "abc"
+  derive notAbc = s != "abc"
+  derive composed = "é" == "é"
+  derive emptyEq = "" == ""
+  derive caseEq = "ABC" == "abc"
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text `${isAbc}` testId="r"
+
+test "equal"
+  expect state isAbc == true
+  expect state notAbc == false
+  expect state composed == false
+  expect state emptyEq == true
+  expect state caseEq == false
+
+test "edits"
+  type "in" "abc "
+  expect state isAbc == false
+  type "in" "abc"
+  expect state isAbc == true
+  expect text "r" == "true"

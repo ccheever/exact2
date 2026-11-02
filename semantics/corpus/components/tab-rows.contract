@@ -1,0 +1,57 @@
+component App
+  state names = ["a", "b", "c"]
+  state selected = "c"
+  state seed = 1
+  action pick(name: string)
+    selected = name
+  action bump
+    seed = seed + 1
+  action reorder
+    names = ["c", "b", "a"]
+  action remove
+    names = ["a", "c"]
+  view
+    main navigationKey=selected navigationBack="back"
+      button "bump" press=bump testId="bump"
+      button "reorder" press=reorder testId="reorder"
+      button "remove" press=remove testId="remove"
+      row role="tablist"
+        for name in names key=name
+          button name role="tab" aria-controls=`panel-${name}` aria-selected=(selected == name) press=pick(name) testId=`tab-${name}`
+      for name in names key=name
+        column role="tabpanel" id=`panel-${name}`
+          Counter(name=name, seed=seed)
+
+component Counter
+  props
+    name: string
+    seed: number
+  state n = seed
+  action inc
+    n = n + 1
+  view
+    column navigationKey=name
+      button "inc" press=inc testId=`inc-${name}`
+      text `${n}` testId=`count-${name}`
+
+test "selected rows initialize on first visit and survive reordering"
+  expect tree missing "count-a"
+  expect tree missing "count-b"
+  expect text "count-c" == "1"
+  tap "bump"
+  tap "tab-b"
+  expect text "count-b" == "2"
+  tap "inc-b"
+  tap "inc-b"
+  tap "reorder"
+  expect tree missing "count-a"
+  expect text "count-b" == "4"
+  expect text "count-c" == "1"
+  tap "tab-c"
+  tap "remove"
+  expect tree missing "count-b"
+  tap "bump"
+  tap "reorder"
+  expect tree missing "count-b"
+  tap "tab-b"
+  expect text "count-b" == "3"

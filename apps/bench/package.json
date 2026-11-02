@@ -1,0 +1,9 @@
+{
+  "name": "bench",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/serial": "file:../../packages/serial",
+    "@exact/usb": "file:../../packages/usb"
+  }
+}

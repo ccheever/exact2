@@ -1,0 +1,11 @@
+tamber motion
+
+theme
+  duration.fast = 150ms
+  duration.slow = 0.4s
+  duration.alias = duration.fast
+  easing.standard = cubic-bezier(0.2, 0, 0, 1)
+  easing.out = ease-out
+  easing.alias = easing.standard
+  easing.spring = -exact-spring(170, 26, 1)
+  easing.steps = steps(4, jump-end)

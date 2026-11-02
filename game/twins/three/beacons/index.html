@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beacons — three.js</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"../node_modules/three/build/three.module.js"}}</script>
+</head>
+<body>
+<main id="game" tabindex="-1" aria-label="Beacons game world">
+  <div id="viewport" aria-label="3D playing field"></div>
+  <header id="hud" hidden><div><span class="eyebrow">FIELD SIGNALS</span><h1 id="count" aria-live="polite">Beacons 0 / 3</h1></div><button id="pause">Pause</button></header>
+  <section id="title" class="overlay" aria-labelledby="name"><div class="card"><span class="eyebrow">A SMALL EXPLORATION</span><h2 id="name">Beacons</h2><p>Three quiet signals.<br>Bring the field back to light.</p><button id="play">Play</button><p class="small">WASD / arrows to move · Space to jump<br>Stand near a beacon and press E</p></div></section>
+  <section id="win" class="overlay" hidden aria-labelledby="won"><div class="card"><span class="eyebrow">SIGNAL COMPLETE</span><h2 id="won">All beacons lit</h2><p>A little light goes a long way.</p><button id="again">Play again</button></div></section>
+  <div id="paused" hidden>Paused</div>
+  <footer id="help" hidden><span>WASD / ARROWS &nbsp; Move &nbsp;·&nbsp; SPACE &nbsp; Jump</span><strong id="prompt">Find the three beacons</strong><span>E &nbsp; Light beacon</span></footer>
+</main>
+<script type="module">
+if (new URLSearchParams(location.search).get('feel') === '1') await import('./feel.js');
+await import('./game.js');
+</script>
+</body></html>

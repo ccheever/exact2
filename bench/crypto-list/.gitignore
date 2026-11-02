@@ -1,0 +1,16 @@
+# What prepare.sh makes from gen.py: the data and the copies the exact2 and Expo builds read.
+/data/
+/exact-crypto-svg/data/coins.json
+/exact-crypto-gpu/data/coins.json
+# prepare.sh copies the root Cargo.lock; build.mjs resolves it for each app's workspace.
+/exact-crypto-svg/Cargo.lock
+/exact-crypto-gpu/Cargo.lock
+/expo/data/
+# Build products (results, cold copies and shots go to <checkout>/target/bench/crypto-list).
+build/
+build-sim/
+/exact-crypto-svg/target/
+/exact-crypto-gpu/target/
+/expo/node_modules/
+/expo/ios/
+/expo/.expo/

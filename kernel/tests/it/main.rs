@@ -1,0 +1,94 @@
+//! The kernel's integration tests: one binary, so one link and one launch.
+
+mod animation;
+mod apply;
+mod bars;
+mod browser_cases;
+mod browser_columns;
+mod browser_controls;
+mod browser_flex;
+mod browser_host_block;
+mod browser_paint_order;
+mod browser_position;
+mod browser_ratio;
+mod browser_replaced;
+mod browser_scroll_padding;
+mod browser_sticky;
+mod browser_zoom;
+mod canvas;
+mod clock_sync;
+mod compare;
+mod content_region;
+mod cover;
+mod env;
+mod export;
+mod field_text;
+mod fit_content_native;
+mod fit_text;
+mod flow;
+mod flow_auto;
+mod flow_rows;
+mod geometry;
+mod hairline;
+mod handoff;
+mod head;
+mod height_binding;
+mod image;
+mod inline_image;
+mod invocation;
+mod layout_equality;
+mod list_insert;
+mod live_time;
+mod mark_sizes;
+mod motion;
+mod native_buttons;
+mod native_fields;
+mod no_panic;
+mod paint;
+mod paragraph_stamp;
+mod presence;
+mod presented_height;
+mod reader;
+mod regions;
+mod rem;
+mod symbol;
+mod symbol_color;
+mod table;
+mod support {
+    pub mod reader;
+}
+mod review_fixes;
+mod style_dynamic;
+mod svg;
+mod svg_scene;
+mod text_measurement_cache;
+mod text_style_move;
+mod timeline;
+mod timeline_scope;
+mod titlebar;
+mod transform_binding;
+mod video;
+mod wire;
+
+/// A shorthand then the `@keyframes name{…}` rules it names, resolved as a
+/// runner resolves a row against its plan's table.
+pub fn keyframed(text: &str) -> exact_motion::Animations {
+    let (head, rules) = text.split_at(text.find("@keyframes").unwrap_or(text.len()));
+    let table: Vec<(String, exact_motion::Keyframes)> = rules
+        .split("@keyframes")
+        .skip(1)
+        .map(|rule| {
+            let open = rule.find('{').expect("a rule");
+            let body = rule[open + 1..]
+                .trim_end()
+                .strip_suffix('}')
+                .expect("a body");
+            let k = exact_motion::Keyframes::parse(body).expect("a valid rule");
+            (rule[..open].trim().to_string(), k)
+        })
+        .collect();
+    let mut a = exact_motion::Animations::parse(head).expect("a valid shorthand");
+    let dropped = a.resolve(|n| table.iter().find(|(m, _)| m == n).map(|(_, k)| k));
+    assert!(dropped.is_empty(), "{dropped:?}");
+    a
+}

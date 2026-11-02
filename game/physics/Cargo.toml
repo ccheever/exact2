@@ -1,0 +1,16 @@
+[package]
+name = "exact-game-physics"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game = { path = "../engine" }
+glam = { version = "0.33", default-features = false, features = ["std", "scalar-math", "libm"] }
+
+rapier3d = { path = "../../vendor/rapier3d", version = "=0.35.3", default-features = false, features = ["dim3", "f32", "std", "serde-serialize", "enhanced-determinism"] }
+bincode = "1.3"
+
+[[example]]
+name = "minimal"
+crate-type = ["cdylib"]

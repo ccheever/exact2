@@ -1,0 +1,20 @@
+tamber when
+
+axes
+  dark-style = black | dim  under scheme=dark
+  density = default | compact
+
+theme
+  ambiguous = #000
+    when density=compact: #111
+    when density=compact: #222
+  ambiguous.cross = #000
+    when density=compact: #111
+    when dark-style=dim: #222
+  hidden.default = rgb(1 2)
+    when density=default: #111
+    when density=compact: #222
+  unknown = #000
+    when contrast=more: #111
+    when density=tight: #111
+    when density=compact density=compact: #111

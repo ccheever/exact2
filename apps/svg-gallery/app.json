@@ -1,0 +1,41 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "SVG Gallery",
+  "short_name": "SVG Gallery",
+  "id": "com.exact.svggallery",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.svggallery",
+    "name": "SVG Gallery"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 700,
+        "minWidth": 320,
+        "minHeight": 420
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+component App
+  state n = 1
+  state d = 1
+  derive inverse = 1 / d
+  action write
+    n = 1 / 0
+  action take(value: number)
+    n = value
+  action zero
+    d = 0
+  view
+    column
+      button "write" press=write testId="write"
+      button "argument" press=take(0 / 0) testId="argument"
+      button "derive" press=zero testId="derive"
+
+test "a non-finite write rolls back"
+  tap "write"
+  expect state n == 1
+
+test "a non-finite argument refuses before the body"
+  tap "argument"
+  expect state n == 1
+
+test "a non-finite derive rolls back"
+  tap "derive"
+  expect state d == 1
+  expect state inverse == 1

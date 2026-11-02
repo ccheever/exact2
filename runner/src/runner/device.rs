@@ -1,0 +1,320 @@
+//! Held device requests: under the agent a capability's
+//! arm never reaches the OS. It holds the request under a ticket from the
+//! runner's own counter, so `state.pending` lists every hold beside the
+//! requests in flight and no host number can alias a fetch. A hold is not
+//! I/O: it stays out of [`Runner::has_pending`], so no host's clock waits
+//! on it (`clock settle` returns `reason: "device"` instead).
+//!
+//! A hold ends exactly once: answered or cancelled by the agent (`tap @t`,
+//! `type @t`, [`Runner::answer_hold`]), or retired when its node goes. A
+//! second answer, or one to a retired hold, is refused by name
+//! (`not pending: @7`). A reload drops every hold, as it drops every
+//! request.
+
+use super::{DataSource, Runner};
+use exact_kernel::ViewId;
+
+/// A device request a host holds for the agent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hold {
+    /// The runner's ticket: the agent's `@N`.
+    pub ticket: u64,
+    /// The capability's name in `pending` (`pick`, `share`, `auth`, …).
+    pub capability: String,
+    /// The requesting node's `testId` (its id when it has none), or the
+    /// resource an HTTP-shaped request answers.
+    pub name: String,
+    /// The requesting node: the hold is retired when it is removed.
+    pub node: Option<ViewId>,
+    /// The capability's inspection summary as a JSON object: what a
+    /// test checks the app asked for, never a credential.
+    pub args: String,
+    /// What `tap @t <choice>` accepts besides `cancel`.
+    pub choices: Vec<String>,
+    /// Whether `type @t <value>` answers it.
+    pub takes_value: bool,
+    /// An HTTP-shaped request held under its own ticket (an auth session):
+    /// retired when the runner forgets that ticket.
+    pub request: bool,
+}
+
+/// How the agent answered a hold.
+#[derive(Clone, Debug, PartialEq)]
+pub enum HoldAnswer {
+    /// `tap @t <choice>`: `cancel`, or one of the hold's choices.
+    Choice(String),
+    /// `type @t <value>`: the value, which the capability validates and
+    /// delivers; the runner never journals it.
+    Value(String),
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Hold a device request for the agent: a fresh ticket, and a journal
+    /// line (`device pick 7 held (agent)`). `args` is the capability's
+    /// inspection summary, a JSON object.
+    pub fn hold(
+        &mut self,
+        capability: &str,
+        node: Option<ViewId>,
+        args: &str,
+        choices: &[&str],
+        takes_value: bool,
+    ) -> u64 {
+        let ticket = self.next_ticket;
+        self.next_ticket += 1;
+        let name = node
+            .and_then(|id| {
+                let n = self.kernel.node(id)?;
+                Some(
+                    n.props
+                        .str(exact_kernel::PropId::TestId)
+                        .map_or_else(|| id.to_string(), str::to_owned),
+                )
+            })
+            .unwrap_or_else(|| capability.to_owned());
+        self.log(format!("device {capability} {ticket} held (agent)"));
+        self.device_holds.push(Hold {
+            ticket,
+            capability: capability.to_owned(),
+            name,
+            node,
+            args: args.to_owned(),
+            choices: choices.iter().map(|c| c.to_string()).collect(),
+            takes_value,
+            request: false,
+        });
+        ticket
+    }
+
+    /// Hold an HTTP-shaped request the runner already ticketed (an auth
+    /// session): the agent answers it by that ticket, with a value or
+    /// `cancel`; it leaves the clock's wait set, and is retired with its
+    /// ticket (superseded, or its resource gone).
+    pub fn hold_request(&mut self, ticket: u64, capability: &str, name: &str, args: &str) {
+        self.log(format!("device {capability} {ticket} held (agent)"));
+        self.device_holds.push(Hold {
+            ticket,
+            capability: capability.to_owned(),
+            name: name.to_owned(),
+            node: None,
+            args: args.to_owned(),
+            choices: Vec::new(),
+            takes_value: true,
+            request: true,
+        });
+    }
+
+    /// A request an iframe's guest made under the agent, which a host
+    /// holds instead of showing the platform's sheet or
+    /// panel: `{"op":"frameRequest","node":7,"capability":"dialog",
+    /// "args":{…}}` → `{"ticket":N}`. A `dialog` (`alert`, `confirm`,
+    /// `prompt`) is answered by `tap @t ok` or `cancel`, and a `prompt` by
+    /// `type @t <text>` too; `open-file` (a file input) and `save-file` (a
+    /// download's destination) as the document pickers are, and a download by
+    /// `tap @t ok` for the agent's default place. Retired with its frame.
+    pub fn hold_frame_request(&mut self, request: &str) -> Result<String, String> {
+        let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(request)
+        else {
+            return Err("frameRequest: unreadable request".into());
+        };
+        let node = o
+            .get("node")
+            .and_then(|n| n.as_u64())
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|id| self.kernel.node(*id).is_some())
+            .ok_or("frameRequest: no live iframe")?;
+        let capability = o.get("capability").and_then(|c| c.as_str()).unwrap_or("");
+        let args = o.get("args").filter(|a| a.is_object());
+        let prompt = args.and_then(|a| a.get("type")) == Some(&"prompt".into());
+        let (choices, value): (&[&str], bool) = match capability {
+            "dialog" => (&["ok"], prompt),
+            "open-file" => (&[], true),
+            "save-file" => (&["ok"], true),
+            _ => {
+                return Err(format!(
+                    "frameRequest: {capability:?} is not a frame request"
+                ))
+            }
+        };
+        let args = args.map_or_else(|| "{}".to_owned(), |a| a.to_string());
+        let ticket = self.hold(capability, Some(node), &args, choices, value);
+        Ok(format!("{{\"ticket\":{ticket}}}"))
+    }
+
+    /// Every device request held for the agent, oldest first.
+    pub fn device_holds(&self) -> &[Hold] {
+        &self.device_holds
+    }
+
+    /// End hold `ticket` with the agent's answer, validated against what
+    /// the hold accepts, in one step: the hold is gone before the host
+    /// delivers the answer. Refused by name when no such hold is live.
+    pub fn answer_hold(&mut self, ticket: u64, answer: &HoldAnswer) -> Result<Hold, String> {
+        let Some(pos) = self.device_holds.iter().position(|h| h.ticket == ticket) else {
+            return Err(format!("not pending: @{ticket}"));
+        };
+        let hold = &self.device_holds[pos];
+        let line = match answer {
+            HoldAnswer::Choice(c) if c == "cancel" => "cancelled".to_owned(),
+            HoldAnswer::Choice(c) if hold.choices.contains(c) => format!("answered: {c}"),
+            HoldAnswer::Choice(c) => {
+                let mut takes = vec!["cancel".to_owned()];
+                takes.extend(hold.choices.iter().cloned());
+                return Err(format!(
+                    "@{ticket} ({}): tap takes {}, not {c}",
+                    hold.capability,
+                    takes.join(" | ")
+                ));
+            }
+            // A picker's files are checked against its input before the
+            // hold is spent, so a refused answer can be
+            // corrected.
+            HoldAnswer::Value(v) if hold.capability == "pick" => {
+                let checked = self.device_links.picker.map_or(
+                    Err("the file picker is not linked into this artifact".into()),
+                    |picker| (picker.check)(self, hold.node, v),
+                );
+                if let Err(e) = checked {
+                    return Err(format!("@{ticket} (pick): {e}"));
+                }
+                let n = super::picker::answer_paths(v).len();
+                format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
+            }
+            // An export's answer is where the copy goes:
+            // an absolute path on the driver's machine, never journalled.
+            HoldAnswer::Value(v) if hold.capability == "export" => {
+                let v = v.trim();
+                if !(v.starts_with('/') || v.get(1..3) == Some(":\\")) || v.ends_with(['/', '\\']) {
+                    return Err(format!(
+                        "@{ticket} (export): type an absolute file path to save to"
+                    ));
+                }
+                "answered: a file".to_owned()
+            }
+            // A picker's answer is what the person would have chosen:
+            // absolute paths, one unless `multiple`.
+            HoldAnswer::Value(v)
+                if matches!(
+                    hold.capability.as_str(),
+                    "open-file" | "open-directory" | "save-file"
+                ) =>
+            {
+                let paths = crate::file_pickers::answer_paths(v);
+                let multiple = hold.args.contains("\"multiple\":true");
+                if paths.is_empty() || paths.iter().any(|p| !p.starts_with('/')) {
+                    return Err(format!(
+                        "@{ticket} ({}): type an absolute path",
+                        hold.capability
+                    ));
+                }
+                if paths.len() > 1 && !multiple {
+                    return Err(format!(
+                        "@{ticket} ({}): one path, not {}",
+                        hold.capability,
+                        paths.len()
+                    ));
+                }
+                let n = paths.len();
+                format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
+            }
+            // An auth callback is checked as a host checks a completion,
+            // before the hold is spent.
+            HoldAnswer::Value(v) if hold.capability == "auth" => {
+                let checked = self.device_links.auth.map_or(
+                    Err("openAuthSession is not linked into this artifact".into()),
+                    |auth| (auth.check_answer)(self, ticket, v),
+                );
+                if let Err(e) = checked {
+                    return Err(format!("@{ticket} (auth): {e}"));
+                }
+                "answered: a callback".to_owned()
+            }
+            // A date or time picker's answer is a value of its kind, in
+            // HTML's form, checked before it is spent.
+            HoldAnswer::Value(v)
+                if matches!(hold.capability.as_str(), "date" | "time" | "datetime-local") =>
+            {
+                let kind = match hold.capability.as_str() {
+                    "date" => exact_kernel::ControlKind::Date,
+                    "time" => exact_kernel::ControlKind::Time,
+                    _ => exact_kernel::ControlKind::DateTimeLocal,
+                };
+                let v = v.trim();
+                if v.is_empty() || !kind.valid_value(v) {
+                    let example = match kind {
+                        exact_kernel::ControlKind::Date => "2026-10-23",
+                        exact_kernel::ControlKind::Time => "09:30",
+                        _ => "2026-10-23T09:30",
+                    };
+                    return Err(format!(
+                        "@{ticket} ({}): type a value such as {example}, or tap clear or cancel",
+                        hold.capability
+                    ));
+                }
+                "answered: a value".to_owned()
+            }
+            // A module's value, checked before it is spent.
+            HoldAnswer::Value(v) if self.module_check(ticket, v).is_some() => {
+                self.module_check(ticket, v).expect("a module's hold")?;
+                "answered: a value".to_owned()
+            }
+            HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
+            HoldAnswer::Value(_) => {
+                return Err(format!(
+                    "@{ticket} ({}): answered by tap, not type",
+                    hold.capability
+                ))
+            }
+        };
+        let hold = self.device_holds.remove(pos);
+        self.log(format!("device {} {ticket} {line}", hold.capability));
+        if hold.capability == "auth" {
+            match answer {
+                HoldAnswer::Value(url) => crate::auth::settle(self, ticket, 200, url),
+                HoldAnswer::Choice(_) => crate::auth::settle(self, ticket, 499, "cancelled"),
+            }
+        }
+        self.module_answered(ticket, answer);
+        self.presence_answered(ticket, answer);
+        Ok(hold)
+    }
+
+    /// Retire the holds of `capabilities` on `nodes`: views a commit renewed,
+    /// each another item now, which the answer is not for.
+    pub fn retire_holds_on(&mut self, nodes: &[ViewId], capabilities: &[&str]) {
+        let (gone, live): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)
+            .into_iter()
+            .partition(|h| {
+                h.node.is_some_and(|id| nodes.contains(&id))
+                    && capabilities.contains(&h.capability.as_str())
+            });
+        self.device_holds = live;
+        for hold in gone {
+            self.log(format!(
+                "device {} {} retired",
+                hold.capability, hold.ticket
+            ));
+        }
+    }
+
+    /// Retire every hold whose node is gone (after a commit).
+    pub(super) fn retire_holds(&mut self) {
+        self.retire_modules();
+        self.views_committed();
+        let kernel = &self.kernel;
+        let pending = &self.pending;
+        let (live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)
+            .into_iter()
+            .partition(|h| {
+                h.node.is_none_or(|id| kernel.node(id).is_some())
+                    && (!h.request || pending.iter().any(|p| p.ticket == h.ticket))
+            });
+        self.device_holds = live;
+        for hold in gone {
+            self.log(format!(
+                "device {} {} retired",
+                hold.capability, hold.ticket
+            ));
+        }
+    }
+}

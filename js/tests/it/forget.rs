@@ -1,0 +1,236 @@
+//! A call whose request the runner forgot is let go. Newer
+//! arguments replace a request in flight; a refused commit puts back the
+//! request it replaced. Either way the executor keeps parked only the calls
+//! whose requests are still in flight.
+
+#![cfg(exact_js_engine)]
+
+use exact_js::Module;
+use exact_kernel::{Kernel, PropId};
+use exact_runner::{Event, Outcome, Response, Runner};
+
+const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/castle.hbc"));
+const APP: &str = "xyz.castle.test";
+const GRANTS: &str = "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n";
+
+const SRC: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  state who = ""
+  mutation session as shape Session
+  mutation probe as shape Session
+
+  action typed(v)
+    who = v
+    send session = login(v, "pw")
+  action refusing
+    send session = login("zed", "pw")
+    send probe = unknown()
+
+  view
+    column
+      input value=who change=typed testId="who"
+      button press=refusing aria-label="Refuse" testId="refuse"
+        text "Refuse"
+      match session
+        case some(s)
+          text s.username testId="user"
+        case none
+          text "none" testId="none"
+"#;
+
+fn boot() -> Runner<Module> {
+    let mut module = Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    Runner::boot(
+        contract::compile(SRC).expect("the fixture's Contract compiles"),
+        module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn view_of(r: &Runner<Module>, test_id: &str) -> u32 {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+}
+
+fn text_of(r: &Runner<Module>, test_id: &str) -> Option<String> {
+    let k = r.kernel();
+    let key = k.find_by_test_id(test_id).into_iter().next()?;
+    k.node_by_key(key)?
+        .props
+        .str(PropId::Text)
+        .map(str::to_string)
+}
+
+fn login(username: &str) -> Outcome {
+    let body = format!(r#"{{"data":{{"loginV2":{{"token":"t0k","username":"{username}"}}}}}}"#);
+    Outcome::Response(Response {
+        status: 200,
+        headers: vec![("content-type".into(), "application/json".into())],
+        body: body.into_bytes(),
+    })
+}
+
+#[test]
+fn a_request_replaced_by_newer_arguments_lets_its_call_go() {
+    let mut r = boot();
+    for v in ["a", "ab", "abc"] {
+        r.dispatch(view_of(&r, "who"), Event::Change(v.into()))
+            .unwrap();
+    }
+    let requests = r.take_requests();
+    assert_eq!(requests.len(), 3);
+    // The runner holds the newest for `session` and keeps the two it
+    // replaced: each is a POST, which runs to its end.
+    let pending = r.pending();
+    assert_eq!(
+        pending.iter().filter(|(name, _)| name == "session").count(),
+        1,
+        "the runner holds the newest: {pending:?}"
+    );
+    assert_eq!(pending.len(), 3, "and keeps the two let go: {pending:?}");
+    assert_eq!(r.data().in_flight(), 1, "the executor parks only its call");
+    // The newest reply settles; the older replies reach their let-go calls'
+    // continuations, which answer nothing. What those write to the store
+    // stands, as on the web: the session kept is the last reply's.
+    r.fulfill(requests[2].ticket, login("abc")).unwrap();
+    assert_eq!(text_of(&r, "user").as_deref(), Some("abc"));
+    for q in &requests[..2] {
+        r.fulfill(q.ticket, login("old")).unwrap();
+    }
+    assert_eq!(text_of(&r, "user").as_deref(), Some("abc"));
+    let kept = r.store().get("castle.session").unwrap_or_default();
+    assert!(kept.contains("\"username\":\"old\""), "{kept}");
+    assert!(r.pending().is_empty());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+#[test]
+fn a_refused_commit_puts_back_the_request_it_replaced_and_lets_its_own_call_go() {
+    let mut r = boot();
+    r.dispatch(view_of(&r, "who"), Event::Change("ada".into()))
+        .unwrap();
+    let ada = r.take_requests();
+    assert_eq!(ada.len(), 1);
+    // `refusing` asks `session` again, with other arguments, and then a
+    // unknown source: the commit is refused, and ada's request is put
+    // back in flight.
+    assert!(r.dispatch(view_of(&r, "refuse"), Event::Press).is_err());
+    assert!(r.take_requests().is_empty());
+    assert_eq!(r.pending(), [("session".to_string(), ada[0].ticket)]);
+    assert_eq!(r.data().in_flight(), 1, "only ada's call is parked");
+    // Her reply still finds her call.
+    r.fulfill(ada[0].ticket, login("ada")).unwrap();
+    assert_eq!(text_of(&r, "user").as_deref(), Some("ada"));
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+const TAGGED_HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/outlive.hbc"));
+
+const TAGGED: &str = r#"
+shape Row
+  text: string
+
+component App
+  mutation tagged as shape Row
+  mutation probe as shape Row
+
+  action send
+    send tagged = tagged()
+  action resend
+    send tagged = tagged()
+    send probe = unknown()
+
+  view
+    column
+      match tagged
+        case some(t)
+          text t.text testId="tagged"
+        case none
+          text "none" testId="none"
+"#;
+
+/// A send replaced by an equal one in a commit that is then refused: the
+/// first call is put back with its request, and its reply reaches it, not
+/// the call that replaced it.
+#[test]
+fn a_refused_commit_puts_back_a_call_an_equal_one_replaced() {
+    let mut module = Module::loaded(
+        TAGGED_HBC.to_vec(),
+        "test.outlive",
+        "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n",
+    )
+    .unwrap();
+    module.set_budget_ms(f64::INFINITY);
+    let mut r = Runner::boot(
+        contract::compile(TAGGED).expect("the fixture's Contract compiles"),
+        module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("send", vec![]).unwrap();
+    let sent = r.take_requests();
+    assert_eq!(sent.len(), 1);
+    assert!(
+        r.act("resend", vec![]).is_err(),
+        "the unknown source refuses it"
+    );
+    assert!(r.take_requests().is_empty());
+    assert_eq!(r.pending(), [("tagged".to_string(), sent[0].ticket)]);
+    assert_eq!(r.data().in_flight(), 1, "one call is parked");
+    let reply = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"ok".to_vec(),
+    });
+    r.fulfill(sent[0].ticket, reply).unwrap();
+    assert_eq!(text_of(&r, "tagged").as_deref(), Some("call 1 ok"));
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// Three equal sends, each replacing the last, then a refused commit that
+/// puts the first one's request back: only the first call is parked again,
+/// and the reply reaches it.
+#[test]
+fn a_refused_commit_puts_back_only_the_first_of_several_equal_calls() {
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataSource, InFlight, Store, Target};
+    let grants = "net.fetch https://outlive.test\nnet.fetch local-network development\nsecret.keep outlive.token\n";
+    let mut m = Module::loaded(TAGGED_HBC.to_vec(), "test.outlive", grants).unwrap();
+    m.set_budget_ms(f64::INFINITY);
+    m.bind(&contract::compile(TAGGED).expect("the fixture's Contract compiles"));
+    let mut s = Store::new(grants, Vec::<(String, Vec<u8>)>::new());
+    for _ in 0..3 {
+        let a = m.answer_for(Target::Mutation(0), &mut s, "tagged", &[]);
+        assert!(matches!(a, Ok(Answer::Later(_))), "{a:?}");
+    }
+    let back = InFlight {
+        target: Target::Mutation(0),
+        source: "tagged",
+        args: &[],
+        continuation: None,
+    };
+    m.forgotten(&s, &[back]);
+    assert!(m.keep_sent(&s, &[], true).is_empty());
+    assert_eq!(m.in_flight(), 1, "one call is parked");
+    let reply = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"ok".to_vec(),
+    });
+    let a = m.parse_for(Target::Mutation(0), &mut s, "tagged", &[], reply);
+    assert!(
+        matches!(&a, Ok(Answer::Now(v)) if *v == Value::record(vec![Value::str("call 1 ok")])),
+        "{a:?}"
+    );
+}

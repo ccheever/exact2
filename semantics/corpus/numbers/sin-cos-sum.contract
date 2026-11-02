@@ -1,0 +1,41 @@
+// The pinned trigonometric kernels and sum's left-to-right rounding.
+component App
+  state x = 0
+  state xs = [10000000000000000, 1, -10000000000000000]
+  derive s = sin(x)
+  derive c = cos(x)
+  derive total = sum(xs)
+  derive empty = sum([])
+  derive mapped = sum(xs.map(n => n / 2))
+  action set(v: number)
+    x = v
+    xs = xs.concat([2])
+  view
+    column
+      text `${s} ${c} ${total} ${mapped}` testId="values"
+      text `${1 / sin(-0)} ${cos(-0)} ${1 / sum([-0])} ${1 / sum([])}` testId="zeros"
+      text `${sin(1 / 0)} ${cos(-1 / 0)} ${sin(0 / 0)} ${cos(0 / 0)} ${sum([1 / 0, -1 / 0])}` testId="nan"
+      text `${sin(0.00000000000000000001)} ${cos(0.00000000000000000001)}` testId="tiny"
+      button "quarter" press=set(1.5707963267948966) testId="quarter"
+      button "negative" press=set(-3.141592653589793) testId="negative"
+      button "medium" press=set(1000000) testId="medium"
+      button "large" press=set(1e300) testId="large"
+
+test "zeros, nonfinite arguments, and ordered sums"
+  expect text "values" == "0 1 0 0"
+  expect state empty == 0
+  expect text "zeros" == "-Infinity 1 Infinity Infinity"
+  expect text "nan" == "NaN NaN NaN NaN NaN"
+  expect text "tiny" == "1e-20 1"
+
+test "argument reduction and updates"
+  tap "quarter"
+  expect state s == 1
+  expect state total == 2
+  tap "negative"
+  expect state c == -1
+  expect state total == 4
+  tap "medium"
+  expect state total == 6
+  tap "large"
+  expect state total == 8

@@ -1,0 +1,31 @@
+{
+  "kind": "interface",
+  "name": "@fixture/tally",
+  "version": "1.0.0",
+  "shapes": {
+    "TallyStatus": {
+      "available": "bool",
+      "platform": "string",
+      "count": "number",
+      "foreground": "bool"
+    },
+    "Tallied": {
+      "count": "number",
+      "origin": "string"
+    }
+  },
+  "names": [
+    {
+      "source": "tallyStatus",
+      "live": true,
+      "answers": "TallyStatus",
+      "substitute": { "default": { "available": false, "platform": "substitute", "count": 0, "foreground": true } }
+    },
+    {
+      "send": "tally",
+      "options": { "by": "option<number>" },
+      "answers": "Tallied"
+    },
+    { "event": "tallied", "on": "root", "raised": "emit", "args": ["number"], "hold": 16 }
+  ]
+}

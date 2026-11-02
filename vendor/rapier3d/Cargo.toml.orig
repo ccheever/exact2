@@ -1,0 +1,125 @@
+[package]
+name = "rapier3d"
+version.workspace = true
+authors.workspace = true
+description = "3-dimensional physics engine in Rust."
+documentation = "https://docs.rs/rapier3d"
+homepage.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+categories.workspace = true
+keywords = ["physics", "dynamics", "rigid", "real-time", "impulse_joints"]
+license.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[lints]
+clippy = { needless_lifetimes = "allow" }
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(feature, values("dim2", "f64", "std", "alloc", "bytemuck"))',
+    'cfg(target_arch, values("spirv"))',
+] }
+
+[features]
+default = ["dim3", "f32", "std"] # , "block-solver"]
+dim3 = []
+f32 = []
+# Enables the 2x2 block solver for contact manifolds (couples the two normal
+# constraints of a contact pair into a single 2x2 MLCP solve). Disabling it
+# also removes the extra per-contact `r_mat_elts` field from the solver's
+# normal-constraint struct. NOT enabled by default in 3D: it introduces jitter
+# in the 3D domino demo. Exposed as an opt-in for experimentation.
+block-solver = []
+alloc = [
+    "nalgebra/alloc",
+    "parry3d/alloc",
+    "serde?/alloc",
+]
+std = [
+    "alloc",
+    "parry3d/std",
+    "nalgebra/std",
+    "simba/std",
+    "num-traits/std",
+    "approx/std",
+    "thiserror/std",
+    "wide/std",
+    "serde?/std",
+]
+parallel = ["dep:rayon", "std", "parry3d/parallel"]
+# Drops the `Sync` requirement from callbacks (`PhysicsHooks`, `EventHandler`).
+# As a side effect, this also removes the dedicated threadpool API from the physics world
+# and pipeline.
+unsync-callbacks = []
+# Widens the solver's SIMD from 4 to 8 lanes (f32 only), replacing the default
+# 4-lane path. The compiler only emits real 256-bit AVX instructions on an
+# AVX-enabled target (`RUSTFLAGS="-C target-feature=+avx2,+fma"` or
+# `-C target-cpu=native`); otherwise it runs (correctly) as two 128-bit halves.
+simd8 = ["parry3d/simd8"]
+serde-serialize = [
+    "arrayvec/serde",
+    "nalgebra/serde-serialize",
+    "parry3d/serde-serialize",
+    "dep:serde",
+    "std",
+]
+enhanced-determinism = ["simba/libm_force", "parry3d/enhanced-determinism"]
+debug-render = []
+profiler = ["dep:web-time"] # Enables the internal profiler.
+bytemuck = ["dep:bytemuck"]
+
+# Feature used for debugging only.
+debug-disable-legitimate-fe-exceptions = []
+
+# Feature used for development and debugging only.
+# Do not enable this unless you are working on the engine internals.
+dev-remove-slow-accessors = []
+
+# Opt-in bounds checks on the solver's otherwise-unchecked SIMD body gathers
+# (`SolverBodies::gather_*` use `get_unchecked`). Validates the per-constraint
+# solver-body ids once at constraint generation — off the per-iteration solve
+# loop — so a stale id from a solver-graph maintenance bug becomes a clean
+# panic instead of an out-of-bounds gather (UB / segfault in the SIMD build).
+# Cheap but non-zero; off by default.
+solver-bounds-checks = []
+
+[package.metadata.docs.rs]
+features = ["parallel", "serde-serialize", "debug-render"]
+
+[lib]
+name = "rapier3d"
+path = "src/lib.rs"
+required-features = ["dim3", "f32"]
+
+[dependencies]
+glamx.workspace = true
+parry3d.workspace = true
+simba = { workspace = true, features = ["wide"] }
+num-traits.workspace = true
+approx.workspace = true
+arrayvec.workspace = true
+bitflags.workspace = true
+log.workspace = true
+thiserror.workspace = true
+profiling.workspace = true
+static_assertions.workspace = true
+wide.workspace = true
+web-time = { workspace = true, optional = true }
+rayon = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+
+# Nalgebra is only included on non-spirv targets. On spirv, rapier exposes only the
+# subset of its API that doesn't require nalgebra.
+[target.'cfg(not(target_arch = "spirv"))'.dependencies]
+nalgebra = { workspace = true }
+glamx = { workspace = true, features = ["nalgebra"] }
+
+[dev-dependencies]
+bincode.workspace = true
+serde_json.workspace = true
+serde = { workspace = true, features = ["std"] }
+oorandom.workspace = true

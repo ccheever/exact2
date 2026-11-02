@@ -1,0 +1,25 @@
+# Heavy list on the web host: the wasm the JS target's data module is made from.
+[package]
+name = "exact-heavylist-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_heavylist_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-heavylist-data = { path = "../data" }
+exact-logic = { path = "../../../../logic" }
+exact-web = { path = "../../../../host/web" }
+exact-web-capabilities = { path = "../../../../host/web-capabilities" }
+exact-runner = { path = "../../../../runner" }
+exact-plan = { path = "../../../../plan" }
+
+[build-dependencies]
+exact-heavylist-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

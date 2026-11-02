@@ -1,0 +1,20 @@
+// An after-timer and an every-timer due at the same instant: declaration
+// order breaks the tie; the after fires once.
+component App
+  state log = ""
+  action once
+    log = log + "O"
+  action tick
+    log = log + "t"
+  task first mount
+    after(20, once)
+  task second mount
+    every(10, tick)
+  view
+    text log testId="log"
+
+test "tie"
+  clock +20
+  expect state log == "tOt"
+  clock +20
+  expect state log == "tOttt"

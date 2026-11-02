@@ -1,0 +1,47 @@
+[package]
+name = "exact-js"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The TypeScript data-source executor: an app's `app.ts`, compiled to Hermes bytecode at bake, behind the runner's one data seam, run by the lean Hermes VM."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+ibex2-sqlite = { path = "../vendor/ibex/crates/ibex2-sqlite" }
+# Digests and signing use exact-data; Ibex supplies OS randomness only.
+ibex2 = { path = "../vendor/ibex/crates/ibex2", default-features = false, features = ["bindings", "intl"] }
+hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false, features = ["link-lean"] }
+exact-data = { path = "../data" }
+exact-js-value = { path = "value" }
+exact-plan = { path = "../plan" }
+exact-runner = { path = "../runner" }
+serde_json = "1.0"
+sha2 = "0.10"
+
+# A turn's own time: this thread's CPU clock (src/turn.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[build-dependencies]
+cc = "1"
+hermes-lean-sys = { path = "../vendor/ibex/crates/hermes-lean-sys", default-features = false }
+
+[dev-dependencies]
+caltrain-data = { path = "../apps/caltrain/data" }
+# The storage composer a host stacks over the module.
+exact-data-host = { path = "../data/host" }
+contract = { path = "../contract/cli" }
+exact-kernel = { path = "../kernel" }
+# The render server uses Unix sockets/poll; direct executor interrupt tests
+# remain platform-independent.
+[target.'cfg(unix)'.dev-dependencies]
+exact-render = { path = "../host/render" }
+# The Apple host's Bridge, executor and pump over a module's answers
+# (tests/it/admission.rs).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+exact-apple = { path = "../host/apple" }

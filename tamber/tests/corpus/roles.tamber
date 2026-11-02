@@ -1,0 +1,12 @@
+tamber roles
+
+theme
+  -exact-secondary-label = light-dark(#3c3c4399, #ebebf599)
+  label = #0b0f14
+  Canvas = light-dark(#ffffff, #101418)
+  text.muted = -exact-secondary-label
+  text.plain = -exact-label
+  text.system = Canvas
+  text.link = LinkText
+  ink = -exact-tertiary-label
+  text.shouted = LABEL

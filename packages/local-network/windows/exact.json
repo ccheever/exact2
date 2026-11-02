@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/local-network@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["../linux/lib.rs"] },
+  "artifacts": [],
+  "class": "LocalNetwork"
+}

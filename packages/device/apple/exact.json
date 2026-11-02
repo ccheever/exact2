@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/device@^1.0",
+  "platform": "apple",
+  "targets": ["ios", "macos", "tvos"],
+  "shapes": {
+    "AppleBattery": {
+      "batteryState": "enum<unknown|unplugged|charging|full>"
+    },
+    "AppleNetwork": {
+      "expensive": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "swift": ["Device.swift"] },
+  "artifacts": [],
+  "class": "DeviceModule"
+}

@@ -1,0 +1,1097 @@
+//! Explicit source ownership across two executors, without depending on either engine.
+//! Paired replacement.
+//! The ordered set: every child that shares a
+//! `secret.keep` name with a worker child takes its turns one at a time,
+//! each against the store as committed at dispatch.
+
+use crate::envelope;
+use exact_plan::{Plan, Value};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Request,
+    Store, Target, Work,
+};
+use serde_json::Value as Json;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+
+type Retain<R> = fn(&R) -> Result<R, DataError>;
+
+/// A call an ordered member recorded, to run at dispatch.
+enum Recorded {
+    Answer {
+        rust: bool,
+        target: Option<Target>,
+        source: String,
+        args: Vec<Value>,
+    },
+    Resume {
+        rust: bool,
+        target: Option<Target>,
+        source: String,
+        args: Vec<Value>,
+        outcome: Outcome,
+    },
+}
+
+/// What a parked ordered call waits for: its turn's envelope, or the host's
+/// outcome for the request its turn yielded.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Turn,
+    Yielded,
+}
+
+/// A call's stages are keyed by the runner's target when it named one,
+/// then by owner, source and arguments: two targets asking one source with
+/// equal arguments are two calls.
+type Key = (bool, Option<Target>, String, Vec<u8>);
+
+fn key(rust: bool, target: Option<Target>, source: &str, args: &[Value]) -> Key {
+    let mut bytes = Vec::new();
+    for a in args {
+        bytes.extend(a.to_bytes());
+    }
+    (rust, target, source.to_string(), bytes)
+}
+
+fn recorded_key(recorded: &Recorded) -> Key {
+    match recorded {
+        Recorded::Answer {
+            rust,
+            target,
+            source,
+            args,
+        }
+        | Recorded::Resume {
+            rust,
+            target,
+            source,
+            args,
+            ..
+        } => key(*rust, *target, source, args),
+    }
+}
+
+/// One ordered set (change 2): its members, the turn it
+/// has reserved, and the calls waiting behind it, in order.
+struct Set {
+    busy: bool,
+    held: VecDeque<u64>,
+    /// The turn `busy` reserves: a reply the runner drops (its request let
+    /// go) would otherwise leave the set waiting forever.
+    running: Option<Running>,
+}
+
+/// A set's reserved turn: the token this composer handed out for it, its
+/// call's key, and the child's own token once the child hands one out.
+struct Running {
+    token: u64,
+    key: Key,
+    child: Option<u64>,
+}
+
+/// Two data executors with disjoint, declared source names and one app identity.
+/// Each child retains its own grants; hosts receive their union. Construction
+/// never probes an answer to discover ownership, so writes cannot happen twice.
+pub struct Mixed<J, R> {
+    javascript: J,
+    rust: R,
+    sources: BTreeMap<String, bool>,
+    app_id: String,
+    grants: String,
+    revision: String,
+    retain_rust: Option<Retain<R>>,
+    continuations: BTreeMap<u64, (bool, u64)>,
+    next_continuation: u64,
+    /// The ordered sets a worker child makes (none when both children are
+    /// on `main`), and which set each child belongs to.
+    sets: Vec<Set>,
+    set_of: [Option<usize>; 2],
+    recorded: BTreeMap<u64, (usize, Recorded)>,
+    stages: HashMap<Key, VecDeque<Stage>>,
+    logs: Vec<String>,
+    /// The sources whose overlay a worker owns, said once each.
+    told_overlay: BTreeSet<String>,
+}
+
+fn unavailable(message: impl Into<String>) -> DataError {
+    DataError::Unavailable(message.into())
+}
+
+fn kept_names(grants: &str) -> BTreeSet<String> {
+    Store::new(grants, []).granted().iter().cloned().collect()
+}
+
+impl<J: DataSource, R: DataSource> Mixed<J, R> {
+    #[cfg(test)]
+    pub(crate) fn staged_keys(&self) -> usize {
+        self.stages.len()
+    }
+
+    /// Require a complete JavaScript/Rust pair for every replacement.
+    pub fn new(
+        javascript: J,
+        rust: R,
+        javascript_sources: &[&str],
+        rust_sources: &[&str],
+    ) -> Result<Self, DataError> {
+        let mut sources = BTreeMap::new();
+        for (names, owner) in [(javascript_sources, false), (rust_sources, true)] {
+            for name in names {
+                if name.is_empty() || sources.insert((*name).into(), owner).is_some() {
+                    return Err(unavailable(format!(
+                        "duplicate or empty data source: {name}"
+                    )));
+                }
+            }
+        }
+        Self::construct(javascript, rust, sources, None)
+    }
+
+    /// Disable Rust replacement and explicitly preserve its state when replacing
+    /// JavaScript. `retain` must make an isolated candidate (for example a clone);
+    /// it must not reset live state or share mutable state with validation.
+    pub fn with_embedded_rust(mut self, retain: Retain<R>) -> Self {
+        self.retain_rust = Some(retain);
+        self
+    }
+
+    fn construct(
+        javascript: J,
+        rust: R,
+        sources: BTreeMap<String, bool>,
+        retain_rust: Option<Retain<R>>,
+    ) -> Result<Self, DataError> {
+        if javascript.app_id() != rust.app_id() {
+            return Err(unavailable(
+                "mixed executors must declare the same app identity",
+            ));
+        }
+        let app_id = javascript.app_id().into();
+        let grants = [javascript.grants(), rust.grants()]
+            .into_iter()
+            .flat_map(str::lines)
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("\n");
+        // If Rust adds no capabilities, retain the existing JS receipt spelling.
+        // Otherwise the union is deterministic; each child keeps its own spelling.
+        let grants = if grants.lines().all(|line| {
+            javascript
+                .grants()
+                .lines()
+                .map(str::trim)
+                .any(|grant| grant == line)
+        }) {
+            javascript.grants().to_owned()
+        } else {
+            grants
+        };
+        let revision = format!(
+            "mixed:{}",
+            serde_json::to_string(&(javascript.revision(), rust.revision())).unwrap()
+        );
+        // The ordered sets (change 2): a worker child is a
+        // set; a main child joins it when their `secret.keep` names overlap,
+        // since the Store is the only state the ordering protects. Two
+        // workers with disjoint names are two sets that run concurrently.
+        let workers = [
+            javascript.placement() == Placement::Worker,
+            rust.placement() == Placement::Worker,
+        ];
+        let overlap = !kept_names(javascript.grants()).is_disjoint(&kept_names(rust.grants()));
+        let mut sets = Vec::new();
+        let mut set_of = [None, None];
+        if workers.iter().any(|w| *w) {
+            if overlap || (workers[0] && workers[1]) {
+                sets.push(Set {
+                    busy: false,
+                    held: VecDeque::new(),
+                    running: None,
+                });
+                set_of = [Some(0), Some(0)];
+            } else {
+                for (i, worker) in workers.iter().enumerate() {
+                    if *worker {
+                        set_of[i] = Some(sets.len());
+                        sets.push(Set {
+                            busy: false,
+                            held: VecDeque::new(),
+                            running: None,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(Self {
+            javascript,
+            rust,
+            sources,
+            app_id,
+            grants,
+            revision,
+            retain_rust,
+            continuations: BTreeMap::new(),
+            next_continuation: 1,
+            sets,
+            set_of,
+            recorded: BTreeMap::new(),
+            stages: HashMap::new(),
+            logs: Vec::new(),
+            told_overlay: BTreeSet::new(),
+        })
+    }
+
+    fn owner(&self, source: &str) -> Result<bool, DataError> {
+        self.sources
+            .get(source)
+            .copied()
+            .ok_or_else(|| DataError::UnknownSource(source.into()))
+    }
+
+    fn token(&mut self) -> Result<u64, DataError> {
+        let token = self.next_continuation;
+        self.next_continuation = token
+            .checked_add(1)
+            .ok_or_else(|| unavailable("mixed continuation tokens exhausted"))?;
+        Ok(token)
+    }
+
+    fn child_grants(&self, rust: bool) -> String {
+        if rust {
+            self.rust.grants().to_owned()
+        } else {
+            self.javascript.grants().to_owned()
+        }
+    }
+
+    fn child_placement(&self, rust: bool) -> Placement {
+        if rust {
+            self.rust.placement()
+        } else {
+            self.javascript.placement()
+        }
+    }
+
+    fn route_answer(&mut self, rust: bool, mut answer: Answer) -> Result<Answer, DataError> {
+        if let Answer::Later(request) = &mut answer {
+            let grants = if rust {
+                self.rust.grants()
+            } else {
+                self.javascript.grants()
+            };
+            if let Some(scope) = &request.grants {
+                if scope.lines().map(str::trim).any(|line| {
+                    !line.is_empty() && !grants.lines().map(str::trim).any(|grant| grant == line)
+                }) {
+                    return Err(unavailable("nested request exceeds its executor's grants"));
+                }
+            } else {
+                request.grants = Some(grants.into());
+            }
+            if let Some(child) = request.continuation {
+                let token = self.token()?;
+                self.continuations.insert(token, (rust, child));
+                request.continuation = Some(token);
+            }
+        }
+        Ok(answer)
+    }
+
+    /// Record an ordered member's call; it runs at dispatch, one turn at a
+    /// time per set, against the store as committed then.
+    fn record(&mut self, set: usize, k: Key, recorded: Recorded) -> Result<Answer, DataError> {
+        let token = self.token()?;
+        self.recorded.insert(token, (set, recorded));
+        self.stages.entry(k).or_default().push_back(Stage::Turn);
+        Ok(Answer::Later(Request::continuation(token)))
+    }
+
+    /// Start a recorded turn: a worker child records and dispatches its own
+    /// job; a main child computes here, now, against a snapshot, and its
+    /// envelope goes round through the host like any other reply.
+    fn start(&mut self, set: usize, token: u64, store: &Store) -> Dispatch {
+        let Some((_, recorded)) = self.recorded.remove(&token) else {
+            return Dispatch::Missing;
+        };
+        let rust = match &recorded {
+            Recorded::Answer { rust, .. } | Recorded::Resume { rust, .. } => *rust,
+        };
+        self.sets[set].busy = true;
+        self.sets[set].running = Some(Running {
+            token,
+            key: recorded_key(&recorded),
+            child: None,
+        });
+        let grants = self.child_grants(rust);
+        if self.child_placement(rust) == Placement::Worker {
+            let mut scratch = Store::new(&grants, []);
+            let answer = match recorded {
+                Recorded::Answer {
+                    target,
+                    source,
+                    args,
+                    ..
+                } => self.child_answer(rust, target, &mut scratch, &source, &args),
+                Recorded::Resume {
+                    target,
+                    source,
+                    args,
+                    outcome,
+                    ..
+                } => self.child_parse(rust, target, &mut scratch, &source, &args, outcome),
+            };
+            return match answer {
+                // A long poll on a member's own work: no request a host could run, so the
+                // answer fails as the member's own refusal would.
+                Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+                    let why = request.long_poll_refusal().unwrap_or_default();
+                    if let Some(child) = request.continuation {
+                        if rust {
+                            self.rust.discard(child);
+                        } else {
+                            self.javascript.discard(child);
+                        }
+                    }
+                    let outcome = envelope::encode(
+                        Err(DataError::Unavailable(why.into())),
+                        &mut scratch,
+                        Vec::new(),
+                    );
+                    Dispatch::Run(Work::Now(Box::new(move || outcome)))
+                }
+                Ok(Answer::Later(request)) if request.continuation.is_some() => {
+                    let child = request.continuation.expect("checked");
+                    if let Some(running) = self.sets[set].running.as_mut() {
+                        running.child = Some(child);
+                    }
+                    let dispatch = if rust {
+                        self.rust.dispatch(child, store)
+                    } else {
+                        self.javascript.dispatch(child, store)
+                    };
+                    if matches!(dispatch, Dispatch::Missing | Dispatch::Held) {
+                        self.sets[set].busy = false;
+                        self.sets[set].running = None;
+                    }
+                    dispatch
+                }
+                // A worker child that answered at once (or refused): its
+                // reply still goes round as an envelope, so the turn ends
+                // where every turn ends.
+                other => {
+                    let outcome = envelope::encode(other, &mut scratch, Vec::new());
+                    Dispatch::Run(Work::Now(Box::new(move || outcome)))
+                }
+            };
+        }
+        let mut local = Store::new(&grants, envelope::snapshot(store, &grants));
+        let result = match recorded {
+            Recorded::Answer {
+                target,
+                source,
+                args,
+                ..
+            } => self.child_answer(rust, target, &mut local, &source, &args),
+            Recorded::Resume {
+                target,
+                source,
+                args,
+                outcome,
+                ..
+            } => self.child_parse(rust, target, &mut local, &source, &args, outcome),
+        };
+        let outcome = envelope::encode(result, &mut local, Vec::new());
+        Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+
+    fn child_answer(
+        &mut self,
+        rust: bool,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if rust {
+            crate::answer(&mut self.rust, target, store, source, args)
+        } else {
+            crate::answer(&mut self.javascript, target, store, source, args)
+        }
+    }
+
+    fn child_parse(
+        &mut self,
+        rust: bool,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if rust {
+            crate::parse(&mut self.rust, target, store, source, args, outcome)
+        } else {
+            crate::parse(&mut self.javascript, target, store, source, args, outcome)
+        }
+    }
+
+    fn answer_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let rust = self.owner(source)?;
+        if let Some(set) = self.set_of[rust as usize] {
+            return self.record(
+                set,
+                key(rust, target, source, args),
+                Recorded::Answer {
+                    rust,
+                    target,
+                    source: source.to_string(),
+                    args: args.to_vec(),
+                },
+            );
+        }
+        let grants = self.child_grants(rust);
+        let answer = store.with_grants(&grants, |store| {
+            self.child_answer(rust, target, store, source, args)
+        })?;
+        self.route_answer(rust, answer)
+    }
+
+    fn parse_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let rust = self.owner(source)?;
+        let grants = self.child_grants(rust);
+        if let Some(set) = self.set_of[rust as usize] {
+            let k = key(rust, target, source, args);
+            let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+            if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+                self.stages.remove(&k);
+            }
+            return match stage {
+                Some(Stage::Turn) => {
+                    // The reserved turn ended, however it ended.
+                    self.sets[set].busy = false;
+                    self.sets[set].running = None;
+                    let answer = if self.child_placement(rust) == Placement::Worker {
+                        store.with_grants(&grants, |store| {
+                            self.child_parse(rust, target, store, source, args, outcome)
+                        })
+                    } else {
+                        let mut logs = Vec::new();
+                        let answer = store.with_grants(&grants, |store| {
+                            envelope::apply(outcome, store, &mut logs)
+                        });
+                        self.logs.extend(logs);
+                        answer
+                    };
+                    match answer {
+                        Ok(Answer::Later(request)) => {
+                            self.stages.entry(k).or_default().push_back(Stage::Yielded);
+                            self.route_answer(rust, Answer::Later(request))
+                        }
+                        other => other,
+                    }
+                }
+                Some(Stage::Yielded) => self.record(
+                    set,
+                    k,
+                    Recorded::Resume {
+                        rust,
+                        target,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome,
+                    },
+                ),
+                None => Err(unavailable(format!(
+                    "`{source}`: a reply for an answer not in flight"
+                ))),
+            };
+        }
+        let answer = store.with_grants(&grants, |store| {
+            self.child_parse(rust, target, store, source, args, outcome)
+        })?;
+        self.route_answer(rust, answer)
+    }
+
+    /// Envelope lines plus each member's journal.
+    /// The JavaScript child's trait path carries its storage journal; a
+    /// worker child keeps its own and is not a member here.
+    pub fn take_logs(&mut self) -> Vec<String> {
+        let mut lines = std::mem::take(&mut self.logs);
+        lines.extend(DataSource::take_logs(&mut self.javascript));
+        lines.extend(DataSource::take_logs(&mut self.rust));
+        lines
+    }
+}
+
+impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.javascript.prepare_snapshot(module, deadline)?;
+        self.rust.prepare_snapshot(None, deadline)
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        self.javascript.take_storage_changed() | self.rust.take_storage_changed()
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        self.javascript.set_document_owner(owner);
+        self.rust.set_document_owner(owner);
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        Mixed::take_logs(self)
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        let mut aborted = DataSource::take_aborted(&mut self.javascript);
+        aborted.extend(DataSource::take_aborted(&mut self.rust));
+        aborted
+    }
+    fn abort_wake(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        DataSource::abort_wake(&mut self.javascript, wake.clone());
+        DataSource::abort_wake(&mut self.rust, wake);
+    }
+
+    fn placement(&self) -> Placement {
+        if self.sets.is_empty() {
+            Placement::Main
+        } else {
+            Placement::Worker
+        }
+    }
+
+    fn preload(&self) -> Result<bool, DataError> {
+        let javascript = self.javascript.preload()?;
+        let rust = self.rust.preload()?;
+        Ok(javascript && rust)
+    }
+    /// Wakes when either loading half finishes, so a failure in one is seen
+    /// while the other still loads.
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        match (self.javascript.preload(), self.rust.preload()) {
+            (Ok(false), Ok(false)) => {
+                type Wake = Box<dyn FnOnce() + Send>;
+                let once = std::sync::Arc::new(std::sync::Mutex::new(Some(wake)));
+                let fire = |once: std::sync::Arc<std::sync::Mutex<Option<Wake>>>| -> Wake {
+                    Box::new(move || {
+                        let wake = once.lock().unwrap_or_else(|e| e.into_inner()).take();
+                        if let Some(wake) = wake {
+                            wake()
+                        }
+                    })
+                };
+                self.javascript.when_preloaded(fire(once.clone()));
+                self.rust.when_preloaded(fire(once));
+            }
+            (Ok(false), Ok(true)) => self.javascript.when_preloaded(wake),
+            (Ok(true), Ok(false)) => self.rust.when_preloaded(wake),
+            _ => wake(),
+        }
+    }
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        if self.owner(source)? {
+            self.rust.query(source, args)
+        } else {
+            self.javascript.query(source, args)
+        }
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(None, store, source, args)
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(Some(target), store, source, args)
+    }
+
+    fn parse(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(None, store, source, args, outcome)
+    }
+
+    /// The owning child's overlay, called synchronously: one in an ordered set (a
+    /// worker's) cannot be, and shows the answer.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        let rust = self.owner(source)?;
+        // A child on another thread can't be called synchronously; one on main that
+        // only shares ordering with a worker can.
+        if self.set_of[rust as usize].is_some() && self.child_placement(rust) != Placement::Main {
+            if self.told_overlay.insert(source.to_string()) {
+                self.logs.push(format!(
+                    "overlay: {source} runs on its owner thread, so its writes show when answered"
+                ));
+            }
+            return Ok(None);
+        }
+        if rust {
+            self.rust.overlay(source, args, answer, writes)
+        } else {
+            self.javascript.overlay(source, args, answer, writes)
+        }
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(Some(target), store, source, args, outcome)
+    }
+
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // Background work is the JavaScript child's.
+        if token == exact_runner::BACKGROUND {
+            return self.javascript.dispatch(token, store);
+        }
+        if let Some((set, _)) = self.recorded.get(&token) {
+            let set = *set;
+            if self.sets[set].busy {
+                self.sets[set].held.push_back(token);
+                return Dispatch::Held;
+            }
+            return self.start(set, token, store);
+        }
+        let Some((rust, child)) = self.continuations.get(&token).copied() else {
+            return Dispatch::Missing;
+        };
+        let dispatch = if rust {
+            self.rust.dispatch(child, store)
+        } else {
+            self.javascript.dispatch(child, store)
+        };
+        if !matches!(dispatch, Dispatch::Held) {
+            self.continuations.remove(&token);
+        }
+        dispatch
+    }
+
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        let mut released = Vec::new();
+        for set in 0..self.sets.len() {
+            if self.sets[set].busy {
+                continue;
+            }
+            if let Some(token) = self.sets[set].held.pop_front() {
+                let dispatch = self.start(set, token, store);
+                released.push((token, dispatch));
+            }
+        }
+        // A child's own held work, under the tokens this composer handed out.
+        for rust in [false, true] {
+            let inner = if rust {
+                self.rust.release(store)
+            } else {
+                self.javascript.release(store)
+            };
+            for (child, dispatch) in inner {
+                let outer = self
+                    .continuations
+                    .iter()
+                    .find(|(_, (r, c))| *r == rust && *c == child)
+                    .map(|(outer, _)| *outer);
+                if let Some(outer) = outer {
+                    if !matches!(dispatch, Dispatch::Held) {
+                        self.continuations.remove(&outer);
+                    }
+                    released.push((outer, dispatch));
+                }
+            }
+        }
+        released
+    }
+
+    /// What the runner still has in flight, after a commit that let
+    /// requests go. A recorded call, held turn or routed
+    /// continuation whose token isn't in flight was replaced or let go, and
+    /// is dropped. A key no longer in flight loses its stages; one whose
+    /// in-flight request is a newer call recorded here keeps that call's
+    /// stage alone. A set whose reserved turn was let go — its key gone, or
+    /// its request replaced by a newer call (a refresh with equal arguments)
+    /// — is free: the runner drops that turn's reply, so nothing else would
+    /// end it. The running turn is judged by key and by the calls recorded
+    /// here, never by its own token, which a forwarder above can't translate
+    /// once dispatched. Each child hears what is in flight in its own tokens.
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
+        let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
+        self.recorded.retain(|token, _| tokens.contains(token));
+        self.continuations.retain(|token, _| tokens.contains(token));
+        let recorded: HashSet<u64> = self.recorded.keys().copied().collect();
+        let live: HashMap<Key, Option<u64>> = in_flight
+            .iter()
+            .filter_map(|f| {
+                let rust = self.owner(f.source).ok()?;
+                Some((key(rust, Some(f.target), f.source, f.args), f.continuation))
+            })
+            .collect();
+        let newer = |k: &Key| matches!(live.get(k), Some(Some(t)) if recorded.contains(t));
+        self.stages
+            .retain(|k, _| k.1.is_none() || live.contains_key(k));
+        for (k, stages) in self.stages.iter_mut() {
+            if k.1.is_some() && newer(k) {
+                stages.clear();
+                stages.push_back(Stage::Turn);
+            }
+        }
+        for set in &mut self.sets {
+            set.held.retain(|token| tokens.contains(token));
+            let let_go = set.running.as_ref().is_some_and(|running| {
+                running.key.1.is_some()
+                    && match live.get(&running.key) {
+                        None => true,
+                        Some(Some(t)) => *t != running.token && recorded.contains(t),
+                        Some(None) => false,
+                    }
+            });
+            if let_go {
+                set.busy = false;
+                set.running = None;
+            }
+        }
+        let running: HashMap<u64, Option<u64>> = self
+            .sets
+            .iter()
+            .filter_map(|set| set.running.as_ref())
+            .map(|running| (running.token, running.child))
+            .collect();
+        for rust in [false, true] {
+            let view: Vec<InFlight<'_>> = in_flight
+                .iter()
+                .filter(|f| self.owner(f.source).ok() == Some(rust))
+                .filter_map(|f| {
+                    let continuation = match f.continuation {
+                        None => None,
+                        Some(t) => match (
+                            self.continuations.get(&t),
+                            self.recorded.get(&t),
+                            running.get(&t),
+                        ) {
+                            (Some((owner, child)), _, _) => (*owner == rust).then_some(*child),
+                            // A call recorded here that the child hasn't seen:
+                            // what the child still holds for its key is stale.
+                            (_, Some((_, Recorded::Answer { .. })), _) => return None,
+                            (_, _, Some(child)) => *child,
+                            _ => None,
+                        },
+                    };
+                    Some(InFlight { continuation, ..*f })
+                })
+                .collect();
+            let grants = self.child_grants(rust);
+            let mut local = store.clone();
+            local.with_grants(&grants, |scoped| {
+                if rust {
+                    self.rust.forgotten(scoped, &view);
+                } else {
+                    self.javascript.forgotten(scoped, &view);
+                }
+            });
+        }
+    }
+
+    fn discard(&mut self, token: u64) {
+        match self.recorded.remove(&token) {
+            Some((_, recorded)) => {
+                let k = recorded_key(&recorded);
+                if let Some(stages) = self.stages.get_mut(&k) {
+                    stages.pop_back();
+                    if stages.is_empty() {
+                        self.stages.remove(&k);
+                    }
+                }
+            }
+            None => {
+                if let Some((rust, child)) = self.continuations.remove(&token) {
+                    if rust {
+                        self.rust.discard(child);
+                    } else {
+                        self.javascript.discard(child);
+                    }
+                }
+            }
+        }
+    }
+
+    fn app_id(&self) -> &str {
+        &self.app_id
+    }
+    fn grants(&self) -> &str {
+        &self.grants
+    }
+    fn revision(&self) -> Option<&str> {
+        Some(&self.revision)
+    }
+    fn ready(&self) -> bool {
+        self.javascript.ready() && self.rust.ready()
+    }
+
+    /// Both halves' rosters; a name in both is the bake's
+    /// refusal, and the TypeScript half's here.
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        let mut all = self.javascript.canvas_surfaces();
+        for s in self.rust.canvas_surfaces() {
+            if !all.iter().any(|(n, _)| *n == s.0) {
+                all.push(s);
+            }
+        }
+        all
+    }
+
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        let javascript = self
+            .javascript
+            .canvas_surfaces()
+            .iter()
+            .any(|(n, _)| n == request.surface);
+        if javascript {
+            self.javascript.draw(request, ctx)
+        } else {
+            self.rust.draw(request, ctx)
+        }
+    }
+
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        self.javascript.canvases_retired(retired);
+        self.rust.canvases_retired(retired);
+    }
+
+    /// Stops whichever child is running a call.
+    /// Only TypeScript calls `native.later`; a Rust source calls its own code.
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.javascript.native()
+    }
+
+    fn interrupt(&self) -> Option<Interrupt> {
+        match (self.javascript.interrupt(), self.rust.interrupt()) {
+            (Some(javascript), Some(rust)) => Some(Interrupt::new(move || {
+                javascript.trigger();
+                rust.trigger();
+            })),
+            (javascript, rust) => javascript.or(rust),
+        }
+    }
+
+    fn bind(&mut self, plan: &Plan) {
+        self.javascript.bind(plan);
+        self.rust.bind(plan);
+    }
+
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        match self.owner(source) {
+            Ok(true) => self.rust.adopt(source, args, value),
+            Ok(false) => self.javascript.adopt(source, args, value),
+            Err(_) => {}
+        }
+    }
+
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.javascript.activate()?;
+        self.rust.activate()
+    }
+
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        self.javascript.activate_for_validation()?;
+        self.rust.activate_for_validation()
+    }
+
+    fn configure_storage(
+        &mut self,
+        data: std::path::PathBuf,
+        cache: std::path::PathBuf,
+        temporary: std::path::PathBuf,
+    ) -> Result<(), DataError> {
+        self.javascript
+            .configure_storage(data.clone(), cache.clone(), temporary.clone())?;
+        self.rust.configure_storage(data, cache, temporary)
+    }
+
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.javascript.background(store)
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.javascript.background_landed(store, outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.javascript.background_state()
+    }
+
+    // Each let-go request goes to the child that asked it, and each child
+    // hears, as after every `forgotten`, even with none of its own. A
+    // JavaScript child in an ordered set keeps none: its replies take their
+    // turns in the set, which a module turn would bypass.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        let mut kept = vec![None; let_go.len()];
+        for rust in [false, true] {
+            let ordered = !rust && self.set_of[0].is_some();
+            let mine: Vec<usize> = (0..let_go.len())
+                .filter(|&i| !ordered && self.owner(let_go[i].source).ok() == Some(rust))
+                .collect();
+            let view: Vec<InFlight<'_>> = mine
+                .iter()
+                .map(|&i| InFlight {
+                    continuation: None,
+                    ..let_go[i]
+                })
+                .collect();
+            let tokens = if rust {
+                self.rust.keep_sent(store, &view, refused)
+            } else {
+                // Its calls take their turns in the set, outside any commit.
+                self.javascript.keep_sent(store, &view, refused && !ordered)
+            };
+            // Only the JavaScript child's tokens reach `module_landed`.
+            for (&i, token) in mine.iter().zip(tokens) {
+                kept[i] = token.filter(|_| !rust);
+            }
+        }
+        kept
+    }
+
+    // A kept request is the JavaScript child's: its module
+    // turn sees the store through the child's grants, as an answer does.
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        let grants = self.javascript.grants().to_string();
+        store.with_grants(&grants, |store| {
+            self.javascript.module_landed(store, token, outcome)
+        })
+    }
+
+    fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if token == exact_runner::BACKGROUND {
+            return self.javascript.continuation(token);
+        }
+        let (rust, child) = self.continuations.remove(&token)?;
+        if rust {
+            self.rust.continuation(child)
+        } else {
+            self.javascript.continuation(child)
+        }
+    }
+
+    fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
+        if receipt.len() > 1024 * 1024
+            || module.len() > 32 * 1024 * 1024
+            || plan.len() > 32 * 1024 * 1024
+        {
+            return Err(unavailable("mixed replacement exceeds its byte limit"));
+        }
+        let metadata: Json = serde_json::from_str(receipt)
+            .map_err(|error| unavailable(format!("invalid mixed receipt: {error}")))?;
+        let (javascript, rust) = if metadata["kind"] != "mixed" {
+            let retain = self.retain_rust.ok_or_else(|| {
+                unavailable("mixed replacement requires a paired JavaScript and Rust generation")
+            })?;
+            if metadata["kind"] == "rust" {
+                return Err(unavailable("Rust replacement is disabled for this host"));
+            }
+            (
+                self.javascript.replacement(plan, receipt, module)?,
+                retain(&self.rust)?,
+            )
+        } else {
+            if self.retain_rust.is_some() {
+                return Err(unavailable("Rust replacement is disabled for this host"));
+            }
+            if metadata["version"] != 1
+                || !metadata["javascript"].is_object()
+                || !metadata["rust"].is_object()
+                || metadata["rust"]["kind"] != "rust"
+            {
+                return Err(unavailable("invalid paired mixed receipt"));
+            }
+            let split = metadata["javascriptBytes"]
+                .as_u64()
+                .and_then(|length| usize::try_from(length).ok())
+                .filter(|length| *length > 0 && *length < module.len())
+                .ok_or_else(|| unavailable("invalid paired mixed module boundary"))?;
+            (
+                self.javascript.replacement(
+                    plan,
+                    &metadata["javascript"].to_string(),
+                    module[..split].to_vec(),
+                )?,
+                self.rust.replacement(
+                    plan,
+                    &metadata["rust"].to_string(),
+                    module[split..].to_vec(),
+                )?,
+            )
+        };
+        if javascript.app_id() != self.javascript.app_id()
+            || rust.app_id() != self.rust.app_id()
+            || javascript.grants().trim() != self.javascript.grants().trim()
+            || rust.grants().trim() != self.rust.grants().trim()
+        {
+            return Err(unavailable(
+                "mixed replacement changes admitted identity or grants",
+            ));
+        }
+        // Placement is carried, never changed by a replacement:
+        // the children's placements decide the sets again.
+        Self::construct(javascript, rust, self.sources.clone(), self.retain_rust)
+    }
+}

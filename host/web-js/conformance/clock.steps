@@ -1,0 +1,6 @@
+clock +1500
+clock +3000
+tap stamp
+clock +61000
+tap toggle
+clock +8000

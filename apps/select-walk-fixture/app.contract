@@ -1,0 +1,53 @@
+// select-walk-fixture (tamber/1.17 `inspect` `select` by the page's own tree; the third hands-on pass's #4): the
+// shapes a move up must take, each a testId to click: a fill authored in the caller inside a slot's host (`body`), a row
+// that only renders a leaf inside that host (`glyph`, the clone's like row), a host whose box is one component deeper
+// (`panel-fill`), a host wrapped by another (`wrapped`), and the root past the last copy.
+component App
+  view
+    column testId="root" width="100%" padding=4 padding-top=240
+      Post()
+      Panel()
+        text "panel fill" testId="panel-fill"
+      Outer()
+        Card()
+          text "wrapped" testId="wrapped"
+
+component Frame
+  slot
+  view
+    column testId="frame" padding=2
+      children
+
+component Panel
+  slot
+  view
+    Frame()
+      children
+
+component Card
+  slot
+  view
+    column testId="card" padding=2
+      column testId="card-inner" padding=2
+        children
+
+component Glyph
+  view
+    text "g" testId="glyph"
+
+component Controls
+  view
+    Glyph()
+
+component Outer
+  slot
+  view
+    column testId="outer" padding=2
+      children
+
+component Post
+  view
+    column testId="post" padding=2
+      Card()
+        text "body" testId="body"
+        Controls()

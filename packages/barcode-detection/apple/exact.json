@@ -1,0 +1,34 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/barcode-detection@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {
+    "AppleBarcodeFormats": {
+      "symbologies": "string[]"
+    },
+    "AppleDetectedBarcode": {
+      "symbology": "string",
+      "payloadData": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "requestHatch",
+    "videoOutputHatch"
+  ],
+  "sources": {
+    "swift": [
+      "BarcodeDetection.swift",
+      "Scan.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "BarcodeDetectionModule"
+}

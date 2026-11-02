@@ -1,0 +1,36 @@
+// An action prop curried with a value that is not finite (1 / 0): it is a
+// capture parameter of every lifted action of the child, the compiler's
+// argument and not the host's, so it is held to its type and not to
+// finiteness (as a captured prop is, nonfinite-prop-action.contract): the
+// call and the instance's other actions run (review b5-a 2, superseded by
+// 9c4a4657f's rule).
+component App
+  state r = 0
+  action save(x: number)
+    r = 1
+  view
+    column
+      Child(go=save(1 / 0))
+      text `${r}` testId="r"
+
+component Child
+  props
+    go: action
+  state n = 0
+  action idle
+    n = n + 1
+  action use
+    go()
+  view
+    column
+      button press=idle testId="idle"
+        text "idle"
+      button press=use testId="use"
+        text "use"
+      text `${n}` testId="n"
+
+test "a non-finite curried argument refuses no action"
+  tap "use"
+  expect text "r" == "1"
+  tap "idle"
+  expect text "n" == "1"

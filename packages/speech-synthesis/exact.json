@@ -1,0 +1,117 @@
+{
+  "kind": "interface",
+  "name": "@exact/speech-synthesis",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "agent": {
+    "fail": "string"
+  },
+  "shapes": {
+    "SpeechSynthesisVoice": {
+      "voiceURI": "string",
+      "name": "string",
+      "lang": "string",
+      "localService": "bool",
+      "default": "bool",
+      "apple": "option<AppleVoice>",
+      "android": "option<AndroidVoice>"
+    },
+    "SpeechSynthesisVoices": {
+      "voices": "SpeechSynthesisVoice[]"
+    },
+    "SpeechUtteranceInfo": {
+      "id": "string"
+    },
+    "SpeechSynthesisState": {
+      "available": "bool",
+      "speaking": "bool",
+      "pending": "bool",
+      "paused": "bool",
+      "pauseReasons": "string[]",
+      "audioSessionType": "string",
+      "utterance": "option<string>",
+      "charIndex": "number",
+      "charLength": "number",
+      "name": "string",
+      "elapsedTime": "number",
+      "queue": "string[]",
+      "apple": "option<AppleSynthesisStatus>"
+    },
+    "SpeechUtterance": {
+      "id": "string",
+      "state": "enum<queued|speaking|paused|ended>",
+      "outcome": "option<enum<end|error>>",
+      "error": "option<enum<canceled|interrupted|audio-busy|audio-hardware|network|synthesis-unavailable|synthesis-failed|language-unavailable|voice-unavailable|text-too-long|invalid-argument|not-allowed>>"
+    }
+  },
+  "names": [
+    {
+      "send": "speak",
+      "foreground": true,
+      "options": {
+        "text": "string",
+        "lang": "option<string>",
+        "voice": "option<string>",
+        "volume": "option<number>",
+        "rate": "option<number>",
+        "pitch": "option<number>",
+        "audioSessionType": "option<enum<auto|transient|transient-solo|playback>>"
+      },
+      "answers": "SpeechUtteranceInfo",
+      "handles": {
+        "id": "utterance"
+      }
+    },
+    {
+      "send": "cancelSpeech",
+      "answers": "SpeechSynthesisState"
+    },
+    {
+      "send": "pauseSpeech",
+      "answers": "SpeechSynthesisState"
+    },
+    {
+      "send": "resumeSpeech",
+      "foreground": true,
+      "answers": "SpeechSynthesisState"
+    },
+    {
+      "source": "speechSynthesisState",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "answers": "SpeechSynthesisState",
+      "sync": {
+        "name": "speechSynthesisStateSync",
+        "from": "read"
+      },
+      "options": {
+        "interval": "option<number>"
+      }
+    },
+    {
+      "source": "speechUtterance",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "options": {
+        "utterance": "handle<utterance>",
+        "interval": "option<number>"
+      },
+      "answers": "SpeechUtterance"
+    },
+    {
+      "source": "speechSynthesisVoices",
+      "live": true,
+      "answers": "SpeechSynthesisVoices",
+      "sync": {
+        "name": "speechSynthesisVoicesSync",
+        "from": "read"
+      }
+    }
+  ]
+}

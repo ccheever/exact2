@@ -1,0 +1,45 @@
+// Accept fixture: a component's `provide` section and `inject name: type`
+// — a value flows down to every component
+// used in the providing component's view, without a prop at each use; a bare
+// name provides the value of that name; the nearest providing component wins,
+// a slot's fill keeps its caller's; the compiler fills it.
+component App
+  state accent = "#112233"
+  provide
+    accent
+  view
+    column testId="root"
+      Label(text="outer")
+      Wrap()
+      Inner()
+
+// Provides nothing: its use reads App's.
+component Wrap
+  view
+    Label(text="through")
+
+component Inner
+  provide
+    accent = "#ff0000"
+  view
+    column
+      Label(text="inner")
+      Frame()
+        Label(text="fill")
+
+component Frame
+  slot
+  provide
+    accent = "#00ff00"
+  view
+    column
+      Label(text="framed")
+      children
+
+component Label
+  props
+    text: string
+  inject
+    accent: string
+  view
+    text text color=accent testId=`label-${text}`

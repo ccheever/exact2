@@ -1,0 +1,47 @@
+/* The heavy list's CSS: each rule is the exact2 port's app.contract row of
+   the same name, property for property. */
+html, body, #main { margin: 0; height: 100%; }
+.screen { width: 100%; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; padding-top: env(safe-area-inset-top); background-color: #ffffff; color: #000000; font-family: system-ui; }
+.bar { flex-shrink: 0; width: 100%; box-sizing: border-box; display: flex; flex-direction: row; align-items: center; padding: 10px 16px; border-bottom: 0.5px solid #E5E5EA; }
+.title { flex: 1; font-size: 17px; font-weight: 600; }
+.live { font-size: 13px; color: #8E8E93; }
+.list { flex: 1; min-height: 0; width: 100%; overflow-y: auto; overflow-x: hidden; background-color: #ffffff; }
+.msg { width: 100%; display: flex; flex-direction: column; }
+.inner { width: 100%; box-sizing: border-box; display: flex; flex-direction: row; padding: 12px 16px; gap: 12px; align-items: flex-start; }
+.avatar { width: 40px; height: 40px; flex-shrink: 0; border-radius: 20px; object-fit: cover; background-color: #E5E5EA; }
+.content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.head { width: 100%; display: flex; flex-direction: row; align-items: baseline; gap: 6px; }
+.author { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; font-weight: 600; color: #000000; }
+.time { flex-shrink: 0; white-space: nowrap; font-size: 13px; color: #8E8E93; }
+.quote { margin-top: 6px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 8px; border-left: 3px solid #C7C7CC; border-radius: 8px; background-color: #F2F2F7; }
+.qa { font-size: 13px; font-weight: 600; color: #3C3C43; }
+.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; text-overflow: ellipsis; }
+.qe { font-size: 13px; color: #3C3C43; }
+.paras { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+.p { font-size: 16px; color: #000000; }
+.bold { font-weight: 600; }
+.italic { font-style: italic; }
+.code { font-family: ui-monospace, Menlo, monospace; font-size: 15px; background-color: #F2F2F7; }
+.link { color: #007AFF; text-decoration-line: underline; }
+.mention { color: #007AFF; font-weight: 600; }
+.tag { color: #5856D6; }
+.photos { margin-top: 8px; width: 100%; display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; }
+.ph1 { width: 100%; max-height: 320px; object-fit: cover; background-color: #E5E5EA; }
+.prow { width: 100%; display: flex; flex-direction: row; gap: 4px; align-items: flex-start; }
+.prow3 { width: 100%; display: flex; flex-direction: row; gap: 4px; }
+.pcol { width: 100%; display: flex; flex-direction: column; gap: 4px; }
+.sq { flex: 1; min-width: 0; aspect-ratio: 1; object-fit: cover; background-color: #E5E5EA; }
+.big { flex-grow: 2; flex-basis: 0; min-width: 0; aspect-ratio: 1; object-fit: cover; background-color: #E5E5EA; }
+.right { flex-grow: 1; flex-basis: 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.half { flex-grow: 1; flex-basis: 0; min-height: 0; width: 100%; object-fit: cover; background-color: #E5E5EA; }
+.card { margin-top: 8px; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; border: 0.5px solid #D1D1D6; border-radius: 12px; overflow: hidden; }
+.thumb { width: 100%; height: 140px; object-fit: cover; background-color: #E5E5EA; }
+.cbody { padding: 10px; display: flex; flex-direction: column; }
+.site { font-size: 12px; color: #8E8E93; }
+.ct { font-size: 15px; font-weight: 600; color: #000000; }
+.cd { font-size: 13px; color: #3C3C43; }
+.reacts { margin-top: 8px; display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.chip { display: flex; flex-direction: row; align-items: center; gap: 4px; height: 28px; box-sizing: border-box; padding: 0 10px; border-width: 0; border-radius: 14px; background-color: #F2F2F7; }
+.emoji { font-size: 14px; }
+.count { font-size: 13px; font-weight: 600; color: #3C3C43; }
+.sep { height: 0.5px; margin-left: 68px; background-color: #E5E5EA; }

@@ -1,0 +1,19 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Design tool",
+  "short_name": "Design",
+  "id": "com.exact.design-tool",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.design-tool",
+    "name": "Design tool"
+  },
+  "host": {
+    "web": {}
+  },
+  "rust": false,
+  "commands": {
+    "server": ["bun", "stub/tamber-stub.ts"]
+  }
+}

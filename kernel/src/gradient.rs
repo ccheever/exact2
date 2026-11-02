@@ -1,0 +1,1076 @@
+//! CSS `background-image`: `none`, or up to four layers of
+//! `linear-gradient()`, `radial-gradient()` and `conic-gradient()` (CSS
+//! Images 3 §3, Images 4 §3.3).
+//!
+//! Percentage stops are fixed up when parsed; length stops at paint time, so the row
+//! holds what every host paints and `css()` is canonical. Geometry depends on
+//! the box, so it is resolved by the host at paint time through
+//! [`Gradient::geometry`]; a colour may be a `light-dark()` pair, resolved per
+//! appearance like any colour row.
+
+pub use crate::style::wide::Lookup;
+use crate::style::{Color, ColorValue};
+use std::fmt::Write as _;
+
+/// Most stops one gradient takes: a bound on what crosses to a native host.
+pub const MAX_STOPS: usize = 64;
+
+/// The row: `none` (the initial value, no layers) or gradient layers, the
+/// first painted on top, as CSS paints them.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BackgroundImage(Vec<Gradient>);
+
+/// Most layers one `background-image` takes.
+pub const MAX_LAYERS: usize = 4;
+
+/// One gradient.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Gradient {
+    /// Repeat from the first stop to the last (linear gradients only).
+    pub repeating: bool,
+    /// Linear or radial, and how it is placed in the box.
+    pub kind: GradientKind,
+    /// At least two; percentage-only lists are fixed up, lengths await the box.
+    pub stops: Vec<Stop>,
+    /// `in <space> [<method> hue]`, as written.
+    pub interpolation: Option<exact_color::Interpolation>,
+}
+
+/// A colour stop, positioned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stop {
+    /// The colour, possibly a `light-dark()` pair.
+    pub color: ColorValue,
+    /// Position in `unit`, along the gradient line (linear) or ray (radial).
+    pub at: f32,
+    /// The authored unit; omitted stops need the box when mixed with lengths.
+    pub unit: StopUnit,
+}
+
+/// A stop position before the box is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopUnit {
+    /// Percent of the gradient line.
+    Percent,
+    /// CSS pixels along the gradient line.
+    Px,
+    /// An omitted position, distributed by CSS's fix-up.
+    Auto,
+}
+
+/// The gradient's shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GradientKind {
+    /// `linear-gradient()`: CSS degrees (0 is up, clockwise), or the magic
+    /// corner of `to <corner>`, whose angle depends on the box.
+    Linear(Direction),
+    /// `conic-gradient()`: stops around a centre, from an
+    /// angle (CSS degrees: 0 is up, clockwise); stop positions are
+    /// fractions of the turn.
+    Conic {
+        /// `from <angle>`, degrees.
+        from: f32,
+        /// `at <position>`: horizontal, vertical.
+        at: [Length; 2],
+    },
+    /// `radial-gradient()`: a circle or an ellipse sized by an extent
+    /// keyword, centred at a position in the box.
+    Radial {
+        /// `circle`, else `ellipse`.
+        circle: bool,
+        /// How far the ending shape reaches.
+        extent: Extent,
+        /// Its centre: horizontal, vertical.
+        at: [Length; 2],
+    },
+}
+
+/// A linear gradient's direction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Direction {
+    /// Degrees; `to <side>` is one of 0, 90, 180, 270.
+    Angle(f32),
+    /// `to <corner>`: right (else left), bottom (else top).
+    Corner {
+        /// `right`, else `left`.
+        right: bool,
+        /// `bottom`, else `top`.
+        bottom: bool,
+    },
+}
+
+/// CSS `<radial-extent>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extent {
+    /// `closest-side`.
+    ClosestSide,
+    /// `closest-corner`.
+    ClosestCorner,
+    /// `farthest-side`.
+    FarthestSide,
+    /// `farthest-corner`, the initial value.
+    FarthestCorner,
+}
+
+/// A `<length-percentage>` of a position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Length {
+    /// CSS pixels.
+    Px(f32),
+    /// Percent of the box's side, 0–100 (keywords are 0, 50, 100).
+    Percent(f32),
+}
+
+impl Length {
+    fn resolve(self, side: f32) -> f32 {
+        match self {
+            Length::Px(px) => px,
+            Length::Percent(p) => side * p / 100.0,
+        }
+    }
+}
+
+/// Where a gradient sits in a box of a given size, in the box's coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Geometry {
+    /// Stop 0% at `start`, 100% at `end`; colours extend past both.
+    Linear {
+        /// The 0% point.
+        start: (f32, f32),
+        /// The 100% point.
+        end: (f32, f32),
+    },
+    /// Stops around `center`, stop 0% at `from` degrees (CSS's: 0 is up,
+    /// clockwise), 100% a full turn on.
+    Conic {
+        /// The centre.
+        center: (f32, f32),
+        /// Where the turn starts, degrees.
+        from: f32,
+    },
+    /// Stop 0% at `center`, 100% on the ellipse of `radii`; the last colour
+    /// fills beyond it.
+    Radial {
+        /// The centre.
+        center: (f32, f32),
+        /// Horizontal and vertical radii (equal for a circle).
+        radii: (f32, f32),
+    },
+}
+
+/// The grammar, once linked ([`link`]). Only a wasm artifact reads it.
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<fn(&str) -> Option<BackgroundImage>> =
+    std::sync::OnceLock::new();
+
+/// Link `background-image`'s gradient grammar (linked by use):
+/// ~3 KiB of a web core that none of Caltrain, RealWorld or the video player
+/// paints with. A web artifact links it when its plan binds the row, and a
+/// plan that binds it unlinked is refused at boot, so an unlinked
+/// artifact never parses one. Native artifacts and the compiler parse
+/// without it.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(|css| BackgroundImage::check(css).ok());
+}
+
+impl BackgroundImage {
+    /// The row's parse, as every codec's: `None` for anything not drawn.
+    /// On the web, once linked ([`link`]).
+    pub fn parse(css: &str) -> Option<Self> {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|parse| parse(css));
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::check(css).ok()
+    }
+
+    /// The parse with the reason a value is refused, for the compiler to say.
+    pub fn check(css: &str) -> Result<Self, &'static str> {
+        let css = css.trim();
+        if css.eq_ignore_ascii_case("none") {
+            return Ok(Self(Vec::new()));
+        }
+        let layers = split_top(css, ',');
+        // A comma inside a gradient is the gradient's: re-join the pieces
+        // into whole calls.
+        let mut calls: Vec<String> = Vec::new();
+        for piece in layers {
+            match calls.last_mut() {
+                Some(open) if open.matches('(').count() > open.matches(')').count() => {
+                    open.push(',');
+                    open.push_str(piece);
+                }
+                _ => calls.push(piece.to_string()),
+            }
+        }
+        if calls.len() > MAX_LAYERS {
+            return Err("at most four background layers");
+        }
+        calls
+            .iter()
+            .map(|c| one_gradient(c))
+            .collect::<Result<_, _>>()
+            .map(Self)
+    }
+
+    /// The parse for `mask-image`: one layer only.
+    pub fn check_mask(css: &str) -> Result<Self, &'static str> {
+        let image = Self::check(css)?;
+        if image.0.len() > 1 {
+            return Err("one gradient as a mask: several mask layers are not implemented");
+        }
+        Ok(image)
+    }
+
+    /// The first (topmost) layer, or `None` for `none`.
+    pub fn gradient(&self) -> Option<&Gradient> {
+        self.0.first()
+    }
+
+    /// Every layer, the first on top.
+    pub fn layers(&self) -> &[Gradient] {
+        &self.0
+    }
+
+    /// Canonical CSS: stop positions explicit, colours as `#rrggbbaa` or
+    /// `light-dark()` of two, layers by commas.
+    pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept.
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
+        if self.0.is_empty() {
+            return "none".into();
+        }
+        self.0
+            .iter()
+            .map(|g| g.text(mode))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Why a value naming one of the [`REFUSED`] functions anywhere is not
+/// painted: what the literal text of a computed value already says.
+pub fn refused_function(css: &str) -> Option<&'static str> {
+    let lower = css.to_ascii_lowercase();
+    REFUSED
+        .iter()
+        .find(|(prefix, _)| {
+            lower.match_indices(prefix).any(|(i, _)| {
+                !lower[..i]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
+        })
+        .map(|(_, why)| *why)
+}
+
+/// One `*-gradient()` call.
+fn one_gradient(css: &str) -> Result<Gradient, &'static str> {
+    let css = css.trim();
+    let lower = css.to_ascii_lowercase();
+    for (prefix, why) in REFUSED {
+        if lower.starts_with(prefix) {
+            return Err(why);
+        }
+    }
+    let open = css.find('(').ok_or(EXPECTED)?;
+    let close = matching(css, open).ok_or(EXPECTED)?;
+    if !css[close + 1..].trim().is_empty() {
+        return Err(EXPECTED);
+    }
+    let args = split_top(&css[open + 1..close], ',');
+    // `in …` may precede or follow the shape.
+    let words = split_top(args[0], ' ');
+    let mut interpolation = None;
+    let mut prelude = args[0].to_string();
+    if let Some(i) = words.iter().position(|w| w.eq_ignore_ascii_case("in")) {
+        let (how, n) = exact_color::Interpolation::parse(&words[i..]).ok_or(
+            "`in` names a color space to interpolate in, as `in oklch` or `in oklch longer hue`",
+        )?;
+        interpolation = Some(how);
+        prelude = words[..i]
+            .iter()
+            .chain(&words[i + n..])
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+    let (kind, first) = match lower[..open].trim_end() {
+        "linear-gradient" | "repeating-linear-gradient" => linear_prelude(&prelude)?,
+        "radial-gradient" => radial_prelude(&prelude)?,
+        "conic-gradient" => conic_prelude(&prelude)?,
+        _ => return Err(EXPECTED),
+    };
+    if interpolation.is_some() && !first && !prelude.trim().is_empty() {
+        return Err("`in` goes with the gradient's shape, before the first color stop");
+    }
+    let first = first || interpolation.is_some();
+    let conic = matches!(kind, GradientKind::Conic { .. });
+    let stops = stops(&args[usize::from(first)..], conic)?;
+    if matches!(kind, GradientKind::Radial { .. })
+        && stops.iter().any(|s| s.unit == StopUnit::Px && s.at < 0.0)
+    {
+        return Err("negative radial length stops are not implemented");
+    }
+    Ok(Gradient {
+        repeating: lower.starts_with("repeating-linear-gradient"),
+        kind,
+        stops,
+        interpolation,
+    })
+}
+
+impl Gradient {
+    /// Wire text retaining native colour references.
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    /// Canonical CSS of the one gradient.
+    pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
+        let mut out = String::new();
+        let position = |out: &mut String, at: [Length; 2]| {
+            for length in at {
+                let _ = match length {
+                    Length::Px(n) => write!(out, " {}px", exact_num::Shortest32(n)),
+                    Length::Percent(n) => write!(out, " {}%", exact_num::Shortest32(n)),
+                };
+            }
+        };
+        if self.repeating {
+            out.push_str("repeating-");
+        }
+        match self.kind {
+            GradientKind::Linear(Direction::Angle(deg)) => {
+                let _ = write!(out, "linear-gradient({}deg", exact_num::Shortest32(deg));
+            }
+            GradientKind::Linear(Direction::Corner { right, bottom }) => {
+                let _ = write!(
+                    out,
+                    "linear-gradient(to {} {}",
+                    if bottom { "bottom" } else { "top" },
+                    if right { "right" } else { "left" }
+                );
+            }
+            GradientKind::Radial { circle, extent, at } => {
+                let _ = write!(
+                    out,
+                    "radial-gradient({} {} at",
+                    if circle { "circle" } else { "ellipse" },
+                    EXTENTS[extent as usize].0
+                );
+                position(&mut out, at);
+            }
+            GradientKind::Conic { from, at } => {
+                let _ = write!(
+                    out,
+                    "conic-gradient(from {}deg at",
+                    exact_num::Shortest32(from)
+                );
+                position(&mut out, at);
+            }
+        }
+        if let Some(how) = self.interpolation {
+            out.push(' ');
+            out.push_str(&how.css());
+        }
+        for stop in &self.stops {
+            out.push_str(", ");
+            color_text(&mut out, stop.color, mode);
+            match stop.unit {
+                StopUnit::Auto => {}
+                StopUnit::Percent => {
+                    let _ = write!(out, " {}%", exact_num::Shortest32(stop.at));
+                }
+                StopUnit::Px => {
+                    let _ = write!(out, " {}px", exact_num::Shortest32(stop.at));
+                }
+            }
+        }
+        out.push(')');
+        out
+    }
+
+    /// Whether any stop is a `light-dark()` pair: what says an appearance
+    /// change must repaint it.
+    pub fn is_scheme_aware(&self) -> bool {
+        self.stops.iter().any(|s| s.color.is_scheme_aware())
+    }
+
+    /// The stops under an appearance, positions as fractions 0–1, the
+    /// first at 0 and the last at 1: the end colours repeated where CSS
+    /// extends them, so no painter has to (Vello's ramp starts its first
+    /// stretch at 0 whatever the first stop's offset).
+    pub fn resolved(&self, dark: bool) -> Vec<(f32, Color)> {
+        self.resolved_with(dark, &crate::style::wide::wide)
+    }
+
+    /// [`resolved`](Self::resolved), each wide stop's colour read through
+    /// `wide` (a retained gradient's captured values);
+    /// any other colour as ever.
+    pub fn resolved_with(&self, dark: bool, wide: Lookup<'_>) -> Vec<(f32, Color)> {
+        if let Some(ramp) = self.interpolated_with(dark, wide) {
+            return ramp
+                .into_iter()
+                .map(|(at, c, a)| (at, Color::from_linear_srgb(c, a)))
+                .collect();
+        }
+        let mut out: Vec<(f32, Color)> = self
+            .stops
+            .iter()
+            .map(|s| {
+                let c = match s.color {
+                    ColorValue::Wide(id) => {
+                        wide(id).map_or(Color::TRANSPARENT, |w| w.fallback().resolve(dark))
+                    }
+                    other => other.resolve(dark),
+                };
+                (s.at / 100.0, c)
+            })
+            .collect();
+        if let Some(&(_, c)) = out.first().filter(|s| s.0 > 0.0) {
+            out.insert(0, (0.0, c));
+        }
+        if let Some(&(_, c)) = out.last().filter(|s| s.0 < 1.0) {
+            out.push((1.0, c));
+        }
+        out
+    }
+
+    /// As written; else Oklab when a stop is a modern colour; `None` is
+    /// legacy sRGB, as CSS says.
+    pub fn interpolation(&self, dark: bool) -> Option<exact_color::Interpolation> {
+        self.interpolation_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolation_with(
+        &self,
+        dark: bool,
+        wide: Lookup<'_>,
+    ) -> Option<exact_color::Interpolation> {
+        self.interpolation.or_else(|| {
+            self.stops
+                .iter()
+                .any(|s| match s.color {
+                    ColorValue::Wide(id) => {
+                        wide(id).is_some_and(|w| w.modern[usize::from(dark && w.dark.is_some())])
+                    }
+                    _ => false,
+                })
+                .then_some(exact_color::Interpolation::OKLAB)
+        })
+    }
+
+    /// The sampled ramp when not legacy sRGB: positions 0–1, extended
+    /// linear sRGB and alpha.
+    pub fn interpolated(&self, dark: bool) -> Option<Vec<(f32, [f64; 3], f64)>> {
+        self.interpolated_with(dark, &crate::style::wide::wide)
+    }
+
+    fn interpolated_with(
+        &self,
+        dark: bool,
+        lookup: Lookup<'_>,
+    ) -> Option<Vec<(f32, [f64; 3], f64)>> {
+        let how = self.interpolation_with(dark, lookup)?;
+        let wide = |c: ColorValue| match c {
+            ColorValue::Wide(id) => lookup(id).map(|w| w.half(dark)),
+            other => {
+                let c = other.resolve(dark);
+                Some(exact_color::Wide {
+                    space: exact_color::Space::Srgb,
+                    c: [c.r(), c.g(), c.b()].map(|v| f64::from(v) / 255.0),
+                    alpha: f64::from(c.a()) / 255.0,
+                })
+            }
+        };
+        let mut stops: Vec<(f32, exact_color::Wide)> = self
+            .stops
+            .iter()
+            .filter_map(|s| Some((s.at / 100.0, wide(s.color)?)))
+            .collect();
+        if let Some(&(_, c)) = stops.first().filter(|s| s.0 > 0.0) {
+            stops.insert(0, (0.0, c));
+        }
+        if let Some(&(_, c)) = stops.last().filter(|s| s.0 < 1.0) {
+            stops.push((1.0, c));
+        }
+        const STEPS: usize = 16;
+        let mut out = Vec::with_capacity(stops.len() * STEPS);
+        for (i, &(at, c)) in stops.iter().enumerate() {
+            out.push((at, c.linear_srgb(), c.alpha));
+            let Some(&(end, n)) = stops.get(i + 1) else {
+                continue;
+            };
+            if end <= at || (c == n && how.hue != exact_color::HueMethod::Longer) {
+                continue;
+            }
+            for k in 1..STEPS {
+                let t = k as f64 / STEPS as f64;
+                let (v, a) = exact_color::mix(&c, &n, t, how);
+                out.push((at + (end - at) * t as f32, v, a));
+            }
+        }
+        Some(out)
+    }
+
+    /// Placement in a `width` × `height` box — CSS's gradient box, the
+    /// padding box under the initial `background-origin`.
+    pub fn geometry(&self, width: f32, height: f32) -> Geometry {
+        let (w, h) = (width.max(0.0), height.max(0.0));
+        match self.kind {
+            GradientKind::Linear(direction) => {
+                // The corner's angle makes the 50% line join the other two
+                // corners (CSS Images 3 §3.1.1).
+                let (sin, cos) = match direction {
+                    Direction::Angle(deg) => deg.to_radians().sin_cos(),
+                    Direction::Corner { right, bottom } => {
+                        let (x, y) = (if right { h } else { -h }, if bottom { w } else { -w });
+                        let n = x.hypot(y);
+                        if n == 0.0 {
+                            (0.0, 1.0)
+                        } else {
+                            (x / n, -y / n)
+                        }
+                    }
+                };
+                // The line through the centre, long enough that its ends'
+                // perpendiculars touch the box's corners.
+                let half = (w * sin.abs() + h * cos.abs()) / 2.0;
+                let (cx, cy) = (w / 2.0, h / 2.0);
+                Geometry::Linear {
+                    start: (cx - sin * half, cy + cos * half),
+                    end: (cx + sin * half, cy - cos * half),
+                }
+            }
+            GradientKind::Conic { from, at } => Geometry::Conic {
+                center: (at[0].resolve(w), at[1].resolve(h)),
+                from,
+            },
+            GradientKind::Radial { circle, extent, at } => {
+                let (cx, cy) = (at[0].resolve(w), at[1].resolve(h));
+                let (dx, dy) = ((cx.abs(), (w - cx).abs()), (cy.abs(), (h - cy).abs()));
+                let near = (dx.0.min(dx.1), dy.0.min(dy.1));
+                let far = (dx.0.max(dx.1), dy.0.max(dy.1));
+                let radii = match (circle, extent) {
+                    (true, Extent::ClosestSide) => square(near.0.min(near.1)),
+                    (true, Extent::FarthestSide) => square(far.0.max(far.1)),
+                    (true, Extent::ClosestCorner) => square(corner(&dx, &dy, f32::min)),
+                    (true, Extent::FarthestCorner) => square(corner(&dx, &dy, f32::max)),
+                    (false, Extent::ClosestSide) => near,
+                    (false, Extent::FarthestSide) => far,
+                    // Through the corner, with the ratio the side form has.
+                    (false, Extent::ClosestCorner) => scaled(near),
+                    (false, Extent::FarthestCorner) => scaled(far),
+                };
+                Geometry::Radial {
+                    center: (cx, cy),
+                    radii,
+                }
+            }
+        }
+    }
+}
+
+/// Stops for an interpolator that mixes unpremultiplied colour (Core
+/// Graphics, Core Animation, tiny-skia), made to look as CSS's premultiplied
+/// mix does: a transparent stop takes each neighbour's hue on that side, so
+/// `transparent → white` never passes through grey; a stretch between two
+/// different partial alphas is sampled in premultiplied space.
+pub fn premultiplied_ramp(stops: &[(f32, Color)]) -> Vec<(f32, Color)> {
+    const STEPS: usize = 8;
+    let rgb = |c: Color, a: u8| Color::rgba(c.r(), c.g(), c.b(), a);
+    let mut out = Vec::with_capacity(stops.len() * 2);
+    for (i, &(at, c)) in stops.iter().enumerate() {
+        let prev = i.checked_sub(1).map(|p| stops[p].1);
+        let next = stops.get(i + 1).map(|n| n.1);
+        if c.a() == 0 {
+            let left = prev.or(next).map_or(c, |n| rgb(n, 0));
+            let right = next.map_or(left, |n| rgb(n, 0));
+            out.push((at, left));
+            if right != left {
+                out.push((at, right));
+            }
+        } else {
+            out.push((at, c));
+        }
+        let Some(&(end, n)) = stops.get(i + 1) else {
+            continue;
+        };
+        if c.a() == 0 || n.a() == 0 || c.a() == n.a() || rgb(c, 0) == rgb(n, 0) {
+            continue;
+        }
+        for k in 1..STEPS {
+            let t = k as f32 / STEPS as f32;
+            let a = c.a() as f32 + (n.a() as f32 - c.a() as f32) * t;
+            let channel = |x: u8, y: u8| {
+                let premul = x as f32 * c.a() as f32 * (1.0 - t) + y as f32 * n.a() as f32 * t;
+                (premul / a).round().clamp(0.0, 255.0) as u8
+            };
+            out.push((
+                at + (end - at) * t,
+                Color::rgba(
+                    channel(c.r(), n.r()),
+                    channel(c.g(), n.g()),
+                    channel(c.b(), n.b()),
+                    a.round() as u8,
+                ),
+            ));
+        }
+    }
+    out
+}
+
+const EXPECTED: &str =
+    "expected none, or linear-gradient(…), radial-gradient(…) or conic-gradient(…) with at least two colour stops";
+
+/// The CSS image functions no host paints, by the text a value opens one
+/// with, and why: a browser would paint each, so every build refuses them
+/// where it can see them and the web target drops them at run time, as the
+/// native hosts do.
+pub const REFUSED: [(&str, &str); 5] = [
+    (
+        "repeating-radial-gradient(",
+        "repeating-radial-gradient() is not implemented; a gradient paints once",
+    ),
+    (
+        "repeating-conic-gradient(",
+        "repeating-conic-gradient() is not implemented; a gradient paints once",
+    ),
+    (
+        "url(",
+        "an image as a background is not implemented; `background-image` takes a gradient",
+    ),
+    (
+        "image-set(",
+        "image-set() is not implemented; `background-image` takes a gradient",
+    ),
+    (
+        "cross-fade(",
+        "cross-fade() is not implemented; `background-image` takes a gradient",
+    ),
+];
+
+const EXTENTS: [(&str, Extent); 4] = [
+    ("closest-side", Extent::ClosestSide),
+    ("closest-corner", Extent::ClosestCorner),
+    ("farthest-side", Extent::FarthestSide),
+    ("farthest-corner", Extent::FarthestCorner),
+];
+
+fn square(r: f32) -> (f32, f32) {
+    (r, r)
+}
+
+fn scaled((x, y): (f32, f32)) -> (f32, f32) {
+    (x * std::f32::consts::SQRT_2, y * std::f32::consts::SQRT_2)
+}
+
+fn corner(dx: &(f32, f32), dy: &(f32, f32), pick: fn(f32, f32) -> f32) -> f32 {
+    let d = [
+        dx.0.hypot(dy.0),
+        dx.1.hypot(dy.0),
+        dx.0.hypot(dy.1),
+        dx.1.hypot(dy.1),
+    ];
+    d.into_iter().reduce(pick).unwrap_or(0.0)
+}
+
+fn hex(out: &mut String, c: Color) {
+    let _ = write!(out, "#{:08x}", c.0);
+}
+
+/// Where a value's text goes: the browser, or the wire, which keeps a
+/// `-exact-platform-color()` as written so the reader interns the same reference
+///; the browser gets its web colour, else its fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorText {
+    /// CSS a browser reads.
+    Css,
+    /// What `parse` reads back as the same value.
+    Wire,
+}
+
+/// A colour row's canonical CSS: `#rrggbbaa`, or `light-dark()` of two.
+pub fn color_css(out: &mut String, color: ColorValue) {
+    color_text(out, color, ColorText::Css);
+}
+
+/// A colour as [`color_css`] writes it, or for the wire.
+pub fn color_text(out: &mut String, color: ColorValue, mode: ColorText) {
+    match color {
+        ColorValue::Fixed(c) => hex(out, c),
+        ColorValue::LightDark(light, dark) => {
+            out.push_str("light-dark(");
+            hex(out, light);
+            out.push_str(", ");
+            hex(out, dark);
+            out.push(')');
+        }
+        ColorValue::Wide(id) => match crate::style::wide::wide(id) {
+            Some(w) => out.push_str(&w.text),
+            None => out.push_str("transparent"),
+        },
+        ColorValue::Profiled(id) => match crate::style::profiled::profiled(id) {
+            Some(p) => out.push_str(&p.text),
+            None => out.push_str("transparent"),
+        },
+        ColorValue::Moving(..) => {
+            let ([r, g, b], a) = color.moving_linear().unwrap_or_default();
+            let n = exact_color::number_text;
+            let _ = write!(out, "color(srgb-linear {} {} {}", n(r), n(g), n(b));
+            if a < 1.0 {
+                let _ = write!(out, " / {}", n(a));
+            }
+            out.push(')');
+        }
+        reference => crate::style::roles::reference_css(out, reference, mode),
+    }
+}
+
+/// The byte index of the `)` closing the `(` at `open`.
+fn matching(text: &str, open: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text[open..].char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split at `sep` outside parentheses, pieces trimmed; whitespace splits
+/// drop empty pieces.
+fn split_top(text: &str, sep: char) -> Vec<&str> {
+    let (mut out, mut depth, mut start) = (Vec::new(), 0i32, 0);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            c if depth == 0 && (c == sep || (sep == ' ' && c.is_ascii_whitespace())) => {
+                out.push(text[start..i].trim());
+                start = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(text[start..].trim());
+    if sep == ' ' {
+        out.retain(|s| !s.is_empty());
+    }
+    out
+}
+
+fn angle(token: &str) -> Option<f32> {
+    let lower = token.to_ascii_lowercase();
+    let (number, per_degree) = [
+        ("deg", 1.0),
+        ("grad", 0.9),
+        ("rad", 180.0 / std::f32::consts::PI),
+        ("turn", 360.0),
+    ]
+    .into_iter()
+    .find_map(|(unit, scale)| lower.strip_suffix(unit).map(|n| (n, scale)))
+    .unwrap_or((lower.as_str(), 0.0));
+    let n = exact_num::parse_f32(number).ok()?;
+    // A unitless angle is only zero.
+    let deg = if per_degree == 0.0 {
+        (n == 0.0).then_some(0.0)?
+    } else {
+        n * per_degree
+    };
+    deg.is_finite().then_some(deg)
+}
+
+/// A linear gradient's direction, and whether the first argument was one.
+fn linear_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
+    let words = split_top(first, ' ');
+    if words.first().is_some_and(|w| w.eq_ignore_ascii_case("to")) {
+        let (mut x, mut y) = (None, None);
+        for w in &words[1..] {
+            match w.to_ascii_lowercase().as_str() {
+                "left" if x.is_none() => x = Some(false),
+                "right" if x.is_none() => x = Some(true),
+                "top" if y.is_none() => y = Some(false),
+                "bottom" if y.is_none() => y = Some(true),
+                _ => return Err(
+                    "a direction is `to` and a side or corner, as `to top` or `to bottom right`",
+                ),
+            }
+        }
+        let direction =
+            match (x, y) {
+                (Some(right), Some(bottom)) => Direction::Corner { right, bottom },
+                (Some(right), None) => Direction::Angle(if right { 90.0 } else { 270.0 }),
+                (None, Some(bottom)) => Direction::Angle(if bottom { 180.0 } else { 0.0 }),
+                (None, None) => return Err(
+                    "a direction is `to` and a side or corner, as `to top` or `to bottom right`",
+                ),
+            };
+        return Ok((GradientKind::Linear(direction), true));
+    }
+    match (words.len(), words.first().and_then(|w| angle(w))) {
+        (1, Some(deg)) => Ok((GradientKind::Linear(Direction::Angle(deg)), true)),
+        _ => Ok((GradientKind::Linear(Direction::Angle(180.0)), false)),
+    }
+}
+
+/// A conic gradient's start angle and centre, and whether the first
+/// argument was them.
+fn conic_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
+    let words = split_top(first, ' ');
+    let (mut from, mut at) = (0.0, [Length::Percent(50.0); 2]);
+    let starts = words
+        .first()
+        .is_some_and(|w| w.eq_ignore_ascii_case("from") || w.eq_ignore_ascii_case("at"));
+    if !starts {
+        return Ok((GradientKind::Conic { from, at }, false));
+    }
+    let mut i = 0;
+    if words[0].eq_ignore_ascii_case("from") {
+        from = words
+            .get(1)
+            .and_then(|w| angle(w))
+            .ok_or("`from` takes an angle, as `from 90deg`")?;
+        i = 2;
+    }
+    if i < words.len() {
+        if !words[i].eq_ignore_ascii_case("at") {
+            return Err("a conic gradient starts with `from <angle>` and `at <position>`");
+        }
+        at = position(&words[i + 1..])?;
+    }
+    Ok((GradientKind::Conic { from, at }, true))
+}
+
+/// A radial gradient's shape, extent and centre, and whether the first
+/// argument was them.
+fn radial_prelude(first: &str) -> Result<(GradientKind, bool), &'static str> {
+    let words = split_top(first, ' ');
+    let keyword = |w: &str| {
+        let w = w.to_ascii_lowercase();
+        matches!(w.as_str(), "circle" | "ellipse" | "at") || EXTENTS.iter().any(|(k, _)| *k == w)
+    };
+    let (mut circle, mut extent, mut at) = (None, None, [Length::Percent(50.0); 2]);
+    if !words.first().is_some_and(|w| keyword(w)) {
+        let kind = GradientKind::Radial {
+            circle: false,
+            extent: Extent::FarthestCorner,
+            at,
+        };
+        return Ok((kind, false));
+    }
+    let mut rest = words.iter();
+    while let Some(w) = rest.next() {
+        let w = w.to_ascii_lowercase();
+        match w.as_str() {
+            "circle" | "ellipse" if circle.is_none() => circle = Some(w == "circle"),
+            "at" => {
+                at = position(rest.as_slice())?;
+                break;
+            }
+            _ => match EXTENTS.iter().find(|(k, _)| *k == w) {
+                Some((_, e)) if extent.is_none() => extent = Some(*e),
+                _ if w.ends_with("px") || w.ends_with('%') => {
+                    return Err("an explicit radial size is not implemented; use circle/ellipse with closest-side, closest-corner, farthest-side or farthest-corner")
+                }
+                _ => return Err("a radial gradient starts with circle or ellipse, an extent keyword, and `at` a position"),
+            },
+        }
+    }
+    let kind = GradientKind::Radial {
+        circle: circle.unwrap_or(false),
+        extent: extent.unwrap_or(Extent::FarthestCorner),
+        at,
+    };
+    Ok((kind, true))
+}
+
+/// CSS `<position>`'s one- and two-value forms.
+fn position(words: &[&str]) -> Result<[Length; 2], &'static str> {
+    const WHY: &str = "a position is one or two of left/center/right, top/center/bottom, px or %";
+    // (horizontal?, vertical?) each keyword may stand for.
+    let one = |w: &str| -> Option<(Length, bool, bool)> {
+        Some(match w.to_ascii_lowercase().as_str() {
+            "left" => (Length::Percent(0.0), true, false),
+            "right" => (Length::Percent(100.0), true, false),
+            "top" => (Length::Percent(0.0), false, true),
+            "bottom" => (Length::Percent(100.0), false, true),
+            "center" => (Length::Percent(50.0), true, true),
+            other => {
+                let length = if let Some(p) = other.strip_suffix('%') {
+                    Length::Percent(exact_num::parse_f32(p).ok()?)
+                } else if let Some(px) = other.strip_suffix("px") {
+                    Length::Px(exact_num::parse_f32(px).ok()?)
+                } else {
+                    (exact_num::parse_f32(other).ok()? == 0.0).then_some(Length::Px(0.0))?
+                };
+                match length {
+                    Length::Px(n) | Length::Percent(n) if !n.is_finite() => return None,
+                    _ => (length, true, true),
+                }
+            }
+        })
+    };
+    let center = Length::Percent(50.0);
+    match words {
+        [a] => {
+            let (a, x, _) = one(a).ok_or(WHY)?;
+            Ok(if x { [a, center] } else { [center, a] })
+        }
+        [a, b] => {
+            let (a, ax, ay) = one(a).ok_or(WHY)?;
+            let (b, bx, by) = one(b).ok_or(WHY)?;
+            if ax && by {
+                Ok([a, b])
+            } else if ay && bx {
+                Ok([b, a])
+            } else {
+                Err(WHY)
+            }
+        }
+        _ => Err("a position of three or four values is not implemented; give one or two"),
+    }
+}
+
+/// Stops with CSS's fix-up (CSS Images 3 §3.5.3): the first defaults to
+/// 0%, the last to 100%, a position before an earlier one moves up to it,
+/// and the rest share their gaps evenly.
+fn stops(args: &[&str], conic: bool) -> Result<Vec<Stop>, &'static str> {
+    // A conic stop's position may be an angle: its share of the turn.
+    let percent = |w: &str| -> Option<f32> {
+        if let Some(p) = w.strip_suffix('%') {
+            return exact_num::parse_f32(p).ok();
+        }
+        conic.then(|| angle(w)).flatten().map(|deg| deg / 3.6)
+    };
+    let mut authored: Vec<(ColorValue, Option<f32>, StopUnit)> = Vec::new();
+    for arg in args {
+        let words = split_top(arg, ' ');
+        let mut split = words.len();
+        while split > 0
+            && words.len() - split < 2
+            && (is_position(words[split - 1]) || (conic && angle(words[split - 1]).is_some()))
+        {
+            split -= 1;
+        }
+        if split == 0 {
+            return Err("colour hints (a lone position between stops) are not implemented");
+        }
+        let color = words[..split].join(" ");
+        let color = ColorValue::parse_light_dark(&color)
+            .or_else(|| Color::parse(&color).map(ColorValue::Fixed))
+            .ok_or("a stop's colour is a CSS colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`) or `light-dark(a, b)`")?;
+        // Nothing converts a profile's colour, so nothing mixes it.
+        if matches!(color, ColorValue::Profiled(_)) {
+            return Err("a color in a profile's space (`color(--name …)`) is drawn by the platform and never mixed: not in a gradient");
+        }
+        if split == words.len() {
+            authored.push((color, None, StopUnit::Auto));
+        }
+        for w in &words[split..] {
+            let lower = w.to_ascii_lowercase();
+            let w = lower.as_str();
+            let (n, unit) = if let Some(n) = percent(w) {
+                if !(0.0..=100.0).contains(&n) {
+                    return Err("a stop's position is from 0% to 100%; positions past the ends are not implemented");
+                }
+                (n, StopUnit::Percent)
+            } else if !conic {
+                let n = if let Some(px) = w.strip_suffix("px") {
+                    exact_num::parse_f32(px).ok()
+                } else {
+                    exact_num::parse_f32(w).ok().filter(|n| *n == 0.0)
+                }.filter(|n| n.is_finite())
+                    .ok_or("a stop's position is a percentage or a px length (or unitless zero); other lengths are not implemented")?;
+                (n, StopUnit::Px)
+            } else {
+                return Err("a conic stop's position is a percentage or an angle");
+            };
+            authored.push((color, Some(n), unit));
+        }
+    }
+    if authored.len() < 2 {
+        return Err("a gradient needs at least two colour stops");
+    }
+    if authored.len() > MAX_STOPS {
+        return Err("a gradient takes at most 64 colour stops");
+    }
+    let mut stops: Vec<Stop> = authored
+        .into_iter()
+        .map(|(color, at, unit)| Stop {
+            color,
+            at: at.unwrap_or(0.0),
+            unit,
+        })
+        .collect();
+    if !stops.iter().any(|s| s.unit == StopUnit::Px) {
+        fix_up(&mut stops);
+    }
+    Ok(stops)
+}
+
+/// CSS Images 3 §3.4.3, after every position has the same unit.
+fn fix_up(stops: &mut [Stop]) {
+    let last = stops.len() - 1;
+    if stops[0].unit == StopUnit::Auto {
+        stops[0].at = 0.0;
+        stops[0].unit = StopUnit::Percent;
+    }
+    if stops[last].unit == StopUnit::Auto {
+        stops[last].at = 100.0;
+        stops[last].unit = StopUnit::Percent;
+    }
+    let mut high = f32::NEG_INFINITY;
+    for s in stops.iter_mut().filter(|s| s.unit != StopUnit::Auto) {
+        high = high.max(s.at);
+        s.at = high;
+    }
+    let mut i = 0;
+    while i < last {
+        let from = i;
+        i += 1;
+        while stops[i].unit == StopUnit::Auto {
+            i += 1;
+        }
+        let (a, b) = (stops[from].at, stops[i].at);
+        let gap = (i - from) as f32;
+        for (k, s) in stops.iter_mut().enumerate().take(i).skip(from + 1) {
+            s.at = a + (b - a) * (k - from) as f32 / gap;
+            s.unit = StopUnit::Percent;
+        }
+    }
+}
+
+fn is_position(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    let number = lower
+        .strip_suffix('%')
+        .or_else(|| lower.strip_suffix("px"))
+        .unwrap_or(&lower);
+    exact_num::parse_f32(number).is_ok()
+}
+
+#[cfg(test)]
+mod tests;
+
+mod placed;

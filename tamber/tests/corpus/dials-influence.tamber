@@ -1,0 +1,9 @@
+tamber influence
+
+dials
+  hue: number = 0  in 0..360
+  accent: color = #1083fe
+
+theme
+  hued = hsl(hue 100% 50%)
+  shadow = rgb(from accent 0 0 0 / alpha)

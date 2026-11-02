@@ -1,0 +1,4 @@
+# machine.state — this Mac's CPU-speed floor, read by run.sh from the stage directory (BENCH_STAGE/machine.state).
+# About 90% of what run/mstate/speed.py reads on the idle machine. The two measured on 2026-09-30:
+# MIN1=760; MIN4=730   # Mac mini M4: idle and around runs it reads 803-856 / 790-816
+# MIN1=500; MIN4=470   # M1 Max: healthy it reads 549-562 / 515-531; starved 144-348 / 110-190

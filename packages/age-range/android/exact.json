@@ -1,0 +1,31 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/age-range@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidAgeRange": {
+      "ageRangeSource": "option<string>",
+      "significantChangeStatus": "option<string>",
+      "significantChangeApprovalDate": "option<string>",
+      "installId": "option<string>",
+      "accessStatus": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.android.play:age-signals:0.0.4"
+  ],
+  "artifacts": [],
+  "class": "exact.agerange.AgeRangeModule"
+}

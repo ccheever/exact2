@@ -1,0 +1,37 @@
+// Accept fixture: documents in Contract. The
+// innermost active `head` wins field by field: the route's title and
+// description over the site's, the site's image where the route sets none,
+// and nothing from a route the navigation root has not selected. The
+// not-found view declares its HTTP status. A route's content scrolls as the
+// page (`scroll document`). Routes declare their policies.
+routes nav
+  tab home "/" render=build
+    post "/post/:post" render=request activate=idle
+  notfound render=build
+
+shape Post
+  title: string
+  summary: string
+
+component Site
+  resource post = loadPost(params(nav, "post")) as shape Post
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation"
+      head title="Site" description="Every post" image="/assets/site.png" robots="index"
+      for e in stack(nav) key = e.id
+        column navigationKey=`${e.id}` testId=`route-${e.name}`
+          if e.name == "home"
+            head title="Home" canonical="/"
+            text "Home"
+          if e.name == "post"
+            head title=post.title description=post.summary canonical=`/post/${e.params.post}`
+            text post.title
+          if e.name == "notfound"
+            head title="Not found" robots="noindex" status=404
+            text "Nothing here"
+          scroll document flex=1 min-height=0 testId="page"
+            text "Content"
+            scroll height=100 testId="inner"
+              text "An inner scroller"

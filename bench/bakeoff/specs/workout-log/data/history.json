@@ -1,0 +1,5310 @@
+[
+ {
+  "id": 1,
+  "date": "2026-10-25",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 40,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 25
+     },
+     {
+      "reps": 7,
+      "weight": 17.5
+     },
+     {
+      "reps": 10,
+      "weight": 45
+     },
+     {
+      "reps": 13,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 60,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 30
+     },
+     {
+      "reps": 11,
+      "weight": 27.5
+     },
+     {
+      "reps": 9,
+      "weight": 47.5
+     },
+     {
+      "reps": 8,
+      "weight": 47.5
+     },
+     {
+      "reps": 8,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 119,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 100
+     },
+     {
+      "reps": 12,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 68,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 35
+     },
+     {
+      "reps": 12,
+      "weight": 87.5
+     },
+     {
+      "reps": 15,
+      "weight": 40
+     },
+     {
+      "reps": 9,
+      "weight": 60
+     },
+     {
+      "reps": 7,
+      "weight": 90
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 2,
+  "date": "2026-10-24",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 8,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 42.5
+     },
+     {
+      "reps": 9,
+      "weight": 15
+     },
+     {
+      "reps": 12,
+      "weight": 82.5
+     }
+    ]
+   },
+   {
+    "exercise": 48,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 67.5
+     },
+     {
+      "reps": 11,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 95,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 72.5
+     },
+     {
+      "reps": 5,
+      "weight": 62.5
+     },
+     {
+      "reps": 13,
+      "weight": 52.5
+     },
+     {
+      "reps": 14,
+      "weight": 60
+     },
+     {
+      "reps": 11,
+      "weight": 95
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 3,
+  "date": "2026-10-21",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 94,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 90
+     },
+     {
+      "reps": 7,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 76,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 80
+     },
+     {
+      "reps": 15,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 10,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 72.5
+     },
+     {
+      "reps": 5,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 27,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 67.5
+     },
+     {
+      "reps": 5,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 119,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 100
+     },
+     {
+      "reps": 9,
+      "weight": 55
+     },
+     {
+      "reps": 5,
+      "weight": 72.5
+     },
+     {
+      "reps": 5,
+      "weight": 85
+     },
+     {
+      "reps": 14,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 100,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 80
+     },
+     {
+      "reps": 6,
+      "weight": 75
+     },
+     {
+      "reps": 9,
+      "weight": 50
+     },
+     {
+      "reps": 10,
+      "weight": 77.5
+     },
+     {
+      "reps": 8,
+      "weight": 52.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 4,
+  "date": "2026-10-19",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 84,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 20
+     },
+     {
+      "reps": 12,
+      "weight": 30
+     },
+     {
+      "reps": 11,
+      "weight": 35
+     },
+     {
+      "reps": 13,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 39,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 72.5
+     },
+     {
+      "reps": 8,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 88,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 72.5
+     },
+     {
+      "reps": 13,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 52,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 10
+     },
+     {
+      "reps": 11,
+      "weight": 45
+     },
+     {
+      "reps": 14,
+      "weight": 42.5
+     },
+     {
+      "reps": 5,
+      "weight": 42.5
+     },
+     {
+      "reps": 14,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 66,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 40
+     },
+     {
+      "reps": 10,
+      "weight": 10
+     },
+     {
+      "reps": 14,
+      "weight": 70
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 5,
+  "date": "2026-10-18",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 91,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 35
+     },
+     {
+      "reps": 10,
+      "weight": 37.5
+     },
+     {
+      "reps": 12,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 54,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 95
+     },
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 10,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 58,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 20
+     },
+     {
+      "reps": 9,
+      "weight": 92.5
+     },
+     {
+      "reps": 11,
+      "weight": 97.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 6,
+  "date": "2026-10-15",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 55,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 100
+     },
+     {
+      "reps": 10,
+      "weight": 22.5
+     },
+     {
+      "reps": 5,
+      "weight": 55
+     },
+     {
+      "reps": 10,
+      "weight": 22.5
+     },
+     {
+      "reps": 10,
+      "weight": 57.5
+     }
+    ]
+   },
+   {
+    "exercise": 73,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 47.5
+     },
+     {
+      "reps": 7,
+      "weight": 85
+     },
+     {
+      "reps": 7,
+      "weight": 17.5
+     }
+    ]
+   },
+   {
+    "exercise": 16,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 50
+     },
+     {
+      "reps": 12,
+      "weight": 17.5
+     },
+     {
+      "reps": 9,
+      "weight": 55
+     },
+     {
+      "reps": 13,
+      "weight": 87.5
+     },
+     {
+      "reps": 10,
+      "weight": 82.5
+     }
+    ]
+   },
+   {
+    "exercise": 95,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 80
+     },
+     {
+      "reps": 9,
+      "weight": 87.5
+     },
+     {
+      "reps": 9,
+      "weight": 90
+     },
+     {
+      "reps": 13,
+      "weight": 20
+     },
+     {
+      "reps": 12,
+      "weight": 62.5
+     }
+    ]
+   },
+   {
+    "exercise": 18,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 72.5
+     },
+     {
+      "reps": 13,
+      "weight": 80
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 7,
+  "date": "2026-10-14",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 41,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 60
+     },
+     {
+      "reps": 13,
+      "weight": 70
+     },
+     {
+      "reps": 6,
+      "weight": 65
+     },
+     {
+      "reps": 8,
+      "weight": 57.5
+     },
+     {
+      "reps": 5,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 3,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 85
+     },
+     {
+      "reps": 9,
+      "weight": 75
+     },
+     {
+      "reps": 9,
+      "weight": 95
+     }
+    ]
+   },
+   {
+    "exercise": 28,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 65
+     },
+     {
+      "reps": 13,
+      "weight": 10
+     },
+     {
+      "reps": 13,
+      "weight": 77.5
+     },
+     {
+      "reps": 13,
+      "weight": 20
+     },
+     {
+      "reps": 8,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 4,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 65
+     },
+     {
+      "reps": 14,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 48,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 87.5
+     },
+     {
+      "reps": 5,
+      "weight": 17.5
+     },
+     {
+      "reps": 7,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 45,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 62.5
+     },
+     {
+      "reps": 12,
+      "weight": 67.5
+     },
+     {
+      "reps": 7,
+      "weight": 42.5
+     },
+     {
+      "reps": 10,
+      "weight": 42.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 8,
+  "date": "2026-10-12",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 77,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 42.5
+     },
+     {
+      "reps": 11,
+      "weight": 32.5
+     },
+     {
+      "reps": 6,
+      "weight": 57.5
+     },
+     {
+      "reps": 15,
+      "weight": 22.5
+     },
+     {
+      "reps": 9,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 95,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 77.5
+     },
+     {
+      "reps": 9,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 117,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 25
+     },
+     {
+      "reps": 11,
+      "weight": 35
+     },
+     {
+      "reps": 9,
+      "weight": 72.5
+     },
+     {
+      "reps": 6,
+      "weight": 77.5
+     },
+     {
+      "reps": 15,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 109,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 60
+     },
+     {
+      "reps": 9,
+      "weight": 55
+     },
+     {
+      "reps": 15,
+      "weight": 67.5
+     }
+    ]
+   },
+   {
+    "exercise": 65,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 62.5
+     },
+     {
+      "reps": 9,
+      "weight": 15
+     },
+     {
+      "reps": 5,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 46,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 45
+     },
+     {
+      "reps": 11,
+      "weight": 85
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 9,
+  "date": "2026-10-10",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 24,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 37.5
+     },
+     {
+      "reps": 6,
+      "weight": 42.5
+     },
+     {
+      "reps": 9,
+      "weight": 27.5
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     },
+     {
+      "reps": 12,
+      "weight": 30
+     }
+    ]
+   },
+   {
+    "exercise": 41,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 70
+     },
+     {
+      "reps": 5,
+      "weight": 37.5
+     },
+     {
+      "reps": 12,
+      "weight": 30
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     },
+     {
+      "reps": 8,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 40,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 57.5
+     },
+     {
+      "reps": 13,
+      "weight": 22.5
+     },
+     {
+      "reps": 11,
+      "weight": 32.5
+     },
+     {
+      "reps": 6,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 31,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 37.5
+     },
+     {
+      "reps": 13,
+      "weight": 90
+     },
+     {
+      "reps": 6,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 49,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 42.5
+     },
+     {
+      "reps": 9,
+      "weight": 42.5
+     },
+     {
+      "reps": 5,
+      "weight": 15
+     },
+     {
+      "reps": 7,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 15,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 52.5
+     },
+     {
+      "reps": 14,
+      "weight": 17.5
+     },
+     {
+      "reps": 12,
+      "weight": 57.5
+     },
+     {
+      "reps": 10,
+      "weight": 97.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 10,
+  "date": "2026-10-07",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 117,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 45
+     },
+     {
+      "reps": 8,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 50,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 100
+     },
+     {
+      "reps": 15,
+      "weight": 20
+     },
+     {
+      "reps": 15,
+      "weight": 65
+     }
+    ]
+   },
+   {
+    "exercise": 32,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 70
+     },
+     {
+      "reps": 14,
+      "weight": 37.5
+     }
+    ]
+   },
+   {
+    "exercise": 5,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 35
+     },
+     {
+      "reps": 15,
+      "weight": 75
+     },
+     {
+      "reps": 12,
+      "weight": 45
+     },
+     {
+      "reps": 13,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 107,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 75
+     },
+     {
+      "reps": 10,
+      "weight": 60
+     },
+     {
+      "reps": 15,
+      "weight": 80
+     },
+     {
+      "reps": 6,
+      "weight": 20
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 11,
+  "date": "2026-10-05",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 39,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 45
+     },
+     {
+      "reps": 10,
+      "weight": 12.5
+     }
+    ]
+   },
+   {
+    "exercise": 56,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 25
+     },
+     {
+      "reps": 6,
+      "weight": 77.5
+     },
+     {
+      "reps": 10,
+      "weight": 67.5
+     },
+     {
+      "reps": 15,
+      "weight": 80
+     }
+    ]
+   },
+   {
+    "exercise": 47,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 75
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     },
+     {
+      "reps": 15,
+      "weight": 47.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 12,
+  "date": "2026-10-04",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 106,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 20
+     },
+     {
+      "reps": 5,
+      "weight": 72.5
+     },
+     {
+      "reps": 11,
+      "weight": 47.5
+     },
+     {
+      "reps": 13,
+      "weight": 47.5
+     },
+     {
+      "reps": 13,
+      "weight": 47.5
+     }
+    ]
+   },
+   {
+    "exercise": 118,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 70
+     },
+     {
+      "reps": 12,
+      "weight": 22.5
+     },
+     {
+      "reps": 9,
+      "weight": 65
+     }
+    ]
+   },
+   {
+    "exercise": 74,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 37.5
+     },
+     {
+      "reps": 14,
+      "weight": 65
+     },
+     {
+      "reps": 8,
+      "weight": 75
+     },
+     {
+      "reps": 15,
+      "weight": 50
+     },
+     {
+      "reps": 11,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 17,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 25
+     },
+     {
+      "reps": 13,
+      "weight": 10
+     },
+     {
+      "reps": 9,
+      "weight": 90
+     },
+     {
+      "reps": 7,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 105,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 50
+     },
+     {
+      "reps": 5,
+      "weight": 80
+     },
+     {
+      "reps": 9,
+      "weight": 10
+     },
+     {
+      "reps": 6,
+      "weight": 35
+     },
+     {
+      "reps": 6,
+      "weight": 50
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 13,
+  "date": "2026-10-02",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 3,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 72.5
+     },
+     {
+      "reps": 10,
+      "weight": 40
+     },
+     {
+      "reps": 13,
+      "weight": 85
+     },
+     {
+      "reps": 8,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 83,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 95
+     },
+     {
+      "reps": 9,
+      "weight": 85
+     }
+    ]
+   },
+   {
+    "exercise": 114,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 22.5
+     },
+     {
+      "reps": 12,
+      "weight": 67.5
+     },
+     {
+      "reps": 13,
+      "weight": 97.5
+     },
+     {
+      "reps": 7,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 110,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 27.5
+     },
+     {
+      "reps": 11,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 63,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 42.5
+     },
+     {
+      "reps": 14,
+      "weight": 35
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 14,
+  "date": "2026-09-30",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 38,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 52.5
+     },
+     {
+      "reps": 13,
+      "weight": 80
+     },
+     {
+      "reps": 6,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 94,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 52.5
+     },
+     {
+      "reps": 6,
+      "weight": 87.5
+     },
+     {
+      "reps": 10,
+      "weight": 85
+     }
+    ]
+   },
+   {
+    "exercise": 99,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 82.5
+     },
+     {
+      "reps": 12,
+      "weight": 62.5
+     }
+    ]
+   },
+   {
+    "exercise": 90,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 97.5
+     },
+     {
+      "reps": 14,
+      "weight": 45
+     },
+     {
+      "reps": 15,
+      "weight": 92.5
+     }
+    ]
+   },
+   {
+    "exercise": 78,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 80
+     },
+     {
+      "reps": 8,
+      "weight": 100
+     }
+    ]
+   },
+   {
+    "exercise": 120,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 57.5
+     },
+     {
+      "reps": 8,
+      "weight": 95
+     },
+     {
+      "reps": 13,
+      "weight": 90
+     },
+     {
+      "reps": 13,
+      "weight": 40
+     },
+     {
+      "reps": 9,
+      "weight": 25
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 15,
+  "date": "2026-09-27",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 65,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 62.5
+     },
+     {
+      "reps": 15,
+      "weight": 32.5
+     },
+     {
+      "reps": 7,
+      "weight": 40
+     },
+     {
+      "reps": 10,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 57,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 10
+     },
+     {
+      "reps": 14,
+      "weight": 32.5
+     },
+     {
+      "reps": 9,
+      "weight": 17.5
+     },
+     {
+      "reps": 7,
+      "weight": 35
+     },
+     {
+      "reps": 15,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 38,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 100
+     },
+     {
+      "reps": 9,
+      "weight": 22.5
+     },
+     {
+      "reps": 7,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 17.5
+     },
+     {
+      "reps": 14,
+      "weight": 67.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 16,
+  "date": "2026-09-26",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 49,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 10
+     },
+     {
+      "reps": 10,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 53,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 65
+     },
+     {
+      "reps": 14,
+      "weight": 12.5
+     }
+    ]
+   },
+   {
+    "exercise": 13,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 40
+     },
+     {
+      "reps": 8,
+      "weight": 45
+     }
+    ]
+   },
+   {
+    "exercise": 12,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 70
+     },
+     {
+      "reps": 8,
+      "weight": 85
+     },
+     {
+      "reps": 12,
+      "weight": 100
+     },
+     {
+      "reps": 13,
+      "weight": 55
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 17,
+  "date": "2026-09-24",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 26,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 100
+     },
+     {
+      "reps": 6,
+      "weight": 85
+     },
+     {
+      "reps": 7,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 25,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 47.5
+     },
+     {
+      "reps": 15,
+      "weight": 82.5
+     },
+     {
+      "reps": 11,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 111,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 45
+     },
+     {
+      "reps": 15,
+      "weight": 72.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 18,
+  "date": "2026-09-21",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 75
+     },
+     {
+      "reps": 12,
+      "weight": 75
+     },
+     {
+      "reps": 10,
+      "weight": 100
+     },
+     {
+      "reps": 6,
+      "weight": 65
+     },
+     {
+      "reps": 8,
+      "weight": 55
+     }
+    ]
+   },
+   {
+    "exercise": 14,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 27.5
+     },
+     {
+      "reps": 7,
+      "weight": 30
+     },
+     {
+      "reps": 10,
+      "weight": 42.5
+     },
+     {
+      "reps": 12,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 69,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 82.5
+     },
+     {
+      "reps": 14,
+      "weight": 97.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 19,
+  "date": "2026-09-20",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 77,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 77.5
+     },
+     {
+      "reps": 7,
+      "weight": 57.5
+     },
+     {
+      "reps": 7,
+      "weight": 67.5
+     },
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 14,
+      "weight": 12.5
+     }
+    ]
+   },
+   {
+    "exercise": 5,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 100
+     },
+     {
+      "reps": 6,
+      "weight": 47.5
+     },
+     {
+      "reps": 6,
+      "weight": 92.5
+     },
+     {
+      "reps": 7,
+      "weight": 97.5
+     },
+     {
+      "reps": 7,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 102,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 15
+     },
+     {
+      "reps": 5,
+      "weight": 17.5
+     },
+     {
+      "reps": 11,
+      "weight": 75
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 20,
+  "date": "2026-09-18",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 106,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 60
+     },
+     {
+      "reps": 14,
+      "weight": 37.5
+     }
+    ]
+   },
+   {
+    "exercise": 8,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 32.5
+     },
+     {
+      "reps": 12,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 63,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 27.5
+     },
+     {
+      "reps": 9,
+      "weight": 27.5
+     },
+     {
+      "reps": 14,
+      "weight": 12.5
+     },
+     {
+      "reps": 11,
+      "weight": 62.5
+     },
+     {
+      "reps": 12,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 53,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 60
+     },
+     {
+      "reps": 15,
+      "weight": 80
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     },
+     {
+      "reps": 6,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 77,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 47.5
+     },
+     {
+      "reps": 7,
+      "weight": 37.5
+     },
+     {
+      "reps": 11,
+      "weight": 17.5
+     }
+    ]
+   },
+   {
+    "exercise": 108,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 97.5
+     },
+     {
+      "reps": 14,
+      "weight": 10
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 21,
+  "date": "2026-09-15",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 10,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 45
+     },
+     {
+      "reps": 6,
+      "weight": 77.5
+     },
+     {
+      "reps": 11,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 73,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 45
+     },
+     {
+      "reps": 12,
+      "weight": 20
+     },
+     {
+      "reps": 6,
+      "weight": 57.5
+     }
+    ]
+   },
+   {
+    "exercise": 76,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 30
+     },
+     {
+      "reps": 13,
+      "weight": 57.5
+     },
+     {
+      "reps": 9,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 66,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 17.5
+     },
+     {
+      "reps": 14,
+      "weight": 62.5
+     },
+     {
+      "reps": 14,
+      "weight": 75
+     },
+     {
+      "reps": 7,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 55,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 82.5
+     },
+     {
+      "reps": 12,
+      "weight": 20
+     },
+     {
+      "reps": 15,
+      "weight": 97.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 22,
+  "date": "2026-09-14",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 100,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 47.5
+     },
+     {
+      "reps": 14,
+      "weight": 95
+     },
+     {
+      "reps": 8,
+      "weight": 45
+     },
+     {
+      "reps": 6,
+      "weight": 60
+     },
+     {
+      "reps": 5,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 20
+     },
+     {
+      "reps": 9,
+      "weight": 47.5
+     },
+     {
+      "reps": 6,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 42,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 20
+     },
+     {
+      "reps": 6,
+      "weight": 90
+     },
+     {
+      "reps": 14,
+      "weight": 92.5
+     },
+     {
+      "reps": 10,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 6,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 20
+     },
+     {
+      "reps": 11,
+      "weight": 50
+     },
+     {
+      "reps": 15,
+      "weight": 62.5
+     }
+    ]
+   },
+   {
+    "exercise": 76,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 20
+     },
+     {
+      "reps": 13,
+      "weight": 12.5
+     },
+     {
+      "reps": 6,
+      "weight": 97.5
+     },
+     {
+      "reps": 6,
+      "weight": 80
+     },
+     {
+      "reps": 11,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 20,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 87.5
+     },
+     {
+      "reps": 5,
+      "weight": 42.5
+     },
+     {
+      "reps": 15,
+      "weight": 85
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 23,
+  "date": "2026-09-11",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 76,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 10
+     },
+     {
+      "reps": 9,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 59,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 60
+     },
+     {
+      "reps": 9,
+      "weight": 75
+     },
+     {
+      "reps": 6,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 33,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 92.5
+     },
+     {
+      "reps": 5,
+      "weight": 65
+     },
+     {
+      "reps": 5,
+      "weight": 37.5
+     },
+     {
+      "reps": 13,
+      "weight": 17.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 24,
+  "date": "2026-09-09",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 83,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 75
+     },
+     {
+      "reps": 5,
+      "weight": 97.5
+     },
+     {
+      "reps": 6,
+      "weight": 97.5
+     },
+     {
+      "reps": 5,
+      "weight": 12.5
+     },
+     {
+      "reps": 11,
+      "weight": 100
+     }
+    ]
+   },
+   {
+    "exercise": 89,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 75
+     },
+     {
+      "reps": 7,
+      "weight": 52.5
+     },
+     {
+      "reps": 14,
+      "weight": 15
+     },
+     {
+      "reps": 8,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 8,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 92.5
+     },
+     {
+      "reps": 8,
+      "weight": 10
+     },
+     {
+      "reps": 6,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 38,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 72.5
+     },
+     {
+      "reps": 11,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 82,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 55
+     },
+     {
+      "reps": 10,
+      "weight": 20
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 25,
+  "date": "2026-09-07",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 4,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 37.5
+     },
+     {
+      "reps": 11,
+      "weight": 97.5
+     },
+     {
+      "reps": 14,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 20
+     },
+     {
+      "reps": 6,
+      "weight": 70
+     },
+     {
+      "reps": 14,
+      "weight": 27.5
+     },
+     {
+      "reps": 11,
+      "weight": 82.5
+     },
+     {
+      "reps": 11,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 92,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 85
+     },
+     {
+      "reps": 13,
+      "weight": 50
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 26,
+  "date": "2026-09-06",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 111,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 42.5
+     },
+     {
+      "reps": 15,
+      "weight": 12.5
+     },
+     {
+      "reps": 8,
+      "weight": 52.5
+     },
+     {
+      "reps": 15,
+      "weight": 10
+     }
+    ]
+   },
+   {
+    "exercise": 54,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 42.5
+     },
+     {
+      "reps": 11,
+      "weight": 10
+     },
+     {
+      "reps": 5,
+      "weight": 27.5
+     },
+     {
+      "reps": 9,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 40,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 30
+     },
+     {
+      "reps": 7,
+      "weight": 30
+     },
+     {
+      "reps": 9,
+      "weight": 47.5
+     }
+    ]
+   },
+   {
+    "exercise": 118,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 52.5
+     },
+     {
+      "reps": 6,
+      "weight": 20
+     },
+     {
+      "reps": 14,
+      "weight": 45
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 27,
+  "date": "2026-09-04",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 40,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 17.5
+     },
+     {
+      "reps": 14,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 96,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 82.5
+     },
+     {
+      "reps": 9,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 48,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 22.5
+     },
+     {
+      "reps": 12,
+      "weight": 40
+     },
+     {
+      "reps": 7,
+      "weight": 17.5
+     },
+     {
+      "reps": 6,
+      "weight": 72.5
+     },
+     {
+      "reps": 15,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 80,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 17.5
+     },
+     {
+      "reps": 10,
+      "weight": 32.5
+     },
+     {
+      "reps": 14,
+      "weight": 17.5
+     },
+     {
+      "reps": 15,
+      "weight": 22.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 28,
+  "date": "2026-09-01",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 21,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 55
+     },
+     {
+      "reps": 10,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 67,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 12.5
+     },
+     {
+      "reps": 15,
+      "weight": 70
+     },
+     {
+      "reps": 7,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 43,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 92.5
+     },
+     {
+      "reps": 5,
+      "weight": 35
+     },
+     {
+      "reps": 14,
+      "weight": 25
+     },
+     {
+      "reps": 9,
+      "weight": 95
+     },
+     {
+      "reps": 13,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 54,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 14,
+      "weight": 50
+     },
+     {
+      "reps": 6,
+      "weight": 17.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 29,
+  "date": "2026-08-30",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 100
+     },
+     {
+      "reps": 10,
+      "weight": 35
+     },
+     {
+      "reps": 11,
+      "weight": 47.5
+     }
+    ]
+   },
+   {
+    "exercise": 88,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 55
+     },
+     {
+      "reps": 14,
+      "weight": 55
+     }
+    ]
+   },
+   {
+    "exercise": 56,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 80
+     },
+     {
+      "reps": 14,
+      "weight": 57.5
+     },
+     {
+      "reps": 5,
+      "weight": 62.5
+     },
+     {
+      "reps": 13,
+      "weight": 62.5
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 30,
+  "date": "2026-08-29",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 96,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 60
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     },
+     {
+      "reps": 6,
+      "weight": 77.5
+     },
+     {
+      "reps": 10,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 69,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 12.5
+     },
+     {
+      "reps": 10,
+      "weight": 10
+     },
+     {
+      "reps": 8,
+      "weight": 82.5
+     },
+     {
+      "reps": 5,
+      "weight": 87.5
+     },
+     {
+      "reps": 13,
+      "weight": 65
+     }
+    ]
+   },
+   {
+    "exercise": 52,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 65
+     },
+     {
+      "reps": 11,
+      "weight": 17.5
+     },
+     {
+      "reps": 9,
+      "weight": 80
+     },
+     {
+      "reps": 8,
+      "weight": 55
+     },
+     {
+      "reps": 14,
+      "weight": 60
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 31,
+  "date": "2026-08-27",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 114,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 27.5
+     },
+     {
+      "reps": 7,
+      "weight": 35
+     },
+     {
+      "reps": 10,
+      "weight": 47.5
+     }
+    ]
+   },
+   {
+    "exercise": 98,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 92.5
+     },
+     {
+      "reps": 9,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 81,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 17.5
+     },
+     {
+      "reps": 14,
+      "weight": 72.5
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 32,
+  "date": "2026-08-24",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 20,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 30
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     },
+     {
+      "reps": 9,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 117,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 70
+     },
+     {
+      "reps": 14,
+      "weight": 90
+     }
+    ]
+   },
+   {
+    "exercise": 22,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 67.5
+     },
+     {
+      "reps": 9,
+      "weight": 85
+     }
+    ]
+   },
+   {
+    "exercise": 80,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 37.5
+     },
+     {
+      "reps": 15,
+      "weight": 95
+     }
+    ]
+   },
+   {
+    "exercise": 45,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 70
+     },
+     {
+      "reps": 9,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 85,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 55
+     },
+     {
+      "reps": 15,
+      "weight": 62.5
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 33,
+  "date": "2026-08-22",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 58,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 67.5
+     },
+     {
+      "reps": 8,
+      "weight": 32.5
+     },
+     {
+      "reps": 10,
+      "weight": 97.5
+     },
+     {
+      "reps": 15,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 9,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 30
+     },
+     {
+      "reps": 9,
+      "weight": 57.5
+     },
+     {
+      "reps": 12,
+      "weight": 70
+     },
+     {
+      "reps": 6,
+      "weight": 70
+     },
+     {
+      "reps": 8,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 1,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 22.5
+     },
+     {
+      "reps": 10,
+      "weight": 82.5
+     }
+    ]
+   },
+   {
+    "exercise": 35,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 82.5
+     },
+     {
+      "reps": 11,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 5,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 87.5
+     },
+     {
+      "reps": 5,
+      "weight": 17.5
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 34,
+  "date": "2026-08-20",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 114,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 60
+     },
+     {
+      "reps": 11,
+      "weight": 70
+     },
+     {
+      "reps": 10,
+      "weight": 92.5
+     },
+     {
+      "reps": 6,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 81,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 40
+     },
+     {
+      "reps": 9,
+      "weight": 97.5
+     },
+     {
+      "reps": 15,
+      "weight": 42.5
+     },
+     {
+      "reps": 14,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 68,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 42.5
+     },
+     {
+      "reps": 7,
+      "weight": 72.5
+     },
+     {
+      "reps": 13,
+      "weight": 80
+     }
+    ]
+   },
+   {
+    "exercise": 75,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 65
+     },
+     {
+      "reps": 6,
+      "weight": 22.5
+     },
+     {
+      "reps": 13,
+      "weight": 15
+     },
+     {
+      "reps": 12,
+      "weight": 67.5
+     },
+     {
+      "reps": 15,
+      "weight": 100
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 35,
+  "date": "2026-08-19",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 48,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 27.5
+     },
+     {
+      "reps": 10,
+      "weight": 60
+     },
+     {
+      "reps": 8,
+      "weight": 82.5
+     }
+    ]
+   },
+   {
+    "exercise": 72,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 97.5
+     },
+     {
+      "reps": 12,
+      "weight": 17.5
+     }
+    ]
+   },
+   {
+    "exercise": 9,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 82.5
+     },
+     {
+      "reps": 14,
+      "weight": 40
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 36,
+  "date": "2026-08-16",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 106,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 12.5
+     },
+     {
+      "reps": 15,
+      "weight": 27.5
+     },
+     {
+      "reps": 15,
+      "weight": 35
+     },
+     {
+      "reps": 6,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 37,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 67.5
+     },
+     {
+      "reps": 5,
+      "weight": 85
+     },
+     {
+      "reps": 15,
+      "weight": 17.5
+     },
+     {
+      "reps": 15,
+      "weight": 12.5
+     },
+     {
+      "reps": 6,
+      "weight": 65
+     }
+    ]
+   },
+   {
+    "exercise": 109,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 100
+     },
+     {
+      "reps": 11,
+      "weight": 22.5
+     },
+     {
+      "reps": 5,
+      "weight": 30
+     },
+     {
+      "reps": 6,
+      "weight": 15
+     },
+     {
+      "reps": 7,
+      "weight": 20
+     }
+    ]
+   },
+   {
+    "exercise": 46,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 72.5
+     },
+     {
+      "reps": 6,
+      "weight": 85
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 37,
+  "date": "2026-08-14",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 14,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 55
+     },
+     {
+      "reps": 14,
+      "weight": 32.5
+     },
+     {
+      "reps": 5,
+      "weight": 37.5
+     },
+     {
+      "reps": 6,
+      "weight": 47.5
+     },
+     {
+      "reps": 12,
+      "weight": 35
+     }
+    ]
+   },
+   {
+    "exercise": 27,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 92.5
+     },
+     {
+      "reps": 5,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 86,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 27.5
+     },
+     {
+      "reps": 8,
+      "weight": 90
+     },
+     {
+      "reps": 11,
+      "weight": 32.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 38,
+  "date": "2026-08-13",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 113,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 67.5
+     },
+     {
+      "reps": 7,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 24,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 80
+     },
+     {
+      "reps": 15,
+      "weight": 12.5
+     },
+     {
+      "reps": 15,
+      "weight": 22.5
+     },
+     {
+      "reps": 15,
+      "weight": 57.5
+     },
+     {
+      "reps": 15,
+      "weight": 30
+     }
+    ]
+   },
+   {
+    "exercise": 88,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 52.5
+     },
+     {
+      "reps": 7,
+      "weight": 82.5
+     },
+     {
+      "reps": 6,
+      "weight": 65
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 39,
+  "date": "2026-08-11",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 24,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 22.5
+     },
+     {
+      "reps": 13,
+      "weight": 75
+     },
+     {
+      "reps": 10,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 34,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 10
+     },
+     {
+      "reps": 10,
+      "weight": 37.5
+     },
+     {
+      "reps": 11,
+      "weight": 80
+     },
+     {
+      "reps": 13,
+      "weight": 22.5
+     },
+     {
+      "reps": 7,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 104,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 92.5
+     },
+     {
+      "reps": 10,
+      "weight": 65
+     },
+     {
+      "reps": 14,
+      "weight": 20
+     },
+     {
+      "reps": 5,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 116,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 27.5
+     },
+     {
+      "reps": 10,
+      "weight": 80
+     },
+     {
+      "reps": 12,
+      "weight": 42.5
+     },
+     {
+      "reps": 5,
+      "weight": 95
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 40,
+  "date": "2026-08-09",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 62,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 95
+     },
+     {
+      "reps": 5,
+      "weight": 30
+     },
+     {
+      "reps": 11,
+      "weight": 25
+     },
+     {
+      "reps": 10,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 89,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 70
+     },
+     {
+      "reps": 8,
+      "weight": 90
+     },
+     {
+      "reps": 15,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 32,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 10
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 41,
+  "date": "2026-08-06",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 13,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 40
+     },
+     {
+      "reps": 13,
+      "weight": 32.5
+     },
+     {
+      "reps": 12,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 17,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 50
+     },
+     {
+      "reps": 7,
+      "weight": 100
+     },
+     {
+      "reps": 11,
+      "weight": 95
+     },
+     {
+      "reps": 14,
+      "weight": 97.5
+     },
+     {
+      "reps": 6,
+      "weight": 15
+     }
+    ]
+   },
+   {
+    "exercise": 51,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 50
+     },
+     {
+      "reps": 13,
+      "weight": 25
+     },
+     {
+      "reps": 15,
+      "weight": 85
+     },
+     {
+      "reps": 14,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 116,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 92.5
+     },
+     {
+      "reps": 14,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 22,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 47.5
+     },
+     {
+      "reps": 12,
+      "weight": 87.5
+     },
+     {
+      "reps": 15,
+      "weight": 45
+     }
+    ]
+   },
+   {
+    "exercise": 107,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 70
+     },
+     {
+      "reps": 15,
+      "weight": 72.5
+     },
+     {
+      "reps": 14,
+      "weight": 70
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 42,
+  "date": "2026-08-04",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 4,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 15
+     },
+     {
+      "reps": 11,
+      "weight": 37.5
+     },
+     {
+      "reps": 12,
+      "weight": 85
+     },
+     {
+      "reps": 6,
+      "weight": 50
+     },
+     {
+      "reps": 11,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 97,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 87.5
+     },
+     {
+      "reps": 11,
+      "weight": 80
+     }
+    ]
+   },
+   {
+    "exercise": 86,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 12.5
+     },
+     {
+      "reps": 9,
+      "weight": 20
+     },
+     {
+      "reps": 13,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 54,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 67.5
+     },
+     {
+      "reps": 6,
+      "weight": 15
+     },
+     {
+      "reps": 12,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 18,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 85
+     },
+     {
+      "reps": 11,
+      "weight": 50
+     },
+     {
+      "reps": 6,
+      "weight": 97.5
+     },
+     {
+      "reps": 8,
+      "weight": 85
+     }
+    ]
+   },
+   {
+    "exercise": 66,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 52.5
+     },
+     {
+      "reps": 15,
+      "weight": 82.5
+     },
+     {
+      "reps": 10,
+      "weight": 25
+     },
+     {
+      "reps": 8,
+      "weight": 55
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 43,
+  "date": "2026-08-02",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 6,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 100
+     },
+     {
+      "reps": 10,
+      "weight": 35
+     },
+     {
+      "reps": 7,
+      "weight": 75
+     },
+     {
+      "reps": 6,
+      "weight": 50
+     },
+     {
+      "reps": 13,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 56,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 12.5
+     },
+     {
+      "reps": 14,
+      "weight": 52.5
+     },
+     {
+      "reps": 5,
+      "weight": 67.5
+     },
+     {
+      "reps": 15,
+      "weight": 100
+     }
+    ]
+   },
+   {
+    "exercise": 68,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 15
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     }
+    ]
+   },
+   {
+    "exercise": 36,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 42.5
+     },
+     {
+      "reps": 15,
+      "weight": 17.5
+     },
+     {
+      "reps": 6,
+      "weight": 25
+     },
+     {
+      "reps": 10,
+      "weight": 82.5
+     }
+    ]
+   },
+   {
+    "exercise": 14,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 37.5
+     },
+     {
+      "reps": 10,
+      "weight": 80
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 44,
+  "date": "2026-08-01",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 41,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 15
+     },
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 6,
+      "weight": 17.5
+     },
+     {
+      "reps": 6,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 115,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 72.5
+     },
+     {
+      "reps": 8,
+      "weight": 85
+     },
+     {
+      "reps": 6,
+      "weight": 90
+     }
+    ]
+   },
+   {
+    "exercise": 17,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 10
+     },
+     {
+      "reps": 5,
+      "weight": 62.5
+     },
+     {
+      "reps": 7,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 25,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 50
+     },
+     {
+      "reps": 9,
+      "weight": 32.5
+     },
+     {
+      "reps": 7,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 46,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 92.5
+     },
+     {
+      "reps": 9,
+      "weight": 82.5
+     },
+     {
+      "reps": 14,
+      "weight": 17.5
+     },
+     {
+      "reps": 7,
+      "weight": 67.5
+     }
+    ]
+   },
+   {
+    "exercise": 30,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 40
+     },
+     {
+      "reps": 12,
+      "weight": 60
+     },
+     {
+      "reps": 10,
+      "weight": 45
+     },
+     {
+      "reps": 7,
+      "weight": 90
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 45,
+  "date": "2026-07-30",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 99,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 95
+     },
+     {
+      "reps": 7,
+      "weight": 95
+     }
+    ]
+   },
+   {
+    "exercise": 119,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 50
+     },
+     {
+      "reps": 13,
+      "weight": 100
+     },
+     {
+      "reps": 9,
+      "weight": 90
+     }
+    ]
+   },
+   {
+    "exercise": 94,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 27.5
+     },
+     {
+      "reps": 5,
+      "weight": 92.5
+     }
+    ]
+   },
+   {
+    "exercise": 52,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 82.5
+     },
+     {
+      "reps": 5,
+      "weight": 92.5
+     },
+     {
+      "reps": 5,
+      "weight": 75
+     },
+     {
+      "reps": 5,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 53,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 72.5
+     },
+     {
+      "reps": 11,
+      "weight": 85
+     },
+     {
+      "reps": 12,
+      "weight": 40
+     },
+     {
+      "reps": 7,
+      "weight": 97.5
+     },
+     {
+      "reps": 14,
+      "weight": 35
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 46,
+  "date": "2026-07-28",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 100,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 87.5
+     },
+     {
+      "reps": 12,
+      "weight": 95
+     },
+     {
+      "reps": 12,
+      "weight": 70
+     },
+     {
+      "reps": 15,
+      "weight": 97.5
+     },
+     {
+      "reps": 10,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 23,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 45
+     },
+     {
+      "reps": 8,
+      "weight": 60
+     },
+     {
+      "reps": 13,
+      "weight": 50
+     },
+     {
+      "reps": 9,
+      "weight": 32.5
+     }
+    ]
+   },
+   {
+    "exercise": 8,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 52.5
+     },
+     {
+      "reps": 11,
+      "weight": 85
+     },
+     {
+      "reps": 8,
+      "weight": 67.5
+     },
+     {
+      "reps": 14,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 12,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 22.5
+     },
+     {
+      "reps": 10,
+      "weight": 25
+     },
+     {
+      "reps": 7,
+      "weight": 62.5
+     },
+     {
+      "reps": 14,
+      "weight": 80
+     },
+     {
+      "reps": 5,
+      "weight": 65
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 47,
+  "date": "2026-07-25",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 41,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 82.5
+     },
+     {
+      "reps": 5,
+      "weight": 82.5
+     },
+     {
+      "reps": 12,
+      "weight": 70
+     },
+     {
+      "reps": 11,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 29,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 32.5
+     },
+     {
+      "reps": 14,
+      "weight": 100
+     },
+     {
+      "reps": 13,
+      "weight": 42.5
+     },
+     {
+      "reps": 13,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 97,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 72.5
+     },
+     {
+      "reps": 11,
+      "weight": 70
+     },
+     {
+      "reps": 5,
+      "weight": 60
+     },
+     {
+      "reps": 14,
+      "weight": 25
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 48,
+  "date": "2026-07-23",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 46,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 32.5
+     },
+     {
+      "reps": 6,
+      "weight": 62.5
+     }
+    ]
+   },
+   {
+    "exercise": 105,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 60
+     },
+     {
+      "reps": 12,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 88,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 35
+     },
+     {
+      "reps": 13,
+      "weight": 22.5
+     },
+     {
+      "reps": 14,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 16,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 55
+     },
+     {
+      "reps": 13,
+      "weight": 62.5
+     },
+     {
+      "reps": 7,
+      "weight": 55
+     },
+     {
+      "reps": 9,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 82,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 67.5
+     },
+     {
+      "reps": 5,
+      "weight": 60
+     },
+     {
+      "reps": 5,
+      "weight": 20
+     },
+     {
+      "reps": 13,
+      "weight": 17.5
+     },
+     {
+      "reps": 13,
+      "weight": 37.5
+     }
+    ]
+   },
+   {
+    "exercise": 3,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 87.5
+     },
+     {
+      "reps": 12,
+      "weight": 15
+     },
+     {
+      "reps": 15,
+      "weight": 57.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 49,
+  "date": "2026-07-22",
+  "name": "Upper",
+  "exercises": [
+   {
+    "exercise": 111,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 15
+     },
+     {
+      "reps": 6,
+      "weight": 60
+     }
+    ]
+   },
+   {
+    "exercise": 25,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 42.5
+     },
+     {
+      "reps": 11,
+      "weight": 25
+     },
+     {
+      "reps": 14,
+      "weight": 70
+     }
+    ]
+   },
+   {
+    "exercise": 20,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 95
+     },
+     {
+      "reps": 12,
+      "weight": 77.5
+     },
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 14,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 38,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 27.5
+     },
+     {
+      "reps": 10,
+      "weight": 45
+     },
+     {
+      "reps": 5,
+      "weight": 37.5
+     }
+    ]
+   },
+   {
+    "exercise": 32,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 62.5
+     },
+     {
+      "reps": 12,
+      "weight": 72.5
+     },
+     {
+      "reps": 5,
+      "weight": 65
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 50,
+  "date": "2026-07-20",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 113,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 17.5
+     },
+     {
+      "reps": 5,
+      "weight": 47.5
+     }
+    ]
+   },
+   {
+    "exercise": 54,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 75
+     },
+     {
+      "reps": 6,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 32,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 32.5
+     },
+     {
+      "reps": 9,
+      "weight": 12.5
+     },
+     {
+      "reps": 6,
+      "weight": 22.5
+     }
+    ]
+   },
+   {
+    "exercise": 74,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 40
+     },
+     {
+      "reps": 9,
+      "weight": 52.5
+     },
+     {
+      "reps": 6,
+      "weight": 42.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 51,
+  "date": "2026-07-18",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 30,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 87.5
+     },
+     {
+      "reps": 7,
+      "weight": 77.5
+     }
+    ]
+   },
+   {
+    "exercise": 56,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 30
+     },
+     {
+      "reps": 15,
+      "weight": 15
+     },
+     {
+      "reps": 13,
+      "weight": 37.5
+     }
+    ]
+   },
+   {
+    "exercise": 74,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 17.5
+     },
+     {
+      "reps": 7,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 14,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 75
+     },
+     {
+      "reps": 12,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 111,
+    "sets": [
+     {
+      "reps": 14,
+      "weight": 80
+     },
+     {
+      "reps": 7,
+      "weight": 72.5
+     },
+     {
+      "reps": 10,
+      "weight": 17.5
+     },
+     {
+      "reps": 9,
+      "weight": 35
+     },
+     {
+      "reps": 11,
+      "weight": 17.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 52,
+  "date": "2026-07-15",
+  "name": "Full body",
+  "exercises": [
+   {
+    "exercise": 56,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 15
+     },
+     {
+      "reps": 9,
+      "weight": 25
+     },
+     {
+      "reps": 14,
+      "weight": 67.5
+     }
+    ]
+   },
+   {
+    "exercise": 21,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 15
+     },
+     {
+      "reps": 10,
+      "weight": 45
+     },
+     {
+      "reps": 14,
+      "weight": 12.5
+     },
+     {
+      "reps": 9,
+      "weight": 90
+     },
+     {
+      "reps": 11,
+      "weight": 95
+     }
+    ]
+   },
+   {
+    "exercise": 35,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 60
+     },
+     {
+      "reps": 11,
+      "weight": 25
+     },
+     {
+      "reps": 8,
+      "weight": 27.5
+     },
+     {
+      "reps": 5,
+      "weight": 27.5
+     }
+    ]
+   },
+   {
+    "exercise": 2,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 75
+     },
+     {
+      "reps": 13,
+      "weight": 42.5
+     },
+     {
+      "reps": 6,
+      "weight": 57.5
+     },
+     {
+      "reps": 5,
+      "weight": 30
+     },
+     {
+      "reps": 9,
+      "weight": 92.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 53,
+  "date": "2026-07-14",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 106,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 45
+     },
+     {
+      "reps": 9,
+      "weight": 90
+     },
+     {
+      "reps": 14,
+      "weight": 52.5
+     }
+    ]
+   },
+   {
+    "exercise": 27,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 57.5
+     },
+     {
+      "reps": 11,
+      "weight": 10
+     },
+     {
+      "reps": 6,
+      "weight": 95
+     },
+     {
+      "reps": 11,
+      "weight": 95
+     },
+     {
+      "reps": 6,
+      "weight": 67.5
+     }
+    ]
+   },
+   {
+    "exercise": 108,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 50
+     },
+     {
+      "reps": 12,
+      "weight": 67.5
+     },
+     {
+      "reps": 10,
+      "weight": 27.5
+     },
+     {
+      "reps": 5,
+      "weight": 95
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 54,
+  "date": "2026-07-11",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 9,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 75
+     },
+     {
+      "reps": 12,
+      "weight": 87.5
+     },
+     {
+      "reps": 13,
+      "weight": 92.5
+     }
+    ]
+   },
+   {
+    "exercise": 100,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 87.5
+     },
+     {
+      "reps": 12,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 2,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 72.5
+     },
+     {
+      "reps": 5,
+      "weight": 72.5
+     }
+    ]
+   },
+   {
+    "exercise": 13,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 52.5
+     },
+     {
+      "reps": 13,
+      "weight": 40
+     },
+     {
+      "reps": 15,
+      "weight": 92.5
+     },
+     {
+      "reps": 6,
+      "weight": 65
+     }
+    ]
+   },
+   {
+    "exercise": 36,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 85
+     },
+     {
+      "reps": 9,
+      "weight": 30
+     },
+     {
+      "reps": 10,
+      "weight": 80
+     },
+     {
+      "reps": 12,
+      "weight": 100
+     }
+    ]
+   },
+   {
+    "exercise": 71,
+    "sets": [
+     {
+      "reps": 10,
+      "weight": 82.5
+     },
+     {
+      "reps": 13,
+      "weight": 30
+     },
+     {
+      "reps": 8,
+      "weight": 72.5
+     },
+     {
+      "reps": 6,
+      "weight": 12.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 55,
+  "date": "2026-07-10",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 33,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 55
+     },
+     {
+      "reps": 7,
+      "weight": 27.5
+     },
+     {
+      "reps": 5,
+      "weight": 45
+     },
+     {
+      "reps": 12,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 37,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 57.5
+     },
+     {
+      "reps": 5,
+      "weight": 30
+     }
+    ]
+   },
+   {
+    "exercise": 7,
+    "sets": [
+     {
+      "reps": 15,
+      "weight": 45
+     },
+     {
+      "reps": 9,
+      "weight": 57.5
+     },
+     {
+      "reps": 13,
+      "weight": 92.5
+     },
+     {
+      "reps": 9,
+      "weight": 60
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 56,
+  "date": "2026-07-07",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 12,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 52.5
+     },
+     {
+      "reps": 6,
+      "weight": 22.5
+     },
+     {
+      "reps": 7,
+      "weight": 40
+     }
+    ]
+   },
+   {
+    "exercise": 103,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 22.5
+     },
+     {
+      "reps": 7,
+      "weight": 75
+     },
+     {
+      "reps": 10,
+      "weight": 25
+     }
+    ]
+   },
+   {
+    "exercise": 26,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 30
+     },
+     {
+      "reps": 9,
+      "weight": 100
+     }
+    ]
+   },
+   {
+    "exercise": 87,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 20
+     },
+     {
+      "reps": 8,
+      "weight": 42.5
+     }
+    ]
+   },
+   {
+    "exercise": 45,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 15
+     },
+     {
+      "reps": 8,
+      "weight": 85
+     },
+     {
+      "reps": 11,
+      "weight": 92.5
+     }
+    ]
+   },
+   {
+    "exercise": 22,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 32.5
+     },
+     {
+      "reps": 7,
+      "weight": 55
+     },
+     {
+      "reps": 14,
+      "weight": 42.5
+     },
+     {
+      "reps": 13,
+      "weight": 40
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 57,
+  "date": "2026-07-06",
+  "name": "Push",
+  "exercises": [
+   {
+    "exercise": 65,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 40
+     },
+     {
+      "reps": 14,
+      "weight": 10
+     }
+    ]
+   },
+   {
+    "exercise": 51,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 67.5
+     },
+     {
+      "reps": 13,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 96,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 27.5
+     },
+     {
+      "reps": 15,
+      "weight": 55
+     },
+     {
+      "reps": 7,
+      "weight": 67.5
+     },
+     {
+      "reps": 6,
+      "weight": 35
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 58,
+  "date": "2026-07-03",
+  "name": "Lower",
+  "exercises": [
+   {
+    "exercise": 45,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 15
+     },
+     {
+      "reps": 9,
+      "weight": 52.5
+     },
+     {
+      "reps": 6,
+      "weight": 47.5
+     },
+     {
+      "reps": 8,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 99,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 22.5
+     },
+     {
+      "reps": 6,
+      "weight": 72.5
+     },
+     {
+      "reps": 8,
+      "weight": 40
+     },
+     {
+      "reps": 12,
+      "weight": 32.5
+     },
+     {
+      "reps": 8,
+      "weight": 80
+     }
+    ]
+   },
+   {
+    "exercise": 116,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 32.5
+     },
+     {
+      "reps": 13,
+      "weight": 60
+     },
+     {
+      "reps": 9,
+      "weight": 27.5
+     },
+     {
+      "reps": 6,
+      "weight": 45
+     },
+     {
+      "reps": 14,
+      "weight": 30
+     }
+    ]
+   },
+   {
+    "exercise": 47,
+    "sets": [
+     {
+      "reps": 11,
+      "weight": 70
+     },
+     {
+      "reps": 13,
+      "weight": 80
+     }
+    ]
+   },
+   {
+    "exercise": 31,
+    "sets": [
+     {
+      "reps": 5,
+      "weight": 12.5
+     },
+     {
+      "reps": 11,
+      "weight": 42.5
+     },
+     {
+      "reps": 8,
+      "weight": 30
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 59,
+  "date": "2026-07-02",
+  "name": "Pull",
+  "exercises": [
+   {
+    "exercise": 86,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 47.5
+     },
+     {
+      "reps": 11,
+      "weight": 30
+     },
+     {
+      "reps": 10,
+      "weight": 45
+     }
+    ]
+   },
+   {
+    "exercise": 45,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 37.5
+     },
+     {
+      "reps": 14,
+      "weight": 97.5
+     }
+    ]
+   },
+   {
+    "exercise": 109,
+    "sets": [
+     {
+      "reps": 12,
+      "weight": 90
+     },
+     {
+      "reps": 11,
+      "weight": 75
+     },
+     {
+      "reps": 8,
+      "weight": 85
+     }
+    ]
+   },
+   {
+    "exercise": 11,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 67.5
+     },
+     {
+      "reps": 14,
+      "weight": 77.5
+     },
+     {
+      "reps": 10,
+      "weight": 12.5
+     },
+     {
+      "reps": 10,
+      "weight": 67.5
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": 60,
+  "date": "2026-06-29",
+  "name": "Legs",
+  "exercises": [
+   {
+    "exercise": 7,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 22.5
+     },
+     {
+      "reps": 10,
+      "weight": 55
+     },
+     {
+      "reps": 9,
+      "weight": 37.5
+     },
+     {
+      "reps": 10,
+      "weight": 87.5
+     },
+     {
+      "reps": 6,
+      "weight": 92.5
+     }
+    ]
+   },
+   {
+    "exercise": 98,
+    "sets": [
+     {
+      "reps": 6,
+      "weight": 65
+     },
+     {
+      "reps": 5,
+      "weight": 97.5
+     },
+     {
+      "reps": 11,
+      "weight": 20
+     },
+     {
+      "reps": 9,
+      "weight": 62.5
+     },
+     {
+      "reps": 5,
+      "weight": 87.5
+     }
+    ]
+   },
+   {
+    "exercise": 117,
+    "sets": [
+     {
+      "reps": 7,
+      "weight": 97.5
+     },
+     {
+      "reps": 15,
+      "weight": 27.5
+     },
+     {
+      "reps": 13,
+      "weight": 90
+     },
+     {
+      "reps": 13,
+      "weight": 75
+     }
+    ]
+   },
+   {
+    "exercise": 119,
+    "sets": [
+     {
+      "reps": 9,
+      "weight": 50
+     },
+     {
+      "reps": 9,
+      "weight": 35
+     },
+     {
+      "reps": 9,
+      "weight": 47.5
+     },
+     {
+      "reps": 7,
+      "weight": 50
+     }
+    ]
+   },
+   {
+    "exercise": 19,
+    "sets": [
+     {
+      "reps": 8,
+      "weight": 65
+     },
+     {
+      "reps": 5,
+      "weight": 70
+     },
+     {
+      "reps": 9,
+      "weight": 12.5
+     }
+    ]
+   },
+   {
+    "exercise": 78,
+    "sets": [
+     {
+      "reps": 13,
+      "weight": 17.5
+     },
+     {
+      "reps": 11,
+      "weight": 25
+     },
+     {
+      "reps": 7,
+      "weight": 72.5
+     }
+    ]
+   }
+  ]
+ }
+]

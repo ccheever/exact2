@@ -1,0 +1,544 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "exact2",
+      "dependencies": {
+        "@exact/actions": "workspace:*",
+        "@exact/age-range": "workspace:*",
+        "@exact/alarms": "workspace:*",
+        "@exact/altimeter": "workspace:*",
+        "@exact/attestation": "workspace:*",
+        "@exact/background": "workspace:*",
+        "@exact/barcode-detection": "workspace:*",
+        "@exact/browser": "workspace:*",
+        "@exact/browser-automation": "workspace:*",
+        "@exact/calendar": "workspace:*",
+        "@exact/calls": "workspace:*",
+        "@exact/camera": "workspace:*",
+        "@exact/cards": "workspace:*",
+        "@exact/child-process": "workspace:*",
+        "@exact/compose": "workspace:*",
+        "@exact/contacts": "workspace:*",
+        "@exact/device": "workspace:*",
+        "@exact/gamepad": "workspace:*",
+        "@exact/geocoding": "workspace:*",
+        "@exact/geofencing": "workspace:*",
+        "@exact/geolocation": "workspace:*",
+        "@exact/health": "workspace:*",
+        "@exact/in-app-browser": "workspace:*",
+        "@exact/language-model": "workspace:*",
+        "@exact/lists": "workspace:*",
+        "@exact/local-auth": "workspace:*",
+        "@exact/local-network": "workspace:*",
+        "@exact/maps": "workspace:*",
+        "@exact/media-capture": "workspace:*",
+        "@exact/motion": "workspace:*",
+        "@exact/nfc": "workspace:*",
+        "@exact/notifications": "workspace:*",
+        "@exact/passkeys": "workspace:*",
+        "@exact/payments": "workspace:*",
+        "@exact/pedometer": "workspace:*",
+        "@exact/photos": "workspace:*",
+        "@exact/quick-actions": "workspace:*",
+        "@exact/reading": "workspace:*",
+        "@exact/recording": "workspace:*",
+        "@exact/scale-fixture-cards": "workspace:*",
+        "@exact/scale-fixture-notes": "workspace:*",
+        "@exact/search-index": "workspace:*",
+        "@exact/sign-in": "workspace:*",
+        "@exact/speech-recognition": "workspace:*",
+        "@exact/speech-synthesis": "workspace:*",
+        "@exact/text-detection": "workspace:*",
+        "@exact/tracking-consent": "workspace:*",
+        "@exact/translation": "workspace:*",
+      },
+      "devDependencies": {
+        "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+        "fflate": "0.8.3",
+        "playwright-core": "1.64.1",
+        "rolldown": "1.2.9",
+        "snapback4": "0.4.33",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/actions": {
+      "name": "@exact/actions",
+      "version": "0.1.0",
+    },
+    "packages/age-range": {
+      "name": "@exact/age-range",
+      "version": "1.0.0",
+    },
+    "packages/alarms": {
+      "name": "@exact/alarms",
+      "version": "1.0.0",
+    },
+    "packages/altimeter": {
+      "name": "@exact/altimeter",
+      "version": "1.0.0",
+    },
+    "packages/attestation": {
+      "name": "@exact/attestation",
+      "version": "1.0.0",
+    },
+    "packages/background": {
+      "name": "@exact/background",
+      "version": "1.0.0",
+    },
+    "packages/background-transfer": {
+      "name": "@exact/background-transfer",
+      "version": "1.0.0",
+    },
+    "packages/barcode-detection": {
+      "name": "@exact/barcode-detection",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/browser": {
+      "name": "@exact/browser",
+      "version": "1.0.0",
+    },
+    "packages/browser-automation": {
+      "name": "@exact/browser-automation",
+      "version": "1.0.0",
+    },
+    "packages/calendar": {
+      "name": "@exact/calendar",
+      "version": "1.0.0",
+    },
+    "packages/calls": {
+      "name": "@exact/calls",
+      "version": "1.0.0",
+    },
+    "packages/camera": {
+      "name": "@exact/camera",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/cards": {
+      "name": "@exact/cards",
+      "version": "0.1.0",
+    },
+    "packages/child-process": {
+      "name": "@exact/child-process",
+      "version": "1.0.0",
+    },
+    "packages/clipboard": {
+      "name": "@exact/clipboard",
+      "version": "1.0.0",
+    },
+    "packages/compose": {
+      "name": "@exact/compose",
+      "version": "1.0.0",
+    },
+    "packages/contacts": {
+      "name": "@exact/contacts",
+      "version": "1.0.0",
+    },
+    "packages/device": {
+      "name": "@exact/device",
+      "version": "1.0.0",
+    },
+    "packages/dock": {
+      "name": "@exact/dock",
+      "version": "1.0.0",
+    },
+    "packages/gamepad": {
+      "name": "@exact/gamepad",
+      "version": "1.0.0",
+    },
+    "packages/geocoding": {
+      "name": "@exact/geocoding",
+      "version": "1.0.0",
+    },
+    "packages/geofencing": {
+      "name": "@exact/geofencing",
+      "version": "1.0.0",
+    },
+    "packages/geolocation": {
+      "name": "@exact/geolocation",
+      "version": "1.0.0",
+    },
+    "packages/global-shortcuts": {
+      "name": "@exact/global-shortcuts",
+      "version": "1.0.0",
+    },
+    "packages/health": {
+      "name": "@exact/health",
+      "version": "1.0.0",
+    },
+    "packages/hid": {
+      "name": "@exact/hid",
+      "version": "1.0.0",
+    },
+    "packages/in-app-browser": {
+      "name": "@exact/in-app-browser",
+      "version": "1.0.0",
+    },
+    "packages/language-model": {
+      "name": "@exact/language-model",
+      "version": "1.0.0",
+    },
+    "packages/lists": {
+      "name": "@exact/lists",
+      "version": "0.1.0",
+    },
+    "packages/local-auth": {
+      "name": "@exact/local-auth",
+      "version": "1.0.0",
+    },
+    "packages/local-network": {
+      "name": "@exact/local-network",
+      "version": "1.0.0",
+    },
+    "packages/login-item": {
+      "name": "@exact/login-item",
+      "version": "1.0.0",
+    },
+    "packages/maps": {
+      "name": "@exact/maps",
+      "version": "1.0.0",
+    },
+    "packages/media-capture": {
+      "name": "@exact/media-capture",
+      "version": "1.0.0",
+    },
+    "packages/motion": {
+      "name": "@exact/motion",
+      "version": "1.0.0",
+    },
+    "packages/nfc": {
+      "name": "@exact/nfc",
+      "version": "1.0.0",
+    },
+    "packages/notifications": {
+      "name": "@exact/notifications",
+      "version": "1.0.0",
+    },
+    "packages/oauth": {
+      "name": "@exact/oauth",
+      "version": "0.1.0",
+    },
+    "packages/passkeys": {
+      "name": "@exact/passkeys",
+      "version": "1.0.0",
+    },
+    "packages/payments": {
+      "name": "@exact/payments",
+      "version": "1.0.0",
+    },
+    "packages/pedometer": {
+      "name": "@exact/pedometer",
+      "version": "1.0.0",
+    },
+    "packages/photos": {
+      "name": "@exact/photos",
+      "version": "1.0.0",
+    },
+    "packages/purchases": {
+      "name": "@exact/purchases",
+      "version": "1.0.0",
+    },
+    "packages/quick-actions": {
+      "name": "@exact/quick-actions",
+      "version": "1.0.0",
+    },
+    "packages/reading": {
+      "name": "@exact/reading",
+      "version": "0.1.0",
+    },
+    "packages/recording": {
+      "name": "@exact/recording",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/scale-fixture-cards": {
+      "name": "@exact/scale-fixture-cards",
+      "version": "0.1.0",
+    },
+    "packages/scale-fixture-notes": {
+      "name": "@exact/scale-fixture-notes",
+      "version": "0.1.0",
+    },
+    "packages/search-index": {
+      "name": "@exact/search-index",
+      "version": "1.0.0",
+    },
+    "packages/serial": {
+      "name": "@exact/serial",
+      "version": "1.0.0",
+    },
+    "packages/sign-in": {
+      "name": "@exact/sign-in",
+      "version": "1.0.0",
+    },
+    "packages/speech-recognition": {
+      "name": "@exact/speech-recognition",
+      "version": "1.0.0",
+      "peerDependencies": {
+        "@exact/media-capture": "1.0.0",
+      },
+      "optionalPeers": [
+        "@exact/media-capture",
+      ],
+    },
+    "packages/speech-synthesis": {
+      "name": "@exact/speech-synthesis",
+      "version": "1.0.0",
+    },
+    "packages/store-review": {
+      "name": "@exact/store-review",
+      "version": "1.0.0",
+    },
+    "packages/text-detection": {
+      "name": "@exact/text-detection",
+      "version": "1.0.0",
+    },
+    "packages/tracking-consent": {
+      "name": "@exact/tracking-consent",
+      "version": "1.0.0",
+    },
+    "packages/translation": {
+      "name": "@exact/translation",
+      "version": "1.0.0",
+    },
+    "packages/usb": {
+      "name": "@exact/usb",
+      "version": "1.0.0",
+    },
+  },
+  "packages": {
+    "@exact/actions": ["@exact/actions@workspace:packages/actions"],
+
+    "@exact/age-range": ["@exact/age-range@workspace:packages/age-range"],
+
+    "@exact/alarms": ["@exact/alarms@workspace:packages/alarms"],
+
+    "@exact/altimeter": ["@exact/altimeter@workspace:packages/altimeter"],
+
+    "@exact/attestation": ["@exact/attestation@workspace:packages/attestation"],
+
+    "@exact/background": ["@exact/background@workspace:packages/background"],
+
+    "@exact/background-transfer": ["@exact/background-transfer@workspace:packages/background-transfer"],
+
+    "@exact/barcode-detection": ["@exact/barcode-detection@workspace:packages/barcode-detection"],
+
+    "@exact/browser": ["@exact/browser@workspace:packages/browser"],
+
+    "@exact/browser-automation": ["@exact/browser-automation@workspace:packages/browser-automation"],
+
+    "@exact/calendar": ["@exact/calendar@workspace:packages/calendar"],
+
+    "@exact/calls": ["@exact/calls@workspace:packages/calls"],
+
+    "@exact/camera": ["@exact/camera@workspace:packages/camera"],
+
+    "@exact/cards": ["@exact/cards@workspace:packages/cards"],
+
+    "@exact/child-process": ["@exact/child-process@workspace:packages/child-process"],
+
+    "@exact/clipboard": ["@exact/clipboard@workspace:packages/clipboard"],
+
+    "@exact/compose": ["@exact/compose@workspace:packages/compose"],
+
+    "@exact/contacts": ["@exact/contacts@workspace:packages/contacts"],
+
+    "@exact/device": ["@exact/device@workspace:packages/device"],
+
+    "@exact/dock": ["@exact/dock@workspace:packages/dock"],
+
+    "@exact/gamepad": ["@exact/gamepad@workspace:packages/gamepad"],
+
+    "@exact/geocoding": ["@exact/geocoding@workspace:packages/geocoding"],
+
+    "@exact/geofencing": ["@exact/geofencing@workspace:packages/geofencing"],
+
+    "@exact/geolocation": ["@exact/geolocation@workspace:packages/geolocation"],
+
+    "@exact/global-shortcuts": ["@exact/global-shortcuts@workspace:packages/global-shortcuts"],
+
+    "@exact/health": ["@exact/health@workspace:packages/health"],
+
+    "@exact/hid": ["@exact/hid@workspace:packages/hid"],
+
+    "@exact/in-app-browser": ["@exact/in-app-browser@workspace:packages/in-app-browser"],
+
+    "@exact/language-model": ["@exact/language-model@workspace:packages/language-model"],
+
+    "@exact/lists": ["@exact/lists@workspace:packages/lists"],
+
+    "@exact/local-auth": ["@exact/local-auth@workspace:packages/local-auth"],
+
+    "@exact/local-network": ["@exact/local-network@workspace:packages/local-network"],
+
+    "@exact/login-item": ["@exact/login-item@workspace:packages/login-item"],
+
+    "@exact/maps": ["@exact/maps@workspace:packages/maps"],
+
+    "@exact/media-capture": ["@exact/media-capture@workspace:packages/media-capture"],
+
+    "@exact/motion": ["@exact/motion@workspace:packages/motion"],
+
+    "@exact/nfc": ["@exact/nfc@workspace:packages/nfc"],
+
+    "@exact/notifications": ["@exact/notifications@workspace:packages/notifications"],
+
+    "@exact/oauth": ["@exact/oauth@workspace:packages/oauth"],
+
+    "@exact/passkeys": ["@exact/passkeys@workspace:packages/passkeys"],
+
+    "@exact/payments": ["@exact/payments@workspace:packages/payments"],
+
+    "@exact/pedometer": ["@exact/pedometer@workspace:packages/pedometer"],
+
+    "@exact/photos": ["@exact/photos@workspace:packages/photos"],
+
+    "@exact/purchases": ["@exact/purchases@workspace:packages/purchases"],
+
+    "@exact/quick-actions": ["@exact/quick-actions@workspace:packages/quick-actions"],
+
+    "@exact/reading": ["@exact/reading@workspace:packages/reading"],
+
+    "@exact/recording": ["@exact/recording@workspace:packages/recording"],
+
+    "@exact/scale-fixture-cards": ["@exact/scale-fixture-cards@workspace:packages/scale-fixture-cards"],
+
+    "@exact/scale-fixture-notes": ["@exact/scale-fixture-notes@workspace:packages/scale-fixture-notes"],
+
+    "@exact/search-index": ["@exact/search-index@workspace:packages/search-index"],
+
+    "@exact/serial": ["@exact/serial@workspace:packages/serial"],
+
+    "@exact/sign-in": ["@exact/sign-in@workspace:packages/sign-in"],
+
+    "@exact/speech-recognition": ["@exact/speech-recognition@workspace:packages/speech-recognition"],
+
+    "@exact/speech-synthesis": ["@exact/speech-synthesis@workspace:packages/speech-synthesis"],
+
+    "@exact/store-review": ["@exact/store-review@workspace:packages/store-review"],
+
+    "@exact/text-detection": ["@exact/text-detection@workspace:packages/text-detection"],
+
+    "@exact/tracking-consent": ["@exact/tracking-consent@workspace:packages/tracking-consent"],
+
+    "@exact/translation": ["@exact/translation@workspace:packages/translation"],
+
+    "@exact/usb": ["@exact/usb@workspace:packages/usb"],
+
+    "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
+
+    "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.9", "", { "os": "android", "cpu": "arm" }, "sha512-tNISae1QEf/vkb3xkRcjV5SEdzPE97We5IVaa2Z8jSszQPZ8U60B/YCYpw4QI7VidYsBtKavczXf+DyDs9WGxw=="],
+
+    "@rolldown/binding-android-arm64": ["@rolldown/binding-android-arm64@1.2.9", "", { "os": "android", "cpu": "arm64" }, "sha512-YC8YsI30o606GTZi0VyzYlsDKFP8W61i/QzayHDkLbNEz/IShqAmTa+hsJRj13xTHA0H+6fk4b2UmGn+Q/cMlg=="],
+
+    "@rolldown/binding-darwin-arm64": ["@rolldown/binding-darwin-arm64@1.2.9", "", { "os": "darwin", "cpu": "arm64" }, "sha512-IwhlH3qK5urrY8hZiEgGkHKEFN901p/p2bjxCxJlr4GyNnF7wYpUvK+Y43uaRYuC4hpfjzbR3SJC3arX1jGvmw=="],
+
+    "@rolldown/binding-darwin-x64": ["@rolldown/binding-darwin-x64@1.2.9", "", { "os": "darwin", "cpu": "x64" }, "sha512-XxpJfVzFh+jilRxIXUqcfYAYcunIc/XEzIizsOL1fcJee5Sf7H3mH8WlLmfHfluz5amqR88QQo9izKtmMlavAw=="],
+
+    "@rolldown/binding-freebsd-x64": ["@rolldown/binding-freebsd-x64@1.2.9", "", { "os": "freebsd", "cpu": "x64" }, "sha512-kSfvhmgeWyfkbT3p/1s5vSgboogoah2zkm9fX2zjg2hHxSV7T4KhMWRUUaRk4OXNqoD3QAUeRqLcs1aZOK4U1g=="],
+
+    "@rolldown/binding-linux-arm-gnueabihf": ["@rolldown/binding-linux-arm-gnueabihf@1.2.9", "", { "os": "linux", "cpu": "arm" }, "sha512-1RVzG17pxqbTfYLC352JlLt6kKLG+6Hr30n8DlIJqsnV5luUDd2Qdx9Ayw1Cabfyb1K9k0jXEZ7evxkRoT+uiw=="],
+
+    "@rolldown/binding-linux-arm64-gnu": ["@rolldown/binding-linux-arm64-gnu@1.2.9", "", { "os": "linux", "cpu": "arm64" }, "sha512-BXqPvZ2drqVD+/Z8UpKwcs4Mp7grM+eGFku4CAEKrEtcbAsUpzREphK1sogCRZGreVPiMkiiBtw0n3TPteuqvw=="],
+
+    "@rolldown/binding-linux-arm64-musl": ["@rolldown/binding-linux-arm64-musl@1.2.9", "", { "os": "linux", "cpu": "arm64" }, "sha512-11vWvo8YDwLzukt27J3aYDWU+gg2P7J+ZOmiJ0hkF5BXZDW7pVya7r40MXDy6ya0i9KamoENSVKIugvJNgFXIA=="],
+
+    "@rolldown/binding-linux-ppc64-gnu": ["@rolldown/binding-linux-ppc64-gnu@1.2.9", "", { "os": "linux", "cpu": "ppc64" }, "sha512-a1tijMkdwsIARtc0F39ApURROkf3NwqinI6TOiSSWCTR7dT96dffNvMUtDHnq64wKNTIZOIlzKrFvvFUznJiyw=="],
+
+    "@rolldown/binding-linux-s390x-gnu": ["@rolldown/binding-linux-s390x-gnu@1.2.9", "", { "os": "linux", "cpu": "s390x" }, "sha512-x6SQNdAvv4c3hWqTMaWuawzMX9myaCs/yEmlGsxJzkdClnHW7FbrjQuSiRDhuSYzEYoEMhsaJy9qHG/XNemJPQ=="],
+
+    "@rolldown/binding-linux-x64-gnu": ["@rolldown/binding-linux-x64-gnu@1.2.9", "", { "os": "linux", "cpu": "x64" }, "sha512-9s0AZ8BFK5/n7B/TBoa2yJE3gI3KURrbXcPBlsAsvjU4VeJKgE90y1YtNxyEUIcHPQkg6/yfF3qihUrcM/Kf0Q=="],
+
+    "@rolldown/binding-linux-x64-musl": ["@rolldown/binding-linux-x64-musl@1.2.9", "", { "os": "linux", "cpu": "x64" }, "sha512-P7VWAmV+WdJluH7ovnRGoiv2i8To7GAZ+kGzfGup635cyL7SyYl3lSUaA3Gp5THf0n/Co5EyEqb2zbqq+nMOHQ=="],
+
+    "@rolldown/binding-openharmony-arm64": ["@rolldown/binding-openharmony-arm64@1.2.9", "", { "os": "none", "cpu": "arm64" }, "sha512-1qixtsE4BK8h+yS3BfmZ09UhA7O/N4IACva6YBr7EBvCJraByTuRcgOTaiA62Tm0vey3UcKXLOaoGHtYmNGEVg=="],
+
+    "@rolldown/binding-win32-arm64-msvc": ["@rolldown/binding-win32-arm64-msvc@1.2.9", "", { "os": "win32", "cpu": "arm64" }, "sha512-ok8IQjcEPs1AKZfuEUznVBrJw+gK4soq+bx8b1X2XoMqVClarc1q5JDmVtWXY1xfr6ZuHTAsPXHTgTrqKTZeww=="],
+
+    "@rolldown/binding-win32-x64-msvc": ["@rolldown/binding-win32-x64-msvc@1.2.9", "", { "os": "win32", "cpu": "x64" }, "sha512-Ip2mXoU0hM0boq3Rf+ekuT653OROSo6aSYcPT1VHE4q52KvyxgFkQgrgb/IEsxOuvQ2fZZbs8khJAyCEPM24/g=="],
+
+    "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
+
+    "@sqlite.org/sqlite-wasm": ["@sqlite.org/sqlite-wasm@3.53.4-build1", "", {}, "sha512-U8pvL0patYHMgieD8JxxYJTlh9m1LUX8+BDYb7MiKQzBI89f2qbdmdcG/PvnPaLm9wsBbv4VlVG453ixnxBOnA=="],
+
+    "@typescript/typescript-aix-ppc64": ["@typescript/typescript-aix-ppc64@7.0.2", "", { "os": "aix", "cpu": "ppc64" }, "sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ=="],
+
+    "@typescript/typescript-darwin-arm64": ["@typescript/typescript-darwin-arm64@7.0.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-gowzar9MwS/aRWp6f3a4KUqzRjAZjOsmGNCM6LcTgXum+dBfgsBVMN+AgvOCCbguXyick6LJhpBszxMebJ8syA=="],
+
+    "@typescript/typescript-darwin-x64": ["@typescript/typescript-darwin-x64@7.0.2", "", { "os": "darwin", "cpu": "x64" }, "sha512-SZ9xZInqApNlNGc9s0W1VSsktYSOe9cFqNOIqmN1Gs8SmkjKZYFt017G4VwPxASInODuAdbTW7sXiFUf893RgA=="],
+
+    "@typescript/typescript-freebsd-arm64": ["@typescript/typescript-freebsd-arm64@7.0.2", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-W5NH4y/J0plIIS5b2xvTEkU7JFxyqdMAOgf+Ilhl0vHQXKO5dZoxd+C/jEtq56c4F3wk71RB4BMRQ2XdI+bwYQ=="],
+
+    "@typescript/typescript-freebsd-x64": ["@typescript/typescript-freebsd-x64@7.0.2", "", { "os": "freebsd", "cpu": "x64" }, "sha512-UMGDx5sTpzNw3WiPebH7l90IWfJggEd+egHt/q6p7/Cm3zqoV7VxkGXt+3DxPIw8CcmvAB0j3sVVfbhX+M4Tpw=="],
+
+    "@typescript/typescript-linux-arm": ["@typescript/typescript-linux-arm@7.0.2", "", { "os": "linux", "cpu": "arm" }, "sha512-gffT3xPz9sR7j/YJExkyPntrI0P2EP9XbOyWzth2/Gs0RstK+90RBcO0ncXoXy/beYll1SXw846Nf2zdnEz0QQ=="],
+
+    "@typescript/typescript-linux-arm64": ["@typescript/typescript-linux-arm64@7.0.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-Qh4eU4/y3yDjnfjjyPYihMj5/ODIlmt+Bzu17OI+fiSRDW57QmU5SiN63exPRNJPKUzcc1INa1NXdrJ+MqHjUQ=="],
+
+    "@typescript/typescript-linux-loong64": ["@typescript/typescript-linux-loong64@7.0.2", "", { "os": "linux", "cpu": "none" }, "sha512-uEHck9i8hoAzXPiYRib1O7miOnz23SxIeVl6F4LXox+qov1K35jHcEW6VHKvZI+pyvl7fZEP4MCU5LYvIq1GuQ=="],
+
+    "@typescript/typescript-linux-mips64el": ["@typescript/typescript-linux-mips64el@7.0.2", "", { "os": "linux", "cpu": "none" }, "sha512-R4KvAMnE43W5Qeqb0Ly56O3mWMWIAgsMyz36DCaycd5nbg/9kzm0liw3JocfRqyJY0KPmzFjbswozXyW0DnIYA=="],
+
+    "@typescript/typescript-linux-ppc64": ["@typescript/typescript-linux-ppc64@7.0.2", "", { "os": "linux", "cpu": "ppc64" }, "sha512-DORx5b3sd/4S7eayxm4FQv+A7CrkUIGRaHiwI8oiHTAI1fAPWhF4J0vAlkC8biAlHSVVwxMQ3tjZ2/DVbnQiiA=="],
+
+    "@typescript/typescript-linux-riscv64": ["@typescript/typescript-linux-riscv64@7.0.2", "", { "os": "linux", "cpu": "none" }, "sha512-wf0jqEDOjrPRnKwYRyyJDRo11KMbvMFrU+q4zqKyChODBzvlkbhNQfKvLxQCcwTpdDaXSHZTVuh0JoCrKCUMHQ=="],
+
+    "@typescript/typescript-linux-s390x": ["@typescript/typescript-linux-s390x@7.0.2", "", { "os": "linux", "cpu": "s390x" }, "sha512-IkwJc3L7yhytWd/ewjyxNDfOmswCm9GWMJT/ue/dU4aZNbwZeYAetq42VyLmsmSjvoX7z74X6ZaYCtzAr0EuGw=="],
+
+    "@typescript/typescript-linux-x64": ["@typescript/typescript-linux-x64@7.0.2", "", { "os": "linux", "cpu": "x64" }, "sha512-EYdf2cNg7rgCWJnxCdJ+F3V39O8ihb37eHAu1LK8oAFizgTQbPOK7zHHXbPt8rX24COqODXeI3sIf0fCXG7H/A=="],
+
+    "@typescript/typescript-netbsd-arm64": ["@typescript/typescript-netbsd-arm64@7.0.2", "", { "os": "none", "cpu": "arm64" }, "sha512-+polYF4MF04aPpO5FTkHran9yUQDSXqy5GiSDKpsll5jy3l3+g9QLhpf39T+ePtefhXLOGrLl0QIjkQP6VnelA=="],
+
+    "@typescript/typescript-netbsd-x64": ["@typescript/typescript-netbsd-x64@7.0.2", "", { "os": "none", "cpu": "x64" }, "sha512-8YIT0EHM/3dq10ZOVF/A7pc/YSMtbcecct4rWtexrnSCHOPcpC2KTLXfTCR6vDpnSiY12heNb1GiN/wu+T/FyA=="],
+
+    "@typescript/typescript-openbsd-arm64": ["@typescript/typescript-openbsd-arm64@7.0.2", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-APT8+ClYnuYm1u9+kgGXoMj2VzWzcymwh2gNSQVySHfkRDGOTVkoWLjCmOQSaO+PoqQ57B0flRp9SA+7GnnkzQ=="],
+
+    "@typescript/typescript-openbsd-x64": ["@typescript/typescript-openbsd-x64@7.0.2", "", { "os": "openbsd", "cpu": "x64" }, "sha512-yX7s+Q0Dln0Dt9tEzZsAjXXR/+ytBM7AlglaqyeMPxQszJ1JhlJdZ6jLA+IzldHtflX81em7lDao1xXu+aRRkg=="],
+
+    "@typescript/typescript-sunos-x64": ["@typescript/typescript-sunos-x64@7.0.2", "", { "os": "sunos", "cpu": "x64" }, "sha512-dLJDGaLZ1D4HPQn62u1n8mBDkJREwMsAkCdkwd4Ieqw+x3TUyTsqY0YiBCtE6H6OzzgGk3iuZ3vFWRS+E8/d1g=="],
+
+    "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
+
+    "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
+
+    "jose": ["jose@6.2.12", "", {}, "sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw=="],
+
+    "oauth4webapi": ["oauth4webapi@3.8.8", "", {}, "sha512-8N28E+a/oxfXWBgOMt+ZP/JUf/XR+IFbvkAEPP3gznXOMv9BpAAwiIj0TFNz3tGTPc0ZQ8zmWBNgN1nAys0gng=="],
+
+    "openid-client": ["openid-client@6.8.8", "", { "dependencies": { "jose": "^6.2.12", "oauth4webapi": "^3.8.8" } }, "sha512-ZsucJA5Ad04Uv7YN4ql+s4GXNmb9uAYQwyJTsJx7CH/MX3JZioLE2pVKi1SC+YrbSLA4Px3Gi30dMjgOZtb6pA=="],
+
+    "playwright-core": ["playwright-core@1.64.1", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ=="],
+
+    "rolldown": ["rolldown@1.2.9", "", { "dependencies": { "@oxc-project/types": "=0.150.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm-eabi": "1.2.9", "@rolldown/binding-android-arm64": "1.2.9", "@rolldown/binding-darwin-arm64": "1.2.9", "@rolldown/binding-darwin-x64": "1.2.9", "@rolldown/binding-freebsd-x64": "1.2.9", "@rolldown/binding-linux-arm-gnueabihf": "1.2.9", "@rolldown/binding-linux-arm64-gnu": "1.2.9", "@rolldown/binding-linux-arm64-musl": "1.2.9", "@rolldown/binding-linux-ppc64-gnu": "1.2.9", "@rolldown/binding-linux-s390x-gnu": "1.2.9", "@rolldown/binding-linux-x64-gnu": "1.2.9", "@rolldown/binding-linux-x64-musl": "1.2.9", "@rolldown/binding-openharmony-arm64": "1.2.9", "@rolldown/binding-win32-arm64-msvc": "1.2.9", "@rolldown/binding-win32-x64-msvc": "1.2.9" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-hx/Pv0N1haXRb11qkfnK5MXB/iqr7i0yjWQqmO9uHqZpBgQSqzc8UsSnEpalsh+j1I8qQ2CkXAkJC8Br3dKSlg=="],
+
+    "snapback4": ["snapback4@0.4.33", "", { "dependencies": { "openid-client": "6.8.8", "undici": "8.11.2" }, "optionalDependencies": { "snapback4-darwin-arm64": "0.4.33", "snapback4-linux-x64": "0.4.33" }, "peerDependencies": { "playwright-core": ">=1.55.1 <2", "react": "^19.0.0" }, "optionalPeers": ["playwright-core", "react"], "bin": { "snapback4": "bin/snapback4.js" } }, "sha512-KIsQ9PQYxbufDI9g721LnHoMQ/ZKx4HzFQIT5/kVu1JJXo+6lEWe4nd2fniXzW/f9ByjA8UIJxOVHdWFAwSSVA=="],
+
+    "snapback4-darwin-arm64": ["snapback4-darwin-arm64@0.4.33", "", { "os": "darwin", "cpu": "arm64" }, "sha512-hwy7cSYzj1DmpHr+EjPbCdztJQvQdg1n/+uwW8kFOn2ODexGohcURmxEP/ODAvojJFTIMGkocy+RHvfN2Jd+kg=="],
+
+    "snapback4-linux-x64": ["snapback4-linux-x64@0.4.33", "", { "os": "linux", "cpu": "x64" }, "sha512-yuyO94medY6S9gf3geiGY9oq6OV2z5oEBMQPgnvbReGMnT+lvMpEHOXBclj+dp8DFwb6ML/pR7bt98Yze5t1Lw=="],
+
+    "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
+
+    "undici": ["undici@8.11.2", "", {}, "sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ=="],
+  }
+}

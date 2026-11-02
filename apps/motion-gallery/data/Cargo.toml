@@ -1,0 +1,18 @@
+# The motion gallery's data source: none; every fixture is literal.
+[package]
+name = "motion-gallery-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The motion gallery's data source: none"
+publish = false
+
+[lib]
+name = "motion_gallery_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

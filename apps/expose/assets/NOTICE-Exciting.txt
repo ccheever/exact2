@@ -1,0 +1,4 @@
+Exciting Black v18 (Version 0.180) — copyright 2026 Expose. An original design
+inspired by, and not derived from, Susan Kare's Chicago. Copied from the Expose
+repository, fonts/exciting/handoff/Exciting-Black.ttf; the family's own license
+text lives there with its sources.

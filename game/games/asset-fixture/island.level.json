@@ -1,0 +1,6 @@
+{
+  "seed": 7,
+  "lanterns": [[-4, 0.675, -4], [0, 1.7375, 0], [4, 2.7375, 4]],
+  "crate_position": [-1, 1.725, 0],
+  "sign": "Three lanterns on the seeded island"
+}

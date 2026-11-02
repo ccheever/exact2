@@ -1,0 +1,59 @@
+{
+  "kind": "interface",
+  "name": "@fixture/tide",
+  "version": "1.0.0",
+  "shapes": {
+    "TideEntry": {
+      "tag": "string",
+      "every": "option<number>",
+      "lastRun": "option<number>"
+    }
+  },
+  "names": [
+    {
+      "send": "tideOnce",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "tides",
+          "key": "tag",
+          "kind": "once",
+          "tap": { "event": "tide", "as": "wake", "args": ["tag"] }
+        }
+      }
+    },
+    {
+      "send": "tideEvery",
+      "permission": "none",
+      "options": {
+        "tag": "string",
+        "every": { "type": "number", "min": 60000, "default": 60000 }
+      },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "tides",
+          "key": "tag",
+          "kind": "every",
+          "tap": { "event": "tide", "as": "wake", "args": ["tag"], "due": "every" }
+        }
+      }
+    },
+    {
+      "send": "untide",
+      "permission": "none",
+      "options": { "tag": "string" },
+      "answers": null,
+      "substitute": { "unlist": { "key": "tag", "kind": "every" } }
+    },
+    {
+      "source": "everyTides",
+      "live": true,
+      "answers": "TideEntry[]",
+      "substitute": { "listed": { "state": "tides", "kind": "every", "fields": ["tag", "every", "lastRun"] } }
+    },
+    { "event": "tide", "on": "root", "raised": "wake", "args": ["string"], "hold": 2, "budget": 5000 }
+  ]
+}

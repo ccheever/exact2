@@ -1,0 +1,162 @@
+{
+  "kind": "interface",
+  "name": "@exact/browser-automation",
+  "version": "1.0.0",
+  "grants": [
+    "browser.automation"
+  ],
+  "substitute": "implementation",
+  "shapes": {
+    "EmptyResult": {},
+    "ScriptResult": {
+      "result": "json<ScriptValue>"
+    },
+    "PreloadScript": {
+      "script": "string"
+    },
+    "ClipRectangle": {
+      "x": "number",
+      "y": "number",
+      "width": "number",
+      "height": "number"
+    },
+    "CapturedScreenshot": {
+      "path": "string",
+      "width": "number",
+      "height": "number"
+    }
+  },
+  "names": [
+    {
+      "send": "evaluate",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "expression": "string",
+        "sandbox": "option<string>",
+        "awaitPromise": "option<bool>",
+        "userActivation": "option<bool>"
+      },
+      "answers": "ScriptResult"
+    },
+    {
+      "send": "callFunction",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "functionDeclaration": "string",
+        "arguments": "option<json<ScriptValue>[]>",
+        "sandbox": "option<string>",
+        "awaitPromise": "option<bool>",
+        "userActivation": "option<bool>"
+      },
+      "answers": "ScriptResult"
+    },
+    {
+      "send": "addPreloadScript",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "functionDeclaration": "string",
+        "sandbox": "option<string>"
+      },
+      "answers": "PreloadScript"
+    },
+    {
+      "send": "removePreloadScript",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "script": "string"
+      },
+      "answers": "EmptyResult"
+    },
+    {
+      "send": "performActions",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "actions": "json<InputSource>[]"
+      },
+      "answers": "EmptyResult"
+    },
+    {
+      "send": "releaseActions",
+      "request": true,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string"
+      },
+      "answers": "EmptyResult"
+    },
+    {
+      "send": "handleUserPrompt",
+      "request": true,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "accept": "option<bool>",
+        "userText": "option<string>"
+      },
+      "answers": "EmptyResult"
+    },
+    {
+      "send": "setDownloadBehavior",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "destinationFolder": {
+          "type": "path",
+          "access": "write",
+          "optional": true
+        }
+      },
+      "answers": "EmptyResult"
+    },
+    {
+      "send": "captureScreenshot",
+      "request": true,
+      "contract": false,
+      "grants": [
+        "browser.automation"
+      ],
+      "options": {
+        "id": "string",
+        "path": {
+          "type": "path",
+          "access": "write"
+        },
+        "clip": "option<ClipRectangle>"
+      },
+      "answers": "CapturedScreenshot"
+    }
+  ]
+}

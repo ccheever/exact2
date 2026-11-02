@@ -1,0 +1,252 @@
+use crate::Stats;
+use std::fmt::Write;
+#[cfg(test)]
+thread_local! { pub(crate) static CLOCK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+pub(crate) struct Stamp {
+    #[cfg(not(target_arch = "wasm32"))]
+    time: std::time::Instant,
+    #[cfg(target_arch = "wasm32")]
+    time: f64,
+}
+impl Stamp {
+    pub fn now() -> Self {
+        #[cfg(test)]
+        CLOCK_READS.with(|n| n.set(n.get() + 1));
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            time: std::time::Instant::now(),
+            #[cfg(target_arch = "wasm32")]
+            time: performance_now(),
+        }
+    }
+    pub fn wall_ms(&self) -> f64 {
+        #[cfg(target_arch = "wasm32")]
+        {
+            performance_now()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.time.elapsed().as_secs_f64() * 1000.0
+        }
+    }
+    pub fn elapsed(&self) -> f64 {
+        #[cfg(test)]
+        CLOCK_READS.with(|n| n.set(n.get() + 1));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.time.elapsed().as_secs_f64() * 1000.0
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            performance_now() - self.time
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn performance_now() -> f64 {
+    thread_local! {
+        static PERFORMANCE: web_sys::Performance = web_sys::window()
+            .and_then(|w| w.performance()).expect("WorldSurface requires window.performance");
+    }
+    PERFORMANCE.with(web_sys::Performance::now)
+}
+pub(crate) use exact_game::diagnostics::Ring;
+#[derive(Default)]
+pub(crate) struct Perf {
+    frame: Ring,
+    pub tick: Ring,
+    pub feed: Ring,
+    pub encode: Ring,
+    pub ticks: Ring,
+    last_live: Option<f64>,
+    pub stats: Stats,
+    pub pixels: (u32, u32),
+    /// Instances drawn per view (camera, cascades 0–2) in the last read frame.
+    pub culled: Option<[u64; 4]>,
+    /// Camera-view triangles the GPU cull kept in that frame (levels of detail
+    /// and frustum culling applied, unlike `stats.triangles`).
+    pub culled_triangles: Option<u64>,
+    /// Local lights drawn and dropped beyond `MAX_LIGHTS` in the last frame.
+    lights: (usize, usize),
+    /// Look frames drawn and the bytes they read back.
+    pub look: (u64, u64),
+    warned: bool,
+}
+impl Perf {
+    pub fn armed(&self) -> bool {
+        !self.frame.values.is_empty()
+    }
+    pub fn arm(&mut self) {
+        for r in [
+            &mut self.frame,
+            &mut self.tick,
+            &mut self.feed,
+            &mut self.encode,
+            &mut self.ticks,
+        ] {
+            r.values.resize(16384, 0.0);
+        }
+    }
+    pub fn reset(&mut self) {
+        for r in [
+            &mut self.frame,
+            &mut self.tick,
+            &mut self.feed,
+            &mut self.encode,
+            &mut self.ticks,
+        ] {
+            r.values.resize(16384, 0.0);
+            r.count = 0;
+            r.sum = 0.0;
+            r.max = 0.0;
+            r.len = 0;
+            r.next = 0;
+        }
+        self.last_live = None;
+    }
+    pub fn frame(&mut self, now: f64, seekable: bool) {
+        if seekable {
+            self.last_live = None;
+            return;
+        }
+        if let Some(last) = self.last_live {
+            self.frame.push(now - last);
+        }
+        self.last_live = Some(now);
+    }
+    /// Record the frame's light counts; the first frame that drops lights says so.
+    pub fn lights(&mut self, drawn: usize, dropped: usize) {
+        self.lights = (drawn, dropped);
+        if dropped > 0 && !std::mem::replace(&mut self.warned, true) {
+            let message = format!(
+                "{dropped} local lights dropped beyond the {} nearest the camera",
+                crate::MAX_LIGHTS
+            );
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::warn_1(&message.into());
+            #[cfg(not(target_arch = "wasm32"))]
+            eprintln!("{message}");
+        }
+    }
+    pub fn append(&self, out: &mut String) {
+        out.push_str(",\"perf\":{\"wallClock\":true");
+        write!(out, ",\"armed\":{}", self.armed()).unwrap();
+        write!(out, ",\"pixels\":[{},{}]", self.pixels.0, self.pixels.1).unwrap();
+        for (name, ring) in [
+            ("frameMs", &self.frame),
+            ("tickMs", &self.tick),
+            ("feedMs", &self.feed),
+            ("encodeMs", &self.encode),
+            ("ticksPerFrame", &self.ticks),
+        ] {
+            write!(out, ",\"{name}\":").unwrap();
+            ring.json(out);
+        }
+        write!(
+            out,
+            ",\"draws\":{},\"instances\":{},\"triangles\":{},\"directFrames\":{}",
+            self.stats.draws, self.stats.instances, self.stats.triangles, self.stats.direct_frames
+        )
+        .unwrap();
+        write!(
+            out,
+            ",\"lights\":{{\"drawn\":{},\"dropped\":{}}}",
+            self.lights.0, self.lights.1
+        )
+        .unwrap();
+        write!(
+            out,
+            ",\"look\":{{\"frames\":{},\"readbackBytes\":{}}}",
+            self.look.0, self.look.1
+        )
+        .unwrap();
+        match self.culled {
+            Some([camera, a, b, c]) => write!(
+                out,
+                ",\"culled\":{{\"camera\":{camera},\"cameraTriangles\":{},\"shadows\":[{a},{b},{c}]}}}}",
+                self.culled_triangles.unwrap_or(0)
+            ),
+            None => write!(out, ",\"culled\":null}}"),
+        }
+        .unwrap();
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn cadence_excludes_seeks_and_keeps_dropped_intervals() {
+        let mut p = Perf::default();
+        assert!(!p.armed());
+        p.tick.push(3.0);
+        assert_eq!(p.tick.count, 1);
+        assert_eq!(p.tick.values.capacity(), 0);
+        p.reset();
+        assert!(p.armed());
+        for (now, seek) in [
+            (0., false),
+            (8., false),
+            (24., false),
+            (1000., true),
+            (2000., false),
+            (2008., false),
+        ] {
+            p.frame(now, seek);
+        }
+        assert_eq!(&p.frame.values[..p.frame.len], &[8., 16., 8.]);
+        for i in 0..300 {
+            p.tick.push(i as f64);
+        }
+        let mut json = String::new();
+        p.tick.json(&mut json);
+        assert_eq!(
+            json,
+            r#"{"p50":149,"p95":284,"p99":296,"max":299,"count":300,"mean":149.5}"#
+        );
+    }
+}
+
+// One monotonic host domain for engine spans, including wasm (std::Instant is unavailable there).
+pub(crate) fn clock_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        performance_now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        thread_local! { static ORIGIN: std::time::Instant = std::time::Instant::now(); }
+        ORIGIN.with(|t| t.elapsed().as_secs_f64() * 1000.)
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PerfRequest {
+    pub perf_reset: bool,
+    pub perf: bool,
+    pub span_since: Option<u64>,
+    pub trace_export: bool,
+}
+impl PerfRequest {
+    pub fn parse(text: &str) -> Result<Self, exact_game::DataError> {
+        use exact_game::{Data, Reader};
+        let mut r = exact_game::json::Decoder::new(text);
+        let mut q = Self::default();
+        r.begin_struct()?;
+        while let Some(field) = r.field()? {
+            match field.as_str() {
+                "perf_reset" => q.perf_reset.read(&mut r)?,
+                "perf" => q.perf.read(&mut r)?,
+                "trace_export" => q.trace_export.read(&mut r)?,
+                "span_since" => {
+                    let mut n = 0u64;
+                    n.read(&mut r)?;
+                    q.span_since = Some(n);
+                }
+                _ => r.skip()?,
+            }
+        }
+        r.finish()?;
+        Ok(q)
+    }
+}

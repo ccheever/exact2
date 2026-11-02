@@ -1,0 +1,1207 @@
+//! Bounded native raster demand. Metadata preparation and decoding are separate;
+//! a replacement publishes its pixels and natural geometry together.
+use exact_kernel::{Kernel, NodeType, PropId, ViewId};
+use exact_raster::{
+    Demand, Gate, PixelSize, Priority, RasterKey, RasterLease, Refusal, RequestId, RequestStatus,
+    Stats, ViewKey, SESSION_BYTES, SUBSCRIPTIONS,
+};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+#[cfg(test)]
+#[path = "image/allocation_tests.rs"]
+mod allocation_tests;
+#[path = "image/assets.rs"]
+mod assets;
+#[path = "image/bitmap.rs"]
+mod bitmap;
+#[cfg(test)]
+#[path = "image/control_tests.rs"]
+mod control_tests;
+#[path = "image/crop.rs"]
+mod crop;
+#[cfg(test)]
+#[path = "image/decode_tests.rs"]
+mod decode_tests;
+#[path = "image/jpeg.rs"]
+mod jpeg_decode;
+#[path = "image/package.rs"]
+mod package;
+pub use package::Ask as PackageAsk;
+#[path = "image/png.rs"]
+mod png_decode;
+#[path = "image/remote.rs"]
+mod remote;
+#[path = "image/svg.rs"]
+mod svg_picture;
+#[cfg(test)]
+#[path = "image/svg_tests.rs"]
+mod svg_tests;
+#[path = "image/workers.rs"]
+mod workers;
+pub use assets::{AssetResolver, Assets};
+pub use bitmap::Bitmap;
+#[cfg(target_os = "android")]
+#[path = "image/hardware.rs"]
+mod hardware;
+#[cfg(target_os = "android")]
+pub use hardware::hardware_pictures;
+#[cfg(target_os = "android")]
+pub(crate) use jpeg_decode::platform_decoder;
+use workers::{Backend, Prepared, SourceOwner};
+
+struct View {
+    key: ViewKey,
+    source: String,
+    displayed_source: String,
+    source_id: Option<Arc<SourceOwner>>,
+    request: Option<(RequestId, PixelSize)>,
+    accepted: Option<RequestId>,
+    requested_for: (f32, f32),
+    requested_fit: exact_kernel::ObjectFit,
+    requested_scale: f32,
+    lease: Option<RasterLease>,
+    desired: (f32, f32),
+    /// Asked for: in the viewport, or mounted where a host asks pictures at
+    /// mount (`EXACT_PICTURES_AT_MOUNT`).
+    visible: bool,
+    /// In the viewport itself: what a retry and a download's urgency go by.
+    on_screen: bool,
+    refusal: Option<Refusal>,
+    symbol_size: Option<f32>,
+    /// How the box fits the picture, where it clips the picture to itself
+    /// and is nothing but the picture (no padding, no border): the fit a
+    /// part of the picture may be decoded for (`crop`).
+    fit: Option<exact_kernel::ObjectFit>,
+    /// How the box fits the picture, whatever the box: what an SVG picture
+    /// is drawn for (`svg_picture::plan`).
+    object_fit: exact_kernel::ObjectFit,
+    /// The box changed size while it showed a part: from then on it gets the
+    /// whole picture (a box that animates would ask for a part a frame).
+    resized: bool,
+    /// The request is for a part of the picture.
+    part: bool,
+    /// How many times this showing has asked again for a URL whose download
+    /// failed in a way asking again may mend, and when it next does
+    /// ([`RETRY_AFTER`]): from nothing whenever it leaves the screen or its
+    /// source changes.
+    retries: usize,
+    retry_at: Option<Instant>,
+    /// Its source's `load` or `error` has been sent: once a source assignment.
+    /// `errored`: an `error`, after which it is not asked again.
+    settled: bool,
+    errored: bool,
+    /// Counts its source's assignments: an event waiting is for one of them.
+    assignment: u64,
+    /// The over-long source it was last given (its hash: the cap is what
+    /// keeps the string out), whose `error` has gone.
+    rejected: Option<u64>,
+}
+impl View {
+    /// This assignment's `load` (no `error`) or `error`, if neither has gone.
+    fn settle(&mut self, id: ViewId, error: Option<String>) -> Option<LoadEvent> {
+        if std::mem::replace(&mut self.settled, true) {
+            return None;
+        }
+        if error.is_some() {
+            (self.errored, self.retry_at) = (true, None);
+        }
+        Some(LoadEvent {
+            id,
+            key: self.key.view,
+            source: self.source.clone(),
+            assignment: self.assignment,
+            error,
+        })
+    }
+}
+
+/// An over-long source's identity, which is kept instead of the string.
+fn source_hash(source: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The core's refusal as an image's `error` says it (Apple's names).
+fn refusal_text(refusal: Refusal) -> &'static str {
+    match refusal {
+        Refusal::Overflow => "overflow",
+        Refusal::InvalidDimensions => "invalid dimensions",
+        Refusal::EncodedLimit => "encoded limit",
+        Refusal::HeaderLimit => "header limit",
+        Refusal::SourcePixels => "source pixels",
+        Refusal::TooLarge => "too large",
+        Refusal::Budget => "budget",
+        Refusal::QueueFull => "queue full",
+        Refusal::SubscriberLimit => "subscriber limit",
+        Refusal::ConflictingMetadata => "conflicting metadata",
+        Refusal::Paused => "paused",
+        Refusal::Shutdown => "shutdown",
+        Refusal::Stale => "stale",
+        Refusal::ActualExceedsReservation => "actual exceeds reservation",
+        Refusal::DecodeFailed => "decode failed",
+    }
+}
+/// A refusal that asking again in a later pass may get past: no `error`.
+fn passing(refusal: Refusal) -> bool {
+    matches!(
+        refusal,
+        Refusal::Budget | Refusal::QueueFull | Refusal::Paused | Refusal::Stale
+    )
+}
+
+/// A source's first picture has landed, or it failed for good: its view's
+/// `load`, or its `error` with the reason, waiting for the presenter, which
+/// sends it if the view is still that node (`key`, packed) with that source,
+/// assigned that time.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LoadEvent {
+    pub id: ViewId,
+    pub key: u64,
+    pub source: String,
+    pub assignment: u64,
+    pub error: Option<String>,
+}
+
+/// When a picture on screen whose download failed (the network, a timeout, a
+/// 5xx) is asked for again, after each failure: six times a showing, about a
+/// minute in all, then not until it shows again (a dead URL never polls).
+#[cfg(not(test))]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(16),
+    Duration::from_secs(30),
+];
+/// (The same steps in milliseconds, for the tests.)
+#[cfg(test)]
+pub(crate) const RETRY_AFTER: [Duration; 6] = [
+    Duration::from_millis(10),
+    Duration::from_millis(20),
+    Duration::from_millis(40),
+    Duration::from_millis(80),
+    Duration::from_millis(160),
+    Duration::from_millis(300),
+];
+
+/// One generation's bounded live demand, sharing its budget with replacements.
+pub struct Images {
+    pub(crate) boot_visible_only: bool,
+    assets: Arc<Assets>,
+    backend: Arc<Backend>,
+    generation: u64,
+    views: BTreeMap<ViewId, View>,
+    /// Shared immutable pictures. Removing a view never refunds another owner.
+    pub bitmaps: BTreeMap<ViewId, Arc<Bitmap>>,
+    /// Current loaded views and NATURAL pixel sizes; never traversal history.
+    pub loaded: Vec<(String, (u32, u32))>,
+    /// The views whose source's first picture has landed since the presenter
+    /// last took them, with the node (its key, packed) and the source they
+    /// landed for: each hears its `load` if it is still that.
+    pub(crate) load_events: Vec<LoadEvent>,
+    decode_enabled: bool,
+    deferred: usize,
+    /// The last [`Images::sync_visible`] met a picture (an image that is not
+    /// a symbol), and the kernel epoch at which one met none and reported
+    /// nothing: until a commit, another has nothing to find (a symbol asks
+    /// no file and is the same shown or not).
+    pictures: bool,
+    pub(crate) settled: Option<u64>,
+    /// Device pixels per point, as the last sync said: what an SVG picture
+    /// is drawn at.
+    scale: f32,
+    /// The paint thread's text engine, when it is this thread (the
+    /// presenter sets it): an SVG picture with text is painted here, with
+    /// the session's fonts.
+    painter: Option<crate::text::Shared>,
+    /// The image nodes in preorder, as of a kernel epoch: the walk
+    /// [`Images::sync_visible`] needs, redone only after a commit.
+    pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Where each of those nodes' and each row group's first painted box is,
+    /// for the painted boxes of a serial and the order of an epoch: one walk
+    /// of the boxes a paint, not one a pass.
+    pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
+    /// Pictures of a package's scheme, which no file holds (`package.rs`).
+    package: package::Pictures,
+    /// The screen in device pixels, as the presenter last said: a picture
+    /// that fills it is downloaded first.
+    pub(crate) screen: (f32, f32),
+}
+
+/// Accepted pixels and natural size, or explicit empty-source removal.
+pub type Report = (ViewId, Option<(f32, f32)>);
+
+impl Images {
+    /// An embedded generation beneath the asset root.
+    pub fn new(assets: PathBuf) -> Self {
+        Self::with_assets(Assets::embedded(assets))
+    }
+    pub(crate) fn with_assets(assets: Assets) -> Self {
+        Self::make(assets, Backend::new())
+    }
+    fn make(assets: Assets, backend: Arc<Backend>) -> Self {
+        Self {
+            generation: backend.generation(),
+            assets: Arc::new(assets),
+            backend,
+            views: BTreeMap::new(),
+            bitmaps: BTreeMap::new(),
+            loaded: Vec::new(),
+            load_events: Vec::new(),
+            boot_visible_only: false,
+            decode_enabled: true,
+            deferred: 0,
+            pictures: false,
+            settled: None,
+            scale: 1.0,
+            painter: None,
+            order: None,
+            box_index: None,
+            package: package::Pictures::default(),
+            screen: (0., 0.),
+        }
+    }
+    pub(crate) fn candidate(&self, assets: Assets) -> Self {
+        let mut images = Self::make(assets, self.backend.clone());
+        images.package.inherit(&self.package);
+        images
+    }
+    /// Size the decoded-image budget to the screen, as the Apple host does
+    /// (`RasterLoader.viewportBudget`): eight viewport-sized RGBA bitmaps,
+    /// 32–192 MiB, so the pictures a scroll leaves stay cached for its return
+    /// instead of decoding again (on a 3x phone the 32 MiB floor held about
+    /// one screen of the heavy list's photos).
+    pub fn fit(&self, viewport: (f32, f32), scale: f32) {
+        let pixels = f64::from(viewport.0 * scale) * f64::from(viewport.1 * scale);
+        let floor = exact_raster::SESSION_BYTES as f64;
+        // EXACT_IMAGE_VIEWPORTS: how many viewports of pictures to keep
+        // decoded (8, Apple's RasterLoader rule, unless a host says).
+        let viewports = std::env::var("EXACT_IMAGE_VIEWPORTS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(8.0);
+        let cap = (192.0f64 * 1024.0 * 1024.0).max(pixels * 4.0 * viewports);
+        let budget = if pixels.is_finite() && pixels > 0.0 {
+            (pixels * 4.0 * viewports).clamp(floor, cap)
+        } else {
+            floor
+        };
+        self.backend.session.set_budget(budget as u64);
+    }
+
+    /// Paint the SVG pictures that wait for this thread with `text`, from
+    /// now on at every poll (the presenter's thread, whose fonts they take).
+    pub fn paint_with(&mut self, text: crate::text::Shared) {
+        self.painter = Some(text);
+    }
+
+    /// The shared session ledger, including allocations retained by old owners.
+    pub fn stats(&self) -> Stats {
+        self.backend.session.stats()
+    }
+    /// Whether a current image assignment was refused, including decode failure.
+    pub fn has_refusals(&self) -> bool {
+        self.views.values().any(|view| view.refusal.is_some())
+    }
+    /// Where an embedded relative source resolves; selected assets expose bytes.
+    pub fn resolve(&self, source: &str) -> Option<PathBuf> {
+        self.assets.path(source)
+    }
+    /// The embedded root, retained for diagnostics.
+    pub fn assets(&self) -> &Path {
+        self.assets.root()
+    }
+
+    /// Reconcile mounted nodes. The presenter additionally supplies visibility.
+    pub fn sync(&mut self, kernel: &Kernel, live: &[ViewId]) -> Vec<Report> {
+        self.sync_visible(kernel, live, 1., |_| true)
+    }
+    /// [`Images::settled`] after a sync at `epoch`.
+    pub(crate) fn settled_at(&self, epoch: u64, quiet: bool) -> Option<u64> {
+        (quiet && !self.pictures && self.deferred == 0).then_some(epoch)
+    }
+
+    pub(crate) fn sync_visible(
+        &mut self,
+        kernel: &Kernel,
+        live: &[ViewId],
+        scale: f32,
+        visible: impl Fn(ViewId) -> bool,
+    ) -> Vec<Report> {
+        self.sync_shown(kernel, live, scale, &visible, &visible)
+    }
+
+    /// [`Images::sync_visible`], with what is asked for (`visible`) apart
+    /// from what is in the viewport (`on_screen`): a host that asks every
+    /// mounted picture still retries and hurries only those on screen.
+    pub(crate) fn sync_shown(
+        &mut self,
+        kernel: &Kernel,
+        live: &[ViewId],
+        scale: f32,
+        visible: &dyn Fn(ViewId) -> bool,
+        on_screen: &dyn Fn(ViewId) -> bool,
+    ) -> Vec<Report> {
+        let mut reports = Vec::new();
+        let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
+        self.deferred = 0;
+        self.pictures = false;
+        self.scale = scale;
+        self.package.begin(kernel.epoch());
+        for id in live {
+            let Some(node) = kernel.node(*id) else {
+                continue;
+            };
+            if node.node_type != NodeType::Image {
+                continue;
+            }
+            if seen.len() >= SUBSCRIPTIONS {
+                self.deferred += 1;
+                continue;
+            }
+            seen.insert(*id);
+            let packed = u64::from(node.key.index) | (u64::from(node.key.generation) << 32);
+            let key = ViewKey {
+                view: packed,
+                generation: self.generation,
+            };
+            let source = node.props.str(PropId::ImageSource).unwrap_or("");
+            if self.views.get(id).is_some_and(|view| view.key != key) {
+                self.remove(*id);
+            }
+            let view = self.views.entry(*id).or_insert_with(|| View {
+                key,
+                source: String::new(),
+                displayed_source: String::new(),
+                source_id: None,
+                request: None,
+                accepted: None,
+                requested_for: (0., 0.),
+                requested_fit: node.style.object_fit,
+                requested_scale: scale,
+                lease: None,
+                desired: (0., 0.),
+                visible: true,
+                on_screen: true,
+                refusal: None,
+                symbol_size: None,
+                fit: None,
+                object_fit: node.style.object_fit,
+                resized: false,
+                part: false,
+                retries: 0,
+                retry_at: None,
+                settled: false,
+                errored: false,
+                rejected: None,
+                assignment: 0,
+            });
+            let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+            let border = node.style.border_widths();
+            view.desired = (
+                (node.frame.width - left - right - border[1] - border[3]).max(0.) * scale,
+                (node.frame.height - top - bottom - border[0] - border[2]).max(0.) * scale,
+            );
+            view.fit = plain_box(node.style).then_some(node.style.object_fit);
+            view.object_fit = node.style.object_fit;
+            // A symbol is an em square no file fills (the
+            // paint walk strokes a portable role's path into it, `symbol`),
+            // never a file request and never the previously accepted raster.
+            if source.starts_with("symbol:") {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
+                view.source_id = None;
+                view.accepted = None;
+                view.lease = None;
+                view.refusal = None;
+                view.displayed_source.clear();
+                self.bitmaps.remove(id);
+                // The one row, read where it is set: no style copied a pass.
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
+                if view.source != source || view.symbol_size != Some(size) {
+                    reports.push((*id, (size > 0.).then_some((size, size))));
+                    view.source = source.to_owned();
+                    view.symbol_size = Some(size);
+                }
+                continue;
+            }
+            // Only a picture loads by whether it shows: a symbol's never asked.
+            self.pictures = true;
+            view.visible = visible(*id);
+            view.on_screen = view.visible && on_screen(*id);
+            if !view.on_screen {
+                (view.retries, view.retry_at) = (0, None);
+            }
+            if view.symbol_size.take().is_some() {
+                reports.push((*id, None));
+            }
+            // A package's picture is asked of its implementation, never
+            // opened as a file; it keeps its pixels out of view, as it has
+            // no cache to come back from.
+            if self.package.serves(source) {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                (view.source_id, view.lease, view.refusal) = (None, None, None);
+                (view.retries, view.retry_at) = (0, None);
+                view.rejected = None;
+                self.package
+                    .want(*id, source, view.desired, view.object_fit, view.visible);
+                view.source = source.to_owned();
+                view.displayed_source = view.source.clone();
+                continue;
+            }
+            if !view.visible {
+                // A decode under way finishes into the cache (`poll` lets go
+                // of it then): a row a fling carries past before its picture
+                // is decoded would otherwise throw the work away, and the
+                // next row showing that picture decode it again.
+                if let Some((request, _)) = view.request {
+                    let status = self.backend.session.status(request);
+                    // (A decode that failed for good is its `error`, out of view too.)
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
+                }
+                view.lease = None;
+                self.bitmaps.remove(id);
+            }
+            if source.len() > 4096 {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                (view.retries, view.retry_at) = (0, None);
+                view.source.clear();
+                view.source_id = None;
+                view.refusal = Some(Refusal::DecodeFailed);
+                self.deferred += 1;
+                // A new assignment, refused: its `error` once (the old picture stays).
+                let digest = source_hash(source);
+                if view.rejected != Some(digest) {
+                    view.rejected = Some(digest);
+                    view.assignment += 1;
+                    (view.settled, view.errored) = (true, true);
+                    self.load_events.retain(|e| e.id != *id);
+                    self.load_events.push(LoadEvent {
+                        id: *id,
+                        key: view.key.view,
+                        source: source.to_owned(),
+                        assignment: view.assignment,
+                        error: Some("a source over 4096 bytes".into()),
+                    });
+                }
+                continue; // Deliberately keep only the previously accepted picture.
+            }
+            view.rejected = None;
+            if view.source != source {
+                if let Some((request, _)) = view.request.take() {
+                    self.backend.cancel(request);
+                }
+                view.source = source.to_owned();
+                view.source_id = None;
+                view.refusal = None;
+                (view.retries, view.retry_at) = (0, None);
+                (view.settled, view.errored) = (false, false);
+                view.assignment += 1;
+                self.load_events.retain(|e| e.id != *id);
+                // The old lease, bitmap and natural size stay until acceptance.
+                if source.is_empty() {
+                    view.lease = None;
+                    self.bitmaps.remove(id);
+                    reports.push((*id, None));
+                }
+            }
+        }
+        let gone: Vec<_> = self
+            .views
+            .keys()
+            .filter(|id| !seen.contains(id))
+            .copied()
+            .collect();
+        for id in gone {
+            self.remove(id);
+        }
+        reports.extend(self.poll());
+        reports
+    }
+    /// Views a commit renewed: one that shows a picture of a
+    /// source its node no longer names starts as a new image does, with no
+    /// picture and no natural size; one whose source is the same keeps its
+    /// picture, as a new one would find it decoded. A symbol is resolved
+    /// from its source at every sync.
+    pub fn renew(&mut self, kernel: &Kernel, ids: &[ViewId]) -> Vec<Report> {
+        let mut reports = Vec::new();
+        for id in ids {
+            let Some(view) = self.views.get(id) else {
+                continue;
+            };
+            let source = kernel
+                .node(*id)
+                .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
+                .unwrap_or_default();
+            // (An over-long source is kept as its hash, not the string.)
+            let rejected = view.source.is_empty()
+                && view.rejected.is_some()
+                && view.rejected == Some(source_hash(&source));
+            if view.symbol_size.is_some() || view.source == source || rejected {
+                continue;
+            }
+            self.remove(*id);
+            reports.push((*id, None));
+        }
+        reports
+    }
+    fn remove(&mut self, id: ViewId) {
+        if let Some(view) = self.views.remove(&id) {
+            if let Some((request, _)) = view.request {
+                self.backend.cancel(request);
+            }
+            self.backend.session.retire_view(view.key);
+        }
+        self.bitmaps.remove(&id);
+        self.package.forget(id);
+        self.load_events.retain(|e| e.id != id);
+    }
+    /// Consume bounded completions and retry metadata/decode admission once.
+    pub fn poll(&mut self) -> Vec<Report> {
+        self.backend.drain_wake();
+        if let Some(text) = &self.painter {
+            self.backend.finish_pictures(text);
+        }
+        let mut reports = Vec::new();
+        let scale = self.scale;
+        for (id, view) in &mut self.views {
+            // (An `error` ends its source assignment: nothing more is asked.)
+            if self.boot_visible_only && !view.visible
+                || view.source.is_empty()
+                || view.symbol_size.is_some()
+                || self.package.serves(&view.source)
+                || view.errored
+            {
+                continue;
+            }
+            if let Some(source) = view.source_id.as_ref().map(|s| s.id) {
+                let prepared = self.backend.prepared(source);
+                if prepared.is_none() {
+                    // Another view of the same URL asked again: this one joins
+                    // that download, with no retry of its own counted or due.
+                    view.source_id = None;
+                    view.retry_at = None;
+                } else if view.retry_at.is_some_and(|at| Instant::now() >= at) {
+                    view.retry_at = None;
+                    // Its download failed and its time to ask again has come:
+                    // the failed source is let go of, and asked for anew
+                    // below. (One that is no longer failed is left be.)
+                    if matches!(prepared, Some(Prepared::Failed(_))) {
+                        self.backend.evict(source);
+                        view.source_id = None;
+                        view.retries += 1;
+                    }
+                }
+            }
+            // A picture on screen that fills it (a viewer's) is downloaded first.
+            let urgent = view.on_screen
+                && self.screen.0 > 0.
+                && view.desired.0 >= self.screen.0 * 0.9
+                && view.desired.1 >= self.screen.1 * 0.5;
+            if let Some(source) = view.source_id.as_ref().filter(|_| urgent) {
+                // (One already asked for, grown to fill it: its waiting download moves up.)
+                self.backend.promote(source);
+            }
+            if view.source_id.is_none() {
+                match self
+                    .backend
+                    .source(self.generation, &view.source, &self.assets, urgent)
+                {
+                    Ok(source) => {
+                        view.source_id = Some(source);
+                        view.refusal = None;
+                    }
+                    Err(e) => {
+                        view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                        continue;
+                    }
+                }
+            }
+            let source = view.source_id.as_ref().unwrap().id;
+            let header = match self.backend.prepared(source) {
+                Some(Prepared::Ready(header)) => header,
+                Some(Prepared::Failed(e)) => {
+                    view.refusal = Some(e);
+                    // Still on screen, and asking again may mend it: asked
+                    // again after the next of RETRY_AFTER, and never before
+                    // the server's Retry-After (not in this showing, if that
+                    // is further off than a picture waits).
+                    if let Some(after) = (view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries < RETRY_AFTER.len()
+                        && remote::is_remote(&view.source))
+                    .then(|| self.backend.transient(source))
+                    .flatten()
+                    {
+                        let now = Instant::now();
+                        if after > now + remote::MOST_RETRY_AFTER {
+                            // Further off than a picture waits: no more in this showing.
+                            view.retries = RETRY_AFTER.len();
+                        } else {
+                            view.retry_at = Some(after.max(now + RETRY_AFTER[view.retries]));
+                        }
+                    }
+                    // Its `error`, once its failure is final: at once if asking
+                    // again cannot mend it; else once a showing's retries are
+                    // spent on screen (off screen it waits until it has shown).
+                    let transient =
+                        remote::is_remote(&view.source) && self.backend.transient(source).is_some();
+                    let spent = view.on_screen
+                        && view.retry_at.is_none()
+                        && view.retries >= RETRY_AFTER.len();
+                    if !transient || spent {
+                        let message = self.backend.message(source);
+                        let message = message.unwrap_or_else(|| refusal_text(e).into());
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
+            if !view.visible {
+                // Its decode has finished since it went out of view: kept
+                // cold, its delivery cell free for the pictures that show (one
+                // that failed for good is its `error`, out of view too).
+                if let Some((request, _)) = view.request {
+                    let status = self.backend.session.status(request);
+                    if status == Some(RequestStatus::Failed(Refusal::DecodeFailed)) {
+                        let message = refusal_text(Refusal::DecodeFailed).into();
+                        self.load_events.extend(view.settle(*id, Some(message)));
+                    }
+                    if status != Some(RequestStatus::Decoding) {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
+                }
+                continue;
+            }
+            if !self.decode_enabled {
+                continue;
+            }
+            // Ask for the intended bucket first: a cache hit requires no new
+            // output/scratch reservation. Only a real budget wait downsizes.
+            let mut admission_budget = SESSION_BYTES;
+            if let Some((request, pixels)) = view.request {
+                match self.backend.session.status(request) {
+                    Some(RequestStatus::Ready) => {
+                        if let Some(lease) = (view.accepted != Some(request))
+                            .then(|| self.backend.session.take_ready(request))
+                            .flatten()
+                        {
+                            if let Some(bitmap) = lease.payload::<Arc<Bitmap>>() {
+                                self.bitmaps.insert(*id, bitmap.clone());
+                                let natural = bitmap.natural();
+                                reports.push((*id, Some((natural.0 as f32, natural.1 as f32))));
+                                view.lease = Some(lease);
+                                view.accepted = Some(request);
+                                view.displayed_source = view.source.clone();
+                                self.load_events.extend(view.settle(*id, None));
+                            }
+                        }
+                    }
+                    Some(RequestStatus::Failed(e)) => {
+                        view.refusal = Some(e);
+                        self.backend.cancel(request);
+                        view.request = None;
+                        // A decode that fails for good (others are asked again below).
+                        if e == Refusal::DecodeFailed {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                        continue;
+                    }
+                    Some(RequestStatus::WaitingBudget) => {
+                        let stats = self.backend.session.stats();
+                        admission_budget =
+                            SESSION_BYTES - stats.resident_bytes - stats.reserved_bytes;
+                        let smaller = plan_view(header, view, scale, admission_budget);
+                        if smaller.as_ref().is_ok_and(|p| p.pixels != pixels) {
+                            self.backend.cancel(request);
+                            view.request = None;
+                        }
+                    }
+                    None => {
+                        self.backend.forget(request);
+                        view.request = None;
+                    }
+                    _ => {}
+                }
+            }
+            if let Some((request, _)) = view.request {
+                // A part was cut for the box as it was: any other box (or
+                // fit) gets the whole picture, now and from here on.
+                let recut = view.part
+                    && (view.requested_for != view.desired
+                        || view.fit != Some(exact_kernel::ObjectFit::Cover));
+                view.resized |= recut;
+                // A changed offered size replaces demand, retaining old pixels.
+                if recut || resize_changes_view(header, view, scale) {
+                    self.backend.cancel(request);
+                    view.request = None;
+                }
+            }
+            if view.request.is_none() && !matches!(view.refusal, Some(Refusal::DecodeFailed)) {
+                let decode = match plan_view(header, view, scale, admission_budget) {
+                    Ok(plan) => plan,
+                    Err(e) => {
+                        view.refusal = Some(e);
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                        continue;
+                    }
+                };
+                // A picture of this source already decoded (or decoding) a
+                // little larger serves this view too: no second decode, no
+                // second charge. An SVG is drawn for its box: one a little
+                // larger is another picture (under `fill`, another ratio).
+                let wanted = u64::from(decode.pixels.width) * u64::from(decode.pixels.height);
+                let held = (!header.is_svg())
+                    .then(|| {
+                        (self.backend.session).covering(
+                            source,
+                            self.generation,
+                            1,
+                            decode.pixels,
+                            wanted * 5 / 2,
+                        )
+                    })
+                    .flatten();
+                let decode = held
+                    .filter(|p| *p != decode.pixels)
+                    .and_then(|p| png_decode::DecodePlan::new(header, (p.width, p.height)).ok())
+                    .filter(|p| p.peak_bytes() <= admission_budget)
+                    .unwrap_or(decode);
+                // No whole picture to share: one that a box clips to itself
+                // is decoded as the part the box shows (`crop`), unless the
+                // box has changed size under a part before.
+                let cut = (held.is_none() && !view.resized && *PARTS && !header.is_svg())
+                    .then_some(view.fit)
+                    .flatten()
+                    .and_then(|fit| crop::part(decode.natural(), decode.pixels, view.desired, fit))
+                    .and_then(|(x, y, pixels)| decode.part(x, y, pixels).ok());
+                let decode = cut.unwrap_or(decode);
+                let demand = Demand {
+                    view: view.key,
+                    key: RasterKey {
+                        source,
+                        generation: self.generation,
+                        pixels: decode.pixels,
+                        variant: 1,
+                        crop: decode.crop,
+                    },
+                    metadata: header.metadata,
+                    cost: decode.cost,
+                    priority: Priority::Visible,
+                };
+                if header.is_svg() {
+                    self.backend.note_scale(source, decode.pixels, scale);
+                }
+                match self.backend.request(demand) {
+                    Ok(request) => {
+                        #[cfg(target_os = "macos")]
+                        exact_ink::device::apple::trace_mark(c"image request", || source as f64);
+                        view.request = Some((request, decode.full()));
+                        view.requested_for = view.desired;
+                        view.requested_fit = view.object_fit;
+                        view.requested_scale = scale;
+                        view.part = !decode.crop.whole();
+                        view.refusal = None;
+                        // A picture the cache holds is ready as it is asked
+                        // for: taken now, it is in this paint, not the next
+                        // poll's (a frame later, of the five a row is in
+                        // view for at 24,000 dp/s).
+                        if matches!(
+                            self.backend.session.status(request),
+                            Some(RequestStatus::Ready)
+                        ) {
+                            if let Some(lease) = self.backend.session.take_ready(request) {
+                                if let Some(bitmap) = lease.payload::<Arc<Bitmap>>() {
+                                    self.bitmaps.insert(*id, bitmap.clone());
+                                    let natural = bitmap.natural();
+                                    reports.push((*id, Some((natural.0 as f32, natural.1 as f32))));
+                                    view.lease = Some(lease);
+                                    view.accepted = Some(request);
+                                    view.displayed_source = view.source.clone();
+                                    self.load_events.extend(view.settle(*id, None));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        view.refusal = Some(e);
+                        // One asking again cannot get past: its `error`.
+                        if !passing(e) {
+                            self.load_events
+                                .extend(view.settle(*id, Some(refusal_text(e).into())));
+                        }
+                    }
+                }
+            }
+        }
+        self.loaded = self
+            .views
+            .iter()
+            .filter_map(|(id, view)| {
+                self.bitmaps
+                    .get(id)
+                    .map(|b| (view.displayed_source.clone(), b.natural()))
+            })
+            .collect();
+        reports
+    }
+    /// Which assignment of its source view `id` shows ([`LoadEvent`]).
+    pub(crate) fn assignment(&self, id: ViewId) -> Option<u64> {
+        self.views.get(&id).map(|view| view.assignment)
+    }
+    /// Pending work, including capacity waits; this is not an animation request.
+    pub fn pending(&self) -> bool {
+        // A package's picture is answered through the host's turn, not the
+        // workers: nothing here to wait on.
+        self.views.values().any(|v| {
+            (!self.boot_visible_only || v.visible && !v.errored && v.symbol_size.is_none())
+                && !v.source.is_empty()
+                && !self.package.serves(&v.source)
+                && match v
+                    .source_id
+                    .as_ref()
+                    .and_then(|source| self.backend.prepared(source.id))
+                {
+                    Some(Prepared::Ready(_)) => {
+                        v.visible
+                            && self.decode_enabled
+                            && match v.request {
+                                Some((id, _)) => match self.backend.session.status(id) {
+                                    Some(
+                                        RequestStatus::Queued
+                                        | RequestStatus::WaitingBudget
+                                        | RequestStatus::Decoding,
+                                    ) => true,
+                                    Some(RequestStatus::Ready) => v.accepted != Some(id),
+                                    _ => false,
+                                },
+                                None => matches!(
+                                    v.refusal,
+                                    None | Some(Refusal::QueueFull | Refusal::Budget)
+                                ),
+                            }
+                    }
+                    Some(Prepared::Failed(_)) => false,
+                    _ => true,
+                }
+        })
+    }
+    /// How long until a picture on screen asks again for a download that
+    /// failed: a turn is owed then (`turn_due_ms`, `wake_due_ms`).
+    pub fn retry_due_in(&self) -> Option<Duration> {
+        let now = Instant::now();
+        (self.views.values())
+            .filter(|v| v.on_screen && v.source_id.is_some() && remote::is_remote(&v.source))
+            .filter_map(|v| v.retry_at)
+            .min()
+            .map(|at| at.saturating_duration_since(now))
+    }
+
+    /// Wait only for metadata/integrity; decode capacity never rejects activation.
+    pub(crate) fn prepare_metadata(
+        &mut self,
+        kernel: &Kernel,
+        live: &[ViewId],
+        timeout: Duration,
+    ) -> bool {
+        self.decode_enabled = false;
+        self.sync(kernel, live);
+        let start = Instant::now();
+        loop {
+            let seen = self.revision();
+            self.poll();
+            // A URL is not an asset an update vouches for: its download
+            // holds nothing back.
+            if self.views.values().all(|v| {
+                v.source.is_empty()
+                    || self.package.serves(&v.source)
+                    || remote::is_remote(&v.source)
+                    || matches!(
+                        v.source_id
+                            .as_ref()
+                            .and_then(|source| self.backend.prepared(source.id)),
+                        Some(Prepared::Ready(_) | Prepared::Failed(_))
+                    )
+            }) {
+                return true;
+            }
+            if start.elapsed() >= timeout {
+                return false;
+            }
+            self.pause_wait(
+                seen,
+                timeout
+                    .saturating_sub(start.elapsed())
+                    .min(Duration::from_millis(20)),
+            );
+        }
+    }
+    pub(crate) fn enable_decode(&mut self) {
+        self.decode_enabled = true;
+    }
+
+    /// First-commit identities are known before layout supplies decode sizes.
+    pub(crate) fn prepare_boot(&mut self, kernel: &Kernel, roots: &[ViewId], scale: f32) {
+        self.decode_enabled = false;
+        self.boot_visible_only = true;
+        let live = kernel.preorder_where(roots, |ty, _| ty == NodeType::Image);
+        let live: Vec<_> = live
+            .into_iter()
+            .filter(|id| {
+                kernel.node(*id).is_some_and(|n| {
+                    !n.props
+                        .str(PropId::ImageSource)
+                        .unwrap_or("")
+                        .starts_with("symbol:")
+                })
+            })
+            .collect();
+        self.sync_visible(kernel, &live, scale, |_| false);
+    }
+    #[cfg(target_os = "macos")]
+    pub(crate) fn finish_boot(&mut self) {
+        self.boot_visible_only = false;
+    }
+    /// Wait for available work until the deadline, without spinning on capacity.
+    pub fn wait(&mut self, timeout: Duration) -> Vec<Report> {
+        let start = Instant::now();
+        let mut seen = self.revision();
+        let mut reports = self.poll();
+        while self.pending() && start.elapsed() < timeout {
+            self.pause_wait(
+                seen,
+                timeout
+                    .saturating_sub(start.elapsed())
+                    .min(Duration::from_millis(20)),
+            );
+            seen = self.revision();
+            reports.extend(self.poll());
+        }
+        reports
+    }
+    /// The workers' revision: it moves at every result they publish.
+    fn revision(&self) -> u64 {
+        *self.backend.revision.lock().unwrap()
+    }
+    /// Wait until the workers publish past `seen` (read before the poll that found nothing
+    /// to do), or `duration` passes. A result published between that read and this wait
+    /// has already moved the revision, so it is not waited out.
+    fn pause_wait(&self, seen: u64, duration: Duration) {
+        let lock = self.backend.revision.lock().unwrap();
+        drop(
+            self.backend
+                .changed
+                .wait_timeout_while(lock, duration, |revision| *revision == seen)
+                .unwrap(),
+        );
+    }
+    /// Retire this generation. Old worker/backing ownership remains charged.
+    pub fn reset(&mut self) {
+        self.backend.retire(self.generation);
+        self.views.clear();
+        self.package = std::mem::take(&mut self.package).reset();
+        self.bitmaps.clear();
+        self.loaded.clear();
+        self.load_events.clear();
+        self.generation = self.backend.generation();
+        self.settled = None;
+    }
+    #[cfg(unix)]
+    pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {
+        self.backend.wake_fd()
+    }
+    /// Raster-only counters; encoded resolver caches and GPU driver memory differ.
+    pub fn diagnostics(&self) -> serde_json::Value {
+        let s = self.stats();
+        let g = Gate::process().stats();
+        let mut reasons = BTreeMap::<String, usize>::new();
+        for reason in self.views.values().filter_map(|v| v.refusal) {
+            *reasons.entry(format!("{reason:?}")).or_default() += 1;
+        }
+        let waiting = self
+            .views
+            .values()
+            .filter(|v| {
+                v.request.is_some_and(|(id, _)| {
+                    self.backend.session.status(id) == Some(RequestStatus::WaitingBudget)
+                })
+            })
+            .count();
+        serde_json::json!({"residentBytes":s.resident_bytes,"reservedBytes":s.reserved_bytes,
+            "pinnedBytes":s.pinned_bytes,"coldBytes":s.cold_bytes,"retiringBytes":s.retiring_bytes,
+            "peakBytes":s.peak_bytes,"running":s.running,"processRunning":g.running,
+            "ready":s.ready,"deliveryCells":s.delivery_cells,"pendingJobs":s.pending_jobs,
+            "subscribers":s.subscribers,"coldEntries":s.cold_entries,"sourceEntries":self.backend.sources(),
+            "remoteFetches":self.backend.downloads.fetches.load(std::sync::atomic::Ordering::Relaxed),
+            "remoteCacheBytes":self.backend.downloads.cached_bytes(),
+            "liveDiagnostics":self.loaded.len(),"deferred":self.deferred,
+            "budgetWaits":waiting,"refusalReasons":reasons,
+            "refused":self.views.values().filter(|v| v.refusal.is_some()).count()})
+    }
+}
+impl Drop for Images {
+    fn drop(&mut self) {
+        self.backend.retire(self.generation);
+    }
+}
+
+/// The plan for a view's box: a raster's, or an SVG picture's at the box's
+/// own pixels.
+fn plan_view(
+    header: png_decode::Header,
+    view: &View,
+    scale: f32,
+    available: u64,
+) -> Result<png_decode::DecodePlan, Refusal> {
+    if header.is_svg() {
+        return svg_picture::plan(header, view.desired, svg_ask(view, scale), available);
+    }
+    plan(
+        header,
+        drawn_size(header, view.desired, view.object_fit, scale),
+        available,
+    )
+}
+
+// Resolve in points: object-fit:none and scale-down compare intrinsic CSS
+// dimensions, then the device scale determines the raster's pixel demand.
+fn drawn_size(
+    header: png_decode::Header,
+    desired: (f32, f32),
+    fit: exact_kernel::ObjectFit,
+    scale: f32,
+) -> (f32, f32) {
+    let natural = header.metadata.natural;
+    crate::paint::object_fit(
+        (natural.width, natural.height),
+        fit,
+        (0., 0., desired.0 / scale, desired.1 / scale),
+    )
+    .map_or(desired, |(_, _, w, h)| (w * scale, h * scale))
+}
+
+fn svg_ask(view: &View, scale: f32) -> svg_picture::Ask {
+    svg_picture::Ask {
+        fit: view.object_fit,
+        scale,
+    }
+}
+
+fn plan(
+    header: png_decode::Header,
+    desired: (f32, f32),
+    available: u64,
+) -> Result<png_decode::DecodePlan, Refusal> {
+    let natural = header.metadata.natural;
+    let scale = if desired.0 > 0. || desired.1 > 0. {
+        (desired.0 / natural.width as f32)
+            .max(desired.1 / natural.height as f32)
+            .min(1.)
+    } else {
+        1.
+    }
+    .min(2048. / natural.width.max(natural.height) as f32);
+    let longest = natural.width.max(natural.height);
+    let wanted = (longest as f32 * scale).ceil().max(1.) as u32;
+    let bucket = if header.snaps() {
+        wanted.div_ceil(32).saturating_mul(32)
+    } else {
+        wanted.div_ceil(128).saturating_mul(128)
+    }
+    .min(longest);
+    let mut pixels = (
+        (u64::from(natural.width) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
+        (u64::from(natural.height) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
+    );
+    loop {
+        let candidate = png_decode::DecodePlan::new(header, pixels);
+        if candidate
+            .as_ref()
+            .is_ok_and(|p| p.peak_bytes() <= available)
+            || pixels == (1, 1)
+        {
+            return candidate;
+        }
+        pixels = (pixels.0.div_ceil(2), pixels.1.div_ceil(2));
+    }
+}
+
+/// `EXACT_PICTURE_PARTS=0`: every picture is decoded whole, to compare.
+static PARTS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURE_PARTS").map_or(true, |v| v != "0"));
+
+/// Whether a node's box is nothing but its content: no padding and no
+/// border, so the box a picture is clipped to is the node's frame.
+fn plain_box(style: &exact_kernel::StyleProps) -> bool {
+    use exact_kernel::Dimension;
+    let none = |d: &Dimension| matches!(d, Dimension::Points(p) if *p == 0.0);
+    style.border_widths() == [0.0; 4]
+        && none(&style.padding_top)
+        && none(&style.padding_right)
+        && none(&style.padding_bottom)
+        && none(&style.padding_left)
+}
+
+/// Whether a view's box, resized, wants another decode: a raster's by its
+/// longest side, an SVG picture's by either axis.
+fn resize_changes_view(header: png_decode::Header, view: &View, scale: f32) -> bool {
+    let (previous, next) = (view.requested_for, view.desired);
+    if header.is_svg() {
+        return svg_picture::resize_changes(header, svg_ask(view, scale), previous, next);
+    }
+    resize_changes_decode(
+        header,
+        drawn_size(header, previous, view.requested_fit, view.requested_scale),
+        drawn_size(header, next, view.object_fit, scale),
+    )
+}
+
+fn resize_changes_decode(
+    header: png_decode::Header,
+    previous: (f32, f32),
+    next: (f32, f32),
+) -> bool {
+    if previous == next {
+        return false;
+    }
+    let (Ok(before), Ok(after)) = (
+        plan(header, previous, SESSION_BYTES),
+        plan(header, next, SESSION_BYTES),
+    ) else {
+        return false;
+    };
+    let before = before.pixels.width.max(before.pixels.height);
+    let after = after.pixels.width.max(after.pixels.height);
+    u64::from(after) * 4 > u64::from(before) * 5 || u64::from(after) * 2 < u64::from(before)
+}

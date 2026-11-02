@@ -1,0 +1,43 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/nfc@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidTag": {
+      "id": "string",
+      "techList": "string[]",
+      "maxTransceiveLength": "number"
+    }
+  },
+  "options": {
+    "scan": {
+      "technologies": "enum<nfcA|nfcB|nfcF|nfcV|barcode>[]",
+      "skipNdefCheck": "bool",
+      "platformSounds": "bool",
+      "presenceCheckDelay": "number"
+    },
+    "write": {
+      "technologies": "enum<nfcA|nfcB|nfcF|nfcV|barcode>[]",
+      "platformSounds": "bool"
+    },
+    "makeReadOnly": {
+      "technologies": "enum<nfcA|nfcB|nfcF|nfcV|barcode>[]",
+      "platformSounds": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "nfcHatch"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.nfc.NfcModule"
+}

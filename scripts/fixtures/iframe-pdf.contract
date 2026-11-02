@@ -1,0 +1,24 @@
+// A local PDF in a frame and a capture of it through the runner, driven by
+// IframeCaptureSessionTests; a frame whose PDF is
+// not there, which gets a web view in its place; and a sandboxed one, which
+// stays WebKit's from its mount.
+component App
+  state shown = false
+  state shot = ""
+  action show
+    shown = true
+  action snap
+    captureScreenshot("doc", "app:/tmp/pdf-shot.png", clip=DOMRect(x=0, y=0, width=200, height=100))
+  action captured(e: FrameCapture)
+    shot = `${e.path} ${e.width}x${e.height} ${e.error}`
+  view
+    column
+      if shown
+        iframe id="doc" src="app:/tmp/b6.pdf#page=2" capture=captured width=300 height=240 testId="doc"
+        iframe id="gone" src="app:/tmp/no-such-b6.pdf" width=120 height=80 testId="gone"
+        iframe id="boxed" src="app:/tmp/b6.pdf" sandbox="" width=120 height=80 testId="boxed"
+      button press=show testId="show"
+        text "Show"
+      button press=snap testId="snap"
+        text "Snap"
+      text shot testId="shot"

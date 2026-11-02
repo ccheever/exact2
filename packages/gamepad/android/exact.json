@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/gamepad@^1.0",
+  "platform": "android",
+  "targets": ["android"],
+  "shapes": {
+    "AndroidGamepad": {
+      "vendorId": "number",
+      "productId": "number",
+      "descriptor": "string",
+      "name": "string"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": ["inputDevice"],
+  "sources": { "kotlin": ["."] },
+  "artifacts": [],
+  "class": "exact.gamepad.GamepadModule"
+}

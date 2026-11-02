@@ -1,0 +1,144 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Caltrain",
+  "short_name": "Caltrain",
+  "id": "com.exact.caltrain",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#1e3a5f",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "assets/caltrain.png",
+      "sizes": "320x120",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.exact.caltrain",
+    "name": "Caltrain",
+    "origin": "https://caltrain.exact.invalid"
+  },
+  "widgets": [
+    {
+      "kind": "next-trains",
+      "title": "Next Trains",
+      "description": "See the next departures from your station at a glance.",
+      "families": [
+        "systemSmall",
+        "systemMedium",
+        "accessoryRectangular"
+      ],
+      "watchFamilies": [
+        "accessoryRectangular",
+        "accessoryCircular",
+        "accessoryInline",
+        "accessoryCorner"
+      ],
+      "component": "NextTrains",
+      "props": "NextTrainsProps",
+      "refresh": "nextTrains",
+      "preview": {
+        "station": "Mountain View",
+        "departures": [
+          {
+            "id": "mv-north-101",
+            "train": 101,
+            "service": "Local",
+            "headsign": "San Francisco",
+            "at": 1787915700000
+          },
+          {
+            "id": "mv-south-102",
+            "train": 102,
+            "service": "Local",
+            "headsign": "San Jose",
+            "at": 1787916300000
+          }
+        ]
+      }
+    }
+  ],
+  "data": ["privacy"],
+  "watch": { "source": "watch.contract", "component": "CaltrainWatch" },
+  "live_activities": [
+    {
+      "kind": "departure",
+      "title": "Train Departure",
+      "description": "Follow your next train.",
+      "component": "DepartureActivity",
+      "state": "DepartureState",
+      "preview": {
+        "station": "Mountain View",
+        "headsign": "San Francisco",
+        "train": 101,
+        "at": 1787915700000,
+        "status": "On time"
+      }
+    },
+    {
+      "kind": "service-alert",
+      "title": "Service Alert",
+      "description": "Follow a service disruption.",
+      "component": "ServiceAlertActivity",
+      "state": "ServiceAlertState",
+      "push": true,
+      "preview": {
+        "title": "Service delay",
+        "message": "Northbound trains delayed by 10 minutes.",
+        "updatedAt": 1787915700000
+      }
+    }
+  ],
+  "rust": { "module": { "package": "caltrain-logic" } },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "localNetworking": "Exact connects to your dev server on the local network to load the app you are working on.",
+      "backgroundModes": [],
+      "associatedDomains": false
+    },
+    "macos": {
+      "minimumOS": "14.0"
+    },
+    "linux": {},
+    "web": {}
+  },
+  "deploy": {
+    "origin": "continuous",
+    "bundles": "continuous",
+    "binaries": {
+      "ios": "continuous",
+      "macos": "continuous",
+      "linux": "continuous"
+    },
+    "release": {
+      "ios": "automatic",
+      "macos": "automatic",
+      "linux": "automatic"
+    },
+    "store": {
+      "ios": "A",
+      "macos": "A",
+      "linux": "A"
+    },
+    "channels": {
+      "prod": "https://caltrain.exact.invalid"
+    },
+    "activate": "next-launch",
+    "check": {
+      "background": true
+    },
+    "channel": "prod",
+    "signing": {
+      "key": "caltrain-2026",
+      "keys": {
+        "caltrain-2026": "QQC3L6SBU/gpPr0Wc2m9I9zlvVri0nDaPfPi5WSPdjI="
+      }
+    }
+  }
+}

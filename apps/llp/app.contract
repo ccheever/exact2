@@ -1,0 +1,365 @@
+// LLP — a reader for a directory of LLP documents.
+//
+// The same document as `apps/markdown`, drawn by the same blocks and runs
+// (`markdown-parse` is one crate, shared): the specialisation is entirely
+// below the data seam, in `apps/llp/data` — the index in number order with
+// sub-documents under their parents, a search over every document's text,
+// the outline, and `LLP 0042` in prose resolved to the document it names.
+//
+// The block model, `Runs` and `SchemeButton` are `@exact/reading`'s
+// (`packages/reading`), shared with `apps/markdown`; `Blocks` is this
+// reader's own layout of them.
+
+// The readers' palette, one `light-dark()` pair an entry; a
+// row names an entry (`color="ink"`). The dark half is warm rather than
+// blue-black, so the same documents read as the same documents, and its text
+// sits below white-on-black contrast, which is what makes a long document
+// comfortable at night. `apps/llp`, `apps/markdown` and
+// `apps/markdown-stress` say the same palette: a theme is the root's.
+theme
+  page="light-dark(#ffffff, #17181b)" // behind the document
+  chrome="light-dark(#f6f5f1, #1e1f23)" // header, index, outline
+  edge="light-dark(#e2e1d9, #2f3138)" // the hairlines between them
+  ink="light-dark(#22221b, #d4d1c9)" // running prose
+  strongInk="light-dark(#16160f, #f1eee7)" // headings
+  softInk="light-dark(#8a8a80, #8b8c92)" // metadata, markers, captions
+  faintInk="light-dark(#b0b0a2, #63656d)" // the quietest text there is
+  accent="light-dark(#4a5a3a, #a2b585)" // the brand mark, a number
+  code="light-dark(#8a3020, #e0a189)" // a code span's text
+  codeBg="light-dark(#f4f4f0, #23252b)" // behind a code block
+  fieldBg="light-dark(#ffffff, #212329)" // inside a text field
+  fieldEdge="light-dark(#d5d4cc, #3a3d45)" // its border
+  pill="light-dark(#e5e8dc, #2f3a28)" // a chosen row
+  pillInk="light-dark(#2c3520, #d6e4c4)" // text on a pill
+  control="light-dark(#e8e7e0, #2a2c32)" // a button that is not a pill
+  quoteEdge="light-dark(#d3d3c8, #3b3e46)" // the rule on a quote
+  quoteInk="light-dark(#55554a, #a6a39b)" // a quote's text
+  warnBg="light-dark(#fdecea, #3a1e1b)" // behind a refusal
+  warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
+  warnInk="light-dark(#8a1c12, #f0a89c)" // its text
+
+use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+
+shape Entry
+  id: string
+  number: string
+  title: string
+  path: string
+  kind: string
+  status: string
+  depth: number
+  overlay: string
+  current: bool
+  hits: number
+
+shape Index
+  root: string
+  project: string
+  total: number
+  shown: number
+  entries: Entry[]
+
+shape Heading
+  id: string
+  text: string
+  level: number
+  at: number
+  current: bool
+
+shape Doc
+  path: string
+  name: string
+  number: string
+  title: string
+  kind: string
+  status: string
+  message: string
+  failed: bool
+  section: number
+  count: number
+  blocks: Block[]
+  outline: Heading[]
+
+// The system's colour scheme, beneath whatever `setScheme` chose:
+// CSS's `prefers-color-scheme`, on every host.
+shape SystemMedia
+  prefersColorScheme: string
+
+component Llp
+  state asked = ""
+  state query = ""
+  state section = -1
+  state showOutline = true
+  state showIndex = true
+  // The end of a corpus is where the new documents are, and where a reader
+  // most often starts. Off by default: number order is the corpus's own.
+  state newest = false
+  // Which declared working set to show, or every document when empty. The
+  // overlays are the corpus's `current/` and `foundation/` directories.
+  state overlay = ""
+  // Which appearance the reader asked for; `system` follows the OS.
+  state scheme = "system"
+
+  // What the system is set to. Only read when `scheme` is `system`.
+  resource media = exactViewport() as shape SystemMedia
+  resource index = index(asked, query, overlay, newest) as shape Index
+  resource doc = document(asked, section) as shape Doc
+
+  // Opening a document and opening a corpus are the same event: a folder
+  // becomes its lowest-numbered document, a file becomes itself, and the
+  // index is the folder either one is in.
+  action openFile(value)
+    asked = value
+    section = -1
+  action search(value)
+    query = value
+  action clearSearch
+    query = ""
+    focus("search")
+  action showSection(at: number)
+    section = at
+  action showAll
+    section = -1
+  action toggleOutline
+    showOutline = not showOutline
+  action toggleIndex
+    showIndex = not showIndex
+  action toggleNewest
+    newest = not newest
+  action showOverlay(name: string)
+    overlay = overlay == name ? "" : name
+  action chooseScheme(name: string)
+    scheme = name
+    setScheme(name)
+
+  // The one thing the appearance is still needed for: a PNG has no
+  // `currentColor` to follow, so the artwork is chosen rather than tinted
+  //.
+  derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
+  derive searching = query != ""
+  derive sectioned = doc.section >= 0
+  derive hasOutline = not doc.outline.isEmpty()
+  // The window says which project is open, not just which app this is:
+  // the folder the corpus lives in, from `head`.
+  derive title = index.project != "" ? `LLP — ${index.project}` : "LLP"
+
+  view
+    main testId="llp-main" width="100%" height="100%" background-color="page"
+      head title=title
+      column width="100%" height="100%"
+        header width="100%" padding=10 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
+          row gap=8 align-items="center" width="100%"
+            Chip(label="Files", on=showIndex, press=toggleIndex, testId="index-toggle")
+            // The node every open route ends at: ⌘O, a Finder double-click,
+            // `llpview llp/`, a followed cross-reference, a sidebar row.
+            input appearance="none" value=asked change=openFile placeholder="Path to an llp/ directory" aria-label="Path to an llp directory" testId="open-file" flex=1 padding=7 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=12 color="ink"
+            input appearance="none" value=query input=search placeholder="Search the corpus" aria-label="Search the corpus" testId="search" width=240 padding=7 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=12 color="ink"
+            if searching
+              button appearance="none" press=clearSearch aria-label="Clear the search" testId="clear-search" padding=6
+                text `${index.shown} of ${index.total}` font-size=12 color="softInk"
+            Chip(label="Outline", on=showOutline, press=toggleOutline, testId="outline-toggle")
+            // Appearance: system, light, dark — the icons exact1's blog used
+            // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
+            // to PNG because an Exact `image` is a raster asset
+            // and the Apple host decodes through ImageIO, which has no SVG.
+            // Following the system is the absence of an override, not a
+            // third appearance, on every host.
+            SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
+        if doc.failed
+          row width="100%" padding=10 gap=8 background-color="warnBg" border-bottom-style="solid" border-bottom-width=1 border-color="warnEdge" box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color="warnInk"
+            text doc.message font-size=12 color="warnInk" testId="open-message"
+        // `min-height: 0` is what lets the panes below scroll rather than
+        // grow: a flex item's default `min-height: auto` is its content, so
+        // a row holding a 4,000-point document is 4,000 points tall and the
+        // window merely clips it. The web has the same rule and the same fix.
+        row flex=1 min-height=0 width="100%"
+          // The corpus, in number order, sub-documents under their parents.
+          if showIndex
+            column width=300 height="100%" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge"
+              // What changes the list, above the list. Outside the scroll,
+              // so they stay put while it moves: a filter you have to
+              // scroll back up to reach is a filter you stop using.
+              //
+              // The declared working sets: `current/` is the documents
+              // in hand, `foundation/` the orientation kernel. Pressing the
+              // one that is on clears it.
+              row gap=6 padding=8 padding-bottom=6 width="100%" box-sizing="border-box" align-items="center"
+                Chip(label="current", on=(overlay == "current"), press=showOverlay("current"), testId="overlay-current")
+                Chip(label="foundation", on=(overlay == "foundation"), press=showOverlay("foundation"), testId="overlay-foundation")
+                // The end of a corpus is where the new documents are.
+                Chip(label="newest", on=newest, press=toggleNewest, testId="order-toggle")
+              scroll flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain" testId="index"
+                column width="100%" box-sizing="border-box" padding=8 padding-top=0 gap=1
+                  if index.entries.isEmpty()
+                    view padding=10
+                      text "No documents here" font-size=12 color="softInk" testId="index-empty"
+                  for e in index.entries key=e.id
+                    IndexRow(entry=e, open=openFile, searching=searching)
+          scroll flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document"
+            column width="100%" align-items="center" padding-top=24 padding-bottom=72
+              column width="100%" max-width=720 padding-left=32 padding-right=32 box-sizing="border-box" gap=2
+                DocHeader(doc=doc, sectioned=sectioned, all=showAll)
+                for b in doc.blocks key=b.id
+                  Blocks(block=b)
+          if showOutline and hasOutline
+            scroll width=250 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-left-style="solid" border-left-width=1 border-color="edge" testId="outline"
+              column width="100%" box-sizing="border-box" padding=10 gap=1
+                button press=showAll aria-label="The whole document" testId="outline-all" width="100%" text-align="start"
+                  if sectioned
+                    view width="100%" box-sizing="border-box" padding=6 border-radius=6
+                      text "Whole document" font-size=12 color="softInk"
+                  else
+                    view width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill"
+                      text "Whole document" font-size=12 font-weight=700 color="pillInk"
+                for h in doc.outline key=h.id
+                  OutlineRow(heading=h, show=showSection)
+
+// What is open, and the way back out of a single section.
+component DocHeader
+  props
+    doc: Doc
+    sectioned: bool
+    all: action
+  view
+    column width="100%" gap=6 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="edge" testId="doc-header"
+      row gap=8 align-items="baseline"
+        if doc.number != ""
+          text `LLP ${doc.number}` font-size=12 font-weight=800 letter-spacing=0.8 color="accent" testId="doc-number"
+        if doc.kind != ""
+          text doc.kind font-size=11 font-weight=600 color="softInk" testId="doc-kind"
+        if doc.status != ""
+          text doc.status font-size=11 color="softInk" testId="doc-status"
+        text doc.name font-size=11 color="faintInk"
+      if sectioned
+        row gap=8 align-items="center"
+          text `Showing one section · ${doc.count} ${doc.count == 1 ? "block" : "blocks"}` font-size=11 color="softInk" testId="section-note"
+          button press=all aria-label="Show the whole document" testId="section-clear" padding=4 border-radius=6 background-color="control"
+            text "Whole document" font-size=11 font-weight=600 color="ink"
+
+component IndexRow
+  props
+    entry: Entry
+    open: action
+    searching: bool
+  view
+    button press=open(entry.path) aria-label=entry.title testId=`entry-${entry.number}` width="100%" text-align="start"
+      if entry.current
+        column width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill" padding-left=(8 + entry.depth * 16) gap=1
+          IndexLine(entry=entry, weight=400, color="pillInk", searching=searching)
+      else
+        column width="100%" box-sizing="border-box" padding=6 border-radius=6 padding-left=(8 + entry.depth * 16) gap=1
+          IndexLine(entry=entry, weight=400, color="ink", searching=searching)
+
+component IndexLine
+  props
+    entry: Entry
+    weight: number
+    color: string
+    searching: bool
+  view
+    row gap=6 align-items="baseline" width="100%"
+      // The number column does not shrink and the title does. Both matter:
+      // a flex item's `flex-shrink` is 1 by default, and the title's own
+      // `min-width: auto` is its longest word — so a long title pushed the
+      // number's box narrower than the number, and `0030.000` wrapped onto a
+      // second line. 60 points is the width of the longest number this
+      // corpus has (a dotted sub-document) at this size and weight.
+      text entry.number font-size=11 font-weight=700 color="softInk" width=60 flex-shrink=0
+      text entry.title font-size=12 font-weight=weight color=color flex=1 min-width=0
+    row gap=6 align-items="center" padding-left=66
+      if entry.kind != ""
+        text entry.kind font-size=10 color="faintInk"
+      if entry.overlay != ""
+        text entry.overlay font-size=10 font-weight=700 color="accent"
+      if entry.status != ""
+        text entry.status font-size=10 color="faintInk"
+      if searching and entry.hits > 0
+        text `${entry.hits}` font-size=10 font-weight=700 color="accent"
+
+// There is no scrolling to an anchor in v1, so an outline row *shows* its
+// section rather than jumping to it — for a document of 16,000 words that is
+// the better of the two anyway.
+component OutlineRow
+  props
+    heading: Heading
+    show: action
+  view
+    button press=show(heading.at) aria-label=heading.text testId=`outline-${heading.at}` width="100%" text-align="start"
+      if heading.current
+        view width="100%" box-sizing="border-box" padding=5 border-radius=6 background-color="pill" padding-left=(6 + heading.level * 10)
+          text heading.text font-size=11 font-weight=700 color="pillInk"
+      else
+        view width="100%" box-sizing="border-box" padding=5 border-radius=6 padding-left=(6 + heading.level * 10)
+          text heading.text font-size=11 color=(heading.level < 3 ? "#4a4a40" : "#7a7a6e")
+
+// ---- the general reader's document, unchanged (see the note at the top) ----
+
+component Blocks
+  props
+    block: Block
+  view
+    if block.kind == "heading"
+      column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
+        text role="heading" aria-level=block.depth font-size="1em" font-weight=400 color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+    else
+      if block.kind == "paragraph"
+        view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+          text color="ink" line-height=1.625
+            Runs(runs=block.runs, size=16, weight=400)
+      else
+        if block.kind == "item"
+          row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
+            text block.marker font-size=16 line-height=1.625 color="softInk" width=26
+            text flex=1 color="ink" line-height=1.625
+              Runs(runs=block.runs, size=16, weight=400)
+        else
+          if block.kind == "code"
+            view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
+              view background-color="codeBg" border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color="ink" white-space="pre-wrap"
+          else
+            if block.kind == "quote"
+              row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+                view width=3 background-color="quoteEdge" border-radius=2
+                view flex=1 padding-left=16
+                  text color="quoteInk" line-height=1.625
+                    Runs(runs=block.runs, size=16, weight=400)
+            else
+              if block.kind == "rule"
+                view width="100%" height=1 background-color="edge" margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+              else
+                if block.kind == "table-row"
+                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color="edge" testId=`block-${block.id}`
+                    for c in block.cells key=c.id
+                      view flex=1 padding=8
+                        if block.header
+                          text color="strongInk" line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=700)
+                        else
+                          text color="ink" line-height="20px"
+                            Runs(runs=c.runs, size=13, weight=400)
+                else
+                  if block.kind == "image"
+                    column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
+                      image block.href width="100%" object-fit="contain" aria-label=block.text
+                      if block.text != ""
+                        text block.text font-size=12 color="faintInk"
+                  else
+                    view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
+                      text block.text font-family="ui-monospace" font-size=12 color="faintInk"
+
+// One header control: on or off, said with a fill rather than a weight so
+// pressing it never changes its width.
+component Chip
+  props
+    label: string
+    on: bool
+    press: action
+    testId: string
+  view
+    button press=press aria-label=label testId=testId padding=6 border-radius=6 background-color=(on ? "pill" : "control")
+      text label font-size=12 font-weight=600 color=(on ? "pillInk" : "softInk")

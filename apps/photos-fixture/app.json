@@ -1,0 +1,22 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Photos Fixture",
+  "short_name": "Photos",
+  "id": "com.exact.photosfixture",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.photosfixture",
+    "name": "Photos Fixture"
+  },
+  "deploy": {
+    "store": {
+      "android": "0"
+    }
+  },
+  "host": {
+    "android": {
+      "minimumOS": "10"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+// React Conf's Calendar, reduced: a large title with a leading item and a
+// trailing menu button over a scroller whose first child is a sticky day
+// picker (`top=114`, the port's), then cards with a native bookmark button.
+// Under the bar, `top` counts from the bar's bottom (StickyBarIOSTests).
+routes nav
+  calendar "/"
+
+component Calendar
+  state day = 1
+  state marks = 0
+  state cards = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20"]
+  action pick(d: number)
+    day = d
+  action mark
+    marks = marks + 1
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll=`list-${e.id}` testId="route" position="absolute" inset=0 display="flex" flex-direction="column"
+          header
+            row role="status" aria-label="React Conf"
+              row align-items="center" gap=3
+                image "symbol:sf/atom" font-size=17
+                text "REACT" font-weight=700 font-size=10
+            text "Calendar" role="heading" aria-level=1
+            button popovertarget="tz-menu" aria-label="Time zone" testId="tz"
+              text "PDT" font-weight=600 font-size=10
+          scroll id=`list-${e.id}` testId="list" flex=1 min-height=0
+            column position="sticky" top=114 z-index=1 padding-bottom=16 testId="picker"
+              button press=mark align-self="center" margin-top=8 testId="live"
+                column align-items="center" padding="4px 12px" border-radius=20 backgroundMaterial="glass"
+                  text "Currently Live" font-size=10
+                  text "React Keynote" font-size=12
+              view margin="16px 16px 0px 16px" border-radius=80 backgroundMaterial="glass"
+                row role="radiogroup" aria-label="Day"
+                  button role="radio" aria-checked=(day == 1) press=pick(1) flex=1 testId="day-1"
+                    text "Day 1"
+                  button role="radio" aria-checked=(day == 2) press=pick(2) flex=1 testId="day-2"
+                    text "Day 2"
+            for c in cards key = c
+              column margin="0px 16px 24px 16px" padding=20 border-radius=28 background-color="-exact-fill" testId=`card-${c}`
+                row align-items="center"
+                  text `Session ${c}` flex=1 font-size=20
+                  button press=mark aria-label="Bookmark" testId=`mark-${c}`
+                    image "symbol:bookmark"
+                text "Speaker" margin-top=12
+          column id="tz-menu" popover="auto" role="menu"
+            button role="menuitemradio" aria-checked=true testId="tz-venue"
+              text "PDT (Venue)"

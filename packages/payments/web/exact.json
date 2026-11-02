@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/payments@^1.0",
+  "platform": "web",
+  "targets": [
+    "web"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [
+    "exact-payment-button"
+  ],
+  "hatches": [],
+  "sources": {
+    "javascript": [
+      "index.js"
+    ]
+  },
+  "artifacts": []
+}

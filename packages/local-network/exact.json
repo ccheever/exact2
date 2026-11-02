@@ -1,0 +1,141 @@
+{
+  "kind": "interface",
+  "name": "@exact/local-network",
+  "version": "1.0.0",
+  "grants": [
+    "device.local-network"
+  ],
+  "permission": {
+    "name": "local-network",
+    "status": "localNetworkStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "fact": "host"
+  },
+  "shapes": {
+    "LocalService": {
+      "name": "string",
+      "type": "string"
+    },
+    "LocalServices": {
+      "services": "LocalService[]"
+    },
+    "TxtEntry": {
+      "key": "string",
+      "value": "option<string>"
+    },
+    "LocalServiceInfo": {
+      "name": "string",
+      "type": "string",
+      "host": "string",
+      "hostName": "option<string>",
+      "port": "number",
+      "addresses": "string[]",
+      "txt": "TxtEntry[]"
+    },
+    "LocalNetworkStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "android": "option<AndroidLocalNetworkStatus>"
+    }
+  },
+  "names": [
+    {
+      "source": "localNetworkStatus",
+      "live": true,
+      "answers": "LocalNetworkStatus",
+      "sync": {
+        "name": "localNetworkStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "android": null
+        },
+        "targets": {
+          "web": {
+            "available": false,
+            "state": "unknown"
+          },
+          "linux": {
+            "available": false,
+            "state": "granted"
+          },
+          "windows": {
+            "available": false,
+            "state": "granted"
+          },
+          "terminal": {
+            "available": false,
+            "state": "granted"
+          }
+        }
+      }
+    },
+    {
+      "source": "browseServices",
+      "live": true,
+      "request": "when-prompt",
+      "origin": "app",
+      "join": true,
+      "grants": {
+        "type": {
+          "line": "net.dns-sd",
+          "matches": "target",
+          "refuse": "SecurityError"
+        }
+      },
+      "options": {
+        "type": "string"
+      },
+      "answers": "LocalServices",
+      "substitute": {
+        "default": [],
+        "network": "browse",
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "terminal"
+        ]
+      }
+    },
+    {
+      "source": "resolveService",
+      "live": true,
+      "request": "when-prompt",
+      "origin": "app",
+      "join": true,
+      "grants": {
+        "type": {
+          "line": "net.dns-sd",
+          "matches": "target",
+          "refuse": "SecurityError"
+        }
+      },
+      "options": {
+        "name": "string",
+        "type": "string",
+        "timeout": {
+          "type": "option<number>",
+          "min": 0,
+          "max": 60000,
+          "default": 5000
+        }
+      },
+      "answers": "LocalServiceInfo",
+      "substitute": {
+        "network": "resolve",
+        "from": "browseServices",
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "terminal"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1355 @@
+//! Text measurement: the one structural text IR and the injected measurer.
+//!
+//! The kernel never embeds platform text APIs. A host supplies a
+//! [`TextMeasurer`] per kernel — there is no process-global callback — and the
+//! kernel hands it a paragraph as ordered [`TextRun`]s with the offer it must
+//! fit. A `Text` node with its own `text` prop is one run; otherwise its `Text`
+//! children are its runs, flattened in order. The same runs feed measurement,
+//! export, and (later) selection: one traversal, per-consumer projections.
+//!
+//! [`MonospaceMeasurer`] is the deterministic reference measurer used by tests
+//! and headless hosts.
+
+use crate::generated::{
+    Direction, FontStyle, OverflowWrap, StyleId, StyleMask, StyleProps, TextAlign, TextOverflow,
+};
+use crate::id::AxisOffer;
+use crate::id::NodeKey;
+use std::borrow::Cow;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+
+pub(crate) mod case;
+pub mod decorations;
+pub mod inline_box;
+
+/// A payload-free lifetime namespace. Allocation identity is valid only while
+/// retained: it is never a wire id, address handle, or serialized cache key.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TextDomain(pub(crate) Arc<()>);
+
+impl PartialEq for TextDomain {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+impl Eq for TextDomain {}
+impl Hash for TextDomain {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(&self.0).hash(state);
+    }
+}
+
+/// Kernel-issued proof of the current paragraph inputs, not its geometry.
+///
+/// Offers, catalog identity, runtime liveness and publication eligibility are
+/// separate checks. Host appearance, resolved palettes and raster context are
+/// independent paint inputs: equal stamps do not identify resolved pixels.
+/// This token retains only a payload-free namespace, never text, nodes, a
+/// kernel or prior revisions. Exact equality includes authored paint and source
+/// mapping; [`Self::same_metrics`] permits metric reuse after repaint.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ParagraphStamp {
+    pub(crate) domain: TextDomain,
+    pub(crate) owner: NodeKey,
+    pub(crate) view: crate::ViewId,
+    pub(crate) metrics: u64,
+    pub(crate) paint_source: u64,
+}
+
+impl ParagraphStamp {
+    /// The independently measured paragraph allocation.
+    pub fn owner(&self) -> NodeKey {
+        self.owner
+    }
+
+    /// Producer identity for the host paragraph presenter.
+    pub fn view(&self) -> crate::ViewId {
+        self.view
+    }
+
+    /// Current metric revision. This scalar alone is not an identity.
+    pub fn metric_revision(&self) -> u64 {
+        self.metrics
+    }
+
+    /// Current authored paint/source-map revision, not resolved pixel identity.
+    /// Host appearance, palette and raster context remain separate paint inputs.
+    /// This scalar alone is not an identity.
+    pub fn paint_source_revision(&self) -> u64 {
+        self.paint_source
+    }
+
+    /// Same namespace, owner and metric inputs, ignoring paint-only changes.
+    pub fn same_metrics(&self, other: &Self) -> bool {
+        self.domain == other.domain && self.owner == other.owner && self.metrics == other.metrics
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct TextRevisions {
+    pub metrics: u64,
+    pub paint_source: u64,
+}
+
+/// Run-level style: everything that changes glyph metrics.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextStyle {
+    /// Font size in points.
+    pub font_size: f32,
+    /// CSS weight 100–900.
+    pub font_weight: u16,
+    /// Normal or italic.
+    pub font_style: FontStyle,
+    /// CSS `font-stretch`, percent of normal width (100).
+    pub font_stretch: f32,
+    /// CSS `font-variation-settings`, set after weight, width and size.
+    pub font_variations: crate::style::FontVariations,
+    /// CSS `font-optical-sizing`: `auto` sets a face's `opsz` to the size.
+    pub font_optical_sizing: crate::FontOpticalSizing,
+    /// Index into the host's font registry (0 = system default).
+    pub font_family: u16,
+    /// Resolved logical length, or natural metrics. Zero remains explicit.
+    pub line_height: Option<f32>,
+    /// Additional advance per glyph, in points.
+    pub letter_spacing: f32,
+    /// OpenType numeric-feature bitmask.
+    pub font_variant_numeric: u8,
+    /// CSS `font-variant-ligatures` as [`crate::FontVariantLigatures`]'
+    /// bits: which OpenType ligature features are turned on or off.
+    pub font_variant_ligatures: u8,
+    /// Bold Text weights this run's font: its weight is
+    /// stepped already, and a weight a host gives a piece of it itself (a
+    /// Markdown piece's bold) takes the same step ([`crate::bolder`]).
+    pub bold_text: bool,
+}
+
+impl TextStyle {
+    /// The rows [`TextStyle::from_style`] reads.
+    pub const ROWS: [StyleId; 11] = [
+        StyleId::FontSize,
+        StyleId::FontWeight,
+        StyleId::FontStyle,
+        StyleId::FontStretch,
+        StyleId::FontVariationSettings,
+        StyleId::FontOpticalSizing,
+        StyleId::FontFamily,
+        StyleId::LineHeight,
+        StyleId::LetterSpacing,
+        StyleId::FontVariantNumeric,
+        StyleId::FontVariantLigatures,
+    ];
+
+    /// [`TextStyle::from_style`] of a computed style read row by row: the
+    /// node's `own` style, then `inherit(rows, take)` hands `take` each
+    /// ancestor that supplies inherited `rows` the node lacks, nearest first.
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in Self::ROWS {
+            rows.set(id);
+        }
+        let mut s = TextRows::of(own);
+        inherit(rows, &mut |from, mask| s.take(from, mask));
+        s.style()
+    }
+
+    /// This style drawn at `scale` of its size: its font size, a resolved
+    /// line height and its letter spacing (a fitted text).
+    pub fn scaled(mut self, scale: f32) -> Self {
+        self.font_size *= scale;
+        self.line_height = self.line_height.map(|h| h * scale);
+        self.letter_spacing *= scale;
+        self
+    }
+
+    /// The run style carried by a node's style rows.
+    pub fn from_style(s: &StyleProps) -> Self {
+        TextStyle {
+            font_size: s.font_size,
+            font_weight: s.font_weight,
+            font_style: s.font_style,
+            font_stretch: s.font_stretch,
+            font_variations: s.font_variation_settings,
+            font_optical_sizing: s.font_optical_sizing,
+            font_family: s.font_family,
+            line_height: s.line_height.resolve(s.font_size),
+            letter_spacing: s.letter_spacing,
+            font_variant_numeric: s.font_variant_numeric,
+            font_variant_ligatures: s.font_variant_ligatures,
+            bold_text: false,
+        }
+    }
+}
+
+/// What the node's string is: plain text, or a markup the host styles.
+/// The kernel carries the prop and the source as one
+/// run; a host that links `exact-markdown` expands it for measure and paint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Markup {
+    /// The text as written.
+    #[default]
+    None,
+    /// Markdown source.
+    Markdown,
+}
+
+impl Markup {
+    /// The `markup` prop's value, as written in Contract.
+    pub fn from_prop(value: Option<&str>) -> Self {
+        match value {
+            Some("markdown") => Markup::Markdown,
+            _ => Markup::None,
+        }
+    }
+}
+
+/// Paragraph-level style: what applies to the whole measured block.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Paragraph {
+    /// What the runs' text is; `Markdown` means one run of source.
+    pub markup: Markup,
+    /// The paragraph strut: minimum line box even when all inline runs are smaller.
+    pub strut: TextStyle,
+    /// Base direction.
+    pub direction: Direction,
+    /// Horizontal alignment, physical: `start` and `end` are resolved
+    /// against `direction` ([`TextAlign::physical`]), so a host never sees them.
+    pub text_align: TextAlign,
+    /// Maximum lines; 0 means unlimited.
+    pub line_clamp: u32,
+    /// How an over-long last line is truncated.
+    pub text_overflow: TextOverflow,
+    /// Whether otherwise unbreakable text may wrap.
+    pub overflow_wrap: OverflowWrap,
+    /// CSS whitespace preservation/collapsing.
+    pub white_space: crate::WhiteSpace,
+    /// CSS `text-wrap-style`: `balance` breaks the lines before the first
+    /// forced break at the narrowest width that keeps their count
+    /// ([`exact_textflow::balanced_width`]), up to six lines.
+    pub text_wrap_style: crate::TextWrapStyle,
+    /// CSS `text-indent` in points: the first line starts this far in from
+    /// the start edge (right under `rtl`) and has that much less room.
+    pub text_indent: f32,
+    /// CSS `hyphens`. `none` already reached the runs' text
+    /// ([`crate::Hyphens::shown`]); a host hyphenates `auto` where it can.
+    pub hyphens: crate::Hyphens,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4): the
+    /// measurer cuts the first line's over edge and the last line's under
+    /// edge to these font metrics, so its height and first baseline are the
+    /// trimmed box's, and the host paints the lines where it measured them.
+    pub text_box_trim: crate::TextBoxTrim,
+    /// The edges `text_box_trim` cuts to.
+    pub text_box_edge: crate::TextBoxEdge,
+}
+
+impl TextAlign {
+    /// CSS's `start` and `end` as `left` or `right` for a paragraph whose
+    /// base direction is `direction`; every other value is already physical.
+    pub fn physical(self, direction: Direction) -> TextAlign {
+        match (self, direction) {
+            (TextAlign::Start, Direction::Ltr) | (TextAlign::End, Direction::Rtl) => {
+                TextAlign::Left
+            }
+            (TextAlign::Start, Direction::Rtl) | (TextAlign::End, Direction::Ltr) => {
+                TextAlign::Right
+            }
+            (other, _) => other,
+        }
+    }
+}
+
+impl Paragraph {
+    /// [`Paragraph::from_style`] of a style read row by row (see
+    /// [`TextStyle::from_rows`]).
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS.into_iter().chain(PARAGRAPH_ROWS) {
+            rows.set(id);
+        }
+        let mut t = TextRows::of(own);
+        let mut p = ParagraphRows::of(own);
+        inherit(rows, &mut |from, mask| {
+            t.take(from, mask);
+            p.take(from, mask);
+        });
+        Paragraph {
+            markup: Markup::None,
+            strut: t.style(),
+            direction: p.direction,
+            text_align: p.text_align.physical(p.direction),
+            line_clamp: p.line_clamp,
+            text_overflow: p.text_overflow,
+            overflow_wrap: p.overflow_wrap,
+            white_space: p.white_space,
+            text_wrap_style: p.text_wrap_style,
+            text_indent: p.text_indent,
+            hyphens: p.hyphens,
+            text_box_trim: p.text_box_trim,
+            text_box_edge: p.text_box_edge,
+        }
+    }
+
+    /// The paragraph style carried by a node's style rows.
+    pub fn from_style(s: &StyleProps) -> Self {
+        Paragraph {
+            markup: Markup::None,
+            strut: TextStyle::from_style(s),
+            direction: s.direction,
+            text_align: s.text_align.physical(s.direction),
+            line_clamp: s.line_clamp,
+            text_overflow: s.text_overflow,
+            overflow_wrap: s.overflow_wrap,
+            white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
+            text_indent: s.text_indent,
+            hyphens: s.hyphens,
+            text_box_trim: s.text_box_trim,
+            text_box_edge: s.text_box_edge,
+        }
+    }
+}
+
+impl crate::Hyphens {
+    /// `text` as this paragraph's runs carry it: under `hyphens: none` a
+    /// soft hyphen is no break, so it becomes U+034F COMBINING GRAPHEME
+    /// JOINER, as invisible, no break opportunity (UAX #14 CM), and the
+    /// same length in UTF-8 and UTF-16, so no offset moves.
+    pub fn shown(self, text: Cow<'_, str>) -> Cow<'_, str> {
+        if self != crate::Hyphens::None || !text.contains('\u{ad}') {
+            return text;
+        }
+        Cow::Owned(text.replace('\u{ad}', "\u{34f}"))
+    }
+}
+
+/// One styled run of text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextRun<'a> {
+    /// The text as measured and painted: `text-transform` already applied,
+    /// borrowed from the node when it changes nothing.
+    pub text: Cow<'a, str>,
+    /// Its style.
+    pub style: TextStyle,
+    /// An image in the paragraph: the box a measurer reserves
+    /// in place of this run's text, which is [`inline_box::INLINE_BOX_TEXT`].
+    pub inline: Option<inline_box::InlineBox>,
+}
+
+impl<'a> TextRun<'a> {
+    /// A run of text in `style`.
+    pub fn new(text: impl Into<Cow<'a, str>>, style: TextStyle) -> Self {
+        TextRun {
+            text: text.into(),
+            style,
+            inline: None,
+        }
+    }
+}
+
+impl AsRef<str> for TextRun<'_> {
+    fn as_ref(&self) -> &str {
+        &self.text
+    }
+}
+
+/// What the kernel asks a measurer to size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextMeasureRequest<'a> {
+    /// The runs, in order. Never empty.
+    pub runs: &'a [TextRun<'a>],
+    /// Paragraph style.
+    pub paragraph: Paragraph,
+    /// Horizontal offer.
+    pub width: AxisOffer,
+    /// Vertical offer.
+    pub height: AxisOffer,
+    /// Resolved exclusions in content coordinates; empty during box layout.
+    /// Hosts answer from their flowed layout.
+    pub exclusions: &'a [exact_textflow::FlowShape],
+    /// A Markdown paragraph's inline atoms: its `atoms`
+    /// and `atomFaces`, which a label's width depends on; empty otherwise.
+    pub atoms: MarkupAtoms<'a>,
+}
+
+/// A Markdown node's `atoms` and `atomFaces` JSON, as the kernel holds them:
+/// a host that draws atoms expands the source with them,
+/// for measure and paint alike. Empty strings are none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MarkupAtoms<'a> {
+    /// The compiled kinds (`atoms`).
+    pub kinds: &'a str,
+    /// The app's faces (`atomFaces`).
+    pub faces: &'a str,
+}
+
+/// A measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TextMetrics {
+    /// Measured width.
+    pub width: f32,
+    /// Measured height.
+    pub height: f32,
+    /// Distance from the top to the first line's alphabetic baseline, if known.
+    pub first_baseline: Option<f32>,
+}
+
+impl TextMetrics {
+    pub(crate) fn is_valid(self) -> bool {
+        self.width.is_finite()
+            && self.width >= 0.0
+            && self.height.is_finite()
+            && self.height >= 0.0
+            && self
+                .first_baseline
+                .is_none_or(|baseline| baseline.is_finite() && baseline >= 0.0)
+    }
+}
+
+/// Where a paragraph's text-box edges stand, in points from its top
+/// (Inline Layout 3 §4.2): its first line's over edges and its last line's
+/// under edges, read from the fonts that line is set in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextEdges {
+    /// The first line's text-over edge: the top of its fonts' ascent.
+    pub text_over: f32,
+    /// The first line's cap height above its baseline.
+    pub cap_over: f32,
+    /// The first line's x-height above its baseline.
+    pub ex_over: f32,
+    /// The last line's alphabetic baseline.
+    pub alphabetic_under: f32,
+    /// The last line's text-under edge: the bottom of its fonts' descent.
+    pub text_under: f32,
+}
+
+impl crate::TextBoxTrim {
+    /// Whether the first line's over edge is cut.
+    pub fn start(self) -> bool {
+        matches!(
+            self,
+            crate::TextBoxTrim::TrimStart | crate::TextBoxTrim::TrimBoth
+        )
+    }
+    /// Whether the last line's under edge is cut.
+    pub fn end(self) -> bool {
+        matches!(
+            self,
+            crate::TextBoxTrim::TrimEnd | crate::TextBoxTrim::TrimBoth
+        )
+    }
+}
+
+/// `text-box-edge`'s over edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverEdge {
+    /// The font's ascent.
+    Text = 0,
+    /// The cap height.
+    Cap = 1,
+    /// The x-height.
+    Ex = 2,
+}
+
+/// `text-box-edge`'s under edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnderEdge {
+    /// The font's descent.
+    Text = 0,
+    /// The alphabetic baseline.
+    Alphabetic = 1,
+}
+
+impl crate::TextBoxEdge {
+    /// The over edge: `auto` is `text`.
+    pub fn over(self) -> OverEdge {
+        use crate::TextBoxEdge::*;
+        match self {
+            Cap | CapAlphabetic => OverEdge::Cap,
+            Ex | ExAlphabetic => OverEdge::Ex,
+            Auto | Text | TextAlphabetic => OverEdge::Text,
+        }
+    }
+    /// The under edge: one keyword leaves it `text`.
+    pub fn under(self) -> UnderEdge {
+        use crate::TextBoxEdge::*;
+        match self {
+            TextAlphabetic | CapAlphabetic | ExAlphabetic => UnderEdge::Alphabetic,
+            Auto | Text | Cap | Ex => UnderEdge::Text,
+        }
+    }
+}
+
+impl Paragraph {
+    /// `text-box-trim` applied to a measurement: how much comes off the top,
+    /// and the trimmed metrics (height, and a first baseline that many points
+    /// higher). With no trim, nothing changes. A host paints the lines that
+    /// many points up, where the measurement put them.
+    pub fn trimmed(&self, metrics: TextMetrics, edges: TextEdges) -> (f32, TextMetrics) {
+        let trim = self.text_box_trim;
+        let top = if trim.start() {
+            match self.text_box_edge.over() {
+                OverEdge::Cap => edges.cap_over,
+                OverEdge::Ex => edges.ex_over,
+                OverEdge::Text => edges.text_over,
+            }
+        } else {
+            0.0
+        };
+        let under = match self.text_box_edge.under() {
+            UnderEdge::Alphabetic => edges.alphabetic_under,
+            UnderEdge::Text => edges.text_under,
+        };
+        let bottom = if trim.end() {
+            metrics.height - under
+        } else {
+            0.0
+        };
+        if !(top.is_finite() && bottom.is_finite()) {
+            return (0.0, metrics);
+        }
+        let height = (metrics.height - top - bottom).max(0.0);
+        let first_baseline = metrics.first_baseline.map(|b| (b - top).max(0.0));
+        (
+            top,
+            TextMetrics {
+                height,
+                first_baseline,
+                ..metrics
+            },
+        )
+    }
+}
+
+/// A system symbol to measure: an image whose source is `symbol:<role>`,
+/// drawn at its computed font size and weight.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymbolRequest<'a> {
+    /// The role after `symbol:`: `sf/<name>`, or a portable role.
+    pub role: &'a str,
+    /// The image's computed font size, in points.
+    pub font_size: f32,
+    /// Its computed font weight, 1–1000.
+    pub font_weight: u16,
+}
+
+/// A host's text engine, injected per kernel.
+pub trait TextMeasurer {
+    /// The platform formats an instant on the runner clock.
+    fn format_time(&mut self, request: &crate::time::TimeRequest<'_>) -> Option<String> {
+        crate::time::english(request)
+    }
+
+    /// Revision of host measuring traits (scale, content size, legibility,
+    /// appearance). A change invalidates native button offers even if fonts
+    /// and the tree stay the same. Hosts without changing traits return zero.
+    fn measure_revision(&self) -> u64 {
+        0
+    }
+
+    /// Native field chrome. Existing/painted measurers answer
+    /// no chrome until they implement their own control look.
+    fn field_chrome(&mut self, _request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        crate::FieldChrome::default()
+    }
+
+    /// A text control's own text, where the host's control sets it with a
+    /// text engine of its own (Android's `EditText`): its
+    /// width, height and first baseline at the offer, asked during layout.
+    /// `None`, the default, measures it as any paragraph.
+    fn field_text(
+        &mut self,
+        _kind: crate::FieldKind,
+        _request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
+    /// Native button border-box size, including its platform chrome and
+    /// authored content insets. None preserves the
+    /// default size / set_intrinsic_size path for existing hosts.
+    fn button_measure(
+        &mut self,
+        _request: &crate::ButtonMeasureRequest,
+    ) -> Option<crate::ButtonMeasure> {
+        None
+    }
+
+    /// A system symbol's natural size, as the host draws it, measured before
+    /// the layout that places it, so the first frame has its box. `None` when
+    /// this host cannot say; the image's size is then the one its host
+    /// reports once its view is made.
+    fn symbol_size(&mut self, _request: &SymbolRequest<'_>) -> Option<(f32, f32)> {
+        None
+    }
+
+    /// The resolved document language; an empty language is unknown.
+    fn set_language(&mut self, _language: &str) {}
+
+    /// Size a paragraph under an offer.
+    fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Size presentation-only width candidates without retaining a paragraph artifact.
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        Some(self.measure(request))
+    }
+
+    /// Size a kernel-identified paragraph. Existing measurers use the ordinary
+    /// synchronous path; callers constructing requests still need no stamp.
+    /// The stamp identifies exactly this owner's canonical runs, not a subset
+    /// rooted at an inline child. Offers and host catalog remain separate keys.
+    fn measure_identified(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+    ) -> TextMetrics {
+        self.measure(request)
+    }
+
+    /// Whether this measurer's metrics never depend on the height offered
+    /// (only width wraps): the kernel then reuses a leaf's measurement
+    /// across heights instead of asking again.
+    fn height_free(&self) -> bool {
+        false
+    }
+
+    /// The metrics of a kernel-identified paragraph this measurer already
+    /// holds by `stamp`, at an offer, without its runs (no exclusions): the
+    /// kernel builds runs and paragraph style only when this is `None`.
+    /// Measurers that keep no identities answer `None`.
+    fn measure_known(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
+    /// Each line box's bottom, in content coordinates, of
+    /// the paragraph the last measure of `request` built: where a column may
+    /// end inside it. The kernel asks only for a paragraph that would cross a
+    /// column's end. A measurer that answers nothing keeps every paragraph
+    /// whole.
+    fn lines(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _request: &TextMeasureRequest<'_>,
+        _bottoms: &mut Vec<f32>,
+    ) {
+    }
+
+    /// Where the paragraph the last measure of
+    /// `request` built put each inline box (a run whose `inline` is set):
+    /// its margin box's top left in content coordinates, one pair per box in
+    /// run order, non-finite for a box on no line (one `line-clamp` cut).
+    /// A measurer that answers nothing leaves each at the content box's
+    /// origin.
+    fn inline_boxes(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _request: &TextMeasureRequest<'_>,
+        _origins: &mut Vec<(f32, f32)>,
+    ) {
+    }
+}
+
+/// Deterministic reference measurer: every glyph advances `advance_em` ems
+/// plus letter spacing; a line is `line_height_em` ems unless the style sets
+/// one. Wraps at whitespace; `overflow-wrap` can also split over-long words.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MonospaceMeasurer {
+    /// Glyph advance as a fraction of font size.
+    pub advance_em: f32,
+    /// Natural line height as a fraction of font size.
+    pub line_height_em: f32,
+    /// Baseline position as a fraction of line height.
+    pub baseline_frac: f32,
+}
+
+impl Default for MonospaceMeasurer {
+    fn default() -> Self {
+        MonospaceMeasurer {
+            advance_em: 0.6,
+            line_height_em: 1.2,
+            baseline_frac: 0.8,
+        }
+    }
+}
+
+impl MonospaceMeasurer {
+    fn line_height(&self, style: &TextStyle) -> f32 {
+        style
+            .line_height
+            .unwrap_or(style.font_size * self.line_height_em)
+    }
+
+    fn advance(&self, style: &TextStyle) -> f32 {
+        style.font_size * self.advance_em + style.letter_spacing
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Token {
+    Word { glyphs: Vec<f32> },
+    Space { width: f32 },
+    Break,
+    Box { width: f32, above: f32, below: f32 },
+}
+
+impl crate::WhiteSpace {
+    /// The walker's and hosts' model of this row: collapse × wrap mode.
+    pub fn model(self) -> exact_textflow::WhiteSpace {
+        match self {
+            crate::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
+            crate::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
+            crate::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
+            crate::WhiteSpace::PreLine => exact_textflow::WhiteSpace::PreLine,
+            crate::WhiteSpace::Pre => exact_textflow::WhiteSpace::Pre,
+        }
+    }
+}
+
+impl MonospaceMeasurer {
+    /// Flow around exclusions through the shared
+    /// walker over this measurer's advances, as the hosts do over theirs.
+    fn flow(&self, request: &TextMeasureRequest<'_>, width: f32) -> TextMetrics {
+        let strut = &request.paragraph.strut;
+        let mut line_height = self.line_height(strut);
+        let mut text = String::new();
+        let mut ends = Vec::with_capacity(request.runs.len());
+        for run in request.runs {
+            text.push_str(&run.text);
+            ends.push((text.len(), self.advance(&run.style)));
+            line_height = line_height.max(self.line_height(&run.style));
+        }
+        let mut measure = |range: std::ops::Range<usize>| {
+            text[range.clone()]
+                .char_indices()
+                .map(|(i, _)| {
+                    let at = range.start + i;
+                    ends.iter().find(|(end, _)| at < *end).map_or(0.0, |r| r.1)
+                })
+                .sum::<f32>()
+        };
+        let prepared = exact_textflow::Prepared::new(
+            &text,
+            exact_textflow::Options {
+                white_space: request.paragraph.white_space.model(),
+                overflow_wrap: match request.paragraph.overflow_wrap {
+                    OverflowWrap::Normal => exact_textflow::OverflowWrap::Normal,
+                    OverflowWrap::BreakWord => exact_textflow::OverflowWrap::BreakWord,
+                    OverflowWrap::Anywhere => exact_textflow::OverflowWrap::Anywhere,
+                },
+                hyphen_advance: self.advance(strut),
+            },
+            &mut measure,
+        );
+        let mut fragments = Vec::new();
+        let result = exact_textflow::flow(
+            &prepared,
+            request.exclusions,
+            &exact_textflow::FlowOptions {
+                direction: match request.paragraph.direction {
+                    Direction::Ltr => exact_textflow::Direction::Ltr,
+                    Direction::Rtl => exact_textflow::Direction::Rtl,
+                },
+                width,
+                line_height,
+                min_fragment: strut.font_size * exact_textflow::MIN_FRAGMENT_EM,
+                max_lines: request.paragraph.line_clamp,
+            },
+            &mut fragments,
+        );
+        TextMetrics {
+            width: fragments.iter().map(|f| f.x + f.width).fold(0.0, f32::max),
+            height: result.height,
+            // No line, no first baseline
+            first_baseline: (!fragments.is_empty()).then_some(line_height * self.baseline_frac),
+        }
+    }
+}
+
+impl TextMeasurer for MonospaceMeasurer {
+    /// Lines wrap at the width alone; the height offered is never read.
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        let metrics = self.measure_lines(request);
+        self.trim(request, metrics).1
+    }
+
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        self.line_bottoms(stamp, request, bottoms);
+        // A trimmed paragraph's lines move up by the top's cut, and the last
+        // ends at the trimmed height, as its measurement does.
+        if request.paragraph.text_box_trim != crate::TextBoxTrim::None {
+            let measured = self.measure_lines(request);
+            let (top, metrics) = self.trim(request, measured);
+            for b in bottoms.iter_mut() {
+                *b = (*b - top).min(metrics.height);
+            }
+            if let Some(last) = bottoms.last_mut() {
+                *last = metrics.height;
+            }
+        }
+    }
+
+    fn inline_boxes(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        origins: &mut Vec<(f32, f32)>,
+    ) {
+        if request.exclusions.is_empty() {
+            self.box_origins(request, origins);
+        }
+    }
+}
+
+impl MonospaceMeasurer {
+    /// `text-box-trim` on a measurement: the cut off its top, and the
+    /// trimmed metrics.
+    fn trim(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+        metrics: TextMetrics,
+    ) -> (f32, TextMetrics) {
+        let p = &request.paragraph;
+        // Trim nothing without a line: CSS trims a formatted line's edges
+        let Some(baseline) = metrics.first_baseline else {
+            return (0.0, metrics);
+        };
+        if p.text_box_trim == crate::TextBoxTrim::None {
+            return (0.0, metrics);
+        }
+        // The reference face: cap height 0.7 em and x-height 0.5 em above the
+        // baseline, its ascent and descent the line box's.
+        // The edges are the root inline box's, the paragraph's own font
+        // (Inline Layout 3 §4.2); the line box is every run's.
+        let mut line = self.line_height(&p.strut);
+        let size = p.strut.font_size;
+        for run in request.runs {
+            line = line.max(self.line_height(&run.style));
+        }
+        let last = metrics.height - line + line * self.baseline_frac;
+        let edges = TextEdges {
+            text_over: 0.0,
+            cap_over: baseline - 0.7 * size,
+            ex_over: baseline - 0.5 * size,
+            alphabetic_under: last,
+            text_under: metrics.height,
+        };
+        p.trimmed(metrics, edges)
+    }
+}
+
+/// One line of the reference measurer's layout: its width, and how far its
+/// box reaches above and below its baseline.
+#[derive(Debug, Clone, Copy)]
+struct MonoLine {
+    width: f32,
+    above: f32,
+    below: f32,
+}
+
+/// The reference measurer's lines, and where each inline box went: its line
+/// and its x there, with its height above the baseline.
+struct MonoLayout {
+    lines: Vec<MonoLine>,
+    /// Each box's line (past the last when `line-clamp` cut it), x and
+    /// height above the baseline.
+    boxes: Vec<(usize, f32, f32)>,
+    /// Each line's bottom: whole line heights, so a paragraph without a box
+    /// measures as one line height times its lines, plus what each box
+    /// added to its line.
+    bottoms: Vec<f32>,
+}
+
+impl MonospaceMeasurer {
+    fn measure_lines(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        if let AxisOffer::Definite(width) = request.width {
+            if !request.exclusions.is_empty() {
+                return self.flow(request, width);
+            }
+        }
+        let Some(laid) = self.lay_out(request) else {
+            return TextMetrics::default();
+        };
+        // Lines never exceed the limit except for a single unbreakable word,
+        // which legitimately overflows — so the widest line is the width.
+        TextMetrics {
+            width: laid.lines.iter().map(|l| l.width).fold(0f32, f32::max),
+            height: laid.bottoms.last().copied().unwrap_or(0.0),
+            first_baseline: laid.lines.first().map(|l| l.above),
+        }
+    }
+
+    /// The reference face's edges at `style`: its ascent and
+    /// descent split its line height at the baseline, its x-height half an em.
+    fn edges(&self, style: &TextStyle) -> inline_box::FontEdges {
+        let line = self.line_height(style);
+        inline_box::FontEdges {
+            ascent: line * self.baseline_frac,
+            descent: line * (1.0 - self.baseline_frac),
+            x_height: style.font_size * 0.5,
+        }
+    }
+
+    fn lay_out(&mut self, request: &TextMeasureRequest<'_>) -> Option<MonoLayout> {
+        let white_space = request.paragraph.white_space.model();
+        // CSS collapsing first, as every native engine now does.
+        let collapsed = exact_textflow::collapse(request.runs, white_space);
+        // Tokenize across runs. A word may span runs; its width accumulates.
+        let mut tokens: Vec<Token> = Vec::new();
+        let mut line_height = self.line_height(&request.paragraph.strut);
+        let mut pending_word: Vec<f32> = Vec::new();
+        let mut any_text = false;
+        let mut boxes = 0;
+        for (index, run) in request.runs.iter().enumerate() {
+            if let Some(b) = run.inline {
+                // An inline box is a word of its own: lines break around it.
+                any_text = true;
+                if !pending_word.is_empty() {
+                    tokens.push(Token::Word {
+                        glyphs: std::mem::take(&mut pending_word),
+                    });
+                }
+                let above = b.ascent(self.edges(&run.style));
+                tokens.push(Token::Box {
+                    width: b.width,
+                    above,
+                    below: b.height - above,
+                });
+                boxes += 1;
+                continue;
+            }
+            line_height = line_height.max(self.line_height(&run.style));
+            let advance = self.advance(&run.style);
+            let text = collapsed
+                .as_ref()
+                .map_or(&*run.text, |c| c.runs[index].as_str());
+            for ch in text.chars() {
+                any_text = true;
+                if ch == '\n' {
+                    if !pending_word.is_empty() {
+                        tokens.push(Token::Word {
+                            glyphs: std::mem::take(&mut pending_word),
+                        });
+                    }
+                    tokens.push(Token::Break);
+                } else if ch.is_whitespace() {
+                    if !pending_word.is_empty() {
+                        tokens.push(Token::Word {
+                            glyphs: std::mem::take(&mut pending_word),
+                        });
+                    }
+                    tokens.push(Token::Space { width: advance });
+                } else {
+                    pending_word.push(advance);
+                }
+            }
+        }
+        if !pending_word.is_empty() {
+            tokens.push(Token::Word {
+                glyphs: pending_word,
+            });
+        }
+        if !any_text {
+            return None;
+        }
+
+        // Lay lines out under the offer.
+        let limit = match request.width {
+            _ if !white_space.wraps() => None,
+            AxisOffer::Definite(w) => Some(w.max(0.0)),
+            AxisOffer::MaxContent => None,
+            AxisOffer::MinContent => Some(0.0),
+        };
+        let breaks_words = request.paragraph.overflow_wrap != OverflowWrap::Normal
+            && (!matches!(request.width, AxisOffer::MinContent)
+                || request.paragraph.overflow_wrap == OverflowWrap::Anywhere);
+        let empty = MonoLine {
+            width: 0.0,
+            above: line_height * self.baseline_frac,
+            below: line_height * (1.0 - self.baseline_frac),
+        };
+        let mut lines: Vec<MonoLine> = vec![empty];
+        let mut placed = Vec::with_capacity(boxes);
+        let mut trailing_space = 0f32;
+        for token in tokens {
+            match token {
+                Token::Break => {
+                    lines.push(empty);
+                    trailing_space = 0.0;
+                }
+                Token::Space { width } => {
+                    if let Some(current) = lines.last_mut() {
+                        if current.width > 0.0 {
+                            current.width += width;
+                            trailing_space += width;
+                        }
+                    }
+                }
+                Token::Box {
+                    width,
+                    above,
+                    below,
+                } => {
+                    let current = lines.last_mut().expect("one line exists");
+                    if limit.is_some_and(|max| current.width > 0.0 && current.width + width > max) {
+                        current.width -= trailing_space;
+                        lines.push(empty);
+                    }
+                    trailing_space = 0.0;
+                    let at = lines.len() - 1;
+                    let current = &mut lines[at];
+                    placed.push((at, current.width, above));
+                    current.width += width;
+                    current.above = current.above.max(above);
+                    current.below = current.below.max(below);
+                }
+                Token::Word { glyphs } => {
+                    let width: f32 = glyphs.iter().sum();
+                    let current = lines.last_mut().expect("one line exists");
+                    if limit.is_some_and(|max| current.width > 0.0 && current.width + width > max) {
+                        current.width -= trailing_space;
+                        lines.push(empty);
+                    }
+                    trailing_space = 0.0;
+                    if breaks_words && limit.is_some_and(|max| width > max) {
+                        for advance in glyphs {
+                            let current = lines.last_mut().expect("one line exists");
+                            if limit.is_some_and(|max| {
+                                current.width > 0.0 && current.width + advance > max
+                            }) {
+                                lines.push(MonoLine {
+                                    width: advance,
+                                    ..empty
+                                });
+                            } else {
+                                current.width += advance;
+                            }
+                        }
+                    } else {
+                        lines.last_mut().expect("one line exists").width += width;
+                    }
+                }
+            }
+        }
+        if let Some(last) = lines.last_mut() {
+            last.width -= trailing_space;
+        }
+        let max_lines = request.paragraph.line_clamp;
+        if max_lines > 0 && lines.len() > max_lines as usize {
+            lines.truncate(max_lines as usize);
+        }
+        let mut grown = 0.0;
+        let bottoms = (lines.iter().enumerate())
+            .map(|(i, l)| {
+                grown += (l.above - empty.above) + (l.below - empty.below);
+                line_height * (i + 1) as f32 + grown
+            })
+            .collect();
+        Some(MonoLayout {
+            lines,
+            boxes: placed,
+            bottoms,
+        })
+    }
+}
+
+impl MonospaceMeasurer {
+    /// Each line's bottom, from the lines the measure laid out.
+    fn line_bottoms(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        if !request.exclusions.is_empty() {
+            // Flowed lines are each one line height.
+            let height = self.measure_lines(request).height;
+            let line_height = request
+                .runs
+                .iter()
+                .map(|run| self.line_height(&run.style))
+                .fold(self.line_height(&request.paragraph.strut), f32::max);
+            if line_height > 0.0 {
+                let count = (height / line_height).round() as usize;
+                bottoms.extend((1..=count).map(|i| line_height * i as f32));
+            }
+        } else if let Some(laid) = self.lay_out(request) {
+            bottoms.extend(laid.bottoms);
+        }
+    }
+
+    /// Each inline box's top left, as [`TextMeasurer::inline_boxes`] asks.
+    fn box_origins(&mut self, request: &TextMeasureRequest<'_>, origins: &mut Vec<(f32, f32)>) {
+        let Some(laid) = self.lay_out(request) else {
+            return;
+        };
+        let measured = self.measure_lines(request);
+        let (top, _) = self.trim(request, measured);
+        for &(index, x, above) in &laid.boxes {
+            let Some(line) = laid.lines.get(index) else {
+                origins.push((f32::NAN, f32::NAN));
+                continue;
+            };
+            origins.push((x, laid.bottoms[index] - line.below - above - top));
+        }
+    }
+}
+
+/// What [`TextStyle::from_style`] reads, gathered row by row.
+#[derive(Clone, Copy)]
+struct TextRows {
+    font_size: f32,
+    font_weight: u16,
+    font_style: crate::FontStyle,
+    font_stretch: f32,
+    font_variations: crate::style::FontVariations,
+    font_optical_sizing: crate::FontOpticalSizing,
+    font_family: u16,
+    line_height: crate::LineHeight,
+    letter_spacing: f32,
+    font_variant_numeric: u8,
+    font_variant_ligatures: u8,
+}
+
+impl TextRows {
+    fn of(s: &StyleProps) -> Self {
+        TextRows {
+            font_size: s.font_size,
+            font_weight: s.font_weight,
+            font_style: s.font_style,
+            font_stretch: s.font_stretch,
+            font_variations: s.font_variation_settings,
+            font_optical_sizing: s.font_optical_sizing,
+            font_family: s.font_family,
+            line_height: s.line_height,
+            letter_spacing: s.letter_spacing,
+            font_variant_numeric: s.font_variant_numeric,
+            font_variant_ligatures: s.font_variant_ligatures,
+        }
+    }
+    fn take(&mut self, s: &StyleProps, mask: StyleMask) {
+        if mask.has(StyleId::FontSize) {
+            self.font_size = s.font_size;
+        }
+        if mask.has(StyleId::FontWeight) {
+            self.font_weight = s.font_weight;
+        }
+        if mask.has(StyleId::FontStyle) {
+            self.font_style = s.font_style;
+        }
+        if mask.has(StyleId::FontStretch) {
+            self.font_stretch = s.font_stretch;
+        }
+        if mask.has(StyleId::FontVariationSettings) {
+            self.font_variations = s.font_variation_settings;
+        }
+        if mask.has(StyleId::FontOpticalSizing) {
+            self.font_optical_sizing = s.font_optical_sizing;
+        }
+        if mask.has(StyleId::FontFamily) {
+            self.font_family = s.font_family;
+        }
+        if mask.has(StyleId::LineHeight) {
+            self.line_height = s.line_height;
+        }
+        if mask.has(StyleId::LetterSpacing) {
+            self.letter_spacing = s.letter_spacing;
+        }
+        if mask.has(StyleId::FontVariantNumeric) {
+            self.font_variant_numeric = s.font_variant_numeric;
+        }
+        if mask.has(StyleId::FontVariantLigatures) {
+            self.font_variant_ligatures = s.font_variant_ligatures;
+        }
+    }
+    fn style(&self) -> TextStyle {
+        TextStyle {
+            font_size: self.font_size,
+            font_weight: self.font_weight,
+            font_style: self.font_style,
+            font_stretch: self.font_stretch,
+            font_variations: self.font_variations,
+            font_optical_sizing: self.font_optical_sizing,
+            font_family: self.font_family,
+            line_height: self.line_height.resolve(self.font_size),
+            letter_spacing: self.letter_spacing,
+            font_variant_numeric: self.font_variant_numeric,
+            font_variant_ligatures: self.font_variant_ligatures,
+            bold_text: false,
+        }
+    }
+}
+
+/// Computed run rows carried down one inline tree. Keep line-height unresolved
+/// until a leaf: an inherited unitless value scales with that leaf's font size.
+#[derive(Clone, Copy)]
+pub(crate) struct RunRows {
+    text: TextRows,
+    pub hyphens: crate::Hyphens,
+    pub transform: crate::TextTransform,
+    mask: StyleMask,
+}
+
+impl RunRows {
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS {
+            rows.set(id);
+        }
+        rows.set(StyleId::Hyphens);
+        rows.set(StyleId::TextTransform);
+        let mut out = Self {
+            text: TextRows::of(own),
+            hyphens: own.hyphens,
+            transform: own.text_transform,
+            mask: own.mask,
+        };
+        inherit(rows, &mut |from, mask| {
+            out.take(from, mask);
+            out.mask = out.mask.union(mask);
+        });
+        out
+    }
+
+    /// Only Text children participate in an inline traversal, so control
+    /// typography boundaries have already been resolved at the traversal root.
+    pub fn child(mut self, own: &StyleProps) -> Self {
+        // A row set nowhere retains the child's own initial value, unmarked,
+        // exactly as computed_style does (including arena-only test styles).
+        self.take(own, own.mask.union(StyleMask::INHERITED.minus(self.mask)));
+        self.mask = self.mask.union(own.mask);
+        self
+    }
+
+    /// The rows set at or above this run.
+    pub fn said(&self) -> StyleMask {
+        self.mask
+    }
+
+    /// `from`'s rows in `mask` taken, as a text style gives them, and marked
+    /// set for the runs inside.
+    pub fn fill(mut self, from: &StyleProps, mask: StyleMask) -> Self {
+        self.take(from, mask);
+        self.mask = self.mask.union(mask);
+        self
+    }
+
+    fn take(&mut self, from: &StyleProps, mask: StyleMask) {
+        self.text.take(from, mask);
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = from.hyphens;
+        }
+        if mask.has(StyleId::TextTransform) {
+            self.transform = from.text_transform;
+        }
+    }
+
+    pub fn style(&self) -> TextStyle {
+        self.text.style()
+    }
+}
+
+/// The paragraph rows [`Paragraph::from_style`] reads besides its strut.
+const PARAGRAPH_ROWS: [StyleId; 11] = [
+    StyleId::Direction,
+    StyleId::TextAlign,
+    StyleId::LineClamp,
+    StyleId::TextOverflow,
+    StyleId::OverflowWrap,
+    StyleId::WhiteSpace,
+    StyleId::TextWrapStyle,
+    StyleId::TextIndent,
+    StyleId::Hyphens,
+    StyleId::TextBoxTrim,
+    StyleId::TextBoxEdge,
+];
+
+struct ParagraphRows {
+    direction: crate::Direction,
+    text_align: crate::TextAlign,
+    line_clamp: u32,
+    text_overflow: crate::TextOverflow,
+    overflow_wrap: crate::OverflowWrap,
+    white_space: crate::WhiteSpace,
+    text_wrap_style: crate::TextWrapStyle,
+    text_indent: f32,
+    hyphens: crate::Hyphens,
+    text_box_trim: crate::TextBoxTrim,
+    text_box_edge: crate::TextBoxEdge,
+}
+
+impl ParagraphRows {
+    fn of(s: &StyleProps) -> Self {
+        ParagraphRows {
+            direction: s.direction,
+            text_align: s.text_align,
+            line_clamp: s.line_clamp,
+            text_overflow: s.text_overflow,
+            overflow_wrap: s.overflow_wrap,
+            white_space: s.white_space,
+            text_wrap_style: s.text_wrap_style,
+            text_indent: s.text_indent,
+            hyphens: s.hyphens,
+            text_box_trim: s.text_box_trim,
+            text_box_edge: s.text_box_edge,
+        }
+    }
+    fn take(&mut self, s: &StyleProps, mask: StyleMask) {
+        if mask.has(StyleId::Direction) {
+            self.direction = s.direction;
+        }
+        if mask.has(StyleId::TextAlign) {
+            self.text_align = s.text_align;
+        }
+        if mask.has(StyleId::LineClamp) {
+            self.line_clamp = s.line_clamp;
+        }
+        if mask.has(StyleId::TextOverflow) {
+            self.text_overflow = s.text_overflow;
+        }
+        if mask.has(StyleId::OverflowWrap) {
+            self.overflow_wrap = s.overflow_wrap;
+        }
+        if mask.has(StyleId::WhiteSpace) {
+            self.white_space = s.white_space;
+        }
+        if mask.has(StyleId::TextWrapStyle) {
+            self.text_wrap_style = s.text_wrap_style;
+        }
+        if mask.has(StyleId::TextIndent) {
+            self.text_indent = s.text_indent;
+        }
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = s.hyphens;
+        }
+        if mask.has(StyleId::TextBoxTrim) {
+            self.text_box_trim = s.text_box_trim;
+        }
+        if mask.has(StyleId::TextBoxEdge) {
+            self.text_box_edge = s.text_box_edge;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

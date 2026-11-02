@@ -1,0 +1,22 @@
+[package]
+name = "exact-xheavy-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Extra Heavy feed on the Apple host: the app's static library"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_xheavy_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-xheavy-data = { path = "../data" }
+exact-logic = { path = "../../../../logic" }
+exact-apple = { path = "../../../../host/apple" }
+
+[build-dependencies]
+exact-xheavy-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+exact-bake = { path = "../../../../bake" }

@@ -1,0 +1,41 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/photos@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidPhotoAsset": {
+      "relativePath": "option<string>",
+      "bucketDisplayName": "option<string>",
+      "ownerPackageName": "option<string>"
+    },
+    "AndroidPhotoLibraryStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool",
+      "generation": "option<string>"
+    },
+    "AndroidPhotoCopy": {
+      "locationRedacted": "bool"
+    }
+  },
+  "options": {
+    "addToPhotoLibrary": {
+      "relativePath": "string"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "queryArgs",
+    "insertValues"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.photos.PhotosModule"
+}

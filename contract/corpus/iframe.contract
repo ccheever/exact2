@@ -1,0 +1,13 @@
+// Accept fixture: HTML's `iframe` tag, attributes, and events. The guest
+// message is a string recorded by the action.
+component Frame
+  state loaded = false
+  state received = ""
+  action didLoad
+    loaded = true
+  action receivedMessage(payload)
+    received = payload
+  view
+    column testId="root"
+      iframe "/deck/index.html" sandbox="allow-scripts" load=didLoad message=receivedMessage testId="deck"
+      text received testId="received"

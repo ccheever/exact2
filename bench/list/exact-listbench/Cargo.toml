@@ -1,0 +1,22 @@
+# List Bench: the Expo PR 49975 list demo (DataListForEachScreen) on exact2,
+# built from this checkout by path (EXACT_APP_DIR, ../README.md). Its own
+# workspace, so the root's does not adopt it; `data/` answers the resource and
+# the mutations, `apple/` is the library the Apple host links. The root's
+# [profile.*] tables are passed to every build of it (scripts/app.mjs
+# injectedProfiles), and rustup takes the root's rust-toolchain.toml.
+[workspace]
+members = ["data", "apple"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+
+# exact2's vendored crates, as the root's Cargo.toml patches them; a build
+# refuses a workspace whose list differs (scripts/app.mjs).
+[patch.crates-io]
+taffy = { path = "../../../vendor/taffy" }
+parley = { path = "../../../vendor/parley" }
+fontique = { path = "../../../vendor/fontique" }
+wgpu-hal = { path = "../../../vendor/wgpu-hal" }

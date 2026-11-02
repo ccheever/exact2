@@ -1,0 +1,466 @@
+//! Native modules: a hyphenated tag is a custom element. It
+//! lowers to a `NativeView` whose module name is the tag and whose leftover
+//! attributes are one JSON object, replaced whole on change.
+//!
+//! The rules: HTML's potential-custom-element-name, lowercase only,
+//! the SVG/MathML reserved names refused; a fixed `display: block` row; the
+//! known attribute table binds first and its renamed spellings stay refused;
+//! an SVG element's own props, `svg::svg_only_prop`, stay the module's; a
+//! known name the leaf box never uses, a text row or a form control's, is
+//! refused by name rather than bound to nothing, `refused`.
+
+use crate::tags::{self, Tag};
+use crate::{err, LowerError, Lowerer};
+use contract_syntax::{Attr, File, Node, Span};
+use contract_types::{Scope, Ty};
+use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::asm::Asm;
+use exact_plan::BindingsRow;
+
+/// HTML's reserved hyphenated names (SVG and MathML elements).
+const RESERVED: [&str; 8] = [
+    "annotation-xml",
+    "color-profile",
+    "font-face",
+    "font-face-src",
+    "font-face-uri",
+    "font-face-format",
+    "font-face-name",
+    "missing-glyph",
+];
+
+/// Whether `name` is a native module tag: `[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+`
+/// and not reserved. The same string is the source spelling, the DOM tag
+/// and the module table's key; the hosts check it again on plan bytes.
+pub fn is_module_tag(name: &str) -> bool {
+    let word = |w: &str| {
+        let mut chars = w.chars();
+        chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+    name.contains('-') && name.split('-').all(word) && !RESERVED.contains(&name)
+}
+
+/// The tag a module name lowers to: a leaf `NativeView` that declares
+/// `display: block`. A custom element has no UA rule and would be inline in
+/// the browser; the row makes the web and the native box agree, and an
+/// authored `display` still wins.
+pub(crate) fn tag(name: &str) -> Option<Tag> {
+    is_module_tag(name).then_some(Tag {
+        node_type: NodeType::NativeView,
+        fixed_styles: &[(StyleId::Display, "block")],
+        fixed_props: &[],
+        positional: None,
+    })
+}
+
+/// Whether an attribute on a module tag is a leftover: a module prop, not a
+/// row of the table. A renamed spelling (`fontSize`) is still refused with
+/// its CSS name, `class` is the style mechanism, and a `data-` word is the
+/// element's dataset, as a custom element's is.
+pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
+    is_module_tag(tag)
+        && a.name != "class"
+        && crate::dataset::word(&a.name).is_none()
+        && (tags::attr(&a.name).is_none() || crate::svg::svg_only_prop(&a.name))
+        && tags::renamed(&a.name).is_none()
+}
+
+/// A known attribute a module tag cannot use, refused by name. The table
+/// binds before the module, so a known word on a module tag
+/// binds to its box, and the box uses only what any leaf box uses: layout,
+/// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
+/// `disabled` and `inert` (the module's interaction suppression reads them),
+/// and `tabindex`
+/// — an allow-list (`command` would set a host
+/// command the module never saw). Every other known word is refused, naming
+/// what it is: a text row (`color`), a form control's row (`appearance`)
+/// or prop (`value`), or another element's attribute (`command`, `href`).
+/// `class` and `data-*` never reach here, and an SVG element's own props
+/// (`svg_only_prop`, `mode`) stay the module's.
+pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
+    if !is_module_tag(tag) || leftover(tag, a) {
+        return None;
+    }
+    let what = match tags::attr(&a.name)? {
+        tags::AttrTarget::Styles(rows) => {
+            let text = |r: &StyleId| {
+                r.affects_text() || matches!(r, StyleId::TextColor | StyleId::TextDecorationLine)
+            };
+            let control = |r: &StyleId| {
+                matches!(
+                    r,
+                    StyleId::Appearance | StyleId::AccentColor | StyleId::CaretColor
+                )
+            };
+            if rows.iter().any(control) {
+                "a form control's row"
+            } else if rows.iter().any(text) {
+                "a text row"
+            } else {
+                return None;
+            }
+        }
+        // The box hears every event Contract names, and a module sends nine
+        // of them (`NativeViews.kinds`): any other event's name on a module
+        // tag is a handler nothing fires, so a prop named like one
+        // (`playing`, `ended`) is refused rather than bound to silence.
+        tags::AttrTarget::Handler(_) if !MODULE_EVENTS.contains(&a.name.as_str()) => {
+            "an event the box hears and a module never sends (a module sends press, change, hover, focus, blur, key, submit, load and message)"
+        }
+        tags::AttrTarget::Handler(_) | tags::AttrTarget::Flex => return None,
+        // A hatch names its own refusal on a module (`lower-hatch-module`).
+        _ if a.name == "hatch" => return None,
+        _ if BOX_PROPS.contains(&a.name.as_str()) || a.name.starts_with("aria-") => return None,
+        _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's prop",
+        _ => "another element's attribute",
+    };
+    Some(LowerError {
+        id: "lower-native-attr",
+        message: format!(
+            "`{}` on `{tag}` is {what}, which a native module's box never uses; a known attribute binds to the box, not the module, so give the module prop another name",
+            a.name
+        ),
+        span: a.span,
+    })
+}
+
+/// A module tag's attribute refused for what the name means elsewhere (a
+/// renamed spelling such as `size`, another element's `rows` or `name`)
+/// says what to do about it, as `refused` does: a module prop with a name
+/// Contract knows never reaches the module.
+pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
+    let Node::Element { tag, attrs, .. } = n else {
+        return e;
+    };
+    if is_module_tag(tag)
+        && matches!(e.id, "lower-unknown-attr" | "lower-attr-tag")
+        && attrs.iter().any(|a| a.span == e.span)
+    {
+        e.message.push_str(&format!(
+            "; on `{tag}` a name Contract knows binds to the box, not the module, so give the module prop another name"
+        ));
+    }
+    e
+}
+
+/// The props besides ARIA's that any leaf box takes, so a module's too.
+const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
+
+/// The events a native view sends its box (`ExactNativeEvents`; the Apple
+/// host's `NativeViews.kinds`), the only handlers a module tag can fire.
+const MODULE_EVENTS: [&str; 9] = [
+    "press", "change", "hover", "focus", "blur", "key", "submit", "load", "message",
+];
+
+/// The form-control props a module's box has
+/// no use for. `checked` is refused on every tag but `input` before this
+/// runs (`controls::control`); it is listed so the set reads whole.
+const CONTROL_PROPS: [&str; 20] = [
+    "value",
+    "placeholder",
+    "autofocus",
+    "type",
+    "min",
+    "max",
+    "step",
+    "accept",
+    "multiple",
+    "readonly",
+    "inputmode",
+    "enterkeyhint",
+    "autocomplete",
+    "autocapitalize",
+    "autocorrect",
+    "spellcheck",
+    "markup",
+    "emojiPicker",
+    "checked",
+    "name",
+];
+
+/// Every module tag the file's views name, with where: the driver checks
+/// them against the app's roster (`bake-unknown-module`).
+pub fn module_tags(file: &File) -> Vec<(String, Span)> {
+    fn walk(nodes: &[Node], out: &mut Vec<(String, Span)>) {
+        for n in nodes {
+            match n {
+                Node::Element {
+                    tag,
+                    children,
+                    span,
+                    ..
+                } => {
+                    if is_module_tag(tag) {
+                        out.push((tag.clone(), *span));
+                    }
+                    walk(children, out);
+                }
+                Node::Use { children, .. } => walk(children, out),
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, out);
+                    walk(otherwise, out);
+                }
+                Node::Each { body, .. } => walk(body, out),
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, out);
+                    walk(none, out);
+                }
+                Node::Children { .. } => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for c in &file.components {
+        walk(&c.view, &mut out);
+    }
+    out
+}
+
+impl Lowerer<'_> {
+    /// A module node's two props: its name, and its leftover attributes as
+    /// one object — keys sorted, the last binding of a key winning, each
+    /// value a string, number or bool (or an option of one, absent when
+    /// none), evaluated with the node's bindings. A package view's record
+    /// or list prop, and its declared events, are `native_typed.rs`'s.
+    pub(crate) fn native_bindings(
+        &mut self,
+        tag: &str,
+        leftovers: &[&Attr],
+        scope: &Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+        handlers: &mut Vec<(
+            exact_plan::EventKind,
+            exact_plan::ActionsId,
+            Vec<exact_plan::Code>,
+        )>,
+    ) -> Result<(), LowerError> {
+        let module = self.b.constant(&exact_plan::Value::str(tag));
+        bindings.push(crate::prop_row(
+            PropId::NativeViewModuleName,
+            module,
+            crate::IMPLIED,
+        ));
+        let view = crate::native_typed::declared(tag).unwrap_or_default();
+        let mut keyed: std::collections::BTreeMap<&str, &Attr> = Default::default();
+        for a in leftovers {
+            match view.events.get(&a.name) {
+                Some(args) => self.view_event(tag, args, a, handlers)?,
+                None => {
+                    keyed.insert(a.name.as_str(), a);
+                }
+            }
+        }
+        let mut asm = Asm::new();
+        let mut depth = locals;
+        let scalar = |t: &Ty| {
+            matches!(
+                t,
+                Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+            )
+        };
+        for (key, a) in &keyed {
+            let ty =
+                contract_types::infer(&a.value, scope, &self.types.shapes).unwrap_or(Ty::Unknown);
+            let literal = match &a.value {
+                contract_syntax::Expr::Str(v, _) => Some(v.as_str()),
+                _ => None,
+            };
+            if let Some(decl) = view.props.get(*key).filter(|d| {
+                !crate::native_typed::fits(d, &ty)
+                    && !literal.is_some_and(|v| crate::native_typed::names_case(d, v))
+            }) {
+                return err(
+                    "contract-view-prop",
+                    format!(
+                        "`{key}` on `{tag}` is `{decl}`, as its package declares it, not `{ty}`"
+                    ),
+                    a.span,
+                );
+            }
+            let inner = match &ty {
+                Ty::Option(inner) => inner.as_ref(),
+                t => t,
+            };
+            // A record or list prop a package declares travels as its JSON.
+            let schema = (!scalar(inner) && view.props.contains_key(*key))
+                .then(|| self.prop_schema(inner, 0))
+                .flatten();
+            asm.str(self.b.str(key));
+            if let Some(schema) = &schema {
+                asm.str(self.b.str(&schema.to_string()));
+                asm.list(2);
+            }
+            let compiled = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
+            let admitted = schema.is_some()
+                || match &compiled {
+                    Ty::Option(inner) => scalar(inner),
+                    t => scalar(t),
+                };
+            if !admitted {
+                return err(
+                    "lower-native-prop",
+                    format!(
+                        "`{key}` on `{tag}` is a module prop: a string, number or bool, or an option of one, or a record or list its package declares"
+                    ),
+                    a.span,
+                );
+            }
+        }
+        asm.native_props(keyed.len() as u32);
+        let written = leftovers.iter().any(|a| a.written);
+        bindings.push(crate::prop_row(
+            PropId::NativeViewProps,
+            self.b.code(asm),
+            written,
+        ));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_module_tag;
+
+    /// SVG elements' own props (the filter primitives among them)
+    /// stay a module's props; rows still bind first.
+    #[test]
+    fn svg_element_props_stay_a_modules_on_its_tag() {
+        let attr = |name: &str| contract_syntax::Attr {
+            name: name.into(),
+            value: contract_syntax::Expr::Ident("v".into(), Default::default()),
+            span: Default::default(),
+            written: true,
+        };
+        for name in [
+            "mode", "seed", "values", "in", "viewBox", "offset", "orient",
+        ] {
+            assert!(super::leftover("exact-fixture", &attr(name)), "{name}");
+        }
+        for name in ["width", "fill", "x", "filter"] {
+            assert!(!super::leftover("exact-fixture", &attr(name)), "{name}");
+        }
+    }
+
+    /// A row the leaf box never uses is refused on a module tag, by name;
+    /// the box's own rows, the events and the module's props are not.
+    #[test]
+    fn a_text_or_control_row_on_a_module_tag_is_refused_by_name() {
+        let attr = |name: &str| contract_syntax::Attr {
+            name: name.into(),
+            value: contract_syntax::Expr::Ident("v".into(), Default::default()),
+            span: Default::default(),
+            written: true,
+        };
+        for name in [
+            "appearance",
+            "accent-color",
+            "caret-color",
+            "font-size",
+            "font-family",
+            "color",
+            "line-height",
+            "text-align",
+            "white-space",
+            "text-decoration-line",
+            "value",
+            "placeholder",
+            "autofocus",
+            "type",
+            "readonly",
+            "inputmode",
+            "spellcheck",
+            "markup",
+            "command",
+            "commandfor",
+            "href",
+            "src",
+            "popover",
+            "virtualized",
+            "playing",
+            "ended",
+            "timeupdate",
+            "scroll",
+        ] {
+            let e = super::refused("ghostty-terminal", &attr(name))
+                .unwrap_or_else(|| panic!("{name} was not refused"));
+            assert_eq!(e.id, "lower-native-attr");
+            assert!(
+                e.message
+                    .starts_with(&format!("`{name}` on `ghostty-terminal` is ")),
+                "{}",
+                e.message
+            );
+        }
+        for name in [
+            "width",
+            "height",
+            "flex",
+            "min-height",
+            "padding",
+            "margin-top",
+            "background-color",
+            "opacity",
+            "border-radius",
+            "display",
+            "position",
+            "z-index",
+            "transition",
+            "testId",
+            "id",
+            "aria-label",
+            "role",
+            "inert",
+            "disabled",
+            "tabindex",
+            "aria-hidden",
+            "load",
+            "press",
+            "change",
+            "message",
+            "scheme",
+            "mode",
+            "seed",
+            "photo",
+            "class",
+            "fontSize",
+        ] {
+            assert!(
+                super::refused("ghostty-terminal", &attr(name)).is_none(),
+                "{name}"
+            );
+        }
+        assert!(super::refused("text", &attr("appearance")).is_none());
+        assert!(super::refused("input", &attr("value")).is_none());
+    }
+
+    #[test]
+    fn the_admission_is_lowercase_pcen_without_the_reserved_names() {
+        for ok in [
+            "ghostty-terminal",
+            "photo-editor",
+            "exact-fixture",
+            "a-b-c",
+            "x1-y_2",
+        ] {
+            assert!(is_module_tag(ok), "{ok}");
+        }
+        for no in [
+            "text",
+            "Ghostty-Terminal",
+            "photo-Editor",
+            "-lead",
+            "trail-",
+            "a--b",
+            "1a-b",
+            "font-face",
+            "annotation-xml",
+            "a-b.c",
+        ] {
+            assert!(!is_module_tag(no), "{no}");
+        }
+    }
+}

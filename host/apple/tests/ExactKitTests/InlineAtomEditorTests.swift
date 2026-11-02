@@ -1,0 +1,1124 @@
+// Inline atoms in the Apple Markdown editor and reader, drawn as the
+// attachment's picture. The editor's rules through the text view's own
+// commands; the press, the accessibility element and the appearance a pill
+// draws for; the reader's atom run. No claim about a physical keyboard,
+// VoiceOver itself or a phone's gestures: the drive and the VoiceOver
+// acceptance are separate.
+import XCTest
+import CoreText
+@testable import ExactKit
+@testable import ExactMarkdown
+import CExact
+
+private let kinds = #"[{"name":"citation","link":"t3-citation:"},{"name":"mention","prefix":"@","role":"link"}]"#
+private let faces = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"The quoted passage"}]"#
+private let cite = "[Quote](t3-citation:1)"
+private let source = "Ask " + cite + " now"
+/// The atom's start and end.
+private let a = 4, b = 4 + (cite as NSString).length
+/// A face in Display P3's own red and green, which sRGB has neither of.
+private let wide = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"color(display-p3 1 0 0)","backgroundColor":"color(display-p3 0 1 0)"}]"##
+
+/// A face colour in Display P3 as a bound text colour's channels are
+/// (`textChannels`): the sRGB four, then the space (1) and
+/// `components`, which `TextEngine.color` draws in that space.
+private func assertDisplayP3(_ channels: [Double]?, _ components: [Double], file: StaticString = #filePath, line: UInt = #line) {
+    guard let c = channels else { return XCTFail("no colour", file: file, line: line) }
+    XCTAssertEqual(c.count, 9, "\(c)", file: file, line: line)
+    XCTAssertEqual(c.dropFirst(4).first, 1, "Display P3", file: file, line: line)
+    XCTAssertEqual(Array(c.dropFirst(5)), components, file: file, line: line)
+    XCTAssertEqual(TextEngine.color(c).cgColor.colorSpace?.name as String?, CGColorSpace.extendedDisplayP3 as String, file: file, line: line)
+}
+
+/// A pill's picture as `draw` paints it into a 40 by 20 Display P3 bitmap:
+/// a point of its fill left of the label, halfway up, is Display P3's own
+/// green, where its sRGB clip would read about (117, 251, 76).
+private func assertDisplayP3Green(file: StaticString = #filePath, line: UInt = #line, _ draw: (CGContext, CGRect) -> Void) throws {
+    let p3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: p3, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    let at = 10 * context.bytesPerRow + 2 * 4
+    let got = (0..<4).map { Int(pixels[at + $0]) }
+    for (channel, want) in zip(got, [0, 255, 0, 255]) { XCTAssertEqual(channel, want, accuracy: 2, "\(got)", file: file, line: line) }
+}
+
+/// A face whose pill draws only its icon, a black disc on white, with
+/// `direction`: where the picture's ink is says which end the icon is at.
+private func iconFace(_ direction: String) -> String {
+    ##"[{"source":"[Quote](t3-citation:1)","label":" ","icon":"symbol:sf/circle.fill","title":"","color":"#000000","backgroundColor":"#ffffff","direction":"\##(direction)"}]"##
+}
+
+/// A face whose accessible name is not its label (its `ariaLabel`), as
+/// T3 Code's image chip draws its upload's state and is read by its file.
+private let named = #"[{"source":"[Quote](t3-citation:1)","label":"A quote 40%","icon":"","title":"The quoted passage","ariaLabel":"Image attachment, quote"}]"#
+
+/// The citation's face while an upload is `percent` done: its label follows
+/// the upload, as T3 Code's image chip does, and its source stays.
+private func upload(_ percent: Int) -> String {
+    #"[{"source":"[Quote](t3-citation:1)","label":"A quote \#(percent)%","icon":"","title":""}]"#
+}
+
+/// The pixels `draw` paints into a 160 by 20 picture, wide enough for a
+/// label and its percentage: a new label is new pixels.
+private func pixels(_ draw: (CGContext, CGRect) -> Void) throws -> [UInt8] {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 160, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 160, height: 20))
+    let data = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    return Array(UnsafeBufferPointer(start: data, count: context.bytesPerRow * context.height))
+}
+
+/// The mean x of the dark pixels `draw` paints into a 40 by 20 picture: the
+/// icon's middle, where nothing else is dark.
+private func inkMiddle(_ draw: (CGContext, CGRect) -> Void) throws -> Double {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    var xs: [Int] = []
+    for y in 0..<20 { for x in 0..<40 where pixels[y * context.bytesPerRow + x * 4 + 3] > 200 && pixels[y * context.bytesPerRow + x * 4] < 100 { xs.append(x) } }
+    XCTAssertFalse(xs.isEmpty, "an icon is drawn")
+    return Double(xs.reduce(0, +)) / Double(max(xs.count, 1))
+}
+
+#if os(macOS)
+import AppKit
+
+final class InlineAtomEditorMacTests: XCTestCase {
+    private var presenter: Presenter!
+    private var session: ExactSession?
+    override func setUp() { super.setUp(); ExactMarkdown.install() }
+    override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
+
+    private func editor(_ text: String = source, selection: NSRange = NSRange(location: 0, length: 0), faces face: String = faces) -> (NodeView, TextArea, NSWindow) {
+        _ = NSApplication.shared
+        presenter = Presenter()
+        session = ExactApp.shared.makeSession(label: "inline-atoms")
+        presenter.session = session
+        let node = NodeView(id: 3, kind: "textarea", presenter: presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        node.makeTextArea()
+        node.props["markup"] = "markdown"
+        node.props["value"] = text
+        node.props["atoms"] = kinds
+        node.props["atomFaces"] = face
+        node.handlers = ["input", "atompress"]
+        node.applyTextArea()
+        node.layoutTextArea()
+        let window = NSWindow(contentRect: node.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = node
+        let f = node.textArea as! TextArea
+        window.makeFirstResponder(f)
+        f.setSelectedRange(selection)
+        node.restyleMarkup()
+        f.atomsChanged()
+        f.undoManager?.removeAllActions()
+        return (node, f, window)
+    }
+
+    /// The pills TextKit laid out: each attachment in the paragraphs it asked for.
+    private func attachments(_ f: TextArea) -> [AtomAttachment] {
+        guard let manager = f.textLayoutManager else { return [] }
+        manager.ensureLayout(for: manager.documentRange)
+        f.layoutSubtreeIfNeeded()
+        manager.textViewportLayoutController.layoutViewport()
+        var out: [AtomAttachment] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                if let pill = value as? AtomAttachment { out.append(pill) }
+            }
+            return true
+        }
+        return out
+    }
+
+    func testAnAtomIsOnePillOverItsSourceWhichStays() throws {
+        let (_, f, window) = editor()
+        defer { window.close() }
+        XCTAssertEqual(f.string, source)
+        let pills = attachments(f)
+        XCTAssertEqual(pills.map(\.atom.label), ["A quote"])
+        XCTAssertFalse(pills[0].allowsTextAttachmentView, "the picture draws it, not a view")
+        let x = { (p: Int) in f.firstRect(forCharacterRange: NSRange(location: p, length: 0), actualRange: nil).minX }
+        XCTAssertGreaterThan(x(b), x(a), "the pill has its label's width")
+        XCTAssertEqual(x(a + 3), x(b), accuracy: 0.5, "an offset inside draws at its end")
+        XCTAssertEqual(f.accessibilityValue(), "Ask A quote now", "read as its label")
+        XCTAssertEqual(f.accessibilityAttributedString(for: NSRange(location: 0, length: (source as NSString).length))?.string, "Ask A quote now", "a line read as VoiceOver reads it")
+        XCTAssertEqual(f.accessibilityString(for: NSRange(location: 2, length: b - 2)), "k A quote")
+        XCTAssertNil(f.typingAttributes[.markupAtom])
+    }
+
+    func testACaretInsideGoesToTheEndAndAnArrowCrossesInOneStep() {
+        let (_, f, window) = editor(selection: NSRange(location: b, length: 0))
+        defer { window.close() }
+        f.doCommand(by: #selector(NSResponder.moveLeft(_:)))
+        XCTAssertEqual(f.selectedRange(), NSRange(location: a, length: 0))
+        f.doCommand(by: #selector(NSResponder.moveRight(_:)))
+        XCTAssertEqual(f.selectedRange(), NSRange(location: b, length: 0))
+        f.doCommand(by: #selector(NSResponder.moveLeftAndModifySelection(_:)))
+        XCTAssertEqual(f.selectedRange(), NSRange(location: a, length: b - a), "⇧← takes it whole")
+    }
+
+    func testBackspaceAndDeleteRemoveTheWholeSourceAsOneUndoStep() throws {
+        let (_, f, window) = editor(selection: NSRange(location: b, length: 0))
+        defer { window.close() }
+        f.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        XCTAssertEqual(f.string, "Ask  now")
+        XCTAssertEqual(f.selectedRange(), NSRange(location: a, length: 0))
+        f.breakUndoCoalescing()
+        try XCTUnwrap(f.undoManager).undo()
+        XCTAssertEqual(f.string, source)
+        f.setSelectedRange(NSRange(location: a, length: 0))
+        f.doCommand(by: #selector(NSResponder.deleteForward(_:)))
+        XCTAssertEqual(f.string, "Ask  now")
+    }
+
+    func testTypingBesideAnAtomLandsOutsideIt() {
+        let (_, f, window) = editor(selection: NSRange(location: b, length: 0))
+        defer { window.close() }
+        f.insertText("!", replacementRange: f.selectedRange())
+        XCTAssertEqual(f.string, "Ask " + cite + "! now")
+        XCTAssertEqual(attachments(f).count, 1)
+        // Typing over a range that ends inside it replaces it whole.
+        f.setSelectedRange(NSRange(location: 2, length: 5))
+        f.insertText("z", replacementRange: NSRange(location: 2, length: 5))
+        XCTAssertEqual(f.string, "Asz! now")
+    }
+
+    func testAPressSelectsTheAtomAndAnAccessibilityElementNamesIt() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        let hit = try XCTUnwrap(f.atomFrames().first)
+        XCTAssertEqual(hit.range, NSRange(location: a, length: b - a))
+        XCTAssertEqual(f.atom(at: CGPoint(x: hit.frame.midX, y: hit.frame.midY))?.range, hit.range)
+        let element = try XCTUnwrap(node.accessibilityChildren()?.compactMap { $0 as? AtomElement }.first)
+        let walked = (Presenter.navigationOrder(node) ?? []).compactMap { $0 as? AtomElement }
+        XCTAssertTrue(walked.count == 1 && walked[0] === element, "in the order VoiceOver walks")
+        let scoped = presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []
+        let pill = scoped.first { $0["name"] as? String == "A quote" }
+        XCTAssertNotNil(pill, "`tree --ax` of the field lists it: \(scoped.compactMap { $0["name"] })")
+        XCTAssertEqual(pill?["id"] as? UInt32, 3, "joined to the field's node, as on iOS")
+        XCTAssertEqual(element.accessibilityRole(), .button)
+        XCTAssertEqual(element.accessibilityLabel(), "A quote")
+        XCTAssertEqual(element.accessibilityHelp(), "The quoted passage")
+        XCTAssertGreaterThan(element.accessibilityFrame().width, 0)
+        XCTAssertTrue(element.accessibilityPerformPress())
+        XCTAssertEqual(f.selectedRange(), hit.range, "a press selects it before its atompress")
+        // Selected, it draws selected; the selection facts name it.
+        XCTAssertTrue((f.textStorage?.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.selected == true, "restyled selected")
+        XCTAssertTrue(attachments(f).first?.atom.selected == true)
+        let facts = try XCTUnwrap(MarkupCommands.selection(f.string, range: hit.range, atoms: AtomHandle.of(MarkdownAtoms(kinds: kinds, faces: faces))))
+        XCTAssertTrue(facts.contains(#""atom":"[Quote](t3-citation:1)""#), facts)
+    }
+
+    /// The atoms follow the field in text order among its host's elements,
+    /// past every wrapper that holds the field alone (VoiceOver passes
+    /// through those, but reads a scroll area of several items only when
+    /// the person interacts with it), where VoiceOver's next-item command
+    /// reaches them. The text view and the field's own node list none, and
+    /// an atom's parent lists it.
+    func testTheAtomsFollowTheFieldInTextOrderPastItsWrappers() throws {
+        let second = "[Other](t3-citation:2)"
+        let (node, f, window) = editor(source + " and " + second)
+        defer { window.close() }
+        let page = NodeView(id: 1, kind: "view", presenter: presenter), wrapper = NodeView(id: 2, kind: "view", presenter: presenter)
+        let after = NodeView(id: 4, kind: "view", presenter: presenter)
+        page.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        wrapper.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        after.frame = NSRect(x: 0, y: 300, width: 500, height: 100)
+        window.contentView = page
+        page.addSubview(wrapper)
+        wrapper.addSubview(node)
+        page.addSubview(after)
+        XCTAssertEqual(f.atomElements.count, 2)
+        XCTAssertTrue(node.atomHost === page, "past the wrapper that holds the field alone")
+        XCTAssertFalse((f.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "the text view's own children pass under VoiceOver's next item")
+        XCTAssertFalse((node.accessibilityChildren() ?? []).contains { $0 is AtomElement })
+        let flat = NSAccessibility.unignoredChildren(from: [page])
+        let text = try XCTUnwrap(flat.firstIndex { ($0 as AnyObject) === node.textAreaScroll || ($0 as AnyObject) === f }, "\(flat)")
+        XCTAssertTrue(flat.count >= text + 3 && flat[text + 1] as AnyObject === f.atomElements[0] && flat[text + 2] as AnyObject === f.atomElements[1], "after the field, in text order: \(flat)")
+        XCTAssertEqual(f.atomElements.map(\.range.location), [a, (source + " and " as NSString).length])
+        // Its parent's own children hold it (`accessibilityChildren`, which AppKit serves as AXChildren).
+        let parent = try XCTUnwrap(f.atomElements[0].accessibilityParent() as? NSObject)
+        let listed = (parent as? NSView)?.accessibilityChildren() ?? (parent as? NSWindow)?.accessibilityChildren() ?? []
+        XCTAssertTrue(listed.contains { $0 as AnyObject === f.atomElements[0] }, "its parent lists it: \(parent)")
+        XCTAssertTrue(f.atomElements[1].accessibilityPerformPress())
+        XCTAssertEqual(f.selectedRange(), f.atomElements[1].range, "VO-Space presses the atom VoiceOver is on")
+        // A second item beside the field in the wrapper: the wrapper hosts them.
+        let beside = NodeView(id: 5, kind: "view", presenter: presenter)
+        wrapper.addSubview(beside)
+        XCTAssertTrue(node.atomHost === wrapper)
+    }
+
+    /// A Markdown field under `presenter`, as `editor` makes one, without a window.
+    private func field(_ id: UInt32, _ text: String) -> (NodeView, TextArea) {
+        let node = NodeView(id: id, kind: "textarea", presenter: presenter)
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 60)
+        node.makeTextArea()
+        node.props["markup"] = "markdown"
+        node.props["value"] = text
+        node.props["atoms"] = kinds
+        node.props["atomFaces"] = faces
+        node.handlers = ["input", "atompress"]
+        node.applyTextArea()
+        node.layoutTextArea()
+        let f = node.textArea as! TextArea
+        node.restyleMarkup()
+        f.atomsChanged()
+        return (node, f)
+    }
+    /// A box that is an element (a button), as a node's control child.
+    private func button(_ id: UInt32, _ title: String, _ y: CGFloat) -> NodeView {
+        let node = NodeView(id: id, kind: "view", presenter: presenter)
+        node.frame = NSRect(x: 0, y: y, width: 200, height: 30)
+        node.addSubview(NSButton(title: title, target: nil, action: nil))
+        return node
+    }
+
+    /// Two fields under one host each have their atoms after them, and a field
+    /// moved to another host, or out of the window, leaves its old host's list.
+    func testTwoFieldsUnderOneHostAndAMovedField() throws {
+        let (_, first, window) = editor()
+        defer { window.close() }
+        let page = NodeView(id: 1, kind: "view", presenter: presenter)
+        page.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        window.contentView = page
+        let one = try XCTUnwrap(first.owner)
+        one.removeFromSuperview()
+        let (two, second) = field(4, "Then " + cite + " again")
+        page.addSubview(one)
+        page.addSubview(button(5, "Between", 70))
+        page.addSubview(two)
+        two.frame.origin.y = 110
+        let flat = page.accessibilityChildren() ?? []
+        func at(_ object: AnyObject) -> Int? { flat.firstIndex { $0 as AnyObject === object } }
+        func text(_ node: NodeView) -> Int? { flat.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true } }
+        let firstAtom = try XCTUnwrap(at(first.atomElements[0])), secondAtom = try XCTUnwrap(at(second.atomElements[0]))
+        let firstText = try XCTUnwrap(text(one)), secondText = try XCTUnwrap(text(two))
+        XCTAssertEqual(firstAtom, firstText + 1, "\(flat)")
+        XCTAssertEqual(secondAtom, secondText + 1, "\(flat)")
+        XCTAssertLessThan(firstAtom, secondText)
+        // Moved into a wrapper of its own beside a button, the second field's atoms are that wrapper's.
+        let box = NodeView(id: 6, kind: "view", presenter: presenter)
+        box.frame = NSRect(x: 0, y: 150, width: 400, height: 140)
+        page.addSubview(box)
+        two.removeFromSuperview()
+        box.addSubview(two)
+        box.addSubview(button(7, "After", 100))
+        XCTAssertTrue(two.atomHost === box)
+        let pageAtoms = page.accessibilityChildren() ?? []
+        XCTAssertEqual(pageAtoms.filter { $0 as AnyObject === second.atomElements[0] }.count, 1, "listed once, by the box")
+        XCTAssertTrue((box.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+        // Out of the window, it is listed nowhere.
+        box.removeFromSuperview()
+        XCTAssertFalse((page.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+        XCTAssertFalse((box.accessibilityChildren() ?? []).contains { $0 as AnyObject === second.atomElements[0] })
+    }
+
+    /// A field among siblings in a scrolling node (`overflow: auto`): its atoms
+    /// are the scroll area's children right after it, before the next sibling,
+    /// and the scroll area is their parent.
+    func testInAScrollingHostTheAtomsFollowTheFieldBeforeItsNextSibling() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        let scroller = NodeView(id: 1, kind: "view", presenter: presenter)
+        scroller.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        let sv = ChainingScrollView(frame: scroller.bounds)
+        sv.pointerOwner = scroller
+        let document = FlippedView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        sv.documentView = document
+        scroller.addSubview(sv)
+        scroller.scroll = sv
+        window.contentView = scroller
+        node.removeFromSuperview()
+        document.addSubview(button(2, "Heading", 0))
+        node.frame.origin.y = 40
+        document.addSubview(node)
+        document.addSubview(button(4, "Send", 350))
+        XCTAssertTrue(node.atomHost === scroller)
+        XCTAssertFalse((scroller.accessibilityChildren() ?? []).contains { $0 is AtomElement }, "not after the whole scroll area")
+        let children = sv.accessibilityChildren() ?? []
+        let text = try XCTUnwrap(children.lastIndex { ($0 as? NSView)?.isDescendant(of: node) == true }, "\(children)")
+        let send = try XCTUnwrap(children.firstIndex { ($0 as? NSButtonCell)?.title == "Send" || ($0 as? NSButton)?.title == "Send" }, "\(children)")
+        XCTAssertTrue(children[text + 1] as AnyObject === f.atomElements[0], "\(children)")
+        XCTAssertLessThan(text + 1, send)
+        XCTAssertTrue(f.atomElements[0].accessibilityParent() as AnyObject === sv)
+    }
+
+    /// A pill is its atom's element where assistive technology points: the
+    /// window's hit test at the pill answers the element, beside it the text.
+    func testTheWindowsHitTestAtAPillIsItsElement() throws {
+        let (_, f, window) = editor()
+        defer { window.close() }
+        let hit = try XCTUnwrap(f.atomFrames().first)
+        let onScreen = { (p: CGPoint) in window.convertPoint(toScreen: f.convert(p, to: nil)) }
+        let pill = window.accessibilityHitTest(onScreen(CGPoint(x: hit.frame.midX, y: hit.frame.midY)))
+        XCTAssertTrue(pill as AnyObject === f.atomElements[0], "\(String(describing: pill))")
+        let beside = window.accessibilityHitTest(onScreen(CGPoint(x: hit.frame.maxX + 30, y: hit.frame.midY)))
+        XCTAssertFalse(beside is AtomElement, "\(String(describing: beside))")
+    }
+
+    /// A face's `ariaLabel` names its element and stands for it in the
+    /// field's accessible text; the pill draws its label, and plain copy
+    /// takes the label. A new name alone keeps the element.
+    func testAFacesAriaLabelIsItsAccessibleName() throws {
+        let (node, f, window) = editor(faces: named)
+        defer { window.close() }
+        XCTAssertEqual(attachments(f).first?.atom.label, "A quote 40%", "the pill draws its label")
+        let element = try XCTUnwrap(f.atomElements.first)
+        XCTAssertEqual(element.accessibilityLabel(), "Image attachment, quote")
+        XCTAssertEqual(element.accessibilityHelp(), "The quoted passage")
+        XCTAssertEqual(f.accessibilityValue(), "Ask Image attachment, quote now")
+        XCTAssertEqual(f.accessibilityString(for: NSRange(location: 0, length: b)), "Ask Image attachment, quote")
+        XCTAssertEqual(f.accessibilityAttributedString(for: NSRange(location: 0, length: b))?.string, "Ask Image attachment, quote")
+        let scoped = presenter.axElements(roots: [window.contentView!], scope: [3])["elements"] as? [[String: Any]] ?? []
+        XCTAssertTrue(scoped.contains { $0["name"] as? String == "Image attachment, quote" }, "`tree --ax` names it: \(scoped.compactMap { $0["name"] })")
+        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: kinds, faces: named, spoken: false), "Ask A quote 40% now", "copy takes the label")
+        drain()
+        node.applyProps(set: ["atomFaces": named.replacingOccurrences(of: "attachment, quote", with: "attachment, quote, 2 MB")], clear: [])
+        drain()
+        XCTAssertTrue(f.atomElements.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element.accessibilityLabel(), "Image attachment, quote, 2 MB")
+    }
+
+    func testAClickOnAPillSelectsTheAtom() throws {
+        let (_, f, window) = editor()
+        defer { window.close() }
+        let hit = try XCTUnwrap(f.atomFrames().first)
+        let p = f.convert(CGPoint(x: hit.frame.midX, y: hit.frame.midY), to: nil)
+        // As the window routes a click: from its frame view, in window coordinates.
+        let frameView = try XCTUnwrap(window.contentView?.superview)
+        let hitView = frameView.hitTest(frameView.convert(p, from: nil))
+        XCTAssertTrue(hitView is AtomCatcher, "a pill's click is the atom's: \(String(describing: hitView))")
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        NSApp.postEvent(up, atStart: true)
+        hitView?.mouseDown(with: down)
+        XCTAssertEqual(f.selectedRange(), hit.range)
+        // Beside the pill, the text's own click.
+        XCTAssertTrue(frameView.hitTest(frameView.convert(f.convert(CGPoint(x: hit.frame.maxX + 30, y: hit.frame.midY), to: nil), from: nil)) === f)
+    }
+
+    private func drawnAtom(_ f: TextArea) -> MarkupAtom? { f.textStorage?.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+    private func drain() { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+
+    func testAPillIsDrawnAgainForAnotherAppearanceUnasked() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        // The window's appearance changes; nothing calls a restyle.
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
+        XCTAssertTrue(node.drawsDark, "dark")
+        XCTAssertTrue(drawnAtom(f)?.dark == true, "restyled dark")
+        XCTAssertTrue(attachments(f).first?.atom.dark == true)
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
+        XCTAssertFalse(node.drawsDark, "light")
+        XCTAssertTrue(drawnAtom(f)?.dark == false, "restyled light")
+        XCTAssertTrue(attachments(f).first?.atom.dark == false)
+    }
+
+    /// A face that changes while its source stays, as an upload's
+    /// percentage does, draws its pill again with no keystroke, edit or
+    /// caret move. So does a new paint of its kind alone, and a kinds list
+    /// that no longer names its kind leaves no pill.
+    func testANewFaceAloneDrawsThePillAgain() throws {
+        let (node, f, window) = editor(faces: upload(0))
+        defer { window.close() }
+        let pill = { try XCTUnwrap(self.attachments(f).first, "a pill") }
+        let picture = { (pill: AtomAttachment) in
+            try pixels { context, rect in
+                guard let location = f.textLayoutManager?.documentRange.location,
+                      let image = pill.image(for: rect, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil) else { return }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                image.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+        let end = { f.firstRect(forCharacterRange: NSRange(location: b, length: 0), actualRange: nil).minX }
+        XCTAssertEqual(try pill().atom.label, "A quote 0%")
+        let drawn = try picture(pill()), narrow = end()
+        drain()
+        let element = try XCTUnwrap(f.atomElements.first)
+        node.applyProps(set: ["atomFaces": upload(87)], clear: [])
+        XCTAssertEqual(try pill().atom.label, "A quote 87%", "the pill draws the new face")
+        XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
+        XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
+        drain()
+        XCTAssertTrue(f.atomElements.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element.accessibilityLabel(), "A quote 87%", "and named by the new label")
+        let kept = drawnAtom(f)
+        node.applyProps(set: ["accessibilityLabel": "Prompt"], clear: [])
+        XCTAssertTrue(drawnAtom(f) === kept, "a batch that changes none of them restyles nothing")
+        node.applyProps(set: ["atomStyles": ##"{"citation":[[47,"#040506"]]}"##], clear: [])
+        XCTAssertEqual(try pill().atom.background, [4, 5, 6, 255], "its kind's new paint")
+        node.applyProps(set: ["atoms": #"[{"name":"mention","prefix":"@"}]"#], clear: [])
+        XCTAssertTrue(attachments(f).isEmpty, "a source no kind names is no atom")
+        XCTAssertEqual(f.string, source, "the source never changes")
+    }
+
+    /// Nothing is restyled while text is marked, so a
+    /// face that comes meanwhile is drawn when the composition ends:
+    /// committed as it stands, or cancelled, which AppKit does not report as
+    /// a change.
+    func testAFaceThatComesWhileTextIsMarkedIsDrawnWhenTheCompositionEnds() throws {
+        let (node, f, window) = editor(faces: upload(0))
+        defer { window.close() }
+        let label = { (self.attachments(f).first?.atom.label) ?? "" }
+        let none = NSRange(location: NSNotFound, length: 0)
+        f.setSelectedRange(NSRange(location: (source as NSString).length, length: 0))
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
+        // The app's echo of what it heard, and a new face.
+        node.applyProps(set: ["value": f.string, "atomFaces": upload(87)], clear: [])
+        XCTAssertTrue(f.hasMarkedText())
+        XCTAssertEqual(label(), "A quote 0%", "not while text is marked")
+        f.unmarkText()
+        XCTAssertEqual(label(), "A quote 87%", "committed as it stands")
+        f.setMarkedText("ほ", selectedRange: NSRange(location: 1, length: 0), replacementRange: none)
+        node.applyProps(set: ["value": f.string, "atomFaces": upload(100)], clear: [])
+        XCTAssertEqual(label(), "A quote 87%")
+        f.setMarkedText("", selectedRange: NSRange(location: 0, length: 0), replacementRange: none)
+        XCTAssertFalse(f.hasMarkedText())
+        XCTAssertEqual(label(), "A quote 100%", "cancelled")
+    }
+
+    /// A face's paint is its pill's, over the platform's token, for the appearance it draws in.
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":"#1a85d4"}]"##
+        let (_, f, window) = editor(faces: painted)
+        defer { window.close() }
+        window.appearance = NSAppearance(named: .aqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+        XCTAssertEqual(attachments(f).first?.atom.ink, [213, 44, 54, 255], "the picture draws it")
+        window.appearance = NSAppearance(named: .darkAqua)
+        drain()
+        XCTAssertEqual(drawnAtom(f)?.ink, [255, 103, 98, 255], "dark, its dark half")
+        XCTAssertEqual(drawnAtom(f)?.background, [26, 133, 212, 255])
+    }
+
+    /// A face's colour in a wide space keeps it, as a bound text colour
+    /// does, in the pill's picture too.
+    func testAWideFaceColourKeepsItsSpaceInThePicture() throws {
+        let (_, f, window) = editor(faces: wide)
+        defer { window.close() }
+        drain()
+        let atom = try XCTUnwrap(drawnAtom(f))
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let pill = try XCTUnwrap(attachments(f).first)
+        let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20)
+        let image = try XCTUnwrap(pill.image(for: bounds, attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        try assertDisplayP3Green { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// In a right-to-left line the pill lays out from the right, its
+    /// icon first, as the line does; a face's `direction` pins its own.
+    func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
+        for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
+            let (node, f, window) = editor(faces: iconFace(direction))
+            defer { window.close() }
+            node.props["paragraphDirs"] = "rtl"
+            node.applyTextArea()
+            drain()
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            var drawn: (AtomAttachment, [NSAttributedString.Key: Any])?
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+                let text = paragraph.attributedString
+                text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, at, _ in
+                    if drawn == nil, let pill = value as? AtomAttachment { drawn = (pill, text.attributes(at: at.location, effectiveRange: nil)) }
+                }
+                return drawn == nil
+            }
+            let (pill, attributes) = try XCTUnwrap(drawn)
+            XCTAssertEqual((attributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft, "the line is right to left")
+            let image = try XCTUnwrap(pill.image(for: CGRect(x: 0, y: 0, width: 40, height: 20), attributes: attributes, location: manager.documentRange.location, textContainer: nil))
+            let middle = try inkMiddle { context, rect in
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+                image.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            XCTAssertEqual(middle > 20, right, "direction \(direction.isEmpty ? "unset" : direction): the icon's middle at \(middle)")
+        }
+    }
+
+    func testASelectedPillIsEmphasizedOnlyInTheKeyWindowAndKeyChangesRestyle() throws {
+        let (_, f, window) = editor(selection: NSRange(location: a, length: b - a))
+        defer { window.close() }
+        let before = try XCTUnwrap(drawnAtom(f))
+        XCTAssertTrue(before.selected)
+        XCTAssertEqual(before.emphasized, window.isKeyWindow, "emphasized as the window is key")
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        drain()
+        XCTAssertFalse(drawnAtom(f) === before, "a key change restyles the pills")
+        let after = try XCTUnwrap(drawnAtom(f))
+        NotificationCenter.default.post(name: NSColor.systemColorsDidChangeNotification, object: nil)
+        drain()
+        XCTAssertFalse(drawnAtom(f) === after, "an accent colour change restyles the pills")
+    }
+
+    func testTheTooltipIsAskedOfTheTextViewAndFollowsARewrap() throws {
+        let (_, f, window) = editor("Ask about this long line of words before it " + cite + " now")
+        defer { window.close() }
+        let element = try XCTUnwrap(f.atomElements.first)
+        let old = try XCTUnwrap(f.atomFrames().first).frame
+        let tip = { (p: CGPoint) in f.view(f, stringForToolTip: 0, point: p, userData: nil) }
+        XCTAssertEqual(tip(CGPoint(x: old.midX, y: old.midY)), "The quoted passage")
+        XCTAssertEqual(tip(CGPoint(x: old.maxX + 40, y: old.midY)), "", "beside it, no tooltip")
+        // A narrower width rewraps the line: the pill moves, the tooltip with it.
+        f.setFrameSize(NSSize(width: 160, height: f.frame.height))
+        let moved = try XCTUnwrap(f.atomFrames().first).frame
+        XCTAssertNotEqual(moved.origin, old.origin, "rewrapped")
+        XCTAssertEqual(tip(CGPoint(x: moved.midX, y: moved.midY)), "The quoted passage")
+        XCTAssertTrue(f.atomElements.first === element, "its element is kept across a rewrap")
+    }
+
+    func testALineKeepsItsHeightWithAnAtom() throws {
+        func lineHeight(_ text: String) throws -> CGFloat {
+            let (_, f, window) = editor(text)
+            defer { window.close() }
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            manager.ensureLayout(for: manager.documentRange)
+            var height: CGFloat = 0
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                height = fragment.textLineFragments.first?.typographicBounds.height ?? 0
+                return false
+            }
+            return height
+        }
+        let plain = try lineHeight("Ask Quote now"), atom = try lineHeight(source)
+        XCTAssertGreaterThan(plain, 0)
+        XCTAssertEqual(atom, plain, accuracy: 0.01, "the pill sits inside the font's ascender and descender")
+    }
+
+    func testMarkupTurnedOffClearsTheAtoms() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        XCTAssertEqual(f.atomElements.count, 1)
+        node.props["markup"] = nil
+        node.applyTextArea()
+        XCTAssertNil(f.markup)
+        XCTAssertTrue(f.atomElements.isEmpty, "no element for an atom that is not drawn")
+        XCTAssertEqual(f.view(f, stringForToolTip: 0, point: .zero, userData: nil), "")
+    }
+
+    func testCopyTakesTheSourceAndPlainCopyTheLabel() {
+        let (node, f, window) = editor(selection: NSRange(location: a + 2, length: 2))
+        defer { window.close() }
+        XCTAssertEqual(f.markup?.copyRange(NSRange(location: a + 2, length: b - a), in: f.textStorage!), NSRange(location: a, length: b - a + 2))
+        XCTAssertEqual(MarkdownLink.installed?.plain(source, range: nil, atoms: node.props["atoms"]!, faces: node.props["atomFaces"]!, spoken: false), "Ask A quote now")
+        // ⌘⇧C of a selection of exactly a prefix atom: the token is found in
+        // the whole source, where the space before it decides it.
+        let mention = "see @x here"
+        let faced = #"[{"source":"@x","label":"x.rs","icon":"","title":""}]"#
+        XCTAssertEqual(MarkdownLink.installed?.plain(mention, range: NSRange(location: 4, length: 2), atoms: kinds, faces: faced, spoken: false), "x.rs")
+        // The text view's command copies the selection's labels (the
+        // person's clipboard is put back after).
+        let board = NSPasteboard.general, kept = board.pasteboardItems?.map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
+        } ?? []
+        defer {
+            board.clearContents()
+            board.writeObjects(kept.map { types in
+                let item = NSPasteboardItem()
+                for (type, data) in types { item.setData(data, forType: type) }
+                return item
+            })
+        }
+        f.setSelectedRange(NSRange(location: a, length: b - a))
+        f.copyPlainText(nil)
+        XCTAssertEqual(board.string(forType: .string), "A quote")
+    }
+}
+#else
+import UIKit
+
+final class InlineAtomEditorIOSTests: XCTestCase {
+    private var window: UIWindow!
+    private var session: ExactSession?
+    override func setUp() { super.setUp(); ExactMarkdown.install() }
+    override func tearDown() { session?.destroy(); session = nil; super.tearDown() }
+
+    private func field(_ text: String = source, faces face: String = faces, dirs: String? = nil) -> (Presenter, NodeView, TextArea) {
+        let made = ExactApp.shared.makeSession(label: "inline-atoms")
+        session = made
+        let p = made.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 600, height: 300))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "textarea", "props": ["id": "editor", "value": text, "markup": "markdown", "atoms": kinds, "atomFaces": face].merging(dirs.map { ["paragraphDirs": $0] } ?? [:]) { a, _ in a }, "handlers": ["input", "atompress"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 560.0, "h": 120.0],
+        ]))
+        let node = p.views[2]!, f = node.textArea as! TextArea
+        XCTAssertTrue(f.becomeFirstResponder())
+        node.restyleMarkup()
+        f.atomsChanged()
+        return (p, node, f)
+    }
+
+    func testAnAtomIsOnePillAndItsElementSitsBesideTheTextView() throws {
+        let (_, node, f) = field()
+        XCTAssertEqual(f.text, source)
+        let x = { (p: Int) in f.caretRect(for: f.position(from: f.beginningOfDocument, offset: p)!).minX }
+        XCTAssertGreaterThan(x(b), x(a))
+        XCTAssertEqual(x(a + 3), x(b), accuracy: 0.5)
+        XCTAssertEqual(f.accessibilityValue, "Ask A quote now")
+        let elements = try XCTUnwrap(node.accessibilityElements)
+        XCTAssertTrue(elements.first as AnyObject === f, "the text view first, its atoms beside it")
+        let atom = try XCTUnwrap(elements.compactMap { $0 as? AtomElement }.first)
+        XCTAssertEqual(atom.accessibilityLabel, "A quote")
+        XCTAssertTrue(atom.accessibilityTraits.contains(.button))
+        XCTAssertTrue(atom.accessibilityActivate())
+        XCTAssertEqual(f.selectedRange, NSRange(location: a, length: b - a))
+    }
+
+    /// A face's `ariaLabel` names its element and stands for it in the
+    /// field's value; the pill draws its label. A new name alone keeps the
+    /// element.
+    func testAFacesAriaLabelIsItsAccessibleName() throws {
+        let (p, node, f) = field(faces: named)
+        XCTAssertEqual((f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.label, "A quote 40%", "the pill draws its label")
+        XCTAssertEqual(f.accessibilityValue, "Ask Image attachment, quote now")
+        let element = try XCTUnwrap(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first)
+        XCTAssertEqual(element.accessibilityLabel, "Image attachment, quote")
+        XCTAssertEqual(element.accessibilityHint, "The quoted passage")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomFaces": named.replacingOccurrences(of: "attachment, quote", with: "attachment, quote, 2 MB")]]]))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element.accessibilityLabel, "Image attachment, quote, 2 MB")
+    }
+
+    func testATraitChangeRedrawsThePillsAndKeepsTheElements() throws {
+        let (_, node, f) = field()
+        let element = try XCTUnwrap(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first)
+        window.overrideUserInterfaceStyle = .dark
+        window.layoutIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue((f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)?.dark == true, "restyled dark, unasked")
+        XCTAssertTrue(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first === element, "a restyle keeps the element VoiceOver may be on")
+    }
+
+    /// The pills TextKit laid out: each attachment in the paragraphs it asked for.
+    private func attachments(_ f: TextArea) -> [AtomAttachment] {
+        guard let manager = f.textLayoutManager else { return [] }
+        manager.ensureLayout(for: manager.documentRange)
+        var out: [AtomAttachment] = []
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                if let pill = value as? AtomAttachment { out.append(pill) }
+            }
+            return true
+        }
+        return out
+    }
+
+    /// On UIKit, a face that changes while its source stays draws its pill
+    /// again with no other edit. So does a new paint of its kind alone, and a
+    /// kinds list that no longer names its kind leaves no pill.
+    func testANewFaceAloneDrawsThePillAgain() throws {
+        let (p, node, f) = field(faces: upload(0))
+        window.layoutIfNeeded()
+        let pill = { try XCTUnwrap(self.attachments(f).first, "a pill") }
+        let drawnAtom = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let picture = { (pill: AtomAttachment) in
+            try pixels { context, rect in
+                guard let location = f.textLayoutManager?.documentRange.location else { return }
+                var image: UIImage?
+                // TextKit asks for the picture with the text view's traits current.
+                f.traitCollection.performAsCurrent {
+                    image = pill.image(for: rect, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+                }
+                UIGraphicsPushContext(context)
+                image?.draw(in: rect)
+                UIGraphicsPopContext()
+            }
+        }
+        let end = { f.caretRect(for: f.position(from: f.beginningOfDocument, offset: b)!).minX }
+        XCTAssertEqual(try pill().atom.label, "A quote 0%")
+        let drawn = try picture(pill()), narrow = end()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let before = try XCTUnwrap(node.accessibilityElements?.compactMap { $0 as? AtomElement }.first)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomFaces": upload(87)]]]))
+        XCTAssertEqual(try pill().atom.label, "A quote 87%", "the pill draws the new face")
+        XCTAssertTrue(try picture(pill()) != drawn, "its picture changes")
+        XCTAssertGreaterThan(end(), narrow, "its wider label moves the text after it")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        let element = node.accessibilityElements?.compactMap { $0 as? AtomElement }.first
+        XCTAssertTrue(element === before, "the element VoiceOver may be on is kept")
+        XCTAssertEqual(element?.accessibilityLabel, "A quote 87%", "and named by the new label")
+        let kept = drawnAtom()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Prompt"]]]))
+        XCTAssertTrue(drawnAtom() === kept, "a batch that changes none of them restyles nothing")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atomStyles": ##"{"citation":[[47,"#040506"]]}"##]]]))
+        XCTAssertEqual(try pill().atom.background, [4, 5, 6, 255], "its kind's new paint")
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["atoms": #"[{"name":"mention","prefix":"@"}]"#]]]))
+        XCTAssertTrue(attachments(f).isEmpty, "a source no kind names is no atom")
+        XCTAssertEqual(f.text, source, "the source never changes")
+    }
+
+    /// On UIKit, a face that comes while text is marked is
+    /// drawn when the composition ends, committed as it stands or cancelled.
+    func testAFaceThatComesWhileTextIsMarkedIsDrawnWhenTheCompositionEnds() throws {
+        let (p, _, f) = field(faces: upload(0))
+        window.layoutIfNeeded()
+        let label = { (self.attachments(f).first?.atom.label) ?? "" }
+        f.selectedRange = NSRange(location: (source as NSString).length, length: 0)
+        f.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0))
+        // The app's echo of what it heard, and a new face.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "atomFaces": upload(87)]]]))
+        XCTAssertNotNil(f.markedTextRange)
+        XCTAssertEqual(label(), "A quote 0%", "not while text is marked")
+        f.unmarkText()
+        XCTAssertEqual(label(), "A quote 87%", "committed as it stands")
+        f.setMarkedText("ほ", selectedRange: NSRange(location: 1, length: 0))
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": f.text ?? "", "atomFaces": upload(100)]]]))
+        XCTAssertEqual(label(), "A quote 87%")
+        f.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        XCTAssertNil(f.markedTextRange)
+        XCTAssertEqual(label(), "A quote 100%", "cancelled")
+    }
+
+    /// A face's paint is its pill's, over the platform's token, for the trait collection it draws in.
+    func testAFacesPaintIsItsPillsInEachAppearance() throws {
+        let painted = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36ff, #ff6762ff)","backgroundColor":"#1a85d4ff"}]"##
+        let (_, _, f) = field(faces: painted)
+        let drawn = { f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom }
+        let settle = { self.window.layoutIfNeeded(); RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        window.overrideUserInterfaceStyle = .light
+        settle()
+        XCTAssertEqual(drawn()?.ink, [213, 44, 54, 255])
+        XCTAssertEqual(drawn()?.background, [26, 133, 212, 255])
+        window.overrideUserInterfaceStyle = .dark
+        settle()
+        XCTAssertEqual(drawn()?.ink, [255, 103, 98, 255], "dark, its dark half")
+    }
+
+    /// A face's colour in a wide space keeps it on the pill, as a bound
+    /// text colour does, in the picture the renderer makes
+    /// for the text view's traits.
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let (_, _, f) = field(faces: wide)
+        window.layoutIfNeeded()
+        let atom = try XCTUnwrap(f.textStorage.attribute(.markupAtom, at: a, effectiveRange: nil) as? MarkupAtom)
+        assertDisplayP3(atom.ink, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+        let manager = try XCTUnwrap(f.textLayoutManager)
+        manager.ensureLayout(for: manager.documentRange)
+        var pill: AtomAttachment?
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+            let text = paragraph.attributedString
+            text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+                pill = pill ?? value as? AtomAttachment
+            }
+            return pill == nil
+        }
+        // TextKit asks for the picture with the text view's traits current.
+        let bounds = CGRect(x: 0, y: 0, width: 40, height: 20), location = manager.documentRange.location
+        var picture: UIImage?
+        f.traitCollection.performAsCurrent {
+            picture = pill?.image(for: bounds, attributes: [.font: UIFont.systemFont(ofSize: 16)], location: location, textContainer: nil)
+        }
+        let image = try XCTUnwrap(picture)
+        try assertDisplayP3Green { context, rect in
+            UIGraphicsPushContext(context)
+            image.draw(in: rect)
+            UIGraphicsPopContext()
+        }
+    }
+
+    /// In a right-to-left line the pill lays out from the right, its
+    /// icon first, as the line does; a face's `direction` pins its own.
+    func testAPillFollowsItsLinesDirectionUnlessItsFacePinsOne() throws {
+        for (direction, right) in [("", true), ("ltr", false), ("rtl", true)] {
+            let (_, _, f) = field(faces: iconFace(direction), dirs: "rtl")
+            window.layoutIfNeeded()
+            let manager = try XCTUnwrap(f.textLayoutManager)
+            manager.ensureLayout(for: manager.documentRange)
+            var drawn: (AtomAttachment, [NSAttributedString.Key: Any])?
+            manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+                guard let paragraph = fragment.textElement as? NSTextParagraph else { return true }
+                let text = paragraph.attributedString
+                text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, at, _ in
+                    if drawn == nil, let pill = value as? AtomAttachment { drawn = (pill, text.attributes(at: at.location, effectiveRange: nil)) }
+                }
+                return drawn == nil
+            }
+            let (pill, attributes) = try XCTUnwrap(drawn)
+            XCTAssertEqual((attributes[.paragraphStyle] as? NSParagraphStyle)?.baseWritingDirection, .rightToLeft, "the line is right to left")
+            var picture: UIImage?
+            let location = manager.documentRange.location
+            f.traitCollection.performAsCurrent {
+                picture = pill.image(for: CGRect(x: 0, y: 0, width: 40, height: 20), attributes: attributes, location: location, textContainer: nil)
+            }
+            let image = try XCTUnwrap(picture)
+            let middle = try inkMiddle { context, rect in
+                UIGraphicsPushContext(context)
+                image.draw(in: rect)
+                UIGraphicsPopContext()
+            }
+            XCTAssertEqual(middle > 20, right, "direction \(direction.isEmpty ? "unset" : direction): the icon's middle at \(middle)")
+            session?.destroy(); session = nil
+        }
+    }
+
+    func testACaretInsideGoesToTheEndAndBackspaceRemovesItWhole() {
+        let (_, _, f) = field()
+        f.selectedRange = NSRange(location: b, length: 0)
+        f.selectedRange = NSRange(location: a + 3, length: 0)
+        XCTAssertEqual(f.selectedRange, NSRange(location: b, length: 0))
+        f.deleteBackward()
+        // UIKit's smart delete takes one of the two spaces left, as when a word goes.
+        XCTAssertEqual(f.text, "Ask now")
+        XCTAssertEqual(f.selectedRange, NSRange(location: a, length: 0))
+        f.insertText("x")
+        XCTAssertEqual(f.text, "Ask xnow")
+    }
+}
+#endif
+
+/// The reader: an atom is its label on a rounded inline box, and its run's
+/// press is the text's `atompress`, never a link to follow.
+final class InlineAtomReaderTests: XCTestCase {
+    override func setUp() { super.setUp(); ExactMarkdown.install() }
+
+    func testAnAtomPieceIsItsLabelOnABox() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: faces))
+        let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        XCTAssertEqual(atom.text, "\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "one box in a left-to-right line")
+        XCTAssertNotNil(atom.background)
+        XCTAssertNotEqual(atom.backgroundBox, 0)
+        XCTAssertEqual(atom.backgroundRadii.count, 4)
+        XCTAssertFalse(atom.decoration.contains("underline"))
+        XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F} now")
+        // Without atoms the same source is its link text, as before.
+        XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// A reader is read with each atom as its accessible name, its face's
+    /// `ariaLabel`, where its pill draws the label, and without the atoms'
+    /// Markdown source.
+    func testAReaderReadsAnAtomByItsAriaLabel() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let drawn = MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: named))
+        XCTAssertEqual(drawn.first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text, "\u{202F}\u{2066}A\u{00A0}quote\u{00A0}40%\u{2069}\u{202F}")
+        let node = NodeView(id: 2, kind: "text", presenter: Presenter())
+        node.props = ["text": source, "markup": "markdown", "atoms": kinds, "atomFaces": named]
+        XCTAssertEqual(node.accessibleText, "Ask Image attachment, quote now")
+        node.updateTextAccessibility()
+        #if os(macOS)
+        XCTAssertEqual(node.accessibilityLabel(), "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #else
+        XCTAssertEqual(node.accessibilityLabel, "Ask Image attachment, quote now", "its element reads it so, not its source")
+        #endif
+        node.props["atomFaces"] = faces
+        XCTAssertEqual(node.accessibleText, "Ask A quote now", "without one, its label")
+    }
+
+    /// A face's paint is drawn over its kind's, for the appearance drawn in;
+    /// an empty one keeps the kind's.
+    func testAFacesPaintWinsOverItsKinds() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        // The kind's `color` and `background-color` rows, by the kernel's style bits (75 and 47).
+        let styles = ##"{"citation":[[75,"#010203"],[47,"#040506"]]}"##
+        let painted = #"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"light-dark(#d52c36, #ff6762)","backgroundColor":""}]"#
+        let atom = { (dark: Bool) in
+            MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: painted, styles: styles, dark: dark))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }
+        }
+        let light = try XCTUnwrap(atom(false)), dark = try XCTUnwrap(atom(true))
+        XCTAssertEqual(light.color, [213, 44, 54, 255])
+        XCTAssertEqual(dark.color, [255, 103, 98, 255])
+        XCTAssertEqual(light.background, [4, 5, 6, 255], "an empty face colour keeps the kind's")
+    }
+
+    /// The reader isolates a pill's label in the direction its face
+    /// pins, else in its lines' (its node's `direction`), as the web's box
+    /// takes its `dir` or its line's.
+    func testAReaderPillIsIsolatedInItsFacesDirectionElseItsLines() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let label = { (direction: String, rtl: Bool) -> String? in
+            let face = ##"[{"source":"[Quote](t3-citation:1)","label":"A quote","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
+            return MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: kinds, faces: face, rtl: rtl))
+                .first { $0.href.hasPrefix(MarkupRuns.atomScheme) }?.text
+        }
+        let (lri, rli) = ("\u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F}", "\u{202F}\u{2067}A\u{00A0}quote\u{2069}\u{202F}")
+        XCTAssertEqual(label("", false), lri, "a left-to-right line's")
+        XCTAssertEqual(label("", true), rli, "a right-to-left line's")
+        XCTAssertEqual(label("ltr", true), lri, "pinned")
+        XCTAssertEqual(label("rtl", false), rli, "pinned")
+    }
+
+    /// Laid out in a right-to-left line, a reader's pill is one box,
+    /// as the web's and the Apple editor's are: beside text of the other
+    /// direction, `שלום hello @x כאן` draws `כאן [abc] hello שלום`, pinned or
+    /// not; and a neutral at its label's start and end reads in the pill's
+    /// direction, `.abc!` in the line's and `!abc.` pinned left to right.
+    func testAReaderPillIsOneBoxInItsLine() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let mention = #"[{"name":"mention","prefix":"@"}]"#
+        // Each of `marks`' left edge, `@x` labelled `label` in a right-to-left node.
+        let lefts = { (label: String, direction: String, marks: [Character]) -> [CGFloat] in
+            let face = ##"[{"source":"@x","label":"\##(label)","icon":"","title":"","color":"","backgroundColor":"","direction":"\##(direction)"}]"##
+            let text = MarkupRuns.expand("שלום hello @x כאן", base: base, color: nil, atoms: MarkdownAtoms(kinds: mention, faces: face, rtl: true))
+                .map(\.text).joined()
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.baseWritingDirection = .rightToLeft
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.paragraphStyle: paragraph]))
+            var left: [Int: CGFloat] = [:]
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let n = CTRunGetGlyphCount(run)
+                var indices = [CFIndex](repeating: 0, count: n), positions = [CGPoint](repeating: .zero, count: n)
+                CTRunGetStringIndices(run, CFRange(location: 0, length: n), &indices)
+                CTRunGetPositions(run, CFRange(location: 0, length: n), &positions)
+                for (i, p) in zip(indices, positions) { left[i] = p.x }
+            }
+            let utf16 = Array(text.utf16)
+            return marks.map { left[utf16.firstIndex(of: $0.utf16.first!)!] ?? .nan }
+        }
+        for direction in ["", "ltr"] {
+            let x = lefts("abc", direction, ["a", "h"])
+            XCTAssertLessThan(x[0], x[1], "\(direction.isEmpty ? "the line's" : direction): the pill left of `hello`")
+        }
+        let follows = lefts("!abc.", "", ["!", "a", "."]), pinned = lefts("!abc.", "ltr", ["!", "a", "."])
+        XCTAssertTrue(follows[2] < follows[1] && follows[1] < follows[0], "the line's: `.abc!`, \(follows)")
+        XCTAssertTrue(pinned[0] < pinned[1] && pinned[1] < pinned[2], "pinned: `!abc.`, \(pinned)")
+    }
+
+    /// A face's colour in a wide space keeps it on its run and box, as a
+    /// bound text colour does.
+    func testAWideFaceColourKeepsItsSpace() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand(source, base: base, color: [0, 0, 0, 255], atoms: MarkdownAtoms(kinds: kinds, faces: wide))
+        let atom = try XCTUnwrap(runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        assertDisplayP3(atom.color, [1, 0, 0, 1])
+        assertDisplayP3(atom.background, [0, 1, 0, 1])
+    }
+}
+
+/// A Markdown reader's `rangeFrame`: an atom's source range answers its
+/// pill, where an app anchors a popover to it.
+final class InlineAtomReaderRangeFrameTests: XCTestCase {
+    private var session: ExactSession?
+    #if os(macOS)
+    private var window: NSWindow?
+    #else
+    private var window: UIWindow?
+    #endif
+    override func setUp() { super.setUp(); ExactMarkdown.install() }
+    override func tearDown() {
+        #if os(macOS)
+        window?.close()
+        #endif
+        session?.destroy(); session = nil; window = nil; super.tearDown()
+    }
+
+    private func reader(_ text: String = source, width: Double = 400, style: [String: Any] = [:]) -> (Presenter, NodeView) {
+        let made = ExactApp.shared.makeSession(label: "inline-atom-reader")
+        session = made
+        let p = made.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["id": "reader", "text": text, "markup": "markdown", "atoms": kinds, "atomFaces": faces], "style": style, "handlers": ["atompress"]],
+            ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 600.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": width, "h": 120.0],
+        ]))
+        #if os(macOS)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = p.viewport
+        #else
+        let w = UIWindow(frame: CGRect(x: 0, y: 0, width: 600, height: 300))
+        p.viewport.frame = w.bounds
+        w.addSubview(p.viewport)
+        w.makeKeyAndVisible()
+        #endif
+        window = w
+        return (p, p.views[2]!)
+    }
+
+    func testAnAtomsSourceRangeIsItsPill() throws {
+        let (p, node) = reader()
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
+        XCTAssertGreaterThan(pill.width, 20)
+        XCTAssertGreaterThan(pill.height, 10)
+        // Its piece is the label on its box, in the piece's font: the frame is that piece's.
+        let piece = try XCTUnwrap(node.paragraphSpec().runs.first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        let font = try XCTUnwrap(node.text?.font(piece))
+        XCTAssertEqual(pill.width, (piece.text as NSString).size(withAttributes: [.font: font]).width, accuracy: 1)
+        // Part of the range is the whole pill; text around it adds nothing.
+        XCTAssertEqual(p.rangeFrame(2, start: UInt32(a + 2), end: UInt32(a + 3)), pill)
+        XCTAssertEqual(p.rangeFrame(2, start: 0, end: UInt32((source as NSString).length)), pill)
+        // Collapsed at its start or end: that edge, the pill's height.
+        let start = try XCTUnwrap(p.rangeFrame(2, start: UInt32(a), end: UInt32(a)))
+        let end = try XCTUnwrap(p.rangeFrame(2, start: UInt32(b), end: UInt32(b)))
+        XCTAssertEqual(start, CGRect(x: pill.minX, y: pill.minY, width: 0, height: pill.height))
+        XCTAssertEqual(end, CGRect(x: pill.maxX, y: pill.minY, width: 0, height: pill.height))
+        // Where no pill is, unavailable.
+        XCTAssertNil(p.rangeFrame(2, start: 0, end: 2))
+        XCTAssertNil(p.rangeFrame(2, start: 1, end: 1))
+        // `visibility: hidden` answers nothing, as the web's.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "hidden"]]]))
+        XCTAssertTrue(node.cssVisibilityHidden)
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a visibility: hidden text answers nothing")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["visibility": "visible"]]]))
+        XCTAssertNotNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
+        node.isHidden = true
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "a hidden text answers nothing")
+    }
+
+    func testInARightToLeftParagraphAnAtomsStartIsItsRightEdge() throws {
+        let (p, _) = reader("שלום " + cite + " עולם", style: ["direction": "rtl"])
+        let s = 5, e = 5 + (cite as NSString).length
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(s), end: UInt32(e)))
+        XCTAssertEqual(try XCTUnwrap(p.rangeFrame(2, start: UInt32(s), end: UInt32(s))).minX, pill.maxX, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(p.rangeFrame(2, start: UInt32(e), end: UInt32(e))).minX, pill.minX, accuracy: 0.01)
+    }
+
+    #if os(macOS)
+    func testAParagraphTheRegionReaderDrawsAnswersNothing() throws {
+        let (p, node) = reader()
+        XCTAssertNotNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)))
+        // As the measurer hands a paragraph of 64 KB, or 16 KB in 256 runs, to the region reader.
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        session?.text.readerParagraphs[node.id] = RegionReaderParagraph(request, bytes: 100_000)
+        XCTAssertNotNil(node.readerParagraph)
+        XCTAssertNil(p.rangeFrame(2, start: UInt32(a), end: UInt32(b)), "laid out off the main thread: unavailable")
+    }
+    #endif
+
+    func testAPillOnALaterLineAnswersThere() throws {
+        let long = "Words that fill the first line of this narrow reader before " + cite + " ends"
+        let (p, _) = reader(long, width: 200)
+        let at = (long as NSString).range(of: cite)
+        let pill = try XCTUnwrap(p.rangeFrame(2, start: UInt32(at.location), end: UInt32(NSMaxRange(at))))
+        XCTAssertGreaterThan(pill.minY, 15, "below the first line")
+        XCTAssertGreaterThan(pill.width, 20)
+    }
+}

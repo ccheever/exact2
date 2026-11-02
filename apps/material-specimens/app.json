@@ -1,0 +1,12 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Material Specimens",
+  "short_name": "Specimens",
+  "id": "com.exact.material-specimens",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.material-specimens",
+    "name": "Material Specimens"
+  }
+}

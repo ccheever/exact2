@@ -1,0 +1,163 @@
+test "Save waits for a title, a refusal stays until a Save succeeds, an item opens and deletes after asking"
+  clock data
+  expect tree has "empty-add"
+  tap "empty-add"
+  clock settle
+  expect disabled "add-save"
+  expect text "add-hint" == "Enter a title to save."
+  type "add-title" "Milk"
+  expect enabled "add-save"
+  expect text "add-hint" == ""
+  type "add-notes" "Two litres"
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Milk"
+  tap "add-item"
+  clock settle
+  expect tree missing "add-error"
+  type "add-title" "milk"
+  tap "add-save"
+  clock data
+  expect text "add-error" == "There’s already an item called Milk. Choose another title."
+  expect text "add-title" == "milk"
+  type "add-title" "Oat milk"
+  expect text "add-error" == "There’s already an item called Milk. Choose another title."
+  tap "add-save"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Oat milk"
+  tap "add-item"
+  clock settle
+  expect tree missing "add-error"
+  tap "add-cancel"
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "detail-notes" == "Two litres"
+  tap "delete-item"
+  clock settle
+  tap "remove-confirm"
+  clock settle
+  clock data
+  expect state lib.0 .title == "Oat milk"
+  expect tree missing "item-1"
+
+test "the bar's search filters as you type; no match says so"
+  tap "add-item"
+  clock settle
+  type "add-title" "Bread"
+  type "add-notes" "Sourdough"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "add-item"
+  clock settle
+  type "add-title" "Cherries"
+  tap "add-save"
+  clock data
+  clock settle
+  type "search" "sour"
+  expect tree has "item-1"
+  expect tree missing "item-2"
+  type "search" "plums"
+  expect tree missing "item-1"
+  expect state shown == []
+  type "search" ""
+  expect tree has "item-2"
+
+test "the items survive a relaunch, newest first"
+  tap "add-item"
+  clock settle
+  type "add-title" "Bread"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "add-item"
+  clock settle
+  type "add-title" "Cherries"
+  tap "add-save"
+  clock data
+  clock settle
+  reload
+  expect state lib.0 .title == "Cherries"
+  expect state lib.1 .title == "Bread"
+
+test "a wide window opens an item, beside the list on the web"
+  size 1000x700
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  type "add-notes" "A dozen"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "detail-title" == "Eggs"
+  expect text "detail-notes" == "A dozen"
+  expect state selected == "1"
+
+test "a locked item shows its badge, and Delete is disabled, saying why"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1"
+  clock settle
+  expect text "delete-reason" == ""
+  type "lock-item" "true"
+  clock data
+  expect state lib.0 .locked == true
+  expect text "delete-reason" == "Unlock this item to delete it."
+  type "lock-item" "false"
+  clock data
+  expect state lib.0 .locked == false
+
+test "an id that names nothing says so, and Back returns to the list"
+  clock data
+  type "app" "/item/999"
+  clock settle
+  expect text "detail-title" == "Not Found"
+  expect tree has "missing-back"
+  tap "missing-back"
+  clock settle
+  expect tree has "add-item"
+  expect tree missing "missing-back"
+
+test "a row deletes by swipe without asking, and its long-press menu locks it"
+  tap "add-item"
+  clock settle
+  type "add-title" "Eggs"
+  tap "add-save"
+  clock data
+  clock settle
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == true
+  expect disabled "item-1-delete"
+  tap "item-1" contextmenu
+  tap "menu-lock"
+  clock data
+  expect state lib.0 .locked == false
+  tap "item-1-delete"
+  clock data
+  expect state lib == []
+  expect tree has "add-item"
+
+test "Enter in the title saves, as a form does"
+  clock data
+  tap "empty-add"
+  clock settle
+  type "add-title" key "Enter"
+  clock data
+  expect state lib.length == 0
+  type "add-title" "Pears"
+  type "add-title" key "Enter"
+  clock data
+  clock settle
+  expect state lib.0 .title == "Pears"
+  expect tree missing "add-title"

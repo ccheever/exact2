@@ -1,0 +1,31 @@
+[package]
+name = "metronome-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Metronome on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "metronome_web"
+crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "metronome-dev"
+path = "src/bin/metronome-dev.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+metronome-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+metronome-data = { path = "../data" }

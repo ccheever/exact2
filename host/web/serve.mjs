@@ -1,0 +1,1486 @@
+#!/usr/bin/env bun
+// Serve a web build for a browser — and, through exact.json, for a native
+// client: the app's (`web-build`'s target/web-dist), or the
+// directory named. LAN by default; --loopback (or EXACT_LOOPBACK=1) binds
+// 127.0.0.1 only, as the app's `serve` verb does unless given --lan.
+// Usage: bun host/web/serve.mjs [<dir> | --origin <dir>] [--port <n>] [--loopback|--lan]
+import { createServer } from 'node:http';
+import { createServer as createSocketServer } from 'node:net';
+import { brotliCompress, brotliCompressSync, constants as zlib, gzip, gzipSync } from 'node:zlib';
+import { createHash, randomBytes } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { arch, cpus, networkInterfaces, platform } from 'node:os';
+import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
+import { withLock } from './build-lock.mjs';
+import { canonicalBytes } from '../../scripts/deploy-signing.mjs';
+import { copyShaders, developmentURLScheme, resolveApp, webDist, webHostFiles } from '../../scripts/app.mjs';
+import { settingChanges } from '../../js/bake/src/__exact_env.mjs';
+import { acceptsHTML, appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
+import { canonical, matchPattern } from '../web-js/route-pattern.js';
+import { guardFlags } from '../../scripts/help.mjs';
+
+import { INSTALL_FILES, INSTALL_PUBLIC, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
+import { generationOf, keepGeneration, reapGenerations, servedFile, withGenerationBase } from './generations.mjs';
+
+const PUBLIC_FILES = new Set([
+  ...INSTALL_PUBLIC,
+  ...Object.keys(webHostFiles()).map(name => '/' + name),
+  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
+  '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
+  // The one dot path a static origin serves: the deep-link association
+  // file bake generates, read by Apple's CDN over HTTPS.
+  '/.well-known/apple-app-site-association',
+]);
+// `/gpu/`: each declared GPU module's wasm and its glue.
+// `/stages/`: the core's staged capabilities, named by digest.
+// `/modules/`: the app's native-module web executor, page code.
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/', '/plans/', '/activities/'];
+const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
+// An origin's update streams (`scripts/origin.mjs`):
+// `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
+// one dot path a client fetches. Inside it every other dot name (the
+// stream's `.lock`) stays private.
+const UPDATE_TREE = '/.exact/';
+// The web's auth callback page and its script, under the
+// update tree: never stored, and sent with no referrer.
+export const AUTH_CALLBACK = '/.exact/auth/callback';
+
+/** Dev-only opening instructions. Never infers installation or publishes a
+ * build. `links` are the token-bearing opening links this Mac's development
+ * clients admit for the page's origin (`developmentLinks`). */
+export function developmentOpenPage(app, links = [], page = '/') {
+  const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const name = escape(app.displayName), crate = escape(app.crate('apple')), url = escape(page);
+  const scheme = developmentURLScheme(app.id);
+  const labels = { macos: 'Open in the Mac client', 'ios-simulator': 'Open in the Simulator client', ios: 'Open in the iPhone or iPad client' };
+  const native = links.map(link => `<a class="native" href="${escape(link.href)}">${escape(labels[link.destination] ?? 'Open in native client')}</a>`).join('');
+  return `<!doctype html><html lang="${escape(app.manifest.lang ?? 'en')}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer"><title>Open ${name}</title>
+<style>body{font:17px/1.5 system-ui;margin:0;background:#f4f5f8;color:#172033}main{max-width:620px;margin:6vh auto;padding:28px}h1{line-height:1.15}a{color:#164bc4}nav{display:flex;flex-wrap:wrap;gap:14px;margin:28px 0}nav a{padding:12px 18px;border:1px solid #164bc4;border-radius:10px;text-decoration:none}nav a.native{background:#164bc4;color:white}input{box-sizing:border-box;width:100%;padding:12px;font:14px ui-monospace,monospace}pre{overflow:auto;background:#e7eaf0;padding:12px;border-radius:8px}small{color:#4b566b}</style>
+<main><small>Exact · development</small><h1>Open ${name}</h1>
+<p>One app URL. Use the browser here, or hand it to this app’s installed native development client.</p>
+<nav>${native}<a id="browser" href="${url}">Continue in browser</a></nav>
+${native ? '' : '<p id="status" role="status">No development client built on this Mac admits this server yet; build one with <code>--url</code> as below.</p>'}
+<label for="url">App URL — also works in the native menu’s Open Project</label><input id="url" readonly value="${url}">
+<details${native ? '' : ' open'}><summary>Need a native client?</summary><p>Build this app’s client from its source workspace against this server. A client built with <code>--url</code> opens <code>${scheme}://open?url=…&amp;token=…</code> links for that server only, with a token made for that build.</p>
+<h2>macOS</h2><pre>bun host/apple/build.mjs ${crate} --bundle --url ${url}</pre><p>Open the printed <code>.app</code> once, then return here. This is a local development bundle, not a notarized download.</p>
+<h2>iPhone / iPad</h2><pre>bun host/apple/build.mjs --device ${crate} --url ${url}</pre><p>Connect an unlocked, paired device to the signing Mac. Developer Mode and a matching provisioning profile are required. Allow Local Network access and keep the app visible; the dev server needs <code>--lan</code>.</p>
+<p>For an external app, use its existing <code>EXACT_APP_DIR</code> setup. A cloud workspace needs a device-reachable URL and a Mac builder; automatic cloud builds, downloads and Exact2 Go are not available in this flow yet.</p></details>
+<p><small>Open only a development server you trust. This page cannot detect whether a client is installed; it lists the clients built on this Mac. The native loader still checks compatibility and may refuse the app. LAN addresses require the same network.</small></p></main></html>`;
+}
+
+function staticRelative(name) {
+  if (typeof name !== 'string' || !name || name.startsWith('/') || name.includes('\\') || name.includes('\0')) throw new Error(`not a relative static-file path: ${JSON.stringify(name)}`);
+  if (name.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`not a relative static-file path: ${JSON.stringify(name)}`);
+  return name;
+}
+
+// A live iframe can navigate long after its generation left the dev head.
+// Keep those ordinary files outside rebuilt dist, without guessing client
+// liveness. Quota exhaustion refuses publication instead of deleting readers.
+export const DEV_GENERATION_CACHE_BYTES = 4 * 1024 * 1024 * 1024;
+export const MODULE_FILES = { native: 'app.hbc', receipt: 'app.module.json', web: 'app.js' };
+/** Verify one producer result before it enters a served generation. The
+ * receipt is pairing metadata, never publisher authentication. */
+export function moduleCards(files, appId) {
+  const receipt = files.get(MODULE_FILES.receipt);
+  if (!receipt || receipt.length > 1024 * 1024) throw new Error('missing or oversized module receipt');
+  const meta = JSON.parse(receipt.toString('utf8'));
+  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== appId || typeof meta.grants !== 'string'
+      || !Number.isSafeInteger(meta.bytecodeVersion) || meta.bytecodeVersion <= 0) throw new Error('incompatible module receipt');
+  for (const [key, name] of [['plan', 'app.plan'], ['module', 'app.hbc'], ['web', 'app.js']]) {
+    const bytes = files.get(name), card = meta[key];
+    if (!bytes || bytes.length > 32 * 1024 * 1024 || card?.file !== name || card.bytes !== bytes.length || card.sha256 !== sha256(bytes)) throw new Error(`module receipt does not pair ${name}`);
+  }
+  const hbc = files.get('app.hbc');
+  if (hbc.length < 12 || hbc.readUInt32LE(8) !== meta.bytecodeVersion) throw new Error('incompatible module bytecode header');
+  return Object.fromEntries(Object.entries(MODULE_FILES).map(([key, name]) => {
+    const bytes = files.get(name);
+    return [key, { bytes: bytes.length, sha256: sha256(bytes) }];
+  }));
+}
+export function retainDevGeneration(cache, epoch, seq, files, quota = DEV_GENERATION_CACHE_BYTES, previousToken = null) {
+  if (!/^[0-9a-f]{32}$/.test(epoch) || !Number.isSafeInteger(seq) || seq < 0) throw new Error('invalid dev generation identity');
+  try {
+    return filesystem({ op: 'retain', root: resolve(cache), path: `${epoch}/${seq}`, quota, previousToken,
+      files: Object.fromEntries([...files].map(([name, bytes]) => [staticRelative(name), Buffer.from(bytes).toString('base64')])) });
+  } catch (error) {
+    if (error.message.includes('cache quota exceeded')) throw new Error(`dev generation cache is full: ${resolve(cache)}; close all pages and native dev connections before manually removing this cache, then restart the dev server`);
+    throw error;
+  }
+}
+
+/** The envelope is written last. An interrupted candidate has no public
+ * namespace, and undeclared files never become routes through this cache. */
+function* devGenerationRead(cache, pathname) {
+  try {
+    const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
+    if (!match) return null;
+    const name = staticRelative(decodeURIComponent(match[3]));
+    if (!['app.plan', 'app.plan.map.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    const prefix = `${match[1]}/${match[2]}`;
+    const raw = (yield { op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
+    if (raw === null) return null;
+    const envelopeBytes = Buffer.from(raw, 'base64');
+    const envelope = JSON.parse(envelopeBytes.toString('utf8'));
+    if (envelope.dev?.epoch !== match[1] || String(envelope.dev?.seq) !== match[2]) return null;
+    if (name === 'exact.json') return { name, body: envelopeBytes };
+    const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
+    const rustCard = Object.values(envelope.rust ?? {}).flatMap(v => [v.receipt, v.module]).find(card => card.url?.endsWith('/' + name) || card.url === name);
+    const card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
+    if (!card) return null;
+    const value = (yield { op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
+    if (value === null) return null;
+    const body = Buffer.from(value, 'base64');
+    if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
+    if (name === 'app.plan.map.json' && JSON.parse(body.toString('utf8')).digest !== envelope.plan?.sha256) return null;
+    return { name, body };
+  } catch { return null; }
+}
+
+export function readDevGeneration(cache, pathname) { return runReads(devGenerationRead(cache, pathname)); }
+export function readDevGenerationAsync(cache, pathname) { return runReadsAsync(devGenerationRead(cache, pathname)); }
+
+/** Every regular file under a static source tree, sorted and refused when
+ * the root or any entry is a symlink or another special filesystem object. */
+export function listStaticFiles(source) {
+  return Object.keys(filesystem({ op: 'names', root: resolve(source) }));
+}
+
+/** Open every component from owned directory handles; there is no path
+ * validation/open gap for an intermediate-directory replacement to exploit. */
+export function readStaticCandidate(source, name) {
+  const bytes = filesystem({ op: 'get', root: resolve(source), path: staticRelative(name) });
+  if (bytes === null) { const error = new Error(`static app file disappeared: ${name}`); error.code = 'ENOENT'; throw error; }
+  return Buffer.from(bytes, 'base64');
+}
+
+/** Read a source candidate once, write it privately beside `target`, run an
+ * optional validator over those exact bytes, then atomically replace the
+ * served file. Any refusal leaves the last-good target untouched. */
+export function installStaticCandidate(source, name, target, validate = null) {
+  const bytes = readStaticCandidate(source, name);
+  mkdirSync(dirname(target), { recursive: true });
+  const candidate = resolve(dirname(target), `.candidate-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    writeFileSync(candidate, bytes, { flag: 'wx' });
+    if (validate) validate(candidate, bytes);
+    renameSync(candidate, target);
+    return bytes;
+  } catch (error) {
+    rmSync(candidate, { force: true });
+    throw error;
+  }
+}
+
+/** Merge every declared shader root before committing a dev candidate. A
+ * deletion in one pack must not erase the other packs; duplicates refuse it. */
+export function applyShaderTreeChange(app, target, validate = null) {
+  const source = resolve(dirname(target), `.shader-packs-${process.pid}-${randomBytes(4).toString('hex')}`);
+  mkdirSync(source, {recursive:true});
+  try {
+    copyShaders(app, source);
+    return applyStaticTreeChange(source, target, validate);
+  } finally { rmSync(source, {recursive:true,force:true}); }
+}
+
+/** Copy one complete static source tree under the same no-symlink policy
+ * used by the live candidate path. Intended for private build stages. */
+export function copyStaticTree(source, target) {
+  // Capture the whole source through one root handle before exposing bytes
+  // to the private candidate. A link/race fails before the caller commits it.
+  filesystem({ op: 'copy', root: resolve(source), target: resolve(target) });
+}
+
+function optionalInfo(path) {
+  try { return lstatSync(path); }
+  catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+}
+
+/** Copy a tree when it is genuinely absent, while still sending a dangling
+ * root link through the static-tree refusal. `existsSync` cannot make that
+ * distinction and must not guard an app-visible copy. */
+export function copyStaticTreeIfPresent(source, target) {
+  return filesystem({ op: 'copy', root: resolve(source), target: resolve(target), optionalRoot: true }) === true;
+}
+
+/** Mirror one complete source tree into a live dist at startup. A missing
+ * source removes the formerly served tree. A present tree is first copied
+ * into a private sibling and only then replaces the target, so a refused
+ * link or read race preserves the last-good tree. */
+export function syncStaticTree(source, target, validate = null) {
+  const sourcePath = resolve(source);
+  const targetPath = resolve(target);
+  const parent = dirname(targetPath);
+  mkdirSync(parent, { recursive: true });
+  const candidate = resolve(parent, `.candidate-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const previous = resolve(parent, `.previous-tree-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try {
+    if (!copyStaticTreeIfPresent(sourcePath, candidate)) {
+      rmSync(targetPath, { recursive: true, force: true });
+      return false;
+    }
+    if (validate) validate(candidate);
+    if (optionalInfo(targetPath)) renameSync(targetPath, previous);
+    try { renameSync(candidate, targetPath); }
+    catch (error) {
+      if (optionalInfo(previous)) renameSync(previous, targetPath);
+      throw error;
+    }
+    rmSync(previous, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    rmSync(candidate, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function staticTreeSnapshot(root) {
+  return new Map(Object.entries(filesystem({ op: 'tree', root: resolve(root), optionalRoot: true }) ?? {}).map(([name, bytes]) => [name, Buffer.from(bytes, 'base64')]));
+}
+
+/** Atomically reconcile a watched whole-tree creation/deletion and return
+ * only changed leaf rows. Root events are common when Darwin removes a
+ * watched directory, and are also how a previously absent tree first appears. */
+export function applyStaticTreeChange(source, target, validate = null) {
+  const before = staticTreeSnapshot(target);
+  const present = syncStaticTree(source, target, validate);
+  const after = staticTreeSnapshot(target);
+  const names = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const files = [];
+  for (const name of names) {
+    const had = before.get(name), has = after.get(name);
+    if (!has) files.push({ name, bytes: null, removed: true });
+    else if (!had?.equals(has)) files.push({ name, bytes: has, removed: false });
+  }
+  return { present, files };
+}
+
+/** Reflect exact shader files through the dev loop's executable. */
+export function reflectShaderFiles(files, reflectBin) {
+  if (!files.length) return new Map();
+  const result = spawnSync(reflectBin, ['digest', ...files], { encoding: 'utf8' });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error((result.stderr || result.stdout || `shader reflection exited ${result.status}`).trim());
+  const out = new Map();
+  for (const line of (result.stdout ?? '').trim().split('\n')) {
+    const [name, digest, ...rest] = line.split(' ');
+    if (!name) continue;
+    if (digest === 'error') throw new Error(rest.join(' ') || `${name}: shader reflection failed`);
+    out.set(name, digest);
+  }
+  if (out.size !== files.length) throw new Error(`shader reflection returned ${out.size} result${out.size === 1 ? '' : 's'} for ${files.length} files`);
+  return out;
+}
+
+/** Reflect a complete shader tree. Any invalid or missing result rejects the
+ * candidate before its tree swap. */
+export function shaderInterfaceDigests(source, reflectBin) {
+  const names = listStaticFiles(source).filter((name) => name.endsWith('.wgsl'));
+  const reflected = reflectShaderFiles(names.map((name) => resolve(source, name)), reflectBin);
+  const out = new Map();
+  for (const name of names) {
+    const stem = name.slice(0, -'.wgsl'.length);
+    const key = basename(stem);
+    const digest = reflected.get(key);
+    if (!digest || out.has(stem)) throw new Error(`shader reflection did not identify ${name} uniquely`);
+    out.set(stem, digest);
+  }
+  return out;
+}
+
+/** Map one recursive watch event, relative to a stable app root, onto the
+ * configured static tree. A root or ancestor event has an empty `relative` path; a null
+ * filename conservatively reconciles every tree. */
+export function staticWatchChanges(watchRoot, trees, filename) {
+  if (filename === null || filename === undefined || filename === '') return trees.map(([root, targetRoot]) => ({ root: resolve(root), targetRoot, relative: '', name: targetRoot, tree: true }));
+  const path = resolve(watchRoot, String(filename));
+  const watched = relative(resolve(watchRoot), path);
+  if (watched === '..' || watched.startsWith(`..${sep}`) || isAbsolute(watched)) return [];
+  const changes = [];
+  for (const [tree, targetRoot] of trees) {
+    const root = resolve(tree);
+    const rel = relative(root, path);
+    const descendant = relative(path, root);
+    if (descendant !== '..' && !descendant.startsWith(`..${sep}`) && !isAbsolute(descendant)) {
+      changes.push({ root, targetRoot, relative: '', name: targetRoot, tree: true });
+    }
+    else if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
+      const portable = rel.split(sep).join('/');
+      changes.push({ root, targetRoot, relative: portable, name: `${targetRoot}/${portable}`, tree: false });
+    }
+  }
+  return changes;
+}
+
+/** Poll only static paths: recursive filesystem notifications can arrive late.
+ * Keep absent roots watched; directory changes discover new files. */
+export function watchStaticTrees(watchRoot, trees, onChange) {
+  const watched = new Map();
+  const info = path => { try { return lstatSync(path, { bigint: true }); } catch { return null; } };
+  function discover(path, paths) {
+    paths.add(path);
+    const current = info(path);
+    if (!watched.has(path)) watched.set(path, current);
+    try {
+      if (current?.isDirectory()) {
+        for (const name of readdirSync(path)) discover(resolve(path, name), paths);
+      }
+    } catch { /* The validated copy reports refusals; never follow a root link. */ }
+  }
+  function scan() {
+    const paths = new Set();
+    for (const [root] of trees) discover(resolve(root), paths);
+    for (const path of watched.keys()) if (!paths.has(path)) watched.delete(path);
+  }
+  scan();
+  const timer = setInterval(() => {
+    const changes = [];
+    let directories = false;
+    for (const [path, previous] of watched) {
+      const now = info(path);
+      if (!['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => now?.[key] !== previous?.[key])) continue;
+      watched.set(path, now);
+      const directory = now?.isDirectory() || previous?.isDirectory();
+      directories ||= directory;
+      for (const change of staticWatchChanges(watchRoot, trees, path)) {
+        changes.push(directory ? { ...change, relative: '', name: change.targetRoot, tree: true } : change);
+      }
+    }
+    if (directories) scan();
+    for (const change of changes) onChange(change, 'change');
+  }, 100);
+  return { close() { clearInterval(timer); watched.clear(); } };
+}
+
+/** Apply one recursive-watch candidate. A missing leaf or directory removes
+ * its complete served counterpart; every other refusal leaves it intact. */
+export function applyStaticChange(source, name, target, validate = null) {
+  try { return { bytes: installStaticCandidate(source, name, target, validate), removed: false }; }
+  catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    let removedFiles = [''];
+    const targetInfo = optionalInfo(resolve(target));
+    if (targetInfo?.isDirectory()) {
+      const files = listStaticFiles(target);
+      removedFiles = files.length ? files : [''];
+    }
+    rmSync(target, { recursive: true, force: true });
+    return { bytes: null, removed: true, removedFiles };
+  }
+}
+
+/** Resolve one URL path to the current build, or to the stable previous tree
+ * while build.mjs has renamed the current one aside. Generated top-level
+ * files are explicit; app assets live only under the replaced trees, and an
+ * origin's update streams under `.exact/`. Every other dot path and every
+ * symlink are private, even when their target is inside a build. Returns
+ * null for anything that must not be served. */
+export function staticFile(dist, pathname) {
+  let route;
+  try { route = installRoute(decodeURIComponent(pathname === '/' ? '/index.html' : pathname)); }
+  catch { return null; }
+  if (!route.startsWith('/') || route.includes('\\') || route.includes('\0')) return null;
+  const parts = route.split('/').filter(Boolean);
+  const update = route.startsWith(UPDATE_TREE);
+  if (parts.some((part, i) => part.startsWith('.') && !(update && i === 0)) && !PUBLIC_FILES.has(route)) return null;
+  if (!PUBLIC_FILES.has(route) && !update && !PUBLIC_TREES.some((tree) => route.startsWith(tree))) return null;
+  // A complete current build is authoritative even when it lacks an optional
+  // route (notably GPU files). Consult previous only while the current root
+  // itself is absent; otherwise two apps' artifacts could be mixed.
+  // Asked again, three times at most, as buildTreeFile asks.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const was = buildRoot(dist);
+    if (!was) continue;
+    const { root } = was;
+    try {
+      const inside = path => {
+        const child = relative(root, path);
+        return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+      };
+      const path = resolve(root, '.' + route);
+      if (!inside(path)) return null;
+      const real = realpathSync(path);
+      // Reject both a symlink file and a file reached through a symlink dir
+      // (asked again only if the build moved meanwhile).
+      if (real !== path || !inside(real) || !statSync(real).isFile()) { if (stillBuild(dist, was)) return null; continue; }
+      return { path: real, route };
+    } catch { if (stillBuild(dist, was)) return null; }
+  }
+  return null;
+}
+
+const sameFile = (a, b) => a.dev === b.dev && a.ino === b.ino;
+const identity = (path) => statSync(path, { bigint: true });
+/** The real path of the build at `dist` (of `.previous` while dist is absent
+ * between two renames), or null to ask again: a build put in place as it was
+ * looked up can resolve to where the old tree has just gone, so the path must
+ * be dist itself (the same file, however its name is spelt). */
+function buildRoot(dist) {
+  let root;
+  try { root = realpathSync(dist); } catch {
+    try { root = realpathSync(`${dist}.previous`); return { root, at: identity(root) }; } catch { return null; }
+  }
+  try { const at = identity(root); return sameFile(at, identity(dist)) ? { root, at } : null; } catch { return null; }
+}
+/** Whether the build looked up as `was` is still the one there (a refusal
+ * then stands; else the build moved meanwhile, and it is asked again). */
+const stillBuild = (dist, was) => { const now = buildRoot(dist); return !!now && now.root === was.root && sameFile(now.at, was.at); };
+
+/** Resolve and read together, retrying when a build rename moved the path
+ * between those operations. The opened response is wholly old or wholly
+ * new; a request never observes the rename window as a synthetic 404. */
+function* publishedFile(dist, pathname) {
+  let route;
+  try { route = installRoute(decodeURIComponent(pathname === '/' ? '/index.html' : pathname)); }
+  catch { return null; }
+  // Immutable generation URLs never consult the current pointer: readers
+  // that already opened an older index keep all of that generation's files.
+  // A release holds only what its publisher wrote (deploy.mjs `webRootFiles`:
+  // a JS-target root adds its content-named chunks and pages), so any name
+  // in it is public but a dot path the allowlist does not name.
+  const releaseFile = (name) => PUBLIC_FILES.has('/' + name) || !name.split('/').some((part) => part.startsWith('.'));
+  const release = /^\/\.exact\/root\/web\/releases\/([0-9a-f]{64})\/(.*)$/.exec(route);
+  if (release) {
+    const name = release[2] || 'index.html';
+    if (!releaseFile(name)) return null;
+    staticRelative(name);
+    const rel = `${webReleasePath(release[1])}/${name}`;
+    const body = (yield { op: 'get', root: resolve(dist), path: rel });
+    return body === null ? null : { path: resolve(dist, rel), route: '/' + name, body: Buffer.from(body, 'base64'), immutable: true, published: true };
+  }
+  if (route.startsWith('/.exact/') && !INSTALL_PUBLIC.includes(route)) return undefined; // native heads/blobs and the web pointer
+  const raw = (yield { op: 'get', root: resolve(dist), path: webRootPath });
+  if (raw === null) return undefined; // a local build, not a deployed root
+  const root = parseWebRoot(Buffer.from(raw, 'base64'));
+  const card = root.files.find((file) => '/' + file.name === route);
+  if (!card || !releaseFile(card.name)) return null;
+  const rel = `${webReleasePath(root.id)}/${card.name}`;
+  const value = (yield { op: 'get', root: resolve(dist), path: rel });
+  if (value === null) return null;
+  const body = Buffer.from(value, 'base64');
+  if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
+  return { path: resolve(dist, rel), route, body, immutable: false, published: true };
+}
+
+function* staticRead(dist, pathname) {
+  try {
+    const published = yield* publishedFile(dist, pathname);
+    if (published !== undefined) return published;
+  } catch { return null; } // a malformed pointer or unsafe path never falls back to stale files
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // (staticFile asks again itself while a build is put in place.)
+    const found = staticFile(dist, pathname);
+    if (!found) return null;
+    try {
+      const bytes = (yield { op: 'get', root: dirname(found.path), path: basename(found.path) });
+      if (bytes !== null) return { ...found, body: Buffer.from(bytes, 'base64') };
+    }
+    catch { /* retry against dist or dist.previous */ }
+  }
+  return null;
+}
+
+// One route/integrity policy, driven synchronously by build tooling and through
+// the resident asynchronous reader by HTTP. Read failures reenter the same guards.
+export function readStaticFile(dist, pathname) { return runReads(staticRead(dist, pathname)); }
+export function readStaticFileAsync(dist, pathname) { return runReadsAsync(staticRead(dist, pathname)); }
+function runReads(reads) {
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(filesystem(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
+}
+async function runReadsAsync(reads) {
+  let step = reads.next();
+  while (!step.done) {
+    try { step = reads.next(await filesystemRead(step.value)); }
+    catch (error) { step = reads.throw(error); }
+  }
+  return step.value;
+}
+
+/** Every file a static web build is allowed to expose, relative to its root.
+ * Private completion metadata and any unexpected top-level file are omitted.
+ * Deploy imports this inventory, so serving and origin publication cannot
+ * disagree about whether a build artifact is public. */
+export function listPublicFiles(dist) {
+  const root = resolve(dist);
+  const out = [];
+  for (const route of PUBLIC_FILES) if (staticFile(root, route)) out.push(route.slice(1));
+  for (const asset of listAssets(root)) {
+    if (!staticFile(root, `/${asset.name}`)) {
+      throw new Error(`public web file is not safely readable: ${resolve(root, asset.name)}`);
+    }
+    out.push(asset.name);
+  }
+  for (const tree of ['rust', 'gpu', 'stages']) if (existsSync(resolve(root, tree))) for (const name of listStaticFiles(resolve(root, tree))) out.push(`${tree}/${name}`);
+  return out.sort();
+}
+
+/** Digest cards for the complete public web build. The private completion
+ * marker records these after every generated/optional artifact exists. */
+export async function publicFileCards(dist) {
+  return Promise.all(listPublicFiles(dist).map(async (name) => {
+    const found = await readStaticFileAsync(dist, `/${name}`);
+    if (!found) throw new Error(`public web file changed while inventorying: ${resolve(dist, name)}`);
+    return { name, sha256: createHash('sha256').update(found.body).digest('hex'), bytes: found.body.length };
+  }));
+}
+
+/** The manifest input identity a completed build records. Binding the whole
+ * object means a name, icon, host card, or deploy-policy edit cannot reuse a
+ * dist assembled from the prior app.json. */
+export function appManifestDigest(app) {
+  return createHash('sha256').update(JSON.stringify(app.manifest)).digest('hex');
+}
+
+function planAppId(bytes) {
+  if (bytes.length < 36 || bytes.subarray(0, 4).toString() !== 'EXPL') return null;
+  const idLen = bytes.readUInt32LE(32);
+  if (idLen === 0 || 36 + idLen > bytes.length) return null;
+  return bytes.subarray(36, 36 + idLen).toString('utf8');
+}
+
+// The schema is the wire authority; no table offsets or row sizes are mirrored here.
+const planFormat = JSON.parse(readFileSync(new URL('../../plan/tables/format.json', import.meta.url), 'utf8'));
+const planFormatDigest = createHash('sha256').update('EXACT.PLAN.FORMAT.SHA256.V1\0').update(canonicalBytes(planFormat)).digest().subarray(0, 8);
+const renderPolicies = planFormat.enums.RenderPolicy;
+const routeBuffers = new WeakMap();
+function planRoutes(bytes) {
+  if (routeBuffers.has(bytes)) return routeBuffers.get(bytes);
+  let routes;
+  try { routes = planRouteTable(bytes); } catch { routes = []; } // An absent or unfinished build admits no additional document paths.
+  routeBuffers.set(bytes, routes);
+  return routes;
+}
+/** The plan's route table, in its order: each route's name, pattern, render policy and whether it is the
+ * `notfound` route (`routes.json`). Throws on a plan this format does not read. */
+export function planRouteTable(bytes) {
+  if (bytes.subarray(0, 4).toString() !== 'EXPL' || bytes.readUInt32LE(4) !== planFormat.formatVersion
+    || !bytes.subarray(8, 16).equals(planFormatDigest)) throw new Error('unknown plan format');
+  let at = 32;
+  const take = n => { const start = at; at += n; if (at > bytes.length) throw new Error('truncated plan'); return start; };
+  const u32 = () => bytes.readUInt32LE(take(4));
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const string = () => { const n = u32(); return decoder.decode(bytes.subarray(take(n), at)); };
+  for (const field of planFormat.header) {
+    if (field.codec === 'string') string(); else take(4);
+  }
+  const count = u32(), strings = [];
+  for (let i = 0; i < count; i++) strings.push(string());
+  take(u32()); // code pool
+  take(u32()); // data pool
+  const width = codec => {
+    const kind = codec.split(':')[0];
+    if (['u8', 'bool', 'enum'].includes(kind)) return 1;
+    if (kind === 'u16') return 2;
+    if (['u32', 'i32', 'str', 'idx', 'opt'].includes(kind)) return 4;
+    if (['f64', 'range', 'code', 'bytes'].includes(kind)) return 8;
+    throw new Error('unknown plan codec');
+  };
+  const routes = [];
+  for (const table of planFormat.tables) {
+    const count = u32(), size = table.fields.reduce((n, field) => n + width(field.codec), 0);
+    const start = take(count * size);
+    if (table.name !== 'routes') continue;
+    for (let i = 0; i < count; i++) {
+      let offset = start + i * size;
+      const row = {};
+      for (const field of table.fields) {
+        if (field.name === 'name') row.name = strings[bytes.readUInt32LE(offset)];
+        if (field.name === 'pattern') row.pattern = strings[bytes.readUInt32LE(offset)];
+        if (field.name === 'render') { row.render = renderPolicies[bytes[offset]]; if (!row.render) throw new Error('invalid route render policy'); }
+        if (field.name === 'notfound') { const value = bytes[offset]; if (value > 1) throw new Error('invalid route'); row.notfound = !!value; }
+        offset += width(field.codec);
+      }
+      if (typeof row.pattern !== 'string' || typeof row.name !== 'string') throw new Error('invalid route pattern');
+      routes.push(row);
+    }
+  }
+  if (at !== bytes.length) throw new Error('trailing plan bytes');
+  return routes;
+}
+const servedRoutePlans = new Map();
+function routeFileIdentity(dist, files) {
+  const was = buildRoot(dist);
+  if (!was) return null;
+  const stamp = name => {
+    try {
+      const s = lstatSync(resolve(was.root, name), {bigint: true});
+      return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs, s.mode].join(':');
+    } catch (error) { if (error.code === 'ENOENT') return '-'; throw error; }
+  };
+  return [was.root, was.at.dev, was.at.ino, ...files.map(stamp)].join('|');
+}
+/** The route table of a JS-target build, from the `routes.json` its build writes from the plan: `[]` for none, or
+ * for one this does not parse (no route is then declared), and null when it cannot be read: a read that fails, or
+ * a build that moves under it, is asked again, four times in all. Checked as `servedRoutePlan` checks a plan. */
+function* servedRouteTable(dist) {
+  const key = `routes:${resolve(dist)}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let identity, bytes;
+    try {
+      identity = routeFileIdentity(dist, ['routes.json']);
+      if (!identity) return [];
+      const cached = servedRoutePlans.get(key);
+      if (cached?.identity === identity) return cached.plan;
+      bytes = yield {op: 'get', root: resolve(dist), path: 'routes.json'};
+      if (routeFileIdentity(dist, ['routes.json']) !== identity) continue;
+    } catch { continue; }
+    let routes = [];
+    try {
+      const table = bytes === null ? null : JSON.parse(Buffer.from(bytes, 'base64').toString('utf8'));
+      if (Array.isArray(table?.routes) && table.routes.every((r) => typeof r?.pattern === 'string')) routes = table.routes.map((r) => ({pattern: r.pattern, notfound: r.notfound === true, render: r.render}));
+    } catch { /* not a route table */ }
+    if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+    servedRoutePlans.set(key, {identity, plan: routes});
+    return routes;
+  }
+  return null;
+}
+// Check the build, plan and published head before reading. A producer may
+// rewrite a local plan without replacing its build directory.
+function* servedRoutePlan(dist) {
+  const key = `plan:${resolve(dist)}`;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const identity = routeFileIdentity(dist, ['app.plan', webRootPath]);
+      if (!identity) return null;
+      const cached = servedRoutePlans.get(key);
+      if (cached?.identity === identity) return cached.plan;
+      let plan = yield* staticRead(dist, '/app.plan');
+      if (routeFileIdentity(dist, ['app.plan', webRootPath]) !== identity) continue;
+      // Static reads return null for both absence and failure; neither should suppress a retry.
+      if (!plan) return null;
+      plan = {routes: planRoutes(plan.body), path: plan.path, published: plan.published};
+      if (servedRoutePlans.size >= 32) servedRoutePlans.delete(servedRoutePlans.keys().next().value);
+      servedRoutePlans.set(key, {identity, plan});
+      return plan;
+    } catch { return null; }
+  }
+  return null;
+}
+
+/** Whether the complete build at `dist` belongs to `app`. The completion
+ * marker, public envelope, and named plan must all agree with the requested
+ * manifest identity before dev starts that app's resident compiler. */
+export async function builtAppMatches(dist, app) {
+  try {
+    if (!app?.id || !app?.displayName) return false;
+    const root = realpathSync(dist);
+    const markerPath = resolve(root, '.exact-build.json');
+    if (realpathSync(markerPath) !== markerPath || !statSync(markerPath).isFile()) return false;
+    const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
+    const js = marker.target === 'js';
+    const files = js ? buildFileCards(root) : await publicFileCards(root);
+    const names = new Set(files.map((file) => file.name));
+    if ((js ? JS_BUILD_FILES : REQUIRED_BUILD_FILES).some((name) => !names.has(name))) return false;
+    if (!Array.isArray(marker.files) || marker.files.length !== files.length
+      || files.some((file, i) => marker.files[i]?.name !== file.name
+        || marker.files[i]?.sha256 !== file.sha256 || marker.files[i]?.bytes !== file.bytes
+        || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
+    const identity = marker.exactBuild === 1 && marker.app?.id === app.id
+      && marker.app.name === app.displayName && marker.manifestSha256 === appManifestDigest(app);
+    // A JS-target build has no envelope; its plan names the app.
+    if (js) return identity && planAppId(readFileSync(resolve(root, 'app.plan'))) === app.id;
+    const found = await readStaticFileAsync(dist, '/exact.json');
+    const plan = await readStaticFileAsync(dist, '/app.plan');
+    if (!found || !plan) return false;
+    const envelope = JSON.parse(found.body.toString('utf8'));
+    const digest = createHash('sha256').update(plan.body).digest('hex');
+    return envelope.exact === 1 && envelope.app?.id === app.id
+      && envelope.app.name === app.displayName && planAppId(plan.body) === app.id
+      && envelope.plan?.url === './app.plan'
+      && envelope.plan.sha256 === digest && envelope.plan.bytes === plan.body.length
+      && identity;
+  } catch { return false; }
+}
+
+// A JS-target build (`host/web-js/build.mjs`) is whatever its
+// bundler wrote — the entry, content-named chunks, pages at their locations —
+// so the local tools list and serve it as a tree: every regular file whose
+// path has no dot component, never through a symlink. Its completion marker
+// (`host/web/build.mjs`) says `target: 'js'`.
+const JS_BUILD_FILES = ['app.js', 'app.plan', 'index.html'];
+export function listBuildFiles(dist) {
+  const root = realpathSync(dist), out = [];
+  const walk = (sub) => {
+    for (const entry of readdirSync(resolve(root, sub), { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const name = sub ? `${sub}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(name);
+      else if (entry.isFile()) out.push(name);
+    }
+  };
+  walk('');
+  return out.sort();
+}
+export const buildFileCards = (dist) => listBuildFiles(dist).map((name) => {
+  const bytes = readFileSync(resolve(dist, name));
+  return { name, sha256: sha256(bytes), bytes: bytes.length };
+});
+/** Put the complete build in `stage` (a sibling of `dist`, or on its volume) in place of `dist`; a server reads
+ * `dist.previous` meanwhile. Builds that run at once (`test web` beside `agent web`, the dev loop's watcher) each
+ * build in a stage of their own and swap here in turn, under `dist.lock`, so none deletes or overwrites the files
+ * another is writing. */
+export function replaceBuild(stage, dist) {
+  mkdirSync(dirname(dist), { recursive: true });
+  withLock(`${dist}.lock`, () => {
+    // Before `.previous` goes: it may be the only tree left by a swap that
+    // was killed between its renames.
+    if (!realDirectory(stage)) throw new Error(`${stage}: no build to put in place`);
+    // No dist (that swap's state): the stage in place first, then `.previous` gone.
+    if (!existsSync(dist)) { renameSync(stage, dist); keepGeneration(`${dist}.previous`, dist); reapGenerations(dist); return; }
+    rmSync(`${dist}.previous`, { recursive: true, force: true });
+    // One step where the system has one: dist is the new tree from one
+    // instant to the next, never absent, and the old tree is left at the
+    // stage's path. Else two renames, between which a reader falls back to
+    // `.previous`.
+    // The build replaced is kept by its generation while its pages may still ask for its files (generations.mjs).
+    if (realDirectory(dist) && exchangeDirectories(stage, dist)) { keepGeneration(stage, dist); reapGenerations(dist); return; }
+    renameSync(dist, `${dist}.previous`);
+    try { renameSync(stage, dist); }
+    catch (error) { if (existsSync(`${dist}.previous`)) renameSync(`${dist}.previous`, dist); throw error; }
+    keepGeneration(`${dist}.previous`, dist); reapGenerations(dist);
+  });
+}
+
+/** The lines `web-build --out` ends with: the routes the browser draws, each route a static root
+ * cannot render on request, which `serve` renders, then the directory and the rule any static host serves it by, which `serve` applies
+ * (`buildTreeFile`). */
+export function hostingNotes(dist, serve = 'bun exact.mjs serve') {
+  const shown = relative(process.cwd(), dist) || '.', routes = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes;
+  const missing = existsSync(resolve(dist, '404.html')) ? '404.html with status 404' : 'status 404, a page with shell.html as its body (the client draws the notfound route)';
+  // A public page left at the default reaches its reader last, after the runtime and then its data.
+  const client = routes.filter((r) => r.render === 'client' && !r.notfound).map((r) => r.pattern);
+  return [
+    ...client.length ? [`${client.join(', ')}: render=client, the default, so the browser draws the page only once app.js and its data have loaded; a page every reader sees alike arrives whole sooner as render=request, which serve renders with the API's answer at each request (docs/recipes/website.md)`] : [],
+    ...routes.filter((r) => r.render === 'request' || r.render === 'cached').map((r) => `${r.notfound ? 'notfound' : r.pattern}: render=${r.render}, so serve renders its page ${r.render === 'cached' ? 'and keeps it 60 s' : 'for each request'}; a static host serves its shell, and the client draws it`),
+    `${shown}: the site, for any static host. ${serve} ${shown} serves it by the rule a host applies:`,
+    `  a file at the path; else, for a browser's navigation to a path a route in routes.json matches, shell.html with status 200; else ${missing}.`,
+    '  A host with a single fallback page serves shell.html for every page it lacks; the client then draws the notfound route.',
+  ];
+}
+
+const realDirectory = (path) => { try { return lstatSync(path).isDirectory(); } catch { return false; } };
+let exchangeCall, exchangeSaid = false;
+/** Whether builds are put in place in one step in directory `dir` (a
+ * test's question): two directories made there and exchanged. */
+export function directoryExchange(dir) {
+  const a = resolve(dir, '.exchange-a'), b = resolve(dir, '.exchange-b');
+  try { mkdirSync(a); mkdirSync(b); writeFileSync(resolve(a, 'a'), ''); return exchangeDirectories(a, b) && existsSync(resolve(b, 'a')); }
+  finally { rmSync(a, { recursive: true, force: true }); rmSync(b, { recursive: true, force: true }); }
+}
+/** Exchange directories `a` and `b` in one step (macOS `renamex_np`
+ * RENAME_SWAP, Linux `renameat2` RENAME_EXCHANGE): whether it was done.
+ * Not where the system has none (another OS, a filesystem without it, a
+ * runtime with no FFI), said once; the caller then renames twice. */
+function exchangeDirectories(a, b) {
+  if (exchangeCall === undefined) {
+    exchangeCall = null;
+    // EXACT_DIRECTORY_EXCHANGE=0 (a test's): the two renames.
+    if (process.env.EXACT_DIRECTORY_EXCHANGE !== '0') try {
+      const { dlopen, FFIType } = import.meta.require('bun:ffi');
+      // A NUL-ended path, passed as the buffer itself (alive through the call).
+      const path = (p) => Buffer.from(`${p}\0`);
+      if (process.platform === 'darwin') {
+        const { symbols } = dlopen('/usr/lib/libSystem.B.dylib', { renamex_np: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+        exchangeCall = (x, y) => symbols.renamex_np(path(x), path(y), 2) === 0;
+      } else if (process.platform === 'linux') {
+        // glibc's wrapper (2.28 on), else the system call by its number.
+        try {
+          const { symbols } = dlopen('libc.so.6', { renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 } });
+          exchangeCall = (x, y) => symbols.renameat2(-100, path(x), -100, path(y), 2) === 0;
+        } catch {
+          const number = { x64: 316, arm64: 276 }[process.arch];
+          const { symbols } = dlopen('libc.so.6', { syscall: { args: [FFIType.i64, FFIType.i64, FFIType.ptr, FFIType.i64, FFIType.ptr, FFIType.u64], returns: FFIType.i64 } });
+          if (number) exchangeCall = (x, y) => Number(symbols.syscall(number, -100, path(x), -100, path(y), 2)) === 0;
+        }
+      }
+    } catch { exchangeCall = null; }
+  }
+  const done = exchangeCall?.(a, b) ?? false;
+  if (!done && !exchangeSaid) { exchangeSaid = true; console.log(`${b}: not exchanged in one step (no exchange here, or refused on this volume), so put in place by two renames`); }
+  return done;
+}
+
+/** Whether the build at `dist` is the JS target's. */
+export function jsTargetBuild(dist) {
+  try { return JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).target === 'js'; }
+  catch { return false; }
+}
+/** A file of a JS-target build for a request path, by the hosting rule: the file, or a directory's
+ * index.html (a page rendered at build); else, for an HTML navigation (`acceptsHTML`) whose path a route in the
+ * build's `routes.json` matches, `shell.html`. With `miss`, a request the rule finds nothing for gets the build's
+ * `404.html`, else, for a navigation to a page, the shell, whose client draws the notfound route; either marked
+ * `status: 404`. The previous build answers during a rebuild's rename. */
+export function buildTreeFile(dist, pathname, accept = '', { miss = false } = {}) { return runReads(treeFile(dist, pathname, accept, miss)); }
+export function buildTreeFileAsync(dist, pathname, accept = '', { miss = false } = {}) { return runReadsAsync(treeFile(dist, pathname, accept, miss)); }
+function* treeFile(dist, pathname, accept, miss) {
+  let path;
+  try { path = installRoute(decodeURIComponent(pathname)); } catch { return null; }
+  // No dot path, but the auth callback page's (`/.exact/auth/…`)
+  // and the install pages and their data.
+  if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
+  const navigation = acceptsHTML(accept), page = navigation && appDocumentPath(pathname, true);
+  // Asked again, three times at most: a build put in place as it was looked up
+  // moves the tree it resolved away under it (its files then resolve to
+  // where the old tree went).
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const was = buildRoot(dist);
+    if (!was) continue;
+    const { root } = was, prefix = root.endsWith(sep) ? root : root + sep;
+    const file = (route) => {
+      const at = resolve(root, '.' + route);
+      try { if (at.startsWith(prefix) && realpathSync(at) === at && statSync(at).isFile()) return { path: at, route }; } catch { /* none */ }
+      return null;
+    };
+    const exact = file(path);
+    if (exact) return exact;
+    const index = file(path.replace(/\/?$/, '/index.html'));
+    // Only a navigation gets the shell; a dotted last segment is a page only when it is no file's extension or a
+    // route matches it (`appDocumentPath`).
+    if (navigation) {
+      const routes = yield* servedRouteTable(root);
+      if (!stillBuild(dist, was)) continue;
+      // A route table that cannot be read is no answer yet (503 when serving), never "no route" (a 404 for a page).
+      if (routes === null) return miss ? { status: 503 } : null;
+      const at = appDocumentPath(pathname, true, routes) ? matchPattern(routes, canonical(pathname)) : -1;
+      const render = at >= 0 ? routes[at].render : null, shell = file('/shell.html'), served = (policy) => policy === 'request' || policy === 'cached';
+      // The shell, with its route's render policy, which `serve` renders in its place (`render=request` or `cached`):
+      // before a directory's index.html for such a route, since the root's is the shell too; a page built for its
+      // path (`render=build`) is served as built.
+      if (shell && served(render)) return { ...shell, render };
+      if (index) return index;
+      if (shell && at >= 0) return { ...shell, render };
+      // A miss: the notfound route's page, with 404, rendered per request where it is declared so.
+      const notfound = routes.find((r) => r.notfound);
+      if (miss && page && shell && served(notfound?.render)) return { ...shell, status: 404, render: notfound.render };
+    } else if (index) return index;
+    const missed = miss && (file('/404.html') ?? (page ? file('/shell.html') : null));
+    if (missed) return { ...missed, status: 404 };
+    // None there: asked again only if the build moved meanwhile.
+    if (stillBuild(dist, was)) return null;
+  }
+  return null;
+}
+/** Whether a request may be for a page: a browser's navigation, or one taking any type at a path naming no file. */
+const asksPage = (req, pathname) => acceptsHTML(req.headers.accept) || (!!pathname && acceptsHTML(req.headers.accept, { wildcard: true }) && appDocumentPath(pathname));
+/** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
+ * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
+ * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
+ * `sitePages`), a `render=request` or `cached` route's page is rendered for the request in place of
+ * its shell. With `compression` (`serve`'s, `compressionCache`), it is a site's server: a page goes compressed as the
+ * reader accepts, and a file as its warmed variant, revalidated by its ETag; else (the drivers, the dev server) every
+ * response is identity and never kept. */
+export async function serveBuildTree(dist, req, res, { pinned = null, pages = null, compression = null } = {}) {
+  // The raw target is refused as serveStatic refuses it (an encoded dot
+  // segment); a parsed URL would resolve one into another route.
+  const target = webRequestURL(req.url);
+  // A waiting page's answers, kept by the renderer that made it (render.mjs `deferredAnswers`).
+  const answers = target && pages?.answers?.(target.pathname);
+  if (answers) {
+    sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
+    return;
+  }
+  let r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  // A request taking any type (curl's) is answered as a navigation where that is a page rendered for it, as any
+  // server rendering pages answers it; a route the client draws stays a browser's.
+  if (pages && target && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
+    const page = await servedFile(dist, target.pathname, 'text/html', { pinned });
+    if (page.route === '/shell.html' && ['request', 'cached'].includes(page.render)) r = page;
+  }
+  if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
+  if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
+    let page = null;
+    try { page = await pages(r.id, (r.location ?? target.pathname) + target.search, (name) => req.headers[name]); } catch (error) {
+      console.error(`render ${target.pathname}: ${error.message}`);
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end('This page could not be rendered.\n'); return;
+    }
+    if (page) {
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': page.cacheControl, ...(page.acceptCH ? { 'accept-ch': page.acceptCH } : {}) };
+      // A page made for this request is compressed as it goes: brotli at quality 5 takes a few milliseconds for a
+      // page and is a tenth of its size, which the reader's first paint waits on.
+      const accepted = compression ? acceptedEncodings(req.headers['accept-encoding']) : new Set();
+      const encoding = ['br', 'gzip'].find(name => accepted.has(name));
+      const body = encoding === 'br' ? brotliCompressSync(page.html, { params: { [zlib.BROTLI_PARAM_QUALITY]: 5 } }) : encoding ? gzipSync(page.html) : page.html;
+      const vary = [compression && 'Accept-Encoding', ...(page.vary ?? '').split(', ').filter(v => v && v !== 'Accept-Encoding')].filter(Boolean).join(', ');
+      sendStaticBody(req, res, body, { ...headers, ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) }, page.status);
+      return;
+    }
+  }
+  // A request that does not ask for HTML (`curl`'s `*/*`) gets no page, and a site without a 404 page sends nothing:
+  // where a browser's would get a page, that empty 404 says how to ask for it.
+  if (r.status === 404 && !r.body && target && !acceptsHTML(req.headers.accept) && (await servedFile(dist, target.pathname, 'text/html', { pinned })).status === 200) {
+    res.writeHead(404, { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`${target.pathname} is a page: ask for it as a browser does, with Accept: text/html (curl -H 'Accept: text/html' …).\n`);
+    return;
+  }
+  if (!r.body) { res.writeHead(r.status, { 'cache-control': 'no-store', ...(r.status === 503 ? { 'retry-after': '1' } : {}) }); res.end(); return; }
+  const type = webContentType(r.route);
+  if (!compression || r.status !== 200) { sendStaticBody(req, res, r.body, { 'content-type': type, 'cache-control': 'no-store' }, r.status); return; }
+  const body = Buffer.isBuffer(r.body) ? r.body : Buffer.from(r.body), digest = bodyDigest(body);
+  let encoding = null;
+  if (COMPRESSIBLE.has(type)) {
+    const accepted = acceptedEncodings(req.headers['accept-encoding']);
+    encoding = ['br', 'gzip'].find(name => accepted.has(name) && compression.get(digest, name)) ?? null;
+    void compression.warm(digest, body);
+  }
+  const headers = { 'content-type': type, 'cache-control': 'no-cache', etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
+    ...(COMPRESSIBLE.has(type) ? { vary: 'Accept-Encoding' } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+  if (matchesETag(req.headers['if-none-match'], headers.etag)) {
+    const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
+    res.writeHead(304, validators); res.end(); return;
+  }
+  sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
+}
+
+/** `serve`'s `pages` for the JS-target build at `dist`: `(id, location, header)`, the page for `location` rendered by
+ * render.mjs's `pageServer` from build generation `id` (`servedFile`'s), wherever that build is (`dist`, or `<dist>.gen`
+ * once another replaced it), and bound to it as a document `servedFile` sends is: its base that generation's, and
+ * rendered again from where the build was kept when another replaced it during the render. Whole, not streamed, so
+ * its head is sent only when all of it is known to be that build's. Null for a build with no server bundle (`--render
+ * none`), whose `render=request` and `cached` routes are then served their shell. */
+function sitePages(dist, { pageServer, deferredAnswers, deferredPath }) {
+  const servers = new Map(); // `${id} ${tree}` -> its page server, a `cached` route's pages kept in it
+  const serverOf = (id, tree) => {
+    const key = `${id} ${tree}`;
+    if (!servers.has(key)) {
+      if (servers.size >= 8) servers.delete(servers.keys().next().value);
+      servers.set(key, existsSync(resolve(tree, '.gen/server.js')) ? pageServer(tree) : null);
+    }
+    return servers.get(key);
+  };
+  const pages = async (id, location, header) => {
+    // The page whole (no `sec-fetch-dest`) and uncompressed (no `accept-encoding`), as every file here is sent; laid
+    // out for the viewport the request tells (render.mjs `viewportOf`).
+    const asked = (name) => (name === 'cache-control' || name === 'user-agent' || name.startsWith('sec-ch-') || name === 'viewport-width' ? header(name) : undefined);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = !id || generationOf(dist) === id, tree = current ? dist : resolve(`${dist}.gen`, id);
+      const render = existsSync(tree) && serverOf(id, tree);
+      if (!render) return null;
+      const { status, headers, body } = await render(location, asked);
+      if (current && id && generationOf(dist) !== id) continue;
+      const html = Buffer.from(body).toString('utf8');
+      return { status, cacheControl: headers['cache-control'], vary: headers.vary, acceptCH: headers['accept-ch'], html: id ? withGenerationBase(html, id) : html };
+    }
+    return null;
+  };
+  // `/.exact/checkpoint/<hash>.json`: the answers a waiting page named (render.mjs `deferAnswers`), else null.
+  pages.answers = (path) => {
+    const hash = deferredPath(path);
+    if (!hash) return null;
+    const body = deferredAnswers(hash);
+    return body === undefined ? { status: 404, body: "These answers are no longer kept; the page builds itself afresh.\n" } : { status: 200, body };
+  };
+  return pages;
+}
+
+const assetTrees = (rust) => ['assets', 'deck', 'shaders', 'plans', 'activities', ...(rust ? ['rust'] : [])];
+
+/** Capture every bundle asset tree through the owned filesystem reader. */
+export function captureAssets(dir, rust = false) {
+  const files = new Map();
+  for (const tree of assetTrees(rust)) {
+    const captured = filesystem({ op: 'tree', root: resolve(dir, tree), optionalRoot: true }) ?? {};
+    for (const [relative, encoded] of Object.entries(captured)) files.set(`${tree}/${relative}`, Buffer.from(encoded, 'base64'));
+  }
+  return files;
+}
+
+/** Static builds and dev generations authenticate the same captured bytes. */
+export function assetCards(files) {
+  return [...files].map(([name, bytes]) => ({ name, url: `./${name}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }))
+    .sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Every file under assets/, deck/, shaders/ and plans/, sorted by name.
+ * Read and digested here, one file at a time: a build of a large asset tree
+ * must not pass every byte through the filesystem reader's reply. */
+export function listAssets(dir, rust = false, extraTrees = []) {
+  const files = [];
+  const walk = (sub) => {
+    const abs = resolve(dir, sub);
+    if (!existsSync(abs)) return;
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      const rel = `${sub}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.isFile()) {
+        const bytes = readFileSync(resolve(dir, rel));
+        files.push({ name: rel, url: `./${rel}`, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
+      }
+    }
+  };
+  for (const tree of [...assetTrees(rust), ...extraTrees]) walk(tree);
+  return files.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
+}
+
+/** Named snapshot plans share the asset roster's authenticated bytes. */
+export function entryPlans(assets) {
+  const plans = Object.fromEntries(assets.flatMap(card => {
+    const kind = /^plans\/([A-Za-z][A-Za-z0-9_-]*)\.plan$/.exec(card.name)?.[1];
+    return kind ? [[kind, card]] : [];
+  }));
+  return Object.keys(plans).length ? { plans } : {};
+}
+
+/** A dev generation's identity: the SHA-256 of the canonical
+ * JSON of its plan, asset, module and Rust cards, each by its name, digest
+ * and length, assets in UTF-8 order, as a client checks it (host/web/dev.js
+ * `fetchGeneration`), never by its url (an asset card captured from disk
+ * carries one). */
+export function devGenerationDigest(plan, assets, module = null, rust = null) {
+  const card = ({ bytes, sha256 }) => ({ bytes, sha256 });
+  return createHash('sha256').update(canonicalBytes({
+    plan: card(plan), assets: assets.map(({ name, sha256, bytes }) => ({ name, sha256, bytes })).sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name))),
+    ...(module ? { module: Object.fromEntries(Object.entries(module).map(([key, value]) => [key, card(value)])) } : {}),
+    ...(rust ? { rust: Object.fromEntries(Object.entries(rust).map(([kind, v]) => [kind, { module: card(v.module), receipt: card(v.receipt), ...(kind !== 'wasm' ? { target: v.target } : {}) }])) } : {}),
+  })).digest('hex');
+}
+
+/** The one web envelope producer for static builds and the live dev overlay.
+ * App identity comes from the plan header; the human name comes from the
+ * manifest's cross-platform `app.name`, never the internal crate slug. */
+export function webEnvelope(app, bytes, assets, live = {}) {
+  const appId = planAppId(bytes);
+  if (!appId) throw new Error('the web envelope needs a valid Exact plan with a nonempty app id');
+  if (appId !== app.id) throw new Error(`the web plan is for ${appId}, not manifest app ${app.id}`);
+  return {
+    exact: 1,
+    app: { id: appId, name: app.displayName },
+    plan: { url: './app.plan', sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length,
+      formatVersion: bytes.readUInt32LE(4), kernelSchema: bytes.readBigUInt64LE(16).toString(16).padStart(16, '0') },
+    assets,
+    ...entryPlans(assets),
+    ...live,
+  };
+}
+
+export function webContentType(route) {
+  if (route === '/exact.json') return 'application/vnd.exact.envelope+json';
+  if (route === '/manifest.json') return 'application/manifest+json';
+  if (route === '/.well-known/apple-app-site-association') return 'application/json';
+  // The auth callback page: one static page at exactly this path.
+  if (route === AUTH_CALLBACK) return 'text/html';
+  return {
+    '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+    '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
+    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf',
+    '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
+    // A game's baked assets (game/README "Assets"): binary, and compressible.
+    // Warming brotli-11 variants of every family (rivals: 43 MiB) takes CPU
+    // time at server start, off the request path; a request before its
+    // variant exists gets identity bytes.
+    '.model': 'application/vnd.exact.model', '.tex': 'application/vnd.exact.texture',
+  }[extname(route).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/** Cache policy is enforced by the supported origin server, not metadata
+ * dropped on the floor by a directory copy. Content-addressed files are
+ * immutable; the update protocol's heads and pointers under `.exact/` are
+ * never stored; every other name — the page, its install pages, a local
+ * build's canonical files — is revalidated against its ETag each load. */
+export function webCacheControl(found) {
+  if (found.immutable || /^\/\.exact\/blobs\/[0-9a-f]{64}$/.test(found.route)
+    || /^\/\.exact\/[^/.]+\/[^/.]+\/releases\/[^/.]+\.json$/.test(found.route)) return 'public, max-age=31536000, immutable';
+  return found.route.startsWith(UPDATE_TREE) && !INSTALL_PUBLIC.includes(found.route) ? 'no-store' : 'no-cache';
+}
+
+// Compressed representations for the production server (`serve.mjs` itself;
+// the dev server and drivers send identity bytes). Brotli at quality 11 takes
+// seconds for an app's wasm, so a variant is made once per body digest, off
+// the request path — the server warms its tree at startup — and a request that
+// arrives first gets the identity bytes. A variant no smaller is not kept.
+const COMPRESSIBLE = new Set(['application/wasm', 'text/javascript', 'text/css', 'text/html', 'application/json',
+  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl',
+  'application/vnd.exact.model', 'application/vnd.exact.texture']);
+export function compressionCache(limit = 256 * 1024 * 1024) {
+  const variants = new Map(), pending = new Map();
+  let held = 0;
+  const make = (digest, body, encoding) => {
+    const key = `${digest}:${encoding}`;
+    if (variants.has(key)) return Promise.resolve();
+    if (!pending.has(key)) pending.set(key, new Promise(done => {
+      const finish = (error, out) => {
+        pending.delete(key);
+        if (!error && out.length < body.length && held + out.length <= limit) { variants.set(key, out); held += out.length; }
+        done();
+      };
+      if (encoding === 'br') brotliCompress(body, { params: { [zlib.BROTLI_PARAM_QUALITY]: 11, [zlib.BROTLI_PARAM_SIZE_HINT]: body.length } }, finish);
+      else gzip(body, { level: 9 }, finish);
+    }));
+    return pending.get(key);
+  };
+  return {
+    get: (digest, encoding) => variants.get(`${digest}:${encoding}`) ?? null,
+    warm: (digest, body) => Promise.all(['br', 'gzip'].map(encoding => make(digest, body, encoding))),
+  };
+}
+const bodyDigest = body => createHash('sha256').update(body).digest('base64url').slice(0, 32);
+/** The encodings a request accepts, per RFC 9110 §12.5.3 (a q of 0 refuses). */
+function acceptedEncodings(header = '') {
+  const accepted = new Set();
+  for (const part of String(header).split(',')) {
+    const [name, ...params] = part.trim().toLowerCase().split(';');
+    const q = params.map(p => /^\s*q=([0-9.]+)\s*$/.exec(p)?.[1]).find(Boolean);
+    if (name && (q === undefined || Number(q) > 0)) accepted.add(name);
+  }
+  return accepted;
+}
+const matchesETag = (header, etag) => typeof header === 'string'
+  && header.split(',').some(tag => { const t = tag.trim(); return t === '*' || t.replace(/^W\//, '') === etag; });
+
+/** Warm every compressible file the server will answer for: a local build's
+ * public files, or a published root's current release. */
+export async function warmCompression(dist, compression, js = false) {
+  let names;
+  try { names = listPublicFiles(dist); } catch { names = []; }
+  if (!js && !names.includes('app.wasm')) {
+    try { names = parseWebRoot(readFileSync(resolve(dist, webRootPath))).files.map(card => card.name); } catch { return 0; }
+  }
+  let warmed = 0;
+  await Promise.all(names.filter(name => COMPRESSIBLE.has(webContentType('/' + name))).map(async name => {
+    const found = await readStaticFileAsync(dist, '/' + name);
+    if (found) { await compression.warm(bodyDigest(found.body), found.body); warmed++; }
+  }));
+  return warmed;
+}
+
+// Preserve file precedence and negotiate the app
+// document after resolving the shared extensionless-location fallback.
+export async function readWebRequest(dist, pathname, accept = '', admittedPlan = undefined) {
+  if (!webRequestURL(pathname)) return { found: null, index: false };
+  let route = pathname;
+  let found = await readStaticFileAsync(dist, route);
+  if (!found) {
+    const navigation = acceptsHTML(accept), ordinary = appDocumentPath(route, navigation);
+    // Dev generations can carry a plan newer than the build on disk.
+    let plan = null;
+    if (!ordinary && navigation) {
+      if (admittedPlan === undefined) plan = await runReadsAsync(servedRoutePlan(dist));
+      else if (admittedPlan !== null) plan = {routes: planRoutes(admittedPlan)};
+    }
+    if (ordinary || appDocumentPath(route, navigation, plan?.routes ?? [])) {
+      route = '/index.html';
+      // A published route table belongs to that immutable release, even if
+      // another publish moves the head before the document is read.
+      const document = plan?.published ? '/' + relative(resolve(dist), resolve(dirname(plan.path), 'index.html')).split(sep).join('/') : route;
+      found = await readStaticFileAsync(dist, document);
+      if (found && plan?.published) found = {...found, immutable: false};
+    }
+  }
+  const index = route === '/' || route === '/index.html' || found?.route === '/index.html';
+  if (index && accept.includes('application/vnd.exact.envelope+json')) {
+    const release = found?.immutable && /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\//.exec(decodeURIComponent(pathname));
+    route = release ? release[0] + 'exact.json' : '/exact.json';
+    found = await readStaticFileAsync(dist, route);
+    // An envelope resolves against its response URL, not HTML's <base>.
+    // A deep location must still name the root's payloads.
+    if (found && !found.published && route === '/exact.json' && pathname !== '/' && pathname !== '/index.html') {
+      const body = JSON.stringify(JSON.parse(found.body), (key, value) => {
+        if (key !== 'url' || typeof value !== 'string') return value;
+        const url = new URL(value, 'http://exact.invalid/');
+        return url.origin === 'http://exact.invalid' ? url.pathname + url.search + url.hash : value;
+      });
+      found = { ...found, body: Buffer.from(body) };
+    }
+  } else if (index && found && !found.published) {
+    // Native HTML discovery scans the alternate link without executing HTML.
+    found = { ...found, body: Buffer.from(found.body.toString().replace('href="./exact.json"', 'href="/exact.json"')) };
+  }
+  return { found, index };
+}
+
+/** The production directory origin and diagnostic server share actual HTTP
+ * handling, including no-store deletions and the native envelope rung. */
+// One byte range is enough for browser media seeking. Unknown/multipart ranges
+// fall back to the full representation; If-Range without a validator does too.
+// A `status` other than 200 (a 404's page) is sent whole.
+export function sendStaticBody(req, res, body, headers = {}, status = 200) {
+  const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const size = bytes.length;
+  const range = status === 200 && req.method !== 'HEAD' && !req.headers['if-range'] && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+  const common = { ...headers, 'accept-ranges': 'bytes' };
+  if (range && (range[1] || range[2])) {
+    const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+    const end = range[1] && range[2] ? Math.min(size - 1, Number(range[2])) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= size || end < start) {
+      res.writeHead(416, { ...common, 'content-range': `bytes */${size}`, 'content-length': 0 }); res.end(); return;
+    }
+    res.writeHead(206, { ...common, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+    res.end(bytes.subarray(start, end + 1)); return;
+  }
+  res.writeHead(status, { ...common, 'content-length': size });
+  res.end(req.method === 'HEAD' ? undefined : bytes);
+}
+
+export async function serveStatic(dist, req, res, listener, compression = null) {
+  const target = webRequestURL(req.url);
+  if (!target) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { 'cache-control': 'no-store' }); res.end(); return; }
+  const route = target.pathname;
+  const { found, index } = await readWebRequest(dist, route, req.headers.accept);
+  if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
+  let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;
+  if (!found.immutable && !found.published && INSTALL_FILES.includes(found.route)) body = installNetworkPage(body, listener ?? {host:req.socket.localAddress,port:req.socket.localPort});
+  body = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const type = webContentType(found.route), digest = bodyDigest(body);
+  const compressed = compression && COMPRESSIBLE.has(type);
+  let encoding = null;
+  if (compressed) {
+    const accepted = acceptedEncodings(req.headers['accept-encoding']);
+    encoding = ['br', 'gzip'].find(name => accepted.has(name) && compression.get(digest, name)) ?? null;
+    void compression.warm(digest, body);
+  }
+  const vary = [index && 'Accept', compressed && 'Accept-Encoding'].filter(Boolean).join(', ');
+  const headers = { 'content-type': type, 'cache-control': webCacheControl(found), etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
+    ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}),
+    ...(found.route.startsWith(AUTH_CALLBACK) ? { 'referrer-policy': 'no-referrer' } : {}) };
+  if (matchesETag(req.headers['if-none-match'], headers.etag)) {
+    const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
+    res.writeHead(304, validators); res.end(); return;
+  }
+  sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
+}
+
+async function main() {
+  const argv = guardFlags('serve', process.argv.slice(2));
+  const value = (flag) => {
+    const at = argv.indexOf(flag);
+    if (at < 0) return null;
+    if (!argv[at + 1] || argv[at + 1].startsWith('--')) { console.error(`serve: ${flag} needs a value`); process.exit(2); }
+    return argv.splice(at, 2)[1];
+  };
+  const origin = value('--origin'), portFlag = value('--port');
+  const named = argv.filter((a) => !a.startsWith('--'));
+  if (named.length > 1 || origin && named.length) { console.error(`serve: one directory, a build or a published --origin, not ${[...named, origin].filter(Boolean).join(' and ')}`); return 2; }
+  const dist = resolve(origin ?? named[0] ?? webDist());
+  const settled = settleBuild(dist);
+  if (settled) return settled;
+  // A JS-target build is served as its tree. A published root is its pointer's release, whose page is the
+  // JS target's or the wasm's.
+  const js = jsTargetBuild(dist);
+  if (!js && !await readStaticFileAsync(dist, origin && existsSync(resolve(dist, webRootPath)) ? '/index.html' : '/app.wasm')) {
+    // A build that is there but unreadable says why: the reader is a Cargo-built
+    // helper, and "build first" misled when cargo was not on PATH.
+    let why = null;
+    if (existsSync(resolve(dist, 'app.wasm'))) {
+      try { filesystem({ op: 'get', root: resolve(dist), path: 'app.wasm' }); } catch (error) { why = error.message; }
+    }
+    const build = process.env.EXACT_APP_DIR ? 'bun exact.mjs web-build' : 'bun host/web/build.mjs';
+    console.error(why ? `${dist}/app.wasm is built but could not be read: ${why}` : `no build in ${dist}: run ${build} first, or serve a published --origin <dir>`);
+    return 2;
+  }
+  // TODO: compare each setting app.json declares with the value the build inlined before serving.
+  const loopback = !argv.includes('--lan') && (argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1');
+  // `--port`, else `PORT`, which a host sets for `npm start`, else 8765.
+  const portText = portFlag ?? process.env.PORT ?? null;
+  const port = portText === null || portText === '' ? 8765 : Number(portText);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) { console.error(`serve: ${portFlag === null ? 'PORT' : '--port'} ${portText} is not a port`); return 2; }
+  const host = loopback ? '127.0.0.1' : '0.0.0.0';
+  const compression = compressionCache();
+  const warming = warmCompression(dist, compression, js);
+  const pages = js ? sitePages(dist, await import('../web-js/render.mjs')) : null;
+  const rebuild = rebuildOnChange(dist);
+  const server = createServer(async (req, res) => {
+    if (rebuild && asksPage(req, webRequestURL(req.url)?.pathname)) {
+      const failed = await rebuild();
+      if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
+    }
+    return js ? serveBuildTree(dist, req, res, { pages, compression }) : serveStatic(dist, req, res, {host,port}, compression);
+  });
+  server.on('error', (error) => { console.error(error.code === 'EADDRINUSE' ? `serve: port ${port} is in use; --port <n> names another` : `serve: ${error.message}`); process.exit(1); });
+  server.listen(port, host, () => {
+    const urls = [`http://127.0.0.1:${server.address().port}/`];
+    if (!loopback) {
+      const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
+      urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${server.address().port}/`));
+    }
+    // Name the app, so a directory another build replaced is seen at once.
+    let served = '';
+    try { const { app } = JSON.parse(readFileSync(resolve(dist, js ? '.exact-build.json' : 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})${js ? ', the JS target' : ''}`; } catch { /* an older build has no envelope */ }
+    console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
+    if (rebuild) console.log('  (an edit to the app builds it again before the next page: leave this running and reload)');
+    warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
+    let rendered = [];
+    try { rendered = JSON.parse(readFileSync(resolve(dist, 'routes.json'), 'utf8')).routes.filter((r) => r.render === 'request' || r.render === 'cached'); } catch { /* no route table */ }
+    if (js && rendered.length && !existsSync(resolve(dist, '.gen/server.js'))) console.log(`  (${rendered.map((r) => r.pattern).join(', ')}: their shell, since this build has no server bundle to render them with; web-build makes one)`);
+  });
+  return 0;
+}
+
+/** The build in `dist` brought to this environment's settings: a setting it inlined that the
+ * environment or the app's files now give another value is built again when the app's sources are beside the build,
+ * and refused, naming the setting and both values, when they are not (a build copied elsewhere). 0 when it may be
+ * served, else the exit code. */
+function settleBuild(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return 0; }
+  if (!marker.env) return 0;
+  const app = sourcesOf(dist, marker.app?.id), changed = settingChanges(marker.env, process.env, app);
+  if (!changed.length) return 0;
+  const said = (s) => (s ? `${JSON.stringify(s.value)} (${s.source})` : 'unset');
+  const what = changed.map(({ name, built, now }) => `import.meta.env.${name} was built as ${said(built)} and is ${said(now)} here`).join('; ');
+  if (!app) {
+    console.error(`${dist}: ${what}, and the app's sources are not beside this build to build it again: build it with these settings (bun exact.mjs web-build), or serve it with the ones it was built with`);
+    return 2;
+  }
+  // A development build is built again only in its app's build directory, the one `serve` serves by default: built
+  // again anywhere else, what the build keeps beside it (`<dist>.previous`, …) would be taken as its own and replaced.
+  if (!marker.release && resolve(dist) !== webDist()) {
+    console.error(`${dist}: ${what}, and a development build is built again only in its app's build directory: build it again (bun exact.mjs web-build), or serve it with the settings it was built with`);
+    return 2;
+  }
+  console.error(`${dist}: ${what}: building it again`);
+  // On the target it was built for (the JS target's marker says so; the wasm target's says no target), and as what it
+  // was: a release site (`web-build --out`, its marker says so) is built again as one, into its directory; a
+  // development build into its.
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  const built = spawnSync(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+    { stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+  return built.status === 0 ? 0 : built.status ?? 1;
+}
+
+/** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
+ * request for a page awaits (`asksPage`), which builds the site again once a source changed since the build (newer than its
+ * receipt), as a framework's dev server does, or once another build with other settings replaced it (a test run's,
+ * for its own API), and answers the build's output when it failed (null when it built or nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
+function rebuildOnChange(dist) {
+  let marker;
+  try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
+  const app = sourcesOf(dist, marker.app?.id);
+  if (!app || (!marker.release && resolve(dist) !== webDist())) return null;
+  const out = resolve(dist), receipt = () => { try { return statSync(resolve(dist, '.exact-build.json')).mtimeMs; } catch { return 0; } };
+  // What a build reads: the app's files, but for what builds and tools write (its outputs, dependencies, dot
+  // directories but `.env`s, generated types, test reports).
+  const SKIP = new Set(['node_modules', 'target', 'test-results', 'playwright-report']);
+  const newest = (dir, depth = 0) => {
+    let at = 0;
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, e.name);
+      if (SKIP.has(e.name) || (e.name.startsWith('.') && !e.name.startsWith('.env')) || e.name.endsWith('.d.ts') || path === out || path.startsWith(`${out}.`)) continue;
+      if (e.isDirectory()) { if (depth < 4) at = Math.max(at, newest(path, depth + 1)); } else if (e.isFile()) at = Math.max(at, statSync(path).mtimeMs);
+    }
+    return at;
+  };
+  let since = receipt(), checked = 0, running = null;
+  const target = marker.target === 'js' ? [] : ['--wasm'], release = marker.release ? ['--out', dist] : [];
+  return () => {
+    if (running) return running;
+    if (Date.now() - checked < 300) return null;
+    checked = Date.now();
+    let settings = [];
+    try { settings = settingChanges(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env ?? {}, process.env, app); } catch { /* being replaced */ }
+    if (!settings.length && newest(app) <= Math.max(since, receipt())) return null;
+    const started = Date.now();
+    console.log(`${app}: ${settings.length ? `the build has other settings than this server (${settings.map((c) => c.name).join(', ')})` : 'a source changed since the build'}: building it again`);
+    running = new Promise((done) => {
+      const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
+        { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });
+      let said = '';
+      for (const stream of [child.stdout, child.stderr]) stream.on('data', (d) => { said += d; });
+      child.on('close', (code) => { if (code === 0) since = started; else console.error(said.trimEnd()); done(code === 0 ? null : said); });
+    }).finally(() => { running = null; });
+    return running;
+  };
+}
+
+/** The directory of the app whose sources made the build in `dist` (its marker's app `id`), when they are beside it:
+ * an `app.json` of that id above it, or the app whose own build directory it is (an app of this checkout builds into
+ * host/web/dist); else null. */
+function sourcesOf(dist, id) {
+  for (let dir = dirname(dist); ; dir = dirname(dir)) {
+    try { if (JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).app?.id === id) return dir; } catch { /* none here */ }
+    if (dirname(dir) === dir) break;
+  }
+  try { const app = resolveApp(); if (app.id === id && webDist() === dist) return app.dir; } catch { /* no app resolves */ }
+  return null;
+}
+
+/** A development page's trace: ⌥⇧T posts its journal, frames and
+ * `perf`; this adds what only the server knows — the build's identity, as
+ * stress-metrics.mjs writes it, the plan's digest and its source map — and
+ * writes it under the app's target/traces/ for `agent.mjs trace <file>`. */
+export async function saveTrace(req, res, { app, dist, root }) {
+  const reply = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
+  try {
+    const parts = [];
+    let bytes = 0;
+    for await (const chunk of req) { if ((bytes += chunk.length) > 64 << 20) return reply(413, { error: 'a trace over 64 MiB' }); parts.push(chunk); }
+    const trace = JSON.parse(Buffer.concat(parts).toString('utf8'));
+    const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout?.trim() ?? '';
+    const planFile = resolve(dist, 'app.plan'), mapFile = `${planFile}.map.json`;
+    const plan = existsSync(planFile) ? createHash('sha256').update(readFileSync(planFile)).digest('hex') : null;
+    trace.identity = { ...trace.identity, app: app.name, trust: 'development', commit: git('rev-parse', 'HEAD'), working_tree: git('status', '--porcelain'), platform: platform(), arch: arch(), cpu: cpus()[0]?.model };
+    trace.plan = trace.perf?.plan ?? plan;
+    if (trace.perf && !trace.perf.plan) trace.perf.plan = plan;
+    if (trace.plan === plan && existsSync(mapFile)) trace.map = JSON.parse(readFileSync(mapFile, 'utf8'));
+    mkdirSync(resolve(app.target, 'traces'), { recursive: true });
+    const path = resolve(app.target, 'traces', `trace-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    writeFileSync(path, JSON.stringify(trace));
+    console.log(`trace: ${path}`);
+    reply(200, { path });
+  } catch (error) { reply(400, { error: error.message }); }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+
+/** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
+ * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
+ * an orphaned server keeps its port. Without the variable a loop runs until stopped. */
+/** A dev loop answers on IPv6's loopback too, the same port: `localhost`
+ * resolves to [::1] first, and the design tool frames the page as
+ * localhost (another site than the tool's 127.0.0.1). An HTTP server of
+ * its own there, each request and upgrade handed to `server`'s handlers:
+ * a raw socket handed over instead (`emit('connection')`) loses its
+ * requests' `close` under Bun, so a page's stream there never ended and
+ * the tool listed every canvas it had framed as connected. Closed, its
+ * connections with it, when `server` closes. Resolves once it listens, or
+ * when there is no IPv6; rejects (EADDRINUSE) when another server holds
+ * the port there, which a localhost URL would reach instead. */
+export function alsoOnIPv6Loopback(server, port) {
+  const six = createServer((req, res) => server.emit('request', req, res));
+  // (An upgrade no one takes is closed, as an HTTP server with no `upgrade` listener closes it.)
+  six.on('upgrade', (req, socket, head) => { if (!server.emit('upgrade', req, socket, head)) socket.destroy(); });
+  // Its connections ended first: Bun's close() lets go of the native server, after which they cannot be.
+  server.on('close', () => { six.closeAllConnections?.(); six.close(); });
+  return new Promise((ok, fail) => {
+    six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
+    six.listen(port, '::1', () => ok(six));
+  });
+}
+
+/** TEST ONLY: a dev loop's wait before it listens, so a test shows its
+ * 'plan ready' never comes before the server answers (the gap a loaded
+ * machine opened, the agent then navigating to a refused connection).
+ * EXACT_DEV_LISTEN_DELAY_MS, read only under EXACT_TEST_TIMING=1, a whole
+ * number of ms from 1 to 60000, said on stderr; anything else is ignored. */
+export async function listenDelay(env = process.env) {
+  if (env.EXACT_TEST_TIMING !== '1') return;
+  const said = env.EXACT_DEV_LISTEN_DELAY_MS, ms = /^\d+$/.test(said ?? '') ? Number(said) : NaN;
+  if (!(ms >= 1 && ms <= 60_000)) return;
+  console.error(`dev: TEST delay ${ms} ms before listening (EXACT_TEST_TIMING=1)`);
+  await new Promise(ok => setTimeout(ok, ms));
+}
+
+/** Whether `port` is free on IPv6's loopback too (no IPv6: yes). */
+export const freeOnIPv6Loopback = (port) => new Promise((ok) => {
+  const t = createSocketServer();
+  t.once('error', (e) => ok(e.code !== 'EADDRINUSE'));
+  t.listen(port, '::1', () => t.close(() => ok(true)));
+});
+
+export function watchLauncher(stop, pid = Number(process.env.EXACT_LAUNCHER_PID)) {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  const timer = setInterval(() => { try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearInterval(timer); stop(); } } }, 1000);
+  timer.unref?.();
+  return timer;
+}

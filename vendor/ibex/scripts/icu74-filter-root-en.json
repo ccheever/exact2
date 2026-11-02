@@ -1,0 +1,69 @@
+{
+  "strategy": "additive",
+  "localeFilter": {
+    "filterType": "locale",
+    "includelist": ["en"],
+    "includeChildren": false,
+    "includeScripts": false
+  },
+  "featureFilters": {
+    "normalization": {
+      "includelist": ["nfkc"]
+    },
+    "coll_ucadata": "include",
+    "coll_tree": "include",
+    "curr_tree": "include",
+    "locales_tree": "include",
+    "misc": {
+      "includelist": [
+        "numberingSystems",
+        "supplementalData",
+        "zoneinfo64"
+      ]
+    }
+  },
+  "resourceFilters": [
+    {
+      "categories": ["locales_tree"],
+      "rules": [
+        "+/NumberElements/default",
+        "+/NumberElements/latn",
+        "+/calendar/gregorian"
+      ]
+    },
+    {
+      "categories": ["curr_tree"],
+      "rules": [
+        "+/currencySpacing"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["numberingSystems"]
+      },
+      "rules": [
+        "+/numberingSystems/latn"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["supplementalData"]
+      },
+      "rules": [
+        "+/calendarPreferenceData",
+        "+/weekData"
+      ]
+    },
+    {
+      "categories": ["misc"],
+      "files": {
+        "includelist": ["zoneinfo64"]
+      },
+      "rules": [
+        "+/"
+      ]
+    }
+  ]
+}

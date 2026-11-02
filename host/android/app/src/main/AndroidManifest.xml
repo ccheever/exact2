@@ -1,0 +1,50 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- An app, not the benchmark's harness: it does not show over the keyguard, turn the screen on
+         or run before the phone's first unlock. Only a package's own receivers and services, which a manifest fragment
+         declares under its allow-list, may run before first unlock, and they read only that package's device-protected
+         records: no session or plan starts. It still signs with the debug key and has no icon. -->
+    <!-- The shell packages any app, so it asks for the network for every one: without it a data module's `fetch` and a
+         remote picture fail at the name lookup. What an app may reach is still its own grants' to say (`net.fetch`),
+         which exact2 enforces; this is only the platform's door. A normal permission: nothing is asked of the person. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- No usesCleartextTraffic and no Network Security Config, for any app: its `fetch` and WebSocket are the Rust
+         transport's own sockets, which Android's cleartext policy does not govern ("there's no expectation that the
+         Socket API honors this flag"), so `http:` and `ws:` reach any host the grants admit with no key (on Apple,
+         `http:` to a named host needs app.json's `appTransportSecurity.allowsArbitraryLoads`). A WebView (an
+         `iframe`) follows the policy, which at targetSdk 36 refuses cleartext; no app asks for an `http:` frame here
+         yet, so nothing in app.json changes it. -->
+    <!-- One APK for phones and TVs: neither a touch screen nor the TV's leanback UI is
+         required, so it installs on both. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- Back reaches the reader's OnBackInvokedCallback from Android 13 (ExactActivity.Back). Before
+         Android 16 the platform calls it only when the app opts in; without this, Back on Android 13 to 15 finished
+         the activity from any screen. -->
+    <!-- Locked secrets' files stay out of backups and transfers (res/xml/exact_backup.xml). -->
+    <application android:label="${appName}" android:theme="@style/ExactLaunch" android:hardwareAccelerated="true"
+        android:banner="@drawable/banner" android:enableOnBackInvokedCallback="true"
+        android:fullBackupContent="@xml/exact_backup" android:dataExtractionRules="@xml/exact_data_extraction">
+        <profileable android:shell="true" />
+        <!-- The changes the host takes in place, so that none of them makes the activity again:
+             a rotation or a resize, night mode, font scale and bold text, the locale and its direction, the display's
+             density, a keyboard attached. Any other still makes it again, and its view then adopts the host that runs.
+             singleTop: a URL sent to the running app (a shortcut, a link) reaches this activity's onNewIntent rather
+             than stacking a second one over it. -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop"
+            android:screenOrientation="${screenOrientation}"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|uiMode|fontScale|fontWeightAdjustment|locale|layoutDirection|density|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- The TV launcher's entry. -->
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- The app manifest's `shortcuts` (app/build.gradle.kts writes the list). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/exact_shortcuts" />
+        </activity>
+        <!-- The app's files as content URIs an intent carries under a read grant: a mail's
+             attachments. Unexported: only a URI the app granted opens. -->
+        <provider android:name="dev.exact.canvas.Files" android:authorities="${applicationId}.exact.files"
+            android:exported="false" android:grantUriPermissions="true" />
+    </application>
+</manifest>

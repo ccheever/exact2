@@ -1,0 +1,21 @@
+// A tap addressed to an element inside a button, that has no handler of its
+// own: the differential host delivers the press to that element.
+component App
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    column
+      button press=inc testId="btn"
+        text `${n}` testId="inner"
+        row testId="innerRow"
+          text "deep" testId="deep"
+
+test "tap the button"
+  tap "btn"
+  expect state n == 1
+
+test "tap a child text"
+  tap "inner"
+  tap "deep"
+  tap "innerRow"

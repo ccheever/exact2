@@ -1,0 +1,61 @@
+// Records: build with every field, copy with some replaced, read fields,
+// nest.
+shape Point
+  x: number
+  y: number
+
+shape Box
+  name: string
+  corner: Point
+  size: Point
+
+component App
+  state p = Point(x=1, y=2)
+  state box = Box(name="b", corner=Point(x=0, y=0), size=Point(x=10, y=5))
+  derive moved = Point(p, x=p.x + 10)
+  derive area = box.size.x * box.size.y
+  derive label = `${box.name}@${box.corner.x},${box.corner.y}`
+  action right
+    p = Point(p, x=p.x + 1)
+  action grow
+    box = Box(box, size=Point(box.size, y=box.size.y * 2))
+  action rename(n: string)
+    box = Box(box, name=n)
+  action place(q: Point)
+    box = Box(box, corner=q)
+  view
+    column
+      text `${p.x},${p.y}` testId="p"
+      text `${moved.x},${moved.y}` testId="moved"
+      text `${area}` testId="area"
+      text label testId="label"
+      button "r" press=right testId="right"
+      button "g" press=grow testId="grow"
+      button "n" press=rename("box") testId="rename"
+      button "pl" press=place(Point(x=p.x, y=-p.y)) testId="place"
+
+test "initial"
+  expect text "p" == "1,2"
+  expect text "moved" == "11,2"
+  expect state area == 50
+  expect text "label" == "b@0,0"
+
+test "copy with one field replaced"
+  tap "right"
+  tap "right"
+  expect text "p" == "3,2"
+  expect text "moved" == "13,2"
+
+test "nested copy"
+  tap "grow"
+  expect state area == 100
+  tap "grow"
+  expect state area == 200
+  tap "rename"
+  expect text "label" == "box@0,0"
+  expect state area == 200
+
+test "record argument"
+  tap "right"
+  tap "place"
+  expect text "label" == "b@2,-2"

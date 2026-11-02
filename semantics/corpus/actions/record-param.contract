@@ -1,0 +1,30 @@
+// Actions taking records and options as parameters.
+shape P
+  x: number
+  y: number
+
+component App
+  state at = P(x=0, y=0)
+  state note = none
+  action move(to: P)
+    at = to
+  action annotate(n: option<string>)
+    note = n
+  view
+    column
+      text `${at.x},${at.y}` testId="at"
+      button "m" press=move(P(at, x=at.x + 1)) testId="right"
+      button "d" press=move(P(x=at.y, y=at.x)) testId="swap"
+      button "n" press=annotate(some("hi")) testId="note"
+      button "nn" press=annotate(none) testId="unnote"
+
+test "record params"
+  tap "right"
+  tap "right"
+  expect text "at" == "2,0"
+  tap "swap"
+  expect text "at" == "0,2"
+  expect state note == none
+  tap "note"
+  tap "unnote"
+  expect state note == none

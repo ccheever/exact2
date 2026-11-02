@@ -1,0 +1,6 @@
+# The readout grows: its scale follows, its box held to the column.
+tap longer
+tap longer
+# The bound row off: the label at its size; on again: fitted.
+tap toggle
+tap toggle

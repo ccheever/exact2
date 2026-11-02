@@ -1,0 +1,5 @@
+# Exact Live public job service: two origins keep control requests independent.
+# Both request URLs and net.fetch grants are compiled from these same inputs.
+# Point them at your own deployment of fixture.mjs (placeholders here).
+DATA=https://jobs-data.example.com
+CONTROL=https://jobs-control.example.com

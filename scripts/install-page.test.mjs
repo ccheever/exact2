@@ -1,0 +1,720 @@
+import { test } from 'bun:test';
+// These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
+// omits rustup's bin directory still finds it there; without cargo, say so.
+const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
+if (!(process.env.PATH ?? '').split(':').includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}:${cargoBin}`;
+if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
+// The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
+delete process.env.EXACT_APP_DIR;
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
+import { createServer } from 'node:http';
+import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
+import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
+import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
+import { request as httpRequest } from 'node:http';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
+import { publishRoot } from './deploy.mjs';
+import { DirectoryOrigin, webReleasePath } from './origin.mjs';
+import { developmentLinks } from '../host/apple/build.mjs';
+const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
+
+test('static ancestor notifications reconcile nested trees and retain refused replacements', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-static-ancestor-'));
+  const app = join(dir, 'app'), source = join(app, 'gpu/shaders'), target = join(dir, 'served/shaders');
+  const trees = [[join(app, 'assets'), 'assets'], [source, 'shaders']];
+  const reconcile = filename => {
+    const changes = staticWatchChanges(app, trees, filename);
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0], {root:source,targetRoot:'shaders',relative:'',name:'shaders',tree:true});
+    return applyStaticTreeChange(changes[0].root, target);
+  };
+  try {
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'live.wgsl'), 'first');
+    assert.equal(reconcile('gpu').present, true);
+    renameSync(join(app, 'gpu'), join(dir, 'retired'));
+    assert.deepEqual(reconcile('gpu').files, [{name:'live.wgsl',bytes:null,removed:true}]);
+    assert.equal(existsSync(target), false);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'live.wgsl'), 'second');
+    reconcile('gpu/');
+    assert.equal(readFileSync(join(target, 'live.wgsl'), 'utf8'), 'second');
+    rmSync(join(app, 'gpu'), { recursive: true });
+    symlinkSync(join(dir, 'retired'), join(app, 'gpu'));
+    assert.throws(() => reconcile('gpu'));
+    assert.equal(readFileSync(join(target, 'live.wgsl'), 'utf8'), 'second');
+    for (const name of ['gpu-other', 'assets-old', '../', join(dir, 'retired')]) {
+      assert.deepEqual(staticWatchChanges(app, trees, name), []);
+    }
+    assert.equal(staticWatchChanges(app, trees, '.').length, 2);
+    assert.equal(staticWatchChanges(app, trees, null).length, 2);
+    assert.deepEqual(staticWatchChanges(app, trees, 'gpu/shaders/live.wgsl'),
+      [{root:source,targetRoot:'shaders',relative:'live.wgsl',name:'shaders/live.wgsl',tree:false}]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Rust manifest policy inherits from global, environment, platform and platform environment', () => {
+  for (const [platform, dev, prod] of [['web','browser','browser'],['ios','wasm','wasm'],['macos','native','native'],['linux','native','native'],['android','native','wasm'],['windows','native','native']]) {
+    assert.equal(rustPolicy(manifest,platform),dev);
+    assert.equal(rustPolicy(manifest,platform,'prod'),prod);
+    assert.equal(rustPolicy({...manifest,rust:false},platform),'off');
+  }
+  const rust = {mode:'off',dev:true,prod:false,module:{package:'app-data'},platforms:{ios:{mode:'wasm',prod:false},linux:{prod:true}}};
+  assert.equal(rustPolicy({...manifest,rust},'ios'),'wasm');
+  assert.equal(rustPolicy({...manifest,rust},'ios','prod'),'off');
+  assert.equal(rustPolicy({...manifest,rust},'linux','prod'),'native');
+  assert.equal(rustPolicy({...manifest,rust},'macos','prod'),'off');
+  assert.equal(rustPolicy({...manifest,rust:{prod:false,platforms:{ios:true}}},'ios','prod'),'wasm');
+  assert.equal(rustPolicy({...manifest,rust:'wasm'},'macos'),'wasm');
+  assert.deepEqual(rebuildPolicy(manifest),{rust:'save',typescript:'save'});
+  assert.deepEqual(rebuildPolicy({...manifest,dev:{rebuild:{rust:'manual'}}}),{rust:'manual',typescript:'save'});
+});
+
+test('manifest refuses misspelled replacement and rebuild policy instead of silently enabling', () => {
+  const dir = mkdtempSync(join(tmpdir(),'exact-rust-policy-'));
+  try {
+    for (const rust of [null,'jit',{enabled:false},{mode:false},{platforms:{iphone:false}},{dev:{prod:false}},{module:{package:'bad/path'}},{module:{}}]) {
+      writeFileSync(join(dir,'app.json'),JSON.stringify({...manifest,rust}));
+      assert.throws(()=>readManifest(dir,'interview'));
+      assert.throws(()=>rustPolicy({...manifest,rust},'ios'));
+    }
+    for (const platform of ['web','ios']) assert.throws(()=>rustPolicy({...manifest,rust:'native'},platform),/native replacement is unavailable/);
+    assert.throws(()=>rustPolicy(manifest,'macos','production'),/environment/);
+    assert.throws(()=>rebuildPolicy({...manifest,dev:{rebuild:{rust:'watch'}}}));
+    const good = {...manifest,rust:{prod:false,platforms:{ios:{prod:true}},module:{package:'app-data'}},dev:{rebuild:{rust:'manual',typescript:'save'}}};
+    writeFileSync(join(dir,'app.json'),JSON.stringify(good));
+    assert.deepEqual(readManifest(dir,'interview').rust,good.rust);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('manifest methods reject wrong platforms, duplicates, unsafe URLs and recommendations', () => {
+  const dir = mkdtempSync(join(tmpdir(),'exact-install-config-'));
+  try {
+    for (const install of [
+      {ios:{methods:[{kind:'download',url:'https://example.com/a'}]}},
+      {macos:{methods:[{kind:'download',url:'javascript:alert(1)'}]}},
+      {macos:{methods:[{kind:'download',url:'https:example.com/file'}]}},
+      {ios:{methods:[{kind:'go',url:'https://example.com/go',setupUrl:'javascript:alert(1)'}]}},
+      {ios:{methods:[{kind:'direct',url:'itms-services://?action=download-manifest&url=http://example.com/m.plist'}]}},
+      {macos:{methods:[{kind:'download',url:'https://user:pass@example.com/a'}]}},
+      {ios:{recommended:'go',methods:[]}},
+      {ios:{methods:[{kind:'testflight',url:'https://example.com/a'},{kind:'testflight',url:'https://example.com/b'}]}},
+      {macos:{methods:[{kind:'terminal',url:'https://example.com/help'}]}},
+      {android:{methods:[]}},
+    ]) {
+      writeFileSync(join(dir,'app.json'),JSON.stringify({...manifest,install}));
+      assert.throws(()=>readManifest(dir,'interview'));
+    }
+    const good = {...manifest,install:{ios:{methods:[{kind:'direct',url:'itms-services://?action=download-manifest&url=https%3A%2F%2Fexample.com%2Fapp.plist'}]}}};
+    assert.deepEqual(installProblems(good),[]);
+    writeFileSync(join(dir,'app.json'),JSON.stringify(good));assert.ok(readManifest(dir,'interview'));
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('unavailable methods are not invented, text is escaped, terminal content cannot run', () => {
+  const html = installPage(manifest);
+  assert.ok(html.indexOf('id="web"') < html.indexOf('id="ios"'));
+  assert.ok(html.indexOf('id="ios"') < html.indexOf('id="macos"'));
+  assert.doesNotMatch(html,/<nav| hidden[ =>]|aria-current/);
+  assert.match(html,/platform unavailable/);
+  assert.match(html,/href="\/"/);assert.doesNotMatch(html,/href="https:\/\/testflight/);
+  const configured = {...manifest,app:{...manifest.app,name:'<script>bad()</script>'},install:{macos:{recommended:'terminal',methods:[
+    {kind:'download',url:'https://example.com/app.dmg'},
+    {kind:'terminal',url:'https://example.com/help',command:'echo "</code><script>bad()</script>"'},
+  ]}}};
+  const page = installPage(configured);
+  assert.match(page,/&lt;script&gt;bad\(\)&lt;\/script&gt;/);
+  assert.doesNotMatch(page,/<script>bad/);
+  assert.ok(page.indexOf('Install from Terminal')<page.indexOf('Download for Mac'));
+  assert.match(page,/navigator.clipboard.writeText\(node.textContent\)/);
+});
+
+test('the install data is what the page renders, for a client that draws its own', () => {
+  const configured = {...manifest,install:{macos:{recommended:'terminal',methods:[
+    {kind:'download',url:'https://example.com/app.dmg',version:'1.0 · Build 42'},
+    {kind:'terminal',url:'https://example.com/help',command:'brew install example'},
+  ]}}};
+  const data = installData(configured,{id:'f'.repeat(64),source:'abc1234567',dirty:true,mode:'Development build',reach:[{grant:'net.fetch https://example.com',enforced:'the runner'}]});
+  assert.equal(data.exactInstall,1);
+  assert.deepEqual(Object.keys(data.platforms),['web','ios','macos']);
+  assert.deepEqual(data.platforms.web.methods,[{kind:'browser',url:'/',recommended:false,label:'Open in browser'}]);
+  assert.deepEqual(data.platforms.ios.methods,[]);
+  assert.deepEqual(data.platforms.macos.methods.map(m=>[m.kind,m.recommended,m.label]),[['terminal',true,'Install from Terminal'],['download',false,'Download for Mac']]);
+  assert.equal(data.platforms.macos.methods[0].command,'brew install example');
+  assert.equal(data.platforms.macos.methods[1].description,'Install this app on your device.');
+  assert.deepEqual(data.build,{id:'f'.repeat(64),source:'abc1234567',dirty:true,builtAt:null,mode:'Development build'});
+  assert.equal(data.reach.length,1);
+  assert.throws(()=>installData({...manifest,install:{linux:{methods:[]}}}),/unsupported platform/);
+  assert.throws(()=>installData({...manifest,start_url:'javascript:alert(1)'}),/invalid browser URL/);
+  // Unknown is null, never an empty claim; brand assets resolve from the origin's root, not /.exact/.
+  const bare = installData({...manifest,brand:{logo:'assets/logo.png',wordmark:{text:'I',font:'assets/f.woff2'}}});
+  assert.equal(bare.reach,null);assert.equal(bare.build.dirty,null);assert.equal(bare.build.source,null);
+  assert.deepEqual(bare.brand,{logo:'/assets/logo.png',wordmark:{text:'I',font:'/assets/f.woff2'}});
+  // An AppDrop link is the iOS default; authored iOS methods replace it.
+  const dropped = {...manifest,deploy:{appdrop:{url:'https://appdrop.app/d/k3m9x2p7qa'}}};
+  assert.deepEqual(installData(dropped).platforms.ios.methods.map(m=>[m.kind,m.url,m.label]),[['direct','https://appdrop.app/d/k3m9x2p7qa','Install with AppDrop']]);
+  assert.deepEqual(installData({...dropped,install:{ios:{methods:[]}}}).platforms.ios.methods,[]);
+});
+
+test('only a Mac development response adds local Simulator and signed-device actions', () => {
+  const page = installPage(manifest);
+  assert.match(page,/<!-- exact-local-ios -->/);
+  assert.doesNotMatch(page,/data-local-ios/);
+  const development = developmentInstallPage(page, 'a'.repeat(64));
+  assert.match(development,/Development server/);
+  assert.match(development,/data-local-ios/);
+  assert.match(development,/Build, install, and open/);
+  assert.match(development,/Simulator or device/);
+  assert.match(development,/value\.targets/);
+  assert.match(development,/\{target:select\.value\}/);
+  assert.match(development,/x-exact-install-token/);
+  assert.match(development,/\/__dev\/install\/ios/);
+  assert.doesNotMatch(development,/<section class="platform unavailable" id="ios"/);
+  assert.match(development,/<section class="platform unavailable" id="macos"/);
+  assert.throws(() => developmentInstallPage(page, 'guessable'), /32 random bytes/);
+});
+
+test('install HTTP routes participate in atomic publication and preserve old pages', async () => {
+  const dir = mkdtempSync(join(tmpdir(),'exact-install-publish-'));
+  const web = join(dir,'web'), origin = new DirectoryOrigin(join(dir,'origin'));
+  let server;
+  try {
+    writeInstallPages(web,{...manifest,install:{ios:{methods:[{kind:'testflight',url:'https://testflight.apple.com/join/example'}]}}});
+    assert.equal(listPublicFiles(web).filter(p=>p.startsWith('.exact/install/')).length,4);
+    assert.ok(listPublicFiles(web).includes('.exact/install.json'));
+    assert.ok(readStaticFile(web,'/.exact/install'));
+    const first = await publishRoot({origin,web,row:{}});
+    const stream='install/'+'a'.repeat(64)+'/exact.json';
+    const key={channel:'install',compatibilityId:'a'.repeat(64)};
+    await origin.withLock(key,()=>origin.putHead(key,Buffer.from('{}'),{previousDigest:null}));
+    assert.equal(readStaticFile(origin.dir,'/.exact/'+stream).body.toString(),'{}','install channel streams remain readable');
+    server=createServer((req,res)=>serveStatic(origin.dir,req,res));
+    await new Promise(r=>server.listen(0,'127.0.0.1',r));
+    const base=`http://127.0.0.1:${server.address().port}`;
+    for (const path of ['/.exact/install','/.exact/install/','/.exact/install/ios','/.exact/install/ios/','/.exact/install/macos/','/.exact/install/web/']) {
+      const response=await fetch(base+path);assert.equal(response.status,200,path);
+      assert.match(await response.text(),/Hosted release/);
+      assert.match(response.headers.get('content-type'),/text\/html/);assert.equal(response.headers.get('cache-control'),'no-cache');
+    }
+    const data=await fetch(base+'/.exact/install.json');assert.equal(data.status,200);
+    assert.match(data.headers.get('content-type'),/application\/json/);assert.equal(data.headers.get('cache-control'),'no-cache');
+    assert.equal((await data.json()).platforms.ios.methods[0].kind,'testflight');
+    const head=await fetch(base+'/.exact/install/ios/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
+    assert.equal((await fetch(base+'/.exact/install/index.html',{headers:{accept:'application/vnd.exact.envelope+json'}})).status,200);
+    for(const path of ['/.exact/install/linux/','/install','/.exact/install/private.pem']) assert.equal((await fetch(base+path)).status,404);
+    writeInstallPages(web,manifest);
+    await publishRoot({origin,web,row:{}});
+    assert.doesNotMatch(await (await fetch(base+'/.exact/install/ios/')).text(),/testflight.apple.com/);
+    const old=await fetch(base+`/${webReleasePath(first.root)}/.exact/install/ios/index.html`);
+    const oldBody=await old.text();assert.match(oldBody,/testflight.apple.com/);assert.match(oldBody,/<!-- exact-serving -->Static hosting/);assert.match(old.headers.get('cache-control'),/immutable/);
+  } finally {if(server)await new Promise(r=>server.close(r));rmSync(dir,{recursive:true,force:true});}
+});
+
+test('resident reads see root replacement, refuse links, and do not hold Bun open', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-resident-read-'));
+  try {
+    const root=join(dir,'root'), other=join(dir,'other');
+    mkdirSync(root);mkdirSync(other);
+    writeFileSync(join(root,'value'),'before');writeFileSync(join(other,'value'),'other');
+    const get=root=>filesystemRead({op:'get',root,path:'value'});
+    const requests=Array.from({length:20},(_,i)=>get(i%2 ? other : root));
+    assert.deepEqual((await Promise.all(requests)).map(x=>Buffer.from(x,'base64').toString()),Array.from({length:20},(_,i)=>i%2 ? 'other' : 'before'));
+    renameSync(root,root+'.old');mkdirSync(root);writeFileSync(join(root,'value'),'after');
+    assert.equal(Buffer.from(await get(root),'base64').toString(),'after');
+    rmSync(join(root,'value'));assert.equal(await get(root),null);
+    symlinkSync(join(other,'value'),join(root,'value'));await assert.rejects(get(root),/symlink/);
+    assert.equal(Buffer.from(await get(other),'base64').toString(),'other','a refused read must not poison the pipe');
+    await assert.rejects(filesystemRead({op:'put',root,path:'value'}),/only accepts get/);
+    writeFileSync(join(other,'large'),Buffer.alloc(1536*1024,65));
+    const program=`import {filesystemRead} from ${JSON.stringify(new URL('./filesystem.mjs',import.meta.url).href)};
+      for(let wave=0;wave<3;wave++) {
+        const replies=await Promise.all(Array.from({length:20},()=>filesystemRead({op:'get',root:${JSON.stringify(other)},path:'large'})));
+        if(replies.some(value=>Buffer.from(value,'base64').length!==1536*1024)) throw Error('incomplete read');
+        if(wave<2) await new Promise(resolve=>setTimeout(resolve,20));
+      }
+      console.log('done');`;
+    const child=spawn(process.execPath,['--input-type=module','-e',program],{stdio:['ignore','pipe','pipe']});
+    let output='', stderr='';
+    await new Promise((resolve,reject)=>{
+      let timer=setTimeout(()=>{child.kill();reject(new Error('reader startup timed out'));},180000);
+      child.stdout.on('data',data=>{
+        output+=data;
+        if(output.includes('done')) {clearTimeout(timer);timer=setTimeout(()=>{child.kill();reject(new Error('idle reader kept Bun alive'));},2000);}
+      });
+      child.stderr.on('data',data=>{stderr+=data;});
+      child.on('error',error=>{clearTimeout(timer);reject(error);});
+      child.on('close',code=>{clearTimeout(timer);code===0 ? resolve() : reject(new Error(stderr || `child exited ${code}`));});
+    });
+    assert.equal(output.trim(),'done');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+test('a resident reader that exits with reads pending asks each once more of a fresh helper, and only once', () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-reader-exit-'));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    // A helper that answers its first request and exits (what a pre-resident helper did with --serve-reads), with
+    // the second read already sent to it; and, by the file 'die', one that exits before answering anything.
+    writeFileSync(join(dir,'helper-source'),`#!/bin/sh
+printf x >> spawns
+test -e die && exit 42
+read line
+test -e mute && exit 0
+printf '%s\\n' '{"value":"aGk="}'
+`);
+    const program=`
+      import assert from 'node:assert/strict';
+      import {readFileSync,writeFileSync,rmSync} from 'node:fs';
+      import {ChildProcess} from 'node:child_process';
+      import {filesystemRead,closeFilesystemReader} from './scripts/filesystem.mjs';
+      const get=()=>filesystemRead({op:'get',root:'/',path:'value'});
+      assert.deepEqual(await Promise.all([get(),get()]),['aGk=','aGk='],'the read the exited helper left unanswered is answered by the next');
+      assert.equal(readFileSync('spawns','utf8'),'xx');
+      closeFilesystemReader(); // the second helper has exited too, unseen yet: the next read starts with a fresh one
+      rmSync('spawns');writeFileSync('die','');
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'}); // by its exit or its broken input pipe
+      assert.equal(readFileSync('spawns','utf8'),'xx','asked once more, not again');
+      rmSync('die');rmSync('spawns');writeFileSync('mute','');
+      // A close that comes after the exit was seen but before the read is asked again (the reply to one read and the
+      // exit under another seen in one turn, the first's caller closing): nothing starts after the close. Here the
+      // close runs in the exit's own turn, after the reader's handler.
+      const on=ChildProcess.prototype.on;
+      ChildProcess.prototype.on=function(event,listener){return on.call(this,event,event==='close' ? (...a)=>{listener(...a);closeFilesystemReader();} : listener);};
+      await assert.rejects(get(),{code:'EXACT_FS_READER_EXITED'});
+      ChildProcess.prototype.on=on;
+      await new Promise(resolve=>setTimeout(resolve,300));
+      assert.equal(readFileSync('spawns','utf8'),'x','a closed reader is not asked again');
+    `;
+    const child=spawnSync(process.execPath,['--input-type=module','-e',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH}});
+    assert.equal(child.status,0,child.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+test('filesystem callers retain their helper across rebuilds and report failed operations without retrying', () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-helper-capture-'));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    // Stand in for Cargo's mutable public output, independently of the real
+    // workspace cache. A second caller publishes a different executable.
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+test -z "\${CLIPPY_ARGS-}"
+test "\${RUSTC_WORKSPACE_WRAPPER-}" != /toolchain/clippy-driver
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    writeFileSync(join(dir,'helper-source'),helper('first'));
+    const program=`
+      import assert from 'node:assert/strict';
+      import {writeFileSync,readFileSync} from 'node:fs';
+      import {spawnSync} from 'node:child_process';
+      import {filesystem} from './scripts/filesystem.mjs';
+      assert.equal(filesystem({op:'get'}),'first');
+      writeFileSync('helper-source',${JSON.stringify(helper('second'))});
+      const next=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],{encoding:'utf8'});
+      assert.equal(next.status,0,next.stderr);assert.equal(next.stdout.trim(),'second');
+      assert.equal(filesystem({op:'get'}),'first','a rebuild must not replace a selected helper');
+      writeFileSync('helper-source','#!/bin/sh\\nprintf x >> attempts\\nexit 42\\n');
+      const failed=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';try{filesystem({op:'put'});process.exit(3)}catch(e){console.log(e.message)}"],{encoding:'utf8'});
+      assert.equal(failed.status,0,failed.stderr);assert.match(failed.stdout,/status 42, signal none/);
+      assert.equal(readFileSync('attempts','utf8'),'x','failed operations must not be retried');
+    `;
+    const child=spawnSync(process.execPath,['--eval',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,RUSTC_WORKSPACE_WRAPPER:'/toolchain/clippy-driver',CLIPPY_ARGS:'-D warnings'}});
+    assert.equal(child.status,0,child.stderr);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+test('a helper checked from the same inputs is taken by the next process without a build, and an edit builds again', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-record-')));
+  try {
+    for (const sub of ['scripts','bin','filesystem/src']) mkdirSync(join(dir,sub),{recursive:true});
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'filesystem/src/main.rs'),'fn main() {}\n');
+    // A stand-in Cargo that counts its builds and publishes whatever helper-source holds
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    writeFileSync(join(dir,'helper-source'),`#!/bin/sh\nprintf '%s\\n' '{"value":"helper"}'\n`);
+    const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,CARGO_HOME:join(dir,'cargo-home')};
+    delete env.EXACT_FILESYSTEM_HELPER;
+    const get=()=>{
+      const run=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],{cwd:dir,encoding:'utf8',env});
+      assert.equal(run.status,0,run.stderr);assert.equal(run.stdout.trim(),'helper');
+      return readFileSync(join(dir,'builds'),'utf8').length;
+    };
+    assert.equal(get(),1);
+    assert.equal(get(),1,'the same inputs need no second build');
+    writeFileSync(join(dir,'filesystem/src/main.rs'),'fn main() { }\n');
+    assert.equal(get(),2,'an edit to the crate builds again');
+    assert.equal(get(),2);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+test('a helper named by its checker is taken without a build, and only if it is this checkout\'s and intact', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-named-')));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    // A stand-in Cargo that counts its builds and publishes whatever helper-source holds
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    writeFileSync(join(dir,'helper-source'),helper('checked'));
+    const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH};
+    delete env.EXACT_FILESYSTEM_HELPER;
+    const named=spawnSync(process.execPath,['scripts/filesystem.mjs','--helper'],{cwd:dir,encoding:'utf8',env});
+    assert.equal(named.status,0,named.stderr);
+    writeFileSync(join(dir,'helper-source'),helper('rebuilt'));
+    const get=(helperPath)=>spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],
+      {cwd:dir,encoding:'utf8',env:{...env,EXACT_FILESYSTEM_HELPER:helperPath}});
+    const claim=join(dirname(named.stdout),'.bootstrap.lock');
+    writeFileSync(claim,`${process.pid}-${'0'.repeat(24)}`);
+    let run=get(named.stdout);
+    assert.equal(readFileSync(claim,'utf8'),`${process.pid}-${'0'.repeat(24)}`,'a valid named capture bypasses even a live build claim');
+    rmSync(claim);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'checked');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'x','a named helper needs no build');
+    // A copy whose bytes no longer give the digest in its name is checked as usual
+    const tampered=join(dirname(named.stdout),`exact-filesystem-${'0'.repeat(64)}`);
+    writeFileSync(tampered,helper('tampered'),{mode:0o755});
+    run=get(tampered);
+    assert.equal(run.status,0,run.stderr);
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xx');
+    // As is one outside this checkout's helper directory
+    run=get(join(dir,'helper-source'));
+    assert.equal(run.stdout.trim(),'rebuilt');
+    assert.equal(readFileSync(join(dir,'builds'),'utf8'),'xxx');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 200_000);
+
+// The bridge over a stand-in `cargo`, as above. This one says when it is building (`building`),
+// stays in its build while `hold` exists, and publishes the helper by rename, so the build a
+// killed caller leaves running cannot tear the next one's.
+function helperBuilds() {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-claim-')));
+  mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+  writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+  writeFileSync(join(dir,'helper-source'),`#!/bin/sh\nprintf '%s\\n' '{"value":"helper"}'\n`,{mode:0o755});
+  writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+out=target/exact-filesystem-tool/debug
+mkdir -p $out
+if [ -e exclusive ]; then
+  if ! mkdir critical; then : > overlapping; exit 77; fi
+  trap 'rmdir critical' EXIT
+fi
+printf x >> build-count
+: > building
+while [ -e hold ]; do sleep 0.05; done
+cp helper-source $out/exact-filesystem.$$
+mv -f $out/exact-filesystem.$$ $out/exact-filesystem
+`,{mode:0o755});
+  // A caller of the bridge. Its clock reads ten seconds later at each look, up to two minutes,
+  // and `waited-<name>` appears when it gets there: it has then waited that long on a claim.
+  writeFileSync(join(dir,'caller.mjs'),`import {writeFileSync} from 'node:fs';
+import {filesystem,helperBuildWait} from './scripts/filesystem.mjs';
+let clock=0;
+helperBuildWait.now=()=>{if(clock<120_000&&(clock+=10_000)===120_000)writeFileSync('waited-'+process.argv[2],'');return clock;};
+try{console.log(filesystem({op:'get'}));}catch(error){console.log(error.message);process.exit(3);}
+`);
+  const env={...process.env,PATH:join(dir,'bin')+':'+process.env.PATH};
+  const call=name=>{
+    const child=spawn(process.execPath,['caller.mjs',name],{cwd:dir,env,stdio:['ignore','pipe','inherit']});
+    let out='';child.stdout.on('data',data=>{out+=data;});
+    return {child,done:new Promise(resolve=>child.on('close',code=>resolve({code,out:out.trim()})))};
+  };
+  return {dir,call,claim:join(dir,'target/exact-filesystem-tool/.bootstrap.lock'),has:name=>existsSync(join(dir,name))};
+}
+// Waits on what the fixture's files show; the bound only stops a hang.
+async function shown(what,condition) {
+  for(const end=Date.now()+60_000;!condition();await new Promise(resolve=>setTimeout(resolve,50))) if(Date.now()>end) throw new Error(`waited 60 s for ${what}`);
+}
+
+test('helper callers wait out a build that holds its claim for minutes, and each gets the helper', async () => {
+  const {dir,call,claim,has}=helperBuilds(), names=['a','b','c','d'];
+  try {
+    writeFileSync(join(dir,'hold'),'');
+    const builder=call('builder');
+    await shown('the builder to start its build',()=>has('building'));
+    const waiters=names.map(call);
+    await shown('each waiter to have waited two minutes on the builder',()=>{
+      for(const waiter of waiters) assert.equal(waiter.child.exitCode,null,'a waiter gave up on a builder that was still running');
+      return names.every(name=>has('waited-'+name));
+    });
+    rmSync(join(dir,'hold'));
+    for(const caller of [builder,...waiters]) assert.deepEqual(await caller.done,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'the last caller releases the claim');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
+
+test('a helper claim whose builder was killed, or whose pid a later process has, is recovered', async () => {
+  const {dir,call,claim,has}=helperBuilds();
+  try {
+    writeFileSync(join(dir,'hold'),'');
+    const builder=call('builder');
+    await shown('the builder to start its build',()=>has('building'));
+    builder.child.kill('SIGKILL');await builder.done;
+    rmSync(join(dir,'hold'));
+    const killed=readFileSync(claim,'utf8');
+    assert.match(killed,new RegExp(`^${builder.child.pid}-`),'a killed builder leaves its claim');
+    const stopped=await call('a').done;
+    assert.deepEqual(stopped,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'the replacement builder releases the claim');
+    // This process is running, and it started an hour after this claim was written.
+    const later=`${process.pid}-${'0'.repeat(24)}`;
+    writeFileSync(claim,later);
+    const written=new Date(Date.now()-process.uptime()*1000-3_600_000);utimesSync(claim,written,written);
+    const recycled=await call('b').done;
+    assert.deepEqual(recycled,{code:0,out:'helper'});
+    assert.equal(existsSync(claim),false,'a recycled pid does not wedge the helper');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
+
+test('concurrent dead-claim recovery keeps build and capture exclusive', async () => {
+  const {dir,call,claim,has}=helperBuilds(), callers=[];
+  try {
+    mkdirSync(dirname(claim),{recursive:true});
+    const gone=spawnSync(process.execPath,['-e','']).pid;
+    writeFileSync(claim,`${gone}-${'0'.repeat(24)}`);
+    writeFileSync(join(dir,'exclusive'),'');writeFileSync(join(dir,'hold'),'');
+    const names=Array.from({length:12},(_,i)=>String(i));
+    callers.push(...names.map(call));
+    await shown('one builder and every other caller waiting',()=>has('building') && names.filter(name=>has('waited-'+name)).length===names.length-1);
+    assert.equal(has('overlapping'),false);
+    rmSync(join(dir,'hold'));
+    for (const caller of callers) assert.deepEqual(await caller.done,{code:0,out:'helper'});
+    assert.equal(has('overlapping'),false,'two callers must never build under separate live claims');
+    assert.equal(readFileSync(join(dir,'build-count'),'utf8').length,names.length);
+    assert.equal(existsSync(claim),false);
+    assert.deepEqual(readdirSync(join(dir,'target/exact-filesystem-tool/.bootstrap.claims')),[],'each successful caller releases its own ticket');
+  } finally {
+    rmSync(join(dir,'hold'),{force:true});
+    for (const caller of callers) if (caller.child.exitCode===null) caller.child.kill();
+    await Promise.all(callers.map(caller=>caller.done));
+    rmSync(dir,{recursive:true,force:true});
+  }
+},120_000);
+
+test('a live choosing ticket is respected and a killed or recycled ticket owner is ignored', async () => {
+  const {dir,call,has}=helperBuilds(), tickets=join(dir,'target/exact-filesystem-tool/.bootstrap.claims');
+  let waiter;
+  try {
+    mkdirSync(tickets,{recursive:true});
+    const live=join(tickets,`${process.pid}-${'0'.repeat(24)}`);
+    writeFileSync(live,'');
+    waiter=call('live');
+    await shown('the live-ticket waiter to have waited',()=>has('waited-live'));
+    assert.equal(has('building'),false,'a choosing owner may still publish an earlier ticket');
+    assert.equal(waiter.child.exitCode,null);
+    rmSync(live);
+    assert.deepEqual(await waiter.done,{code:0,out:'helper'});
+    const gone=spawnSync(process.execPath,['-e','']).pid, dead=join(tickets,`${gone}-${'1'.repeat(24)}`);
+    writeFileSync(dead,'1');
+    const recycled=join(tickets,`${process.pid}-${'2'.repeat(24)}`), written=new Date(Date.now()-process.uptime()*1000-3_600_000);
+    writeFileSync(recycled,'1');utimesSync(recycled,written,written);
+    assert.deepEqual(await call('dead').done,{code:0,out:'helper'});
+    assert.deepEqual(readdirSync(tickets).sort(),[basename(dead),basename(recycled)].sort(),'a caller removes only its own ticket');
+  } finally {
+    if (waiter?.child.exitCode===null) { waiter.child.kill();await waiter.done; }
+    rmSync(dir,{recursive:true,force:true});
+  }
+},120_000);
+
+test('a dead helper owner is recovered and a malformed claim names the capture override', async () => {
+  const {dir,call,claim}=helperBuilds();
+  try {
+    mkdirSync(join(claim,'..'),{recursive:true});
+    const gone=spawnSync(process.execPath,['-e','']).pid;
+    writeFileSync(claim,`${gone}-${'0'.repeat(24)}`);
+    assert.deepEqual(await call('a').done,{code:0,out:'helper'});
+    writeFileSync(claim,''); // a builder killed between making its claim and signing it
+    const unsigned=await call('b').done;
+    assert.equal(unsigned.code,3,unsigned.out);
+    assert.ok(unsigned.out.includes(`(${claim}: it reads "", which names no process)`),unsigned.out);
+    assert.match(unsigned.out,/EXACT_FILESYSTEM_HELPER/);
+    assert.equal(readFileSync(claim,'utf8'),'','an unsigned claim is not assumed dead');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},120_000);
+
+test('browser destinations respect listener binding and keep public URLs explicit', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}],en0:[{address:'192.168.1.20',family:'IPv4',internal:false}],utun:[{address:'100.84.2.3',family:'IPv4',internal:false}]};
+  const options={host:'0.0.0.0',port:8879,interfaces};
+  assert.deepEqual(installBrowserOrigins({...options,host:'127.0.0.1'}).map(x=>x.origin),['http://127.0.0.1:8879']);
+  assert.deepEqual(installBrowserOrigins(options).map(x=>x.origin),['http://127.0.0.1:8879','http://192.168.1.20:8879','http://100.84.2.3:8879']);
+  assert.equal(installBrowserOrigins({...options,host:'192.168.1.20'}).length,1);
+  const configured={...manifest,install:{web:{methods:[{kind:'browser',url:'/app?hello=1'}],urls:[{label:'Public',url:'https://interview.example/app'}]}}};
+  assert.deepEqual(installProblems(configured),[]);
+  const page=installNetworkPage(installPage(configured),options);
+  assert.match(page,/Tailscale \/ VPN/);assert.match(page,/https:\/\/interview.example\/app/);
+  assert.ok(installProblems({...manifest,install:{web:{urls:[{label:'Bad',url:'javascript:alert(1)'}]}}}).length);
+  assert.ok(installProblems({...manifest,install:{ios:{methods:[],urls:[]}}}).length);
+});
+
+test('a development server answers only to its printed names; its token and phone URL are its own', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}],en0:[{address:'192.168.1.20',family:'IPv4',internal:false}]};
+  const request=(host,peer)=>({headers:host===undefined?{}:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces}), lan=installBrowserOrigins({host:'0.0.0.0',port:8879,interfaces});
+  const local=developmentGate(loopback,8879), shared=developmentGate(lan,8879);
+  assert.deepEqual(local.check(request('127.0.0.1:8879','127.0.0.1')),{allowed:true,local:true});
+  assert.deepEqual(local.check(request('LOCALHOST:8879','::1')),{allowed:true,local:true});
+  // DNS rebinding: a loopback socket reached under another name.
+  assert.deepEqual(local.check(request('rebound.example:8879','127.0.0.1')),{allowed:false,local:false});
+  assert.deepEqual(local.check(request('192.168.1.20:8879','127.0.0.1')),{allowed:false,local:false});
+  assert.deepEqual(local.check(request(undefined,'127.0.0.1')),{allowed:false,local:false});
+  // The design tool's live copies: exact-copy-<n>.localhost at this port, admitted, never local; no other name under localhost.
+  assert.deepEqual(local.check(request('exact-copy-3.localhost:8879','127.0.0.1')),{allowed:true,local:false});
+  for (const host of ['exact-copy-0.localhost:8879','exact-copy-100.localhost:8879','exact-copy-3.localhost:8880','evil.localhost:8879','exact-copy-3.localhost.example:8879']) assert.deepEqual(local.check(request(host,'127.0.0.1')),{allowed:false,local:false},host);
+  assert.deepEqual(shared.check(request('192.168.1.20:8879','192.168.1.33')),{allowed:true,local:false});
+  // A peer naming the loopback host is still not local.
+  assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
+  assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('exact-copy-2.localhost','127.0.0.1')).allowed,true);
+  assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
+  assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
+  assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
+});
+
+test('--allow-host admits a tunnel name to every request but never makes it local', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}]};
+  const request=(host,peer='127.0.0.1')=>({headers:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces});
+  // The default is unchanged: a tunnel forwarding to loopback is refused (421).
+  assert.equal(developmentGate(loopback,8879).check(request('abc.tunnel.example')).allowed,false);
+  const names=allowHostArgs(['--app','beacons','--allow-host','ABC.tunnel.example','--port','8879','--allow-host','pinned.example:8443']);
+  assert.deepEqual(names,['abc.tunnel.example','pinned.example:8443']);
+  const gate=developmentGate(loopback,8879,names);
+  // A tunnel's Host has no port (https), or the public one; the name admits any port.
+  assert.deepEqual(gate.check(request('abc.tunnel.example')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('ABC.tunnel.example:443')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('pinned.example:8443')),{allowed:true,local:false});
+  assert.equal(gate.check(request('pinned.example')).allowed,false,'name:port admits that port only');
+  assert.equal(gate.check(request('pinned.example:80')).allowed,false);
+  // DNS rebinding under any other name is still refused; loopback is still local.
+  assert.equal(gate.check(request('evil.abc.tunnel.example')).allowed,false);
+  assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
+  assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
+  // A tunnel that rewrites Host to loopback still carries the internet: not local.
+  // Any proxy's mark, a later x-forwarded-* and the canvas gateway's fixed one included.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host','x-forwarded-proto','x-forwarded-port','X-Forwarded-Server'])
+    assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false});
+  // So the opening page offers such a request no native client's token-bearing links.
+  assert.deepEqual(developmentLinks({}, 'http://127.0.0.1:8879/', gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}})), []);
+  // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
+  const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
+  assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});
+  assert.deepEqual(post('null'),{allowed:false,local:false});
+  assert.deepEqual(post('http://127.0.0.1:8879'),{allowed:true,local:true});
+  assert.deepEqual(post(undefined),{allowed:true,local:true});
+  assert.deepEqual(post('https://abc.tunnel.example','abc.tunnel.example'),{allowed:true,local:false});
+  for (const bad of [undefined,'','https://abc.tunnel.example','*.tunnel.example','abc.tunnel.example/','-abc.example','a b'])
+    assert.throws(()=>allowHostName(bad),/--allow-host takes a host name/);
+  assert.throws(()=>allowHostArgs(['--allow-host']),/--allow-host/);
+});
+
+test('the dev opening page offers only the admitted, token-bearing links, escaped', () => {
+  const app = {id:'test.one', displayName:'<b>One</b>', crate:()=>'one-apple', manifest:{}};
+  const page = 'http://127.0.0.1:8879/?q="x"', token = 'a'.repeat(64);
+  const html = developmentOpenPage(app, [{destination:'macos', href:`exact2-x://open?url=${encodeURIComponent(page)}&token=${token}`}], page);
+  assert.match(html, new RegExp(`class="native" href="exact2-x://open\\?url=${encodeURIComponent(page).replaceAll('%', '%')}&amp;token=a{64}">Open in the Mac client<`));
+  assert.ok(!html.includes('<b>One') && html.includes('&lt;b&gt;One'));
+  assert.doesNotMatch(html, /No development client/);
+  const none = developmentOpenPage(app, [], page);
+  assert.doesNotMatch(none, /class="native"/);
+  assert.match(none, /No development client built on this Mac admits this server/);
+  assert.match(none, /--bundle --url http:\/\/127\.0\.0\.1:8879\/\?q=&quot;x&quot;/);
+});
+
+test('a page takes its language from the manifest, en when it names none', () => {
+  assert.match(installPage(manifest), /<html lang="en">/);
+  assert.match(installPage({...manifest, lang:'fr-CA'}), /<html lang="fr-CA">/);
+  const dir = mkdtempSync(join(tmpdir(), 'exact-lang-'));
+  try {
+    for (const [lang, ok] of [['pt-BR', true], ['en', true], ['en_US', false], ['"><script>', false]]) {
+      writeFileSync(join(dir, 'app.json'), JSON.stringify({name:'L', app:{id:'test.lang', name:'L'}, lang}));
+      if (ok) assert.equal(readManifest(dir, 'l').lang, lang);
+      else assert.throws(() => readManifest(dir, 'l'), /lang/);
+    }
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
+test('the production server sends warm bodies compressed, with validators', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-serve-'));
+  const glue = Buffer.from('export const glue = 1;\n'.repeat(2000)), page = '<!doctype html><title>x</title>' + '<p>page</p>'.repeat(200);
+  writeFileSync(join(dir, 'index.html'), page); writeFileSync(join(dir, 'glue.js'), glue);
+  writeFileSync(join(dir, 'app.wasm'), Buffer.alloc(4096, 7)); writeFileSync(join(dir, 'manifest.json'), '{}');
+  // A game's baked assets compress too (garden's art: 6.65 MiB -> 1.82 MiB gzip).
+  mkdirSync(join(dir, 'assets'), { recursive: true }); const model = Buffer.alloc(8192, 3);
+  writeFileSync(join(dir, 'assets/crop.model'), model); writeFileSync(join(dir, 'assets/0-srgb-straight.bc.tex'), Buffer.alloc(8192, 5));
+  // A fresh resident reader: a timed-out test's cleanup can kill the shared one.
+  closeFilesystemReader();
+  const compression = compressionCache();
+  assert.equal(await warmCompression(dir, compression), 6);
+  const get = (server, path, headers = {}) => new Promise((done, fail) => {
+    const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, headers }, res => {
+      const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => done({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', fail); req.end();
+  });
+  const listen = handler => new Promise(done => { const server = createServer(handler); server.listen(0, '127.0.0.1', () => done(server)); });
+  const production = await listen((req, res) => serveStatic(dir, req, res, null, compression));
+  const plain = await listen((req, res) => serveStatic(dir, req, res));
+  try {
+    const br = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br' });
+    assert.equal(br.headers['content-encoding'], 'br'); assert.equal(br.headers.vary, 'Accept-Encoding');
+    assert.ok(br.body.length < glue.length / 10); assert.deepEqual(brotliDecompressSync(br.body), glue);
+    const crop = await get(production, '/assets/crop.model', { 'accept-encoding': 'br' });
+    assert.equal(crop.headers['content-encoding'], 'br'); assert.equal(crop.headers['content-type'], 'application/vnd.exact.model');
+    assert.deepEqual(brotliDecompressSync(crop.body), model);
+    const gz = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br;q=0' });
+    assert.equal(gz.headers['content-encoding'], 'gzip'); assert.deepEqual(gunzipSync(gz.body), glue);
+    const identity = await get(production, '/glue.js', { 'accept-encoding': 'identity' });
+    assert.equal(identity.headers['content-encoding'], undefined); assert.deepEqual(identity.body, glue);
+    assert.notEqual(br.headers.etag, identity.headers.etag, 'each representation has its own validator');
+    assert.equal(br.headers['cache-control'], 'no-cache');
+    const again = await get(production, '/glue.js', { 'accept-encoding': 'br', 'if-none-match': br.headers.etag });
+    assert.equal(again.status, 304); assert.equal(again.body.length, 0); assert.equal(again.headers.etag, br.headers.etag);
+    const index = await get(production, '/', { 'accept-encoding': 'br' });
+    assert.equal(index.headers['content-encoding'], 'br'); assert.equal(index.headers.vary, 'Accept, Accept-Encoding');
+    assert.equal(index.headers['cache-control'], 'no-cache'); assert.match(index.headers.etag, /^"[A-Za-z0-9_-]{32}-br"$/);
+    const drive = await get(plain, '/glue.js', { 'accept-encoding': 'br' });
+    assert.equal(drive.headers['content-encoding'], undefined, 'a driver or test server sends identity bytes');
+    assert.equal(drive.headers.etag, identity.headers.etag);
+    assert.equal((await get(plain, '/missing.js')).headers['cache-control'], 'no-store');
+  } finally { production.close(); plain.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test('the install page lists what the app can reach, escaped, and only when the bake says', () => {
+  const reach = [{ grant: 'device.microphone purpose.mic', purpose: 'Records <your> takes.', enforced: 'OS prompt (iOS, macOS); declared by app.ts' }];
+  const page = installPage(manifest, { build: { reach } });
+  assert.match(page, /<h2 id="heading-reach">What this app can reach<\/h2>/);
+  assert.match(page, /<code>device\.microphone purpose\.mic<\/code><p>Records &lt;your&gt; takes\.<\/p><p class="enforced">Enforced by OS prompt \(iOS, macOS\); declared by app\.ts<\/p>/);
+  assert.doesNotMatch(installPage(manifest), /heading-reach/);
+});

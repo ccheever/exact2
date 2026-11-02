@@ -1,0 +1,5 @@
+# Both lists open at their ends (the second once its rows come); the reader
+# scrolls the long one up, and it stays where they left it.
+tap say
+wheel long -3000
+tap say

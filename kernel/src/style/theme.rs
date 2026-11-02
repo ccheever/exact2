@@ -1,0 +1,496 @@
+//! An app's `theme`: its own colour names, and the roles it
+//! overrides, resolved where a colour is parsed. A plan's entries are bound
+//! while its styles are parsed, as its colour profiles are
+//! (`profiled::declarations`): the compiler binds them to check a row, the
+//! runner to set one, so `color="brand"` and a string from data naming
+//! `brand` read the same colour. A name is read as a whole component (a row,
+//! a shadow's colour, a gradient stop, a palette entry), never inside a
+//! `light-dark()` half or another function; names inside expressions are
+//! synthetic tokens, built by the crate.
+
+use std::cell::RefCell;
+use std::sync::Arc;
+
+pub mod typeface;
+
+/// A plan's theme as a parse reads it: each entry's name (a role's spelling
+/// for an override), the text it stands for, which names no entry, and its
+/// kind. Built once per plan; binding one is a pointer swap.
+/// A role's spelling matches as roles do, without case; a name exactly. A
+/// role drawn in the view's tint is never in it: it stays the role in its
+/// row, and a host makes the theme's colour the app's tint.
+pub type Table = Arc<[Entry]>;
+
+/// One entry of a [`Table`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    /// Its name, or a role's spelling for an override.
+    pub name: Box<str>,
+    /// The text it stands for, in its kind.
+    pub value: Box<str>,
+    /// A role's spelling, matched without case.
+    pub role: bool,
+    /// Which rows read it.
+    pub kind: Kind,
+    /// It varies by an app axis: no inherited row reads it, since only a
+    /// colour is chosen again at a mode boundary.
+    pub varies: bool,
+}
+
+/// A token's kind, as the plan's `theme.kind` numbers it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// A colour: read wherever a colour is parsed.
+    Color,
+    /// A length: px text, one `rem` or `em`, or a named length.
+    Length,
+    /// A number.
+    Number,
+    /// A `box-shadow` row's value.
+    BoxShadow,
+    /// A `text-shadow` row's value.
+    TextShadow,
+    /// CSS `font` syntax: each `font` longhand reads its part
+    /// ([`typeface::part`]).
+    Type,
+    /// A font stack, `font-family`'s.
+    Family,
+}
+
+impl Kind {
+    /// The kind the plan's `theme.kind` numbers; `None` for one this build
+    /// does not know.
+    pub fn of(code: u8) -> Option<Kind> {
+        match code {
+            0 => Some(Kind::Color),
+            1 => Some(Kind::Length),
+            2 => Some(Kind::Number),
+            3 => Some(Kind::BoxShadow),
+            4 => Some(Kind::TextShadow),
+            5 => Some(Kind::Type),
+            6 => Some(Kind::Family),
+            _ => None,
+        }
+    }
+}
+
+thread_local! {
+    static ENTRIES: RefCell<Option<Table>> = const { RefCell::new(None) };
+    /// Inside an entry's own parse: what it stands for names no entry.
+    static INSIDE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The entries parses read since [`take_named`] last asked, by
+    /// [`name_bit`].
+    static NAMED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Inside [`recorded`]: the entries parses read, by name.
+    static RECORD: RefCell<Option<Vec<Box<str>>>> = const { RefCell::new(None) };
+}
+
+/// The entries parses read since the last call, as [`name_bit`]s; 0 for
+/// none: the runner keeps such a row beside its tokens, to set
+/// it again when one's slice or value changes.
+pub fn take_named() -> u64 {
+    NAMED.with(|n| n.replace(0))
+}
+
+/// `f`, and the entries its parses read, by name as the table has them (a
+/// role's spelling for an override read so): what an inspection shows, where
+/// [`take_named`]'s bits may stand for more than one name.
+/// What [`take_named`] would answer is left as it was.
+pub fn recorded<T>(f: impl FnOnce() -> T) -> (T, Vec<Box<str>>) {
+    let named = NAMED.with(|n| n.get());
+    let previous = RECORD.with(|r| r.replace(Some(Vec::new())));
+    let out = f();
+    let names = RECORD.with(|r| r.replace(previous)).unwrap_or_default();
+    NAMED.with(|n| n.set(named));
+    (out, names)
+}
+
+/// One bit of 64 standing for an entry's name, as it is in a table: what a
+/// row that read it and an edit of it are matched by (two names may share
+/// one; an edit then sets a row again that it did not need to).
+pub fn name_bit(name: &str) -> u64 {
+    let h = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    1 << (h % 64)
+}
+
+/// A parse scope's theme, restored on return or unwinding. The scope is
+/// the thread's: every style of a plan is parsed on the thread that bound
+/// it (a parse moved to a worker takes its table with it).
+pub struct ThemeScope {
+    previous: Option<Table>,
+    thread: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+
+/// A table of colours from `(name, colour text, a role's spelling)`.
+pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> Table {
+    kinded(
+        entries
+            .into_iter()
+            .map(|(n, v, r)| (n, v, r, Kind::Color, false)),
+    )
+}
+
+/// A table from `(name, text, a role's spelling, kind, whether it varies)`.
+pub fn kinded<'a>(
+    entries: impl IntoIterator<Item = (&'a str, &'a str, bool, Kind, bool)>,
+) -> Table {
+    entries
+        .into_iter()
+        .map(|(n, v, r, kind, varies)| Entry {
+            name: n.into(),
+            value: v.into(),
+            role: r,
+            kind,
+            varies,
+        })
+        .collect()
+}
+
+/// Whether a theme is bound, and `text` names one of its entries: a name
+/// exactly, a role's spelling without case.
+pub fn names(text: &str) -> bool {
+    ENTRIES.with(|e| {
+        e.borrow().as_ref().is_some_and(|t| {
+            t.iter()
+                .any(|e| *e.name == *text || e.role && e.name.eq_ignore_ascii_case(text))
+        })
+    })
+}
+
+/// Whether a theme with any entry is bound.
+pub fn bound() -> bool {
+    ENTRIES.with(|e| e.borrow().as_ref().is_some_and(|t| !t.is_empty()))
+}
+
+/// Bind a plan's table while its styles are parsed.
+pub fn bind(table: &Table) -> ThemeScope {
+    ThemeScope {
+        previous: ENTRIES.with(|e| e.replace(Some(table.clone()))),
+        thread: std::marker::PhantomData,
+    }
+}
+
+/// [`bind`] a table built from `entries`, for a caller that binds once.
+pub fn declarations<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> ThemeScope {
+    bind(&table(entries))
+}
+
+impl Drop for ThemeScope {
+    fn drop(&mut self) {
+        ENTRIES.with(|e| {
+            e.replace(self.previous.take());
+        });
+    }
+}
+
+/// Record that a parse read entry `name` ([`take_named`], [`recorded`]).
+fn note(name: &str) {
+    NAMED.with(|n| n.set(n.get() | name_bit(name)));
+    RECORD.with(|r| {
+        if let Some(names) = r.borrow_mut().as_mut() {
+            if !names.iter().any(|n| **n == *name) {
+                names.push(name.into());
+            }
+        }
+    });
+}
+
+/// The text entry `text` stands for in the bound theme, of any kind, its
+/// read not recorded: what a diagnostic quotes.
+pub fn declared(text: &str) -> Option<Box<str>> {
+    ENTRIES.with(|e| {
+        e.borrow()
+            .as_ref()?
+            .iter()
+            .find(|e| *e.name == *text.trim())
+            .map(|e| e.value.clone())
+    })
+}
+
+/// The text a length or number entry `text` names in the bound theme, and
+/// its kind: a row's whole value naming one of a kind
+/// `takes` admits, exactly; the read recorded as a colour's is. A base name
+/// no entry defines reads the base scale's length in this process's column
+/// ([`super::scale`]), bound theme or none. `None` when it names none.
+pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, Box<str>)> {
+    measure_at(text, &takes, 0)
+}
+
+/// [`measure`], `depth` aliases in.
+fn measure_at(
+    text: &str,
+    takes: &dyn Fn(Kind, bool) -> bool,
+    depth: u8,
+) -> Option<(Kind, Box<str>)> {
+    let text = text.trim();
+    if takes(Kind::Length, false) || takes(Kind::Length, true) {
+        if let Some(text) = math(text, takes, depth) {
+            return Some((Kind::Length, text.into()));
+        }
+    }
+    if text.is_empty() || text.contains([' ', '(', '#']) {
+        return None;
+    }
+    let (found, defined) = ENTRIES.with(|e| {
+        let e = e.borrow();
+        let Some(table) = e.as_ref() else {
+            return (None, false);
+        };
+        let found = table
+            .iter()
+            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))
+            .map(|e| (e.kind, e.name.clone(), e.value.clone()));
+        (found, table.iter().any(|e| *e.name == *text))
+    });
+    if let Some((kind, name, value)) = found {
+        note(&name);
+        // A length whose value is a bare base name (an alias, `card.pad =
+        // space.md`): kept unfolded, so it reads
+        // the base here, per host, the design's own definition of it first
+        // (and its edits: the read is recorded). A base name set to itself
+        // reads the scale.
+        let alias = value.trim();
+        if kind == Kind::Length && super::scale::is_base(alias) && depth < 8 {
+            if alias == &*name {
+                return Some((Kind::Length, super::scale::text(alias)?.into()));
+            }
+            return measure_at(alias, takes, depth + 1);
+        }
+        // An expression over base names the design left unset: each base read
+        // as a bare alias reads it, the design's own definition first and the
+        // read recorded, and the whole folded to px by the kernel's `calc()`,
+        // in this process's column.
+        if kind == Kind::Length && alias.contains('(') && depth < 8 {
+            let bases = super::scale::named_in(alias);
+            if !bases.is_empty() {
+                let text = super::scale::substitute_with(alias, |base| {
+                    measure_at(base, takes, depth + 1).map(|(_, t)| t.into())
+                })?;
+                let px = super::scale::fold(&text)?;
+                return Some((
+                    Kind::Length,
+                    format!("{}px", exact_num::Shortest32(px)).into(),
+                ));
+            }
+        }
+        // A shadow whose lengths are over base names the design left unset:
+        // each such length folded as an expression's is, in this process's
+        // column, each base read as a bare alias reads it
+        // (the design's own first, the read recorded, as the row's own rule
+        // on a token that varies says); the rest kept, so the row's codec
+        // reads px.
+        if matches!(kind, Kind::BoxShadow | Kind::TextShadow)
+            && depth < 8
+            && !super::scale::named_in(alias).is_empty()
+        {
+            let length = |k: Kind, varies: bool| k == Kind::Length && takes(kind, varies);
+            let text = super::scale::fold_lengths(alias, |base| {
+                measure_at(base, &length, depth + 1).map(|(_, t)| t.into())
+            })?;
+            return Some((kind, text.into()));
+        }
+        return Some((kind, value));
+    }
+    // A base name no entry defines: the scale's length
+    // in this process's column. One the design defines is the design's, even
+    // where this row may not name it.
+    if defined || !super::scale::is_base(text) || !takes(Kind::Length, false) {
+        return None;
+    }
+    note(text);
+    Some((Kind::Length, super::scale::text(text)?.into()))
+}
+
+/// A row's whole value that is `calc()`, `min()`, `max()` or `clamp()` over
+/// length tokens (`calc(space-2 * -1)`, CSS's `calc(var(--space-2) * -1)`):
+/// each token's text in its place, read as a row naming it whole reads it
+/// (the read recorded), for the kernel's `calc()` to evaluate where it
+/// draws, so a `rem` token stays `rem`. `None` when it names no token.
+fn math(text: &str, takes: &dyn Fn(Kind, bool) -> bool, depth: u8) -> Option<String> {
+    if depth >= 8 {
+        return None;
+    }
+    let length = |kind: Kind, varies: bool| kind == Kind::Length && takes(kind, varies);
+    math_with(text, |word| {
+        measure_at(word, &length, depth + 1).map(|(_, v)| v.into())
+    })
+}
+
+/// `text`, a whole `calc()`, `min()`, `max()` or `clamp()`, with each name
+/// in it that `token` gives a text for replaced by that text, grouped in
+/// parentheses. A unit (`0.5rem`) and a function's name are no names.
+/// `None` when `text` is no such function or `token` gives nothing: the
+/// web target's writer of such a row reads it too.
+pub fn math_with(text: &str, mut token: impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let f = &text[..text.find('(')?];
+    if !text.ends_with(')')
+        || !["calc", "min", "max", "clamp"]
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(f))
+    {
+        return None;
+    }
+    let (mut out, mut named, mut rest) = (String::with_capacity(text.len()), false, text);
+    while let Some(at) = rest.find(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        let end = rest[at..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+            .map_or(rest.len(), |n| at + n);
+        let word = &rest[at..end];
+        let unit = rest[..at].ends_with(|c: char| c.is_ascii_digit() || c == '.');
+        out.push_str(&rest[..at]);
+        match (!unit && !rest[end..].starts_with('('))
+            .then(|| token(word))
+            .flatten()
+        {
+            Some(value) => {
+                named = true;
+                out.push('(');
+                out.push_str(value.trim());
+                out.push(')');
+            }
+            None => out.push_str(word),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    named.then_some(out)
+}
+
+/// The rows a number token may name.
+const NUMBER_ROWS: [crate::StyleId; 7] = [
+    crate::StyleId::Opacity,
+    crate::StyleId::LineHeight,
+    crate::StyleId::FlexGrow,
+    crate::StyleId::FontWeight,
+    crate::StyleId::PressScale,
+    crate::StyleId::PressOpacity,
+    // `:active`'s `opacity`, lowered.
+    crate::StyleId::PressOpacityTo,
+];
+
+/// Whether row `id` may name a token of `kind`: a colour a
+/// row that holds a colour; a number the rows `NUMBER_ROWS` lists; a length any other
+/// row but those that take only a number (`line-height` takes both); a
+/// shadow its own row. The row's codec still reads the value: a text style
+/// only as a font size.
+pub fn admits(kind: Kind, id: crate::StyleId) -> bool {
+    use crate::generated::StyleCodec as C;
+    let colour = matches!(
+        id.codec(),
+        C::ColorValue
+            | C::KeywordColor
+            | C::Rgba8
+            | C::Color2
+            | C::SymbolPalette
+            | C::Paint
+            | C::BackgroundImage
+            | C::MaskImage
+            | C::BoxShadow
+            | C::TextShadow
+            | C::Filter
+            | C::BackdropFilter
+    );
+    match kind {
+        Kind::Color => colour,
+        Kind::Number => NUMBER_ROWS.contains(&id),
+        Kind::Length => !colour && (id == crate::StyleId::LineHeight || !NUMBER_ROWS.contains(&id)),
+        Kind::BoxShadow => id == crate::StyleId::BoxShadow,
+        Kind::TextShadow => id == crate::StyleId::TextShadow,
+        Kind::Type => typeface::admits_type(id),
+        Kind::Family => id == crate::StyleId::FontFamily,
+    }
+}
+
+/// Row `id`'s value with a length or number token it names replaced by the
+/// token's: a length's text, which the row's codec and the
+/// relative side table read as the literal's; a number's number. `None`
+/// when it names no such token, or one the row does not take
+/// ([`admits`]), and the value stands for the codec to read or refuse.
+pub fn measured(
+    id: crate::StyleId,
+    value: &super::StyleValue,
+) -> Option<super::StyleValue<'static>> {
+    let super::StyleValue::Text(text) = value else {
+        return None;
+    };
+    // An inherited row reads no token that varies, as the compiler
+    // refuses one a literal names; but type and family, which the compiler
+    // lets vary on a text with no element children to inherit them, each read
+    // again per tuple as a colour is.
+    let (kind, value) = measure(text, |kind, varies| {
+        admits(kind, id)
+            && (!(varies && id.inherited()) || matches!(kind, Kind::Type | Kind::Family))
+    })?;
+    Some(match kind {
+        Kind::Number => super::StyleValue::Number(exact_num::parse_f64(value.trim()).ok()?),
+        Kind::Type => typeface::part(id, &value)?,
+        Kind::Family => typeface::family(&value)?,
+        _ => super::StyleValue::Text(String::from(value).into()),
+    })
+}
+
+/// `parse` of the colour text a theme name stands for, in the bound theme;
+/// `None` when `text` names no entry. A role's spelling matches as roles do,
+/// without case. The entry's own text is parsed with the theme unbound, so a
+/// plan cannot make a name stand for itself.
+pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T> {
+    let text = text.trim();
+    if INSIDE.with(|i| i.get()) || text.is_empty() {
+        return None;
+    }
+    // A synthetic token is named by its whole expression,
+    // which the build folded; no other text with these is a name.
+    let synthetic = text.contains('(');
+    if !synthetic && text.contains([' ', '#']) {
+        return None;
+    }
+    let table = ENTRIES.with(|e| e.borrow().clone())?;
+    let Entry { name, value, .. } = table.iter().find(|e| {
+        e.kind == Kind::Color
+            && (*e.name == *text || !synthetic && e.role && e.name.eq_ignore_ascii_case(text))
+    })?;
+    note(name);
+    INSIDE.with(|i| i.set(true));
+    struct Out;
+    impl Drop for Out {
+        fn drop(&mut self) {
+            INSIDE.with(|i| i.set(false));
+        }
+    }
+    let _out = Out;
+    Some(parse(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `calc(space-2 * -1)`, CSS's `calc(var(--space-2) * -1)`: each length
+    // token a math function names is its text, its read recorded; a unit, a
+    // function's name, a colour and a row that takes no length read none.
+    #[test]
+    fn a_math_function_reads_the_length_tokens_it_names() {
+        let table = kinded([
+            ("space-2", "0.5rem", false, Kind::Length, false),
+            ("ink", "#000000", false, Kind::Color, false),
+        ]);
+        let _scope = bind(&table);
+        let length = |k: Kind, _| k == Kind::Length;
+        let (read, names) = recorded(|| measure("calc(space-2 * -1)", length));
+        assert_eq!(read, Some((Kind::Length, "calc((0.5rem) * -1)".into())));
+        assert_eq!(names, vec![Box::<str>::from("space-2")]);
+        assert_eq!(
+            measure("max(space-2, 4rem)", length).map(|(_, v)| v),
+            Some("max((0.5rem), 4rem)".into())
+        );
+        assert_eq!(measure("calc(2rem * 2)", length), None);
+        assert_eq!(measure("calc(ink * 2)", length), None);
+        assert_eq!(measure("translate(space-2)", length), None);
+        assert_eq!(
+            measure("calc(space-2 * -1)", |k, _| k == Kind::Number),
+            None
+        );
+    }
+}

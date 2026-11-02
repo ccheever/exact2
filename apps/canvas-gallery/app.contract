@@ -1,0 +1,136 @@
+// Canvas gallery — the Canvas 2D fixture: every Canvas 2D member the recorder carries,
+// drawn by fixtures.js through the recorder on each host. Chrome (the web
+// host) is the reference; `bun scripts/smoke.mjs canvas` crops each `fx-*`
+// canvas on every host and compares it, and holds the web's recorded path to
+// direct.html, which runs the same fixtures on Chrome's context directly.
+//
+// Page 3's fixtures are sequences: `step` redraws them on the same context.
+// `backdrop` puts every canvas on black instead of white, without a redraw:
+// what shows through is the bitmap's alpha.
+
+routes nav
+  tab home "/"
+
+// Text is drawn in a declared face: the tight case for parity.
+font "Exposure Sans"
+  400 = "assets/ExposureSansOriginal03-Regular.ttf"
+  400 italic = "assets/ExposureSansOriginal03-Italic.ttf"
+  700 = "assets/ExposureSansOriginal03-Bold.ttf"
+
+style Tile
+  width=150
+  height=100
+  flex-shrink=0
+
+component Gallery
+  state page = 1
+  state step = 0
+  state dark = false
+  action one
+    page = 1
+  action two
+    page = 2
+  action three
+    page = 3
+  action four
+    page = 4
+  action five
+    page = 5
+  action advance
+    step = step + 1
+  action flip
+    dark = not dark
+  view
+    main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
+        text "Canvas" flex=1 font-size=17 font-weight=600
+        button press=one testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
+          text "1" font-size=13
+        button press=two testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "2" font-size=13
+        button press=three testId="page-3" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 3 ? "#e2e8f0" : "#f8fafc")
+          text "3" font-size=13
+        button press=four testId="page-4" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 4 ? "#e2e8f0" : "#f8fafc")
+          text "4" font-size=13
+        button press=five testId="page-5" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 5 ? "#e2e8f0" : "#f8fafc")
+          text "5" font-size=13
+        button press=advance testId="step" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
+          text `step ${step}` font-size=13
+        button press=flip testId="backdrop" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
+          text (dark ? "dark" : "light") font-size=13
+      row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
+        if page == 1
+          Shapes(bg=(dark ? "#000000" : "#ffffff"))
+        if page == 2
+          Paint(bg=(dark ? "#000000" : "#ffffff"))
+        if page == 3
+          Sequences(step=step, bg=(dark ? "#000000" : "#ffffff"))
+        if page == 4
+          Text(bg=(dark ? "#000000" : "#ffffff"))
+        if page == 5
+          Pictures(bg=(dark ? "#000000" : "#ffffff"))
+
+// Shapes and paths: arcs first (the direction under Core Graphics' flip).
+component Shapes
+  props
+    bg: string
+  view
+    canvas surface=arc() class=Tile background-color=bg testId="fx-arc"
+    canvas surface=caps() class=Tile background-color=bg testId="fx-caps"
+    canvas surface=dash() class=Tile background-color=bg testId="fx-dash"
+    canvas surface=arcto() class=Tile background-color=bg testId="fx-arcto"
+    canvas surface=roundrect() class=Tile background-color=bg testId="fx-roundrect"
+    canvas surface=ellipse() class=Tile background-color=bg testId="fx-ellipse"
+    canvas surface=transform() class=Tile background-color=bg testId="fx-transform"
+    canvas surface=kept() class=Tile background-color=bg testId="fx-kept"
+
+// Paint: gradients, alpha, every stage-1 operator, clips, an explicit bitmap.
+component Paint
+  props
+    bg: string
+  view
+    canvas surface=linear() class=Tile background-color=bg testId="fx-linear"
+    canvas surface=radial() class=Tile background-color=bg testId="fx-radial"
+    canvas surface=alpha() class=Tile background-color=bg testId="fx-alpha"
+    canvas surface=composite() class=Tile background-color=bg testId="fx-composite"
+    canvas surface=clip() class=Tile background-color=bg testId="fx-clip"
+    canvas surface=clear() class=Tile background-color=bg testId="fx-clear"
+    canvas surface=bitmap() class=Tile background-color=bg bitmap-width=40 bitmap-height=25 testId="fx-bitmap"
+
+// Sequences: each step draws again on the same context.
+component Sequences
+  props
+    step: number
+    bg: string
+  view
+    canvas surface=accumulate(step) class=Tile background-color=bg testId="fx-accumulate"
+    canvas surface=stack(step) class=Tile background-color=bg testId="fx-stack"
+    canvas surface=reset(step) class=Tile background-color=bg testId="fx-reset"
+    canvas surface=throws(step) class=Tile background-color=bg testId="fx-throws"
+    canvas surface=resize(step) class=Tile background-color=bg width=(90 + step * 20) testId="fx-resize"
+
+// Text: alignment, baselines, styles, measurement, direction and
+// currentColor (the canvas node's `color`).
+component Text
+  props
+    bg: string
+  view
+    canvas surface=textalign() class=Tile background-color=bg testId="fx-textalign"
+    canvas surface=baseline() class=Tile background-color=bg testId="fx-baseline"
+    canvas surface=textstyle() class=Tile background-color=bg testId="fx-textstyle"
+    canvas surface=textmeasure() class=Tile background-color=bg testId="fx-textmeasure"
+    canvas surface=textrtl() class=Tile background-color=bg color="#be185d" testId="fx-textrtl"
+
+// Pictures: images by handle, patterns, conic gradients, Path2D,
+// shadows, the clip-extent operators, raw pixels and wide colours.
+component Pictures
+  props
+    bg: string
+  view
+    canvas surface=image() class=Tile background-color=bg testId="fx-image"
+    canvas surface=pattern() class=Tile background-color=bg testId="fx-pattern"
+    canvas surface=conic() class=Tile background-color=bg testId="fx-conic"
+    canvas surface=path2d() class=Tile background-color=bg testId="fx-path2d"
+    canvas surface=shadow() class=Tile background-color=bg testId="fx-shadow"
+    canvas surface=extent() class=Tile background-color=bg testId="fx-extent"
+    canvas surface=pixels() class=Tile background-color=bg testId="fx-pixels"

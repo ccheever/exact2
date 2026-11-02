@@ -1,0 +1,27 @@
+{
+  "ticks": {
+    "0": "0x2961d75463b1486e",
+    "90": "0xdf2367cf46480dc2"
+  },
+  "saves": {
+    "continuation": "bb3a308692972a706e8746420a154ea81ad04fe6c4317d9b73a27c20c455fff3"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "3d31447eb46b9ee0d02cdf177915160e5b0400e7a3f23fba7db80ba1f96ce983",
+  "sourceInputs": "898579b13e5ff6000cbb8679ba21eb4199f0302f3090834e910b25c5a6f005fd",
+  "game": "beacons",
+  "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
+  "at": "inputs:898579b13e5ff6000cbb8679ba21eb4199f0302f3090834e910b25c5a6f005fd",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged; and the InputState resource its sprint hold and context put in the world"
+}

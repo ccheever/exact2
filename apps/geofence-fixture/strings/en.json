@@ -1,0 +1,5 @@
+{
+  "locationPurpose": "The fixture watches a place you choose.",
+  "arrivalPurpose": "The fixture tells you when you arrive at a place you chose, even while it is closed.",
+  "noticePurpose": "The fixture posts a notification when you arrive."
+}

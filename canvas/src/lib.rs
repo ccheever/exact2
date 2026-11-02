@@ -1,0 +1,188 @@
+//! Canvas 2D for exact2: Core Graphics' model by the web's name.
+//!
+//! - [`context`]: the recorder, [`Context2d`], with web-sys's method names.
+//! - [`list`]: the bytes every host replays, and the structural check.
+//! - [`color`]: CSS Color 4 and the canvas serialisation — exact-motion's
+//!   parser, the one every colour row reads with.
+//! - [`geom`]: the author matrix and f64 arc, `arcTo` and `roundRect`
+//!   geometry, resolved at the call.
+//! - [`seam`]: the TypeScript recorder's reply (`canvas/recorder.js`).
+//!
+//! It depends on nothing above exact-motion, so the runner and every host
+//! can reach it.
+//! An app's artifact carries it only if its data module draws.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+pub use exact_motion::color::css as color;
+pub mod context;
+pub mod font;
+pub mod geom;
+pub mod list;
+pub mod path2d;
+pub mod seam;
+
+pub use color::Rgba;
+pub use context::{
+    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, ColorSpace, Context2d,
+    DomException, DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
+};
+pub use font::{Font, RawMetrics, TextEngine, TextMetrics, TextRun};
+pub use geom::{Matrix, Radius};
+pub use path2d::Path2d;
+
+/// `globalCompositeOperation`'s values; the list's `Composite` operand is
+/// the index.
+pub const COMPOSITE: [&str; 26] = [
+    "source-over",
+    "source-in",
+    "source-out",
+    "source-atop",
+    "destination-over",
+    "destination-in",
+    "destination-out",
+    "destination-atop",
+    "lighter",
+    "copy",
+    "xor",
+    "multiply",
+    "screen",
+    "overlay",
+    "darken",
+    "lighten",
+    "color-dodge",
+    "color-burn",
+    "hard-light",
+    "soft-light",
+    "difference",
+    "exclusion",
+    "hue",
+    "saturation",
+    "color",
+    "luminosity",
+];
+
+/// Whether operator `k` changes destination pixels outside the shape,
+/// within the clip (`source-in`, `source-out`, `destination-in`,
+/// `destination-atop`, `copy`): a replayer draws the shape into a layer and
+/// composites the layer over the whole clip.
+pub fn composite_clips_extent(k: usize) -> bool {
+    matches!(k, 1 | 2 | 5 | 7 | 9)
+}
+
+/// Why a draw was requested. Requests coalesce before they
+/// run, so one draw can have several.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Causes(pub u8);
+
+impl Causes {
+    /// The node was created.
+    pub const MOUNT: Causes = Causes(1);
+    /// Its surface arguments changed in an accepted commit.
+    pub const ARGS: Causes = Causes(2);
+    /// A new size generation.
+    pub const SIZE: Causes = Causes(4);
+    /// It asked for another frame, and the host presented one.
+    pub const FRAME: Causes = Causes(8);
+    /// An image it named decoded.
+    pub const IMAGE: Causes = Causes(16);
+    /// A font it used became available.
+    pub const FONT: Causes = Causes(32);
+    /// The colour or direction it draws in changed (`currentColor`,
+    /// `direction = "inherit"`): its node's, or the scheme's it resolves in.
+    pub const STYLE: Causes = Causes(64);
+
+    const NAMES: [&'static str; 7] = ["mount", "args", "size", "frame", "image", "font", "style"];
+
+    /// Whether `other`'s causes are all present.
+    pub fn has(self, other: Causes) -> bool {
+        self.0 & other.0 == other.0 && other.0 != 0
+    }
+
+    /// The union.
+    pub fn with(self, other: Causes) -> Causes {
+        Causes(self.0 | other.0)
+    }
+
+    /// Whether there are none.
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// `frame.cause`: the first of mount, args, size, frame, image, font,
+    /// style present.
+    pub fn primary(self) -> &'static str {
+        (0..7)
+            .find(|i| self.0 & (1 << i) != 0)
+            .map_or("frame", |i| Self::NAMES[i])
+    }
+
+    /// Every cause present, by name.
+    pub fn names(self) -> Vec<&'static str> {
+        (0..7)
+            .filter(|i| self.0 & (1 << i) != 0)
+            .map(|i| Self::NAMES[i])
+            .collect()
+    }
+}
+
+/// What one draw is told. Coordinates are CSS px
+/// of the content box by default; with an explicit bitmap size they are the
+/// bitmap's pixels and `scale` is 1.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Frame {
+    /// The presentable clock, ms: the agent's under an agent-owned clock.
+    pub time: f64,
+    /// When this canvas node was created, on the same clock.
+    pub mounted: f64,
+    /// Why this draw runs.
+    pub cause: Causes,
+    /// The coordinate space's width.
+    pub width: f64,
+    /// The coordinate space's height.
+    pub height: f64,
+    /// The backing store's width in pixels.
+    pub pixel_width: u32,
+    /// The backing store's height in pixels.
+    pub pixel_height: u32,
+    /// Backing pixels per coordinate unit.
+    pub scale: f64,
+}
+
+/// A draw that failed: a thrown DOM exception, or the author's own error.
+/// Either way the calls made before it are kept (r3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DrawError {
+    /// A canvas method threw.
+    Dom(DomException),
+    /// The draw's own error.
+    Message(String),
+}
+
+impl From<DomException> for DrawError {
+    fn from(e: DomException) -> Self {
+        DrawError::Dom(e)
+    }
+}
+
+impl From<String> for DrawError {
+    fn from(e: String) -> Self {
+        DrawError::Message(e)
+    }
+}
+
+impl From<&str> for DrawError {
+    fn from(e: &str) -> Self {
+        DrawError::Message(e.into())
+    }
+}
+
+impl std::fmt::Display for DrawError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DrawError::Dom(e) => e.fmt(f),
+            DrawError::Message(m) => f.write_str(m),
+        }
+    }
+}

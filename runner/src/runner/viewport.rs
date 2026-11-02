@@ -1,0 +1,131 @@
+//! Host-owned viewport answers; never baked or carried device data.
+use super::{DataError, DataSource, Runner, RunnerError};
+use crate::viewport::{Fold, Preferences, Viewport, SOURCE};
+use exact_kernel::CommitReceipt;
+use exact_plan::{TypeKind, Value};
+
+impl<D: DataSource> Runner<D> {
+    /// The current validated layout viewport.
+    pub fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    /// Re-answer every viewport resource in one commit. Invalid sizes are
+    /// journaled without changing the fact or poisoning the runner. The
+    /// display preferences stay as they were.
+    pub fn set_viewport(
+        &mut self,
+        width: f64,
+        height: f64,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let viewport = Viewport {
+            width,
+            height,
+            ..self.viewport
+        };
+        if let Err(error) = viewport.validate() {
+            let (width, height) = (exact_num::Shortest(width), exact_num::Shortest(height));
+            self.log(format!("viewport {width} × {height} refused: {error:?}"));
+            return Err(error);
+        }
+        self.replace_viewport(viewport, "viewport")
+    }
+
+    /// The user's display preferences changed: re-answer
+    /// every viewport resource in one commit; the same preferences again, or
+    /// no reader, commit nothing.
+    pub fn set_preferences(
+        &mut self,
+        preferences: Preferences,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let viewport = Viewport {
+            preferences,
+            ..self.viewport
+        };
+        // Bold Text is the kernel's, no resource's: a
+        // change commits, whether or not a resource reads the rest.
+        let bold = self.kernel.set_bold_text(preferences.bold_text);
+        let result = self.replace_viewport(viewport, "preferences");
+        if bold && result.is_err() {
+            // Refused: the setting waits for the next one, not the next commit.
+            let _ = self.kernel.set_bold_text(!preferences.bold_text);
+        }
+        if !bold || !matches!(result, Ok(None)) {
+            return result;
+        }
+        let result = self.commit_again(Vec::new(), "bold text");
+        if result.is_err() {
+            let _ = self.kernel.set_bold_text(!preferences.bold_text);
+        }
+        result.map(Some)
+    }
+
+    /// The device's posture or the segments a fold makes changed:
+    /// re-answer every viewport resource in one commit; the same fold
+    /// again, or no reader, commit nothing. A grid without a column or a
+    /// row is refused before anything changes.
+    pub fn set_fold(&mut self, fold: Fold) -> Result<Option<CommitReceipt>, RunnerError> {
+        fold.validate()?;
+        let viewport = Viewport {
+            fold,
+            ..self.viewport
+        };
+        self.replace_viewport(viewport, "fold")
+    }
+
+    fn replace_viewport(
+        &mut self,
+        viewport: Viewport,
+        why: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if viewport == self.viewport {
+            return Ok(None);
+        }
+        let previous = self.viewport;
+        self.viewport = viewport;
+        let which = (0..self.plan.resources.len())
+            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .collect();
+        let result = self.recommit(which, why);
+        if result.is_err() {
+            self.viewport = previous;
+        }
+        result
+    }
+
+    pub(super) fn viewport_answer(&self, i: usize) -> Result<Value, DataError> {
+        let row = &self.plan.resources[i];
+        if row.args.len > 0 {
+            return Err(DataError::BadArguments(format!(
+                "{SOURCE} takes no arguments"
+            )));
+        }
+        let ty = self.plan.type_(row.ty);
+        if ty.kind != TypeKind::Record {
+            return Err(DataError::Unavailable(format!(
+                "{SOURCE} answers a record; this one is declared `{}`",
+                self.plan.str(ty.name)
+            )));
+        }
+        let mut fields = Vec::with_capacity(ty.fields.len as usize);
+        for f in ty.fields.iter() {
+            let name = self.plan.str(self.plan.field(f).name);
+            let value = if name == "gpuTier" {
+                Some(Value::str(self.page.gpu_tier()))
+            } else if name == "accessibilityTextSize" {
+                Some(Value::Bool(self.accessibility_text_size()))
+            } else {
+                self.viewport.field(name)
+            };
+            match value {
+                Some(v) => fields.push(v),
+                None => {
+                    return Err(DataError::Unavailable(format!(
+                        "{SOURCE} has no field `{name}`"
+                    )))
+                }
+            }
+        }
+        Ok(Value::record(fields))
+    }
+}

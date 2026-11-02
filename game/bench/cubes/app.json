@@ -1,0 +1,5 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Bench Cubes",
+  "game": { "crate": "bench-cubes-logic" }
+}

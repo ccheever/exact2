@@ -1,0 +1,19 @@
+shape Reply
+  ok: bool
+component App
+  state phase = "idle"
+  state n = 0
+  mutation reply as shape Reply then landed
+  action step
+    n = n + 1
+    phase = "ready"
+    if n > 1000
+      send reply = read()
+  action landed
+    phase = "late"
+  view
+    button "Step" testId="step" press=step
+
+test "a later answer has another literal"
+  tap "step"
+  tap "step"

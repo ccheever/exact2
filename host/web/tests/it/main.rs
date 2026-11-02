@@ -1,0 +1,36 @@
+//! The web host's integration tests: one binary, so one link and one launch.
+
+mod again;
+mod agent;
+mod animation;
+mod aria;
+mod borders;
+mod canvas;
+mod collection;
+mod dev;
+mod document;
+mod height;
+mod height_drag;
+mod holds;
+mod host;
+mod icon_rule;
+mod lengths;
+mod lists;
+mod looks;
+mod modes;
+mod navigation;
+mod page;
+mod paint_order;
+mod pan_release;
+mod parity;
+mod presence;
+mod projection;
+mod request;
+mod request_refusal;
+mod spacing;
+mod springs;
+mod surface_record;
+mod tables;
+mod tint;
+mod transform_drag;
+mod video;

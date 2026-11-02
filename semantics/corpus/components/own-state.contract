@@ -1,0 +1,42 @@
+// A child's own state: each use has its own copy; the parent's state is
+// separate; the child's action may call back into a parent action prop.
+component App
+  state total = 0
+  action add(k: number)
+    total = total + k
+  view
+    column
+      text `${total}` testId="total"
+      Counter(tag="a", step=1, report=add)
+      Counter(tag="b", step=5, report=add)
+
+component Counter
+  props
+    tag: string
+    step: number
+    report: action
+  state n = 0
+  derive twice = n * 2
+  action bump
+    n = n + step
+  view
+    row
+      text `${n}/${twice}` testId=`n-${tag}`
+      button "bump" press=bump testId=`bump-${tag}`
+      button "report" press=report(n) testId=`report-${tag}`
+
+test "independent"
+  tap "bump-a"
+  tap "bump-a"
+  tap "bump-b"
+  expect text "n-a" == "2/4"
+  expect text "n-b" == "5/10"
+  expect state total == 0
+
+test "report to parent"
+  tap "bump-b"
+  tap "report-b"
+  tap "bump-a"
+  tap "report-a"
+  expect state total == 6
+  expect text "total" == "6"

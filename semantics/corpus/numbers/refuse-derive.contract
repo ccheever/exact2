@@ -1,0 +1,34 @@
+// A derive that evaluates to a non-finite number refuses the commit that
+// would produce it: the slot write that caused it does not land.
+component App
+  state n = 4
+  state hits = 0
+  derive inverse = 100 / n
+  derive root = n == 2 ? 0 / 0 : n
+  action set(v: number)
+    n = v
+    hits = hits + 1
+  view
+    column
+      text `${inverse}` testId="inv"
+      button "zero" press=set(0) testId="zero"
+      button "two" press=set(2) testId="two"
+      button "five" press=set(5) testId="five"
+
+test "zero would make inverse infinite"
+  tap "zero"
+  expect state n == 4
+  expect state hits == 0
+  expect state inverse == 25
+  tap "five"
+  expect state n == 5
+  expect state hits == 1
+  expect text "inv" == "20"
+
+test "two would make root NaN"
+  tap "two"
+  expect state n == 4
+  expect state root == 4
+  tap "zero"
+  tap "five"
+  expect state hits == 1

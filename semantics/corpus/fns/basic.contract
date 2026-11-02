@@ -1,0 +1,38 @@
+// `fn`: pure, expanded where called; may call other fns; sees only its
+// parameters.
+fn sq(x: number): number = x * x
+fn hyp2(a: number, b: number): number = sq(a) + sq(b)
+fn sign(x: number): string = x > 0 ? "+" : x < 0 ? "-" : "0"
+fn wrap(s: string, l: string, r: string): string = `${l}${s}${r}`
+fn clamp(x: number, lo: number, hi: number): number = max(lo, min(hi, x))
+fn isEven(n: number): bool = n % 2 == 0
+
+component App
+  state x = 3
+  derive h = hyp2(x, 4)
+  derive s = sign(x)
+  derive w = wrap(wrap(s, "(", ")"), "[", "]")
+  derive c = clamp(x, 0, 5)
+  action set(v: number)
+    x = v
+  view
+    column
+      text `${h} ${w} ${c} ${isEven(x)}` testId="r"
+      text `${sq(sq(2))}` testId="sq"
+      button "neg" press=set(-7) testId="neg"
+      button "big" press=set(12) testId="big"
+      button "zero" press=set(0) testId="zero"
+
+test "fns"
+  expect text "r" == "25 [(+)] 3 false"
+  expect text "sq" == "16"
+
+test "neg"
+  tap "neg"
+  expect text "r" == "65 [(-)] 0 false"
+
+test "big and zero"
+  tap "big"
+  expect text "r" == "160 [(+)] 5 true"
+  tap "zero"
+  expect text "r" == "16 [(0)] 0 true"

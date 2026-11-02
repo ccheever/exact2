@@ -1,0 +1,1145 @@
+//! `input type="checkbox"` (and `switch`) is the kernel's `Control`, controlled
+//! like HTML, its `input`/`change` carrying a bool; a text field's `input` is
+//! per keystroke and `change` is commit.
+
+use exact_kernel::{Kernel, NodeType, PropId};
+use exact_runner::{ControlValue, DataError, DataSource, Event, Runner, RunnerError, Value};
+
+struct NoData;
+
+impl DataSource for NoData {
+    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.to_string()))
+    }
+}
+
+const SETTINGS: &str = r#"component App
+  state muted = false
+  state airplane = false
+  state draft = ""
+  state sent = ""
+  state moves = 0
+  action setMuted(on: bool)
+    muted = on
+    moves = moves + 1
+  action refuse(on: bool)
+    moves = moves + 1
+  action write(value: string)
+    draft = value
+  action commit(value: string)
+    sent = value
+  view
+    column
+      input type="checkbox" switch checked=muted input=setMuted testId="muted" aria-label="Hide Alerts"
+      input type="checkbox" checked=airplane change=refuse testId="airplane" aria-label="Airplane Mode" accent-color="light-dark(#34c759, #30d158)"
+      input value=draft input=write change=commit testId="draft"
+      text sent testId="sent"
+"#;
+
+fn boot(src: &str) -> Runner<NoData> {
+    Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn view_of(r: &Runner<NoData>, test_id: &str) -> u32 {
+    let key = r.kernel().find_by_test_id(test_id)[0];
+    r.kernel().node_by_key(key).unwrap().id
+}
+
+fn checked(r: &Runner<NoData>, test_id: &str) -> (Option<bool>, Option<bool>) {
+    let node = r.kernel().node(view_of(r, test_id)).unwrap();
+    (
+        node.props.bool(PropId::Checked),
+        node.props.bool(PropId::AccessibilityChecked),
+    )
+}
+
+#[test]
+fn a_checkbox_is_a_control_with_a_role() {
+    let r = boot(SETTINGS);
+    let muted = r.kernel().node(view_of(&r, "muted")).unwrap();
+    assert_eq!(muted.node_type, NodeType::Control);
+    assert_eq!(muted.props.str(PropId::Type), Some("checkbox"));
+    assert_eq!(muted.props.str(PropId::AccessibilityRole), Some("switch"));
+    let airplane = r.kernel().node(view_of(&r, "airplane")).unwrap();
+    assert_eq!(
+        airplane.props.str(PropId::AccessibilityRole),
+        Some("checkbox")
+    );
+    let draft = r.kernel().node(view_of(&r, "draft")).unwrap();
+    assert_eq!(draft.node_type, NodeType::TextInput);
+    assert_eq!(checked(&r, "muted"), (Some(false), Some(false)));
+}
+
+/// A checkbox, a radio and a range have no margin of their own on any host
+/// (Chrome's UA sheet gives them `3px 3px 3px 4px`, `3px 3px 0 5px` and `2px`,
+/// which lowering wrote into every plan). The rows are unset, so the space
+/// beside a label is the author's `gap`, and a margin the author writes is the
+/// control's.
+#[test]
+fn a_checkbox_a_radio_and_a_range_have_no_margin_of_their_own() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    row testId="root"
+      input type="checkbox" testId="check"
+      input type="checkbox" switch testId="switch"
+      input type="radio" testId="radio"
+      input type="range" width=90 testId="range"
+      input type="checkbox" margin-left=6 testId="spaced"
+"#,
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let margins = [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ];
+    for id in ["check", "switch", "radio", "range"] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        for margin in margins {
+            assert!(!node.style.mask.has(margin), "{id} sets {margin:?}");
+        }
+        let frame = node.frame;
+        assert_eq!(frame.y, 0.0, "{id} sits at the top of its row");
+    }
+    // Nothing between the controls but their own boxes.
+    let x = |id: &str| r.kernel().node(view_of(&r, id)).unwrap().frame;
+    assert_eq!(x("check").x, 0.0);
+    assert_eq!(x("switch").x, x("check").width);
+    assert_eq!(x("radio").x, x("switch").x + x("switch").width);
+    assert_eq!(x("range").x, x("radio").x + x("radio").width);
+    let spaced = r.kernel().node(view_of(&r, "spaced")).unwrap();
+    assert_eq!(spaced.style.margin_left, Dimension::Points(6.0));
+    assert!(spaced.style.written.has(StyleId::MarginLeft));
+    assert_eq!(spaced.frame.x, x("range").x + x("range").width + 6.0);
+}
+
+#[test]
+fn a_toggle_carries_a_bool_and_the_committed_state_is_authoritative() {
+    let mut r = boot(SETTINGS);
+    let muted = view_of(&r, "muted");
+    r.dispatch(muted, Event::Input(true.into())).unwrap();
+    assert_eq!(checked(&r, "muted"), (Some(true), Some(true)));
+    // An action that writes nothing leaves `checked` where it was: the host
+    // snaps its control back to it.
+    let airplane = view_of(&r, "airplane");
+    r.dispatch(airplane, Event::Change(true.into())).unwrap();
+    assert_eq!(checked(&r, "airplane"), (Some(false), Some(false)));
+    // A checkbox's payload is a bool, a text field's text: never coerced.
+    let refused = r.dispatch(muted, Event::Input("true".into())).unwrap_err();
+    assert!(
+        matches!(refused, RunnerError::InvalidEvent { event: "input" }),
+        "{refused:?}"
+    );
+    let draft = view_of(&r, "draft");
+    let refused = r
+        .dispatch(draft, Event::Change(ControlValue::Checked(true)))
+        .unwrap_err();
+    assert!(
+        matches!(refused, RunnerError::InvalidEvent { event: "change" }),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_text_fields_input_is_per_keystroke_and_change_is_commit() {
+    let mut r = boot(SETTINGS);
+    let draft = view_of(&r, "draft");
+    r.dispatch(draft, Event::Input("hel".into())).unwrap();
+    r.dispatch(draft, Event::Input("hello".into())).unwrap();
+    let sent = r.kernel().node(view_of(&r, "sent")).unwrap();
+    assert_eq!(sent.props.str(PropId::Text), Some(""));
+    r.dispatch(draft, Event::Change("hello".into())).unwrap();
+    let sent = r.kernel().node(view_of(&r, "sent")).unwrap();
+    assert_eq!(sent.props.str(PropId::Text), Some("hello"));
+}
+
+#[test]
+fn the_compiler_names_what_a_control_takes() {
+    let refused = |src: &str| contract::compile(src).unwrap_err().to_string();
+    let app = |line: &str| {
+        format!(
+            "component App\n  state on = false\n  state kind = \"checkbox\"\n  action set(v: bool)\n    on = v\n  action text(v: string)\n    kind = v\n  view\n    column\n      {line}\n"
+        )
+    };
+    // A checkbox's `change` supplies a bool, not the text a field's does.
+    let e = refused(&app("input type=\"checkbox\" checked=on change=text"));
+    assert!(
+        e.contains("type-handler-payload") && e.contains("bool"),
+        "{e}"
+    );
+    // `type` is a literal: the node type is chosen when the view compiles.
+    let e = refused(&app("input type=kind checked=on change=set"));
+    assert!(e.contains("lower-input-type"), "{e}");
+    let e = refused(&app("input value=kind checked=on"));
+    assert!(e.contains("lower-attr-tag") && e.contains("checked"), "{e}");
+    // A native button is not a checkbox either (it returned before this check).
+    let e = refused(&app(
+        "button appearance=\"auto\" checked=on press=set(true)\n        text \"Save\"",
+    ));
+    assert!(
+        e.contains("lower-attr-tag") && e.contains("not `button`"),
+        "{e}"
+    );
+    let e = refused(&app("input switch value=kind input=text"));
+    assert!(e.contains("lower-attr-tag") && e.contains("switch"), "{e}");
+    // The React names say which of HTML's two they are.
+    let e = refused(&app("input value=kind onChangeText=text"));
+    assert!(e.contains("`input`"), "{e}");
+    assert!(contract::compile(&app(
+        "input type=\"checkbox\" role=\"switch\" checked=on change=set appearance=\"none\""
+    ))
+    .is_ok());
+    // Known non-text HTML controls never silently become TextInput nodes.
+    // The button element is Exact's supported action spelling.
+    for kind in ["button", "Button", "submit", "reset", "image"] {
+        for spelling in [format!("\"{kind}\""), format!("on ? \"text\" : \"{kind}\"")] {
+            let e = refused(&format!(
+                "component App\n  state on = false\n  view\n    input type={spelling}\n"
+            ));
+            assert!(
+                e.contains("lower-input-type")
+                    && e.contains("non-text control")
+                    && e.contains(&kind.to_ascii_lowercase()),
+                "{spelling}: {e}"
+            );
+        }
+    }
+    assert!(contract::compile(&app("input type=\"CHECKBOX\" checked=on change=set")).is_ok());
+}
+
+const RADIOS: &str = r#"component App
+  state color = "red"
+  state tries = 0
+  action pick(value: string)
+    color = value
+  action refuse(value: string)
+    tries = tries + 1
+  view
+    column
+      input type="radio" name="color" value="red" checked=color == "red" change=pick testId="red" aria-label="Red"
+      input type="RADIO" name="color" value="green" checked=color == "green" change=pick testId="green" aria-label="Green"
+      input type="radio" name="size" checked=false change=refuse testId="size" aria-label="Large"
+      text `${color} ${tries}` testId="color"
+"#;
+
+#[test]
+fn a_radio_is_a_control_of_its_name_whose_change_carries_its_value() {
+    // x2apps survey #2: HTML's radio, grouped by `name`, its `change` the
+    // radio's `value`.
+    let mut r = boot(RADIOS);
+    let red = view_of(&r, "red");
+    let node = r.kernel().node(red).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("radio"));
+    assert_eq!(node.props.str(PropId::Name), Some("color"));
+    // No margin of its own (Chrome's is `3px 3px 0 5px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginLeft));
+    assert_eq!(node.style.margin_left, exact_kernel::Dimension::Points(0.0));
+    let green = view_of(&r, "green");
+    assert_eq!(
+        r.kernel().node(green).unwrap().props.str(PropId::Type),
+        Some("radio")
+    );
+    assert_eq!(r.kernel().radio_group(red), vec![red, green]);
+    assert_eq!(checked(&r, "red"), (Some(true), Some(true)));
+    r.dispatch(green, Event::Change("green".into())).unwrap();
+    assert_eq!(checked(&r, "red"), (Some(false), Some(false)));
+    assert_eq!(checked(&r, "green"), (Some(true), Some(true)));
+    // A radio reports its own value, and a string: never another's, never a bool.
+    match r.dispatch(green, Event::Change("red".into())).unwrap_err() {
+        RunnerError::InvalidValue { event, reason } => {
+            assert_eq!(event, "change");
+            assert!(reason.contains("\"green\""), "{reason}");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(
+        r.dispatch(green, Event::Change(true.into())).unwrap_err(),
+        RunnerError::InvalidEvent { event: "change" }
+    ));
+    // No `value`: HTML's `on`. An action that writes nothing leaves it unchecked.
+    let size = view_of(&r, "size");
+    r.dispatch(size, Event::Change("on".into())).unwrap();
+    assert_eq!(checked(&r, "size"), (Some(false), Some(false)));
+    let text = r.kernel().node(view_of(&r, "color")).unwrap();
+    assert_eq!(text.props.str(PropId::Text), Some("green 1"));
+}
+
+#[test]
+fn the_compiler_names_what_a_radio_takes() {
+    let refused = |src: &str| contract::compile(src).unwrap_err().to_string();
+    let app = |line: &str| {
+        format!(
+            "component App\n  state on = false\n  state pick = \"a\"\n  action set(v: bool)\n    on = v\n  action choose(v: string)\n    pick = v\n  view\n    column\n      {line}\n"
+        )
+    };
+    let e = refused(&app(
+        "input type=\"radio\" name=\"g\" value=\"a\" change=set",
+    ));
+    assert!(
+        e.contains("type-handler-payload") && e.contains("string"),
+        "{e}"
+    );
+    let e = refused(&app("input type=\"radio\" change=choose(\"x\")"));
+    assert!(e.contains("the radio's `value` (string)"), "{e}");
+    for line in [
+        "input value=pick name=\"g\"",
+        "input type=\"checkbox\" name=\"g\" checked=on",
+        "text \"a\" name=\"g\"",
+    ] {
+        let e = refused(&app(line));
+        assert!(
+            e.contains("lower-attr-tag") && e.contains("`name`"),
+            "{line}: {e}"
+        );
+    }
+    assert!(contract::compile(&app(
+        "input type=\"radio\" name=\"g\" value=\"a\" checked=pick == \"a\" change=choose disabled=on"
+    ))
+    .is_ok());
+}
+
+#[test]
+fn a_text_fields_type_is_a_choice_between_text_fields_types() {
+    // A password's show and hide: the node is a text field either way, its
+    // `type` a bound prop, and its `change` carries text to an action whose
+    // parameter is written without a type.
+    let field = |kind: &str| {
+        format!(
+            "component App\n  state shown = false\n  state secret = \"\"\n  action toggle\n    shown = not shown\n  action keep(value)\n    secret = value\n  view\n    column\n      input value=secret change=keep type={kind} testId=\"secret\"\n      button press=toggle testId=\"toggle\"\n        text \"Show\"\n"
+        )
+    };
+    let mut r = boot(&field("shown ? \"text\" : \"password\""));
+    let kind = |r: &Runner<NoData>| {
+        let node = r.kernel().node(view_of(r, "secret")).unwrap();
+        assert_eq!(node.node_type, NodeType::TextInput);
+        node.props.str(PropId::Type).map(str::to_string)
+    };
+    assert_eq!(kind(&r).as_deref(), Some("password"));
+    let toggle = view_of(&r, "toggle");
+    r.dispatch(toggle, Event::Press).unwrap();
+    assert_eq!(kind(&r).as_deref(), Some("text"));
+    let secret = view_of(&r, "secret");
+    r.dispatch(secret, Event::Change("hunter2".into())).unwrap();
+    let node = r.kernel().node(view_of(&r, "secret")).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("hunter2"));
+    // A choice that could name a control, or a value the compiler cannot
+    // list, is still refused: the kind of node is chosen when the view
+    // compiles. An untyped parameter's refusal is at the `type`, which is
+    // why nothing types it; a typed one's is lowering's.
+    for kind in ["shown ? \"checkbox\" : \"text\"", "secret"] {
+        let e = contract::compile(&field(kind)).unwrap_err().to_string();
+        assert!(
+            e.contains("type-cannot-infer") && e.contains("this `input`'s `type`"),
+            "{kind}: {e}"
+        );
+        let typed = field(kind).replace("keep(value)", "keep(value: string)");
+        let e = contract::compile(&typed).unwrap_err().to_string();
+        assert!(e.contains("lower-input-type"), "{kind}: {e}");
+    }
+}
+
+/// Themes from the data seam: `id`, `name`, in the shape's order.
+struct Themes;
+
+impl DataSource for Themes {
+    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "themes" => Ok(Value::list(
+                [("light", "Light"), ("dark", "Dark")]
+                    .into_iter()
+                    .map(|(id, name)| Value::record(vec![Value::str(id), Value::str(name)]))
+                    .collect(),
+            )),
+            _ => Err(DataError::UnknownSource(source.to_string())),
+        }
+    }
+}
+
+const THEME: &str = r#"shape Theme
+  id: string
+  name: string
+
+component App
+  resource themes = themes() as shape Theme[]
+  state theme = "system"
+  state moves = 0
+  action setTheme(value: string)
+    theme = value
+    moves = moves + 1
+  action refuse(value: string)
+    moves = moves + 1
+  view
+    column
+      select value=theme change=setTheme testId="theme" aria-label="Theme"
+        option value="system"
+          text "System"
+        for t in themes key=t.id
+          option t.name value=t.id testId=`theme-${t.id}`
+        option "Sepia" value="sepia" disabled=true
+      select value=theme input=refuse testId="fixed" aria-label="Fixed"
+        option "System" value="system"
+        option "Dark" value="dark"
+      text `${moves}` testId="moves"
+"#;
+
+fn themed() -> Runner<Themes> {
+    Runner::boot(
+        contract::compile(THEME).unwrap_or_else(|e| panic!("{e}")),
+        Themes,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn view_in<D: DataSource>(r: &Runner<D>, test_id: &str) -> u32 {
+    let key = r.kernel().find_by_test_id(test_id)[0];
+    r.kernel().node_by_key(key).unwrap().id
+}
+
+#[test]
+fn a_select_is_a_control_whose_options_are_its_children() {
+    let r = themed();
+    let theme = view_in(&r, "theme");
+    let node = r.kernel().node(theme).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("select"));
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("combobox"));
+    // `for` and keys work: the options are nodes, never laid out.
+    let choices = r.kernel().select_choices(theme);
+    let values: Vec<_> = choices.iter().map(|c| c.value.as_str()).collect();
+    assert_eq!(values, ["system", "light", "dark", "sepia"]);
+    let labels: Vec<_> = choices.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(labels, ["System", "Light", "Dark", "Sepia"]);
+    assert!(choices[3].disabled && !choices[1].disabled);
+    let dark = r.kernel().node(view_in(&r, "theme-dark")).unwrap();
+    assert_eq!(dark.style.display, exact_kernel::Display::None);
+    assert_eq!(dark.props.str(PropId::SemanticTag), Some("option"));
+    assert_eq!(
+        r.kernel().select_chosen(theme).map(|c| c.label),
+        Some("System".into())
+    );
+}
+
+#[test]
+fn a_select_carries_the_chosen_value_and_refuses_what_no_option_has() {
+    let mut r = themed();
+    let theme = view_in(&r, "theme");
+    r.dispatch(theme, Event::Change("dark".into())).unwrap();
+    assert_eq!(
+        r.kernel().node(theme).unwrap().props.str(PropId::Value),
+        Some("dark")
+    );
+    for (value, why) in [("bogus", "no option"), ("sepia", "disabled")] {
+        let refused = r.dispatch(theme, Event::Change(value.into())).unwrap_err();
+        match refused {
+            RunnerError::InvalidValue { event, reason } => {
+                assert_eq!(event, "change");
+                assert!(reason.contains(why), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    let refused = r.dispatch(theme, Event::Change(true.into())).unwrap_err();
+    assert!(matches!(
+        refused,
+        RunnerError::InvalidEvent { event: "change" }
+    ));
+    // An action that writes nothing leaves `value` where it was: the host
+    // shows the committed option again.
+    let fixed = view_in(&r, "fixed");
+    r.dispatch(fixed, Event::Input("system".into())).unwrap();
+    assert_eq!(
+        r.kernel().node(fixed).unwrap().props.str(PropId::Value),
+        Some("dark")
+    );
+}
+
+#[test]
+fn option_and_select_keep_htmls_content_model() {
+    let refused = |view: &str| {
+        let src = format!("component App\n  state v = \"a\"\n  view\n    column\n{view}");
+        contract::compile(&src).unwrap_err().to_string()
+    };
+    let e = refused("      option \"A\" value=\"a\"\n");
+    assert!(e.contains("lower-option-parent"), "{e}");
+    let e = refused("      select value=v\n        text \"A\"\n");
+    assert!(
+        e.contains("lower-option-parent") && e.contains("text"),
+        "{e}"
+    );
+    let e = refused("      select value=v type=\"x\"\n        option \"A\"\n");
+    assert!(e.contains("lower-attr-tag"), "{e}");
+}
+
+#[test]
+fn autocomplete_names_a_field_to_autofill() {
+    // HTML's attribute, kept as written; each host reads its last field token.
+    let r = boot(
+        r#"component App
+  state kind = "one-time-code"
+  view
+    column
+      input type="email" autocomplete="username" testId="user" aria-label="User"
+      input autocomplete=kind testId="code" aria-label="Code"
+      textarea autocomplete="shipping street-address" testId="addr" aria-label="Address"
+"#,
+    );
+    for (id, want) in [
+        ("user", "username"),
+        ("code", "one-time-code"),
+        ("addr", "shipping street-address"),
+    ] {
+        let node = r.kernel().node(view_of(&r, id)).unwrap();
+        assert_eq!(node.props.str(PropId::Autocomplete), Some(want), "{id}");
+    }
+    // React Native's names point at it.
+    for name in ["textContentType", "autoComplete", "autoCompleteType"] {
+        let src = format!("component App\n  view\n    input {name}=\"email\"\n");
+        let e = format!("{:?}", contract::compile(&src).unwrap_err());
+        assert!(e.contains("autocomplete"), "{name}: {e}");
+    }
+}
+
+#[test]
+fn a_number_fields_bounds_take_numbers_as_a_ranges_do() {
+    // `min`, `max` and `step` as numbers; the field's value stays its text.
+    let mut r = boot(
+        r#"component App
+  state n = "3"
+  state lo = 2
+  action edit(v: string)
+    n = v
+  view
+    column
+      input type="number" value=n input=edit min=lo max=50 step=0.5 testId="team" aria-label="Team"
+"#,
+    );
+    let team = view_of(&r, "team");
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Min), Some("2"));
+    assert_eq!(node.props.str(PropId::Max), Some("50"));
+    assert_eq!(node.props.str(PropId::Step), Some("0.5"));
+    r.dispatch(team, Event::Input("4.".into())).unwrap();
+    let node = r.kernel().node(team).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("4."));
+    // Only an `input` is a number field: elsewhere a numeric `min` is no bound and stays refused.
+    for tag in ["textarea", "view"] {
+        let src = format!("component App\n  view\n    {tag} type=\"number\" min=2\n");
+        assert!(contract::compile(&src).is_err(), "{tag}");
+    }
+}
+
+/// A negative literal is a number as a positive one is, in a field's bounds (the
+/// decimal pad's ± key comes of a negative `min`) and in a style (`margin-top=-8`
+/// is -8 px), and a text field's bounds take numbers.
+#[test]
+fn a_negative_literal_is_a_number_as_a_positive_one_is() {
+    let r = boot(
+        r#"component App
+  state n = "3"
+  action edit(v: string)
+    n = v
+  view
+    column margin-top=-8
+      input value=n input=edit type="text" inputmode="decimal" min=-999999999999999 max=999 testId="pad" aria-label="Pad"
+      input value=n input=edit inputmode="decimal" min=-0.5 step=-1e-3 testId="plain" aria-label="Plain"
+      input type="number" value=n input=edit min=-40 max=40 step=-0.5 testId="number" aria-label="Number"
+      input type="number" value=n input=edit min=-1e300 max=1e300 testId="wide" aria-label="Wide"
+      input type="range" min=-5 max=5 step=-0.5 value=1 testId="range" aria-label="Range"
+      input value=n input=edit min=40 testId="positive" aria-label="Positive"
+"#,
+    );
+    let prop = |id: &str, p: PropId| {
+        r.kernel()
+            .node(view_of(&r, id))
+            .unwrap()
+            .props
+            .str(p)
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        prop("pad", PropId::Min).as_deref(),
+        Some("-999999999999999")
+    );
+    assert_eq!(prop("pad", PropId::Max).as_deref(), Some("999"));
+    assert_eq!(prop("plain", PropId::Min).as_deref(), Some("-0.5"));
+    assert_eq!(prop("plain", PropId::Step).as_deref(), Some("-0.001"));
+    assert_eq!(prop("number", PropId::Min).as_deref(), Some("-40"));
+    assert_eq!(prop("number", PropId::Max).as_deref(), Some("40"));
+    assert_eq!(prop("number", PropId::Step).as_deref(), Some("-0.5"));
+    assert_eq!(prop("wide", PropId::Min).as_deref(), Some("-1e+300"));
+    assert_eq!(prop("wide", PropId::Max).as_deref(), Some("1e+300"));
+    assert_eq!(prop("range", PropId::Min).as_deref(), Some("-5"));
+    assert_eq!(prop("range", PropId::Step).as_deref(), Some("-0.5"));
+    // The positive literal on a text field is the same text of a number.
+    assert_eq!(prop("positive", PropId::Min).as_deref(), Some("40"));
+    // A style takes it as CSS's negative length: -8 px, a constant.
+    let root = r.kernel().node(view_of(&r, "pad")).unwrap().parent.unwrap();
+    assert_eq!(
+        r.kernel().node(root).unwrap().style.margin_top,
+        exact_kernel::Dimension::Points(-8.0)
+    );
+    // The same plan as the positive literal, bar the sign: the negative is
+    // folded to a constant, not computed.
+    let plan = |v: &str| {
+        contract::compile(&format!(
+            "component App\n  view\n    column margin-top={v}\n      text \"x\"\n"
+        ))
+        .unwrap()
+        .encode()
+        .len()
+    };
+    assert_eq!(plan("-8"), plan("8"));
+    // A bound number is still written at run time; a text field's `textarea` is no bound.
+    let e = contract::compile("component App\n  view\n    textarea min=-2\n").unwrap_err();
+    assert!(format!("{e:?}").contains("lower-attr"), "{e:?}");
+}
+
+const VOLUME: &str = r#"component App
+  state volume = 40
+  state scale = 1
+  state preview = 0
+  action setVolume(value: number)
+    volume = value
+  action hear(value: number)
+    preview = value
+  action setScale(value: number)
+    scale = value
+  view
+    column
+      input type="range" min=0 max=100 step=5 value=volume input=hear change=setVolume testId="volume" aria-label="Volume"
+      input type="range" min=0.85 max=1.25 step=0.01 value=scale input=setScale testId="scale" aria-label="Text size" width="100%"
+      text `${preview}` testId="preview"
+"#;
+
+#[test]
+fn a_range_carries_a_number_clamped_and_snapped_as_html_does() {
+    let mut r = boot(VOLUME);
+    let volume = view_of(&r, "volume");
+    let node = r.kernel().node(volume).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("range"));
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("slider"));
+    assert_eq!(node.props.str(PropId::Min), Some("0"));
+    assert_eq!(node.props.str(PropId::Step), Some("5"));
+    assert_eq!(node.props.str(PropId::Value), Some("40"));
+    // No margin of its own (Chrome's is `2px`).
+    assert!(!node.style.mask.has(exact_kernel::StyleId::MarginTop));
+    assert_eq!(node.style.margin_top, exact_kernel::Dimension::Points(0.0));
+    // `input` moves, `change` commits; each payload a number on the step.
+    r.dispatch(volume, Event::Input("62".into())).unwrap();
+    let preview = r.kernel().node(view_of(&r, "preview")).unwrap();
+    assert_eq!(preview.props.str(PropId::Text), Some("60"));
+    r.dispatch(volume, Event::Change("140".into())).unwrap();
+    let node = r.kernel().node(volume).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("100"));
+    let scale = view_of(&r, "scale");
+    r.dispatch(scale, Event::Input("1.1234".into())).unwrap();
+    let node = r.kernel().node(scale).unwrap();
+    assert_eq!(node.props.str(PropId::Value), Some("1.12"));
+    assert_eq!(node.props.str(PropId::Min), Some("0.85"));
+    match r
+        .dispatch(volume, Event::Change("loud".into()))
+        .unwrap_err()
+    {
+        RunnerError::InvalidValue { reason, .. } => assert!(reason.contains("not a number")),
+        other => panic!("{other:?}"),
+    }
+    // A range's handler takes a number, not the text a field's does.
+    let e = contract::compile(
+        &VOLUME.replace("action hear(value: number)", "action hear(value: string)"),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("number"), "{e}");
+}
+
+const DUE: &str = r#"component App
+  state due = "2026-10-01"
+  state alarm = "07:00"
+  state at = ""
+  action setDue(value: string)
+    due = value
+  action setAlarm(value: string)
+    alarm = value
+  action setAt(value: string)
+    at = value
+  view
+    column
+      input type="date" value=due min="2026-01-01" max="2026-12-31" change=setDue testId="due" aria-label="Due"
+      input type="time" value=alarm change=setAlarm testId="alarm" aria-label="Alarm"
+      input type="datetime-local" value=at change=setAt testId="at" aria-label="At"
+"#;
+
+#[test]
+fn a_date_carries_htmls_value_format_within_min_and_max() {
+    let mut r = boot(DUE);
+    let due = view_of(&r, "due");
+    let node = r.kernel().node(due).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("date"));
+    assert_eq!(node.props.str(PropId::Min), Some("2026-01-01"));
+    r.dispatch(due, Event::Change("2026-11-05".into())).unwrap();
+    let value = |r: &Runner<NoData>, id| {
+        r.kernel()
+            .node(id)
+            .unwrap()
+            .props
+            .str(PropId::Value)
+            .map(str::to_owned)
+    };
+    assert_eq!(value(&r, due).as_deref(), Some("2026-11-05"));
+    for (text, why) in [
+        ("2027-01-01", "after max"),
+        ("2025-06-01", "before min"),
+        ("2026-02-30", "not a date"),
+    ] {
+        match r.dispatch(due, Event::Change(text.into())).unwrap_err() {
+            RunnerError::InvalidValue { reason, .. } => assert!(reason.contains(why), "{reason}"),
+            other => panic!("{other:?}"),
+        }
+    }
+    // A cleared control reports the empty string, as HTML's does.
+    r.dispatch(due, Event::Change("".into())).unwrap();
+    assert_eq!(value(&r, due).as_deref(), Some(""));
+    let alarm = view_of(&r, "alarm");
+    r.dispatch(alarm, Event::Change("14:30".into())).unwrap();
+    assert!(r.dispatch(alarm, Event::Change("2:30 PM".into())).is_err());
+    let at = view_of(&r, "at");
+    r.dispatch(at, Event::Change("2026-09-27T14:30".into()))
+        .unwrap();
+    assert_eq!(value(&r, at).as_deref(), Some("2026-09-27T14:30"));
+    assert!(r.dispatch(at, Event::Change(true.into())).is_err());
+}
+
+/// `spellcheck` and `autocorrect` are HTML's enumerated attributes whose IDL
+/// attributes are bools: a bool is written as their words, a string as
+/// itself, so `spellcheck=false` is not refused as no string.
+#[test]
+fn spellcheck_and_autocorrect_take_a_bool_as_their_words() {
+    let mut r = boot(
+        "component App\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      input spellcheck=false autocorrect=false testId=\"off\"\n      input spellcheck=on autocorrect=on testId=\"bound\"\n      input spellcheck=\"true\" autocorrect=\"on\" testId=\"words\"\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n",
+    );
+    let words = |r: &Runner<NoData>, id: &str| {
+        let node = r.kernel().node(view_of(r, id)).unwrap();
+        (
+            node.props.str(PropId::Spellcheck).map(str::to_string),
+            node.props.str(PropId::Autocorrect).map(str::to_string),
+        )
+    };
+    let pair = |a: &str, b: &str| (Some(a.to_string()), Some(b.to_string()));
+    assert_eq!(words(&r, "off"), pair("false", "off"));
+    assert_eq!(words(&r, "bound"), pair("false", "off"));
+    assert_eq!(words(&r, "words"), pair("true", "on"));
+    let flip = view_of(&r, "flip");
+    r.dispatch(flip, Event::Press).unwrap();
+    assert_eq!(words(&r, "bound"), pair("true", "on"));
+    let e = contract::compile("component App\n  view\n    input spellcheck=3\n")
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`spellcheck` takes a string"), "{e}");
+}
+
+const EDITOR: &str = r#"component App
+  state seen = ""
+  state picked = ""
+  action edited(text: string, e: InputEvent)
+    seen = `${text} ${e.selectionStart} ${e.selectionEnd} ${e.selectionDirection} ${e.checked}`
+  action moved(e: InputEvent)
+    picked = `${e.value} ${e.selectionStart}-${e.selectionEnd} ${e.selectionDirection}`
+  action toggled(on: bool, e: InputEvent)
+    seen = `${e.value} ${e.checked} ${on} ${e.selectionStart} ${e.selectionDirection}`
+  action chose(value: string, e: InputEvent)
+    seen = `${value} ${e.value} ${e.checked}`
+  action jump(k: string)
+    setSelectionRange("editor", 2, 4, "backward")
+  view
+    column
+      textarea id="editor" value=seen input=edited select=moved key=jump testId="editor"
+      input type="checkbox" value="mint" checked=false change=toggled testId="mint"
+      input type="checkbox" checked=false change=toggled testId="plain"
+      input type="radio" name="g" value="b" checked=false change=chose testId="b"
+      text `${seen}|${picked}` testId="out"
+"#;
+
+#[test]
+fn set_range_text_is_a_typed_host_command_with_dom_overloads() {
+    for tail in ["", ", 4, 9", ", 4, 9, \"end\""] {
+        let src = format!(
+            "component App\n  action replace\n    setRangeText(\"editor\", \"[a.ts]\"{tail})\n  view\n    button press=replace testId=\"replace\"\n      text \"Replace\"\n"
+        );
+        let mut r = boot(&src);
+        r.dispatch(view_of(&r, "replace"), Event::Press).unwrap();
+        let commands = r.take_commands();
+        let command = commands.iter().find(|c| c.name == "setRangeText").unwrap();
+        assert_eq!(command.args[0], Value::str("editor"));
+        assert_eq!(command.args[1], Value::str("[a.ts]"));
+        assert_eq!(
+            command.args.len(),
+            if tail.is_empty() {
+                2
+            } else if tail.ends_with('9') {
+                4
+            } else {
+                5
+            }
+        );
+    }
+    for args in [
+        "\"editor\"",
+        "\"editor\", 3",
+        "\"editor\", \"x\", 1",
+        "\"editor\", \"x\", true, 2",
+        "\"editor\", \"x\", 1, 2, false",
+    ] {
+        let src = format!("component App\n  action replace\n    setRangeText({args})\n  view\n    text \"Editor\"\n");
+        let error = contract::compile(&src).unwrap_err().to_string();
+        assert!(error.contains("type-set-range-text"), "{error}");
+    }
+}
+
+#[test]
+fn range_replacement_input_type_reaches_contract() {
+    let mut r = boot(
+        r#"component App
+  state heard = ""
+  action edited(v: string, e: InputEvent)
+    heard = `${v}|${e.inputType}|${e.selectionStart}-${e.selectionEnd}`
+  view
+    column
+      textarea testId="editor" input=edited
+      text heard testId="out"
+"#,
+    );
+    let editor = view_of(&r, "editor");
+    r.dispatch(editor, Event::of_host_kind(48, "1,3,none,aXYb").unwrap())
+        .unwrap();
+    assert_eq!(out(&r), "aXYb|insertReplacementText|1-3");
+    r.dispatch(editor, Event::Input("typed".into())).unwrap();
+    assert_eq!(out(&r), "typed||5-5");
+}
+
+fn out<D: DataSource>(r: &Runner<D>) -> String {
+    let node = r.kernel().node(view_in(r, "out")).unwrap();
+    node.props.str(PropId::Text).unwrap_or("").to_owned()
+}
+
+#[test]
+fn input_change_and_select_hand_on_the_targets_input_event() {
+    // x2apps codeedit #2: a text field's selection reaches its action; survey
+    // #2: a checkbox's and a radio's `value`.
+    use exact_runner::{FieldSelection, SelectionDirection};
+    let mut r = boot(EDITOR);
+    let editor = view_of(&r, "editor");
+    let selection = FieldSelection {
+        start: 2,
+        end: 4,
+        direction: SelectionDirection::Backward,
+    };
+    r.dispatch(
+        editor,
+        Event::Input(ControlValue::Field("hello".into(), selection)),
+    )
+    .unwrap();
+    assert_eq!(out(&r), "hello 2 4 backward false|");
+    // A host that reports no selection leaves the caret after the text, in
+    // UTF-16 units.
+    r.dispatch(editor, Event::Input("a😀".into())).unwrap();
+    assert_eq!(out(&r), "a😀 3 3 none false|");
+    r.dispatch(editor, Event::FieldSelect("abcdef".into(), selection))
+        .unwrap();
+    assert_eq!(out(&r), "a😀 3 3 none false|abcdef 2-4 backward");
+    // A checkbox's own `value`, `on` without one; a control has no text selection.
+    r.dispatch(view_of(&r, "mint"), Event::Change(true.into()))
+        .unwrap();
+    assert!(out(&r).starts_with("mint true true 0 none|"), "{}", out(&r));
+    r.dispatch(view_of(&r, "plain"), Event::Change(false.into()))
+        .unwrap();
+    assert!(out(&r).starts_with("on false false 0 none|"), "{}", out(&r));
+    r.dispatch(view_of(&r, "b"), Event::Change("b".into()))
+        .unwrap();
+    assert!(out(&r).starts_with("b b true|"), "{}", out(&r));
+    // `setSelectionRange` is the host's, by the field's `id`.
+    r.take_commands();
+    r.dispatch(editor, Event::key("x")).unwrap();
+    let commands = r.take_commands();
+    let command = commands
+        .iter()
+        .find(|c| c.name == "setSelectionRange")
+        .expect("the command");
+    assert_eq!(
+        command.args,
+        vec![
+            Value::str("editor"),
+            Value::Number(2.0),
+            Value::Number(4.0),
+            Value::str("backward")
+        ]
+    );
+}
+
+/// `progress` with no `value` is HTML's indeterminate progress, the kernel's
+/// `Control` of type `progress` with ARIA's role and busy state; a measured
+/// leaf of 20 × 20 (UIKit's medium activity indicator) until CSS sizes it.
+#[test]
+fn an_indeterminate_progress_is_a_busy_control_of_twenty_points() {
+    let mut r = boot(
+        "component App\n  view\n    column testId=\"root\" align-items=\"flex-start\"\n      progress testId=\"spin\" aria-label=\"Loading\"\n      progress testId=\"big\" width=37 height=37 color=\"#f00\"\n      row\n        progress testId=\"row\"\n",
+    );
+    let spin = r.kernel().node(view_of(&r, "spin")).unwrap();
+    assert_eq!(spin.node_type, NodeType::Control);
+    assert_eq!(spin.props.str(PropId::Type), Some("progress"));
+    assert_eq!(
+        spin.props.str(PropId::AccessibilityRole),
+        Some("progressbar")
+    );
+    assert_eq!(spin.props.bool(PropId::AccessibilityBusy), Some(true));
+    assert_eq!(
+        exact_kernel::ControlKind::of(spin.node_type, spin.props),
+        Some(exact_kernel::ControlKind::Progress)
+    );
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let size = |r: &Runner<NoData>, t: &str| {
+        let f = r.kernel().node(view_of(r, t)).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&r, "spin"), (20.0, 20.0));
+    assert_eq!(size(&r, "big"), (37.0, 37.0));
+    assert_eq!(size(&r, "row"), (20.0, 20.0), "a flex item keeps its size");
+}
+
+/// `progress value=… max=…` is HTML's determinate bar: the
+/// same `Control`, its `value` and `max` HTML's strings (a bound number
+/// follows its state), not busy. It is as wide as what
+/// holds it and `1em` tall, `width` and `height` winning, and `10em` wide
+/// where the author says `auto`.
+#[test]
+fn a_progress_with_a_value_is_the_determinate_bar() {
+    let mut r = boot(
+        "component App\n  state glasses = 2\n  action drink\n    glasses = glasses + 1\n  view\n    column testId=\"root\"\n      progress value=glasses max=8 aria-label=\"Water\" testId=\"water\"\n      progress value=0.5 width=120 height=4 testId=\"sized\"\n      column font-size=20\n        progress value=1 testId=\"big\"\n        row\n          progress value=1 width=\"auto\" testId=\"auto\"\n      button press=drink testId=\"drink\"\n        text \"Drink\"\n",
+    );
+    let water = r.kernel().node(view_of(&r, "water")).unwrap();
+    assert_eq!(water.node_type, NodeType::Control);
+    assert_eq!(water.props.str(PropId::Type), Some("progress"));
+    assert_eq!(
+        water.props.str(PropId::AccessibilityRole),
+        Some("progressbar")
+    );
+    assert_eq!(
+        water.props.bool(PropId::AccessibilityBusy),
+        None,
+        "not busy"
+    );
+    assert_eq!(water.props.str(PropId::Value), Some("2"));
+    assert_eq!(water.props.str(PropId::Max), Some("8"));
+    assert_eq!(
+        exact_kernel::ControlKind::of(water.node_type, water.props),
+        Some(exact_kernel::ControlKind::ProgressBar)
+    );
+    assert_eq!(exact_kernel::Progress::of(water.props).fraction(), 0.25);
+    let drink = view_of(&r, "drink");
+    r.dispatch(drink, Event::Press).unwrap();
+    let water = r.kernel().node(view_of(&r, "water")).unwrap();
+    assert_eq!(water.props.str(PropId::Value), Some("3"));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let size = |r: &Runner<NoData>, t: &str| {
+        let f = r.kernel().node(view_of(r, t)).unwrap().frame;
+        (f.width, f.height)
+    };
+    assert_eq!(size(&r, "water"), (320.0, 16.0), "as wide as its column");
+    assert_eq!(size(&r, "sized"), (120.0, 4.0), "an authored size wins");
+    assert_eq!(size(&r, "big"), (320.0, 20.0), "`1em` tall");
+    assert_eq!(size(&r, "auto"), (200.0, 20.0), "`10em` by `1em`");
+}
+
+/// A range and a determinate `progress` are full width by a row lowering
+/// implies, `width: 100%`, which is not the author's: the mask has it and the
+/// written bit does not. A `width` the author writes replaces it, written; an
+/// indeterminate `progress` and every other control keep their own size.
+#[test]
+fn a_range_and_a_determinate_progress_are_full_width_by_an_implied_row() {
+    use exact_kernel::{Dimension, StyleId};
+    let mut r = boot(
+        r#"component App
+  view
+    column width=300 testId="root"
+      input type="range" testId="range"
+      progress value=0.5 testId="bar"
+      input type="range" width=90 testId="narrow"
+      progress value=0.5 width="50%" testId="half"
+      progress testId="spinner"
+      input type="checkbox" testId="check"
+      row testId="beside"
+        box width=100 height=10 flex-shrink=0
+        input type="range" testId="beside-range"
+      row
+        column testId="fit"
+          input type="range" testId="fit-range"
+"#,
+    );
+    let row = |r: &Runner<NoData>, id: &str| {
+        let style = r.kernel().node(view_of(r, id)).unwrap().style;
+        (
+            style.mask.has(StyleId::Width).then_some(style.width),
+            style.written.has(StyleId::Width),
+        )
+    };
+    assert_eq!(row(&r, "range"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "bar"), (Some(Dimension::Percent(100.0)), false));
+    assert_eq!(row(&r, "narrow"), (Some(Dimension::Points(90.0)), true));
+    assert_eq!(row(&r, "half"), (Some(Dimension::Percent(50.0)), true));
+    assert_eq!(row(&r, "spinner"), (None, false));
+    assert_eq!(row(&r, "check"), (None, false));
+    let root = view_of(&r, "root");
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(320.0, 480.0))
+        .unwrap();
+    let width = |r: &Runner<NoData>, id: &str| r.kernel().node(view_of(r, id)).unwrap().frame.width;
+    assert_eq!(width(&r, "range"), 300.0);
+    assert_eq!(width(&r, "bar"), 300.0);
+    assert_eq!(width(&r, "narrow"), 90.0);
+    assert_eq!(width(&r, "half"), 150.0);
+    // In a row it takes what the row's other children leave.
+    assert_eq!(width(&r, "beside-range"), 200.0);
+    // Where the percentage has nothing to resolve against, its own 129.
+    assert_eq!(width(&r, "fit"), 129.0);
+    assert_eq!(width(&r, "fit-range"), 129.0);
+}
+
+#[test]
+fn the_compiler_refuses_what_a_progress_does_not_take() {
+    let refused = |line: &str| {
+        let src = format!("component App\n  state done = 3\n  view\n    column\n      {line}\n");
+        contract::compile(&src).unwrap_err().to_string()
+    };
+    for (attr, says) in [
+        ("max=10", "`max` is the top of the bar a `value` makes"),
+        ("type=\"bar\"", "`progress` takes no `type`"),
+        (
+            "value=done aria-valuenow=done",
+            "its `value` and `max` are its range",
+        ),
+        (
+            "value=done aria-valuemax=10",
+            "`progress` takes no `aria-valuemax`",
+        ),
+    ] {
+        let e = refused(&format!("progress {attr}"));
+        assert!(
+            e.contains("lower-attr-tag") && e.contains(says),
+            "{attr}: {e}"
+        );
+    }
+    let e = refused("progress value=done\n        text \"Loading\"");
+    assert!(e.contains("lower-void") && e.contains("children"), "{e}");
+    let e = refused("progress\n        text \"Loading\"");
+    assert!(e.contains("lower-void"), "{e}");
+    contract::compile(
+        "component App\n  view\n    progress value=0.5 aria-valuetext=\"Half\" aria-label=\"Upload\"\n",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn field_selectionchange_reports_caret_without_changing_the_value() {
+    for tag in ["input", "textarea"] {
+        let mut r = boot(&format!(
+            r#"component App
+  state caret = ""
+  action moved(e: InputEvent)
+    caret = `${{e.value}}:${{e.selectionStart}}-${{e.selectionEnd}}`
+  view
+    column
+      {tag} value="see @a.ts now" selectionchange=moved testId="field"
+      text caret testId="caret"
+"#
+        ));
+        let field = view_of(&r, "field");
+        r.dispatch(
+            field,
+            Event::of_host_kind(52, "3,3,none,see @a.ts now").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "caret"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some("see @a.ts now:3-3")
+        );
+        assert_eq!(
+            r.kernel().node(field).unwrap().props.str(PropId::Value),
+            Some("see @a.ts now")
+        );
+    }
+}
+
+#[test]
+fn beforeinput_carries_the_proposed_edit_and_input_carries_the_applied_edit() {
+    let mut r = boot(
+        r#"component App
+  state seen = ""
+  action before(e: InputEvent)
+    seen = `${e.value}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+    preventDefault()
+  action edited(v: string, e: InputEvent)
+    seen = `${v}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+  view
+    column
+      textarea value="abc" beforeinput=before input=edited testId="field"
+      text seen testId="seen"
+"#,
+    );
+    let field = view_of(&r, "field");
+    for (kind, payload, expected) in [
+        (
+            53,
+            "insertFromPaste,1,0,7,a,\n😀1,2,none,abc",
+            "abc:insertFromPaste:a,\n😀:true:false",
+        ),
+        (
+            53,
+            "insertCompositionText,0,1,3,あ1,2,none,abc",
+            "abc:insertCompositionText:あ:false:true",
+        ),
+        (
+            54,
+            "deleteContentBackward,0,0,-1,1,1,none,ac",
+            "ac:deleteContentBackward:null:false:false",
+        ),
+    ] {
+        r.dispatch(field, Event::of_host_kind(kind, payload).unwrap())
+            .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "seen"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some(expected)
+        );
+    }
+}

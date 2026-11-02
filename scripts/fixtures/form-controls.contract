@@ -1,0 +1,27 @@
+component FormControls
+  state fruit = "apple"
+  state level = 25
+  state day = "2026-10-22"
+  state time = "09:30"
+  state moment = "2026-10-22T09:30"
+  action choose(value: string)
+    fruit = value
+  action slide(value: number)
+    level = value
+  action date(value: string)
+    day = value
+  action clock(value: string)
+    time = value
+  action datetime(value: string)
+    moment = value
+  view
+    column testId="form-controls" padding=20 gap=12 height="100%" box-sizing="border-box" overflow-y="auto"
+      text "Form controls" role="heading" aria-level=1
+      select value=fruit change=choose aria-label="Fruit" testId="fruit"
+        option "Apple" value="apple"
+        option "Pear" value="pear"
+        option "Unavailable" value="unavailable" disabled=true
+      input type="range" value=level min=0 max=100 step=5 input=slide aria-label="Level" testId="level"
+      input type="date" value=day change=date aria-label="Date" testId="day"
+      input type="time" value=time change=clock aria-label="Time" testId="time"
+      input type="datetime-local" value=moment change=datetime aria-label="Date and time" testId="moment"

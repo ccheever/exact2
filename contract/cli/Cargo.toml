@@ -1,0 +1,42 @@
+# The Contract compiler driver: the pipeline as one call, the CLI, and the
+# build-time bake (one runner boot against the app's data source, so every
+# resource's boot value ships inside the plan).
+[package]
+name = "contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Contract compiler driver: parse → types → analyze → lower, plus the build-time bake and the CLI"
+publish = false
+
+[lib]
+name = "contract"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "contract"
+path = "src/main.rs"
+
+[dependencies]
+contract-analyze = { path = "../analyze" }
+contract-lower = { path = "../lower" }
+contract-syntax = { path = "../syntax" }
+contract-types = { path = "../types" }
+exact-kernel = { path = "../../kernel" }
+# `contract tamber`: the design's own check, eval and IR.
+exact-tamber = { path = "../../tamber" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+# The app manifest, diagnostics and source maps as JSON; plan digests.
+serde_json = "1.0"
+sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+# `contract tamber serve`: its journal and temporary files opened with
+# O_NOFOLLOW.
+libc = "0.2"
+
+[dev-dependencies]
+# A Rust source's crypto, baked.
+exact-data = { path = "../../data" }
+exact-motion = { path = "../../motion" }

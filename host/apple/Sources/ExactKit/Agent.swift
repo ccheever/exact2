@@ -1,0 +1,1254 @@
+// The agent API's presenter half, the part both presenters share.
+// Requests arrive as JSON lines on a stream the platform opened —
+// stdin on macOS, a Unix socket on iOS (a simulator app has no stdin) —
+// and are answered in order on the main thread; the clock is the last
+// `clock` value: no timer advances the runner, events carry the agent's
+// time, the engine is seeked to it. `tree`, `state`, `logs`, and `settle`
+// go to the library (`exact_agent`); `clock` moves both clocks here, and
+// `prefer` sets the display preferences;
+// `layout`, `tap`, `type`, and `screenshot` are the platform's
+// (`AgentMac.swift`, `AgentIOS.swift`), being about what it renders and
+// its input path. One `Agent` per session; the carrier
+// routes a request to a session by its host-owned `session` label when
+// there is more than one — routing, not a tenth operation.
+import Foundation
+import CoreFoundation
+#if os(macOS)
+import AppKit
+#endif
+
+public final class Agent {
+    #if os(iOS) || os(tvOS)
+    // An agent-issued edit awaits its actual editor's native caret reveal.
+    weak var pendingTextReveal: TextArea?
+    /// The held contact on a `pan` node, recognized.
+    var panContact: AgentPan?
+    #endif
+    #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+    var widgetPreview: WidgetPreview?
+    var activityPreview: ActivityPreview?
+    #endif
+    let session: ExactSession
+    init(session: ExactSession) {
+        self.session = session
+        // The system appearance is the agent's: light, as `prefer` would set
+        // it, never the machine's. On iOS and tvOS the
+        // scene's, from the agent's first operation; on the Mac the app's,
+        // from launch (`Agent.systemAppearance`). Reduced motion and
+        // transparency start at no-preference (`DisplayPreferences.agent`).
+        #if os(iOS) || os(tvOS)
+        if ExactEnv.agentMode { systemScheme(dark: false) }
+        #endif
+    }
+
+    /// Inline IDs name shaped fragments, not their paragraph owner's box.
+    /// Pick a visible fragment's midpoint; a wrapped link can have an earlier
+    /// fragment offscreen while a later one is reachable. `box` carries canvas
+    /// placement and presentation transforms into the viewport coordinates.
+    func tapPoint(_ request: [String: Any], node: NodeView) -> CGPoint? {
+        let bounds: CGRect
+        if let id = request["id"] as? UInt32, let run = presenter.inlineText(id) {
+            let fragments = node.inlineRects(run).filter { !$0.isEmpty }.map { box(node, region: $0) }
+            #if os(iOS) || os(tvOS)
+            let reach = presenter.reach(of: node)
+            #else
+            let reach = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
+            #endif
+            guard let fragment = fragments.first(where: { reach.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
+            bounds = fragment
+        } else { bounds = box(node) }
+        // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.
+        if let at = request["at"] as? [Double], at.count == 2, at.allSatisfy(\.isFinite) {
+            return CGPoint(x: bounds.minX + at[0], y: bounds.minY + at[1])
+        }
+        return CGPoint(x: request["x"] as? Double ?? bounds.midX, y: request["y"] as? Double ?? bounds.midY)
+    }
+
+    /// The one contact the driver may hold across requests: where it is,
+    /// in the viewport's space, while the button is down.
+    /// `nil` between contacts. AppKit holds it as a real mouse button; UIKit
+    /// cannot hold one and says so.
+    var contact: CGPoint? = nil
+    #if os(macOS)
+    /// The window that received down owns every phase, even without a target id.
+    var contactWindow: NSWindow?
+    /// The held contact's event time, seconds on `systemUptime`'s clock.
+    var contactClock: Double = 0
+    /// The modifiers held through the contact: its `down`'s, until a
+    /// `move` or `up` names others.
+    var contactFlags: NSEvent.ModifierFlags = []
+    /// A native button's nested tracking loop consumes queued drag/up events.
+    var contactTracksNative = false
+    weak var contactButton: NativeButtonMac?
+    #endif
+    weak var canvasContact: NodeView?
+    /// The last point the agent's pointer sent its canvas (iOS), for its motion.
+    var canvasPoint: CGPoint?
+    package var keyReleases: [String: () -> [String: Any]] = [:]
+
+    /// Where replies go: the stream the requests came on.
+    nonisolated(unsafe) static var out = FileHandle.standardOutput
+
+    /// The sessions a carrier routes among, by label; the first is the default.
+    nonisolated(unsafe) static var routes: [(String, ExactSession)] = []
+
+    /// A session that joined after the carrier started (a document's own
+    /// window) routes by its label from now on; `nil`
+    /// forgets the label when its window closes.
+    public static func route(_ label: String, _ session: ExactSession?) {
+        routes.removeAll { $0.0 == label }
+        if let session { routes.append((label, session)) }
+    }
+
+    /// What the adapter that owns the windows observes, added to every
+    /// session's `state` (its windows and their sessions, Open Recent):
+    /// observations, never a second model.
+    nonisolated(unsafe) public static var hostState: (() -> [String: Any])?
+
+    /// Serve requests from `fd` until it closes — on the calling thread:
+    /// each line is answered on the main thread before the next is read.
+    /// The stream closing ends the process, and says so on stderr: a driver
+    /// that saw the hangup reads why there, not a silent exit.
+    public static func serve(fd: Int32) {
+        var pending = Data()
+        var buf = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let n = read(fd, &buf, buf.count)
+            if n < 0 && errno == EINTR { continue }
+            if n < 0 { fputs("exact agent: read failed (\(String(cString: strerror(errno)))); exiting\n", stderr); break }
+            if n == 0 { fputs("exact agent: the driver closed the connection; exiting\n", stderr); break }
+            pending.append(buf, count: n)
+            while let i = pending.firstIndex(of: UInt8(ascii: "\n")) {
+                let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
+                pending.removeSubrange(pending.startIndex...i)
+                // A synchronous main-queue block prevents nested run-loop waits
+                // from servicing main-queue completions (notably WK snapshots on
+                // a device). Common modes also service requests while UIKit or
+                // AppKit tracks a held gesture; default-only waits for its release.
+                // Still one request at a time, including inside nested run loops.
+                let completed = DispatchSemaphore(value: 0)
+                CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) {
+                    handle(line, completed: { completed.signal() })
+                }
+                CFRunLoopWakeUp(CFRunLoopGetMain())
+                completed.wait()
+            }
+        }
+        DispatchQueue.main.async { exitAfterLanding() }
+    }
+
+    /// The drive ended: storage an answer started and requests with effects
+    /// land first, as a quit's do, within the
+    /// driver's patience (it kills at 2 s).
+    nonisolated(unsafe) static var exiting: QuitHold?
+    static func exitAfterLanding() {
+        let hold = QuitHold(bound: 1.5, pending: { routes.contains { $0.1.mustFinish } }, end: { exit(0) })
+        if hold.hold() { exiting = hold } else { exit(0) }
+    }
+
+    /// One line: the session it names (or the default), then its operation.
+    static func handle(_ line: String, completed: @escaping () -> Void = {}) {
+        var forwarded = false
+        defer { if !forwarded { completed() } }
+        guard let data = line.data(using: .utf8),
+              let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let op = req["op"] as? String
+        else { reply(["malformed": true, "error": "unreadable request: \(line)"]); return }
+        if op == "quit" { exitAfterLanding(); return }
+        // A slice building off main lands before the agent reads or acts;
+        // under the agent slices are synchronous, so this is
+        // for a carrier attached to an ordinary run.
+        let boundedFrameRead = op == "perf" && req["frames"] as? Bool == true
+            && (req["report"] as? Bool == true || req["health"] as? Bool == true || req["capture"] is String || req["track"] is String)
+        if !boundedFrameRead { ExactSession.drainAll() }
+        let wanted = req["session"] as? String
+        var target: ExactSession? = nil
+        if let wanted {
+            for (label, s) in routes where label == wanted { target = s }
+        } else {
+            target = routes.first?.1
+        }
+        guard let target else {
+            reply(["error": wanted.map { "no session \($0)" } ?? "no session"])
+            return
+        }
+        forwarded = true
+        target.agentInstance.handle(op: op, req, line: line, completed: completed)
+    }
+
+    func handle(op: String, _ req: [String: Any], line: String, completed: @escaping () -> Void = {}) {
+        var asynchronous = false
+        defer { if !asynchronous { completed() } }
+        // A destroyed session's handle is a stranger to the library: every
+        // operation is refused by name, in the API's shape.
+        if session.state == .destroyed {
+            Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
+            return
+        }
+        // The bounded recorder must not enable legacy samplers or wait for rendering work.
+        if op == "perf", req["frames"] as? Bool == true {
+            let selected = req["source"] as? String == "scroll" ? session.frameHealth.nativeHealth : session.frameHealth
+            if req["source"] as? String == "scroll", selected == nil {
+                Agent.reply(["format": FrameHealthMetrics.format, "available": false, "error": "native-scroll-unobserved", "reason": FrameHealth.nativeObserverAllowed ? "No native scroll has been observed. Reproduce a native drag on iOS/tvOS 18 or later." : "Native-scroll observation is experimental and disabled in release builds. Use a development build with iOS/tvOS 18 or later."])
+                return
+            }
+            // `perf frames track` (exact.frame-health.track/1): one node's scroller, per committed offset, leased.
+            if let action = req["track"] as? String {
+                let node = req["node"] as? Int
+                #if canImport(UIKit)
+                let hertz = presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60
+                #else
+                let hertz = presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 60
+                #endif
+                let reply = session.frameHealth.trackRequest(action, node: node, scroller: node.flatMap(trackedScroller),
+                    durationMs: req["durationMs"] as? Double, cursor: req["cursor"] as? String, maximumFramesPerSecond: hertz)
+                if let raw = reply["raw"] as? String { Agent.raw(raw) } else { Agent.reply(reply) }
+                return
+            }
+            if req["report"] as? Bool == true {
+                let output = Agent.out
+                asynchronous = true
+                session.frameHealth.agentReport(session: session, source: req["source"] == nil ? nil : selected) { data in
+                    defer { completed() }
+                    guard Agent.out === output else { return }
+                    Agent.raw(String(decoding: data, as: UTF8.self))
+                }
+                return
+            }
+            if req["health"] as? Bool == true || (!ExactEnv.agentFreezes && req["report"] == nil && req["capture"] == nil) {
+                if req["late"] != nil || req["live"] != nil {
+                    Agent.reply(["format": FrameHealthMetrics.format, "error": "use-bounded-frame-reader", "reason": "Use perf frames report for hitches, or the driver's perf frames live <ms> for a live window."])
+                } else { Agent.reply((selected ?? session.frameHealth).metrics(cursor: req["cursor"] as? [String: Any])) }
+                return
+            }
+            if let action = req["capture"] as? String {
+                Agent.reply(session.frameHealth.setAgentCapture(action, duration: req["durationMs"] as? Double ?? 60_000))
+                return
+            }
+        }
+        if req["widget"] != nil || req["activity"] != nil {
+            #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
+            if op != "clock" {
+                Agent.reply(req["activity"] != nil ? ActivityAgent.answer(op, request: req, agent: self) : WidgetGallery.answer(op, request: req, agent: self))
+                return
+            }
+            #else
+            #if os(iOS)
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --ios --widget-gallery"])
+            #else
+            Agent.reply(["error": "widget gallery is unavailable; rebuild: bun host/apple/build.mjs --widget-gallery"])
+            #endif
+            return
+            #endif
+        }
+        if ["tree", "state", "layout"].contains(op), presenter.viewport.window != nil,
+           !drainLaunch(until: Date(timeIntervalSinceNow: 20)) {
+            Agent.reply(["error": "launch work is still pending"])
+            return
+        }
+        guard session.canvases.waitUntilReady() else {
+            Agent.reply(["error": "canvas creation is still in flight"])
+            return
+        }
+        // A release build measures for `perf` from the agent's first request.
+        if !session.frameHealth.liveCapture, ExactEnv.agentFreezes || !ExactEnv.agentMode || op == "perf" { session.measurePerf(frameSampler: ExactEnv.agentFreezes || !ExactEnv.agentMode) }
+        if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
+        // `tap @t` / `type @t` answer a held device request in the library,
+        // before any view is looked up.
+        if (op == "tap" || op == "type"), req["ticket"] != nil {
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            let data = Data(session.agent(json).utf8)
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            // A picker's answer is delivered once the library took it.
+            session.picker.answered(answer, request: req)
+            session.picker.saveAnswered(answer, request: req)
+            // An iframe guest's `open-file` and `save-file` are the arm's, not a document picker's.
+            if !session.webviews.answered(answer, request: req) { session.picker.documentAnswered(answer, request: req) }
+            ShareSheet.answered(answer, in: session)
+            listedAnswered(answer)
+            Agent.reply(tagged(answer))
+            return
+        }
+        // A relaunch handed a listed entry (`--notification '<entry>'`).
+        if op == "launchEntry" {
+            let data = Data(session.agent(line).utf8)
+            let answer = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable reply"]
+            listedAnswered(answer)
+            Agent.reply(tagged(answer))
+            return
+        }
+        switch op {
+        case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req))
+        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(presenter.elements.regions.decorate(session.natives.decorate(session.webviews.tree(line))))))
+        case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // `native`, `agree`
+        // A call that moved something settles the canvases before it
+        // replies (the agent's fixed point; a placement is read after a
+        // frame, so the frame is rendered here, not left to the
+        // display link to get to between two calls).
+        case "tap" where req["part"] != nil: Agent.reply(tagged(partTap(req))) // a hatch's part: the aim and the landing (AgentParts.swift)
+        case "tap":
+            var r: [String: Any]
+            #if os(macOS)
+            let wasOpen = presenter.viewport.window?.isVisible == true
+            #endif
+            if req["close"] != nil {
+                // The window's close button, as ⌘W and File ▸ Close Window
+                // press it: an input, as `resize` is, so a `beforeunload`
+                // flow can be driven (the agent's window is never key, so a
+                // ⌘W it typed would go nowhere).
+                guard req.keys.allSatisfy({ ["op", "session", "close"].contains($0) }), req["close"] as? Bool == true else {
+                    Agent.reply(["malformed": true, "error": "tap close takes no other input fields"]); return
+                }
+                #if os(macOS)
+                r = closeWindow()
+                #else
+                r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
+                #endif
+            } else if req["back"] != nil {
+                // The platform's Back, as a person takes it: an input, as
+                // `close` is (AgentIOS, AgentMac `back`).
+                guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
+                    Agent.reply(["malformed": true, "error": "tap back takes no other input fields"]); return
+                }
+                r = back()
+            } else if req["resize"] != nil {
+                // The opt-in resize diagnostic is an input variant, not a
+                // ninth operation. Reject ambiguous input before touching UI.
+                guard req.keys.allSatisfy({ ["op", "session", "resize"].contains($0) }),
+                      let size = Agent.resizeSize(req["resize"]!) else {
+                    Agent.reply(["malformed": true, "error": Agent.resizeError]); return
+                }
+                #if os(macOS)
+                r = resizeWindow(size)
+                #else
+                // The device sets an iOS app's viewport: there is no window to resize.
+                r = ["error": "unsupported: an iOS app's viewport is the device's screen; resize drives a macOS window, the Linux presenter or the browser"]
+                #endif
+            } else if let action = req["mediaSession"] as? String {
+                r = mediaSessionTap(req, action: action) // never a press
+            } else if let into = req["into"] as? [String: Any] {
+                r = intoView(req, into)
+            } else { r = settling(session.canvases.releaseContact(req) ?? tap(req)) }
+            #if os(macOS)
+            // A press the app answered with `close()` (a "Don't Save") took
+            // the window, and its session with it: the reply says so, as
+            // `close`'s does, since nothing is left to read after it.
+            if wasOpen, r["error"] == nil, req["close"] == nil, presenter.viewport.window?.isVisible != true { r["closed"] = true }
+            #endif
+            // The touch runner's observation reads (`aim`, `log`) are not
+            // inputs: they answer at once, within its own deadline.
+            if req["aim"] == nil, req["log"] == nil { r = completingInput(r) }
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
+        case "type" where req["message"] != nil:
+            let r = completingInput(post(req))
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
+        case "type":
+            let r = completingInput(releaseCanvasKey(req) ?? type(req))
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
+        case "share": Agent.reply(tagged(completingInput(session.receiveShare(req)))) // the driver's `share:` form
+        case "reveal": Agent.reply(tagged(settling(reveal(req)))) // before a tap or a type: a target out of view, scrolled into it
+        case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
+        // A fetch fault is the runner's, below; the device facts are this host's.
+        // The MIDI ports the agent names, and a message from one: the runner's.
+        case "prefer" where req["midi"] != nil: Agent.reply(tagged(midi(req)))
+        case "prefer" where req["extension"] != nil || req["permission"] != nil: Agent.reply(tagged(preferExtension(req)))
+        case "midi": Agent.reply(tagged(midi(req)))
+        case "prefer" where req["faults"] == nil: Agent.reply(tagged(prefer(req)))
+        case "screenshot": Agent.reply(tagged(screenshot(req)))
+        // What is wrong with the presented screen, as observations the driver judges.
+        case "check":
+            #if os(iOS) || os(tvOS)
+            Agent.reply(tagged(check(req)))
+            #else
+            Agent.reply(["error": "check: the web and iOS hosts carry it, not macOS yet"])
+            #endif
+        case "sample": Agent.reply(tagged(sample(req)))
+        case "logs":
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            let data = Data(session.agent(json).utf8)
+            let reply = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable logs"]
+            Agent.reply(session.canvases.decorate(req, reply))
+        case "state":
+            // The runner's state, in its own order, then what this host
+            // observes for the session: the focus, the
+            // keyboard and the navigation — observations, never a second
+            // model, appended by text so the runner's order is kept.
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            presenter.reportOrientationLock() // the scene's orientation now, after a turn
+            var reply = session.agent(json)
+            var nativeSections = stateSections()
+            nativeSections["frameHealthUI"] = session.frameHealth.uiReply()
+            for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
+            nativeSections["decorations"] = presenter.views.values.sorted { $0.id < $1.id }.compactMap { node -> [String: Any]? in
+                guard let decorations = (node.textArea as? TextArea)?.decorations else { return nil }
+                return ["id": Int(node.id), "applied": decorations.state]
+            }
+            // A Markdown editor's inline atoms, each pill's frame from its node's top left.
+            nativeSections["atoms"] = presenter.views.values.sorted { $0.id < $1.id }.flatMap { node -> [[String: Any]] in
+                guard let field = node.textArea as? TextArea, let storage = field.textStorage as NSAttributedString? else { return [] }
+                return field.atomFrames().map { range, atom, frame in
+                    let box = field.convert(frame, to: node)
+                    return ["id": Int(node.id), "kind": atom.kind, "source": (storage.string as NSString).substring(with: range), "start": range.location,
+                            "end": NSMaxRange(range), "label": atom.label, "frame": [box.minX, box.minY, box.width, box.height].map { ($0 * 100).rounded() / 100 }]
+                }
+            }
+            nativeSections["presence"] = presenter.presenceObservation()
+            nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
+            nativeSections["mediaSession"] = mediaSessionState()
+            // The drive's app storage: none unless it names a scratch store.
+            nativeSections["storage"] = ExactEnv.environment["EXACT_AGENT_STORAGE"].map { ["available": true, "store": $0] as [String: Any] }
+                ?? ["available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"]
+            var raster = session.rasters.diagnostics
+            raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
+            raster["encodedHTTPCache"] = RasterInput.httpCacheUsage
+            raster["animated"] = AnimatedRasters.shared.diagnostics
+            nativeSections["raster"] = raster
+            #if os(macOS)
+            nativeSections["contentRegion"] = session.regions.diagnostics
+            nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
+            #endif
+            nativeSections = session.canvases.decorate(req, nativeSections)
+            // A session that plays fills in its output; under the agent none plays.
+            if !ExactEnv.agentMode, let output = try? JSONSerialization.data(withJSONObject: session.sound.state) { reply = reply.replacingOccurrences(of: "\"output\":\"agent\"", with: "\"output\":" + String(decoding: output, as: UTF8.self)) }
+            if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
+               let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
+                reply.removeLast()
+                let tail = String(decoding: sections, as: UTF8.self)
+                reply += "," + tail.dropFirst()
+            }
+            Agent.raw(reply)
+        // `perf hatches`: the hatches' calls, timed, and what their code recorded.
+        case "perf" where req["hatches"] as? Bool == true:
+            Agent.reply(session.hatchPerf())
+        // `perf frames` is this host's; `perf <target>` is the runner's, below.
+        case "perf" where req["frames"] as? Bool == true:
+            // `hold`/`release` keep a segment open across a fling, then let it go.
+            if let hold = req["hold"] as? Bool, session.clock == nil {
+                session.sampler?.held = hold
+                if hold, let id = req["track"] as? Int { session.sampler?.tracked = scrollProbe(id) }
+            }
+            if req["live"] != nil {
+                asynchronous = true
+                liveFrames(req) { reply in Agent.reply(reply); completed() }
+            } else {
+                var frames = session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20, all: req["records"] as? Bool == true) ?? ["unavailable": true]
+                frames["health"] = session.frameHealth.reply(virtual: session.clock != nil)
+                Agent.reply(frames)
+            }
+        default:
+            // The library's operations take the request without the
+            // carrier's routing field.
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            let reply = session.agent(json)
+            // A hatched site's row names its hatch's calls and time.
+            if op == "perf", let data = session.hatchDiagnostics.joined(perf: reply).data(using: .utf8),
+               var result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                result["hostWork"] = HostPhases.shared.work()
+                Agent.reply(result)
+            } else { Agent.raw(reply) }
+        }
+    }
+
+    /// Every reply carries the runner's `epoch`, `incarnation` and `clock`
+    /// — read after the operation, so a reply's tags name
+    /// the world it left behind; a reply's own `clock` (where a `clock` call
+    /// landed) is kept. An error is left alone.
+    /// A listed entry's click under the agent: its location
+    /// opened, or the event the runner queued heard now.
+    func listedAnswered(_ answer: [String: Any]) {
+        guard answer["ref"] != nil else { return }
+        if let location = answer["navigate"] as? String { session.openLocation(location) }
+        else if answer["event"] != nil { session.deliverModuleEvents() }
+    }
+
+    func tagged(_ r: [String: Any]) -> [String: Any] {
+        let r = session.canvases.restoreReply(r)
+        guard r["error"] == nil,
+              let d = session.agent("{\"op\":\"tags\"}").data(using: .utf8),
+              let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }
+        var out = r
+        for (key, value) in tags where out[key] == nil { out[key] = value }
+        return out
+    }
+
+    /// A tap or a reveal refused while native work still moves (a push, a
+    /// sheet, a menu, the keyboard, a scroll correction: what `clock settle`
+    /// waits for) names the remedy, as the web carrier's refusal does: the
+    /// agent's clock does not wait for the platform's own timing.
+    func settling(_ r: [String: Any]) -> [String: Any] {
+        // A refusal that already names it (a confirmation's) is left as it is.
+        guard let error = r["error"] as? String, !error.contains("clock settle"), nativeInFlight() else { return r }
+        var out = r
+        out["error"] = "\(error); native work is still in flight (a transition, the keyboard or a scroll): `clock settle` first, then try again"
+        return out
+    }
+
+    /// `back`'s reply from the way it went and why the app
+    /// refused it ("" when it did not): nil is nothing to go back from, an
+    /// error. A refusal is no error (a test may assert the sheet stays); it
+    /// is the reply's `refused` and a journal line.
+    func backReply(_ went: (way: String, refused: String)?) -> [String: Any] {
+        guard let went else { return ["error": "back: nothing to go back from: no dialog is open, no sheet is up and no route is beneath the selected one"] }
+        guard !went.refused.isEmpty else { return ["back": went.way, "delivery": "platform"] }
+        session.log("back refused: \(went.refused)")
+        return ["back": went.way, "delivery": "platform", "refused": went.refused]
+    }
+
+    /// A field's value as a reply shows it: a password's, when not
+    /// empty, is a fixed mark whatever its length — the runner's
+    /// `agent::MASKED`, which its tree already shows.
+    static func shownValue(_ value: String, of v: NodeView) -> String {
+        v.props["type"] == "password" && !value.isEmpty ? "•••" : value
+    }
+
+    public static func reply(_ obj: [String: Any]) {
+        guard let d = try? JSONSerialization.data(withJSONObject: obj) else { raw("{\"error\":\"unencodable reply\"}"); return }
+        raw(String(decoding: d, as: UTF8.self))
+    }
+
+    /// One JSON line out.
+    static func raw(_ json: String) {
+        out.write(Data((json + "\n").utf8))
+    }
+
+    package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
+
+    /// `layout <node>` for a live node the host mounted no view for (a native
+    /// button's face draws its svg): the runner's rows, no box, and why.
+    static func unmounted(_ node: [String: Any], into reply: [String: Any], now: Double) -> [String: Any] {
+        var node = node, reply = reply
+        node["native"] = ["mounted": false, "reason": "no view of its own: the host draws it inside another's (a native control's face)"]
+        node["observed"] = ["clock": now, "wall": Date().timeIntervalSince1970 * 1000]
+        reply["node"] = node
+        return reply
+    }
+
+    // Whole logical points, with an area ceiling to keep this diagnostic
+    // from asking the software painter for arbitrarily large allocations.
+    static let resizeError = "tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields"
+    static func resizeSize(_ value: Any) -> CGSize? {
+        guard let pair = value as? [NSNumber], pair.count == 2 else { return nil }
+        let values = pair.map { $0.doubleValue }
+        guard pair.allSatisfy({ CFGetTypeID($0) != CFBooleanGetTypeID() }),
+              values.allSatisfy({ $0.isFinite && $0.rounded() == $0 && $0 >= 64 && $0 <= 4096 }),
+              values[0] * values[1] <= 8_388_608 else { return nil }
+        return CGSize(width: values[0], height: values[1])
+    }
+
+    func settle() -> Double? {
+        guard let d = session.agent("{\"op\":\"settle\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        return o["settle"] as? Double
+    }
+
+    /// `prefer midi.*` and `tap midi`, as the runner answers
+    /// them: no arm loads under the agent.
+    func midi(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "midi: the request is not JSON"] }
+        let batch = session.runtime.midi(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return ["midi": true]
+    }
+
+    /// `prefer extension` and `prefer permission`, as the runner answers
+    /// them: a native module source's
+    /// preferred value, or its permission's state; readers asked again.
+    func preferExtension(_ req: [String: Any]) -> [String: Any] {
+        var forward = req
+        forward.removeValue(forKey: "session")
+        guard let data = try? JSONSerialization.data(withJSONObject: forward) else { return ["malformed": true, "error": "prefer extension: the request is not JSON"] }
+        let batch = session.runtime.preferExtension(String(decoding: data, as: UTF8.self))
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        return req["permission"] != nil ? ["permission": req["permission"]!] : ["extension": req["extension"] ?? [:]]
+    }
+
+    /// Move both clocks to one instant: the runner's (timers, each fired at
+    /// its own due time) and the motion engine's (a seek). The clock lands
+    /// where the runner says (`batch.clock`), never behind where it stood:
+    /// a timer's refusal stops it there and is the
+    /// reply's error; the timer-fire limit is progress. `settle` is a fixed
+    /// point: advance to when the last transition in flight ends, and if
+    /// the timers crossed on the way started more, again — bounded, and
+    /// `settled: false` when the bound is hit.
+    /// `prefer`: the device facts by their
+    /// web names, grouped as the web groups them. `media`: reduced
+    /// motion, transparency and contrast stand in for the accessibility
+    /// settings, for this process; the colour scheme is the system's
+    /// appearance, beneath the app's own `setScheme`. `page`: what
+    /// `exactPage()` answers. A fact not named stays as it is; nothing
+    /// applies unless every one is known.
+    /// `fold`: the posture and the segment grid a host without
+    /// a fold makes by splitting its viewport evenly; a device with a fold
+    /// refuses them — it decides.
+    func prefer(_ req: [String: Any]) -> [String: Any] {
+        let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
+        let mode = req["mode"] as? [String: String]
+        guard media != nil || page != nil || fold != nil || mode != nil else { return ["malformed": true, "error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        // The mode group: checked before any fact is set,
+        // set after every other one in one commit; the scheme stays the system's.
+        var modes: [String: String]?
+        if let mode {
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["malformed": true, "error": "prefer mode: an axis or value holds no `,` or `=`"] }
+            let checked = session.runtime.setModes(mode, check: true)
+            if let error = checked.error { return ["error": "prefer mode: \(error)"] }
+            modes = checked.modes
+        }
+        if let fold, let refused = preferFold(fold) { return refused }
+        var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
+        var dark: Bool?
+        var displayMode = session.displayModeOverride
+        var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
+        var input = DisplayPreferences.input
+        for (name, value) in media ?? [:] {
+            switch (name, value) {
+            case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
+            case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
+            case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
+            case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            case ("display-mode", _) where DisplayPreferences.displayModes.contains(value):
+                displayMode = UInt32(DisplayPreferences.displayModes.firstIndex(of: value)!)
+            case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
+            case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
+            // The primary input, the wire's bits 5–7.
+            case ("pointer", "fine"), ("pointer", "coarse"), ("pointer", "none"):
+                input.subtract([.coarsePointer, .noPointer])
+                input.formUnion(value == "coarse" ? .coarsePointer : value == "none" ? .noPointer : [])
+            case ("hover", "hover"), ("hover", "none"):
+                if value == "none" { input.insert(.noHover) } else { input.remove(.noHover) }
+            default:
+                let message = "prefer: \(name): \(value) is not a preference this host sets"
+                // A real preference this host does not set stays a delivery refusal.
+                if name == "display-mode" { return ["error": message] }
+                return ["malformed": true, "error": message]
+            }
+        }
+        var facts = PageFacts.agent
+        var boldText: Bool?
+        #if os(macOS)
+        var keyboardNavigation: Bool?
+        #endif
+        for (name, raw) in page ?? [:] {
+            let value = name == "root-font-size" || name == "display-scale" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
+            switch (name, value) {
+            #if os(macOS)
+            // The Mac's Keyboard Navigation setting: whether Tab reaches every control.
+            case ("keyboard-navigation", "true"), ("keyboard-navigation", "false"): keyboardNavigation = value == "true"
+            #endif
+            case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
+            case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
+            case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
+            case ("can-share-files", "true"), ("can-share-files", "false"): facts.canShareFiles = value == "true"
+            case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
+            case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
+            case ("iframe-partition", "true"), ("iframe-partition", "false"): facts.iframePartition = value == "true"
+            case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
+            // The fact, and each module's tier: its renderers are made again at the new rung.
+            case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
+                PageFacts.agentGpuTier = ["high", "mid", "low"].firstIndex(of: value).map(UInt32.init) ?? 0
+                for retier in PageFacts.retiers.values { retier(PageFacts.agentGpuTier) }
+            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
+            // Bold Text, as the person's setting reaches the kernel.
+            case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"
+            // The display's scale as the kernel is told it: layout follows; the display draws at its own.
+            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
+            default:
+                let message = "prefer: \(name): \(value) is not a page fact this host sets"
+                // A real page fact this host does not set stays a delivery refusal.
+                if name == "keyboard-navigation" { return ["error": message] }
+                return ["malformed": true, "error": message]
+            }
+        }
+        // The scheme first: the preferences' notification reads it.
+        if let dark { systemScheme(dark: dark) }
+        session.displayModeOverride = displayMode
+        DisplayPreferences.agentContrast = contrast
+        if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
+            DisplayRange.pinned = high ? 4 : 1
+            DisplayPreferences.agentGamut = gamut
+            session.rasters.displayChanged()
+        }
+        systemContrast(more: DisplayPreferences.contrast == "more")
+        DisplayPreferences.agent = (motion, transparency)
+        if input != DisplayPreferences.input { DisplayPreferences.agentInput = input }
+        if page != nil { PageFacts.agent = facts }
+        if let boldText { DisplayPreferences.agentBoldText = boldText }
+        if let mode {
+            // An empty group asks again: the other facts' commits may have run a `setMode`.
+            let batch = session.runtime.setModes(mode, check: mode.isEmpty)
+            if !mode.isEmpty { session.apply(batch) }
+            if let error = batch.error { return ["error": "prefer mode: \(error)"] }
+            modes = batch.modes
+        }
+        var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
+                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-share-files": PageFacts.canShareFiles,
+                                       "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles, "iframe-partition": PageFacts.iframePartition,
+                                       "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
+                                       "display-scale": PageFacts.displayScale(session.presenter.viewport),
+                                       "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],
+                                       "bold-text": DisplayPreferences.boldText]
+        #if os(macOS)
+        if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
+        pageFacts["keyboard-navigation"] = KeyboardNavigation.on
+        #endif
+        let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
+        var reply: [String: Any] = ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
+                          "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
+                          "prefers-contrast": DisplayPreferences.contrast,
+                          "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "display-mode": DisplayPreferences.displayModes[Int(session.displayModeOverride ?? DisplayPreferences.displayMode(session.view))],
+                          "color-gamut": DisplayPreferences.gamut,
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard",
+                          "pointer": DisplayPreferences.input.contains(.noPointer) ? "none" : DisplayPreferences.input.contains(.coarsePointer) ? "coarse" : "fine",
+                          "hover": DisplayPreferences.input.contains(.noHover) ? "none" : "hover"],
+                "page": pageFacts,
+                "fold": presenter.fold.env]
+        if let modes { reply["mode"] = modes }
+        return reply
+    }
+
+    /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and
+    /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
+    /// names its fact; nothing applies unless all are known.
+    private func preferFold(_ fold: [String: Any]) -> [String: Any]? {
+        #if os(iOS) || os(tvOS)
+        // The hinge interaction reports after the view attaches, a turn or two
+        // after boot; a drive's first `prefer` can arrive before it. Give it a
+        // bounded moment on a 27.1 device so the answer is the device's.
+        let deadline = Date(timeIntervalSinceNow: 0.3)
+        while ReservedRegions.available, !presenter.hingeReported, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+        if presenter.hasFold { return ["error": "prefer: posture and segments: the device decides (it has a fold)"] }
+        var next = session.view?.agentFold ?? presenter.fold
+        #else
+        var next = presenter.fold
+        #endif
+        var gap: CGFloat = 0, grid = false
+        for (name, raw) in fold {
+            let number = (raw as? NSNumber).map(\.doubleValue) ?? Double("\(raw)")
+            switch name {
+            case "posture":
+                guard let p = raw as? String, p == "folded" || p == "continuous" else { return ["malformed": true, "error": "prefer: posture: \(raw) is folded or continuous"] }
+                next.posture = p
+            case "cols", "rows":
+                guard let n = number, n.isFinite, n >= 1, n == n.rounded() else { return ["malformed": true, "error": "prefer: segments: \(raw) \(name == "cols" ? "columns" : "rows") is not a count"] }
+                if name == "cols" { next.cols = Int(n) } else { next.rows = Int(n) }
+                grid = true
+            case "gap":
+                guard let g = number, g.isFinite, g >= 0 else { return ["malformed": true, "error": "prefer: segments: gap \(raw) is not a length"] }
+                gap = CGFloat(g); grid = true
+            default: return ["malformed": true, "error": "prefer: \(name) is not a fold fact this host sets"]
+            }
+        }
+        if grid {
+            // The window's segments, as the host sends them.
+            do { next.rects = try Segments.even(viewport: session.screenSize ?? presenter.viewportSize, cols: next.cols, rows: next.rows, gap: gap) } catch { return ["error": "prefer: \(error)"] }
+        }
+        #if os(iOS) || os(tvOS)
+        if let view = session.view { return view.prefer(next).map { ["error": "prefer: \($0)"] } }
+        #endif
+        return session.segments(next).map { ["error": "prefer: \($0)"] }
+    }
+
+    /// `tap <list> into <key>`: the runner's request on a
+    /// mounted list, committed, then settled as `clock settle` settles it.
+    func intoView(_ req: [String: Any], _ into: [String: Any]) -> [String: Any] {
+        for name in ["block", "inline"] {
+            if let alignment = into[name], !["start", "center", "end", "nearest"].contains(alignment as? String ?? "") {
+                // A string as it is, anything else as its JSON, as the web hosts and Linux print it.
+                let shown = alignment as? String ?? (try? JSONSerialization.data(withJSONObject: alignment, options: .fragmentsAllowed))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? "\(alignment)"
+                return ["error": "no alignment \(shown): start, center, end or nearest", "malformed": true]
+            }
+        }
+        guard let v = view(req) else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let key = into["key"] as? String ?? (into["key"].map { "\($0)" } ?? "")
+        let batch = session.runtime.intoView(v.id, key: key, block: into["block"] as? String ?? "start",
+                                             inline: into["inline"] as? String ?? "nearest")
+        session.apply(batch)
+        if let error = batch.error { return ["error": error] }
+        presenter.settlePump()
+        return ["tapped": Int(v.id), "into": into]
+    }
+
+    /// `clock`, its reply naming the requests the server holds, which no
+    /// clock waited on: `held` and `heldTargets`, as the
+    /// web hosts' do. An error reply is left as it is.
+    func clock(_ req: [String: Any]) -> [String: Any] {
+        if session.frameHealth.liveCapture {
+            return ["error": "Live frame capture requires the platform clock. Stop it with perf frames capture stop before using clock, held-clock or virtual-film operations.", "code": "frame-health-clock-takeover"]
+        }
+        var out = clockStep(req)
+        guard out["error"] == nil,
+              let d = session.agent("{\"op\":\"held\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return out }
+        let held = o["held"] as? [[String: Any]] ?? [] // the runner's `held`, not the whole `state`
+        if !held.isEmpty {
+            out["held"] = held.count
+            out["heldTargets"] = held.compactMap { $0["name"] as? String }
+        }
+        return out
+    }
+
+    private func clockStep(_ req: [String: Any]) -> [String: Any] {
+        session.natives.hatchClock.beginCommand()
+        // The end of an input under platform timing before any `clock`: its
+        // `then`s land at the wall's now and the clock stays the wall's, so
+        // the frame sampler keeps the display's cadence. Only
+        // an explicit `clock` takes it over.
+        if req["land"] as? Bool == true, session.clock == nil, !ExactEnv.agentFreezes {
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            let now = session.now()
+            session.apply(session.runtime.tick(now: now))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": now] }
+            return completingInput(["clock": now, "wall": true])
+        }
+        // Platform timing, before any `clock`: the
+        // host has run on the wall's time (motion and holds included) while
+        // the runner's clock stood behind it. The clock is taken over at the
+        // wall, frozen there before anything waits, and never set behind it:
+        // a hold begun behind the motion engine's time is refused
+        // (ClockWentBackwards). The runner catches up in the next seek. A
+        // runner already ahead of the wall (no known path; the safe floor) sets the floor
+        // instead. `take` is the takeover alone: it moves nothing and
+        // reports where the clock stands.
+        if session.clock == nil, !ExactEnv.agentFreezes {
+            let runner = session.agent("{\"op\":\"tags\"}").data(using: .utf8)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["clock"] as? Double
+            session.clock = max(session.now(), runner ?? 0)
+            // The display's cadence means nothing under the agent's clock.
+            session.sampler?.stop()
+            // An activity indicator holds one frame under it.
+            presenter.controls.syncProgress()
+        }
+        if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
+        let from = session.clock ?? 0
+        // The end of an input: the `then`s of the answers it
+        // settled land, the clock unmoved and no timer fired (Runner::land_then).
+        if req["land"] as? Bool == true {
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            session.apply(session.runtime.tick(now: from))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
+            // A `then` that opened or closed a sheet: up before the reply.
+            return completingInput(["clock": from])
+        }
+        if req["data"] as? Bool == true { return landData(at: from) }
+        let settle = req["settle"] as? Bool == true
+        // A request in flight is waited for first: its reply
+        // commits — and may start motion or ask for more — before the fixed
+        // point is measured. The wake lands on the main queue, which the
+        // run loop drains here. One bound for the whole call,
+        // not one per round: a request that never answers ends the call at
+        // twenty seconds, not sixteen times that.
+        // A reply can wait on the session clock instead: a package's
+        // `context.after` (a gamepad effect's span) is set, so the clock goes
+        // to it rather than the wall waiting for the reply.
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
+        let hatches = session.natives.hatchClock
+        if settle { waitForReplies(until: deadline, orAfter: true) }
+        // Settle ends motion: every leaf held mid-fling is made.
+        if settle { presenter.leaves.settle() }
+        waitForImages()
+        var target = req["to"] as? Double
+        if settle { target = max(from, self.settle() ?? from, pendingCount() > 0 ? hatches.nextAfter ?? from : from) }
+        guard var to = target, to.isFinite else { return ["malformed": true, "error": "clock needs \"to\" (ms) or \"settle\": true"] }
+        guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
+        var rounds = 0, hatchDrains = 0
+        #if os(iOS) || os(tvOS)
+        var wallDeadline: Date?, scrollDeadline: Date?
+        #endif
+        var world = WorldClock()
+        // A canvas's sensor input steps the worlds a frame at a time (AgentSensors.swift).
+        if let e = sensorFrames(to: to, deadline: deadline, floor: from)?.error {
+            return ["error": "clock: \(e)", "clock": session.clock ?? from]
+        }
+        func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
+            var out = world.reply
+            out["clock"] = landed
+            if let settled { out["settled"] = settled }
+            if settled == false, let reason = world.pending ? "world" : reason { out["reason"] = reason }
+            return out
+        }
+        while true {
+            let batch = advanceStepped(to: to, deadline: deadline, floor: from)
+            let landed = max(from, batch.clock ?? to)
+            session.clock = landed
+            session.apply(session.runtime.tick(now: landed))
+            AnimatedRasters.shared.evaluate()
+            // A long catch-up (a takeover after minutes of uptime) can pass the
+            // runner's timer-fire limit: it is progress, so go on from there.
+            if let e = batch.error, "\(e)".contains("TimerFireLimit"), (batch.clock ?? to) < to, Date() < deadline { continue }
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
+            guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
+            session.canvases.settle(now: landed)
+            // Every list reported and filled where it shows, nested ones
+            // included, before the fixed point is read.
+            if settle { presenter.settlePump() }
+            // What hatches asked of elements: drained
+            // here, on the thread this loop holds, each drain a snapshot. A hatch
+            // whose acts keep causing acts is named after 16.
+            if settle, presenter.elements.inFlight > 0 {
+                hatchDrains += 1
+                if hatchDrains > 16 { return reply(landed, false, reason: "hatches") }
+                presenter.elements.drain()
+                continue
+            }
+            world = session.canvases.clock(settle: settle)
+            // A jump does not wait for what is still in flight on real time
+            // (a store's, a worker's, the network's): the reply names how much,
+            // as the web hosts' do. A polled module
+            // source's ask it made lands first.
+            guard settle else {
+                waitForPolls(until: deadline)
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock has as long as
+                // the whole jump (`jump`: the driver's seek in steps), up to
+                // 1.5 s, once: after its last step (`step` marks the others);
+                // still running then, the reply says so.
+                var runsOn = false
+                if req["step"] as? Bool != true {
+                    let jump = req["jump"] as? Double ?? landed - from
+                    runsOn = !awaitWallMotion(until: Date(timeIntervalSinceNow: min(1.5, max(0, jump) / 1000)))
+                }
+                var out = runsOn ? reply(landed, false, reason: "motion") : reply(landed)
+                #else
+                var out = reply(landed)
+                #endif
+                let inflight = pendingCount()
+                if inflight > 0 { out["inflight"] = inflight }
+                // The module's background storage still to land.
+                let background = backgroundCount()
+                if background > 0 { out["background"] = background }
+                return out
+            }
+            if pendingCount() > 0 {
+                rounds += 1
+                if rounds >= 16 || Date() >= deadline { return reply(landed, false, reason: "requests") }
+                if let after = hatches.nextAfter { to = max(landed, after); continue }
+                waitForReplies(until: deadline, orAfter: true)
+                continue
+            }
+            let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
+            // Work the launch queued for a later main-queue turn (module views
+            // after activation's commit; the launch autofocus) runs before
+            // the fixed point; what it started
+            // (a `load` or focus handler's request) is then checked again.
+            if next <= landed && !world.pending && launchQueued() {
+                rounds += 1
+                if rounds >= 16 || !drainLaunch(until: deadline) { return reply(landed, false, reason: "transition") }
+                continue
+            }
+            if next <= landed && !world.pending {
+                #if os(iOS) || os(tvOS)
+                // The app's own native motion on the wall clock ends first,
+                // within 1.5 s for the whole call, or the call is not settled;
+                // what its completion starts is checked below.
+                var wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                wallDeadline = wallUntil
+                // …and a scroll view a finger left moving, within 4 s for the
+                // whole call; what its glide's end starts is the app's motion
+                // again, with its own 1.5 s.
+                let scrollUntil = scrollDeadline ?? Date(timeIntervalSinceNow: 4)
+                scrollDeadline = scrollUntil
+                while true {
+                    if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                    guard let glided = awaitScrollRest(until: scrollUntil) else { return reply(landed, false, reason: "scroll") }
+                    if !glided { break }
+                    wallUntil = Date(timeIntervalSinceNow: 1.5)
+                    wallDeadline = wallUntil
+                }
+                #endif
+                // A responder or presentation completion can enqueue a keyboard
+                // resize before its animation exists. Require an idle native turn
+                // after work finishes, including work created by that completion.
+                let nativeDeadline = Date(timeIntervalSinceNow: 2)
+                var wasBusy = nativeInFlight()
+                while true {
+                    #if !(os(iOS) || os(tvOS))
+                    if !wasBusy { break }
+                    #endif
+                    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+                    let busy = nativeInFlight()
+                    if !wasBusy && !busy { break }
+                    if Date() >= nativeDeadline { return reply(landed, false, reason: "transition") }
+                    wasBusy = busy
+                }
+                // A native completion can press an action, starting a request
+                // or queuing its answer's `then` during the wait above. Recheck
+                // the runner before claiming the fixed point.
+                let afterNative = max(landed, self.settle() ?? landed)
+                if pendingCount() > 0 || session.timerDue.map({ $0 <= landed }) == true
+                    || afterNative > landed || launchQueued() || presenter.elements.inFlight > 0 {
+                    rounds += 1
+                    if rounds >= 16 || Date() >= deadline { return reply(landed, false) }
+                    to = afterNative
+                    continue
+                }
+                // A held device request is never waited on: the fixed point
+                // stands, and the agent hears what waits for it.
+                if let d = session.agent("{\"op\":\"holds\"}").data(using: .utf8),
+                   let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                   let holds = o["holds"] as? [Any], !holds.isEmpty {
+                    var out = reply(landed, false, reason: "device")
+                    out["tickets"] = o["tickets"]
+                    return out
+                }
+                return reply(landed, true)
+            }
+            rounds += 1
+            if rounds >= 16 { return reply(landed, false) }
+            to = next
+        }
+    }
+
+    /// An input's reply under frozen timing, once a sheet it opened or
+    /// closed has been presented or dismissed (`awaitModalTransitions`);
+    /// past the bound it says so, as `clock settle` does
+    /// (`settled: false`, `reason: "transition"`). An error reply is as it
+    /// was; platform timing leaves the wait to `clock settle`, but for a
+    /// chosen alert button's press, which still lands before the reply.
+    func completingInput(_ reply: [String: Any]) -> [String: Any] {
+        let settled = reply["error"] != nil || (ExactEnv.agentFreezes ? awaitModalTransitions() : awaitChosenPress())
+        guard !settled else { return reply }
+        var out = reply
+        out["settled"] = false
+        out["reason"] = "transition"
+        return out
+    }
+
+    /// The driver's `post`: `postMessage(text, surface)` as
+    /// the app sends it, into canvas `id`'s surface, the named one, or the
+    /// page's one world. A surface with no live canvas holds it, as it holds
+    /// the app's posts.
+    func post(_ req: [String: Any]) -> [String: Any] {
+        let canvases = session.canvases, text = req["message"] as? String ?? ""
+        let name: String
+        if let id = (req["id"] as? NSNumber)?.uint32Value {
+            guard let n = canvases.surfaceName(id) else { return ["error": "view \(id) has no world"] }
+            name = n
+        } else if let n = req["surface"] as? String {
+            name = n
+        } else {
+            let names = canvases.surfaceNames()
+            guard names.count == 1 else {
+                return ["error": names.isEmpty ? "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"
+                    : "post: \(names.count) worlds are live (\(names.joined(separator: ", "))); name one: post <surface> <text>"]
+            }
+            name = names[0]
+        }
+        if session.webviews.hasFrame(name) { return ["error": "post: \(name) is an iframe's id, not a world surface"] }
+        if let refused = canvases.post(name, text) { return ["error": "post refused: \(refused)"] }
+        return ["posted": name, "delivery": "posted", "held": canvases.waiting(name) ? true : nil].compactMapValues { $0 }
+    }
+
+    /// To `to`, and what is in flight lands before a timer fires — the
+    /// runner keeps one request per target, so a tick's send
+    /// would drop the reply of the one before it: the jump stops after each
+    /// timer that sends, and its reply is waited for. Past the deadline, or
+    /// 4096 stops, the rest is one advance. Each batch is applied; the last
+    /// one is returned.
+    /// `floor`: the host's clock is never set behind it while the runner catches up.
+    func advanceStepped(to: Double, deadline: Date, floor: Double = -.infinity) -> Batch {
+        // A seek stops at each hatch instant on the way: the runner is
+        // brought there, the ticks and `after`s due are
+        // called on that instant's state, and what they asked is drained.
+        let clock = session.natives.hatchClock
+        while let instant = clock.nextInstant, instant <= to {
+            let batch = advanceRunner(to: max(instant, session.clock ?? instant), deadline: deadline, floor: floor)
+            if batch.error != nil { return batch }
+            if let limit = clock.fire(at: session.clock ?? instant) {
+                return Batch(ops: [], timers: batch.timers, motion: batch.motion, clock: session.clock, error: limit)
+            }
+        }
+        return advanceRunner(to: to, deadline: deadline, floor: floor)
+    }
+
+    private func advanceRunner(to: Double, deadline: Date, floor: Double) -> Batch {
+        var steps = 0
+        // The agent's clock is a seek: frame tasks fire virtual frames.
+        session.runtime.presentFrames(false)
+        while true {
+            // A data module's timer the last step released lands first too (exact-runner's `data_timers.rs`).
+            let waited = (session.timerDue.map { $0 <= to } == true || session.timerLanding) && waitForReplies(until: deadline)
+            let held = waited && steps < 4096
+            let batch = session.runtime.advance(now: to, untilRequest: held)
+            session.apply(batch)
+            session.clock = max(floor, batch.clock ?? to)
+            // A stop at `to` may leave a timer due there: only a plain advance ends.
+            if batch.error != nil || !held { return batch }
+            steps += 1
+        }
+    }
+
+    /// Images on screen land before the clock moves or a screenshot is
+    /// taken, for up to 3 s: an animated one starts on the clock it lands at,
+    /// and a decode is host I/O no clock waits for otherwise.
+    /// How many were still loading at the bound (`screenshot`'s `imagesPending`,
+    /// as on the web).
+    @discardableResult
+    func waitForImages(until end: Date = Date(timeIntervalSinceNow: 3)) -> Int {
+        var loading = session.rasters.loadingOnScreen
+        while loading > 0 && Date() < end {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            loading = session.rasters.loadingOnScreen
+        }
+        AnimatedRasters.shared.evaluate()
+        return loading
+    }
+
+    /// What a screenshot shows, settled: the pump and the images on screen
+    /// in turn under one 3 s bound, since an image landing can relayout and
+    /// mount rows with images of their own. How many were still loading
+    /// after the last settle (`imagesPending`).
+    func settleForPicture() -> Int {
+        let end = Date(timeIntervalSinceNow: 3)
+        while true {
+            presenter.settlePump()
+            let loading = session.rasters.loadingOnScreen
+            if loading == 0 || Date() >= end { return loading }
+            waitForImages(until: end)
+        }
+    }
+
+    /// `clock data`: the app's data lands — its deferred module activated
+    /// (the turn after first draw) and every request in flight answered,
+    /// each answer's `then` landed — at the clock as it stands, no timer
+    /// fired. A test's first step waits for it (otherwise storage opened
+    /// after the first step, which then read the placeholder).
+    func landData(at from: Double) -> [String: Any] {
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
+        for _ in 0..<16 {
+            while !session.dataActivated && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+            if !session.dataActivated { return ["clock": from, "settled": false, "reason": "data"] }
+            if !drainLaunch(until: deadline) { return ["clock": from, "settled": false, "reason": "data"] }
+            if !waitForReplies(until: deadline) { return ["clock": from, "settled": false, "reason": "requests"] }
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            session.apply(session.runtime.tick(now: from))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
+            // A `then` that sent asks again; what it sends lands in the next round.
+            if pendingCount() == 0 { return ["clock": from, "settled": true] }
+        }
+        return ["clock": from, "settled": false, "reason": "requests"]
+    }
+
+    /// The background's storage operations queued or in flight
+    /// (`state.background`).
+    func backgroundCount() -> Int {
+        guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let b = o["background"] as? [String: Any] else { return 0 }
+        return (b["queued"] as? Int ?? 0) + (b["inFlight"] as? Int ?? 0)
+    }
+
+    /// Whether the launch left work for a later main-queue turn.
+    func launchQueued() -> Bool { session.activationInFlight || session.presenter.launchAutofocusPending }
+
+    /// Turn the run loop until that work has run, or until `deadline`.
+    func drainLaunch(until deadline: Date) -> Bool {
+        while launchQueued() {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
+    }
+
+    /// Runner requests whose replies can still change the tree. A held device
+    /// observation is excluded: it waits for the person, rather than I/O.
+    func pendingRequests() -> [[String: Any]] {
+        guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [] }
+        return (o["pending"] as? [[String: Any]] ?? []).filter { $0["device"] == nil }
+    }
+
+    /// How many requests the runner and the presenter's pictures have in flight.
+    func pendingCount() -> Int {
+        #if os(iOS) || os(tvOS)
+        let pictures = SvgFilterLive.inFlight
+        #else
+        let pictures = 0
+        #endif
+        // A reply the server holds is no I/O a clock waits on, nor is an answer's own timer.
+        return pendingRequests().filter { $0["held"] == nil && $0["timer"] == nil }.count + session.presenter.canvas2d.loadingCount + pictures
+    }
+
+    /// `clock settle`'s bound on requests in flight: a network's worth.
+    static let settleBound: TimeInterval = 20
+
+    /// Run until no polled module source's ask is in flight, or the deadline.
+    func waitForPolls(until deadline: Date) {
+        while session.agent("{\"op\":\"polls\"}").contains("\"asking\":true"), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.005))
+            session.apply(session.runtime.pump(now: session.now()))
+        }
+    }
+
+    /// Pump the executor's queue until no request is in flight, or until
+    /// the call's deadline (`settled: false` past it), false then. The wake's
+    /// own pump is a main-queue block, and this runs inside one — so the
+    /// queue is drained here directly, the run loop turning in between for
+    /// the executor's thread to make progress. `orAfter`: false as soon as a
+    /// hatch `after` is set, which the reply may be waiting on.
+    @discardableResult
+    func waitForReplies(until deadline: Date, orAfter: Bool = false) -> Bool {
+        while pendingCount() > 0 {
+            if orAfter && session.natives.hatchClock.nextAfter != nil { return false }
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            session.apply(session.runtime.pump(now: session.now()))
+        }
+        return true
+    }
+}
+
+extension ExactSession {
+    /// This session's agent (made on first use).
+    package var agentInstance: Agent {
+        if let a = agentBox { return a }
+        let a = Agent(session: self)
+        agentBox = a
+        return a
+    }
+}
+
+public extension ExactEnv {
+    /// `EXACT_AGENT_CHROME=platform` (opt-in; splitter rough 4, 11): under
+    /// the agent, the native navigation bar and tab bar show as a person
+    /// sees them, their items pressing the authored controls they stand for.
+    /// The default paints the authored header and tablist in their place.
+    static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether a driver can reach this launch. On iOS it is named by
+    /// `EXACT_AGENT_SOCKET` or `EXACT_AGENT_CONNECT` (`Agent.startSocket`);
+    /// the Mac's driver owns stdio. An iOS launch with `EXACT_AGENT=1` and
+    /// neither, as a grader's `simctl launch` arming only the fault table
+    /// (`EXACT_AGENT_FAIL_FETCH`) is, has no driver to read painted chrome:
+    /// it shows what a person sees.
+    #if os(iOS) || os(tvOS)
+    static let agentDriven = agentMode && (environment["EXACT_AGENT_SOCKET"] != nil || environment["EXACT_AGENT_CONNECT"] != nil)
+    #else
+    static let agentDriven = agentMode
+    #endif
+    /// Whether the authored header and tablist paint instead of UIKit's
+    /// bars: the agent's default chrome.
+    static let authoredChrome = agentDriven && agentChrome != "platform"
+    /// Whether the agent paints the popovers a person sees as UIKit's
+    /// menus. `EXACT_AGENT_PRESENTATION=native`, which
+    /// `--touch platform` launches with, shows UIKit's:
+    /// a real touch opens one and picks its item.
+    static let agentPaints = agentDriven && environment["EXACT_AGENT_PRESENTATION"] != "native"
+}

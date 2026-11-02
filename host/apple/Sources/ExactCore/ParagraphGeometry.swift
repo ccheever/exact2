@@ -1,0 +1,370 @@
+// Every consumer uses fragment origins and band bounds.
+import Foundation
+import CoreText
+
+extension TextEngine {
+    /// A broken line as CSS finishes it, for every Apple path that makes one
+    /// from a range (layout, rasters, regions). A line that ends at a soft
+    /// hyphen (U+00AD) shows a hyphen there, as the browser does; CoreText
+    /// breaks there but keeps the character invisible. With `justify` (CSS
+    /// `text-align: justify` at that width) every line but the paragraph's
+    /// last and one ending in a forced break fills the width
+    /// (`text-align-last: auto`). Indices stay the source's, so hit testing,
+    /// selection and later layouts read the same ranges.
+    package static func finishedLine(_ line: CTLine, source: NSAttributedString, range: CFRange, justify width: Double?) -> CTLine {
+        let line = inkedSoftHyphen(line, source: source, range: range)
+        return width.map { justified(line, source: source, range: range, width: $0) } ?? line
+    }
+
+    /// What a line's trailing white space adds to its width that CSS does
+    /// not count. Collapsible spaces at a line's end are removed (CSS Text 3
+    /// §4.1.2, Phase II rule 3). `pre-wrap`'s (`whiteSpace` 1) hang at a soft
+    /// wrap and, before a forced break, which the end of the block also is,
+    /// conditionally hang: only as far as they would not fit in `room`
+    /// (rule 4). CSS Text 3 §8.2 counts conditionally hanging spaces in a max-content
+    /// size, so a `pre-wrap` "Say " is as wide as "Say" and its space, as
+    /// Chrome measures it. `pre`'s (4) count.
+    package static func uncountedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
+        if whiteSpace == 4 { return 0 }
+        let trailing = CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+        guard whiteSpace == 1 else { return trailing }
+        let range = CTLineGetStringRange(line), end = range.location + range.length, text = source.string as NSString
+        guard end > 0, end <= text.length else { return trailing }
+        if end < text.length {
+            guard let last = Unicode.Scalar(text.character(at: end - 1)), CharacterSet.newlines.contains(last) else { return trailing }
+        }
+        return min(trailing, max(0, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - room))
+    }
+
+    /// The part of a line's trailing white space that its width counts
+    /// (`uncountedTrailingWidth` leaves the rest out), in a box `room` wide.
+    package static func countedTrailingWidth(_ line: CTLine, whiteSpace: Int, source: NSAttributedString, room: CGFloat) -> CGFloat {
+        max(0, CGFloat(CTLineGetTrailingWhitespaceWidth(line)) - uncountedTrailingWidth(line, whiteSpace: whiteSpace, source: source, room: room))
+    }
+
+    package static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
+        let end = range.location + range.length
+        guard range.length > 0, end <= source.length,
+              (source.string as NSString).character(at: end - 1) == 0xAD else { return line }
+        // The prefix keeps every UTF-16 index where it was; only the chosen
+        // SHY becomes ink (the exclusion path's rule, TextFlow).
+        let visible = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
+        visible.replaceCharacters(in: NSRange(location: end - 1, length: 1), with: "-")
+        return CTTypesetterCreateLine(CTTypesetterCreateWithAttributedString(visible), range)
+    }
+
+    package static func justified(_ line: CTLine, source: NSAttributedString, range: CFRange, width: Double) -> CTLine {
+        let end = range.location + range.length
+        let text = source.string as NSString
+        guard width.isFinite, range.length > 0, end < source.length,
+              ![0x0A, 0x0D, 0x2028, 0x2029].contains(text.character(at: end - 1)) else { return line }
+        // A line with no justification opportunity (a word separator, or
+        // ideographs) stays at the start, as Chrome's does: CoreText would
+        // otherwise spread a lone word's letters.
+        let trimmed = text.substring(with: NSRange(location: range.location, length: range.length))
+            .trimmingCharacters(in: .whitespaces)
+        guard trimmed.unicodeScalars.contains(where: {
+            $0.properties.generalCategory == .spaceSeparator || $0.properties.isIdeographic
+        }) else { return line }
+        return CTLineCreateJustifiedLine(line, 1.0, width) ?? line
+    }
+}
+
+extension TextEngine {
+    /// Where a line starts in a box `room` wide, flush `flush` (0 left, 0.5
+    /// centre, 1 right). The line aligns as its ink and the trailing spaces
+    /// its width counts (`countedTrailingWidth`, from `whiteSpace` and the
+    /// line's `source`): they do not hang, and only a hanging glyph is left
+    /// out of alignment (CSS Text 3 §8.2). CoreText's pen offset leaves every
+    /// trailing space out. A right-aligned `pre-wrap` "Say " ends its space,
+    /// not its "y", at the right edge, as in Chrome. CoreText draws a
+    /// right-to-left line's trailing spaces left of its pen, so there the
+    /// pen moves right by them. A line wider than its box is start-aligned
+    /// and overflows its end edge, as CSS Text 3 §6.1 has it ("the contents are
+    /// start-aligned") and Chrome draws it. CoreText flushes the overlong
+    /// line the other way, so a right-aligned column at an accessibility
+    /// text size spilled left over its neighbour (a weather table's "High"
+    /// header ran into "Low") where the web spills right.
+    package static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool, whiteSpace: Int = 0, source: NSAttributedString? = nil) -> CGFloat {
+        // A left-aligned left-to-right line starts at its box's start edge
+        if flush == 0 && !rtl { return 0 }
+        let counted = source.map { countedTrailingWidth(line, whiteSpace: whiteSpace, source: $0, room: CGFloat(room)) } ?? 0
+        // The room beside the line's ink (CoreText's offset for a right flush)
+        let slack = CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
+        guard slack - counted >= 0 else { return rtl ? slack : 0 }
+        return CGFloat(CTLineGetPenOffsetForFlush(line, flush, room)) - counted * flush + (rtl ? counted : 0)
+    }
+}
+
+/// Where each line of a paragraph starts, from its start edge (which `rtl`
+/// puts on the right): CSS `text-indent` on the first line, and a Markdown
+/// list item's head indent on each of its lines, the first one's less the
+/// marker hung before it — the `padding-left` and outside marker the web
+/// lays the same item out with. Measure, layout, paint, hits
+/// and raster workers all start lines here.
+package struct LineInsets {
+    package var textIndent: CGFloat = 0
+    package var rtl = false
+    /// The indented paragraphs (each ends after its newline), UTF-16
+    /// [start, end), in order: the first line's inset and the others'.
+    package var heads: [(start: Int, end: Int, first: CGFloat, rest: CGFloat)] = []
+
+    package init() {}
+    /// `spec`'s; `marker` is the width of a hung run's UTF-16 range, as
+    /// the paragraph's own source shapes it.
+    package init(_ spec: Spec, marker: (CFRange) -> CGFloat) {
+        textIndent = spec.textIndent; rtl = spec.direction == 1
+        guard spec.runs.contains(where: { $0.indent != 0 }) else { return }
+        var open: (start: Int, first: CGFloat, rest: CGFloat)?
+        var at = 0
+        func close(_ end: Int) {
+            if let p = open, p.first != 0 || p.rest != 0 { heads.append((p.start, end, p.first, p.rest)) }
+            open = nil
+        }
+        for run in spec.runs {
+            var offset = at
+            for unit in run.text.utf16 {
+                if open == nil {
+                    // A paragraph takes its indent from its first run.
+                    let hung = run.hang && offset == at ? marker(CFRange(location: at, length: run.text.utf16.count)) : 0
+                    open = (offset, run.indent - hung, run.indent)
+                }
+                offset += 1
+                if unit == 0x0A { close(offset) }
+            }
+            at = offset
+        }
+        close(at)
+    }
+
+    /// The inset of the line that starts at UTF-16 `location`: how far
+    /// right its start moves (`left`) and how much room it gives (`width`).
+    package func at(_ location: Int) -> (left: CGFloat, width: CGFloat) {
+        var width: CGFloat = location == 0 ? textIndent : 0
+        var lo = 0, hi = heads.count
+        while lo < hi { let mid = (lo + hi) / 2; if heads[mid].start <= location { lo = mid + 1 } else { hi = mid } }
+        if lo > 0, location < heads[lo - 1].end {
+            width += location == heads[lo - 1].start ? heads[lo - 1].first : heads[lo - 1].rest
+        }
+        return (rtl ? 0 : width, width)
+    }
+}
+
+extension TextShape {
+    /// This source's `LineInsets`, its markers shaped by its own typesetter.
+    package var lineInsets: LineInsets {
+        if let insets { return insets }
+        let made = LineInsets(spec) { CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(self.typesetter, $0), nil, nil, nil)) }
+        insets = made
+        return made
+    }
+}
+
+extension LineInsets {
+    /// `spec`'s, its markers shaped from `source` (a raster worker's copy).
+    package init(_ spec: Spec, source: NSAttributedString) {
+        self.init(spec) { range in
+            let marker = source.attributedSubstring(from: NSRange(location: range.location, length: range.length))
+            return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(marker), nil, nil, nil))
+        }
+    }
+}
+
+extension Paragraph {
+    package func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
+        if origins.indices.contains(index) { return origins[index] }
+        let flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
+        // CSS `text-indent` and a list item's indent: the line aligns in
+        // what its inset leaves.
+        let inset = insets.at(CTLineGetStringRange(lines[index]).location)
+        return inset.left + TextEngine.penOffset(lines[index], flush: flush, room: Double(width - inset.width), rtl: insets.rtl,
+                                                 whiteSpace: shape?.spec.whiteSpace ?? 0, source: shape?.attributed)
+    }
+
+    /// First select the band, then the closest painted fragment in that band.
+    /// A click in an exclusion chooses the adjacent caret, never a different row.
+    package func lineIndex(at point: CGPoint, align: Int, width: CGFloat) -> Int? {
+        guard !lines.isEmpty else { return nil }
+        var first = lines.count - 1
+        for i in lines.indices where point.y < (lineBottoms.indices.contains(i) ? lineBottoms[i] : height) {
+            first = i; break
+        }
+        let baseline = baselines[first]
+        var best = first, distance = CGFloat.infinity
+        for i in lines.indices where baselines[i] == baseline {
+            let x = origin(i, align: align, width: width)
+            let advance = CGFloat(CTLineGetTypographicBounds(lines[i], nil, nil, nil))
+            let d = max(0, max(x - point.x, point.x - x - advance))
+            if d < distance { best = i; distance = d }
+        }
+        return best
+    }
+
+    package func stringIndex(in line: Int, at x: CGFloat) -> Int {
+        if fragments.indices.contains(line), CTLineGetGlyphCount(lines[line]) == 0 {
+            return fragments[line].utf16_start
+        }
+        return CTLineGetStringIndexForPosition(lines[line], CGPoint(x: x, y: 0))
+    }
+
+    package func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
+        selectedLines(range, align: align, in: bounds, dirty: dirty).map(\.rect)
+    }
+
+    /// `selectionRects`, each with the line it is on: what paints a
+    /// selection's glyphs as well as its fill.
+    package func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
+        guard range.location >= 0, range.length > 0 else { return [] }
+        var rects: [(line: Int, rect: CGRect)] = []
+        for i in lines.indices {
+            let line = lines[i], r = CTLineGetStringRange(line)
+            let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
+            guard hi > lo else { continue }
+            var above: CGFloat = 0, below: CGFloat = 0
+            _ = CTLineGetTypographicBounds(line, &above, &below, nil)
+            let y = bounds.minY + baselines[i].rounded()
+            guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
+            let x = bounds.minX + origin(i, align: align, width: bounds.width)
+            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
+            rects.append((i, CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below)))
+        }
+        return rects
+    }
+
+    /// Full logical coverage and visible ranges are separate: trailing whitespace
+    /// belongs to a fragment even though CoreText never paints it. Work is O(F).
+    package var flowFacts: [String: Any] {
+        ["line_height": flowLineHeight, "height": height,
+         "prepare_count": shape?.prepareCount ?? 0,
+         "utf8_length": shape?.flow?.utf8Count ?? 0,
+         "complete": (fragments.last?.end ?? 0) == shape?.flow?.utf8Count,
+         "fragments": fragments.enumerated().map { i, f -> [String: Any] in
+             ["start": f.start, "end": f.end, "utf16_start": f.utf16_start, "utf16_end": f.utf16_end,
+              "paint_start": f.paint_start, "paint_end": f.paint_end, "line": f.line,
+              "x": origins[i], "y": f.y, "width": f.width, "available": f.available,
+              "paint_width": CTLineGetTypographicBounds(lines[i], nil, nil, nil),
+              "baseline": baselines[i], "bottom": lineBottoms[i]]
+         }]
+    }
+}
+
+extension Spec {
+    package var emergencyHyphens: Bool { hyphens == 0 && automaticHyphens }
+    package var automaticHyphens: Bool { Self.insertsHyphens(hyphens, wrap: overflowWrap) }
+    package static func insertsHyphens(_ hyphens: Int, wrap: Int) -> Bool {
+        if hyphens == 2 { return true }
+        #if os(iOS)
+        return hyphens == 0 && wrap == 1
+        #else
+        return false
+        #endif
+    }
+
+    /// CSS `hyphens: auto`: a soft hyphen at each of the language's own
+    /// hyphenation points (CoreFoundation's dictionaries, as Safari's), which
+    /// then break and show as authored ones do. Chrome's limits: a word of 5
+    /// letters or more, 2 before a point and 2 after; a word with an authored
+    /// soft hyphen keeps only those. An unknown language is the web page's
+    /// default `lang="en"`; one CoreFoundation cannot hyphenate is left as
+    /// `manual`. The source map takes the inserted characters back out.
+    package mutating func hyphenateAuto(allowEmergency: Bool = true) {
+        guard automaticHyphens, allowEmergency || !emergencyHyphens, source.inserted.isEmpty else { return }
+        let locale = CFLocaleCreate(nil, CFLocaleCreateCanonicalLocaleIdentifierFromString(nil, (language.isEmpty ? "en" : language) as CFString))
+        guard CFStringIsHyphenationAvailableForLocale(locale) else { return }
+        var shaped = 0
+        var inserted: [Int] = []
+        for i in runs.indices {
+            let text = runs[i].text as NSString
+            var points: [Int] = []
+            var at = 0
+            while at < text.length {
+                guard let scalar = UnicodeScalar(text.character(at: at)), CharacterSet.letters.contains(scalar) else { at += 1; continue }
+                var end = at
+                while end < text.length, let s = UnicodeScalar(text.character(at: end)), CharacterSet.letters.contains(s) || s.value == 0xAD { end += 1 }
+                let word = CFRange(location: at, length: end - at)
+                if word.length >= 5, text.range(of: "\u{AD}", range: NSRange(location: at, length: end - at)).location == NSNotFound {
+                    var limit = end - 2
+                    while limit > at + 2 {
+                        let point = CFStringGetHyphenationLocationBeforeIndex(text, limit, word, 0, locale, nil)
+                        guard point != kCFNotFound, point >= at + 2, point <= end - 2 else { break }
+                        points.append(point)
+                        limit = point
+                    }
+                }
+                at = end
+            }
+            guard !points.isEmpty else { shaped += text.length; continue }
+            points.sort()
+            let value = NSMutableString(string: text)
+            for p in points.reversed() { value.insert("\u{AD}", at: p) } // last first, so earlier points hold
+            for (k, p) in points.enumerated() { inserted.append(shaped + p + k) }
+            runs[i].text = value as String
+            shaped += value.length
+        }
+        source.inserted = inserted
+        emergencyBreaks = emergencyHyphens ? inserted : []
+    }
+}
+
+/// Glyph values can cross the owner/paint boundary; CoreText layout objects
+/// cannot. CTFont is immutable and shared, as Apple's Core Text threading
+/// guidance permits: https://developer.apple.com/documentation/coretext
+package struct MeasuredGlyphs {
+    package struct Run {
+        package let font: CTFont
+        package let glyphs: [CGGlyph]
+        package let positions: [CGPoint]
+    }
+    package struct Line {
+        package let runs: [Run]
+        package let origin: CGFloat
+        package let ink: CGRect
+        package let box: CGRect
+    }
+    package let lines: [Line]
+    package var bytes: Int {
+        lines.reduce(32) { total, line in
+            total + MemoryLayout<Line>.stride + line.runs.reduce(32) {
+                $0 + MemoryLayout<Run>.stride + 256 + $1.glyphs.count * (MemoryLayout<CGGlyph>.stride + MemoryLayout<CGPoint>.stride)
+            }
+        }
+    }
+    package init?(_ paragraph: Paragraph, spec: Spec, width: CGFloat) {
+        guard spec.reusesMeasuredGlyphs, spec.runs.reduce(0, { $0 + $1.text.utf16.count }) <= 1024 else { return nil }
+        var lines: [Line] = []
+        for (index, line) in paragraph.lines.enumerated() {
+            var runs: [Run] = []
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let attributes = CTRunGetAttributes(run) as NSDictionary
+                let font = attributes[kCTFontAttributeName] as! CTFont
+                guard !CTFontGetSymbolicTraits(font).contains(.traitColorGlyphs), CTRunGetTextMatrix(run).isIdentity else { return nil }
+                let count = CTRunGetGlyphCount(run)
+                var glyphs = [CGGlyph](repeating: 0, count: count)
+                var positions = [CGPoint](repeating: .zero, count: count)
+                if count > 0 {
+                    CTRunGetGlyphs(run, CFRange(), &glyphs)
+                    CTRunGetPositions(run, CFRange(), &positions)
+                }
+                // CTFontDrawGlyphs differs from CTLineDraw for cursive attachment
+                // with vertical offsets. Keep that ink on CoreText's line path.
+                guard positions.allSatisfy({ $0.y == 0 }) else { return nil }
+                runs.append(Run(font: font, glyphs: glyphs, positions: positions))
+            }
+            var ascent: CGFloat = 0, descent: CGFloat = 0
+            let advance = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+            lines.append(Line(runs: runs, origin: paragraph.origin(index, align: spec.align, width: width),
+                              ink: CTLineGetBoundsWithOptions(line, .useGlyphPathBounds),
+                              box: CGRect(x: 0, y: -ascent, width: advance, height: ascent + descent)))
+        }
+        self.lines = lines
+    }
+}
+
+extension Spec {
+    package var reusesMeasuredGlyphs: Bool {
+        lineClamp == 0 && !ellipsis && align != 3 && shadow == nil && runs.allSatisfy {
+            !$0.hidden && !$0.fixedInk && ($0.color == nil || $0.color == color) && $0.decoration.isEmpty
+                && $0.underlineColor == nil && $0.strikeColor == nil && $0.background == nil && $0.shadow == nil && $0.stroke == nil && $0.href.isEmpty
+        }
+    }
+}

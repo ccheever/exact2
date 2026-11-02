@@ -1,0 +1,885 @@
+//! The network form of the dev plan on Linux: given the app URL — the one a
+//! browser opens — resolve the envelope, negotiated or through `index.html`'s
+//! `rel=alternate` link, fetch the plan, verify its length and SHA-256, and
+//! hand back the bytes to boot. One shot, at process start: a headless run is
+//! per-invocation (the fleet's shape — run, read, run again), and the display
+//! loop's live SSE half is not yet verified on a Linux display.
+//!
+//! The transport is ibex2's default — rustls off Apple, the platform's on a
+//! Mac — used directly: grants govern *app* authority; this
+//! is host apparatus, the same standing as the Apple host's URLSession use
+//! in `PlanURL.swift`. Redirects are not followed in v1: the error names
+//! the limitation and the direct URL fixes it. Every line goes to stderr —
+//! in agent mode stdout is the protocol.
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+const ENVELOPE_TYPE: &str = "application/vnd.exact.envelope+json";
+/// A dev loop's answer while its producers start, or after their start
+/// failed (host/web/dev-phase.mjs): a status, said once.
+const DEV_STATUS_TYPE: &str = "application/vnd.exact.dev-status+json";
+/// How a dev loop's status reads as a poll's error while its producers start,
+const LOOP_PREPARING: &str = "dev loop: ";
+/// and after their start failed.
+const LOOP_FAILED: &str = "dev loop failed to start: ";
+/// What each rung may cost, the Apple loader's numbers (`PlanURL.swift`):
+/// a page and an envelope are small documents, a plan is the only large one.
+/// These reach the transport as `Request::max_body` and are enforced while
+/// the bytes arrive — a reachable dev server that answers and never stops
+/// sending is refused at the ceiling rather than after it.
+const MAX_PAGE_BYTES: usize = 64 * 1024;
+const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
+const MAX_PLAN_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct Envelope {
+    exact: u64,
+    #[allow(dead_code)]
+    app: Option<AppCard>,
+    plan: PlanCard,
+    rust: Option<std::collections::BTreeMap<String, RustVariant>>,
+    seq: Option<u64>,
+    events: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RustVariant {
+    receipt: PlanCard,
+    module: PlanCard,
+    target: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct AppCard {
+    id: Option<String>,
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[allow(non_snake_case)]
+#[allow(dead_code)]
+struct PlanCard {
+    url: String,
+    sha256: String,
+    bytes: u64,
+    formatVersion: Option<u32>,
+    kernelSchema: Option<String>,
+}
+
+/// The env locator accepts a path or a URL; this decides which.
+pub fn is_url(v: &str) -> bool {
+    v.starts_with("http://") || v.starts_with("https://")
+}
+
+/// Resolve `page` and return the verified plan bytes.
+pub fn fetch_app(page: &str) -> Result<Vec<u8>, String> {
+    fetch_changed(page, "{}", None).map(|generation| {
+        generation
+            .expect("uncached fetch returns a generation")
+            .plan
+    })
+}
+
+/// A complete development generation returned by the background URL poll.
+pub struct Generation {
+    /// Fingerprint of the declared plan and Rust artifacts.
+    pub identity: String,
+    /// Verified plan bytes.
+    pub plan: Vec<u8>,
+    /// Selected and verified executor pair.
+    pub module: Option<crate::delivery::Module>,
+}
+
+type FetchOutcome = Result<Option<Generation>, String>;
+
+/// The design the dev server's builds run:
+/// `Some(Some(snapshot))` on a 200; `Some(None)` on a 204, the published
+/// plan's own design; `None` when there is no answer to act on (no server
+/// that keeps one, or a failed request).
+pub fn fetch_design(page: &str) -> Option<Option<String>> {
+    let url = join(page, "/__dev/design").ok()?;
+    let mut req = ibex2::stdlib::fetch::Request::get(&url);
+    req.headers.set("accept", "application/json");
+    req.headers.set("cache-control", "no-cache");
+    req.max_body = Some(MAX_PLAN_BYTES);
+    let r = ibex2::transport::default_transport().send(&req).ok()?;
+    match r.status {
+        200 => String::from_utf8(r.body).ok().map(Some),
+        204 => Some(None),
+        _ => None,
+    }
+}
+
+/// One in-flight URL poll owned by the presenter, shared by display and agent loops.
+pub(crate) struct Poller {
+    url: String,
+    compat: String,
+    pub identity: Option<String>,
+    due: std::time::Instant,
+    worker: Option<std::sync::mpsc::Receiver<Tick>>,
+    /// The in-flight tick asked for `/__dev/design`.
+    asked_design: bool,
+    /// The dev server's design snapshot, as last polled, for the presenter
+    /// to apply (a build on it already applies nothing).
+    pub design: Option<String>,
+    /// The build channel, polled on its own worker: a slow
+    /// plan download must not leave the stream unpolled past the server's
+    /// 5 s, which drops it and the pins sent meanwhile.
+    pub link: Option<crate::build_channel::Link>,
+    channel: Option<std::sync::mpsc::Receiver<crate::build_channel::Answer>>,
+    channel_due: std::time::Instant,
+    /// Since when the generation it fetched has waited on requests in flight.
+    pub held_since: Option<std::time::Instant>,
+    /// Woken when a worker's answer lands (the executor's waker), for a
+    /// host that turns only when woken (the Android reader's canvas host).
+    /// Shared with the workers, so one in flight when a reload brings a new
+    /// executor wakes that one.
+    pub waker: std::sync::Arc<std::sync::Mutex<Option<Waker>>>,
+    /// The dev loop's status last said, so a poll says it once, not each tick.
+    said: Option<String>,
+    /// How many poll errors it has said (`say`).
+    pub lines_said: usize,
+}
+
+/// What a worker calls when its answer is in.
+pub(crate) type Waker = std::sync::Arc<dyn Fn() + Send + Sync>;
+
+/// Wake the host through the waker the poller has now.
+fn wake(slot: &std::sync::Mutex<Option<Waker>>) {
+    let waker = slot.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(wake) = waker {
+        wake();
+    }
+}
+
+type Tick = (FetchOutcome, Option<Option<String>>);
+
+/// The pause after a tick before the next: well under the 5 s a polled
+/// build stream lives unpolled.
+const TICK: std::time::Duration = std::time::Duration::from_millis(500);
+
+impl Poller {
+    pub fn new(url: String, compat: String, identity: Option<String>) -> Self {
+        // No channel in a production build, dev plan or not.
+        let link = (is_url(&url) && !exact_runner::delivery::production(&compat))
+            .then(|| crate::build_channel::Link::new(identity.clone()));
+        let now = std::time::Instant::now();
+        Self {
+            url,
+            compat,
+            identity,
+            due: now,
+            worker: None,
+            asked_design: false,
+            design: None,
+            held_since: None,
+            link,
+            channel: None,
+            channel_due: now,
+            waker: Default::default(),
+            said: None,
+            lines_said: 0,
+        }
+    }
+
+    /// Say a poll's `error` on stderr, as `says` lets it: what the Linux
+    /// display and the Android reader do with each (`tick_development`).
+    pub fn say(&mut self, error: &str) {
+        if self.says(error) {
+            self.lines_said += 1;
+            eprintln!("exact url: {error}; keeping the running app");
+        }
+    }
+
+    /// Whether a poll's `error` is to be said: a dev loop's status once,
+    /// until it changes or a poll succeeds; any other error each time.
+    pub fn says(&mut self, error: &str) -> bool {
+        if !is_loop_status(error) {
+            self.said = None;
+            return true;
+        }
+        if self.said.as_deref() == Some(error) {
+            return false;
+        }
+        self.said = Some(error.to_string());
+        true
+    }
+
+    /// How long until this wants polling again: its next tick, or the
+    /// channel's, whichever is first and not already in flight.
+    pub fn due_in(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let tick = self.worker.is_none().then_some(self.due);
+        let channel = (self.link.is_some() && self.channel.is_none()).then_some(self.channel_due);
+        [tick, channel]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|at| at.saturating_duration_since(now))
+    }
+
+    /// A `/__dev/design` answer: a snapshot is kept for the presenter; a
+    /// 204 clears any kept, so one held while a generation waits is not set
+    /// over a newer plan of the same shape; no answer changes nothing.
+    fn keep_design(&mut self, answer: Option<Option<String>>) {
+        if let Some(design) = answer {
+            self.design = design;
+        }
+    }
+
+    /// Take a finished channel tick back and start the next when due,
+    /// whatever the plan worker is doing.
+    fn poll_channel(&mut self) {
+        let Some(link) = self.link.as_mut() else {
+            return;
+        };
+        if let Some(worker) = &self.channel {
+            match worker.try_recv() {
+                Ok(answer) => {
+                    self.channel = None;
+                    // A long poll answered paced itself; another tick waits.
+                    let pause = if answer.held() {
+                        std::time::Duration::ZERO
+                    } else {
+                        TICK
+                    };
+                    link.settle(answer);
+                    self.channel_due = std::time::Instant::now() + pause;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.channel = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            }
+        }
+        if std::time::Instant::now() < self.channel_due {
+            return;
+        }
+        self.channel_due = std::time::Instant::now() + TICK;
+        if let Some(exchange) = link.exchange() {
+            let url = self.url.clone();
+            let (send, receive) = std::sync::mpsc::channel();
+            self.channel = Some(receive);
+            let waker = self.waker.clone();
+            std::thread::spawn(move || {
+                let _ = send.send(exchange.run(&url));
+                wake(&waker);
+            });
+        }
+    }
+
+    pub fn poll(&mut self) -> FetchOutcome {
+        // The channel first: the presenter dispatches a tick's frames
+        // before the generation this hands back (`poll_development`).
+        self.poll_channel();
+        if let Some(worker) = &self.worker {
+            match worker.try_recv() {
+                Ok((outcome, design)) => {
+                    self.worker = None;
+                    if outcome.is_ok() {
+                        self.said = None;
+                    }
+                    // A snapshot asked for and not answered (a failed
+                    // request, a 5xx) is asked for again next tick.
+                    if self.asked_design && design.is_none() {
+                        if let Some(link) = self.link.as_mut() {
+                            link.missed_design();
+                        }
+                    }
+                    self.keep_design(design);
+                    self.due = std::time::Instant::now() + TICK;
+                    return outcome;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.worker = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return Ok(None),
+            }
+        }
+        if self.worker.is_none() && std::time::Instant::now() >= self.due {
+            let url = self.url.clone();
+            let compat = self.compat.clone();
+            let previous = self.identity.clone();
+            // Once the channel is on, live frames come down its poll and
+            // the snapshot is fetched only when asked.
+            let design = self.link.as_mut().is_none_or(|link| link.take_design());
+            self.asked_design = design;
+            let (send, receive) = std::sync::mpsc::channel();
+            self.worker = Some(receive);
+            let waker = self.waker.clone();
+            std::thread::spawn(move || {
+                let changed = fetch_changed(&url, &compat, previous.as_deref());
+                let design = design.then(|| fetch_design(&url)).flatten();
+                let _ = send.send((changed, design));
+                wake(&waker);
+            });
+        }
+        Ok(None)
+    }
+}
+
+/// Whether a fetch's error is a dev loop's status (`loop_status`).
+pub(crate) fn is_loop_status(error: &str) -> bool {
+    error.starts_with(LOOP_PREPARING) || error.starts_with(LOOP_FAILED)
+}
+
+/// A dev loop's status answer read as the error a poll says: `dev loop:
+/// <message>` while its producers start, `dev loop failed to start: <error>`
+/// after their start failed; `None` for any other answer.
+fn loop_status(kind: &str, body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Said {
+        status: String,
+        message: String,
+    }
+    if !kind.contains(DEV_STATUS_TYPE) {
+        return None;
+    }
+    let said: Said = serde_json::from_slice(body).ok()?;
+    let lead = if said.status == "failed" {
+        LOOP_FAILED
+    } else {
+        LOOP_PREPARING
+    };
+    Some(format!("{lead}{}", said.message))
+}
+
+/// Fetch only when the envelope declares a changed plan or module pair.
+pub fn fetch_changed(
+    page: &str,
+    compat: &str,
+    previous: Option<&str>,
+) -> Result<Option<Generation>, String> {
+    let transport = ibex2::transport::default_transport();
+    let get = |url: &str, accept: &str, limit: usize| -> Result<(u16, Vec<u8>, String), String> {
+        let mut req = ibex2::stdlib::fetch::Request::get(url);
+        req.headers.set("accept", accept);
+        req.headers.set("cache-control", "no-cache");
+        // The ceiling for this rung. Every one of them is named, because a
+        // request that forgets gets the transport's 64 MB default — right for
+        // a plan, four hundred times too generous for an envelope.
+        req.max_body = Some(limit);
+        let r = transport.send(&req).map_err(|e| format!("{url}: {e}"))?;
+        let kind = r
+            .headers
+            .get("content-type")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        Ok((r.status, r.body, kind))
+    };
+    let (status, body, kind) = get(
+        page,
+        &format!("{ENVELOPE_TYPE}, text/html;q=0.9"),
+        MAX_PAGE_BYTES,
+    )?;
+    if status != 200 {
+        return Err(loop_status(&kind, &body).unwrap_or_else(|| format!("{page}: HTTP {status}")));
+    }
+    let (envelope, envelope_base) = if body.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{')
+    {
+        (decode_envelope(&body)?, page.to_string())
+    } else {
+        // The link rung: a bounded, parser-free scan of the page's first 16 KB
+        // for the alternate-representation link, resolved against the page URL.
+        // No redirects, so the page URL is the base.
+        let href = envelope_link(&body)
+            .ok_or_else(|| format!("{page} is not an Exact app: no envelope and no link"))?;
+        let url = join(page, &href)?;
+        same_host(page, &url)?;
+        let (status, body, _) = get(&url, ENVELOPE_TYPE, MAX_ENVELOPE_BYTES)?;
+        if status != 200 {
+            return Err(format!("{url}: HTTP {status}"));
+        }
+        (decode_envelope(&body)?, url)
+    };
+    if envelope.exact != 1 {
+        return Err(format!(
+            "envelope version {} is newer than this host",
+            envelope.exact
+        ));
+    }
+    let mut fingerprint = format!("{}:{}", envelope.plan.sha256, envelope.plan.bytes);
+    if let Some(variants) = &envelope.rust {
+        for (name, variant) in variants {
+            fingerprint.push_str(&format!(
+                ":{name}:{}:{}:{}:{}:{:?}",
+                variant.receipt.sha256,
+                variant.receipt.bytes,
+                variant.module.sha256,
+                variant.module.bytes,
+                variant.target
+            ));
+        }
+    }
+    let identity = format!("{:x}", Sha256::digest(fingerprint.as_bytes()));
+    if previous == Some(identity.as_str()) {
+        return Ok(None);
+    }
+    let fetch_card = |card: &PlanCard, limit: usize| -> Result<Vec<u8>, String> {
+        let count = usize::try_from(card.bytes)
+            .map_err(|_| "the envelope's plan byte count is too large".to_string())?;
+        if count > limit {
+            return Err(format!(
+                "the envelope declares a {count}-byte plan, over the {limit}-byte limit"
+            ));
+        }
+        let url = join(&envelope_base, &card.url)?;
+        same_host(page, &url)?;
+        // The envelope's own count is the tighter ceiling: a plan that overruns
+        // what its envelope promised is refused as it arrives, not weighed after.
+        let (status, bytes, _) = get(&url, "application/vnd.exact.plan", count)?;
+        if status != 200 {
+            return Err(format!("{url}: HTTP {status}"));
+        }
+        if bytes.len() != count {
+            return Err(format!(
+                "plan is {} bytes, envelope said {count}; refusing it",
+                bytes.len()
+            ));
+        }
+        let digest = Sha256::digest(&bytes);
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        if hex != card.sha256.to_lowercase() {
+            return Err(format!("plan sha256 mismatch at {url}; refusing it"));
+        }
+        Ok(bytes)
+    };
+    let plan = fetch_card(&envelope.plan, MAX_PLAN_BYTES)?;
+    let module = if let Some(variants) = envelope.rust {
+        let compat: serde_json::Value = serde_json::from_str(compat).map_err(|e| e.to_string())?;
+        let mode = compat["inputs"]["rustMode"].as_str().unwrap_or("off");
+        if variants.keys().any(|k| k != "native" && k != "wasm") {
+            return Err("invalid Rust executor manifest".into());
+        }
+        let variant = variants
+            .get(mode)
+            .ok_or("no Rust replacement matching this binary's executor")?;
+        if mode == "native" && variant.target.as_deref() != compat["target"].as_str() {
+            return Err("Rust replacement target does not match this binary".into());
+        }
+        Some(crate::delivery::Module {
+            receipt: String::from_utf8(fetch_card(&variant.receipt, 1 << 20)?)
+                .map_err(|e| e.to_string())?,
+            bytes: fetch_card(&variant.module, 32 << 20)?,
+        })
+    } else {
+        None
+    };
+    Ok(Some(Generation {
+        identity,
+        plan,
+        module,
+    }))
+}
+
+fn decode_envelope(body: &[u8]) -> Result<Envelope, String> {
+    if body.len() > MAX_ENVELOPE_BYTES {
+        return Err(format!(
+            "envelope exceeded the {MAX_ENVELOPE_BYTES}-byte limit"
+        ));
+    }
+    serde_json::from_slice(body).map_err(|error| format!("invalid Exact envelope: {error}"))
+}
+
+fn envelope_link(html: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(&html[..html.len().min(16384)]);
+    let at = text.find(ENVELOPE_TYPE)?;
+    let open = text[..at].rfind("<link")?;
+    let close = at + text[at..].find('>')?;
+    let tag = &text[open..close];
+    for quote in ['"', '\''] {
+        let needle = format!("href={quote}");
+        if let Some(h) = tag.find(&needle) {
+            let rest = &tag[h + needle.len()..];
+            if let Some(end) = rest.find(quote) {
+                return Some(rest[..end].replace("&amp;", "&"));
+            }
+        }
+    }
+    None
+}
+
+/// `href` against `base` — absolute kept, `/path` from the origin,
+/// `./name` and `name` beside the base's last segment. Enough for the
+/// envelope the build emits; not a general resolver.
+pub(crate) fn join(base: &str, href: &str) -> Result<String, String> {
+    if is_url(href) {
+        return Ok(href.to_string());
+    }
+    let scheme_end = base
+        .find("://")
+        .ok_or_else(|| format!("{base}: not a URL"))?
+        + 3;
+    let origin_end = base[scheme_end..]
+        .find('/')
+        .map_or(base.len(), |i| scheme_end + i);
+    if let Some(rooted) = href.strip_prefix('/') {
+        return Ok(format!("{}/{rooted}", &base[..origin_end]));
+    }
+    let path_end = base.find(['?', '#']).unwrap_or(base.len());
+    let dir_end = base[..path_end]
+        .rfind('/')
+        .map_or(path_end, |i| i.max(origin_end));
+    Ok(format!(
+        "{}/{}",
+        &base[..dir_end.max(origin_end)],
+        href.strip_prefix("./").unwrap_or(href)
+    ))
+}
+
+/// Same-origin only in v1: scheme, host, and effective port
+/// must match the page's. Explicit default ports equal their implicit form.
+fn same_host(page: &str, url: &str) -> Result<(), String> {
+    if origin(page).is_some() && origin(page) == origin(url) {
+        Ok(())
+    } else {
+        Err(format!("refused: {url} is not on {page}"))
+    }
+}
+
+fn origin(url: &str) -> Option<(String, String, u16)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let default = match scheme.as_str() {
+        "http" => 80,
+        "https" => 443,
+        _ => return None,
+    };
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.is_empty() || authority.contains('@') {
+        return None;
+    }
+    let (host, port) = if let Some(after) = authority.strip_prefix('[') {
+        let close = after.find(']')?;
+        let host = &after[..close];
+        let suffix = &after[close + 1..];
+        let port = if suffix.is_empty() {
+            default
+        } else {
+            suffix.strip_prefix(':')?.parse().ok()?
+        };
+        (host, port)
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        (host, port.parse().ok()?)
+    } else {
+        (authority, default)
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some((scheme, host.to_ascii_lowercase(), port))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decode_envelope, fetch_app, fetch_changed, loop_status, same_host, Poller, DEV_STATUS_TYPE,
+        ENVELOPE_TYPE,
+    };
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    /// A dev server that answers and then will not stop — the shape the
+    /// ceilings exist for, since a chunked response declares no length and a
+    /// peer that never sends the terminating chunk never ends. Serves until
+    /// the client hangs up, which is the outcome under test.
+    fn serve_endlessly(reply: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let path = read_request_path(&mut stream);
+                let head = |kind: &str| {
+                    format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nTransfer-Encoding: chunked\r\n\r\n")
+                };
+                let body = match path.as_str() {
+                    // The page names an envelope; the envelope names a plan of
+                    // sixteen bytes. Both are honest and small.
+                    "/" => Some((head("text/html"), format!(
+                        "<!doctype html><link rel=alternate type=\"{ENVELOPE_TYPE}\" href=\"/envelope.json\">"
+                    ))),
+                    "/envelope.json" => Some((head(ENVELOPE_TYPE), format!(
+                        "{{\"exact\":1,\"plan\":{{\"url\":\"/app.plan\",\"sha256\":\"{}\",\"bytes\":16}}}}",
+                        "0".repeat(64)
+                    ))),
+                    _ => None,
+                };
+                match (reply, body) {
+                    // The rung under test lies about its size: whatever it was
+                    // asked for, it sends megabytes.
+                    (endless, _) if endless == path || endless == "*" => {
+                        let _ = stream.write_all(head("application/octet-stream").as_bytes());
+                        let chunk = "x".repeat(8 * 1024);
+                        while stream
+                            .write_all(format!("{:x}\r\n{chunk}\r\n", chunk.len()).as_bytes())
+                            .and_then(|_| stream.flush())
+                            .is_ok()
+                        {}
+                    }
+                    (_, Some((head, text))) => {
+                        let _ = stream.write_all(head.as_bytes());
+                        let _ = stream.write_all(
+                            format!("{:x}\r\n{text}\r\n0\r\n\r\n", text.len()).as_bytes(),
+                        );
+                        let _ = stream.flush();
+                    }
+                    (_, None) => {
+                        let _ = stream
+                            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                    }
+                }
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    fn read_request_path(stream: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).map(|n| n == 1).unwrap_or(false) {
+            head.push(byte[0]);
+            if head.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&head)
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("/")
+            .to_string()
+    }
+
+    /// A loop that answers every page request with `status` and a dev status body.
+    fn serve_status(status: &'static str, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            while let Ok((mut stream, _)) = listener.accept() {
+                let _ = read_request_path(&mut stream);
+                let _ = stream.write_all(format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: {DEV_STATUS_TYPE}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                ).as_bytes());
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    /// A dev loop whose producers start answers its status, read as what it is:
+    /// preparing, or the error its start ended with; anything else is the HTTP
+    /// error it was.
+    #[test]
+    fn a_loops_status_is_read_as_preparing_or_failed() {
+        let preparing = serve_status(
+            "503 Service Unavailable",
+            r#"{"exact":1,"status":"preparing","message":"building the module producer"}"#,
+        );
+        assert_eq!(
+            fetch_changed(&preparing, "{}", None).err().as_deref(),
+            Some("dev loop: building the module producer")
+        );
+        let failed = serve_status(
+            "500 Internal Server Error",
+            r#"{"exact":1,"status":"failed","message":"the resident loop exited 1"}"#,
+        );
+        assert_eq!(
+            fetch_changed(&failed, "{}", None).err().as_deref(),
+            Some("dev loop failed to start: the resident loop exited 1")
+        );
+        assert_eq!(loop_status("text/plain", b"{}"), None);
+    }
+
+    /// Its status is said once however often the host polls, for the Linux
+    /// display and the Android reader alike: both poll through this `Poller`
+    /// and say what `says` lets through (`Presenter::tick_development`); a
+    /// change, or another error first, is said again.
+    #[test]
+    fn a_loops_status_is_said_once_across_polls() {
+        let page = serve_status(
+            "503 Service Unavailable",
+            r#"{"exact":1,"status":"preparing","message":"building the module producer"}"#,
+        );
+        let mut poller = Poller::new(page, "{}".into(), None);
+        let (mut answers, mut said) = (0, Vec::new());
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while answers < 3 && std::time::Instant::now() < end {
+            match poller.poll() {
+                Err(error) => {
+                    answers += 1;
+                    if poller.says(&error) {
+                        said.push(error);
+                    }
+                }
+                Ok(_) => std::thread::sleep(std::time::Duration::from_millis(20)),
+            }
+        }
+        assert_eq!(answers, 3);
+        assert_eq!(said, ["dev loop: building the module producer"]);
+        assert!(
+            poller.says("dev loop: building the GPU tools"),
+            "a new step"
+        );
+        assert!(
+            poller.says("http://127.0.0.1:9/: refused")
+                && poller.says("http://127.0.0.1:9/: refused")
+        );
+        assert!(
+            poller.says("dev loop: building the GPU tools"),
+            "again after another error"
+        );
+    }
+
+    /// The first rung: a page that never ends is refused at the page ceiling
+    /// rather than read into memory and measured afterwards.
+    #[test]
+    fn a_page_that_never_ends_is_refused() {
+        let error = fetch_app(&serve_endlessly("*")).unwrap_err();
+        assert!(error.contains("65536-byte limit"), "unexpected: {error}");
+    }
+
+    /// And the last: a plan is bounded by what its own envelope promised, so
+    /// a server that sends more than it declared is cut off mid-transfer.
+    #[test]
+    fn a_plan_larger_than_its_envelope_is_refused_as_it_arrives() {
+        let error = fetch_app(&serve_endlessly("/app.plan")).unwrap_err();
+        assert!(error.contains("16-byte limit"), "unexpected: {error}");
+    }
+
+    /// A 204 from `/__dev/design` is the published plan's own design: a
+    /// snapshot the poller still holds is dropped, not applied later.
+    #[test]
+    fn a_design_204_clears_a_held_snapshot() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for (reply, connection) in [
+                "HTTP/1.1 200 OK\r\nContent-Length: 7\r\nConnection: close\r\n\r\n{\"s\":1}",
+                "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            ]
+            .into_iter()
+            .zip(listener.incoming())
+            {
+                let mut stream = connection.unwrap();
+                assert_eq!(read_request_path(&mut stream), "/__dev/design");
+                let _ = stream.write_all(reply.as_bytes());
+            }
+        });
+        let mut poller = super::Poller::new(page.clone(), "{}".into(), None);
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design.as_deref(), Some("{\"s\":1}"));
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design, None, "a 204 clears it");
+        poller.design = Some("held".into());
+        poller.keep_design(super::fetch_design(&page));
+        assert_eq!(poller.design.as_deref(), Some("held"), "no answer keeps it");
+    }
+
+    #[test]
+    fn origin_includes_scheme_host_and_effective_port() {
+        assert!(same_host("http://EXAMPLE.test/app", "http://example.test:80/plan").is_ok());
+        assert!(same_host("https://example.test/app", "https://example.test:443/plan").is_ok());
+        assert!(same_host("http://example.test:8771/", "http://example.test:9999/plan").is_err());
+        assert!(same_host(
+            "http://example.test:8771/",
+            "https://example.test:8771/plan"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn envelope_json_is_typed_bounded_and_rejects_duplicates() {
+        let pretty = br#"{
+          "plan": { "kernelSchema": "00", "bytes": 12, "url": "./a\u002eplan", "sha256": "abcd", "formatVersion": 2, "compression": "none" },
+          "exact": 1,
+          "app": { "name": "Example", "id": "com.example", "subtitle": "future" },
+          "assets": [{ "name": "mark.png", "url": "./mark.png" }],
+          "seq": 41,
+          "events": "./__dev",
+          "future": { "enabled": true }
+        }"#;
+        let envelope = decode_envelope(pretty).unwrap();
+        assert_eq!(envelope.plan.url, "./a.plan");
+        assert_eq!(envelope.seq, Some(41));
+        assert_eq!(envelope.events.as_deref(), Some("./__dev"));
+        assert!(decode_envelope(
+            br#"{"exact":1,"exact":1,"plan":{"url":"a","sha256":"b","bytes":1}}"#
+        )
+        .is_err());
+        assert!(decode_envelope(
+            br#"{"exact":1,"plan":{"url":"a","url":"b","sha256":"b","bytes":1}}"#
+        )
+        .is_err());
+        assert!(decode_envelope(
+            br#"{"exact":1,"plan":{"url":"a","sha256":"b","bytes":1},"seq":"new"}"#
+        )
+        .is_err());
+        assert!(decode_envelope(b"not json").is_err());
+        assert!(decode_envelope(&vec![b' '; 64 * 1024 + 1]).is_err());
+    }
+    #[test]
+    fn polling_a_rust_generation_skips_unchanged_artifacts_and_fetches_new_pairs() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering::SeqCst},
+            Arc,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let page = format!("http://{}/", listener.local_addr().unwrap());
+        let revision = Arc::new(AtomicUsize::new(1));
+        let payload_requests = Arc::new(AtomicUsize::new(0));
+        let serving_revision = revision.clone();
+        let serving_payloads = payload_requests.clone();
+        let server = std::thread::spawn(move || {
+            for connection in listener.incoming().take(9) {
+                let mut stream = connection.unwrap();
+                let path = read_request_path(&mut stream);
+                let module =
+                    format!("wasm revision {}", serving_revision.load(SeqCst)).into_bytes();
+                let receipt = br#"{"module":{"file":"app.module.wasm"}}"#.to_vec();
+                let card = |url: &str, bytes: &[u8]| serde_json::json!({"url":url, "bytes":bytes.len(), "sha256":format!("{:x}", sha2::Sha256::digest(bytes))});
+                let body = match path.as_str() {
+                    "/" => serde_json::to_vec(&serde_json::json!({
+                        "exact":1, "plan":card("/app.plan", b"plan"),
+                        "rust":{"wasm":{"receipt":card("/receipt", &receipt),"module":card("/module", &module)}}
+                    })).unwrap(),
+                    "/app.plan" => b"plan".to_vec(),
+                    "/receipt" => receipt,
+                    "/module" => module,
+                    _ => panic!("unexpected path {path}"),
+                };
+                if path != "/" {
+                    serving_payloads.fetch_add(1, SeqCst);
+                }
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .unwrap();
+                stream.write_all(&body).unwrap();
+            }
+        });
+        use sha2::Digest;
+        let compat = r#"{"inputs":{"rustMode":"wasm"}}"#;
+        let first = super::fetch_changed(&page, compat, None).unwrap().unwrap();
+        assert_eq!(first.module.unwrap().bytes, b"wasm revision 1");
+        assert_eq!(payload_requests.load(SeqCst), 3);
+        assert!(super::fetch_changed(&page, compat, Some(&first.identity))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            payload_requests.load(SeqCst),
+            3,
+            "only the envelope is polled when unchanged"
+        );
+        revision.store(2, SeqCst);
+        let next = super::fetch_changed(&page, compat, Some(&first.identity))
+            .unwrap()
+            .unwrap();
+        assert_ne!(next.identity, first.identity);
+        assert_eq!(next.module.unwrap().bytes, b"wasm revision 2");
+        assert_eq!(payload_requests.load(SeqCst), 6);
+        server.join().unwrap();
+    }
+}

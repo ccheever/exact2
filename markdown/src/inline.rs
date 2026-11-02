@@ -1,0 +1,595 @@
+//! The inline pass: emphasis, code, links, images, footnote references.
+//!
+//! One scan over a block's content produces marks (what to draw), the marker
+//! ranges to hide, and the constructs an editing command toggles.
+
+use std::borrow::Cow;
+
+use crate::block::B;
+use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
+
+const NO_CODE: usize = usize::MAX - 1;
+// Beyond this depth a link label stays literal; source text is never discarded.
+const MAX_LABEL_DEPTH: usize = 32;
+
+pub(crate) struct Mark {
+    pub range: B,
+    pub flags: u8,
+    pub href: Option<String>,
+}
+
+/// A marked-up stretch: `outer` includes its markers, `inner` does not.
+pub(crate) struct Construct {
+    pub kind: u8,
+    pub outer: B,
+    pub inner: B,
+    pub href: Option<String>,
+}
+
+#[derive(Default)]
+pub(crate) struct Out {
+    pub marks: Vec<Mark>,
+    /// (marker, the construct that reveals it)
+    pub hidden: Vec<(B, B)>,
+    /// (range, footnote label, the construct that reveals it)
+    pub footnotes: Vec<(B, String)>,
+    pub constructs: Vec<Construct>,
+}
+
+#[derive(Clone, Copy)]
+struct Delim {
+    ch: char,
+    start: usize,
+    len: usize,
+    total: usize,
+    open: bool,
+    close: bool,
+}
+
+#[derive(Default)]
+struct AutolinkEnd {
+    close: usize,
+    last_at: Option<usize>,
+}
+
+struct Scanner<'a> {
+    source: &'a str,
+    /// The content's characters at their byte positions, lines joined by `\n`.
+    cs: Vec<(usize, char)>,
+    end: usize,
+    /// Closing brackets and code runs share slots at their opening character.
+    /// `usize::MAX` is unvisited; `NO_CODE` records a failed code search.
+    closes: Vec<usize>,
+    destinations: Option<Vec<usize>>,
+    out: &'a mut Out,
+}
+
+/// Closing brackets and encountered code openers, skipping escapes and code spans.
+fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
+    let mut closes = vec![usize::MAX; cs.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut i = 0;
+    while i < cs.len() {
+        match cs[i].1 {
+            '\\' => i += 1,
+            '`' => {
+                let len = (i..cs.len()).take_while(|&j| cs[j].1 == '`').count();
+                let close = if closes[i] != usize::MAX {
+                    closes[i]
+                } else {
+                    let (close, other_runs) = find_code(cs, i + len, len, cs.len());
+                    closes[i] = close;
+                    if close == NO_CODE && other_runs {
+                        index_code(cs, &mut closes);
+                    }
+                    close
+                };
+                if close < cs.len() {
+                    i = close + len - 1;
+                } else {
+                    i += len - 1;
+                }
+            }
+            '[' => stack.push(i),
+            ']' => {
+                if let Some(open) = stack.pop() {
+                    closes[open] = i;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    closes
+}
+
+/// The first whole run of this length; backslashes inside code are literal.
+fn find_code(cs: &[(usize, char)], mut i: usize, len: usize, hi: usize) -> (usize, bool) {
+    let mut other_runs = false;
+    while i < hi {
+        if cs[i].1 == '`' {
+            let run = (i..hi).take_while(|&j| cs[j].1 == '`').count();
+            if run == len {
+                return (i, false);
+            }
+            other_runs = true;
+            i += run;
+        } else {
+            i += 1;
+        }
+    }
+    (NO_CODE, other_runs)
+}
+
+/// Only a failed search with later runs pays for an index. Reuse the buffer, and drop
+/// the temporary length map before styling. An escaped first tick leaves the
+/// rest of its run as an opener, but only whole runs can close another run.
+/// The map is a vector by run length: no longer than the text, and no hash.
+fn index_code(cs: &[(usize, char)], closes: &mut [usize]) {
+    let mut next: Vec<usize> = Vec::new();
+    let at = |next: &[usize], len: usize| next.get(len).copied().unwrap_or(NO_CODE);
+    let mut i = cs.len();
+    while i > 0 {
+        if cs[i - 1].1 != '`' {
+            i -= 1;
+            continue;
+        }
+        let end = i;
+        while i > 0 && cs[i - 1].1 == '`' {
+            i -= 1;
+        }
+        let len = end - i;
+        closes[i] = at(&next, len);
+        if len > 1 {
+            closes[i + 1] = at(&next, len - 1);
+        }
+        if next.len() <= len {
+            next.resize(len + 1, NO_CODE);
+        }
+        next[len] = i;
+    }
+}
+
+/// Scans one block's content ranges as a single run of inline text.
+pub(crate) fn scan(source: &str, content: &[B], out: &mut Out) {
+    let mut cs = Vec::new();
+    for (n, range) in content.iter().enumerate() {
+        if n > 0 {
+            cs.push((content[n - 1].end, '\n'));
+        }
+        cs.extend(
+            source[range.clone()]
+                .char_indices()
+                .map(|(i, c)| (range.start + i, c)),
+        );
+    }
+    let Some(end) = content.last().map(|r| r.end) else {
+        return;
+    };
+    let hi = cs.len();
+    let closes = match_brackets(&cs);
+    Scanner {
+        source,
+        cs,
+        end,
+        closes,
+        destinations: None,
+        out,
+    }
+    .scan(0, hi, 0);
+}
+
+fn punctuation(c: char) -> bool {
+    c.is_ascii_punctuation() || (!c.is_alphanumeric() && !c.is_whitespace() && !c.is_ascii())
+}
+
+pub(crate) fn angle_destination(
+    cs: &[(usize, char)],
+    start: usize,
+    hi: usize,
+) -> Option<(usize, B)> {
+    // CommonMark 0.31.2 §6.3: parentheses and spaces inside <…> are literal.
+    // Stopping at the next unescaped '<' also bounds failed scans across links.
+    let mut end = start + 1;
+    while end < hi {
+        match cs[end].1 {
+            '<' | '\n' | '\r' => return None,
+            '>' => break,
+            '\\' if end + 1 < hi && cs[end + 1].1.is_ascii_punctuation() => end += 1,
+            _ => {}
+        }
+        end += 1;
+    }
+    if end == hi {
+        return None;
+    }
+    let target = cs[start + 1].0..cs[end].0;
+    let mut close = end + 1;
+    while close < hi && matches!(cs[close].1, ' ' | '\t' | '\n' | '\r') {
+        close += 1;
+    }
+    if close < hi && close > end + 1 && cs[close].1 != ')' {
+        let delimiter = match cs[close].1 {
+            '\'' => '\'',
+            '"' => '"',
+            '(' => ')',
+            _ => return None,
+        };
+        close += 1;
+        while close < hi && cs[close].1 != delimiter {
+            match cs[close].1 {
+                '(' if delimiter == ')' => return None,
+                '\\' if close + 1 < hi && cs[close + 1].1.is_ascii_punctuation() => {
+                    close += 1;
+                }
+                _ => {}
+            }
+            close += 1;
+        }
+        if close == hi {
+            return None;
+        }
+        close += 1;
+        while close < hi && matches!(cs[close].1, ' ' | '\t' | '\n' | '\r') {
+            close += 1;
+        }
+    }
+    (close < hi && cs[close].1 == ')').then_some((close, target))
+}
+
+pub(crate) fn decode_destination(target: &str) -> Cow<'_, str> {
+    if !target.contains('\\') {
+        return Cow::Borrowed(target);
+    }
+    let mut decoded = String::with_capacity(target.len());
+    let mut chars = target.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek().is_some_and(|c| c.is_ascii_punctuation()) {
+            decoded.push(chars.next().unwrap());
+        } else {
+            decoded.push(c);
+        }
+    }
+    Cow::Owned(decoded)
+}
+
+impl Scanner<'_> {
+    fn pos(&self, i: usize) -> usize {
+        self.cs.get(i).map_or(self.end, |c| c.0)
+    }
+
+    fn ch(&self, i: usize) -> char {
+        self.cs[i].1
+    }
+
+    fn run(&self, i: usize, hi: usize) -> usize {
+        let c = self.ch(i);
+        (i..hi).take_while(|&j| self.ch(j) == c).count()
+    }
+
+    fn construct(&mut self, kind: u8, outer: B, inner: B, href: Option<String>) {
+        self.out
+            .hidden
+            .push((outer.start..inner.start, outer.clone()));
+        self.out.hidden.push((inner.end..outer.end, outer.clone()));
+        self.out.marks.push(Mark {
+            range: inner.clone(),
+            flags: kind,
+            href: href.clone(),
+        });
+        self.out.constructs.push(Construct {
+            kind,
+            outer,
+            inner,
+            href,
+        });
+    }
+
+    fn scan(&mut self, lo: usize, hi: usize, depth: usize) {
+        if depth >= MAX_LABEL_DEPTH {
+            return;
+        }
+        let mut delims: Vec<Delim> = Vec::new();
+        let mut autolink_end = AutolinkEnd::default();
+        let mut i = lo;
+        while i < hi {
+            let c = self.ch(i);
+            let next = match c {
+                '\\' if i + 1 < hi && self.ch(i + 1).is_ascii_punctuation() => {
+                    self.out
+                        .hidden
+                        .push((self.pos(i)..self.pos(i + 1), self.pos(i)..self.pos(i + 2)));
+                    Some(i + 2)
+                }
+                '`' => self.code(i, hi),
+                '<' => self.autolink(i, hi, &mut autolink_end),
+                '!' if i + 1 < hi && self.ch(i + 1) == '[' => self.bracket(i + 1, hi, true, depth),
+                '[' => self.bracket(i, hi, false, depth),
+                'h' if i == lo || self.ch(i - 1).is_whitespace() || self.ch(i - 1) == '(' => {
+                    self.bare_url(i, hi)
+                }
+                '*' | '_' | '~' => {
+                    let len = self.run(i, hi);
+                    if c != '~' || len == 2 {
+                        delims.push(self.delimiter(i, len, lo, hi));
+                    }
+                    Some(i + len)
+                }
+                _ => None,
+            };
+            i = next.unwrap_or(i + 1);
+        }
+        self.emphasis(delims);
+    }
+
+    fn code(&mut self, i: usize, hi: usize) -> Option<usize> {
+        let len = self.run(i, hi);
+        if self.closes[i] == usize::MAX {
+            // URLs and link targets can skip an opener seen by the bracket
+            // pass, leaving its closer to open code here instead.
+            let (close, other_runs) = find_code(&self.cs, i + len, len, hi);
+            self.closes[i] = close;
+            if close == NO_CODE && other_runs {
+                index_code(&self.cs, &mut self.closes);
+            }
+        }
+        let j = self.closes[i];
+        if j < hi && len <= hi - j {
+            let outer = self.pos(i)..self.pos(j + len);
+            self.construct(CODE, outer, self.pos(i + len)..self.pos(j), None);
+            return Some(j + len);
+        }
+        Some(i + len)
+    }
+
+    fn autolink(&mut self, i: usize, hi: usize, end: &mut AutolinkEnd) -> Option<usize> {
+        // Rejected starts before this boundary share the same terminator and
+        // last @. Keep this cursor local to each scan, including link labels.
+        if end.close <= i {
+            end.close = i + 1;
+            end.last_at = None;
+            while end.close < hi {
+                let c = self.ch(end.close);
+                if c == '>' || c.is_whitespace() {
+                    break;
+                }
+                if c == '@' {
+                    end.last_at = Some(end.close);
+                }
+                end.close += 1;
+            }
+        }
+        let close = end.close;
+        if close == hi || self.ch(close) != '>' || close == i + 1 {
+            return None;
+        }
+        let target = &self.source[self.pos(i + 1)..self.pos(close)];
+        // An invalid scheme prefix ends the search before a later '<' can
+        // cause the same suffix to be searched again.
+        let scheme = target
+            .bytes()
+            .position(|c| !c.is_ascii_alphanumeric() && !b"+.-".contains(&c))
+            .is_some_and(|colon| {
+                target.as_bytes()[colon] == b':' && colon >= 2 && colon + 1 < target.len()
+            });
+        let href = if scheme {
+            target.to_string()
+        } else if end.last_at.is_some_and(|at| at > i)
+            && !target.starts_with('@')
+            && !target.ends_with('@')
+        {
+            format!("mailto:{target}")
+        } else {
+            return None;
+        };
+        let outer = self.pos(i)..self.pos(close + 1);
+        self.construct(LINK, outer, self.pos(i + 1)..self.pos(close), Some(href));
+        Some(close + 1)
+    }
+
+    fn bare_url(&mut self, i: usize, hi: usize) -> Option<usize> {
+        let tail = &self.source[self.pos(i)..];
+        let scheme = if tail.starts_with("https://") {
+            8
+        } else if tail.starts_with("http://") {
+            7
+        } else {
+            return None;
+        };
+        let mut j = i;
+        while j < hi && !self.ch(j).is_whitespace() && !matches!(self.ch(j), '<' | '>') {
+            j += 1;
+        }
+        let mut open = self.cs[i..j].iter().filter(|c| c.1 == '(').count();
+        let mut shut = self.cs[i..j].iter().filter(|c| c.1 == ')').count();
+        while j > i + scheme {
+            let last = self.ch(j - 1);
+            if matches!(
+                last,
+                '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '"' | '*' | '_' | '~'
+            ) || (last == ')' && shut > open)
+            {
+                j -= 1;
+                match last {
+                    ')' => shut -= 1,
+                    '(' => open -= 1,
+                    _ => {}
+                }
+            } else {
+                break;
+            }
+        }
+        if j <= i + scheme {
+            return None;
+        }
+        let range = self.pos(i)..self.pos(j);
+        let href = self.source[range.clone()].to_string();
+        self.out.marks.push(Mark {
+            range,
+            flags: LINK,
+            href: Some(href),
+        });
+        Some(j)
+    }
+
+    /// `[label](target)`, `![alt](src)` or `[^label]`, from the `[` at `i`.
+    fn bracket(&mut self, i: usize, hi: usize, image: bool, depth: usize) -> Option<usize> {
+        let j = self.closes[i];
+        if j >= hi {
+            return None;
+        }
+        let linked = j + 1 < hi && self.ch(j + 1) == '(';
+        if !image && !linked && j > i + 2 && self.ch(i + 1) == '^' {
+            let label = &self.source[self.pos(i + 2)..self.pos(j)];
+            if !label.contains(char::is_whitespace) {
+                self.out
+                    .footnotes
+                    .push((self.pos(i)..self.pos(j + 1), label.to_string()));
+                return Some(j + 1);
+            }
+        }
+        if !linked {
+            return None;
+        }
+        let mut start = j + 2;
+        while start < hi && matches!(self.ch(start), ' ' | '\t' | '\n' | '\r') {
+            start += 1;
+        }
+        let (k, href) = if start < hi && self.ch(start) == '<' {
+            let (k, target) = angle_destination(&self.cs, start, hi)?;
+            (k, &self.source[target])
+        } else {
+            let k = self.destination_end(j + 1, hi)?;
+            let target = self.source[self.pos(j + 2)..self.pos(k)].trim();
+            (k, target.split_whitespace().next().unwrap_or(""))
+        };
+        let href = decode_destination(href).into_owned();
+        let start = if image { i - 1 } else { i };
+        if !image {
+            self.scan(i + 1, j, depth + 1);
+        }
+        let outer = self.pos(start)..self.pos(k + 1);
+        self.construct(
+            if image { IMAGE } else { LINK },
+            outer,
+            self.pos(i + 1)..self.pos(j),
+            Some(href),
+        );
+        Some(k + 1)
+    }
+
+    fn destination_end(&mut self, open: usize, hi: usize) -> Option<usize> {
+        // Index raw parentheses once. Code ticks are literal in destinations;
+        // escaped parentheses do not balance. Failed links must not rescan the suffix.
+        let destinations = self.destinations.get_or_insert_with(|| {
+            let mut ends = vec![usize::MAX; self.cs.len()];
+            let mut opens = Vec::new();
+            let mut at = 0;
+            while at < self.cs.len() {
+                match self.cs[at].1 {
+                    '\\' => at += 1,
+                    '(' => opens.push(at),
+                    ')' => {
+                        if let Some(open) = opens.pop() {
+                            ends[open] = at;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
+            }
+            ends
+        });
+        let close = destinations[open];
+        (close < hi).then_some(close)
+    }
+
+    fn delimiter(&self, i: usize, len: usize, lo: usize, hi: usize) -> Delim {
+        let c = self.ch(i);
+        let before = if i > lo { self.ch(i - 1) } else { ' ' };
+        let after = if i + len < hi { self.ch(i + len) } else { ' ' };
+        let left = !after.is_whitespace()
+            && (!punctuation(after) || before.is_whitespace() || punctuation(before));
+        let right = !before.is_whitespace()
+            && (!punctuation(before) || after.is_whitespace() || punctuation(after));
+        let (open, close) = if c == '_' {
+            (
+                left && (!right || punctuation(before)),
+                right && (!left || punctuation(after)),
+            )
+        } else {
+            (left, right)
+        };
+        Delim {
+            ch: c,
+            start: i,
+            len,
+            total: len,
+            open,
+            close,
+        }
+    }
+
+    /// CommonMark's delimiter algorithm: each closer takes its nearest opener.
+    /// CommonMark's `openers_bottom`: once a closer of this shape finds no
+    /// opener, no later closer of the same shape searches below it.
+    fn emphasis(&mut self, mut d: Vec<Delim>) {
+        let mut active = 0;
+        let shape = |c: &Delim| {
+            (match c.ch {
+                '*' => 0,
+                '_' => 1,
+                _ => 2,
+            }) * 6
+                + usize::from(c.open) * 3
+                + c.total % 3
+        };
+        let mut bottoms = [0usize; 18];
+        // Processed delimiters occupy a compact prefix. The unread tail stays
+        // in place; a match retires intervening entries by shortening the prefix.
+        for read in 0..d.len() {
+            d[active] = d[read];
+            loop {
+                let ci = active;
+                if !d[ci].close || d[ci].len == 0 {
+                    break;
+                }
+                let bottom = bottoms[shape(&d[ci])];
+                let found = (bottom..ci).rev().find(|&oi| {
+                    let (o, c) = (&d[oi], &d[ci]);
+                    let thirds = (o.open && o.close || c.open && c.close)
+                        && (o.total + c.total) % 3 == 0
+                        && !(o.total % 3 == 0 && c.total % 3 == 0);
+                    o.ch == c.ch && o.open && o.len > 0 && !thirds
+                });
+                let Some(oi) = found else {
+                    bottoms[shape(&d[ci])] = ci;
+                    break;
+                };
+                let take = if d[oi].len >= 2 && d[ci].len >= 2 {
+                    2
+                } else {
+                    1
+                };
+                let kind = match (d[ci].ch, take) {
+                    ('~', _) => STRIKE,
+                    (_, 2) => BOLD,
+                    _ => ITALIC,
+                };
+                let open_end = d[oi].start + d[oi].len;
+                let close_start = d[ci].start;
+                let outer = self.pos(open_end - take)..self.pos(close_start + take);
+                self.construct(kind, outer, self.pos(open_end)..self.pos(close_start), None);
+                d[oi].len -= take;
+                d[ci].start += take;
+                d[ci].len -= take;
+                active = oi + usize::from(d[oi].len != 0);
+                d[active] = d[ci];
+                for b in &mut bottoms {
+                    *b = (*b).min(active);
+                }
+            }
+            active += 1;
+        }
+    }
+}

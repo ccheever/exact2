@@ -1,0 +1,43 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Recorder",
+  "short_name": "Recorder",
+  "id": "com.exact.recorder",
+  "start_url": "/",
+  "display": "standalone",
+  "audio_session": "playback",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "background_color_dark": "#000000",
+  "app": {
+    "id": "com.exact.recorder",
+    "name": "Recorder"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 420,
+        "height": 720,
+        "minWidth": 320,
+        "minHeight": 480
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

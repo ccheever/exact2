@@ -1,0 +1,62 @@
+//! Update Lab sources, composed through the shared language-independent data seam.
+//! Each language owns one fixed source.
+mod probe;
+#[cfg(test)]
+mod tests;
+
+pub use exact_data::Mixed as Lab;
+pub use exact_data::Placed;
+use exact_plan::Value;
+pub use exact_runner::Placement;
+use exact_runner::{DataError, DataSource};
+
+/// The source names the Rust half owns: the composer's list and the bake's.
+pub const RUST_SOURCES: &[&str] = &["rustProbe", "rustExecutor", "rustConstants"];
+
+/// The independently compiled Rust experiment. Its implementation stays in probe.rs.
+#[derive(Default)]
+pub struct Probe;
+
+impl DataSource for Probe {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "rustProbe" => probe::probe(args),
+            // A resource only Rust owns: its first-frame value bakes through
+            // Rust, with no TypeScript placeholder.
+            "rustConstants" => Ok(Value::record(vec![
+                Value::str(probe::VERSION),
+                Value::Number(probe::MULTIPLIER),
+            ])),
+            "rustExecutor" => Ok(Value::record(vec![Value::str(
+                if cfg!(target_arch = "wasm32") {
+                    "Wasm"
+                } else {
+                    "Native"
+                },
+            )])),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+
+    fn app_id(&self) -> &str {
+        "com.exact.updatelab"
+    }
+}
+
+/// The app declares ownership without executing either source to discover it.
+/// The host explicitly retains its embedded zero-state probe when Rust updates
+/// are disabled; the shared composer never assumes `Default` preserves state.
+pub fn compose<J: DataSource, R: DataSource>(
+    javascript: J,
+    rust: R,
+    rust_updates: bool,
+    retain_rust: fn(&R) -> Result<R, DataError>,
+) -> Lab<J, R> {
+    let mixed = Lab::new(javascript, rust, &["typescriptProbe"], RUST_SOURCES)
+        .expect("Update Lab executors share an identity and distinct sources");
+    if rust_updates {
+        mixed
+    } else {
+        mixed.with_embedded_rust(retain_rust)
+    }
+}

@@ -1,0 +1,509 @@
+use super::*;
+use crate::{
+    wire::codec::{Reader, Writer},
+    DecodeError, StyleId, StyleMask, StyleProps, StyleValue,
+};
+
+fn parse(css: &str) -> Gradient {
+    BackgroundImage::check(css)
+        .unwrap_or_else(|e| panic!("{css}: {e}"))
+        .gradient()
+        .cloned()
+        .unwrap()
+}
+
+fn close(a: (f32, f32), b: (f32, f32)) -> bool {
+    (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
+}
+
+#[test]
+fn the_css_grammar_and_its_canonical_form() {
+    for (css, canonical) in [
+        ("none", "none"),
+        (" NONE ", "none"),
+        (
+            "linear-gradient(#000, #fff)",
+            "linear-gradient(180deg, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "linear-gradient(to right, transparent, #fff 40%)",
+            "linear-gradient(90deg, #00000000 0%, #ffffffff 40%)",
+        ),
+        (
+            "linear-gradient(0.25turn, rgb(255 0 0), #00f)",
+            "linear-gradient(90deg, #ff0000ff 0%, #0000ffff 100%)",
+        ),
+        (
+            "linear-gradient(to left top, #000, #fff)",
+            "linear-gradient(to top left, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "linear-gradient(transparent, light-dark(#fff, #000))",
+            "linear-gradient(180deg, #00000000 0%, light-dark(#ffffffff, #000000ff) 100%)",
+        ),
+        (
+            "radial-gradient(#000, #fff)",
+            "radial-gradient(ellipse farthest-corner at 50% 50%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(circle at top left, #000, #fff)",
+            "radial-gradient(circle farthest-corner at 0% 0%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(closest-side circle at 10px 30%, #000, #fff)",
+            "radial-gradient(circle closest-side at 10px 30%, #000000ff 0%, #ffffffff 100%)",
+        ),
+        (
+            "radial-gradient(at bottom, #000 0% 50%, #fff)",
+            "radial-gradient(ellipse farthest-corner at 50% 100%, #000000ff 0%, #000000ff 50%, #ffffffff 100%)",
+        ),
+    ] {
+        let parsed = BackgroundImage::check(css).unwrap_or_else(|e| panic!("{css}: {e}"));
+        assert_eq!(parsed.css(), canonical, "{css}");
+        assert_eq!(BackgroundImage::parse(&parsed.css()), Some(parsed), "{css}");
+    }
+}
+
+#[test]
+fn stop_positions_follow_the_css_fix_up() {
+    let at = |css: &str| parse(css).stops.iter().map(|s| s.at).collect::<Vec<_>>();
+    assert_eq!(
+        at("linear-gradient(#000, #111, #222, #333)"),
+        [0.0, 100.0 / 3.0, 200.0 / 3.0, 100.0]
+    );
+    assert_eq!(
+        at("linear-gradient(#000 20%, #111, #222 80%)"),
+        [20.0, 50.0, 80.0]
+    );
+    // A position before an earlier one moves up to it: a hard stop.
+    assert_eq!(
+        at("linear-gradient(#000 60%, #111 30%, #222)"),
+        [60.0, 60.0, 100.0]
+    );
+    let round = BackgroundImage::parse("linear-gradient(#000, #111, #222)").unwrap();
+    assert_eq!(BackgroundImage::parse(&round.css()), Some(round));
+}
+
+#[test]
+fn what_is_not_drawn_is_refused_by_name() {
+    for (css, says) in [
+        (
+            "repeating-radial-gradient(#000, #fff 10%)",
+            "repeating-radial-gradient",
+        ),
+        ("url(a.png)", "image as a background"),
+        (
+            "linear-gradient(#000, #fff), linear-gradient(#fff, #000), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff)",
+            "at most four",
+        ),
+        ("conic-gradient(from up, #000, #fff)", "`from` takes an angle"),
+        ("conic-gradient(#000 10px, #fff)", "percentage or an angle"),
+        ("linear-gradient(#000, 30%, #fff)", "colour hints"),
+        ("linear-gradient(#000 10em, #fff)", "colour"),
+        ("linear-gradient(#000 -10%, #fff 120%)", "0% to 100%"),
+        ("linear-gradient(#000)", "at least two"),
+        ("linear-gradient(red, blurple)", "stop's colour"),
+        ("linear-gradient(reddish, blue)", "stop's colour"),
+        ("linear-gradient(to middle, #000, #fff)", "side or corner"),
+        (
+            "radial-gradient(circle 20px, #000, #fff)",
+            "explicit radial size",
+        ),
+        (
+            "radial-gradient(at right 10px top 5px, #000, #fff)",
+            "three or four",
+        ),
+        ("linear-gradient(#000, #fff", "expected none"),
+        ("blur(2px)", "expected none"),
+    ] {
+        let why = BackgroundImage::check(css).unwrap_err();
+        assert!(why.contains(says), "{css}: {why}");
+        assert_eq!(BackgroundImage::parse(css), None);
+    }
+    let many = (0..65).map(|_| "#000").collect::<Vec<_>>().join(", ");
+    assert!(BackgroundImage::check(&format!("linear-gradient({many})")).is_err());
+    // What a computed value's own text already names.
+    for (css, says) in [
+        (
+            "repeating-linear-gradient(0deg,  0 1px, transparent 1px)",
+            None,
+        ),
+        (
+            "linear-gradient(#000, #fff), url( )",
+            Some("image as a background"),
+        ),
+        (
+            "REPEATING-RADIAL-GRADIENT(#000,  )",
+            Some("repeating-radial"),
+        ),
+        ("linear-gradient(#000, #fff)", None),
+        ("linear-gradient(#000, a-url(x))", None),
+    ] {
+        assert_eq!(
+            refused_function(css).map(|why| why.contains(says.unwrap_or("-"))),
+            says.map(|_| true),
+            "{css}"
+        );
+    }
+}
+
+#[test]
+fn a_linear_line_spans_the_box_as_css_draws_it() {
+    let line = |css: &str, w: f32, h: f32| match parse(css).geometry(w, h) {
+        Geometry::Linear { start, end } => (start, end),
+        other => panic!("{other:?}"),
+    };
+    let (s, e) = line("linear-gradient(#000, #fff)", 200.0, 100.0);
+    assert!(
+        close(s, (100.0, 0.0)) && close(e, (100.0, 100.0)),
+        "{s:?} {e:?}"
+    );
+    let (s, e) = line("linear-gradient(90deg, #000, #fff)", 200.0, 100.0);
+    assert!(
+        close(s, (0.0, 50.0)) && close(e, (200.0, 50.0)),
+        "{s:?} {e:?}"
+    );
+    // 45° on a square: the line is the diagonal, corner to corner.
+    let (s, e) = line("linear-gradient(45deg, #000, #fff)", 100.0, 100.0);
+    assert!(
+        close(s, (0.0, 100.0)) && close(e, (100.0, 0.0)),
+        "{s:?} {e:?}"
+    );
+    // `to top right` on a 200×100 box: perpendicular to the other diagonal,
+    // so the 50% line passes through the top-left and bottom-right corners.
+    let (s, e) = line("linear-gradient(to top right, #000, #fff)", 200.0, 100.0);
+    let (dx, dy) = (e.0 - s.0, e.1 - s.1);
+    assert!((dx * 200.0 + dy * 100.0).abs() < 1e-2, "{s:?} {e:?}");
+    assert!(dx > 0.0 && dy < 0.0);
+    // The ends' perpendiculars meet the corners: bottom-left projects to 0.
+    let t = |(x, y): (f32, f32)| ((x - s.0) * dx + (y - s.1) * dy) / (dx * dx + dy * dy);
+    assert!(t((0.0, 100.0)).abs() < 1e-4 && (t((200.0, 0.0)) - 1.0).abs() < 1e-4);
+}
+
+#[test]
+fn a_radial_extent_is_measured_from_its_centre() {
+    let ellipse = |css: &str| match parse(css).geometry(200.0, 100.0) {
+        Geometry::Radial { center, radii } => (center, radii),
+        other => panic!("{other:?}"),
+    };
+    let r2 = std::f32::consts::SQRT_2;
+    let (c, r) = ellipse("radial-gradient(#000, #fff)");
+    assert!(
+        close(c, (100.0, 50.0)) && close(r, (100.0 * r2, 50.0 * r2)),
+        "{r:?}"
+    );
+    let (_, r) = ellipse("radial-gradient(closest-side, #000, #fff)");
+    assert!(close(r, (100.0, 50.0)), "{r:?}");
+    let (_, r) = ellipse("radial-gradient(circle closest-side, #000, #fff)");
+    assert!(close(r, (50.0, 50.0)), "{r:?}");
+    let (c, r) = ellipse("radial-gradient(circle farthest-corner at 0 0, #000, #fff)");
+    let far = 200f32.hypot(100.0);
+    assert!(close(c, (0.0, 0.0)) && close(r, (far, far)), "{r:?}");
+    let (c, r) = ellipse("radial-gradient(circle farthest-side at 25% 10px, #000, #fff)");
+    assert!(
+        close(c, (50.0, 10.0)) && close(r, (150.0, 150.0)),
+        "{c:?} {r:?}"
+    );
+}
+
+#[test]
+fn transparent_takes_its_neighbours_hue_on_each_side() {
+    let white = Color::rgba(255, 255, 255, 255);
+    let red = Color::rgba(255, 0, 0, 255);
+    let ramp = premultiplied_ramp(&[(0.0, Color::TRANSPARENT), (1.0, white)]);
+    assert_eq!(ramp, [(0.0, Color::rgba(255, 255, 255, 0)), (1.0, white)]);
+    // In the middle, one position, two hues: red's side, then white's.
+    let ramp = premultiplied_ramp(&[(0.0, red), (0.5, Color::TRANSPARENT), (1.0, white)]);
+    assert_eq!(
+        ramp,
+        [
+            (0.0, red),
+            (0.5, Color::rgba(255, 0, 0, 0)),
+            (0.5, Color::rgba(255, 255, 255, 0)),
+            (1.0, white)
+        ]
+    );
+    // Two partial alphas of different hues are sampled premultiplied: the
+    // mix leans to the more opaque end, never to grey.
+    let half_red = Color::rgba(255, 0, 0, 64);
+    let blue = Color::rgba(0, 0, 255, 255);
+    let ramp = premultiplied_ramp(&[(0.0, half_red), (1.0, blue)]);
+    assert_eq!(ramp.len(), 9);
+    let (at, mid) = ramp[4];
+    assert_eq!(at, 0.5);
+    // premultiplied: r = 255*64*.5 / 159.5 ≈ 51, b = 255*255*.5 / 159.5 ≈ 204
+    assert_eq!((mid.r(), mid.g(), mid.b(), mid.a()), (51, 0, 204, 160));
+}
+
+#[test]
+fn scheme_aware_stops_resolve_per_appearance() {
+    let g = parse("linear-gradient(light-dark(#fff, #000), transparent)");
+    assert!(g.is_scheme_aware());
+    assert_eq!(g.resolved(false)[0], (0.0, Color::WHITE));
+    assert_eq!(g.resolved(true)[0], (0.0, Color::BLACK));
+    assert!(!parse("linear-gradient(#fff, #000)").is_scheme_aware());
+}
+
+#[test]
+fn resolved_stops_run_from_zero_to_one() {
+    let red = Color::rgba(255, 0, 0, 255);
+    let blue = Color::rgba(0, 0, 255, 255);
+    assert_eq!(
+        parse("linear-gradient(90deg, #f00 50%, #00f 50%)").resolved(false),
+        [(0.0, red), (0.5, red), (0.5, blue), (1.0, blue)]
+    );
+}
+
+#[test]
+fn generated_patch_codec_round_trips_and_refuses_bad_wire_data() {
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::BackgroundImage,
+            &StyleValue::Text(
+                "linear-gradient(to top, light-dark(#fff, #000), transparent 30%)".into(),
+            ),
+        )
+        .unwrap();
+    let mut bytes = Writer::new();
+    style.encode_patch(&mut bytes);
+    assert_eq!(
+        StyleProps::decode_patch(&mut Reader::new(bytes.as_slice())).unwrap(),
+        style
+    );
+    assert!(!StyleId::BackgroundImage.affects_layout());
+    let mut bad = Writer::new();
+    bad.style_mask(StyleMask::of(StyleId::BackgroundImage));
+    bad.style_mask(StyleMask::EMPTY);
+    bad.string("repeating-conic-gradient(#000, #fff)");
+    assert_eq!(
+        StyleProps::decode_patch(&mut Reader::new(bad.as_slice())),
+        Err(DecodeError::BadBackgroundImage)
+    );
+}
+
+/// `conic-gradient()` from an angle at a position, stops in
+/// percentages or angles; and up to four layers, the first on top.
+#[test]
+fn conic_gradients_and_layers_parse_and_round_trip() {
+    let image = BackgroundImage::check(
+        "conic-gradient(from 90deg at 25% 10px, #f00, #00f 90deg, #0f0 0.5turn), linear-gradient(#000, #fff)",
+    )
+    .unwrap();
+    assert_eq!(image.layers().len(), 2);
+    let conic = &image.layers()[0];
+    assert_eq!(
+        conic.kind,
+        GradientKind::Conic {
+            from: 90.0,
+            at: [Length::Percent(25.0), Length::Px(10.0)]
+        }
+    );
+    assert_eq!(
+        conic.stops.iter().map(|s| s.at).collect::<Vec<_>>(),
+        [0.0, 25.0, 50.0]
+    );
+    assert_eq!(
+        image.css(),
+        "conic-gradient(from 90deg at 25% 10px, #ff0000ff 0%, #0000ffff 25%, #00ff00ff 50%), linear-gradient(180deg, #000000ff 0%, #ffffffff 100%)"
+    );
+    assert_eq!(BackgroundImage::check(&image.css()).unwrap(), image);
+    assert_eq!(
+        conic.geometry(200.0, 100.0),
+        Geometry::Conic {
+            center: (50.0, 10.0),
+            from: 90.0
+        }
+    );
+    let plain = BackgroundImage::check("conic-gradient(#000, #fff)").unwrap();
+    assert_eq!(
+        plain.gradient().unwrap().kind,
+        GradientKind::Conic {
+            from: 0.0,
+            at: [Length::Percent(50.0); 2]
+        }
+    );
+    assert!(BackgroundImage::check_mask(
+        "linear-gradient(#000, #fff), linear-gradient(#fff, #000)"
+    )
+    .is_err());
+    assert!(BackgroundImage::check_mask("conic-gradient(#000, #fff)").is_ok());
+}
+
+#[test]
+fn a_gradient_interpolates_in_the_space_css_says() {
+    let g = |css: &str| {
+        BackgroundImage::check(css)
+            .unwrap()
+            .gradient()
+            .unwrap()
+            .clone()
+    };
+    // Legacy colours: unsampled.
+    let legacy = g("linear-gradient(#ff0000, #0000ff)");
+    assert_eq!(legacy.interpolation(false), None);
+    assert_eq!(legacy.resolved(false).len(), 2);
+    let written = g("linear-gradient(to right in oklch longer hue, red, blue)");
+    assert_eq!(
+        written.css(),
+        "linear-gradient(90deg in oklch longer hue, #ff0000ff 0%, #0000ffff 100%)"
+    );
+    assert_eq!(
+        BackgroundImage::check(&written.css())
+            .unwrap()
+            .gradient()
+            .unwrap(),
+        &written,
+        "the text round-trips"
+    );
+    let alone = g("radial-gradient(in display-p3, red, blue)");
+    assert_eq!(alone.css(), "radial-gradient(ellipse farthest-corner at 50% 50% in display-p3, #ff0000ff 0%, #0000ffff 100%)");
+    // A modern stop: Oklab, sampled, unclipped.
+    let wide = g("linear-gradient(color(display-p3 1 0 0), color(display-p3 0 0 1))");
+    assert_eq!(
+        wide.interpolation(false),
+        Some(exact_color::Interpolation::OKLAB)
+    );
+    let ramp = wide.interpolated(false).unwrap();
+    assert_eq!(ramp.len(), 17);
+    assert!(
+        ramp[0].1[0] > 1.0,
+        "P3 red is outside sRGB: {:?}",
+        ramp[0].1
+    );
+    // Oklab's midpoint of red and blue is lighter than sRGB's.
+    let mid_ok = g("linear-gradient(in oklab, red, blue)").resolved(false)[8].1;
+    let mid_srgb = g("linear-gradient(in srgb, red, blue)").resolved(false)[8].1;
+    let lum = |c: Color| c.r() as u32 + c.g() as u32 + c.b() as u32;
+    assert!(lum(mid_ok) > lum(mid_srgb), "{mid_ok:?} vs {mid_srgb:?}");
+    for (css, says) in [
+        (
+            "linear-gradient(in cmyk, red, blue)",
+            "`in` names a color space",
+        ),
+        (
+            "linear-gradient(red in oklab, blue)",
+            "before the first color stop",
+        ),
+    ] {
+        let why = BackgroundImage::check(css).unwrap_err();
+        assert!(why.contains(says), "{css}: {why}");
+    }
+}
+
+#[test]
+fn equal_stops_with_longer_hue_traverse_the_circle() {
+    let image = BackgroundImage::parse(
+        "linear-gradient(in oklch longer hue, oklch(0.7 0.1 30), oklch(0.7 0.1 30))",
+    )
+    .unwrap();
+    let g = image.gradient().unwrap();
+    let ramp = g.interpolated(false).unwrap();
+    assert_eq!(ramp.len(), 17);
+    assert!((ramp[8].1[0] - ramp[0].1[0]).abs() > 0.1);
+}
+
+#[test]
+fn light_dark_interpolation_uses_the_resolved_half() {
+    let image =
+        BackgroundImage::parse("linear-gradient(light-dark(red, color(display-p3 1 0 0)), blue)")
+            .unwrap();
+    let g = image.gradient().unwrap();
+    assert_eq!(g.interpolation(false), None);
+    assert_eq!(
+        g.interpolation(true),
+        Some(exact_color::Interpolation::OKLAB)
+    );
+    assert!(g.interpolated(false).is_none());
+    assert!(g.interpolated(true).is_some());
+}
+
+#[test]
+fn repeating_hatch_and_length_stops_round_trip() {
+    for css in [
+        "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)",
+        "linear-gradient(-45deg, transparent 0px 4.243px, #e6e6e6 4.243px 5.657px)",
+        "linear-gradient(to right, red 10px, green, blue 75%)",
+    ] {
+        let image = BackgroundImage::check(css).unwrap_or_else(|why| panic!("{css}: {why}"));
+        assert_eq!(BackgroundImage::check(&image.wire()).unwrap(), image);
+    }
+}
+
+#[test]
+fn length_fix_up_uses_the_painted_size_and_repetition_keeps_its_period() {
+    let hatch = BackgroundImage::parse(
+        "repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)",
+    )
+    .unwrap();
+    let (ramp, _) = hatch.gradient().unwrap().placed(100.0, 70.0, false);
+    for pair in ramp.stops.chunks_exact(4).collect::<Vec<_>>().windows(2) {
+        assert_eq!(pair[0][3].at, pair[1][0].at);
+    }
+    assert!(ramp.stops.windows(2).all(|pair| pair[0].at <= pair[1].at));
+    let gradient = parse("linear-gradient(to right, red 20px, green, blue 80%)");
+    for (width, expected) in [(100.0, [20.0, 50.0, 80.0]), (200.0, [10.0, 45.0, 80.0])] {
+        let (ramp, _) = gradient.placed(width, 50.0, false);
+        assert_eq!(
+            ramp.stops.iter().map(|s| s.at).collect::<Vec<_>>(),
+            expected
+        );
+    }
+    let gradient = parse("repeating-linear-gradient(90deg, black 2px 4px, white 4px 10px)");
+    let (ramp, geometry) = gradient.placed(100.0, 50.0, false);
+    let Geometry::Linear { start, end } = geometry else {
+        panic!()
+    };
+    let positions: Vec<_> = ramp
+        .stops
+        .iter()
+        .map(|s| start.0 + (end.0 - start.0) * s.at / 100.0)
+        .collect();
+    assert!(positions
+        .windows(5)
+        .step_by(4)
+        .all(|s| (s[4] - s[0] - 8.0).abs() < 0.0001));
+    assert!(positions[0] <= 0.0 && *positions.last().unwrap() >= 100.0);
+}
+
+#[test]
+fn zero_period_repetition_matches_chromes_last_stop() {
+    // Chrome 155, scripts/fixtures/gradients.web.png: blue, blue, white.
+    for (stops, expected) in [
+        ("red 0px, blue 0px", Color::rgba(0, 0, 255, 255)),
+        ("red 0px, lime 0px, blue 0px", Color::rgba(0, 0, 255, 255)),
+        (
+            "red 0px, lime 0px, blue 0px, white 0px",
+            Color::rgba(255, 255, 255, 255),
+        ),
+    ] {
+        let (solid, _) = parse(&format!("repeating-linear-gradient(to right, {stops})"))
+            .placed(100.0, 70.0, false);
+        assert_eq!(
+            solid.resolved(false),
+            vec![(0.0, expected), (1.0, expected)],
+            "{stops}"
+        );
+    }
+}
+
+#[test]
+fn a_gradient_read_through_its_captured_values_resolves_as_through_the_table() {
+    use crate::style::wide::Values;
+    let image = BackgroundImage::parse(
+        "linear-gradient(90deg in hsl, color(srgb 0.5001 0.5 0.5), light-dark(#0000ff, oklch(0.5 0.1 300)))",
+    )
+    .unwrap();
+    let g = image.gradient().unwrap();
+    let values = Values::of(g.stops.iter().map(|s| s.color));
+    let read = |id| values.get(id);
+    for dark in [false, true] {
+        assert_eq!(g.resolved_with(dark, &read), g.resolved(dark));
+        assert_eq!(
+            g.placed_with(200.0, 20.0, dark, &read)
+                .0
+                .resolved_with(dark, &read),
+            g.resolved(dark)
+        );
+    }
+}

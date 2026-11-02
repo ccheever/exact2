@@ -1,0 +1,26 @@
+// Synthetic conformance plan: the element resize event (`resize=action`,
+// ResizeObserver's) on both web targets. A panel hears its content box after
+// its first layout and after each change of size, with its contentRect (the
+// padding's left and top, `right` its edge in the padding box); a press that
+// leaves it alone says nothing; `resize="none"` stays CSS's property.
+component Resize
+  state wide = false
+  state seen = "none"
+  state calls = 0
+  state taps = 0
+  action widen
+    wide = not wide
+  action other
+    taps = taps + 1
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}x${h} at ${r.x},${r.y} right ${r.right} bottom ${r.bottom}`
+    calls = calls + 1
+  view
+    column testId="root" padding=10 gap=8
+      box testId="panel" width=(wide ? 300 : 200) height=50 padding-left=4 padding-top=2 border-width=3 border-style="solid" resize=fit background-color="#eeeeff"
+      textarea testId="grab" resize="none" width=120 height=30
+      button press=widen testId="widen"
+        text "widen"
+      button press=other testId="other"
+        text "other"
+      text `${seen} · ${calls} · ${taps}` testId="seen"

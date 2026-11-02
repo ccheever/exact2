@@ -1,0 +1,48 @@
+// Accept fixture: the runner's hand-built Now-screen plan, as Contract.
+// Its expected behavior is runner/tests/it/now_screen.rs, run here on the
+// compiled plan, so the behavior is proven at both ends.
+shape Station
+  id: string
+  name: string
+
+shape Departure
+  id: string
+  train: number
+  at: number
+
+component Now
+  state stationId = none
+  state query = ""
+  state nowMs = 0
+  derive selected = match stationId { case some(id) => id, case none => "mv" }
+  resource stations = stations() as shape Station[]
+  resource board = departures(selected) as shape Departure[]
+  derive count = board.length
+
+  action selectStation(id)
+    stationId = some(id)
+  action setQuery(q)
+    query = q
+  action tick
+    nowMs = performanceNow()
+  action setDark(s: string)
+    setScheme(s)
+
+  task ticker mount
+    every(1000, tick)
+
+  view
+    column testId="main"
+      text `${count} trains` font-size=24 font-weight=700 testId="count"
+      if query == ""
+        for d in board key=d.id
+          button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
+            text max(0, -floor(-((d.at - nowMs) / 60000))).toString()
+      else
+        text "searching" testId="searching"
+      input value=query input=setQuery testId="search"
+      match stationId
+        case some(id)
+          text `at ${id}` testId="selected"
+        case none
+          text "nearest" testId="nearest"

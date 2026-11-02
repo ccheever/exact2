@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "digest": "09afec2db36469d6",
+  "name": "axes",
+  "tuples": 6,
+  "axes": [
+    {"name": "dark-style", "values": ["black", "dim"], "under": "dark"},
+    {"name": "density", "values": ["default", "compact", "comfortable"], "under": null}
+  ],
+  "dials": [
+    {"name": "accent", "kind": "color", "value": "oklch(0.62 0.19 255)", "range": null, "meta": {}},
+    {"name": "p3", "kind": "color", "value": "color(display-p3 1 0 0)", "range": null, "meta": {}}
+  ],
+  "tokens": [
+    {"name": "surface.page", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, #000000ff)", "light-dark(#fafafaff, #050505ff)", "light-dark(#ffffffff, #161e27ff)", "light-dark(#fafafaff, #10161dff)"], "entries": [0, 1, 0, 2, 3, 2], "dials": [], "fallback": ["#ffffffff", "#000000ff"]},
+    {"name": "accent.fill", "kind": "color", "role": null, "values": ["oklch(0.62 0.19 255)", "light-dark(oklch(0.62 0.19 255), oklab(0.6959999954847589 -0.03934049241992391 -0.14682070081105808))"], "entries": [0, 0, 0, 1, 1, 1], "dials": ["accent"], "fallback": ["#1d84f5ff", "#1d84f5ff"]},
+    {"name": "p3.fill", "kind": "color", "role": null, "values": ["color(display-p3 1 0 0)"], "entries": null, "dials": ["p3"], "fallback": ["#ff0000ff", "#ff0000ff"]},
+    {"name": "text.primary", "kind": "color", "role": null, "values": ["light-dark(#0b0f14ff, #f1f3f5ff)"], "entries": null, "dials": [], "fallback": ["#0b0f14ff", "#f1f3f5ff"]},
+    {"name": "same.white", "kind": "color", "role": null, "values": ["#ffffffff", "light-dark(#ffffffff, #161e27ff)"], "entries": [0, 0, 0, 1, 1, 1], "dials": [], "fallback": ["#ffffffff", "#ffffffff"]}
+  ],
+  "exports": null
+}

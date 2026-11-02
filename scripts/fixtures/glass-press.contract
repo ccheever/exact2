@@ -1,0 +1,85 @@
+// A glass that a press, an edit or any other of a person's inputs adds to
+// a group in the window, reveals there or gives a box materializes on iOS
+// 26; one that a popover's `toggle` adds is drawn at once
+// (GlassGroupIOSTests). Each `on-<path>` element adds the glass `<path>`;
+// `on-reveal`, `on-material` and `on-visible` show the existing `revealed`,
+// `glassy` and `seen`; `on-group` shows the hidden `late-group` with its glass. Compiled by build.mjs --test.
+component GlassPress
+  state shown = false
+  state typed = ""
+  state toggled = false
+  state added = ""
+  state revealed = false
+  state glassy = false
+  state seen = false
+  state groupShown = false
+  action reveal
+    revealed = true
+  action makeGlass
+    glassy = true
+  action makeSeen
+    seen = true
+  action showGroup
+    groupShown = true
+  action add(k: string)
+    added = added + k + ";"
+  action addOn(k: string, on: bool)
+    added = added + k + ";"
+  action addValue(k: string, v: number)
+    added = added + k + ";"
+  action addText(k: string, v: string)
+    added = added + k + ";"
+  action addMove(k: string, x: number, y: number)
+    added = added + k + ";"
+  action show
+    shown = true
+  action edit(v: string)
+    typed = v
+  action opened
+    toggled = true
+  view
+    main testId="glass-press" width="100%" height="100%"
+      row testId="group" glassGroup=12 gap=8 margin-top=100 margin-left=20
+        box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="first"
+        if shown
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="added"
+        if typed != ""
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="typed"
+        if toggled
+          box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="toggled"
+        box width=56 height=56 border-radius=28 backgroundMaterial="glass" display=(revealed ? "block" : "none") testId="revealed"
+        box width=56 height=56 border-radius=28 backgroundMaterial=(glassy ? "glass" : "ultra-thin") testId="glassy"
+        box width=56 height=56 border-radius=28 backgroundMaterial="glass" visibility=(seen ? "visible" : "hidden") testId="seen"
+        for k in ["checkbox", "slider", "change", "beforeinput", "key", "contextmenu", "swiperight", "refresh", "dblclick", "submit", "paste", "hover", "pan", "panrelease", "pointer"] key=k
+          if added.includes(k + ";")
+            box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId=k
+      row testId="late-group" glassGroup=12 gap=8 margin-left=20 display=(groupShown ? "flex" : "none")
+        box width=56 height=56 border-radius=28 backgroundMaterial="glass" testId="late-glass"
+      button press=show testId="add"
+        text "Add"
+      input value=typed input=edit aria-label="Name" testId="field"
+      column popover="auto" toggle=opened testId="popover"
+        text "Popover"
+      input type="checkbox" change=addOn("checkbox") testId="on-checkbox"
+      input type="range" min=0 max=10 value=0 input=addValue("slider") testId="on-slider"
+      input value=typed change=addText("change") testId="on-change"
+      input value=typed beforeinput=add("beforeinput") testId="on-beforeinput"
+      input value=typed submit=add("submit") testId="on-submit"
+      input value=typed paste=add("paste") testId="on-paste"
+      column key=addText("key") tabindex=0 testId="on-key" height=20
+      column contextmenu=add("contextmenu") testId="on-contextmenu" height=20
+      column swiperight=add("swiperight") testId="on-swiperight" height=20
+      scroll refresh=add("refresh") testId="on-refresh" height=40
+        text "Pull"
+      column dblclick=add("dblclick") testId="on-dblclick" height=20
+      column hover=addOn("hover") testId="on-hover" height=20
+      column pan=addMove("pan") panrelease=addMove("panrelease") testId="on-pan" height=20
+      column pointerdown=add("pointer") testId="on-pointer" height=20
+      button press=reveal testId="on-reveal"
+        text "Reveal"
+      button press=makeGlass testId="on-material"
+        text "Glass"
+      button press=makeSeen testId="on-visible"
+        text "Show"
+      button press=showGroup testId="on-group"
+        text "Group"

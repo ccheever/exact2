@@ -1,0 +1,3 @@
+{
+  "locationPurpose": "The fixture reads a position through the Rust binding."
+}

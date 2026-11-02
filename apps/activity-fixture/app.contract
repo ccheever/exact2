@@ -1,0 +1,10 @@
+use FixtureActivity, FixtureState from "./activities.contract"
+
+// The packaging fixture for an app with Live Activities and no widgets: one
+// text node, so an iOS build of it is the app, the
+// shared ExactCore framework and the WidgetKit extension with no widget in
+// its bundle. Its two entries exercise `push` and `frequent`; each draws one
+// line in each of the eight placements.
+component ActivityFixture
+  view
+    text "Activity fixture"

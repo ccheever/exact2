@@ -1,0 +1,33 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/calendar@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidCalendarStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {
+    "showEventEditor": {
+      "accessLevel": "number",
+      "availability": "number",
+      "emails": "string[]"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "insertIntent"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.calendar.CalendarModule"
+}

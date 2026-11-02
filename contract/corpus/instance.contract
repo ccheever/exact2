@@ -1,0 +1,44 @@
+// Accept fixture: per-instance state — a child component
+// owns `state`, `derive`, and `action`. Used under a `for`, they are the
+// row's: kept with its key across reorders, dropped with the row, started
+// from the initializer when the row is created. Used once, they are that
+// use's own root slots, carried by name across a reload like any other.
+shape Station
+  id: string
+  name: string
+
+component App
+  state order = "asc"
+  resource stations = stations(order) as shape Station[]
+  action flip
+    order = order == "asc" ? "desc" : "asc"
+  view
+    column testId="root"
+      Counter(label="a")
+      Counter(label="b")
+      for s in stations key=s.id
+        StationRow(station=s)
+      button press=flip testId="flip"
+        text "flip"
+
+component Counter
+  props
+    label: string
+  state n = 0
+  derive doubled = n * 2
+  action bump
+    n = n + 1
+  view
+    button press=bump testId=`count-${label}`
+      text `${label} ${n} ${doubled}` testId=`count-text-${label}`
+
+component StationRow
+  props
+    station: Station
+  state label = station.name
+  state hot = false
+  action setHot(over)
+    hot = over
+  view
+    row hover=setHot testId=`station-${station.id}`
+      text hot ? `${label} !` : label testId=`name-${station.id}`

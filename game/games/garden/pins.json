@@ -1,0 +1,27 @@
+{
+  "ticks": {
+    "0": "0x29b11e0dee0c4fd5",
+    "5136": "0xbc5d77669a63bf80"
+  },
+  "saves": {
+    "continuation": "ec3723152eaccdf0c8501fafcd94049b3462c6061916b313b010e51c2c23c793"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "ddc6eb9e945a635d59c3a896e4cd206cef57a2876e959a78f552b9d91ff813ca",
+  "sourceInputs": "2488427d7b7e9b802d5448aa87929a768febfb865109ee333d237ba4c9c2214c",
+  "game": "garden",
+  "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
+  "at": "inputs:2488427d7b7e9b802d5448aa87929a768febfb865109ee333d237ba4c9c2214c",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+}

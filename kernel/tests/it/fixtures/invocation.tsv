@@ -1,0 +1,48 @@
+# What a button invokes, as HTML's button activation resolves it: exact_kernel::Invocation and host/apple/Sources/ExactKit/Invocation.swift.
+# kernel/tests/it/invocation.rs and InvocationTests.swift both read this file. Each builds the `element`s under one root, applies the `rename`s in order,
+# with each `paragraph` holding its `run`s (inline text: run id, paragraph id, props), then adds each `case`'s source (a button, a native button or a view) as a new child and checks what it invokes: target id and action, or `-` for nothing,
+# and whether that opens a popover (a header's menu button). Props are `name=value` separated by `;`. Among elements that share an id, a view is named before
+# an inline run, then the lowest node id.
+# kind	fields
+element	10	id=a;popover=auto
+element	11	id=b;popover=auto
+element	12	id=plain
+element	13	id=d;semanticTag=dialog
+element	14	id=dp;popover=auto;semanticTag=dialog
+element	15	id=dup;popover=auto
+element	16	id=dup
+element	17	id=n;popover=auto
+element	18	id=n;popover=auto
+paragraph	20
+run	21	20	id=ra
+run	22	20	id=ronly
+run	24	20	id=rp;popover=auto
+element	23	id=ra;popover=auto
+rename	17	n2
+rename	17	n
+case	button	commandfor=b;command=show-popover;popovertarget=a	11 show	menu	a commandfor that names an element wins
+case	button	commandfor=missing;command=show-popover;popovertarget=a	10 toggle	menu	a missing one falls back
+case	button	commandfor=;command=toggle-popover;popovertarget=a;popovertargetaction=show	10 show	menu	an empty one falls back, and its leftover command is ignored
+case	button	commandfor=plain;command=show-popover;popovertarget=a	-	-	one naming a non-popover: no fallback
+case	button	commandfor=b;command=bogus;popovertarget=a	-	-	an unknown command: no fallback
+case	button	commandfor=b;popovertarget=a	-	-	a missing command: no fallback
+case	button	commandfor=b;command=HIDE-POPOVER	11 hide	-	keywords are ASCII case-insensitive
+case	button	commandfor=b;command= hide-popover 	-	-	and not trimmed
+case	button	commandfor=d;command=show-modal	13 showModal	-	show-modal on a dialog
+case	button	commandfor=d;command=close	13 close	-	close on a dialog
+case	button	commandfor=b;command=show-modal	-	-	show-modal on a popover that is no dialog
+case	button	commandfor=dp;command=show-modal	14 showModal	-	show-modal on a dialog that is also a popover is no menu
+case	button	popovertarget=dp	14 toggle	menu	popovertarget on a dialog popover toggles it
+case	button	popovertarget=d	-	-	popovertarget naming a dialog without popover
+case	button	popovertarget=a;popovertargetaction=HIDE	10 hide	-	popovertargetaction is case-insensitive
+case	button	popovertarget=a;popovertargetaction= hide 	10 toggle	menu	an invalid action toggles
+case	button	popovertarget=a;popovertargetaction=	10 toggle	menu	an empty action toggles
+case	button	popovertarget=	-	-	an empty popovertarget names nothing
+case	button	popovertarget=dup	15 toggle	menu	duplicate ids: the lowest node id
+case	button	popovertarget=n	17 toggle	menu	duplicate ids: the lowest node id, whatever order the ids were set in
+case	button	commandfor=ra;command=show-popover	23 show	menu	a view is named before an inline run, whatever their ids
+case	button	commandfor=ronly;command=show-popover;popovertarget=a	-	-	one naming an inline run names an element: no fallback
+case	button	popovertarget=rp	-	-	an inline run is no popover, whatever it says
+case	button	commandfor=rp;command=show-popover;popovertarget=a	-	-	nor a command's target
+case	nativeButton	popovertarget=a	10 toggle	menu	a native button invokes too
+case	view	popovertarget=a	-	-	a view is no button

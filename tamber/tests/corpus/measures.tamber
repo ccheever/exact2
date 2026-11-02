@@ -1,0 +1,37 @@
+tamber measures
+
+axes
+  density = regular | compact
+
+dials
+  gap: length = 8px  in 0px..32px
+  dim: number = 0.6  in 0..1
+
+theme
+  space.row = 12px
+    when density=compact: 8px
+  space.none: length = 0
+  zero = 0
+  space.gutter: length = calc(gap * 2)
+  space.inset = calc(space.row + 4px)
+  space.capped = min(40px, 24px)
+  space.clamped = clamp(4px, calc(gap / 2), 12px)
+  space.alias = space.row
+  size.title = -exact-title1
+  size.title-hyphen = -exact-title-1
+  size.body = -apple-system-body
+  size.relative = 1.25rem
+  size.em = 0.8em
+  line.hair = -exact-hairline
+  weight.strong = 600
+  opacity.faded = dim
+  opacity.half: number = calc(1 / 2)
+  scale.pressed: number = 0.97
+    when density=compact: 0.95
+  flex.grow = max(1, 2)
+  space.double = calc(space.row * 2)
+  space.grouped = calc((2px + 3px) * 4)
+  tiny: number = 0.0000004
+  ink = #000000
+  ease = 12px
+  space.alias.ease = ease

@@ -1,0 +1,1140 @@
+//! Form controls by their HTML names: which
+//! control an element is, the tag it lowers with, HTML's content model for
+//! `select` and `option`, and the bare words and derived rows a control
+//! carries.
+
+use crate::tags::Tag;
+use crate::{err, LowerError, Lowerer};
+use contract_syntax::{Expr, Span};
+use exact_kernel::{NodeType, PropId, StyleId};
+use exact_plan::{BindingKind, BindingsRow, Value};
+
+/// HTML's `input type` is ASCII-case-insensitive. Keep the prop every host
+/// reads in its canonical lowercase spelling as well as classifying it that
+/// way, including the literal arms of the admitted text-field choice.
+pub(crate) fn canonical_type_attrs(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+) -> Option<Vec<contract_syntax::Attr>> {
+    if tag != "input" {
+        return None;
+    }
+    let type_attr = attrs.iter().find(|a| a.name == "type")?;
+    let value = canonical_type_expr(&type_attr.value)?;
+    (value != type_attr.value).then(|| {
+        attrs
+            .iter()
+            .map(|a| {
+                if a.name == "type" {
+                    contract_syntax::Attr {
+                        value: value.clone(),
+                        ..a.clone()
+                    }
+                } else {
+                    a.clone()
+                }
+            })
+            .collect()
+    })
+}
+
+fn canonical_type_expr(value: &Expr) -> Option<Expr> {
+    match value {
+        Expr::Str(kind, span) => Some(Expr::Str(kind.to_ascii_lowercase(), *span)),
+        Expr::Ternary(cond, yes, no, span) => Some(Expr::Ternary(
+            cond.clone(),
+            Box::new(canonical_type_expr(yes)?),
+            Box::new(canonical_type_expr(no)?),
+            *span,
+        )),
+        _ => None,
+    }
+}
+
+/// The form control an element is, refusing a bound
+/// `type` that could name a control: the node type is chosen when the view
+/// compiles, from the literal. A choice between text fields' types stays a
+/// text field and is bound. A `select` is one; it takes no `type`.
+pub(crate) fn control(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+    native_button: bool,
+) -> Result<Option<&'static str>, LowerError> {
+    if tag != "textarea" {
+        if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
+            return err("lower-attr-tag", "HTML rows belongs to textarea", a.span);
+        }
+    }
+    if !matches!(tag, "input" | "textarea") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "maxlength") {
+            return err(
+                "lower-attr-tag",
+                "HTML maxlength belongs to input or textarea",
+                a.span,
+            );
+        }
+    }
+    // A native button, and its style nowhere else.
+    if tag == "button" && native_button {
+        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+            return err(
+                "lower-attr-tag",
+                "`checked` belongs to `input type=\"checkbox\"`, not `button`",
+                a.span,
+            );
+        }
+        return Ok(Some("button"));
+    }
+    // An author's: the grouped sheet sizes a row's switch by the platform's
+    // metric, which is the compiler's row and not theirs.
+    if let Some(a) = attrs.iter().find(|a| {
+        a.written
+            && matches!(
+                a.name.as_str(),
+                "-exact-control-size" | "-exact-corner-style"
+            )
+    }) {
+        return err(
+            "lower-button-style-attr",
+            format!(
+                "`{}` belongs to a native button: `button appearance=\"auto\"`",
+                a.name
+            ),
+            a.span,
+        );
+    }
+    if let Some(a) = attrs.iter().find(|a| a.name == "buttonStyle") {
+        return err(
+            "lower-button-style",
+            "`buttonStyle` styles a native button: `button appearance=\"auto\"`",
+            a.span,
+        );
+    }
+    if tag == "select" {
+        if let Some(a) = attrs
+            .iter()
+            .find(|a| matches!(a.name.as_str(), "type" | "checked" | "name"))
+        {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`select` takes no `{}`: its options are its choices",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        return Ok(Some("select"));
+    }
+    if tag != "input" {
+        // (An `iframe`'s `name` is HTML's: its frame's browsing context name,
+        // the target a page names it by, never in its URL.)
+        if let Some(a) = attrs
+            .iter()
+            .find(|a| a.name == "checked" || (a.name == "name" && tag != "iframe"))
+        {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` belongs to `input type=\"{}\"`, not `{tag}`",
+                    a.name,
+                    if a.name == "name" {
+                        "radio"
+                    } else {
+                        "checkbox"
+                    }
+                ),
+                a.span,
+            );
+        }
+        return Ok(None);
+    }
+    if let Some(a) = attrs.iter().find(|a| a.name == "type") {
+        if let Some(kind) = contract_syntax::unsupported_input_type(&a.value) {
+            return err(
+                "lower-input-type",
+                format!(
+                    "`input type=\"{kind}\"` is a non-text control Exact does not support; use `button` for an action"
+                ),
+                a.span,
+            );
+        }
+        if !matches!(a.value, Expr::Str(..)) && !contract_syntax::text_input_type(&a.value) {
+            return err(
+                "lower-input-type",
+                "`input`'s `type` is a literal (`type=\"text\"`, `\"password\"`, `\"checkbox\"`, …), or a choice between text fields' (`type=shown ? \"text\" : \"password\"`): it picks the kind of node when the view compiles",
+                a.span,
+            );
+        }
+    }
+    let control = contract_syntax::input_control(tag, attrs);
+    if !matches!(control, Some("checkbox" | "radio")) {
+        if let Some(a) = attrs.iter().find(|a| a.name == "checked") {
+            return err(
+                "lower-attr-tag",
+                "`checked` belongs to `input type=\"checkbox\"` and `\"radio\"`; a text field's is `value`",
+                a.span,
+            );
+        }
+    }
+    if control != Some("radio") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "name") {
+            return err(
+                "lower-attr-tag",
+                "`name` groups `input type=\"radio\"`s: the radios of one name are exclusive",
+                a.span,
+            );
+        }
+    }
+    if control == Some("file") {
+        file_input(attrs)?;
+    } else if let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "accept" | "multiple" | "capture"))
+    {
+        return err(
+            "lower-attr-tag",
+            format!("`{}` belongs to `input type=\"file\"`", a.name),
+            a.span,
+        );
+    }
+    Ok(control)
+}
+
+/// The rule that bounds the picker, cited by each refusal.
+pub const PICKER_ADMISSION: &str = "the picker admits an unrestricted file input; `capture` stays refused and specific `accept` types are bounded to media or the app's `file_handlers`";
+
+/// `input type="file"`: specific `accept` is a literal list of
+/// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
+/// type or extension the manifest's `file_handlers` declares (checked at
+/// bake, where the manifest is read: `contract::picker`); `capture` is
+/// refused, naming the camera's route. Missing, empty, and `*/*` accept
+/// take any file.
+fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
+    if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
+        return err(
+            "lower-picker-capture",
+            format!("`capture` is not admitted on the picker; take a photo with an app native module behind the `device.camera` grant, as `apps/recorder` is for the microphone: {PICKER_ADMISSION}"),
+            a.span,
+        );
+    }
+    let Some(a) = attrs.iter().find(|a| a.name == "accept") else {
+        return Ok(());
+    };
+    let Expr::Str(list, _) = &a.value else {
+        return err(
+            "lower-picker-accept",
+            format!("`accept` is a literal, so the bake can bound it: {PICKER_ADMISSION}"),
+            a.span,
+        );
+    };
+    let tokens = accept_tokens(list);
+    for t in tokens {
+        let wild = t
+            .split_once('/')
+            .is_some_and(|(k, s)| s == "*" && k != "*" && k != "image" && k != "video");
+        if t == "*" || wild || !(t.contains('/') || t.starts_with('.')) {
+            return err(
+                "lower-picker-accept",
+                format!("`accept` may not name `{t}`: {PICKER_ADMISSION}"),
+                a.span,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `accept`'s comma-separated tokens, trimmed and lowercased, as HTML reads them.
+pub fn accept_tokens(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Whether an `accept` token is a media type every app may pick:
+/// `image/*`, `video/*`, or one image or video subtype.
+pub fn media_accept(token: &str) -> bool {
+    token.split_once('/').is_some_and(|(kind, sub)| {
+        matches!(kind, "image" | "video")
+            && !sub.is_empty()
+            && sub
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"*.+-_".contains(&b))
+    })
+}
+
+/// A range and a determinate `progress` are full width.
+/// Neither platform control has a width of its own (`UISlider`,
+/// `UIProgressView` and `NSSlider` take the width they are given), so each is
+/// lowered `width: 100%`: an ordinary row the compiler implies, not the
+/// author's, and CSS decides the rest on every host. An
+/// authored `width` replaces it; `flex=1` takes what a row's other children
+/// leave; and where a percentage has nothing to resolve against (a
+/// shrink-to-fit box), or the author writes `width="auto"`, the control
+/// falls back to its intrinsic size: 129 for a range, `10em` by `1em` for a
+/// progress (`kernel/src/control.rs`). No host widens either itself.
+pub(crate) const FULL_WIDTH: &[(StyleId, &str)] = &[(StyleId::Width, "100%")];
+
+/// The tag an `input` control lowers with (a `select` keeps its own).
+pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
+    match kind {
+        "button" => native_tag(),
+        // A file input: the kernel's `Control`, a measured
+        // leaf the host presents as its own control (the browser's "Choose
+        // File"). No control has a margin of its own (below).
+        "file" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        // A checkbox: ARIA's role; `switch` or `role="switch"` replaces it.
+        // No margin of its own, on any host:
+        // Chrome's UA sheet gives a checkbox `3px 3px 3px
+        // 4px`, a radio `3px 3px 0 5px` and a range `2px`, which no platform
+        // control has and the common resets zero (the web's sheet does too,
+        // `host/web/index.html`). The space beside a label is the author's
+        // `gap`; a native control's alignment inset is inside its
+        // presentation and is not layout.
+        "checkbox" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
+            positional: None,
+        },
+        // A radio: ARIA's role.
+        "radio" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[(PropId::AccessibilityRole, "radio")],
+            positional: None,
+        },
+        // A range: ARIA's role, and the width of what holds it
+        // ([`FULL_WIDTH`]).
+        "range" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: FULL_WIDTH,
+            fixed_props: &[(PropId::AccessibilityRole, "slider")],
+            positional: None,
+        },
+        // A date, time or local date and time: no ARIA role (HTML-AAM maps
+        // none).
+        "date" | "time" | "datetime-local" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        _ => t,
+    }
+}
+
+/// A range's `value`, `min`, `max` and `step` as HTML's strings, and a text
+/// or number field's `min`, `max` and `step`: a number literal, `-40` as `40`,
+/// is written as one, a bound number through `toString`
+/// (the props are strings on the wire, typed per control); so
+/// too a determinate `progress`'s `value` and `max`, and ARIA's range
+/// values on any element. `None` when nothing needs rewriting.
+pub(crate) fn range_attrs(
+    tag: &str,
+    control: Option<&str>,
+    attrs: &[contract_syntax::Attr],
+) -> Option<Vec<contract_syntax::Attr>> {
+    // A text field's bounds take numbers as a range's do, a
+    // number field's and a decimal pad's alike (`type="text" inputmode="decimal"
+    // min=-1000`, whose negative bound gives the pad its ± key): `min`, `max`
+    // and `step` are HTML's strings, and a number written for one is its text,
+    // negative or positive. Its `value` stays its text: the field edits text,
+    // and `1.` is on the way to `1.5`.
+    let names: &[&str] = match control {
+        Some("range") => &["value", "min", "max", "step"],
+        None if tag == "input" => &["min", "max", "step"],
+        None if tag == "progress" => &["value", "max"],
+        _ => &[],
+    };
+    let aria = ["aria-valuenow", "aria-valuemin", "aria-valuemax"];
+    let numeric = |a: &contract_syntax::Attr| {
+        (names.contains(&a.name.as_str()) || aria.contains(&a.name.as_str()))
+            && !matches!(a.value, Expr::Str(..))
+    };
+    if !attrs.iter().any(numeric) {
+        return None;
+    }
+    Some(
+        attrs
+            .iter()
+            .map(|a| {
+                if !numeric(a) {
+                    return a.clone();
+                }
+                // A literal, negative or not, is its text at compile time; any
+                // other number is written at run time.
+                let value = match super::values::numeric_literal(&a.value) {
+                    Some(n) => Expr::Str(exact_num::js(n), a.value.span()),
+                    None => Expr::Call("toString".into(), vec![a.value.clone()], a.value.span()),
+                };
+                contract_syntax::Attr { value, ..a.clone() }
+            })
+            .collect(),
+    )
+}
+
+/// `option` belongs in a `select`, and a `select` holds only `option`s
+/// (directly, or through `for`, `if` and `match`, which are not
+/// elements): HTML's content model, which every host's menu reads.
+pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Result<(), LowerError> {
+    if tag == "option" && parent != Some("select") {
+        return err(
+            "lower-option-parent",
+            "`option` belongs in a `select`",
+            span,
+        );
+    }
+    if parent == Some("select") && tag != "option" {
+        return err(
+            "lower-option-parent",
+            format!("a `select` holds `option`s, not `{tag}`"),
+            span,
+        );
+    }
+    Ok(())
+}
+
+/// `progress` is HTML's:
+/// with a `value`, the determinate bar, `max` its top (1 unsaid); without
+/// one, the indeterminate activity indicator, where a `max` means nothing
+/// and is refused. No `type`, which is the kind it is; no ARIA range
+/// values, which its `value` and `max` are (`aria-valuetext` stays: the
+/// words a reader speaks); and no children, since every host draws the
+/// control HTML's fallback content stands in for.
+pub(crate) fn check_progress(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+    children: &[contract_syntax::Node],
+) -> Result<(), LowerError> {
+    if tag != "progress" {
+        return Ok(());
+    }
+    let valued = attrs
+        .iter()
+        .any(|a| matches!(a.name.as_str(), "value" | "start"));
+    if let Some(a) = attrs.iter().find(|a| match a.name.as_str() {
+        "type" | "aria-valuenow" | "aria-valuemin" | "aria-valuemax" => true,
+        "max" => !valued,
+        _ => false,
+    }) {
+        let why = match a.name.as_str() {
+            "type" => "it is the platform's progress bar with a `value` and its activity indicator without one".to_string(),
+            "max" => "`max` is the top of the bar a `value` makes; without one it is the platform's activity indicator".to_string(),
+            name => format!("its `value` and `max` are its range, which every platform reads (`{name}` is for a drawn `role=\"progressbar\"`)"),
+        };
+        return err(
+            "lower-attr-tag",
+            format!("`progress` takes no `{}`: {why}", a.name),
+            a.span,
+        );
+    }
+    if let Some(child) = children.first() {
+        return err(
+            "lower-void",
+            "`progress` takes no children: it is the platform's own control (name it with `aria-label`)",
+            child.span(),
+        );
+    }
+    Ok(())
+}
+
+impl Lowerer<'_> {
+    /// A control's bare word — HTML's boolean `switch` on a checkbox,
+    /// `multiple` on a file input — as its
+    /// prop; `false` when `word` is not one.
+    pub(crate) fn control_word(
+        &mut self,
+        tag: &str,
+        word: &Expr,
+        control: Option<&str>,
+        bindings: &mut Vec<BindingsRow>,
+    ) -> Result<bool, LowerError> {
+        let (name, owner, id) = if contract_syntax::is_input_switch(tag, word) {
+            // The checkbox is drawn as a switch, and ARIA hears one either way.
+            ("switch", "checkbox", PropId::AccessibilityRole)
+        } else if contract_syntax::is_input_multiple(tag, word) {
+            ("multiple", "file", PropId::Multiple)
+        } else {
+            return Ok(false);
+        };
+        if control != Some(owner) {
+            return err(
+                "lower-attr-tag",
+                format!("`{name}` belongs to `input type=\"{owner}\"`"),
+                word.span(),
+            );
+        }
+        let expr = if owner == "file" {
+            self.b.constant(&Value::Bool(true))
+        } else {
+            self.fixed(false, "switch")
+        };
+        // The word is the author's.
+        bindings.push(crate::prop_row(id, expr, true));
+        Ok(true)
+    }
+}
+
+/// A control's derived rows: a checkbox's checked state is its
+/// accessibility state on every host. Whether a row was
+/// added.
+pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
+    let checked = PropId::Checked as u16;
+    let Some(expr) = bindings
+        .iter()
+        .rev()
+        .find(|b| b.kind == BindingKind::Prop && b.id == checked)
+        .map(|b| b.expr)
+    else {
+        return false;
+    };
+    let checked = PropId::AccessibilityChecked;
+    bindings.push(crate::prop_row(checked, expr, crate::IMPLIED));
+    true
+}
+
+/// The native button lowering's tag: a `Control` of type
+/// `button`, a block-level flex item whose box is `border-box` with the
+/// platform's chrome inside it.
+pub(crate) fn native_tag() -> Tag {
+    Tag {
+        node_type: NodeType::Control,
+        fixed_styles: &[
+            (StyleId::Appearance, "auto"),
+            (StyleId::Display, "flex"),
+            (StyleId::BoxSizing, "border-box"),
+        ],
+        fixed_props: &[
+            (PropId::AccessibilityRole, "button"),
+            (PropId::Type, "button"),
+        ],
+        positional: None,
+    }
+}
+
+/// What makes a place one a native button may not be, for the children of
+/// the element being lowered; `None` when it adds
+/// nothing. `menu_row` is whether that element is a popover's direct child —
+/// a menu row, which may be a native button but whose own children are not
+/// rows (a host makes a menu item of a popover's direct children only).
+pub(crate) fn button_context(
+    tag: &str,
+    control: Option<&str>,
+    menu_row: bool,
+) -> Option<&'static str> {
+    if tag == "canvas" {
+        return Some("a `canvas`");
+    }
+    if control == Some("button") {
+        return Some("a native button");
+    }
+    // A projection makes one item of a custom button, whatever it holds (a
+    // toolbar's, a tab bar's): a native button inside one would be dropped.
+    if tag == "button" {
+        return Some("a custom `button`");
+    }
+    if menu_row {
+        return Some("a menu row (a native button can be a popover's direct child, not below one)");
+    }
+    None
+}
+
+/// The style rows a native button's box may carry: where it
+/// sits and how big it is, whether it shows (`display` is checked to be its
+/// own `flex` or `none`), its opacity and transforms, its clip, its accent.
+/// Its semantic content rows are the ones listed here; chrome and
+/// arbitrary inner layout remain the platform's to draw.
+const NATIVE_ROWS: &[StyleId] = &[
+    StyleId::ControlSize,
+    StyleId::ControlCornerStyle,
+    StyleId::FlexDirection,
+    StyleId::RowGap,
+    StyleId::ColumnGap,
+    StyleId::AlignItems,
+    StyleId::JustifyContent,
+    StyleId::FontSize,
+    StyleId::FontWeight,
+    StyleId::WhiteSpace,
+    StyleId::LineClamp,
+    StyleId::TextAlign,
+    StyleId::TextColor,
+    StyleId::BorderRadiusTopLeft,
+    StyleId::BorderRadiusTopRight,
+    StyleId::BorderRadiusBottomRight,
+    StyleId::BorderRadiusBottomLeft,
+    StyleId::PaddingTop,
+    StyleId::PaddingRight,
+    StyleId::PaddingBottom,
+    StyleId::PaddingLeft,
+    StyleId::PointerEvents,
+    StyleId::Width,
+    StyleId::Height,
+    StyleId::MinWidth,
+    StyleId::MinHeight,
+    StyleId::MaxWidth,
+    StyleId::MaxHeight,
+    StyleId::MarginTop,
+    StyleId::MarginRight,
+    StyleId::MarginBottom,
+    StyleId::MarginLeft,
+    StyleId::AlignSelf,
+    StyleId::FlexGrow,
+    StyleId::FlexShrink,
+    StyleId::FlexBasis,
+    StyleId::PositionType,
+    StyleId::Top,
+    StyleId::Right,
+    StyleId::Bottom,
+    StyleId::Left,
+    StyleId::AspectRatio,
+    StyleId::Display,
+    StyleId::ZIndex,
+    StyleId::GridColumn,
+    StyleId::GridRow,
+    StyleId::Opacity,
+    StyleId::Visibility,
+    StyleId::Translate,
+    StyleId::TranslatePercent,
+    StyleId::TranslateZ,
+    StyleId::Scale,
+    StyleId::Rotate,
+    StyleId::RotateAxis,
+    StyleId::Transform,
+    StyleId::TransformOrigin,
+    StyleId::ClipPath,
+    StyleId::AccentColor,
+    StyleId::Appearance,
+    StyleId::Transition,
+    StyleId::Animation,
+    StyleId::ExitAnimation,
+];
+
+/// Whether a native button's box may carry row `id` ([`NATIVE_ROWS`]): what
+/// a library control's `control` group takes.
+pub(crate) fn native_row(id: StyleId) -> bool {
+    NATIVE_ROWS.contains(&id)
+}
+
+/// The motion a native button may carry: its opacity and transforms.
+fn native_motion(p: exact_motion::Property) -> bool {
+    use exact_motion::Property as P;
+    matches!(p, P::Opacity | P::Translate | P::Scale | P::Rotate)
+}
+
+/// Whether a value can be empty: a blank literal, `none`, or an arm of a
+/// choice that is one.
+fn may_be_empty(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s.trim().is_empty(),
+        Expr::None(_) => true,
+        Expr::Ternary(_, a, b, _) => may_be_empty(a) || may_be_empty(b),
+        Expr::Typed(x, _, _) => may_be_empty(x),
+        _ => false,
+    }
+}
+
+/// Whether a value is always empty: every arm blank or `none`.
+fn always_empty(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s.trim().is_empty(),
+        Expr::None(_) => true,
+        Expr::Ternary(_, a, b, _) => always_empty(a) && always_empty(b),
+        Expr::Typed(x, _, _) => always_empty(x),
+        _ => false,
+    }
+}
+
+/// Every literal a value can be: itself, or each arm of a choice.
+fn literals(e: &Expr) -> Option<Vec<&str>> {
+    match e {
+        Expr::Str(s, _) => Some(vec![s.as_str()]),
+        Expr::Ternary(_, a, b, _) => {
+            let mut out = literals(a)?;
+            out.extend(literals(b)?);
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+impl Lowerer<'_> {
+    /// A native button's attributes, face and place, after class merging.
+    pub(crate) fn check_native_button(
+        &self,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let alternative = "write a custom `button` (without `appearance=\"auto\"`) there";
+        if let Some(place) = self.button_context {
+            return err(
+                "lower-button-context",
+                format!("a native button cannot be inside {place} in this version: {alternative}"),
+                span,
+            );
+        }
+        for a in attrs {
+            let name = a.name.as_str();
+            let refuse = |id: &'static str, why: String| err(id, why, a.span);
+            match name {
+                // A menu's invoker is a custom button in this version; a row
+                // that only closes its popover or dialog — a confirmation's
+                // action or cancel — is not an invoker.
+                "popovertarget" => {}
+                "commandfor" if attrs.iter().find(|a| a.name == "command").is_some_and(|a| {
+                    literals(&a.value).is_some_and(|commands| commands.iter().all(|c| matches!(*c, "close" | "show-modal" | "show-popover" | "toggle-popover")))
+                }) => {}
+                "commandfor" | "href" | "action" | "swipeContent"
+                | "swipeLeading" | "swipeTrailing" | "swipeIndicator" | "popover" => {
+                    return refuse(
+                        "lower-button-context",
+                        format!("a native button takes no `{name}` in this version: {alternative}"),
+                    )
+                }
+                "type" if !matches!(&a.value, Expr::Str(v, _) if v == "button") => {
+                    return refuse(
+                        "lower-button-context",
+                        "a native button's `type` is `\"button\"`: it is what makes it one".into(),
+                    )
+                }
+                // Its fixed role yields to a tab's, a radio's (a radio group's
+                // segment) or a menu item's.
+                "role"
+                    if !literals(&a.value).is_some_and(|roles| {
+                        roles.iter().all(|r| {
+                            matches!(
+                                *r,
+                                "button"
+                                    | "tab"
+                                    | "radio"
+                                    | "menuitem"
+                                    | "menuitemcheckbox"
+                                    | "menuitemradio"
+                            )
+                        })
+                    }) =>
+                {
+                    return refuse(
+                        "lower-button-context",
+                        format!("a native button's role is `button`, `tab`, `radio`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
+                    )
+                }
+                "backgroundMaterial" | "glassGroup" => {
+                    return refuse(
+                        "lower-button-style-attr",
+                        format!("a native button draws its own glass: no `{name}` on it (put a `glassGroup` on its parent); {alternative}"),
+                    )
+                }
+                "display"
+                    if !literals(&a.value)
+                        .is_some_and(|ds| ds.iter().all(|d| matches!(*d, "flex" | "none"))) =>
+                {
+                    return refuse(
+                        "lower-button-style-attr",
+                        format!("a native button's `display` is its own `\"flex\"` or `\"none\"` (or a choice between them): {alternative}"),
+                    )
+                }
+                "align-items" | "justify-content" if !literals(&a.value).is_some_and(|vs| vs.iter().all(|v| *v == "center")) => {
+                    return refuse("lower-button-style-attr", format!("a native button's `{name}` only accepts `center`; use `text-align` to place the face, or {alternative}"));
+                }
+                "flex-direction" if !literals(&a.value).is_some_and(|vs| vs.iter().all(|v| matches!(*v, "row" | "column"))) => {
+                    return refuse("lower-button-style-attr", format!("a native button's `flex-direction` is `row` or `column`: {alternative}"));
+                }
+                "-exact-press-haptic" => {
+                    let kind = match &a.value {
+                        Expr::Str(k, _) if !exact_plan::HAPTIC_KINDS.contains(&k.as_str()) => {
+                            return refuse("lower-button-style-attr", "a native button plays no `-exact-press-haptic`: remove `-exact-press-haptic`".into());
+                        }
+                        Expr::Str(k, _) => k.as_str(),
+                        _ => "impact-light",
+                    };
+                    return refuse("lower-button-style-attr", format!("a native button plays no `-exact-press-haptic`: play it from its `press` action, `haptic(\"{kind}\")`; or {alternative}"));
+                }
+                "buttonStyle" => match literals(&a.value) {
+                    Some(names) => {
+                        if let Some(bad) = names
+                            .iter()
+                            .find(|n| exact_kernel::generated::button_style(n).is_none())
+                        {
+                            return refuse(
+                                "lower-button-style",
+                                format!(
+                                    "`buttonStyle=\"{bad}\"` is not a button style; styles: {}",
+                                    exact_kernel::generated::BUTTON_STYLES.join(", ")
+                                ),
+                            );
+                        }
+                    }
+                    None => {
+                        return refuse(
+                            "lower-button-style",
+                            "`buttonStyle` is a style's name, or a choice between names, so each can be checked".into(),
+                        )
+                    }
+                },
+                _ => {}
+            }
+            match crate::tags::attr_valued(name, &a.value) {
+                Some(crate::tags::AttrTarget::Styles(rows)) => {
+                    if rows.iter().any(|r| !NATIVE_ROWS.contains(r)) {
+                        return refuse(
+                            "lower-button-style-attr",
+                            format!("a native button draws its own `{name}`: {alternative}"),
+                        );
+                    }
+                    if rows.contains(&StyleId::Transition) {
+                        self.check_native_transition(a)?;
+                    }
+                    if rows.contains(&StyleId::Animation) || rows.contains(&StyleId::ExitAnimation)
+                    {
+                        self.check_native_animation(a)?;
+                    }
+                }
+                Some(crate::tags::AttrTarget::Shorthand)
+                    if crate::shorthands::rows(name)
+                        .iter()
+                        .any(|r| !NATIVE_ROWS.contains(r)) =>
+                {
+                    return refuse(
+                        "lower-button-style-attr",
+                        format!("a native button draws its own `{name}`: {alternative}"),
+                    );
+                }
+                Some(crate::tags::AttrTarget::Handler(h))
+                    if !matches!(
+                        h,
+                        "press"
+                            | "focus"
+                            | "blur"
+                            | "focusin"
+                            | "focusout"
+                            | "keycapture"
+                            | "key"
+                            | "keyup"
+                            | "hover"
+                    ) =>
+                {
+                    return refuse(
+                        "lower-button-context",
+                        format!("a native button takes `press`, `focus`, `blur`, `focusin`, `focusout`, `key`, `keycapture`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
+                    );
+                }
+                _ => {}
+            }
+        }
+        let labelled = attrs
+            .iter()
+            .any(|a| a.name == "aria-label" && !may_be_empty(&a.value));
+        let faces = face_counts(self, children)?;
+        if faces.contains(&(0, 0)) {
+            return err(
+                "lower-button-content",
+                "a native button shows a title (`text`), a symbol (`image \"symbol:…\"`), or both: this one can show neither",
+                span,
+            );
+        }
+        if faces.iter().any(|f| f.0 > 2 || f.1 > 1) {
+            return err(
+                "lower-button-style-attr",
+                "a native button shows at most two `text`s and one `image` at a time; write a custom `button` (without `appearance=\"auto\"`) for more",
+                span,
+            );
+        }
+        if !labelled && faces.contains(&(0, 1)) {
+            return err(
+                "lower-button-content",
+                "a native button that shows only an image needs an `aria-label` that is never empty",
+                span,
+            );
+        }
+        Ok(())
+    }
+
+    /// A native button's `transition`: only its opacity and transforms.
+    fn check_native_transition(&self, a: &contract_syntax::Attr) -> Result<(), LowerError> {
+        let Some(texts) = literals(&a.value) else {
+            return err(
+                "lower-button-style-attr",
+                "a native button's `transition` is a literal, so its properties can be checked; write a custom `button` for other motion",
+                a.span,
+            );
+        };
+        for text in texts {
+            let Ok(ts) = exact_motion::Transitions::parse(text) else {
+                continue; // the row's own check names the error
+            };
+            for t in &ts.0 {
+                let ok = matches!(t.property, exact_motion::TransitionProperty::Property(p) if native_motion(p));
+                if !ok {
+                    return err(
+                        "lower-button-style-attr",
+                        "a native button transitions only its `opacity` and transforms (`translate`, `scale`, `rotate`): write a custom `button` for other motion",
+                        a.span,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A native button's `animation` or `-exact-exit-animation`: keyframes, looked
+    /// up by name, that touch only its opacity and transforms.
+    fn check_native_animation(&self, a: &contract_syntax::Attr) -> Result<(), LowerError> {
+        let Some(texts) = literals(&a.value) else {
+            return err(
+                "lower-button-style-attr",
+                "a native button's animation is a literal, so its keyframes can be checked; write a custom `button` for other motion",
+                a.span,
+            );
+        };
+        for text in texts {
+            let Ok(anims) = exact_motion::Animations::parse(text) else {
+                continue;
+            };
+            for anim in &anims.0 {
+                let ok = anim.name == "none"
+                    || self
+                        .keyframes
+                        .get(&anim.name)
+                        .is_some_and(|ps| ps.iter().all(|p| native_motion(*p)));
+                if !ok {
+                    return err(
+                        "lower-button-style-attr",
+                        format!("a native button animates only its `opacity` and transforms; `{}` animates more (or is not declared here); write a custom `button` for other motion", anim.name),
+                        a.span,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn symbol_source(source: &Expr) -> bool {
+    match source {
+        Expr::Template(parts, _) => {
+            matches!(parts.first(), Some(contract_syntax::TemplatePart::Text(text)) if text.starts_with("symbol:"))
+        }
+        _ => literals(source)
+            .is_some_and(|sources| sources.iter().all(|source| source.starts_with("symbol:"))),
+    }
+}
+
+/// Every face a native button's children can show, as (texts, images),
+/// saturated above two texts/one image; refusing what a face cannot hold: repeated/arbitrary children and non-face
+/// rows, after each child's class merge.
+fn face_counts(
+    lower: &Lowerer<'_>,
+    nodes: &[contract_syntax::Node],
+) -> Result<Vec<(u8, u8)>, LowerError> {
+    use contract_syntax::Node;
+    let mut faces = vec![(0u8, 0u8)];
+    let add = |faces: Vec<(u8, u8)>, more: Vec<(u8, u8)>| {
+        let mut out: Vec<(u8, u8)> = Vec::new();
+        for f in &faces {
+            for m in &more {
+                let sum = ((f.0 + m.0).min(3), (f.1 + m.1).min(2));
+                if !out.contains(&sum) {
+                    out.push(sum);
+                }
+            }
+        }
+        out
+    };
+    for node in nodes {
+        let here: Vec<(u8, u8)> = match node {
+            Node::Element {
+                tag,
+                positional,
+                attrs,
+                children,
+                span,
+                ..
+            } => {
+                if !matches!(tag.as_str(), "text" | "image") {
+                    return err(
+                        "lower-button-style-attr",
+                        format!("a native button shows `text`s and one `image`, not a `{tag}`; write a custom `button` for other children"),
+                        *span,
+                    );
+                }
+                let class = lower.class_rows(attrs)?.map(|(_, rows)| rows).unwrap_or_default();
+                for a in class.iter().chain(attrs) {
+                    if matches!(a.name.as_str(), "class" | "testId") { continue; }
+                    let allowed = match crate::tags::attr(&a.name) {
+                        Some(crate::tags::AttrTarget::Styles(rows)) => rows.iter().all(|r| {
+                            if tag == "text" {
+                                matches!(r, StyleId::FontSize | StyleId::FontWeight | StyleId::TextColor | StyleId::WhiteSpace | StyleId::LineClamp | StyleId::TextAlign)
+                            } else {
+                                matches!(r, StyleId::TintColor | StyleId::FontSize | StyleId::FontWeight)
+                            }
+                        }),
+                        _ => false,
+                    };
+                    if !allowed {
+                        // Each edit keeps what the attribute was for.
+                        let message = match (tag.as_str(), a.name.as_str()) {
+                            ("image", "width" | "height") if !positional.first().is_some_and(symbol_source) => format!("a raster face needs `button appearance=\"none\"`; put `{}` on its image there to size the picture's box", a.name),
+                            ("image", "width" | "height") => format!("write `font-size=…` for the symbol's size in a native button, not `{}`: there a symbol's `font-size` is its point size and `width` would size a box; a box of that size is a custom `button`", a.name),
+                            (_, name) if name == "role" || name.starts_with("aria-") => format!("put the `{name}` on a node beside the button: a button's content is presentational (WAI-ARIA 1.2, a button's children are presentational), so it is not announced inside it; name the button with `aria-label` if its words differ"),
+                            ("image", "color") if positional.first().is_some_and(symbol_source) => "a native button's symbol is coloured with `-exact-tint-color`, not `color`; a floating round control is `buttonStyle=\"glass\"` (or `\"prominent-glass\"`), still the platform's button".to_string(),
+                            _ => format!("a native button's `{tag}` takes no `{}`; write a custom `button` for other face rows", a.name),
+                        };
+                        return err("lower-button-style-attr", message, a.span);
+                    }
+                }
+                if !children.is_empty() {
+                    return err(
+                        "lower-button-style-attr",
+                        format!("a native button's `{tag}` has no children; write a custom `button` for inner layout"),
+                        *span,
+                    );
+                }
+                match tag.as_str() {
+                    // A blank title shows nothing: it is no title.
+                    "text" => {
+                        match positional.first() {
+                            Some(e) if always_empty(e) => return err(
+                                "lower-button-content",
+                                "a native button's `text` is its title: this one is always empty",
+                                *span,
+                            ),
+                            Some(e) if may_be_empty(e) => vec![(1, 0), (0, 0)],
+                            Some(_) => vec![(1, 0)],
+                            None => {
+                                return err(
+                                    "lower-button-content",
+                                    "a native button's `text` is its title: give it one",
+                                    *span,
+                                )
+                            }
+                        }
+                    }
+                    "image" => {
+                        // A role from the table or an SF Symbol's name,
+                        // a choice between them, or a
+                        // source computed at runtime that starts `symbol:`.
+                        // An icon token too, by name or its form.
+                        let symbol = |s: &str| {
+                            s.strip_prefix("symbol:").is_some_and(|r| {
+                                r.strip_prefix("sf/").map_or_else(
+                                    || {
+                                        exact_kernel::generated::symbol_role(r).is_some()
+                                            || r.starts_with("icon|")
+                                            || crate::icons::named(r).is_some()
+                                    },
+                                    |name| !name.is_empty(),
+                                )
+                            })
+                        };
+                        if !positional.first().is_some_and(symbol_source) {
+                            return err(
+                                "lower-button-content",
+                                "a native button needs an image with a provable `symbol:` prefix: raster faces are not painted by every graphical host; write `button appearance=\"none\"` for a raster face",
+                                *span,
+                            );
+                        }
+                        let ok = match positional.first() {
+                            Some(Expr::Template(_, _)) => true,
+                            Some(e) => {
+                                literals(e).is_some_and(|srcs| srcs.iter().all(|s| symbol(s)))
+                            }
+                            None => false,
+                        };
+                        if !ok {
+                            return err(
+                                "lower-button-content",
+                                "a native button's `symbol:` image needs a symbol role, an icon token or a nonempty SF Symbol name",
+                                *span,
+                            );
+                        }
+                        vec![(0, 1)]
+                    }
+                    _ => unreachable!("checked above"),
+                }
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                let mut out = face_counts(lower, then)?;
+                for f in face_counts(lower, otherwise)? {
+                    if !out.contains(&f) {
+                        out.push(f);
+                    }
+                }
+                out
+            }
+            Node::Match { some, none, .. } => {
+                let mut out = face_counts(lower, &some.1)?;
+                for f in face_counts(lower, none)? {
+                    if !out.contains(&f) {
+                        out.push(f);
+                    }
+                }
+                out
+            }
+            Node::Each { span, .. } => {
+                return err(
+                    "lower-button-style-attr",
+                    "a native button's title and image are fixed in number: no `for` inside it; write a custom `button` for repeated children",
+                    *span,
+                )
+            }
+            _ => vec![(0, 0)],
+        };
+        faces = add(faces, here);
+    }
+    Ok(faces)
+}
+
+/// A `button` or `link` with nothing to press: no children, no size and no
+/// insets that size it, refused before layout could find it.
+pub(crate) fn check_zero_size(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+    children: &[contract_syntax::Node],
+    span: Span,
+) -> Result<(), LowerError> {
+    const SIZES: &[&str] = &[
+        "width",
+        "height",
+        "flex",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "min-width",
+        "min-height",
+    ];
+    // An absolutely positioned box is sized by its insets (CSS 2 §10.3.7,
+    // §10.6.4): `inset=0`, or `top` with `bottom` or `left` with `right`
+    // (a modal's backdrop button is one).
+    let has = |name: &str| attrs.iter().any(|a| a.name == name);
+    let positioned = attrs.iter().any(|a| {
+        a.name == "position"
+            && !matches!(&a.value, contract_syntax::Expr::Str(s, _)
+                if matches!(s.as_str(), "static" | "relative" | "sticky"))
+    });
+    let inset =
+        positioned && (has("inset") || has("top") && has("bottom") || has("left") && has("right"));
+    if matches!(tag, "button" | "link")
+        && children.is_empty()
+        && !inset
+        && !attrs.iter().any(|a| SIZES.contains(&a.name.as_str()))
+    {
+        return err(
+            "lower-zero-size",
+            format!("`{tag}` has no children and no size, so it has zero area and nothing to press: give it children or a size"),
+            span,
+        );
+    }
+    Ok(())
+}

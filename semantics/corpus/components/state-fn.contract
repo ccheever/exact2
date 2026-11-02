@@ -1,0 +1,80 @@
+fn pick(n: number): number = n + 1
+
+component App
+  state chosen = 0
+  action choose(base: number, n: number)
+    chosen = base + n
+  view
+    column
+      text `${chosen}` testId="chosen"
+      Child(onPick=choose(10))
+
+component Child
+  props
+    onPick: action
+  state pick = 7
+  state initial = pick(5)
+  state shown = 0
+  derive computed = pick(pick)
+  provide
+    label = pick(pick)
+  action update(n: number)
+    pick = pick(n)
+    shown = computed
+    onPick(pick(5))
+  action relay()
+    update(12)
+  view
+    column
+      text `${pick} ${pick(5)}` testId="direct"
+      text `${computed}` testId="derived"
+      text `${initial}` testId="initial"
+      text `${shown}` testId="shown"
+      Frame()
+        text `${pick} ${pick(5)}` testId="fill"
+        button "Update" press=update(9) testId="update"
+      Label(value=pick(pick))
+      Provided()
+      button "Relay" press=relay testId="relay"
+
+component Frame
+  slot
+  view
+    children
+
+component Label
+  props
+    value: number
+  view
+    text `${value}` testId="argument"
+
+component Provided
+  inject
+    label: number
+  view
+    text `${label}` testId="provided"
+
+test "state values leave function calls intact"
+  expect text "direct" == "7 6"
+  expect text "derived" == "8"
+  expect text "initial" == "6"
+  expect text "shown" == "0"
+  expect text "fill" == "7 6"
+  expect text "argument" == "8"
+  expect text "provided" == "8"
+  tap "update"
+  expect text "direct" == "10 6"
+  expect text "derived" == "11"
+  expect text "shown" == "8"
+  expect text "fill" == "10 6"
+  expect text "argument" == "11"
+  expect text "provided" == "11"
+  expect text "chosen" == "16"
+  tap "relay"
+  expect text "direct" == "13 6"
+  expect text "derived" == "14"
+  expect text "shown" == "11"
+  expect text "fill" == "13 6"
+  expect text "argument" == "14"
+  expect text "provided" == "14"
+  expect text "chosen" == "16"

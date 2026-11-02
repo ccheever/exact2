@@ -1,0 +1,13 @@
+use clearCount, silence from "@fixture/bell"
+
+component Panel
+  action clear
+    clearCount()
+  action hush
+    silence(tag="t1")
+  view
+    row
+      button testId="clear" press=clear
+        text "Clear"
+      button testId="hush" press=hush
+        text "Hush"

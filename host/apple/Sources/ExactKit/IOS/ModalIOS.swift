@@ -1,0 +1,860 @@
+// UIKit owns modal presentation and its keyboard guide.
+// A presentation mounts only its own navigation: the
+// session's viewport and the document stay in the session's view.
+#if os(iOS) || os(tvOS)
+import UIKit
+
+#if os(iOS)
+/// A presented controller that paints its own surface, which a live theme
+/// edit has it paint again (`Presenter.applyThemeTint`).
+protocol PaintsSheetSurface: AnyObject { func paintSurface() }
+extension ModalController: PaintsSheetSurface {}
+#endif
+
+private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
+    weak var host: ModalHost?
+    let routeID: UInt32
+    /// The route a `fit-content` detent measures.
+    private weak var route: NodeView?
+    var retiringRoot: NodeView?
+    var retiringNavigation: UIViewController?
+    /// The keyboard probe and a freeze's pixels: what this controller adds
+    /// to its view beside the mount.
+    private(set) var probe: UIView?
+    private(set) var pixels: UIView?
+    /// What the presentation's navigation is mounted in.
+    let mount = PresentationMount()
+    init(host: ModalHost, route: NodeView, fullscreen: Bool, detent: String?, grabber: String?) {
+        self.host = host
+        routeID = route.id
+        self.route = route
+        super.init(nibName: nil, bundle: nil)
+        #if os(tvOS)
+        // tvOS has no sheets; every modal covers the screen.
+        modalPresentationStyle = .overFullScreen
+        #else
+        modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
+        if !fullscreen { updateSheet(detent: detent, cornerRadius: ModalController.cornerRadius(of: route), grabber: grabber) }
+        #endif
+    }
+    /// A sheet route's authored `border-radius`, its top-left corner's: the
+    /// sheet's corner radius. Nil leaves UIKit's, which on iOS 26 and later
+    /// follows the display's corners and insets a large sheet from the bottom edge.
+    static func cornerRadius(of route: NodeView) -> CGFloat? {
+        guard route.wrote("border_radius_top_left") else { return nil }
+        return BorderPaint.radii(route.style, in: route.bounds)[0].width
+    }
+    private var detentValue: String?, cornerRadius: CGFloat?, grabberValue: String?
+    func updateSheet(detent value: String?, cornerRadius radius: CGFloat?, grabber: String?) {
+        #if !os(tvOS)
+        // No detent selected yet: UIKit's own (`large`), never set here, as
+        // when the sheet is made; a selection is set with every detent list.
+        guard modalPresentationStyle == .pageSheet,
+              let sheet = sheetPresentationController,
+              detentValue != value || cornerRadius != radius || grabberValue != grabber || sheet.selectedDetentIdentifier == nil else { return }
+        // A grabber or radius alone changes only itself: the detents and the
+        // one the person dragged the sheet to stay.
+        let newDetents = detentValue != value || sheet.selectedDetentIdentifier == nil
+        detentValue = value
+        cornerRadius = radius
+        grabberValue = grabber
+        let content = { [weak self] () -> CGFloat? in
+            guard let route = self?.route else { return nil }
+            // A scroller's extent counts its padding, and a container's
+            // bottom cover (the sheet's safe area, which UIKit adds below the
+            // detent) is padding; a route that does not scroll sends its
+            // children's extent, which leaves it out.
+            guard route.scroll != nil, case .edges(let e)? = self?.host?.presenter.navigation.covers[route.id] else { return route.content.height }
+            return route.content.height - e.bottom
+        }
+        let configure = {
+            // Authored points and `fit-content` exclude the bottom safe
+            // area, which UIKit adds.
+            // One resting height leaves overscroll and dismissal with UIKit;
+            // several (`"300 large"`) make
+            // the sheet resizable among them, from the first, with its grabber.
+            if newDetents {
+                var refused: [(Substring, ModalHost.DetentRefusal)] = []
+                let detents = ModalHost.detents(value, refused: { refused.append(($0, $1)) }, content: content)
+                sheet.detents = detents.isEmpty ? [.large()] : detents
+                if !refused.isEmpty, let route = self.route { self.host?.presenter.session?.log(ModalHost.refusal(detent: value ?? "", words: refused, route: route.props["navigationKey"] ?? "", kept: !detents.isEmpty)) }
+                // It opens at the one `navigationInitialDetent` names, else
+                // (unsaid or empty) at the first, as UIKit opens a sheet at
+                // its smallest.
+                let initial = self.route?.props["navigationInitialDetent"] ?? ""
+                let opening = ModalHost.identifier(of: initial, in: detents.isEmpty ? "large" : value)
+                if !initial.isEmpty, opening == nil, let route = self.route { self.host?.presenter.session?.log("navigationInitialDetent \"\(initial)\" on route \"\(route.props["navigationKey"] ?? "")\" names none of the detents the sheet kept from navigationDetent \"\(value ?? "")\"; the sheet opens at its first") }
+                sheet.selectedDetentIdentifier = opening ?? sheet.detents.first?.identifier
+            }
+            // `navigationGrabber` says; unsaid, a sheet that resizes has
+            // one, as the HIG puts it on a resizable sheet.
+            sheet.prefersGrabberVisible = grabber == "visible" || grabber != "hidden" && sheet.detents.count > 1
+            sheet.preferredCornerRadius = radius
+            // Several: scrolling at the content's top grows the sheet, as
+            // UIKit's own sheets do.
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = sheet.detents.count > 1
+            // In `animateChanges`, the surface moves with the sheet.
+            self.paintSurface()
+        }
+        if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
+        else { configure() }
+        #endif
+    }
+    /// The route's content extent changed: a `fit-content` detent resolves
+    /// again, animated as UIKit animates a detent change, in the same sheet.
+    func contentChanged() {
+        #if !os(tvOS)
+        guard modalPresentationStyle == .pageSheet, let sheet = sheetPresentationController,
+              (detentValue ?? "").split(separator: " ").contains("fit-content") else { return }
+        if viewIfLoaded?.window != nil { sheet.animateChanges { sheet.invalidateDetents() } }
+        else { sheet.invalidateDetents() }
+        #endif
+    }
+    required init?(coder: NSCoder) { nil }
+    #if os(iOS)
+    // UIKit asks a presented controller that covers the screen;
+    // it answers the presenter's one resolved style, as the root does.
+    override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    // And the session's orientation lock, as the root does.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        host?.presenter.orientationLock.supported ?? super.supportedInterfaceOrientations
+    }
+    @available(iOS 26, *)
+    override var prefersInterfaceOrientationLocked: Bool { host?.presenter.orientationLock.locked ?? false }
+    #endif
+    private var backdropTap: UITapGestureRecognizer?
+    /// Each appearance, the first and one after a cancelled interactive dismissal.
+    var appeared: (() -> Void)?
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        appeared?()
+        #if os(iOS)
+        // Back after a cancelled drag or zoom dismissal, which no completion
+        // resolves: what landed during the gesture shows now.
+        // The finished coordinator may still be installed: only a newly
+        // started push or pop holds the style.
+        let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
+        if !(transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in resolve() }) ?? false) { resolve() }
+        #endif
+        guard backdropTap == nil, let container = presentationController?.containerView else { return }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
+        tap.delegate = self
+        container.addGestureRecognizer(tap)
+        backdropTap = tap
+    }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if CanvasInputs.owns(touch.view) { return false }
+        guard let container = presentationController?.containerView,
+              let presented = presentationController?.presentedView,
+              host?.canDismissByBackdrop(routeID) == true else { return false }
+        return !presented.convert(presented.bounds, to: container).contains(touch.location(in: container))
+    }
+    @objc private func tappedBackdrop() { host?.dismissByBackdrop(routeID) }
+    override func loadView() {
+        view = UIView()
+        mount.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(mount)
+        #if os(tvOS)
+        // tvOS has neither grouped backgrounds nor a keyboard layout guide.
+        view.backgroundColor = .white
+        #else
+        ThemeRoles.adopt(view, from: host?.presenter.root)
+        // Its presenter's tint, as the root's: a sheet sits outside it.
+        if let tint = ThemeRoles.color("AccentColor", in: view) { view.tintColor = tint }
+        paintSurface()
+        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (controller: ModalController, _: UITraitCollection) in controller.paintSurface() }
+        let probe = UIView()
+        probe.isHidden = true
+        probe.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(probe)
+        self.probe = probe
+        // The guide is the keys alone: a route ends at them, not at the home
+        // indicator (`OwnerBlocks.block`)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        NSLayoutConstraint.activate([
+            probe.topAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            probe.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            probe.widthAnchor.constraint(equalToConstant: 0),
+            probe.heightAnchor.constraint(equalToConstant: 0),
+        ])
+        #endif
+    }
+    #if os(iOS)
+    /// What shows under the route where it paints nothing:
+    /// the theme's ground; else, on a sheet resting below its large detent
+    /// in a compact width, nothing, so UIKit draws its glass as it does for
+    /// a hand-built sheet whose view is left clear; else
+    /// the system background, which UIKit elevates in dark mode. An authored
+    /// `transparent` is clear at any detent. The route's own paint is its
+    /// controller's (`RouteController.paintBackdrop`). While the keyboard
+    /// ends the content above the screen's bottom, the colour the content
+    /// goes on with shows behind the keys' bar (`ExactView.paintUnderKeys`).
+    func paintSurface() {
+        guard isViewLoaded else { return }
+        let presenter = host?.presenter
+        let keys = (presenter?.keyboardInset ?? 0) > 0 ? presenter?.bottomEdgeColor() : nil
+        let surface = keys ?? (transparent ? .clear
+            : ThemeRoles.color("background", in: view) ?? ThemeRoles.color("Canvas", in: view) ?? (glass ? .clear : .systemBackground))
+        if view.backgroundColor != surface { view.backgroundColor = surface }
+    }
+    private var glass: Bool {
+        // Unspecified until it is presented: an iPhone's, compact.
+        guard modalPresentationStyle == .pageSheet, traitCollection.horizontalSizeClass != .regular,
+              let sheet = sheetPresentationController else { return false }
+        return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) != .large
+    }
+    /// The route's author wrote a background with no alpha.
+    private var transparent: Bool {
+        guard let route, route.wrote("background_color") else { return false }
+        return [false, true].allSatisfy { route.channels("background_color", dark: $0).map { $0.count == 4 && $0[3] == 0 } ?? false }
+    }
+    #endif
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The keyboard probe lays the sheet out as its keyboard layout guide
+        // moves, where its routes end (`OwnerBlocks.block`)
+        host?.presenter.owners.publish()
+    }
+    func freeze() {
+        guard isViewLoaded, let pixels = view.snapshotView(afterScreenUpdates: false) else { return }
+        pixels.frame = view.bounds
+        pixels.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(pixels)
+        self.pixels = pixels
+    }
+}
+
+// Each boundary owns its native controller and the navigation it mounts;
+// covered owners remain mounted, inert.
+private final class Presentation {
+    let controller: ModalController
+    let route: NodeView
+    let kind: String
+    let navigation: UIViewController
+    let background: UIViewController
+    let backgroundInteraction: Bool
+    let backgroundAccessibility: Bool
+    var presenting = true
+    var animated = false
+    /// Samples where a zoom lands while the route's nodes are still mapped:
+    /// run as a Close destroys the route (`prepare`), so the zoom back starts
+    /// from the photo as it is then, zoomed or panned.
+    var sampleLanding: (() -> Void)?
+    var alreadyDismissed = false
+    var presentationsDidDismiss: (() -> Void)?
+
+    init(host: ModalHost, route: NodeView, navigation: UIViewController,
+         background: UIViewController) {
+        self.route = route
+        kind = route.props["navigationPresentation"] ?? "modal"
+        controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"], grabber: route.props["navigationGrabber"])
+        self.navigation = navigation
+        self.background = background
+        backgroundInteraction = background.view.isUserInteractionEnabled
+        backgroundAccessibility = background.view.accessibilityElementsHidden
+    }
+}
+
+/// A zoom's last alignment answer (`ModalHost.present`), and whether the
+/// zoom now running is the person's interactive dismissal, which lands
+/// unaligned.
+final class ZoomLanding {
+    var rect: CGRect?
+    private(set) var interactive = false
+    /// `interactiveDismissShouldBegin`'s answer, passed through: an accepted
+    /// dismissal lands unaligned until the route appears again.
+    func dismissal(begins: Bool) -> Bool {
+        if begins { interactive = true }
+        return begins
+    }
+    /// The route appeared: first, or again after the finger cancelled.
+    func appeared() { interactive = false }
+    /// What `alignmentRectProvider` answers for a resolved rect: none while an
+    /// interactive dismissal runs. UIKit follows the finger with the whole
+    /// route and, given an alignment rect, re-bases the content onto it at
+    /// lift-off: a visible jump and a held frame (a plain UIKit fixture does
+    /// the same). Unaligned, the release carries the drag on in one motion,
+    /// the route cross-fading into its source.
+    func answer(_ resolved: CGRect?) -> CGRect? {
+        if let resolved { rect = resolved }
+        return interactive ? nil : rect
+    }
+}
+
+final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
+    unowned let presenter: Presenter
+    private var layers: [Presentation] = []
+    // Native dismissal outlives logical removal and reload. Retire from the
+    // top down, without letting an old completion touch a new owner.
+    private var retiring: [Presentation] = []
+    private var dismissing: Presentation?
+    private var closing = false
+    /// The fullscreen controller hidden until its zoom starts (`present`).
+    private weak var zoomGuard: UIViewController?
+    private var refusedRoute: UInt32?
+    var active: Bool { !layers.isEmpty || !retiring.isEmpty || closing }
+    var inTransition: Bool {
+        defersFocus || isDismissing || layers.contains { $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
+    }
+    var isDismissing: Bool { !retiring.isEmpty }
+    /// Every presentation's controller view, live and
+    /// retiring, with what the presenter put in it: its probes and the mount
+    /// its navigation is in.
+    func surfaces(includingRetiring: Bool) -> [SessionSurface] {
+        var seen = Set<ObjectIdentifier>()
+        return (layers.map { ($0, false) } + (includingRetiring ? retiring.map { ($0, true) } : [])).compactMap { layer, retiring in
+            guard let view = layer.controller.viewIfLoaded, seen.insert(ObjectIdentifier(view)).inserted else { return nil }
+            let owned = [layer.controller.probe, layer.controller.pixels, layer.controller.mount].compactMap { $0 }
+            return SessionSurface(view: view, label: "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", kind: .route, owned: owned)
+        }
+    }
+    /// The removed routes and navigations a dismissal keeps on screen until
+    /// UIKit ends it: unmapped node views on purpose.
+    var inspectionRetiring: [UIView] {
+        (layers + retiring).flatMap { [$0.controller.retiringRoot, $0.controller.retiringNavigation?.viewIfLoaded].compactMap { $0 } }
+    }
+    var defersFocus: Bool { closing || layers.contains { $0.presenting } }
+    var closedby: String? { layers.last?.route.props["closedby"] }
+    var presentation: String? { layers.last?.kind }
+    var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
+    /// Whether the top presentation, modal as every one is,
+    /// makes `view` inert: it is neither in it nor in a `dialog`'s sheet,
+    /// which UIKit presents over it (HTML modal dialogs).
+    func inertBehind(_ view: UIView) -> Bool {
+        guard let top = coordinateView else { return false }
+        return !view.isDescendant(of: top) && !presenter.menus.sheets.shows(view)
+    }
+    var owner: UIViewController? { layers.last?.controller }
+    /// The presentations' navigations, live and retiring, bottom to top.
+    var navigations: [UINavigationController] { (layers + retiring).compactMap { $0.navigation as? UINavigationController } }
+    /// The top live presentation's navigation, the one nothing is dismissing:
+    /// UIKit's presentation makes what is under it inert.
+    var topNavigation: UINavigationController? { layers.last?.navigation as? UINavigationController }
+    func mounts(_ view: UIView) -> Bool { surfaces(includingRetiring: true).contains { view.isDescendant(of: $0.view) } }
+    var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
+    /// Each live presentation UIKit draws at another size than it lays it
+    /// out, and the factor. A page sheet resting below `large` on an iOS 26
+    /// iPhone floats, its whole content scaled (0.96 on a 402-pt screen), so
+    /// its nodes' boxes are their authored frames times this.
+    var drawnScales: [(route: NodeView, kind: String, scale: CGFloat)] {
+        layers.compactMap { layer in
+            guard let view = layer.controller.viewIfLoaded, let window = view.window, view.bounds.width > 0 else { return nil }
+            let scale = view.convert(view.bounds, to: window).width / view.bounds.width
+            #if os(iOS)
+            let kind = layer.controller.modalPresentationStyle == .pageSheet ? "sheet" : layer.kind
+            #else
+            let kind = layer.kind
+            #endif
+            return abs(scale - 1) >= 0.005 ? (layer.route, kind, scale) : nil
+        }
+    }
+    /// Each presentation's mount and the route it holds.
+    var mounted: [(mount: PresentationMount, route: NodeView)] { layers.map { ($0.controller.mount, $0.route) } }
+    #if os(iOS)
+    /// The topmost presented route the status bar sits over: a
+    /// full-screen one always; a sheet only at its large detent on a
+    /// compact-width screen. Nil when the bar is over the screen behind.
+    /// The topmost covering presentation's navigation view (its routes and
+    /// their pushes, not the app's root nodes that ride along with the
+    /// viewport); nil when the bar is over the primary screen. Every
+    /// presentation's navigation view, which the primary screen's scope
+    /// leaves out.
+    var statusBarScope: (covering: UIView?, presented: [UIView]) {
+        let covering = layers.last { layer in
+            let c = layer.controller
+            if c.modalPresentationStyle == .overFullScreen { return true }
+            guard let sheet = c.sheetPresentationController, c.traitCollection.horizontalSizeClass == .compact else { return false }
+            return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) == .large
+        }
+        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded })
+    }
+    /// Every presented controller re-reads the style with the root:
+    /// UIKit asks the topmost one that covers, which a sheet over it may hide.
+    func statusBarChanged() { for layer in layers { layer.controller.setNeedsStatusBarAppearanceUpdate() } }
+    #endif
+
+    init(presenter: Presenter) { self.presenter = presenter }
+
+    #if os(iOS)
+    /// Why a word of a bound `navigationDetent` is dropped.
+    enum DetentRefusal { case unknown, order }
+
+    /// A `navigationDetent`'s words as UIKit detents, in order. A bound value
+    /// the compiler did not see may hold a word that names no detent, or one
+    /// that is not taller than the detent before it on every screen (the
+    /// compiler's `detent_out_of_order`): UIKit takes
+    /// detents shortest to tallest, and a point height, a share of the
+    /// maximum (`medium` is half) and the content's height cross on some
+    /// screen. Each is skipped and handed to `refused`, so what is kept
+    /// ascends on any screen; `100%` is `large`. `content` is the route's
+    /// laid-out content height, nil or zero before it is measured.
+    static func detents(_ value: String?, refused: ((Substring, DetentRefusal) -> Void)? = nil, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
+        let kept = keptDetents(value, refused: refused)
+        return kept.enumerated().map { place, word in
+            let followed = place < kept.count - 1
+            switch word.kind {
+            case .large: return .large()
+            case .share where word.word == "medium": return .medium()
+            case .share:
+                // A share of the sheet's maximum,
+                // as `.custom { $0.maximumDetentValue * 0.45 }` is in UIKit.
+                let share = CGFloat(word.height)
+                return .custom(identifier: identifier(word)) { context in context.maximumDetentValue * share / 100 }
+            case .points:
+                // Stopped at the maximum; where a taller detent follows, a
+                // height the maximum reaches is inactive (nil), as UIKit's
+                // resolver allows, so no two rests tie on a small screen.
+                let points = CGFloat(word.height)
+                return .custom(identifier: identifier(word)) { context in
+                    followed && points >= context.maximumDetentValue ? nil : min(points, context.maximumDetentValue)
+                }
+            case .content:
+                // The route's content, which its
+                // box (the sheet) does not change; before it is measured,
+                // the sheet's maximum.
+                return .custom(identifier: identifier(word)) { context in
+                    guard let height = content(), height > 0 else { return context.maximumDetentValue }
+                    return min(height.rounded(.up), context.maximumDetentValue)
+                }
+            }
+        }
+    }
+
+    /// The identifier of the detent `word` names among `value`'s words, as
+    /// `detents` makes it; nil when it is none of the words kept.
+    static func identifier(of word: String, in value: String?) -> UISheetPresentationController.Detent.Identifier? {
+        keptDetents(value, refused: nil).first { $0.word == word }.map(identifier)
+    }
+
+    private enum DetentKind { case points, share, content, large }
+    /// A word `detents` keeps: its place among the words, its kind, and its
+    /// height within the kind.
+    private typealias KeptDetent = (index: Int, word: Substring, kind: DetentKind, height: Double)
+
+    private static func keptDetents(_ value: String?, refused: ((Substring, DetentRefusal) -> Void)?) -> [KeptDetent] {
+        var kept: [KeptDetent] = []
+        for (index, word) in (value ?? "").split(separator: " ").enumerated() {
+            let kind: DetentKind, height: Double
+            switch word {
+            case "large": (kind, height) = (.large, 100)
+            case "medium": (kind, height) = (.share, 50)
+            case "fit-content": (kind, height) = (.content, 0)
+            case _ where word.hasSuffix("%"):
+                guard let share = Double(word.dropLast()), share.isFinite, share > 0, share <= 100 else { refused?(word, .unknown); continue }
+                // All of the maximum is UIKit's `large`, and is the same
+                // detent: one rest, and the status bar's.
+                (kind, height) = share == 100 ? (.large, 100) : (.share, share)
+            default:
+                guard let points = Double(word), points.isFinite, points > 0 else { refused?(word, .unknown); continue }
+                (kind, height) = (.points, points)
+            }
+            if let last = kept.last, last.kind == .large || kind != .large && (last.kind != kind || height <= last.height) {
+                refused?(word, .order)
+                continue
+            }
+            kept.append((index, word, kind, height))
+        }
+        return kept
+    }
+
+    private static func identifier(_ word: KeptDetent) -> UISheetPresentationController.Detent.Identifier {
+        switch word.kind {
+        case .large: return .large
+        case .share where word.word == "medium": return .medium
+        case .content: return .init("fit-content-\(word.index)")
+        case .share, .points: return .init("authored-\(word.index)")
+        }
+    }
+
+    /// The journal's line for a bound `navigationDetent` with words dropped:
+    /// the value, the route, each word and why, and what the sheet uses.
+    static func refusal(detent value: String, words: [(Substring, DetentRefusal)], route: String, kept: Bool) -> String {
+        let why = words.map { word, reason in
+            switch reason {
+            case .unknown: return "\"\(word)\" is not large, medium, fit-content, a positive point height or a percentage above 0% and at most 100%"
+            case .order: return "\"\(word)\" is not taller than the detent before it on every screen (UIKit takes them shortest to tallest; a point height, a share of the maximum and the content's height do not mix, and large goes last)"
+            }
+        }.joined(separator: "; ")
+        return "navigationDetent \"\(value)\" on route \"\(route)\": \(why); the sheet uses \(kept ? "its other detents" : "the platform's large detent")"
+    }
+    #endif
+
+    func canDismissByBackdrop(_ id: UInt32) -> Bool {
+        guard let layer = layers.last, layer.route.id == id, layer.route.props["closedby"] == "any",
+              !inTransition else { return false }
+        return !refusesDismissal(of: layer.route)
+    }
+    func dismissByBackdrop(_ id: UInt32) {
+        guard canDismissByBackdrop(id), let route = layers.last?.route else { return }
+        presenter.navigation.invokeBack(from: route)
+    }
+    /// The agent's `back` on the top sheet: its swipe
+    /// down, refused as UIKit's is (`presentationControllerShouldDismiss`)
+    /// and ending as a completed one does (`invokeBack`). nil with no sheet
+    /// up; "" when it went, else why not.
+    func agentDismiss() -> String? {
+        guard let route = layers.last?.route else { return nil }
+        if inTransition { return "the sheet is still moving: `clock settle` first" }
+        if NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) { return "its closedby is \"none\"" }
+        if refusesDismissal(of: route) { return presenter.navigation.backRefusal }
+        presenter.navigation.invokeBack(from: route)
+        return ""
+    }
+
+    func prepare(_ batch: Batch) {
+        for layer in layers where batch.ops.contains(where: {
+            $0.op == .destroy && $0.id == layer.route.id
+        }) {
+            let controller = layer.controller
+            layer.sampleLanding?()
+            controller.freeze()
+            controller.retiringRoot = layer.route
+            controller.retiringNavigation = presenter.navigation.preserveModalContent(in: controller)
+        }
+    }
+
+    func retainsRemovedView(_ node: NodeView) -> Bool {
+        (layers + retiring).contains { layer in
+            guard let root = layer.controller.retiringRoot else { return false }
+            return node === root || node.isDescendant(of: root)
+        }
+    }
+
+    private func releaseBackground(_ layer: Presentation) {
+        let background = layer.background
+        background.view.isUserInteractionEnabled = layer.backgroundInteraction
+        background.view.accessibilityElementsHidden = layer.backgroundAccessibility
+    }
+
+    func updatePermissions() {
+        for layer in layers {
+            layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
+            layer.controller.updateSheet(detent: layer.route.props["navigationDetent"], cornerRadius: ModalController.cornerRadius(of: layer.route), grabber: layer.route.props["navigationGrabber"])
+            #if os(iOS)
+            layer.controller.paintSurface()
+            #endif
+        }
+    }
+
+    /// What each presentation's route inherits from its logical ancestors,
+    /// which UIKit's hierarchy no longer carries to it, mounted in its sheet:
+    /// an authored `aria-hidden` and `inert` above it (WAI-ARIA
+    /// tree exclusion, HTML inert subtrees), set on the view the navigation
+    /// is mounted in, apart from the hiding a presentation over it gives its
+    /// navigation; and a `color-scheme`, the presented controller's
+    /// appearance, which UIKit carries to its sheet and everything in it.
+    /// After every batch, a transition running or not.
+    func inheritFromAncestors() {
+        for layer in layers where layer.controller.isViewLoaded { inherit(layer) }
+    }
+
+    private func inherit(_ layer: Presentation) {
+        var hidden = false, inert = false, scheme = UIUserInterfaceStyle.unspecified
+        var at = presenter.eventParent(of: layer.route)
+        while let view = at {
+            if let node = view as? NodeView {
+                hidden = hidden || node.props["accessibilityElementsHidden"] == "true"
+                inert = inert || node.props["inert"] == "true"
+                if scheme == .unspecified { scheme = node.overrideUserInterfaceStyle }
+            }
+            at = presenter.eventParent(of: view)
+        }
+        let mount = layer.controller.mount
+        if mount.accessibilityElementsHidden != (hidden || inert) { mount.accessibilityElementsHidden = hidden || inert }
+        if mount.isUserInteractionEnabled == inert {
+            mount.isUserInteractionEnabled = !inert
+            // An inert subtree holds no focus (HTML's inert), as `endEditing`
+            // on an authored inert node ends what is under it
+            if inert { mount.endEditing(true) }
+        }
+        // The trait update is taken now, as `applyColorScheme` takes it
+        if layer.controller.overrideUserInterfaceStyle != scheme {
+            layer.controller.overrideUserInterfaceStyle = scheme
+            layer.controller.updateTraitsIfNeeded()
+        }
+    }
+
+    /// A route's content extent changed (a `content` op): its sheet's
+    /// `fit-content` detent follows.
+    func contentChanged(_ node: NodeView) {
+        for layer in layers where layer.route === node { layer.controller.contentChanged() }
+    }
+
+    /// The image a zoom's end shows: the node itself, or the first image
+    /// among its authored descendants (each node's children are in its
+    /// `container`), depth first.
+    static func zoomImage(_ node: NodeView) -> NodeView? {
+        if node.kind == "image" { return node }
+        for child in node.container.subviews.compactMap({ $0 as? NodeView }) {
+            if let image = zoomImage(child) { return image }
+        }
+        return nil
+    }
+
+    /// Where a zoom lands, in the zoomed controller's view: the target's box,
+    /// or for an image the image as drawn (its `object-fit` in its content
+    /// box, clipped there), sized from its own pixels or, before they land,
+    /// `fallbackNatural`.
+    static func zoomAlignment(target: NodeView, fallbackNatural: CGSize?, in zoomed: UIView) -> CGRect {
+        let box = target.convert(target.bounds, to: zoomed)
+        guard let image = zoomImage(target),
+              let natural = image.raster?.image.naturalSize ?? fallbackNatural, natural.width > 0, natural.height > 0 else { return box }
+        let content = image.contentBox()
+        let drawn = RasterGeometry.rect(natural: natural, content: content, fit: image.style["object_fit"]?.string ?? "fill")
+        return image.convert(drawn.intersection(content), to: zoomed)
+    }
+
+    func canPresent(from parent: UIViewController, route: NodeView) -> Bool {
+        guard parent.presentedViewController == nil else {
+            if refusedRoute != route.id {
+                refusedRoute = route.id
+                presenter.session?.log("modal route #\(route.id) refused: the owning controller already presents")
+            }
+            return false
+        }
+        refusedRoute = nil
+        return true
+    }
+
+    func present(_ route: NodeView, navigation: UIViewController, from background: UIViewController,
+                 preceding: NodeView?, owner: UIViewController) {
+        let layer = Presentation(host: self, route: route, navigation: navigation,
+                                 background: background)
+        // The press that opened the sheet may hand its control's focus to the
+        // route's first autofocus until the route goes (PressHandoffIOS).
+        presenter.pressShows(route)
+        // The presenting screen stays where it is, inert (HTML modal dialogs)
+        background.view.isUserInteractionEnabled = false
+        background.view.accessibilityElementsHidden = true
+        let controller = layer.controller
+        if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
+            let options = UIViewController.Transition.ZoomOptions()
+            let landing = ZoomLanding()
+            options.interactiveDismissShouldBegin = { [weak self, weak route] context in
+                guard let self, let route, context.willBegin else { return false }
+                return landing.dismissal(begins: !self.refusesDismissal(of: route))
+            }
+            controller.appeared = landing.appeared
+            // Where the source lands: the presented route's own element with
+            // the source's id, when it has one; for an image, the image as it
+            // is drawn (`object-fit`), so the zoom morphs photo into photo
+            // rather than the whole route into the thumbnail with two photos
+            // cross-fading (the zoom's alignment).
+            // The last answer, for the zoom back after a Close: by then the
+            // route's nodes have left the presenter's map (`release`) though
+            // UIKit still shows them. `prepare` samples it just before.
+            let resolve: (UIView, NodeView?) -> CGRect? = { [weak self, weak route] zoomed, sourceView in
+                guard let self, let route, let name = route.props["navigationSource"],
+                      let target = presenter.views.values.filter({
+                          $0.props["id"] == name && $0.window != nil && $0.isDescendant(of: route)
+                      }).min(by: { $0.id < $1.id }) else { return nil }
+                // Before the viewer's own pixels land, the source's image (the
+                // view UIKit zooms from) is the same photo.
+                let source = sourceView.flatMap(Self.zoomImage)
+                return Self.zoomAlignment(target: target, fallbackNatural: source?.raster?.image.naturalSize, in: zoomed)
+            }
+            options.alignmentRectProvider = { context in
+                landing.answer(context.zoomedViewController.viewIfLoaded.flatMap { resolve($0, context.sourceView as? NodeView) })
+            }
+            layer.sampleLanding = { [weak controller] in
+                if let zoomed = controller?.viewIfLoaded, let rect = resolve(zoomed, nil) { landing.rect = rect }
+            }
+            controller.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
+                guard let self, let route, let preceding,
+                      presenter.views[preceding.id] === preceding,
+                      let name = route.props["navigationSource"] else { return nil }
+                return presenter.views.values.filter {
+                    $0.props["id"] == name && $0.window != nil &&
+                        ($0 === preceding || $0.isDescendant(of: preceding))
+                }.min(by: { $0.id < $1.id })
+            })
+            // Hidden until UIKit's zoom has it: on a device a frame could be
+            // drawn with the presented view in place at full size before the
+            // zoom took it over (one frame of the whole destination, then the
+            // presenting screen again, then the zoom).
+            controller.view.alpha = 0
+            zoomGuard = controller
+        }
+        layers.append(layer)
+        controller.isModalInPresentation = refusesDismissal(of: route)
+        controller.loadViewIfNeeded()
+        controller.addChild(navigation)
+        presenter.collections.watchContacts(in: controller.mount)
+        controller.mount.addSubview(navigation.view)
+        #if os(iOS)
+        if controller.mount.relay == nil { controller.mount.relay = MountRelay(presenter, mount: controller.mount) }
+        #endif
+        navigation.view.setPaintForeground(aboveAuthored: false)
+        navigation.view.frame = controller.mount.bounds
+        navigation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        navigation.didMove(toParent: controller)
+        controller.presentationController?.delegate = self
+        let guarded = zoomGuard === controller
+        zoomGuard = nil
+        defer { if owner.presentedViewController !== controller { endPress(layer) } } // UIKit refused it
+        HostLog.note(presenter.session, "presentation: presenting the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
+        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
+            if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
+            guard let self, let layer else { return }
+            HostLog.note(presenter.session, "presentation: presented the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
+            layer.presenting = false
+            #if os(iOS)
+            // Up: what the bar sits over now.
+            presenter.resolveStatusBar()
+            #endif
+            DispatchQueue.main.async { [weak self, weak layer] in
+                guard let self, let layer else { return }
+                if layers.contains(where: { $0 === layer }) {
+                    fit()
+                    presenter.navigation.modalDidDismiss()
+                }
+                // The transition's transforms are gone: a transform drag in
+                // the presented route measures again, or it stays refused
+                // until something else lays out.
+                presenter.transformGeometry.changed()
+                presenter.syncModal()
+                drainRetired()
+                presenter.menus.resumeAfterRouteDismissal()
+            }
+        }
+        if guarded {
+            // Shown as the transition starts, in the block UIKit runs with
+            // its first frame; at once if there is no coordinator or it
+            // refuses the block; and in any case when the presentation ends.
+            let show = { UIView.performWithoutAnimation { controller.view.alpha = 1 } }
+            let taken = controller.transitionCoordinator?.animate(alongsideTransition: { _ in show() }, completion: { _ in show() }) ?? false
+            if !taken { show() }
+        }
+        fit()
+    }
+
+    func fit() {
+        guard !closing else { return }
+        presenter.session?.view?.fit()
+        presenter.flushPendingFocus()
+        presenter.elementScrolls.flush()
+    }
+
+    func closeTop(animated: Bool = !ExactEnv.agentFreezes, refit: Bool = true) {
+        guard let layer = layers.last else { return }
+        closing = true
+        if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
+        presenter.elementScrolls.cancel(inside: layer.controller.view)
+        let controller = layer.controller
+        layer.presentationsDidDismiss = presenter.menus.retire(over: controller, removing: layer.route)
+        presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
+        layers.removeLast()
+        endPress(layer)
+        releaseBackground(layer)
+        layer.animated = animated
+        retiring.append(layer)
+        if refit { presenter.session?.view?.fit() }
+        closing = false
+        // Post-batch focus transfers before dismissal releases the old editor.
+        DispatchQueue.main.async { [weak self] in self?.drainRetired() }
+    }
+
+    private func drainRetired() {
+        guard dismissing == nil, let layer = retiring.first, !layer.presenting else { return }
+        let above = sequence(first: layer.controller.presentedViewController, next: { $0?.presentedViewController })
+        if let moving = above.compactMap({ $0 }).first(where: { $0.isBeingPresented || $0.isBeingDismissed }),
+           let coordinator = moving.transitionCoordinator,
+           coordinator.animate(alongsideTransition: nil, completion: { [weak self] _ in
+               DispatchQueue.main.async { self?.drainRetired() }
+           }) { return }
+        dismissing = layer
+        let completion = { [weak self, layer] in
+            guard let self, dismissing === layer else { return }
+            dismissing = nil
+            retiring.removeAll { $0 === layer }
+            layer.presentationsDidDismiss?()
+            layer.presentationsDidDismiss = nil
+            // Its routes, if they live on, give their blocks back
+            presenter.owners.publish()
+            #if os(iOS)
+            // Gone: what the bar sits over now.
+            presenter.resolveStatusBar()
+            #endif
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                drainRetired()
+                defer { presenter.menus.resumeAfterRouteDismissal() }
+                guard let session = presenter.session, session.state != .destroyed else { return }
+                presenter.navigation.modalDidDismiss()
+                fit()
+                // As after a presentation: what the dismissal's transition
+                // covered measures again (a drag in the route left on top).
+                presenter.transformGeometry.changed()
+                presenter.syncModal()
+            }
+        }
+        if !layer.alreadyDismissed, let owner = layer.controller.presentingViewController {
+            HostLog.note(presenter.session, "presentation: dismissing the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
+            // Dismissing the route itself would dismiss only what it presents.
+            owner.dismiss(animated: layer.animated, completion: completion)
+        } else { completion() }
+    }
+
+    private func refusesDismissal(of route: NodeView) -> Bool {
+        presenter.views[route.id] !== route || presenter.navigation.isInactiveRoute(containing: route) ||
+            NavigationRules.modalRefusesDismissal(closedby: route.props["closedby"]) || !presenter.navigation.canInvokeBack
+    }
+
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return false }
+        return !refusesDismissal(of: layer.route)
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        guard layers.last?.controller === presentationController.presentedViewController,
+              !presenter.navigation.canInvokeBack else { return }
+        presenter.session?.log("modal dismissal refused: \(presenter.navigation.backRefusal)")
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        guard let layer = layers.last, layer.controller === presentationController.presentedViewController else { return }
+        HostLog.note(presenter.session, "presentation: the person dismissed the \(layer.kind) \(layer.route.props["navigationKey"] ?? "?")")
+        closing = true
+        presenter.cancelPendingFocus()
+        layer.presenting = false
+        layer.alreadyDismissed = true
+        endPress(layer)
+        // UIKit still uses this hierarchy on its callback stack. Remove its
+        // owner before dispatch, so an action may safely keep the same route.
+        DispatchQueue.main.async { [weak self, layer] in
+            guard let self, layers.last === layer else { return }
+            closeTop(animated: false, refit: false)
+            presenter.navigation.invokeBack(from: layer.route)
+            presenter.navigation.modalDidDismiss()
+            fit()
+        }
+    }
+
+    func unmounted() { reset() }
+
+    /// The sheet went, or never came: its press hands nothing on through it.
+    private func endPress(_ layer: Presentation) { presenter.pressHandoff?.drop(layer.route) }
+
+    func reset() {
+        // Dismiss native owners from the top down, each keeping what it shows
+        // for its dismissal. New projection waits until all retired owners finish.
+        for layer in layers.reversed() {
+            layer.controller.freeze()
+            layer.controller.retiringRoot = layer.route
+            layer.controller.retiringNavigation = presenter.navigation.preserveModalContent(in: layer.controller)
+            closeTop(animated: false, refit: false)
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+// A sheet dragged between detents moves what the status bar sits over
+// with no batch.
+extension ModalHost: UISheetPresentationControllerDelegate {
+    func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
+        presenter.resolveStatusBar()
+        layers.first { $0.controller.sheetPresentationController === sheetPresentationController }?.controller.paintSurface()
+    }
+}
+#endif

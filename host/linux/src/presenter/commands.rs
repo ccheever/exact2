@@ -1,0 +1,219 @@
+//! The commands a commit issues, run after it: what this
+//! host has, and the rest named as unsupported. What asks the platform for
+//! something (a haptic, the clipboard, a link out, the share sheet) is asked
+//! of the host's shell where it has one (`requests.rs`).
+
+use super::Presenter;
+use crate::host::HostError;
+use exact_plan::EventKind;
+use exact_runner::{DataSource, Event};
+
+impl<D: DataSource> Presenter<D> {
+    /// Run the last commits' commands: delivery belongs to the
+    /// store; `setScheme` chooses this painter's `light-dark()`
+    /// appearance; anything else is named.
+    pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
+        // Every loop runs this each turn, and a reader's shell is served
+        // before its first: whether a shell keeps the screen on is known.
+        self.wakelock_unavailable();
+        self.orientation_unavailable();
+        self.package_turn();
+        self.run_queued_commands();
+        if self.pending_update {
+            self.pending_update = false;
+            match self.activate_update(data()) {
+                Ok(true) => {}
+                Ok(false) => eprintln!("exact update: nothing is staged"),
+                Err(HostError::PreparingModule) => self.pending_update = true,
+                Err(e) => eprintln!("exact update: activate: {e}"),
+            }
+        }
+    }
+
+    /// The packages' part of a turn: the pads' effects due by now start or
+    /// end (`pads.rs`), then the module calls queued since are handed out.
+    /// The agent runs it too while it waits for replies.
+    pub(crate) fn package_turn(&mut self) {
+        crate::pads::tick(self.host.now());
+        for line in crate::pads::take_recorded() {
+            self.host.log(line);
+        }
+        // A hot key's press, the host's to raise.
+        crate::desktop::raise(self.host.runner_mut());
+        self.modules_in();
+    }
+
+    /// `postMessage(text, name)` into the named surface's canvas, stamped now
+    /// and held until one is live; the driver's `post` too.
+    pub(crate) fn post_message(&mut self, name: &str, text: &str) -> Result<(), String> {
+        let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
+        if self.surfaces.post(name, event) {
+            Ok(())
+        } else {
+            Err(format!(
+                "postMessage: dropped: {} posts already wait for surface \"{name}\"",
+                crate::surfaces::POST_BOUND
+            ))
+        }
+    }
+
+    /// [`Presenter::run_commands`] but for activating a staged update, which
+    /// waits for the next full run: it needs a data source.
+    pub(super) fn run_queued_commands(&mut self) {
+        let mut floats = Vec::new();
+        for c in std::mem::take(&mut self.commands) {
+            match c.name.as_str() {
+                "deliveryCheck" => {
+                    if !self.check_update() {
+                        eprintln!("exact update: no store, or a check is already running");
+                    }
+                }
+                "deliveryActivate" => self.pending_update = true,
+                "relaunch" => self.host.log(if self.agent {
+                    "relaunch refused: the agent owns this process; start a new drive on the same storage"
+                } else {
+                    "relaunch refused: process relaunch is unsupported on Linux"
+                }),
+                // The app's chosen appearance is what a `light-dark()` colour
+                // resolves to here; `system` is no override.
+                "setScheme" => self.app_scheme(match c.args.first() {
+                    Some(v) if v.as_str() == Some("dark") => Some(true),
+                    Some(v) if v.as_str() == Some("light") => Some(false),
+                    _ => None,
+                }),
+                // The shell's haptic engine; desktop Linux has
+                // none, and there is nothing to feel there.
+                "haptic" => {
+                    let kind = c.args.first().and_then(exact_plan::Value::as_str);
+                    self.haptic(kind.unwrap_or_default());
+                }
+                // The runner's own: its table is the record; no output here.
+                "playSound" | "playSounds" | "stopSounds" | "sendMIDI" => {}
+                // No MIDI here; under the agent the runner answered.
+                "requestMIDIAccess" => self.midi_unavailable(),
+                // The runner's own too: it laid out at the app's root font size.
+                "setRootFontSize" => {}
+                // Outside a bubbling event (a key's, focus's, the pointer's
+                // or a wheel's, which take theirs), nothing to prevent or stop.
+                "preventDefault" | "stopPropagation" => {}
+                // The shell's share sheet; with no shell, refused into the
+                // journal. Held for the agent like every host.
+                "share" => self.share(&c.args, c.source),
+                "blur" => self.blur_command(&c.args),
+                "focus" => {
+                    self.focus_command(&c.args);
+                }
+                // The whole text, which the next key replaces (focus_command).
+                "selectText" => self.select_text(&c.args),
+                // A text field's selection, the focus unmoved.
+                "setSelectionRange" => self.set_selection_range(&c.args),
+                "setRangeText" => self.set_range_text(&c.args),
+                // An element's, by its id; a row's is the runner's.
+                "scrollIntoView" => self.scroll_element_into_view(&c.args),
+                // The runner's own, once a fragment's route has its content.
+                "scrollToFragment" => self.scroll_to_fragment(&c.args),
+                // `Element.scrollBy(x, y)`, by its id.
+                "scrollBy" => self.scroll_element_by(&c.args),
+                // The inverse of `message=`: text into the named surface's
+                // canvas, stamped now and delivered in order with its input.
+                "postMessage" => {
+                    let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
+                    let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
+                    if arg(2) == Some("iframe") {
+                        self.host.log("postMessage: iframe replies are unavailable on Linux");
+                        continue;
+                    }
+                    if let Err(refused) = self.post_message(name, text) {
+                        self.host.log(refused);
+                    }
+                }
+                // Refused with `cancel`; the agent's substitute answers.
+                "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
+                    Some(id) => self.show_picker(id),
+                    _ => eprintln!("exact: showPicker requires an element id"),
+                },
+                // No save panel here: refused with
+                // `cancel`, or held for the agent like every host.
+                "saveFile" => self.save_file(&c.args),
+                // No picker here either: refused with
+                // `cancel`, or held for the agent.
+                name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
+                    self.document_picker(name, &c.args)
+                }
+                // Answered here, as every native host does.
+                "requestPermission" => self.request_permission(&c.args),
+                // The top layer, where a shell presents one: a confirmation by its `id`, and its
+                // close. With no windows, the journal names the refusal.
+                name @ ("showPopover" | "hidePopover" | "togglePopover") => {
+                    self.popover_command(name, &c.args)
+                }
+                "showModal" if self.has_windows() || self.neutral_alerts() => self.show_modal(&c.args, c.source),
+                "close" if (self.has_windows() || self.neutral_alerts()) && !c.args.is_empty() => self.close_modal(&c.args),
+                "showModal" => self
+                    .host
+                    .log("showModal refused: dialogs unsupported on the headless/DRM host"),
+                "close" if !c.args.is_empty() => self
+                    .host
+                    .log("close refused: dialogs unsupported on the headless/DRM host"),
+                // The shell's clipboard, and its browser, mail app and dialer.
+                "copyText" if self.clipboard.is_some() || self.has_shell() => self.copy_text(&c.args),
+                "openURL" if self.has_shell() || self.url_opener.is_some() => self.open_url(&c.args),
+                // With no shell there is no clipboard or browser; and no
+                // editor, dev menu or window to close on any Linux host, and
+                // no media player or floating window: known, and named so.
+                name @ ("copyText" | "openURL" | "format" | "reload" | "close" | "fastSeek"
+                | "load" | "exitPictureInPicture") => {
+                    eprintln!("exact: {name} unsupported on the headless/DRM host")
+                }
+                // The image hears the refusal too, once the commands have run.
+                "requestPictureInPicture" => {
+                    eprintln!("exact: requestPictureInPicture unsupported on the headless/DRM host");
+                    floats.extend(c.args.first().and_then(exact_plan::Value::as_str).map(str::to_owned));
+                }
+                // Recording a trace is the Apple hosts'
+                name @ ("startTrace_EXPERIMENTAL" | "stopTrace_EXPERIMENTAL") => self
+                    .host
+                    .log(format!("{name} refused: trace recording is on Apple hosts only")),
+                other => eprintln!("exact: unknown command {other}"),
+            }
+        }
+        for id in floats {
+            self.refuse_picture_in_picture(&id);
+        }
+        // Selection events are queued tasks: the input's commands run first.
+        self.drain_field_select_tasks();
+        self.dispatch_toggles();
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// `requestPictureInPicture(id)` refused: the image's `pictureinpictureerror`, with the reason.
+    fn refuse_picture_in_picture(&mut self, id: &str) {
+        const WHY: &str = "picture in picture is unsupported on the headless/DRM host";
+        let kernel = self.host.kernel();
+        let Some(view) = kernel
+            .find_by_id(id)
+            .into_iter()
+            .find_map(|key| kernel.node_by_key(key).map(|n| n.id))
+        else {
+            return;
+        };
+        if !self
+            .host
+            .runner()
+            .handlers_of(view)
+            .contains(&EventKind::Pictureinpictureerror)
+        {
+            return;
+        }
+        let event = Event::Media(EventKind::Pictureinpictureerror, WHY.into());
+        let sent = self.host.dispatch_now(view, event);
+        if let Some(error) = sent.or(self.after_commit()) {
+            self.host.log(error);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "commands_tests.rs"]
+mod tests;

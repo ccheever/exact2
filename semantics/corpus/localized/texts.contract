@@ -1,0 +1,37 @@
+// `t(...)` against the strings tables beside this file (strings/en.json,
+// the base, and fr.json): placeholders filled by name from strings,
+// numbers and bools (each as `toString` prints it), one filled twice,
+// escapes, spaces inside the braces, and text in a derive, a slot
+// initializer, an action and the view.
+component App
+  state name = "Ada"
+  state n = 3
+  state done = false
+  state first = t("plain")
+  state log = ""
+  derive greeting = t("greeting", name=name)
+  derive count = t("count", n=n, done=done)
+  action rename(v: string)
+    name = v
+  action more
+    n = n * 2.5
+    done = not done
+    log = t("spaced", value=n)
+  view
+    column
+      text greeting testId="greeting"
+      text count testId="count"
+      text t("escaped") testId="escaped"
+      text t("unicode", who=name) testId="unicode"
+      text first testId="first"
+      text log testId="log"
+      input value=name change=rename testId="name"
+      button "more" press=more testId="more"
+
+test "texts"
+  expect text "greeting" == "Hello, Ada!"
+  expect text "escaped" == "Braces {kept} and a backslash \\ stay"
+  type "name" "Grace {x}"
+  tap "more"
+  tap "more"
+  expect text "count" == "18.75 items, 18.75 again; done=false"

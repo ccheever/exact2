@@ -1,0 +1,51 @@
+# The Apple host: the runner and kernel natively, laying out with Taffy and
+# measuring text through a callback the app registers, running exact-motion,
+# and emitting typed batches the AppKit and UIKit presenters apply.
+[package]
+name = "exact-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Apple host: kernel tree → typed batches with layout frames and motion presentations, over a C ABI"
+publish = false
+
+[lib]
+name = "exact_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-data = { path = "../../data" }
+exact-textflow = { path = "../../textflow" }
+exact-color = { path = "../../color" }
+exact-kernel = { path = "../../kernel" }
+exact-markdown = { path = "../../markdown" }
+# Which link destinations the Markdown editor hides and each
+# line's `auto` direction: the web editor's rules, called only from
+# `markup_exports!`.
+exact-markdown-editor = { path = "../../markdown/editor" }
+exact-motion = { path = "../../motion" }
+exact-plan = { path = "../../plan" }
+exact-route = { path = "../../route" }
+exact-raster = { path = "../raster" }
+exact-svg-file = { path = "../svg-file" }
+exact-runner = { path = "../../runner" }
+exact-grants = { path = "../../grants" }
+# The executor for a request that leaves the process: ibex2's
+# standard library for a Rust consumer — no engine, no loader — taken
+# from the sibling checkout.
+# `websocket`: the transport for an app's WebSockets (exactStream sockets); the
+# vendored v4 crate gates it behind a default feature (27275f3d4), which
+# default-features = false had turned off.
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
+
+serde_json = "1.0"
+# The URL type ibex2's hop gate takes.
+url = "2.5"
+
+[dev-dependencies]
+# The listener the executor's tests install in place of the library.
+exact-listen = { path = "../listen" }
+exact-logic = { path = "../../logic" }
+caltrain = { path = "../../apps/caltrain" }
+caltrain-data = { path = "../../apps/caltrain/data" }
+contract = { path = "../../contract/cli" }

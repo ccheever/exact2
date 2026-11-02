@@ -1,0 +1,18 @@
+# Shapes, exclusion bands, and a line walker over caller-owned shaping.
+# A leaf below the kernel and hosts.
+# Its one exact2 dependency is the leaf `exact-num`; builds for wasm32-unknown-unknown.
+[package]
+name = "exact-textflow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CSS shapes and text flow over cached advances"
+publish = false
+
+[lib]
+name = "exact_textflow"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-num = { path = "../num" }
+unicode-linebreak = "0.1.5"

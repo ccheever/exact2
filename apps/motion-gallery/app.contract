@@ -1,0 +1,126 @@
+// Motion gallery — the fixture for things that move on their own: animated
+// GIF and WebP images and CSS keyframes on boxes, which
+// Core Animation plays on Apple. Chrome (the web host) is the
+// reference: `bun scripts/smoke.mjs motion` crops each `fx-*` box on every
+// host at fixed clock times and compares it with Chrome's.
+//
+// Everything starts at the first clock: the keyframes when the page mounts,
+// each image when it first shows. Each image is a flat-coloured frame with a
+// white quarter, so a frame off by one is a whole quarter off.
+
+routes nav
+  tab home "/"
+
+style Tile
+  width=64
+  height=64
+  flex-shrink=0
+  background-color="#f1f5f9"
+
+style Ink
+  width=32
+  height=32
+  background-color="#0f172a"
+
+keyframes sweep
+  from translate="-24px 0px"
+  to translate="64px 0px"
+
+keyframes pulse
+  from scale=0.5
+  to scale=1.2
+
+keyframes spin
+  from rotate=0
+  to rotate=360
+
+keyframes glow
+  from background-color="#16a34a"
+  to background-color="#2563eb"
+
+keyframes walk
+  from translate="0px 0px"
+  to translate="32px 32px"
+
+keyframes tour
+  from translate="0px 0px" rotate=0 scale=1
+  40% translate="16px 8px" rotate=90 scale=0.6 animation-timing-function="ease-out"
+  to translate="0px 16px" rotate=200 scale=1.1
+
+component Gallery
+  state page = 1
+  action fixtures
+    page = 1
+  action shimmer
+    page = 2
+  view
+    main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" gap=12 padding=12 background-color="#ffffff" color="#0f172a" font-family="system-ui"
+      row gap=8
+        button press=fixtures testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
+          text "Fixtures" font-size=13
+        button press=shimmer testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "Shimmer" font-size=13
+      if page == 1
+        Fixtures()
+      if page == 2
+        Shimmer()
+
+component Fixtures
+  view
+    column gap=12
+      text "Images" font-size=15 font-weight=600
+      row flex-wrap="wrap" gap=8
+        image "assets/spin.gif" testId="fx-gif" class=Tile aria-label="Four frames, uneven delays"
+        image "assets/once.gif" testId="fx-once" class=Tile aria-label="Three frames, played once"
+        image "assets/zero.gif" testId="fx-zero" class=Tile aria-label="Zero delays"
+        image "assets/large.gif" testId="fx-large" class=Tile aria-label="A large GIF shown small"
+        image "assets/twice.webp" testId="fx-webp" class=Tile aria-label="A WebP played twice"
+        image "assets/pulse.webp" testId="fx-alpha" class=Tile object-fit="contain" aria-label="A WebP with alpha"
+        image "assets/spin.gif" testId="fx-round" class=Tile border-radius=16 object-fit="cover" aria-label="Rounded"
+      text "Keyframes" font-size=15 font-weight=600
+      row flex-wrap="wrap" gap=8
+        box testId="fx-sweep" class=Tile overflow="hidden"
+          box width=24 height=64 background-image="linear-gradient(90deg, #e2e8f0, #64748b, #e2e8f0)" animation="sweep 1s linear infinite"
+        box testId="fx-pulse" class=Tile display="flex" align-items="center" justify-content="center"
+          box class=Ink animation="pulse 800ms ease-in-out infinite alternate"
+        box testId="fx-spin" class=Tile display="flex" align-items="center" justify-content="center"
+          box class=Ink height=12 animation="spin 1200ms linear infinite"
+        box testId="fx-glow" class=Tile animation="glow 1s ease infinite alternate"
+        box testId="fx-steps" class=Tile
+          box width=32 height=32 background-color="#9333ea" animation="walk 1s steps(4) infinite"
+        box testId="fx-tour" class=Tile display="flex" align-items="center" justify-content="center"
+          box class=Ink width=24 height=24 animation="tour 1500ms cubic-bezier(0.3, 0.1, 0.2, 1) infinite"
+        box testId="fx-origin" class=Tile
+          box class=Ink height=8 transform-origin="0% 0%" animation="spin 2s linear infinite"
+        box testId="fx-held" class=Tile display="flex" align-items="center" justify-content="center"
+          box class=Ink animation="spin 1s linear -250ms paused"
+
+// A feed's loading skeleton: every bar swept by a translating highlight,
+// forever — the display link's measure: on iOS Core
+// Animation plays all of it and the engine keeps no frames coming.
+component Shimmer
+  view
+    column gap=10 testId="skeleton"
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+
+component SkeletonRow
+  view
+    row gap=10 align-items="center"
+      box width=40 height=40 border-radius=20 background-color="#e2e8f0" overflow="hidden"
+        box width=24 height=40 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"
+      column gap=6 flex=1
+        box height=10 border-radius=5 background-color="#e2e8f0" overflow="hidden"
+          box width=24 height=10 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"
+        box height=10 width=160 border-radius=5 background-color="#e2e8f0" overflow="hidden"
+          box width=24 height=10 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"

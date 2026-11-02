@@ -1,0 +1,10 @@
+[package]
+name = "exact-logic-abi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }

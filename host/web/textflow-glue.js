@@ -1,0 +1,835 @@
+import { createTimerScheduler } from "./timer-glue.js";
+// Optional browser executor of CSS Exclusions.
+// Loaded by the existing script-module loader only after a textflow batch.
+// The Rust walker owns segmentation, shape resolution and stopping bounds.
+// DOM originals are retained offscreen (detached, never a second accessible copy).
+// Fragments carry the original slices in logical DOM order. The browser owns
+// bidi within each fragment, links, find-in-page, selection and accessibility.
+// This is the exclusions executor, not a replacement for ordinary CSS text.
+// Per-fragment bidi/shaping is not paragraph-wide browser parity; detached
+// source alone cannot supply browser find or accessibility for unmounted lines.
+// giant-paragraph admission requires that parity first.
+
+// Per-frame glue: O(P + E*ancestor-depth + R + F log R + changed source units),
+// plus wasm's documented bound; preparations are O(source + ranges*log runs).
+// Pool size never exceeds a paragraph's maximum returned fragment count.
+const MAX_CACHE = 8192, MAX_CACHE_UNITS = 1024 * 1024;
+const UNBOUNDED = 3.4028234663852886e38; // f32::MAX: the wasm refuses nonfinite input
+const encoder = new TextEncoder();
+const px = value => Number.parseFloat(value) || 0;
+const lower = (items, value) => {
+  let lo = 0, hi = items.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (items[mid] < value) lo = mid + 1; else hi = mid; }
+  return lo;
+};
+
+// Cache compiled code, never mutable preparations across host generations.
+let compiled;
+export async function createFlowRequest() {
+  compiled ??= fetch(new URL('./textflow.wasm', import.meta.url)).then(response => {
+    if (!response.ok) throw Error(`textflow.wasm: HTTP ${response.status}`);
+    return WebAssembly.compileStreaming(response);
+  }).catch(error => { compiled = null; throw error; });
+  const { exports: wasm } = await WebAssembly.instantiate(await compiled);
+  const decoder = new TextDecoder();
+  return (op, id, bytes) => {
+    if (bytes.length > 1024 * 1024) return { error: 'textflow input exceeds 1 MiB' };
+    const ptr = wasm.textflow_in(bytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+    const len = wasm.textflow_request(op, id, bytes.length);
+    return JSON.parse(decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.textflow_out(), len)));
+  };
+}
+
+// Pure diff; pool slots keep their DOM identity across all frame geometries.
+// Paint-only revision invalidates content explicitly, never on a shape move.
+export function fragmentDiff(previous, next, repaint = false) {
+  const updates = [];
+  for (let i = 0; i < next.length; i++) {
+    const a = previous[i], b = next[i];
+    const content = repaint || !a || a.start !== b.start || a.end !== b.end || a.paint_start !== b.paint_start || a.paint_end !== b.paint_end || a.hyphenated !== b.hyphenated || a.ellipsis !== b.ellipsis;
+    const position = !a || a.x !== b.x || a.y !== b.y;
+    if (content || position) updates.push({ index: i, content, position });
+  }
+  return { updates, remove: Math.max(0, previous.length - next.length) };
+}
+
+// All geometry/computed-font reads finish before any fragment/probe write.
+// This is also the native-free unit-test seam: a write cannot leak into read().
+export function framePhases(items, read, compute, write) {
+  const snapshots = items.map(read);
+  const results = snapshots.map(compute);
+  results.forEach(write);
+  return results;
+}
+
+export function fontStyle(style, mac = false, lang = '') {
+  // Pretext's platform ledger: Canvas and DOM resolve different SF optical
+  // faces on macOS. Pin both measurement AND painted runs to a named face.
+  const family = mac ? style.fontFamily.replace(/(^|,\s*)(?:system-ui|-apple-system|ui-sans-serif)(?=\s*(?:,|$))/g, '$1"Helvetica Neue"') : style.fontFamily;
+  const font = `${style.fontStyle || 'normal'} ${style.fontWeight || '400'} ${style.fontSize} ${family}`;
+  const extra = { fontKerning: style.fontKerning || 'auto', fontStretch: style.fontStretch || 'normal',
+    fontVariantCaps: style.fontVariantCaps || 'normal', fontVariantNumeric: style.fontVariantNumeric || 'normal',
+    fontVariantLigatures: style.fontVariantLigatures || 'normal',
+    textRendering: style.textRendering || 'auto',
+    direction: style.direction || 'ltr', lang };
+  const spacing = px(style.letterSpacing);
+  return { font, family, spacing, extra, key: JSON.stringify([font, spacing, extra]), size: px(style.fontSize),
+    lineHeight: px(style.lineHeight),
+    fontFeatureSettings: style.fontFeatureSettings, fontVariationSettings: style.fontVariationSettings };
+}
+
+/** CSS `text-box` on a flowed paragraph (Inline Layout 3 §4.2), whose spans
+ * the browser no longer trims: the cut off its first line's top and its last
+ * line's bottom, signed (a line box shorter than the font grows), from the
+ * root font's own edges about `baseline` in a `lineHeight` line box, as the
+ * native hosts cut it. Null when nothing is trimmed. */
+export function textBoxCut(style, font, lineHeight, context, baseline = baselineIn(font, lineHeight, context)) {
+  const trim = style.textBoxTrim || style.getPropertyValue?.('text-box-trim') || 'none';
+  if (trim === 'none') return null;
+  const words = (style.textBoxEdge || style.getPropertyValue?.('text-box-edge') || 'auto').trim().split(/\s+/);
+  const over = words[0] === 'auto' ? 'text' : words[0], under = words[1] ?? (over === 'text' ? 'text' : 'alphabetic');
+  const m = fontEdges(font, context, true);
+  const edge = over === 'cap' ? m.cap : over === 'ex' ? m.ex : m.ascent;
+  return {
+    top: trim === 'trim-start' || trim === 'trim-both' ? baseline - edge : 0,
+    bottom: trim === 'trim-end' || trim === 'trim-both' ? lineHeight - baseline - (under === 'alphabetic' ? 0 : m.descent) : 0,
+  };
+}
+
+/** Where text in `font` puts its baseline in a `lineHeight` line box: below
+ * its half-leading and its ascent. A line's is the lowest of its fonts'. */
+export function baselineIn(font, lineHeight, context) {
+  const e = fontEdges(font, context);
+  return (lineHeight - (e.ascent + e.descent)) / 2 + e.ascent;
+}
+
+/** Where a flowed fragment paints its baseline: the lowest of the root's and
+ * those of the runs it paints, its ellipsis's included. `baselines` are the
+ * root's, then each run's. */
+export function fragmentBaseline(fragment, state, baselines) {
+  let own = baselines[0];
+  for (let i = lower(state.runEnds, fragment.paint_start + 1); i < state.runs.length && state.runs[i].start < fragment.paint_end; i++) own = Math.max(own, baselines[i + 1]);
+  if (fragment.ellipsis && baselines[fragment.ellipsisRun + 1] !== undefined) own = Math.max(own, baselines[fragment.ellipsisRun + 1]);
+  return own;
+}
+
+/** A font's ascent and descent (canvas's, of the first available font)
+ * and its cap and x heights. Where CSS `text-box` is supported, the browser's
+ * own trim measures those from the font's metrics, whatever glyphs it lacks,
+ * once a trim asks (`caps`); elsewhere the ink of `H` and `x` stands in. Once
+ * per font until a font loads (`forgetTextBoxEdges`), for the 64 fonts used
+ * last. */
+const edges = new Map();
+export function forgetTextBoxEdges() { edges.clear(); }
+function fontEdges(font, context, caps = false) {
+  let e = edges.get(font.font);
+  if (e) edges.delete(font.font);
+  else {
+    context.font = font.font;
+    const m = context.measureText('H');
+    e = { ascent: m.fontBoundingBoxAscent, descent: m.fontBoundingBoxDescent, cap: m.actualBoundingBoxAscent, ex: context.measureText('x').actualBoundingBoxAscent };
+  }
+  if (caps && !e.probed && globalThis.CSS?.supports?.('text-box', 'trim-both cap alphabetic') && globalThis.document?.body) {
+    const probe = document.createElement('div');
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${font.font}`;
+    probe.textContent = 'H';
+    document.body.append(probe);
+    const height = over => { probe.style.textBox = `trim-both ${over} alphabetic`; return probe.getBoundingClientRect().height; };
+    e = { ...e, cap: height('cap'), ex: height('ex'), probed: true };
+    probe.remove();
+  }
+  if (edges.size >= 64) edges.delete(edges.keys().next().value);
+  edges.set(font.font, e);
+  return e;
+}
+
+// Work/storage: cache <=8192 (font,string) pairs / 1M UTF-16 units, LRU eviction.
+// A single paragraph's Prepared stays in wasm after eviction of measurement data.
+export function measurementCache(context) {
+  const cache = new Map(); let units = 0, calls = 0;
+  return {
+    clear() { cache.clear(); units = 0; },
+    get calls() { return calls; },
+    get size() { return cache.size; },
+    measure(font, text, clusters, emojis, correction = 0) {
+      const key = `${font.key}\0${text}`;
+      const hit = cache.get(key);
+      if (hit !== undefined) { cache.delete(key); cache.set(key, hit); return hit; }
+      context.font = font.font;
+      for (const [key, value] of Object.entries(font.extra)) if (key in context) context[key] = value;
+      let nativeSpacing = false;
+      if ('letterSpacing' in context) {
+        context.letterSpacing = `${font.spacing}px`;
+        nativeSpacing = px(context.letterSpacing) === font.spacing;
+      }
+      const width = Math.max(0, context.measureText(text).width + (nativeSpacing ? 0 : font.spacing * clusters) - correction * emojis);
+      calls++;
+      if (key.length <= MAX_CACHE_UNITS) {
+        while (cache.size >= MAX_CACHE || units + key.length > MAX_CACHE_UNITS) {
+          const first = cache.keys().next().value; units -= first.length; cache.delete(first);
+        }
+        cache.set(key, width); units += key.length;
+      }
+      return width;
+    },
+  };
+}
+
+function floats(values) {
+  const bytes = new Uint8Array(values.length * 4), view = new DataView(bytes.buffer);
+  values.forEach((value, i) => view.setFloat32(i * 4, value, true));
+  return bytes;
+}
+// The walker has no dictionary; between two Thai, Lao, Khmer or Myanmar letters
+// the browser's word boundaries are its only opportunities (textflow/src/web.rs).
+const complex = /[\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}\p{sc=Tai_Tham}\p{sc=Tai_Viet}\p{sc=New_Tai_Lue}]/u;
+let wordSegmenter = null;
+function complexWords(text) {
+  if (!complex.test(text)) return [];
+  wordSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'word' });
+  return [...wordSegmenter.segment(text)].map(s => s.index)
+    .filter(i => i > 0 && complex.test(text[i - 1]) && complex.test(text[i]));
+}
+function sourceInput(text, overflow, whiteSpace) {
+  const source = encoder.encode(text), words = complexWords(text);
+  const bytes = new Uint8Array(12 + words.length * 4 + source.length), view = new DataView(bytes.buffer);
+  view.setUint32(0, overflow === 'anywhere' ? 2 : overflow === 'break-word' ? 1 : 0, true);
+  view.setUint32(4, { 'pre-wrap': 1, nowrap: 2, 'pre-line': 3, pre: 4 }[whiteSpace] ?? 0, true);
+  view.setUint32(8, words.length, true);
+  words.forEach((w, i) => view.setUint32(12 + i * 4, w, true));
+  bytes.set(source, 12 + words.length * 4); return bytes;
+}
+function flowInput(snapshot, exclusions) {
+  // Wasm owns the fragment floor; send the strut font size.
+  const bytes = floats([snapshot.width, snapshot.lineHeight, snapshot.font.size, 0, snapshot.height, 0,
+    ...exclusions.flatMap(e => [0, e.width, e.height, e.x - snapshot.x, e.y - snapshot.y])]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(12, snapshot.maxLines, true);
+  view.setUint32(20, snapshot.direction === 'rtl' ? 1 : 0, true);
+  exclusions.forEach((e, i) => view.setUint32(24 + i * 20, e.id, true));
+  return bytes;
+}
+
+// getBoundingClientRect is the batched, fractional fast path. CSS transforms
+// never alter exclusions; transformed trees use untransformed offset boxes.
+// No animation value is sampled or sent to the walker.
+function layoutBox(el, styles) {
+  const rect = el.getBoundingClientRect();
+  let transformed = false;
+  for (let a = el; a; a = a.parentElement) {
+    if (!styles.has(a)) styles.set(a, getComputedStyle(a));
+    const s = styles.get(a);
+    if (s.transform !== 'none' || (s.translate && s.translate !== 'none') || (s.scale && s.scale !== 'none') || (s.rotate && s.rotate !== 'none')) transformed = true;
+  }
+  if (!transformed) return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, transformed: false };
+  let x = 0, y = 0;
+  for (let a = el; a; a = a.offsetParent) {
+    x += a.offsetLeft; y += a.offsetTop;
+    if (a.offsetParent) { x += a.offsetParent.clientLeft; y += a.offsetParent.clientTop; }
+  }
+  for (let a = el.parentElement; a; a = a.parentElement) { x -= a.scrollLeft; y -= a.scrollTop; }
+  return { x, y, width: el.offsetWidth, height: el.offsetHeight, transformed: true };
+}
+
+// A percentage against an auto-height containing block is not definite. CSSOM
+// height reports a used px value even then; checking that value would collapse
+// the paragraph as soon as its children become absolute. Only explicit chains
+// are admitted here; a stretched or implicit percentage height is not flowed.
+function definiteHeight(el) {
+  for (let node = el; node; node = node.parentElement) {
+    const height = node.style.height || '';
+    if (!height.endsWith('%')) return node === el || /px$|^(?:calc|env)\(/.test(height);
+  }
+  return false;
+}
+
+function sourceRuns(el, mac) {
+  const runs = [], walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let at = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode, text = node.data, parent = node.parentElement;
+    if (!text) continue;
+    const style = getComputedStyle(parent), lang = parent.closest('[lang]')?.lang || document.documentElement.lang;
+    const chain = [];
+    for (let a = parent; a && a !== el; a = a.parentElement) chain.unshift(a);
+    runs.push({ start: at, end: at + text.length, text, font: fontStyle(style, mac, lang), chain });
+    at += text.length;
+  }
+  return runs;
+}
+
+function replaceNodes(element, nodes) {
+  element.replaceChildren();
+  for (const node of nodes) element.append(node); // no argument-stack bound on rich text
+}
+
+const keyForwarders = new WeakMap();
+
+function paintContent(span, fragment, state, lineHeight) {
+  const children = [];
+  // Binary search avoids scanning all inline runs for every fragment.
+  let i = lower(state.runEnds, fragment.paint_start + 1);
+  for (; i < state.runs.length && state.runs[i].start < fragment.paint_end; i++) {
+    const run = state.runs[i];
+    let outer = null, inner = null;
+    for (const original of run.chain) {
+      const clone = original.cloneNode(false);
+      // Capture-phase route handling must see the same press owner as the original.
+      clone.exactHandlers = original.exactHandlers;
+      clone.removeAttribute('id'); clone.removeAttribute('data-testid');
+      // Original listeners remain valid by kernel view identity while detached.
+      // Forward authored events only; a plain <a> keeps its native default.
+      const events = new Set(original.exactFlowEvents ?? []);
+      keyForwarders.set(clone, events);
+      for (const event of events) clone.addEventListener(event, e => {
+        const keyboard = e.type === 'keydown' || e.type === 'keyup';
+        if (keyboard) {
+          // Only the innermost forwarding clone sends this dispatch through the authored chain.
+          if (e.composedPath().find(node => keyForwarders.get(node)?.has(e.type)) !== clone) return;
+        }
+        // A capture action can restore the originals; then the copy already reaches live ancestors.
+        if (!keyboard || original.isConnected) e.stopPropagation();
+        const forwarded = new e.constructor(e.type, e);
+        if (keyboard) for (const method of ['stopPropagation', 'stopImmediatePropagation']) {
+          // Chrome clears cancelBubble after dispatch, so carry native stops while they happen.
+          forwarded[method] = () => { e[method](); Event.prototype[method].call(forwarded); };
+        }
+        if (keyboard) {
+          // Live ancestors already captured the source event, even if a commit restored these runs.
+          forwarded.exactFlowCapture = run.chain;
+          const cancelBubble = Object.getOwnPropertyDescriptor(Event.prototype, 'cancelBubble');
+          Object.defineProperty(forwarded, 'cancelBubble', {
+            get: () => cancelBubble.get.call(forwarded),
+            set(value) { cancelBubble.set.call(forwarded, value); if (forwarded.cancelBubble) e.stopPropagation(); },
+          });
+        }
+        forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
+        if (e.defaultPrevented) forwarded.preventDefault();
+        try {
+          if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        } finally {
+          // A retained copy's next dispatch must capture through its own live ancestors.
+          delete forwarded.exactFlowCapture;
+        }
+        if (keyboard) {
+          e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
+        }
+      });
+      if (inner) inner.append(clone); else outer = clone;
+      inner = clone;
+    }
+    const piece = document.createElement('span');
+    // Normal collapses source whitespace, including consumed hard-break controls;
+    // max-content on the absolutely positioned outer prevents independent wrapping.
+    piece.style.cssText = `white-space:${state.whiteSpace === 'pre-wrap' ? 'pre' : 'normal'};font:${run.font.font};letter-spacing:${run.font.spacing}px;line-height:${lineHeight}px;`;
+    // Keep color inherited through cloned authored runs: light-dark() must
+    // respond to setScheme without a measurement, batch style op or DOM rebuild.
+    piece.style.fontKerning = run.font.extra.fontKerning;
+    piece.style.fontStretch = run.font.extra.fontStretch;
+    piece.style.fontVariantCaps = run.font.extra.fontVariantCaps;
+    piece.style.fontVariantNumeric = run.font.extra.fontVariantNumeric;
+    piece.style.fontVariantLigatures = run.font.extra.fontVariantLigatures;
+    piece.style.fontFeatureSettings = run.font.fontFeatureSettings;
+    piece.style.fontVariationSettings = run.font.fontVariationSettings;
+    piece.exactFlowSourceStart = Math.max(run.start, fragment.paint_start);
+    piece.textContent = run.text.slice(Math.max(0, fragment.paint_start - run.start), fragment.paint_end - run.start);
+    if (inner) inner.append(piece); else outer = piece;
+    children.push(outer);
+  }
+  if (fragment.ellipsis) {
+    const piece = document.createElement('span');
+    const font = state.runs[fragment.ellipsisRun]?.font;
+    // `font` resets `line-height`: the ellipsis keeps the line's, as the runs do
+    if (font) piece.style.cssText = `font:${font.font};letter-spacing:${font.spacing}px;line-height:${lineHeight}px;`;
+    piece.textContent = '…'; piece.exactFlowSourceStart = fragment.paint_end;
+    children.push(piece);
+  }
+  replaceNodes(span, children);
+  span.dataset.hyphen = String(fragment.hyphenated);
+}
+
+export function createTextFlow({ views, request, advance, present, admitTimers = null, agentMode, log = console.error,
+  now = () => globalThis.exact?.now?.() ?? performance.now(),
+  raf = requestAnimationFrame, cancel = cancelAnimationFrame, delay = setTimeout, clearDelay = clearTimeout }) {
+  const shapes = new Map(), states = new Map(), calibration = new Map(), autoHeightWarned = new Set();
+  const canvas = document.createElement('canvas');
+  // A connected canvas inherits the document language in WebKit too.
+  canvas.hidden = true; document.body.append(canvas);
+  const context = canvas.getContext('2d'), metrics = measurementCache(context);
+  const sheet = document.createElement('style');
+  sheet.textContent = '[data-flow-fragment][data-hyphen="true"]::after{content:"-"}';
+  document.head.append(sheet);
+  const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+  let contexts = [], dirty = false, fontsReady = false, disposed = false, pendingSelection = null;
+  // A batch that puts a flowed auto-height paragraph back to its text (`restore`) holds the
+  // paragraph's flowed height until the reflow writes the new one: the unflowed text is shorter, and
+  // a scroller at its end would clamp to it (WebKit kept the clamp when the fragments came back;
+  // Chrome's scroll anchoring undid it), and what follows the paragraph would jump for a frame. The
+  // hold is a rule in this glue's own sheet, `[data-flow-hold]`, at the larger of the flowed height
+  // and the paragraph's own minimum: a host's style write (the wasm host replaces `cssText`) keeps
+  // it, and an authored inline min-height is never written. No scroll offset is written either.
+  const pinned = new Set(), holds = document.createElement('style');
+  document.head.append(holds);
+  const writeHolds = () => { holds.textContent = [...pinned].map(s => `[data-flow-hold="${s.id}"]{min-height:${s.hold}px!important}`).join(''); };
+  function pin(s) {
+    // A definite paragraph keeps its height through `restore`; only an auto one collapses.
+    if (pinned.has(s) || !s.rendered || s.info?.definite || !s.el.style.height) return;
+    // The height `write` stored (layout units, under the paragraph's own box-sizing, as min-height
+    // reads it; never a transformed rect), or its own larger minimum.
+    s.hold = Math.max(parseFloat(s.el.style.height) || 0, parseFloat(getComputedStyle(s.el).minHeight) || 0);
+    s.el.dataset.flowHold = String(s.id); pinned.add(s); writeHolds();
+  }
+  function unpin(s) { delete s.el.dataset.flowHold; pinned.delete(s); writeHolds(); }
+  function unpinAll() { for (const s of pinned) unpin(s); }
+  // After a reflow that ran (`flush`'s `pending`: a calibration still owes a cycle): a paragraph that
+  // flowed again has its new height written, and one that did not (no exclusion meets it now, the
+  // paragraph budget, a refusal) is ordinary text again; both let their held heights go. One still
+  // waiting on a calibration keeps it until the frame that flows it; until fonts are ready, all do.
+  function unpinFlowed(pending) {
+    if (!fontsReady || disposed) return;
+    for (const s of pinned) if (s.rendered || !pending) unpin(s);
+  }
+  const clock = createTimerScheduler({ now, advance, present, release: admitTimers, agentMode, paint: onFrame, raf, cancel, delay, clearDelay });
+  const observer = new ResizeObserver(() => invalidate());
+  const observed = new Set();
+  const wake = () => { if (!disposed) clock.requestFrame(); };
+  function invalidate(allBoxes = true) {
+    if (allBoxes) for (const s of states.values()) s.box = null;
+    dirty = true; wake();
+  }
+  function release(s) {
+    if (s.prepared || s.boundaries) request(3, s.id, new Uint8Array());
+    s.prepared = false; s.boundaries = null;
+  }
+  function restore(s) {
+    if (!s.rendered) return;
+    replaceNodes(s.el, s.original);
+    s.el.style.position = s.position;
+    s.el.style.contain = s.contain;
+    s.el.style.height = s.height;
+    s.rendered = false;
+    s.last = [];
+  }
+  function refreshFonts() {
+    pendingSelection ??= selectionSnapshot();
+    metrics.clear();
+    forgetTextBoxEdges();
+    for (const p of calibration.values()) p.element?.remove();
+    calibration.clear();
+    for (const s of states.values()) { pin(s); restore(s); s.needsSource = true; s.prepared = false; }
+    invalidate();
+  }
+  document.fonts.ready.then(() => { if (!disposed) { fontsReady = true; refreshFonts(); } });
+  document.fonts.addEventListener('loadingdone', refreshFonts);
+  document.addEventListener('scroll', invalidate, true);
+
+  function reconcile() {
+    const wanted = new Map(), targets = new Set();
+    for (const c of contexts) {
+      for (const id of c.exclusions) if (views.has(id)) targets.add(views.get(id));
+      if (views.has(c.id)) targets.add(views.get(c.id));
+      for (const p of c.paragraphs) {
+        let item = wanted.get(p.id);
+        if (!item) wanted.set(p.id, item = { ...p, exclusions: new Set() });
+        item.refusal ??= p.refusal;
+        c.exclusions.forEach(id => item.exclusions.add(id));
+      }
+    }
+    for (const [id, s] of states) if (!wanted.has(id) || views.get(id) !== s.el) {
+      restore(s); request(3, id, new Uint8Array()); states.delete(id);
+    }
+    for (const [id, info] of wanted) {
+      const el = views.get(id); if (!el) continue;
+      targets.add(el);
+      let s = states.get(id);
+      if (!s) states.set(id, s = { id, el, original: [], runs: [], runEnds: [], pool: [], last: [], needsSource: true,
+        prepared: false, rendered: false, prepareCount: 0, facts: null });
+      s.info = info;
+    }
+    for (const el of observed) if (!targets.has(el)) { observer.unobserve(el); observed.delete(el); }
+    for (const el of targets) if (!observed.has(el)) { observer.observe(el); observed.add(el); }
+  }
+
+  function registerShapes(exclusions) {
+    if (exclusions.length > 4096) throw Error('textflow expects at most 4096 candidate exclusions');
+    for (const box of exclusions) {
+      const key = JSON.stringify([box.shape, box.margin]);
+      const previous = shapes.get(box.id);
+      shapes.delete(box.id);
+      if (previous !== key) {
+        if (shapes.size >= 4096) {
+          const oldest = shapes.keys().next().value;
+          request(5, oldest, new Uint8Array()); shapes.delete(oldest);
+        }
+        const css = encoder.encode(box.shape), bytes = new Uint8Array(4 + css.length);
+        new DataView(bytes.buffer).setFloat32(0, box.margin, true); bytes.set(css, 4);
+        const result = request(4, box.id, bytes);
+        if (result.error) throw Error(result.error);
+      }
+      shapes.set(box.id, key);
+    }
+  }
+
+  function readFrame() {
+    const styles = new Map(), boxes = new Map();
+    const readBox = id => {
+      if (boxes.has(id)) return boxes.get(id);
+      const el = views.get(id);
+      const box = el?.isConnected ? layoutBox(el, styles) : null;
+      if (box) {
+        const style = styles.get(el);
+        box.id = id; box.hidden = !el.getClientRects().length;
+        box.shape = style.shapeOutside || 'none'; box.margin = Math.max(0, px(style.shapeMargin));
+      }
+      boxes.set(id, box); return box;
+    };
+    // Emoji calibration elements were installed in the previous write phase.
+    for (const p of calibration.values()) if (p.element && p.correction == null) {
+      context.font = p.font.font;
+      if ('letterSpacing' in context) context.letterSpacing = '0px';
+      const width = context.measureText('😀').width;
+      const delta = width - p.element.getBoundingClientRect().width;
+      p.correction = width > p.font.size + 0.5 && delta > 0.5 ? delta : 0;
+    }
+    return [...states.values()].map(s => {
+      const box = s.box ?? readBox(s.id);
+      if (!s.box && box) { s.box = box; s.boxStyle = styles.get(s.el); }
+      if (s.boxStyle) styles.set(s.el, s.boxStyle);
+      if (!box || box.hidden) return { s, skipped: 'paragraph is hidden' };
+      const style = styles.get(s.el), font = fontStyle(style, mac, s.el.closest('[lang]')?.lang || document.documentElement.lang);
+      // Box intersection precedes source
+      // extraction/preparation. Moving exclusions reuse stable paragraph boxes.
+      const exclusions = [...s.info.exclusions].map(readBox).filter(b => {
+        if (!b || b.hidden) return false;
+        const margin = b.margin;
+        return b.x - margin < box.x + box.width && b.x + b.width + margin > box.x
+          && b.y - margin < box.y + box.height && b.y + b.height + margin > box.y;
+      });
+      s.meetingIds = new Set(exclusions.map(e => e.id));
+      // Auto height flows where the kernel's admission
+      // rule holds; the walker's height becomes the paragraph's, written below.
+      const auto = !s.info.definite;
+      if (!exclusions.length && (auto || !definiteHeight(s.el))) return { s, inactive: true };
+      if (auto && s.info.refusal) return { s, autoHeight: true, skipped: s.info.refusal };
+      if (!auto && !definiteHeight(s.el)) return { s, skipped: 'a percentage height is not proven definite; ordinary text retained' };
+      if (s.needsSource) {
+        s.original = [...s.el.childNodes]; s.runs = sourceRuns(s.el, mac); s.runEnds = s.runs.map(r => r.end);
+        s.text = s.runs.map(r => r.text).join(''); s.needsSource = false; s.recheck = true;
+        s.position = s.el.style.position; s.contain = s.el.style.contain;
+      }
+      const fonts = [font, ...s.runs.map(r => r.font)];
+      const lineHeight = fonts.reduce((height, f) => Math.max(height, f.lineHeight || f.size * 1.2), 0);
+      // Each font's baseline in the line box, the root's first, then each run's
+      const baselines = fonts.map(f => baselineIn(f, lineHeight, context));
+      const left = px(style.borderLeftWidth) + px(style.paddingLeft), top = px(style.borderTopWidth) + px(style.paddingTop);
+      const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
+      return { s, font, distance: Math.max(0, box.y - (globalThis.innerHeight || 900), -box.y - box.height), width: Math.max(0, box.width - left - px(style.borderRightWidth) - px(style.paddingRight)),
+        // An auto paragraph's band limit is unbounded: its box is what we write.
+        height: auto ? UNBOUNDED : Math.max(0, box.height - top - bottom), auto,
+        verticalInset: style.boxSizing === 'border-box' ? top + bottom : 0,
+        x: box.x + left, y: box.y + top, contentOrigin: { x: left, y: top }, padX: px(style.paddingLeft), padY: px(style.paddingTop),
+        lineHeight, maxLines: px(style.webkitLineClamp), overflow: style.overflowWrap, whiteSpace: style.whiteSpace,
+        align: style.textAlign, direction: style.direction, position: style.position, exclusions, transformed: box.transformed,
+        baselines, cut: textBoxCut(style, font, lineHeight, context, Math.max(...baselines)) };
+    });
+  }
+
+  function prepare(snapshot) {
+    const { s } = snapshot;
+    if (s.prepared && !s.recheck) return true;
+    s.recheck = false;
+    const stamp = JSON.stringify([s.text, snapshot.overflow, snapshot.whiteSpace, snapshot.font.key, s.runs.map(r => [r.start, r.end, r.font.key])]);
+    if (stamp !== s.prepareKey) { s.prepareKey = stamp; s.prepared = false; s.boundaries = null; }
+    if (s.prepared) return true;
+    if (!s.boundaries) {
+      const data = request(0, s.id, sourceInput(s.text, snapshot.overflow, snapshot.whiteSpace));
+      if (data.error) throw Error(data.error);
+      s.boundaries = data;
+      s.clusterStarts = data.graphemes.map(g => g[2]);
+      s.emojiPrefix = [0];
+      for (const g of data.graphemes) s.emojiPrefix.push(s.emojiPrefix.at(-1) + Number(/\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u.test(s.text.slice(g[2], g[3]))));
+    }
+    if (s.emojiPrefix.at(-1)) {
+      for (const r of s.runs) if (!calibration.has(r.font.key)) calibration.set(r.font.key, { font: r.font, correction: null, element: null });
+      if (s.runs.some(r => calibration.get(r.font.key)?.correction == null)) return false;
+    }
+    const widths = s.boundaries.ranges.map(([, , start, end]) => {
+      let total = 0;
+      for (let i = lower(s.runEnds, start + 1); i < s.runs.length && s.runs[i].start < end; i++) {
+        const r = s.runs[i], a = Math.max(start, r.start), b = Math.min(end, r.end);
+        const from = lower(s.clusterStarts, a), to = lower(s.clusterStarts, b);
+        const raw = s.text.slice(a, b);
+        const whitespace = snapshot.whiteSpace === 'pre-wrap' ? raw.replace(/\t/g, '        ') : raw.replace(/[ \t\n\r\f\u0085\u2028\u2029]+/g, ' ');
+        const text = whitespace.replace(/[\u00ad\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');
+        total += metrics.measure(r.font, text, to - from, s.emojiPrefix[to] - s.emojiPrefix[from], calibration.get(r.font.key)?.correction || 0);
+      }
+      return total;
+    });
+    const result = request(1, s.id, floats([metrics.measure(snapshot.font, '-', 1, 0), ...widths]));
+    if (result.error) throw Error(result.error);
+    s.whiteSpace = snapshot.whiteSpace; s.prepared = true; s.prepareCount++; return true;
+  }
+
+  // The final clamped fragment reserves real run-font ellipsis width. Binary
+  // search caps canvas work at O(log G) prefix probes (source is <=64 KiB).
+  function clampFragment(f, snapshot) {
+    const { s } = snapshot;
+    const ink = end => {
+      const run = Math.max(0, lower(s.runEnds, end));
+      return { run, width: metrics.measure(s.runs[run]?.font ?? snapshot.font, '…', 1, 0) };
+    };
+    const boundaries = s.clusterStarts.filter(p => p >= f.paint_start && p <= f.paint_end);
+    if (boundaries.at(-1) !== f.paint_end) boundaries.push(f.paint_end);
+    const width = end => {
+      let total = 0;
+      for (const r of s.runs) {
+        const a = Math.max(f.paint_start, r.start), b = Math.min(end, r.end);
+        if (a >= b) continue;
+        let text = s.text.slice(a, b).replace(/[\u00ad\u200b]/g, '');
+        if (snapshot.whiteSpace !== 'pre-wrap') text = text.replace(/[ \t\r\n\f\u0085\u2028\u2029]+/g, ' ');
+        if (b === end) text = text.trimEnd();
+        total += metrics.measure(r.font, text, lower(s.clusterStarts, b) - lower(s.clusterStarts, a), 0);
+      }
+      return total;
+    };
+    let lo = 0, hi = boundaries.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (width(boundaries[mid]) + ink(boundaries[mid]).width <= f.available) lo = mid + 1; else hi = mid; }
+    const end = boundaries[Math.max(0, lo - 1)] ?? f.paint_start;
+    const ellipsis = ink(end), fits = ellipsis.width <= f.available;
+    return { ...f, paint_end: end, width: width(end) + (fits ? ellipsis.width : 0),
+      ellipsis: fits, ellipsisRun: ellipsis.run, hyphenated: false };
+  }
+
+  function compute(snapshot) {
+    const { s } = snapshot;
+    if (snapshot.skipped || snapshot.inactive || !fontsReady) return snapshot;
+    try {
+      const key = JSON.stringify([snapshot.width, snapshot.height, snapshot.lineHeight, snapshot.maxLines, snapshot.align,
+        snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions, snapshot.cut]);
+      if (s.geometry === key && s.rendered) return { s, unchanged: true };
+      // Canvas has no font-variant-numeric or
+      // font-variant-ligatures: tabular figures and unjoined letters cannot be
+      // measured for the walker, so such a paragraph keeps ordinary layout.
+      const fonts = [snapshot.font, ...s.runs.map(r => r.font)];
+      if (fonts.some(f => f.extra.fontVariantNumeric !== 'normal'))
+        return { s, skipped: 'font-variant-numeric cannot be measured by canvas; ordinary text retained' };
+      if (fonts.some(f => f.extra.fontVariantLigatures !== 'normal'))
+        return { s, skipped: 'font-variant-ligatures cannot be measured by canvas; ordinary text retained' };
+      if (!prepare(snapshot)) return { ...snapshot, pending: true };
+      registerShapes(snapshot.exclusions);
+      const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));
+      if (facts.error) throw Error(facts.error);
+      if (!facts.complete && !facts.clamped) return { s, skipped: 'flow band limit reached; ordinary text retained', partial: facts };
+      // Every fragment paints its baseline at the line's, the lowest any of the paragraph's fonts puts it, as
+      // the native hosts share one baseline: a fragment of only smaller text moves down to it
+      const shared = Math.max(...snapshot.baselines);
+      const lift = f => shared - fragmentBaseline(f, s, snapshot.baselines);
+      // `text-box`: every line moves up by the top's cut, and the height loses both; no line, no cut
+      const cut = (facts.fragments.length && snapshot.cut) || { top: 0, bottom: 0 };
+      const fragments = facts.fragments.map((f, index) => {
+        if (facts.clamped && index + 1 === facts.fragments.length) f = clampFragment(f, snapshot);
+        const spare = Math.max(0, f.available - f.width);
+        const align = snapshot.align === 'start' || snapshot.align === 'justify' ? (snapshot.direction === 'rtl' ? 'right' : 'left')
+          : snapshot.align === 'end' ? (snapshot.direction === 'rtl' ? 'left' : 'right') : snapshot.align;
+        return { ...f, x: f.x + (align === 'center' ? spare / 2 : align === 'right' ? spare : 0), y: f.y - cut.top + lift(f) };
+      });
+      const trimmed = cut.top || cut.bottom ? { ...facts, height: Math.max(0, facts.height - cut.top - cut.bottom) } : facts;
+      return { ...snapshot, facts: trimmed, fragments, key };
+    } catch (error) { return { s, skipped: String(error) }; }
+    finally { if (!snapshot.retain) release(s); }
+  }
+
+  function write(result) {
+    const { s } = result;
+    if (result.unchanged || result.pending) return;
+    if (result.inactive) { release(s); restore(s); s.facts = { fragments: [], shapes: [] }; return; }
+    if (!result.facts) {
+      if (result.skipped) {
+        release(s); restore(s); s.facts = { fragments: [], shapes: [], ...result.partial, skipped: result.skipped };
+        if (result.autoHeight) {
+          if (!autoHeightWarned.has(s.id)) { autoHeightWarned.add(s.id); log(`wrap-flow: text #${s.id} has auto height and is not flowed: ${result.skipped}`); }
+        } else if (s.error !== result.skipped) { log(`textflow #${s.id}: ${result.skipped}`); s.error = result.skipped; }
+      }
+      return;
+    }
+    if (result.facts.limited && !s.shapeLimitWarned) {
+      log(`wrap-flow: text #${s.id} exceeds 64 exclusions; overflow uses a conservative bounding rectangle`); s.shapeLimitWarned = true;
+    }
+    const { fragments } = result;
+    const diff = fragmentDiff(s.last, fragments, !s.rendered);
+    if (!s.rendered) {
+      s.el.replaceChildren();
+      // Layout containment contains the absolute fragments without activating
+      // a static paragraph's authored insets.
+      s.el.style.contain = 'layout';
+      s.height = s.el.style.height;
+      s.rendered = true;
+    }
+    for (const change of diff.updates) {
+      const i = change.index, f = fragments[i];
+      let span = s.pool[i];
+      if (!span) {
+        span = document.createElement('span'); span.dataset.flowFragment = '';
+        span.style.cssText = 'position:absolute;left:0;top:0;white-space:pre;width:max-content;';
+        s.pool[i] = span;
+      }
+      if (change.content) {
+        span.style.font = result.font.font; span.style.letterSpacing = `${result.font.spacing}px`;
+        span.style.lineHeight = `${result.lineHeight}px`; span.style.direction = result.direction;
+        paintContent(span, f, s, result.lineHeight);
+      }
+      if (change.position) span.style.transform = `translate(${f.x + result.padX}px,${f.y + result.padY}px)`;
+      if (span.parentNode !== s.el) s.el.append(span);
+    }
+    for (let i = fragments.length; i < s.last.length; i++) s.pool[i]?.remove();
+    s.last = fragments; s.geometry = result.key;
+    s.facts = { ...result.facts, fragments, coordinate_space: 'content', content_origin: result.contentOrigin, prepare_count: s.prepareCount, touched_spans: diff.updates.length,
+      pooled_spans: s.pool.length, measurement_calls: metrics.calls, transformed_box: result.transformed };
+    // Definite height is untouched. An auto paragraph takes the flowed height
+    // (the fragments are absolutely positioned, so its content alone is 0).
+    if (result.auto) {
+      const height = `${result.facts.height + result.verticalInset}px`;
+      if (s.el.style.height !== height) { s.el.style.height = height; result.heightChanged = true; }
+    }
+  }
+
+  function selectionSnapshot() {
+    const selection = document.getSelection();
+    if (!selection?.anchorNode || !selection.focusNode) return null;
+    const point = (node, offset) => {
+      for (const s of states.values()) if (s.el.contains(node)) {
+        const sourceStart = node.parentElement?.exactFlowSourceStart;
+        if (s.rendered && sourceStart != null) return { id: s.id, offset: sourceStart + offset };
+        const range = document.createRange(); range.selectNodeContents(s.el); range.setEnd(node, offset);
+        return { id: s.id, offset: range.toString().length };
+      }
+      return { node, offset };
+    };
+    const anchor = point(selection.anchorNode, selection.anchorOffset), focus = point(selection.focusNode, selection.focusOffset);
+    return anchor.id != null || focus.id != null ? { anchor, focus } : null;
+  }
+  function restoreSelection(saved) {
+    if (!saved) return;
+    const point = p => {
+      if (p.id == null) return p;
+      const s = states.get(p.id); if (!s) return null;
+      const walker = document.createTreeWalker(s.el, NodeFilter.SHOW_TEXT);
+      let offset = p.offset, last = null;
+      while (walker.nextNode()) {
+        const node = walker.currentNode; last = node;
+        const sourceStart = node.parentElement?.exactFlowSourceStart;
+        if (s.rendered && sourceStart != null) {
+          if (p.offset <= sourceStart + node.data.length) return { node, offset: Math.max(0, p.offset - sourceStart) };
+        } else {
+          if (offset <= node.data.length) return { node, offset };
+          offset -= node.data.length;
+        }
+      }
+      return last ? { node: last, offset: last.data.length } : { node: s.el, offset: 0 };
+    };
+    const a = point(saved.anchor), b = point(saved.focus);
+    if (a?.node.isConnected && b?.node.isConnected) document.getSelection()?.setBaseAndExtent(a.node, a.offset, b.node, b.offset);
+  }
+
+  function flush() {
+    if (!dirty || !fontsReady || disposed) return false;
+    dirty = false;
+    const selected = pendingSelection ?? selectionSnapshot(); pendingSelection = null;
+    let moved = false;
+    // An auto paragraph's written height moves what follows
+    // it and nothing before it, so re-reading settles one more paragraph in
+    // document order each round: at most one round per auto paragraph, in this frame.
+    for (let round = 0; ; round++) {
+      const snapshots = readFrame(); // reads first; stable paragraph boxes are cached
+      const meeting = snapshots.filter(s => s.exclusions?.length).sort((a, b) => a.distance - b.distance);
+      meeting.forEach((s, i) => {
+        if (i >= 64) s.skipped = '64 paragraph budget reached; nearest-to-viewport paragraphs retain flow';
+        // Reserve one temporary slot for clear paragraphs and the 64th walker.
+        s.retain = i < 63;
+      });
+      for (const s of snapshots) if (!s.retain) release(s.s);
+      snapshots.sort((a, b) => Number(!!a.retain) - Number(!!b.retain));
+      for (const snapshot of snapshots) if (snapshot.exclusions) {
+        const boxes = JSON.stringify([snapshot.x, snapshot.y, snapshot.width, snapshot.height, snapshot.exclusions]);
+        moved ||= round === 0 && snapshot.s.boxes != null && snapshot.s.boxes !== boxes; snapshot.s.boxes = boxes;
+      }
+      const results = framePhases(snapshots, value => value, compute, write);
+      // A held paragraph that flowed again has its new height: its hold goes now, inside the loop, so
+      // the paragraphs after it are read where that height puts them (one more round when one went).
+      let released = false;
+      for (const s of pinned) if (s.rendered) { delete s.el.dataset.flowHold; pinned.delete(s); released = true; }
+      if (released) writeHolds();
+      if ((!results.some(r => r.heightChanged) && !released) || round >= results.filter(r => r.auto).length + Number(released)) break;
+      for (const s of states.values()) s.box = null;
+    }
+    restoreSelection(selected);
+    let pending = false;
+    for (const p of calibration.values()) {
+      if (p.correction != null) { p.element?.remove(); p.element = null; continue; }
+      if (!p.element) {
+        const span = document.createElement('span'); span.textContent = '😀';
+        span.style.cssText = `position:absolute;visibility:hidden;white-space:pre;display:inline-block;font:${p.font.font};letter-spacing:0;`;
+        span.lang = p.font.extra.lang; document.body.append(span); p.element = span;
+      }
+      pending = true;
+    }
+    if (pending || moved) { dirty = true; wake(); }
+    return pending;
+  }
+  function onFrame() {
+    // The scheduler advances first, then paints in this same frame.
+    unpinFlowed(flush());
+    if (dirty) wake();
+  }
+
+  return {
+    beforeBatch(batch) {
+      const ops = batch.ops ?? [];
+      const topology = ops.some(op => ['children', 'roots', 'destroy', 'textflow'].includes(op.op));
+      for (const s of states.values()) {
+        const relevant = topology || ops.some(op => ['style', 'props'].includes(op.op) &&
+          (op.id === s.id || views.get(op.id)?.contains(s.el) || s.runs.some(r => r.chain.includes(views.get(op.id)))));
+        if (relevant) { pendingSelection ??= selectionSnapshot(); pin(s); restore(s); s.needsSource = true; s.geometry = null; }
+      }
+    },
+    afterBatch(batch) {
+      const op = batch.ops?.find(op => op.op === 'textflow');
+      if (op) { contexts = op.contexts; reconcile(); }
+      for (const s of states.values()) if (batch.ops?.some(op => op.op === 'style' && s.meetingIds?.has(op.id))) s.geometry = null;
+      clock.update(batch.timer_due_ms, batch.frames, batch.waits, batch.timer_tolerance_ms);
+      if (batch.ops?.some(op => ['style', 'props', 'create', 'destroy', 'children', 'textflow'].includes(op.op))) {
+        const onlyExclusions = batch.ops.every(op => op.op === 'style' && contexts.some(c => c.exclusions.includes(op.id)));
+        invalidate(!onlyExclusions);
+      }
+      // A batch that put paragraphs back to their text flows them again now, in its own task, so no
+      // frame paints them unflowed; their held heights go once the reflow has written new ones.
+      if (pinned.size) unpinFlowed(flush());
+    },
+    async settle() {
+      await document.fonts.ready; fontsReady = true;
+      // Calibration needs a separate write/read cycle, never alternating nodes.
+      let pending = false;
+      for (let i = 0; i < 3 && dirty; i++) { pending = flush(); if (dirty) await new Promise(resolve => raf(resolve)); }
+      unpinFlowed(pending);
+    },
+    facts(id) { return states.get(id)?.facts ?? null; },
+    reset() {
+      unpinAll();
+      clock.reset();
+      for (const s of states.values()) restore(s);
+      request(6, 0, new Uint8Array()); shapes.clear();
+      states.clear(); autoHeightWarned.clear(); pendingSelection = null; contexts = []; observed.clear(); observer.disconnect(); dirty = false;
+      refreshFonts();
+    },
+    dispose() {
+      this.reset(); disposed = true;
+      clock.dispose();
+      document.fonts.removeEventListener('loadingdone', refreshFonts); document.removeEventListener('scroll', invalidate, true); canvas.remove(); sheet.remove(); holds.remove();
+    },
+  };
+}
+
+// Module scripts register with the same on-demand loader as Rust/GPU glue.
+if (globalThis.exact) globalThis.exact.createTextFlow = async options =>
+  createTextFlow({ ...options, request: await createFlowRequest() });

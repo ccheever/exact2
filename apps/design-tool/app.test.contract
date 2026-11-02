@@ -1,0 +1,1379 @@
+// The design tool against a stand-in Tamber server (stub/tamber-stub.ts, run
+// by `test` and `verify`): its hello and long poll, the canvas, builds and
+// pins, pairing, review, commit and history, and the grid of live copies.
+// editing.test.contract holds the panels' edits and scrubs, and
+// inspector.test.contract the inspector; `bun exact.mjs test` runs all three,
+// `verify` this file alone. Its drives against a real `tamber serve` are in
+// scripts/design-tool.test.mjs and its -ops, -canvas and -scrub files (and
+// the base scale and package rows in scripts/design-tool-scale.test.mjs).
+
+test "it asks for the person's name once, then shows the server's hello"
+  expect tree has "ask-name"
+  expect disabled "save-name"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "person" == "design-tool:Ada"
+  expect text "app" == "/stub/theme-fixture"
+  expect text "protocol" == "tamber/1.13 · IR format 1"
+  // The files folded behind one line (below the canvas and the tokens), opened on asking.
+  expect tree missing "file-app.tamber"
+  expect text "toggle-files" == "Files (2)"
+  tap "toggle-files"
+  expect tree has "file-app.tamber"
+  expect tree has "file-brand.tamber"
+  expect text "toggle-files" == "Hide files"
+  reload
+  expect text "person" == "design-tool:Ada"
+
+test "a dev loop whose page won't let this tool frame it is said above the canvas, and the line goes once it does"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree missing "canvas-refused"
+  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": false, "origins": ["http://localhost:5173", "http://127.0.0.1:9999"], "portFixes": true} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "canvas-refused" == "The dev loop at http://127.0.0.1:5173 lets only http://localhost:5173 http://127.0.0.1:9999 frame its page, not this tool, so the canvas stays empty: start the loop with EXACT_TOOL_PORT=7740."
+  // The loop started again with the tool's port: asked again with hello, the line goes.
+  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": true, "origins": []} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree missing "canvas-refused"
+  request POST "/__stub/restart" {} as ada
+
+test "no server: a clear way to start one, and Try Again"
+  fail fetch "http://127.0.0.1:7740"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-server"
+  expect text "no-server-message" == "No design server answers at http://127.0.0.1:7740. Start one for your app with `bun exact.mjs tamber tool <app>`, then try again."
+  pass fetch "http://127.0.0.1:7740"
+  tap "reconnect"
+  clock data
+  expect tree has "hello"
+
+test "another client's write arrives on the long poll, attributed"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "toggle-files"
+  expect text "digest-app.tamber" == "aaaaaaaaaaaa"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:codex"
+  expect text "digest-app.tamber" == "cccccccccccc"
+  request POST "/__stub/event" {"client": null, "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-2" == "brand.tamber · changed on disk"
+
+test "a restarted server starts the list again"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:before", "edited": ["app.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:before"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect tree missing "change-1"
+  request POST "/__stub/event" {"client": "design-tool:Grace", "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "brand.tamber · design-tool:Grace"
+
+test "another design file is read when chosen, and a refused one shows its error and a retry"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "file" "brand.tamber"
+  clock data
+  expect text "design-error" == "the stub has no design in brand.tamber"
+  expect tree has "reload-design"
+  expect tree missing "no-dials"
+  expect tree missing "dials"
+  expect tree missing "contrast"
+  type "file" ""
+  clock data
+  expect tree missing "design-error"
+  expect tree has "dial-accent-color"
+
+test "a commit's dry run is read again only when what a commit could take moves: not on each answer, a build's status or a scrub"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/refuse-commit" {"nothing": true} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  // From here a dry run would find an edit and turn Commit on: nothing below but a file's change asks it.
+  request POST "/__stub/refuse-commit" {"nothing": false} as ada
+  // Answers with nothing in them (a dry commit polled with each would be a 400 "nothing to commit").
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/event" {"events": [{"event": "builds", "builds": [{"id": "ios-1", "host": "ios", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "opened"}]} as ada
+  clock +1
+  clock data
+  request POST "/__stub/event" {"events": [{"event": "build-status", "build": {"id": "ios-1", "host": "ios", "design": "d1", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}}, {"event": "scrub", "client": "agent:codex", "scrub": "scrub-7", "reason": "cancelled"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  // A file's change reads it again.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  request POST "/__stub/restart" {} as ada
+
+test "nothing is read for no one before the name; the dry commit is asked only once the run has written since its last commit, a write from before the tool opened included"
+  // A write from before the tool's name: in the first answer's backlog, so the dry run is asked and Commit turns on.
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +3000
+  clock data
+  request POST "/__stub/asked" {"dry": false, "nameless": false} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/asked" {"dry": true} as ada
+  // Committed (by anyone): nothing is asked again until the next write, though a dry run would find an edit here.
+  request POST "/__stub/event" {"event": "committed", "client": "agent:codex", "commit": "c0ffee0123456789abcdef0123456789abcdef01", "files": ["app.tamber"], "edits": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/asked" {"dry": false} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/asked" {"dry": true} as ada
+  request POST "/__stub/restart" {} as ada
+
+test "a new run that has written nothing asks no dry commit (no 400 on every load)"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect disabled "commit"
+  request POST "/__stub/asked" {"dry": false, "nameless": false} as ada
+
+test "a name ending in a colon is a client like any other: its dry run is read and Commit turns on"
+  type "name" "Ada:"
+  tap "save-name"
+  clock data
+  expect text "person" == "design-tool:Ada:"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect enabled "commit"
+  request POST "/__stub/restart" {} as ada
+
+test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-changes"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "entry-text-1" == "app.tamber: surface.card · agent:codex"
+  request POST "/__stub/refuse-commit" {"why": "it differed from HEAD when the session first wrote it"} as ada
+  tap "commit"
+  clock data
+  expect text "refused-app.tamber" == "app.tamber: it differed from HEAD when the session first wrote it"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  tap "commit"
+  clock data
+  expect text "committed-summary" == "Committed c0ffee012345: app.tamber"
+
+test "the changes' long poll by cursor (tamber/1.17): a reply folds as it comes and asks nothing again; one that names a cursor the tool never had is read again once by POST; another run starts again"
+  // (A new run first: its changes numbered from 1.)
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  // Hello says 1.17: the poll is the GET by cursor, held by the stub until there is news.
+  expect tree has "no-changes"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-1" == "app.tamber: surface.card · agent:codex"
+  // The next reply comes on the same poll, asked again by the host, not the tool.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.page"}]} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-1" == "app.tamber: surface.card · agent:codex"
+  expect text "entry-text-2" == "app.tamber: surface.page · agent:codex"
+  // A reply that names a cursor the tool never had (one coalesced away): not folded, but read again once by POST,
+  // which folds what it missed, then the poll goes on.
+  request POST "/__stub/skip-cursor" {} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.primary"}]} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == false
+  clock +1
+  clock data
+  expect text "entry-text-3" == "app.tamber: text.primary · agent:codex"
+  expect text "entry-text-2" == "app.tamber: surface.page · agent:codex"
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.label"}]} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-4" == "app.tamber: text.label · agent:codex"
+  // A reply larger than a stream's default ceiling (1 MiB) comes on it as a read's would.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.secondary"}], "pad": 1500000} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-5" == "app.tamber: text.secondary · agent:codex"
+  // Another run of the server: the poll held there answers that, which is read again by POST (it starts again), and
+  // a new poll goes on in the new run.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  // (Its poll held there answers at once, and its next ask is refused, on a token that run does not know: the
+  // tool asks again, within 3 s, by a read, which asks a token.)
+  clock +500 real
+  clock data
+  clock +3000
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  // (The new poll's opening reply in, alone, before the next event.)
+  clock +200 real
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "text.label"}]} as ada
+  clock held changes
+  clock +1
+  clock data
+  expect state changes.stream == true
+  expect text "entry-text-1" == "app.tamber: text.label · agent:codex"
+  // Nothing new a while: the stub's heartbeat (a 204, here after 300 ms) is a reply `clock held` returns on, and
+  // nothing comes of it: the poll goes on, asked again by the host.
+  request POST "/__stub/long-poll" {"heartbeat": 300} as ada
+  clock held changes
+  clock held changes
+  clock data
+  expect state changes.stream == true
+  expect tree missing "entry-text-2"
+  // Another name is another client, read again with hello; hello refused (the files unreadable) while the events
+  // still read: said, and asked again in 3 s, not a read and a hello each commit.
+  request POST "/__stub/refuse-hello" {} as ada
+  tap "person"
+  type "name" "Grace"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  expect state changes.ok == false
+  expect state changes.stream == false
+  request POST "/__stub/restart" {} as ada
+
+test "history reads as edits, and revert holds a proposal"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "toggle-history"
+  clock data
+  expect text "subject-beef01234567" == "design: a warmer card"
+  expect tree has "edit-beef01234567"
+  tap "revert-beef01234567"
+  clock data
+  expect text "reverted" == "Held for review as prop-stub-1: the revert of beef01234567."
+  // Ten a page: Older reads past them, Newer back.
+  tap "more-history"
+  clock data
+  expect text "subject-feed01234567" == "design: the first"
+  expect tree missing "subject-beef01234567"
+  expect tree missing "more-history"
+  tap "newer-history"
+  clock data
+  expect tree has "subject-beef01234567"
+
+test "a restarted server starts the changeset again"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
+  // The highlight fades after 3 s.
+  clock +3000
+  clock data
+  expect tree missing "changed-by-surface.card"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-changes"
+  // A new run's first change is highlighted, though its number is one an
+  // earlier run's faded highlight had passed.
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  expect tree has "changed-by-surface.card"
+
+test "a held proposal's title names what it edits, then what reads it, a param by component.param"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "p9", "client": "agent:helper", "diff": "", "changed": [{"file": "app.tamber", "token": "cards.avatar-default"}, {"file": "app.tamber", "token": "cards.banner"}, {"file": "app.tamber", "token": "@exact/cards/profile-header.contract#ProfileHeader.banner"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "cards.avatar-default", "value": "#aa00aa"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p9" == "agent:helper proposes cards.avatar-default (and 2 that read it: cards.banner, ProfileHeader.banner)"
+  // A rename edits both its names; a param's add names its component.
+  request POST "/__stub/hold" {"proposal": "p10", "client": "agent:helper", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "surface.panel"}, {"file": "app.tamber", "token": "ink.on-card"}], "ops": [{"index": 0, "op": {"op": "rename-token", "from": "surface.card", "to": "surface.panel"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p11", "client": "agent:helper", "diff": "", "changed": [{"file": "app.tamber", "token": "@app/app.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "add-param", "component": "Card", "name": "fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p10" == "agent:helper proposes surface.card, surface.panel (and 1 that read them: ink.on-card)"
+  expect text "held-title-p11" == "agent:helper proposes Card.fill"
+  // An operation naming no file edits the app's design, so a same-named reader elsewhere is still a reader; a declaring
+  // path is matched whole, so another component's param of the same short name is one too.
+  request POST "/__stub/hold" {"proposal": "p12", "client": "agent:helper", "diff": "", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "brand.tamber", "token": "surface.card"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p13", "client": "agent:helper", "diff": "", "changed": [{"file": "app.tamber", "token": "@a/a.contract#Card.fill"}, {"file": "app.tamber", "token": "@b/b.contract#Card.fill"}], "ops": [{"index": 0, "op": {"op": "set-param", "name": "@a/a.contract#Card.fill", "value": "surface.card"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p12" == "agent:helper proposes surface.card (and 1 that read it: surface.card)"
+  expect text "held-title-p13" == "agent:helper proposes Card.fill (and 1 that read it: Card.fill)"
+  request POST "/__stub/restart" {} as ada
+
+test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-proposals"
+  request POST "/__stub/hold" {"proposal": "p1", "client": "agent:codex", "diff": "--- app.tamber\n+++ app.tamber\n+  surface.card = #eeeeee\n", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "ink.on-brand"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}, {"index": 1, "op": {"op": "set-token", "name": "ink.on-brand", "value": "#fefefe"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p2", "client": "agent:claude", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "remove-token", "name": "tone.deep"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p1" == "agent:codex proposes surface.card, ink.on-brand"
+  expect tree has "pick-p1-1"
+  expect disabled "accept-picked-p1"
+  tap "pick-p1-0"
+  tap "accept-picked-p1"
+  clock data
+  expect text "write-note" == "p1 was recomputed on the files as they are now, as p1-r: review its diff and accept it again."
+  clock +1
+  clock data
+  expect tree missing "held-p1"
+  expect text "held-replaces-p1-r" == "Recomputed from p1 on the files as they are now: review it again."
+  expect text "held-title-p1-r" == "agent:codex proposes surface.card"
+  expect text "held-diff-p1-r" == "--- app.tamber\n+++ app.tamber\n+  surface.card (kept)\n"
+  tap "accept-p1-r"
+  clock data
+  expect text "write-note" == "Accepted p1-r."
+  expect text "undo" == "Undo (1)"
+  tap "drop-p2"
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-proposals"
+
+test "an import's review: tokens in, overrides off until ticked with their notes, every unmapped value, the count; a token's value edited before accepting"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [{"block": ":root", "name": "--radius", "value": "0.5rem", "why": "kind pending: length"}], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}, {"role": "-exact-label", "token": "shadcn.foreground", "items": [], "note": "tamber-role-axis: it would vary by dark-style"}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-title-imp" == "design-tool:Ada imports a shadcn theme"
+  expect text "held-count-imp" == "3 source values = 2 mapped + 1 reported"
+  expect tree has "take-imp-0"
+  expect tree has "override-imp-AccentColor"
+  expect text "unmapped-imp-0" == "--radius = 0.5rem (:root): kind pending: length"
+  expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
+  expect tree missing "override-imp--exact-label"
+  expect state picked == []
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1 with what was chosen: review it and accept."
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-held-1"
+
+
+test "a 1.17 server edits a held import's value in place (edit-held): no ops sent, the old one replaced in the same step, the agent's still and edited by the person"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "agent:codex", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [{"block": ":root", "name": "--radius", "value": "0.5rem", "why": "kind pending: length"}], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}, {"role": "-exact-label", "token": "shadcn.foreground", "items": [], "note": "tamber-role-axis: it would vary by dark-style"}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-title-imp" == "agent:codex imports a shadcn theme"
+  expect tree missing "held-edited-imp"
+  expect text "held-count-imp" == "3 source values = 2 mapped + 1 reported"
+  expect tree has "take-imp-0"
+  expect tree has "override-imp-AccentColor"
+  expect text "unmapped-imp-0" == "--radius = 0.5rem (:root): kind pending: length"
+  expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
+  expect tree missing "override-imp--exact-label"
+  expect state picked == []
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as edited-1 with what was chosen: review it and accept."
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect text "held-title-edited-1" == "agent:codex imports a shadcn theme"
+  expect text "held-edited-edited-1" == "Edited by design-tool:Ada"
+  expect text "held-replaces-edited-1" == "Held again from imp with your edit, on the files as they are now: review its diff, then accept it."
+  request POST "/__stub/restart" {} as ada
+test "a role override ticked, then a value edited: the edit keeps it, ticked, and accepting writes both"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  expect text "override-imp-AccentColor" == "true"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "true"
+  expect text "take-edited-1-0" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a value edited, then a role override ticked: the override is still offered, off, and ticking it ends as ticking first does"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "false"
+  expect text "take-edited-1-0" == "true"
+  tap "override-edited-1-AccentColor"
+  expect text "override-edited-1-AccentColor" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a value edited with a role override left unticked: it stays offered and off, so accepting recomputes without it"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-edited-1"
+  expect tree has "override-edited-1-AccentColor"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "edited-1 was recomputed on the files as they are now, as edited-1-r: review its diff and accept it again."
+
+test "against a 1.17 server the tool never sends choose (tamber/1.18): a tick stays the page's, carried by its flips through an edit, as before"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  request POST "/__stub/protocol" {"protocol": "tamber/1.17"} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  type "mapped-value-imp-0-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0-0" key "Enter"
+  clock data
+  clock +1
+  clock data
+  expect tree has "held-edited-1"
+  expect text "held-diff-edited-1" == ""
+  expect text "override-edited-1-AccentColor" == "true"
+  tap "accept-edited-1"
+  clock data
+  expect text "write-note" == "Accepted edited-1."
+
+test "a tick sent as the proposal's choice (tamber/1.18 choose): accepting right after takes the choice the page itself sent, never stale"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "another client's choice since the page saw one (tamber/1.18): the card takes it as it comes, its own flips dropped, and accepting takes theirs, never the mix"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "override-imp-AccentColor"
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/choose" {"proposal": "imp", "items": [0], "client": "design-tool:Bo"} as ada
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "override-imp-AccentColor" == "false"
+  expect state picked == []
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "imp was recomputed on the files as they are now, as imp-r: review its diff and accept it again."
+
+test "a recomputed import's diff follows its card's choice at once: the plan of what is chosen, the held one when all is, none when nothing is"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp-r", "replaces": "imp", "client": "design-tool:Ada", "diff": "--- app.tamber\n+++ app.tamber\n+  every operation\n", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "#ffffff"}}, {"index": 1, "op": {"op": "add-token", "name": "shadcn.ring", "value": "#000000"}}], "review": {"importer": "shadcn", "counted": {"source": 2, "mapped": 2, "reported": 0}, "tokens": 2, "unmapped": [], "offers": []}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  {\"op\":\"add-token\",\"name\":\"shadcn.card\",\"value\":\"#ffffff\"}\n"
+  tap "take-imp-r-0"
+  clock data
+  expect text "held-diff-imp-r" == ""
+  expect text "held-diff-note-imp-r" == "Nothing is chosen, so accepting it would write nothing."
+  tap "take-imp-r-0"
+  tap "take-imp-r-1"
+  clock data
+  expect text "held-diff-imp-r" == "--- app.tamber\n+++ app.tamber\n+  every operation\n"
+  expect tree missing "held-diff-note-imp-r"
+
+test "H1: accepting right after a tick whose choose answer was lost records what it accepts first (tamber/1.18), never refused as another client's change"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H2: the page's own choose whose answer was lost comes back as its own (tamber/1.18): its tick shows, and accepting takes it"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/lose-choose" {"n": 1} as ada
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "override-imp-AccentColor" == "true"
+  tap "accept-imp"
+  clock data
+  expect text "write-note" == "Accepted imp."
+
+test "H3: a tick made after another client's choice rebased the card counts (tamber/1.18): only the flip the page had then is dropped"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/long-poll" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  tap "override-imp-AccentColor"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/choose" {"proposal": "imp", "items": [0, 1], "client": "design-tool:Bo"} as ada
+  clock data
+  tap "take-imp-0"
+  clock data
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "take-imp-0" == "false"
+  expect text "override-imp-AccentColor" == "true"
+
+test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "dial-hue-stepper" "210"
+  clock data
+  tap "apply"
+  clock data
+  expect text "undo" == "Undo (1)"
+  request POST "/__stub/restart" {} as ada
+  tap "undo"
+  clock data
+  expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
+  expect text "undo" == "Undo (0)"
+
+test "a gap in the long poll is said in Changes"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}} as ada
+  request POST "/__stub/miss" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "entry-text-1" == "Some changes were missed here (the server keeps the last 256), so this list may be incomplete."
+
+test "the canvas frames the dev loop's page at the size chosen, and says how to start one when there is none"
+  request POST "/__stub/page" {"page": null} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-app"
+  expect text "no-app-how" == "The canvas shows the app from its dev loop. Start one (bun exact.mjs web, in the app's directory), then open the tool through it: bun exact.mjs tamber tool --via <its URL>. Stop this tool first: it holds the design server, and --via refuses while it runs."
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-open"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765"} as ada
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect tree has "canvas-open"
+  // Framed as localhost: another site than the tool's, its own process;
+  // opened in a tab as the dev loop prints it.
+  expect state hello.frame == "http://localhost:8765"
+  expect state hello.page == "http://127.0.0.1:8765"
+  expect tree missing "no-app"
+  type "canvas-size" "tablet"
+  expect state canvasSize == "tablet"
+  reload
+  clock data
+  expect state canvasSize == "tablet"
+  request POST "/__stub/page" {"page": null} as ada
+
+test "the canvas frames only a loopback origin: another host, a path, or the tool's own origin is no page"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/page" {"page": "http://example.com:8765"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  expect tree missing "canvas-frame"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765/elsewhere"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:70000"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  expect text "app" == "/stub/theme-fixture"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://localhost:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:07740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://[::1]:7740"} as ada
+  reload
+  clock data
+  expect tree has "no-app"
+  request POST "/__stub/page" {"page": "http://[::1]:8765"} as ada
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect state hello.frame == "http://localhost:8765"
+  request POST "/__stub/page" {"page": null} as ada
+
+test "builds: each with its effective facts from its status; a pin on one shows pinning until its status reaches the pin's revision, and only that build moves"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-builds"
+  // Pin waits for something to pin, and a root font size it can take.
+  expect disabled "pin-apply"
+  type "pin-font" "3"
+  expect disabled "pin-apply"
+  type "pin-font" ""
+  expect disabled "pin-preview"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "ios-1", "host": "ios", "status": {"scheme": "dark", "contrast": "more", "mode": {"dark-style": "dim"}, "rootFontSize": 17, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "mac-1", "host": "macos", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect tree missing "no-builds"
+  expect text "build-status-web-1" == "light · dark-style=black · 16px"
+  expect text "build-status-ios-1" == "dark · contrast more · dark-style=dim · 17px"
+  expect text "build-status-mac-1" == "Not reported yet: it has not said what it shows."
+  expect tree missing "build-pin-web-1"
+  type "pin-build" "web-1"
+  type "pin-scheme" "dark"
+  type "pin-mode-dark-style" "dim"
+  tap "pin-apply"
+  clock data
+  expect text "pin-result" == "Pinned on 1 build(s)."
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark, dark-style=dim"
+  expect tree missing "build-pin-ios-1"
+  // Its status, at the pin's revision: the effective facts are the
+  // build's own (its app chose Black over the pin's Dim).
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 1}, "pin": {"scheme": "dark", "mode": {"dark-style": "dim"}}, "pinRevision": 1}} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinned: dark, dark-style=dim"
+  expect text "build-status-web-1" == "dark · dark-style=black · 16px"
+  expect text "build-status-ios-1" == "dark · contrast more · dark-style=dim · 17px"
+  // Handed back: said until its status reaches the hand-back's revision.
+  tap "pin-clear"
+  clock data
+  expect text "pin-result" == "Pins handed back on 1 build(s)."
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "handing back"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 2}, "pin": null, "pinRevision": 2}} as ada
+  clock +1
+  clock data
+  expect tree missing "build-pin-web-1"
+  request POST "/__stub/restart" {} as ada
+
+test "builds: a preview replaces a build's pin; an unsupported pin is named until its status moves on; another client's pin is followed; a refused pin says why; a new run lists its own builds"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  type "pin-build" "web-1"
+  type "pin-scheme" "dark"
+  type "pin-contrast" "more"
+  tap "pin-apply"
+  clock data
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-1", "what": "pin.contrast", "detail": "the web has no contrast preference to set"} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark, contrast more"
+  expect text "build-unsupported-web-1" == "Not applied: pin.contrast: the web has no contrast preference to set"
+  // One axis previewed: the pin is that axis alone; the refusal stays
+  // until the build's status moves to the preview's revision.
+  type "pin-scheme" ""
+  type "pin-contrast" ""
+  type "pin-mode-dark-style" "dim"
+  tap "pin-preview"
+  clock data
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: dark-style=dim"
+  expect tree has "build-unsupported-web-1"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 2}, "pin": {"mode": {"dark-style": "dim"}}, "pinRevision": 2, "unsupported": null}} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinned: dark-style=dim"
+  expect tree missing "build-unsupported-web-1"
+  // Another client's pin, announced by the server: followed, and not
+  // caught up until the status says so.
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 2}, "pin": {"scheme": "light", "rootFontSize": 20}, "pinRevision": 3}]} as ada
+  clock +1
+  clock data
+  expect text "build-pin-web-1" == "pinning: light, 20px"
+  // A build gone from the server's list: a pin on it is refused. It was connected, so for 10 s it is one reloading
+  // (a bounded window), not "no build", and back under its id it is listed again. (The window ios-1 and mac-1 opened,
+  // going above, closed first.)
+  clock +10000
+  expect tree missing "build-reloading-ios-1"
+  request POST "/__stub/event" {"event": "builds", "builds": []} as ada
+  clock +1
+  clock data
+  expect text "build-reloading-web-1" == "web · web-1 · reloading"
+  expect tree missing "no-builds"
+  tap "pin-apply"
+  clock data
+  expect text "pin-result" == "no registered build `web-1`"
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect tree has "build-web-1"
+  expect tree missing "build-reloading-web-1"
+  expect tree missing "no-builds"
+  clock +10000
+  // Gone again and not back: past the window (10 s from its going) it is no build, as one never connected is.
+  request POST "/__stub/event" {"event": "builds", "builds": []} as ada
+  clock +1
+  clock data
+  expect tree has "build-reloading-web-1"
+  clock +9000
+  expect tree has "build-reloading-web-1"
+  expect tree missing "no-builds"
+  clock +1000
+  expect tree missing "build-reloading-web-1"
+  expect tree has "no-builds"
+  // A new run of the server: its builds, from its hello, at once.
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "linux-1", "host": "linux", "status": null, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "build-linux-1"
+  expect tree missing "build-web-1"
+  request POST "/__stub/restart" {} as ada
+
+test "the pin form offers the app's own axes whichever file is open, and retyping the name keeps the tool's client while it is typed"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  expect tree has "pin-mode-dark-style"
+  type "file" "brand.tamber"
+  clock data
+  expect tree has "pin-mode-dark-style"
+  tap "person"
+  expect tree has "rename-note"
+  expect state person == "Ada"
+  type "name" "Grace"
+  tap "save-name"
+  expect state person == "Grace"
+  expect tree missing "rename-note"
+
+test "pairing: a code at the scope chosen, with each remote door's fingerprint to check; the clients as they pair; a revoke ends one"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/remote" {"remote": [{"origin": "https://192.168.1.20:7743", "fingerprint": "AB:CD:EF:01"}, {"origin": "http://127.0.0.1:7744", "tunnel": true}]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "no-clients" == "No client is paired."
+  expect text "pair-scope-note" == "Propose: it reads, and offers changes for someone with write to accept."
+  type "pair-scope" "read"
+  expect text "pair-scope-note" == "Read: it sees the design and its history, and inspects without moving anyone's screens."
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-fingerprint-https://192.168.1.20:7743" == "AB:CD:EF:01"
+  expect text "pair-door-http://127.0.0.1:7744" == "Through the tunnel you trusted, at http://127.0.0.1:7744"
+  request POST "/__tamber/pair" {"code": "7Q2KD-M4X01", "name": "laptop"} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "client-scope-remote:laptop#1" == "read"
+  expect tree missing "no-clients"
+  tap "revoke-remote:laptop#1"
+  clock data
+  expect text "revoke-result" == "remote:laptop#1 was revoked: its token is refused from now on, and its stream and long poll end."
+  expect tree missing "client-remote:laptop#1"
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
+test "a refused pair-code or clients read is said, and the clients are asked again with the poll"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/refuse-pairing" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "clients-error" == "clients: refused, as the test asked"
+  tap "pair-mint"
+  clock data
+  expect text "pair-error" == "pair-code: refused, as the test asked"
+  clock +3000
+  clock data
+  expect text "no-clients" == "No client is paired."
+  request POST "/__stub/restart" {} as ada
+
+test "pairing with no remote door open says how to open one"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "pair-mint"
+  clock data
+  expect text "pair-code-text" == "7Q2KD-M4X01"
+  expect text "pair-no-door" == "No remote door is open: start the dev loop or tamber serve with --remote <host:port> for a client on another machine."
+  request POST "/__stub/restart" {} as ada
+
+test "remote mode: the tool pairs with another machine's server by its address and code, only over an https door or a tunnel to loopback; at propose an edit is held for review and what writes is greyed and never sent; a revoke ends it and says so"
+  // No server on this machine: the browser is the other machine's (the stub stands in for that
+  // machine's server, through a tunnel to loopback, so only this machine's token is refused).
+  fail fetch "http://127.0.0.1:7740/__tamber/token"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "pair-remote"
+  expect disabled "remote-pair"
+  // A plain http door off this machine is refused before anything is sent.
+  type "remote-at" "http://192.168.1.20:7740"
+  type "remote-code" "7Q2KD-M4X01"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "Pairing goes only over an encrypted connection: an https address, or a tunnel to this machine (http://127.0.0.1:<port>). Nothing was sent."
+  // The code was not kept.
+  expect state remoteCode == ""
+  type "remote-at" "http://127.0.0.1:7740"
+  type "remote-code" "7Q2KD-M4X99"
+  tap "remote-pair"
+  clock data
+  expect text "remote-error" == "no such pairing code: it may have expired, been used, or been burned by failed attempts"
+  request POST "/__stub/pair-code" {"scope": "propose"} as ada
+  type "remote-code" "7q2kd-m4x01"
+  tap "remote-pair"
+  clock data
+  clock +1
+  clock data
+  expect text "person" == "remote:Ada#1"
+  expect text "paired-scope" == "Paired as remote:Ada#1, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed."
+  // The local tool's own: no clients panel.
+  expect tree missing "pairing"
+  expect disabled "inspect-toggle"
+  expect disabled "commit"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "apply" == "Propose for review"
+  tap "apply"
+  clock data
+  expect text "write-note" == "Held for review as held-1: someone with write accepts it."
+  expect disabled "undo"
+  // Its canvas comes only through the server's TLS door: through this tunnel there is none.
+  expect text "canvas-remote-none" == "No canvas: the design server named no gateway this tool can frame (its canvas is https, on its TLS door's host, another machine, and another port)."
+  expect tree missing "canvas-frame"
+  // Revoked on the other machine: the next request is refused, and the tool says so and sends no more.
+  request POST "/__stub/revoke" {"client": "remote:Ada#1"} as ada
+  clock +1
+  clock data
+  clock +3000
+  clock data
+  expect text "no-server-title" == "Revoked"
+  expect tree missing "canvas-frame"
+  expect text "no-server-message" == "This client was revoked, or its pairing expired: nothing more is sent to the design server. Pair again with a new code."
+  request POST "/__stub/restart" {} as ada
+
+test "a paired tool frames no page of this machine, whatever the server's hello says"
+  fail fetch "http://127.0.0.1:7740/__tamber/token"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/pair-code" {"scope": "read"} as ada
+  request POST "/__stub/forge-local" {} as ada
+  type "remote-at" "http://127.0.0.1:7740"
+  type "remote-code" "7Q2KD-M4X01"
+  tap "remote-pair"
+  clock data
+  clock +3000
+  clock data
+  expect text "person" == "remote:Ada#1"
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-open"
+  expect tree missing "pairing"
+  request POST "/__stub/restart" {} as ada
+
+test "a grid of live copies, each pinned to its mode on the build its own frame said, whichever registers first; a copy moved leads the others, one that can't navigate is reloaded there; Mirror off moves none; a smaller grid and one copy hand the pins back"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"delays": {"exact-copy-1": 4000}, "noNavigate": ["exact-copy-3"], "refuseLater": ["exact-copy-5"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  expect text "grid-shared" == "Each copy is its own origin, with its own storage: each starts with its own data. Mirrored navigation replays no actions."
+  expect tree missing "canvas-frame"
+  // Copy 1's build registers last (4 s after the others), and still takes its own pin, no other's.
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-label-exact-copy-1" == "Light"
+  expect text "grid-label-exact-copy-2" == "Black"
+  expect text "grid-label-exact-copy-3" == "Dim"
+  expect text "grid-label-exact-copy-4" == "Light · 22px"
+  expect text "grid-label-exact-copy-6" == "Dim · 22px"
+  expect tree missing "grid-tile-exact-copy-7"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /"
+  expect text "grid-note-exact-copy-4" == "light · 22px · /"
+  expect text "build-pin-copy-1" == "pinned: light"
+  expect text "build-pin-copy-3" == "pinned: dark, dark-style=dim"
+  // Copy 2's app asked for Dim; its pin held over it, and the tile says so.
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/", "app": {"mode": {"dark-style": "dim"}}}}} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-app-exact-copy-2" == "The app set dark-style=dim; pinned to dark, dark-style=black."
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "copy-2", "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "black"}, "rootFontSize": 16, "revision": 0, "location": "/"}}} as ada
+  // The person moves copy 2: the others follow; copy 3's build can't navigate, so its frame reloads there, and says so.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-6" == "dark · dark-style=dim · 22px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // Copy 5's page took the command and then refused it: reloaded there too.
+  expect text "grid-note-exact-copy-5" == "dark · dark-style=black · 22px · /post/3 · reloaded there: its build can't navigate"
+  // Mirror off: a copy moved leads no other.
+  tap "grid-mirror"
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/9"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/9"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /post/3"
+  // Fewer copies: the two left out are handed back.
+  type "grid-cap" "4"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-tile-exact-copy-5"
+  expect tree missing "build-pin-copy-5"
+  expect text "build-pin-copy-4" == "pinned: light, 22px"
+  // One copy again: every pin the grid made handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "grid-section"
+  expect tree missing "build-pin-copy-1"
+  expect tree missing "build-pin-copy-4"
+  request POST "/__stub/restart" {} as ada
+
+test "the selected view's states side by side, each copy holding one on the selection's site in the selection's plan and mode, kept while its pins move the selected build; the grid lets the holds go, and so does One copy"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Select a view (Inspect, then click it in a copy) to see its states side by side."
+  expect tree missing "grid-tile-exact-copy-1"
+  // A view selected in a copy registered meanwhile (the grid's frames register as the grid opens).
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "copy-5", "node": 4, "site": 3, "instance": [], "type": "Card", "planDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "tuple": {"dark-style": "dim"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 9, "col": 5, "end_col": 11, "component": "Card", "chain": []}, "rows": []} as ada
+  clock +1
+  clock data
+  type "canvas-view" "states"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note" == "Card #4, in dark · dark-style=black · 22px."
+  expect text "grid-label-exact-copy-1" == "At rest"
+  expect text "grid-label-exact-copy-2" == "Pressed"
+  expect text "grid-label-exact-copy-4" == "Focused"
+  expect tree missing "grid-tile-exact-copy-5"
+  expect text "grid-note-exact-copy-1" == "dark · dark-style=black · 22px · /"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · holding pressed"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=black · 22px · / · holding hovered"
+  expect text "grid-note-exact-copy-4" == "dark · dark-style=black · 22px · / · holding focused"
+  // Its build says it holds it.
+  request POST "/__stub/event" {"event": "held", "build": "copy-2", "state": "active"} as ada
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 22px · / · held pressed"
+  // The copy the view was selected in, no longer shown, is handed back.
+  expect tree missing "build-pin-copy-5"
+  // The grid again: its copies hold no state.
+  type "canvas-view" "grid"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /"
+  // One copy: the pins handed back.
+  type "canvas-view" "one"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect tree missing "build-pin-copy-2"
+  request POST "/__stub/restart" {} as ada
+
+test "the variant gallery: a toggle beside a local canvas frames the dev loop's /__dev/gallery/ in its place, and says it follows each kept edit, not each scrub frame; none for a page that isn't a loopback origin, nor in States (variant gallery G4)"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765"} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect state galleryOn == false
+  expect state galleryFrame == "http://localhost:8765/__dev/gallery/"
+  expect tree missing "gallery-note"
+  tap "canvas-gallery"
+  expect state galleryOn == true
+  expect tree has "canvas-frame"
+  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. Each cell is a column's width, as a caller's column shows it. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
+  // States: the copies hold the selection's own view, the app's.
+  type "canvas-view" "states"
+  expect tree missing "canvas-gallery"
+  expect tree missing "gallery-note"
+  type "canvas-view" "one"
+  // A page on another origin is no page: no canvas, so no gallery.
+  request POST "/__stub/page" {"page": "http://example.com:8765"} as ada
+  reload
+  clock data
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-gallery"
+  expect state galleryFrame == ""
+  request POST "/__stub/page" {"page": null} as ada
+
+test "a gallery copy in the grid: listed as the gallery's, never sent where a moved copy leads, nor reloaded there; one moved leads no other (variant gallery G4)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"gallery": ["exact-copy-2"], "noNavigate": ["exact-copy-3"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "build-name-copy-2" == "web · copy-2 · the gallery"
+  expect text "build-name-copy-1" == "web · copy-1"
+  // An app copy moved: the app copies follow; the gallery's stays on its own page.
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  // The gallery's copy moved: no copy follows it.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/x"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // The gallery on: every copy frames it, the one reloaded at the app's place too.
+  tap "canvas-gallery"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /__dev/gallery/"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /__dev/gallery/"
+  type "canvas-view" "one"
+  request POST "/__stub/restart" {} as ada

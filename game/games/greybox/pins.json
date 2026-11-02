@@ -1,0 +1,28 @@
+{
+  "ticks": {
+    "0": "0xa28d39d25aa334b7",
+    "90": "0x1dd0b2c4abc3cc01",
+    "98": "0x3e39671242e6ac85"
+  },
+  "saves": {
+    "continuation": "c6d0459fb3a0469282aa2ae125a150f4038587e295230ca5232b6b4159ae1db5"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "564daccb5809bddf38e88209496e4cebed7abb5f7535e733654a7c3235e43cb1",
+  "sourceInputs": "e03ba925eda31fae22c8fa674973a57764decbd00ce9168e4a876539a53e606b",
+  "game": "greybox",
+  "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
+  "at": "inputs:e03ba925eda31fae22c8fa674973a57764decbd00ce9168e4a876539a53e606b",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+}

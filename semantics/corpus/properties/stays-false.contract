@@ -1,0 +1,7 @@
+// # expect property false "once ready"
+component App
+  state ready = false
+  action toggle
+    ready = not ready
+  view
+    button "Toggle" testId="toggle" press=toggle

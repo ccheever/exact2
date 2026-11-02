@@ -1,0 +1,20 @@
+# Canvas 2D: the recorder, the list format and f64 path geometry.
+# Nothing above it; it reads numbers with exact-num, std's reader without
+# std's tables, and colours with exact-motion's CSS colour
+# parser, the one the kernel's colour rows use.
+[package]
+name = "exact-canvas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Canvas 2D: the recorder, the list format, colours and path geometry"
+publish = false
+
+[lib]
+name = "exact_canvas"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-motion = { path = "../motion" }
+exact-color = { path = "../color" }
+exact-num = { path = "../num" }

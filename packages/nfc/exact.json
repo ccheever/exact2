@@ -1,0 +1,396 @@
+{
+  "kind": "interface",
+  "name": "@exact/nfc",
+  "version": "1.0.0",
+  "grants": [
+    "device.nfc"
+  ],
+  "permission": {
+    "name": "nfc",
+    "status": "nfcStatus",
+    "field": "state",
+    "denied": "NotAllowedError",
+    "targets": [
+      "web"
+    ]
+  },
+  "agent": {
+    "tags": "FixtureTag[]",
+    "field": "string"
+  },
+  "shapes": {
+    "NFCStatus": {
+      "available": "bool",
+      "radio": "enum<on|off|unknown>",
+      "state": "enum<granted|prompt|denied>",
+      "readerUI": "enum<system|app>"
+    },
+    "NDEFScanEnd": {
+      "reason": "enum<read|stopped|cancelled|timeout|interrupted>",
+      "reading": "option<string>",
+      "message": "option<string>"
+    },
+    "NFCTag": {
+      "id": "string",
+      "serialNumber": "string",
+      "apple": "option<AppleTag>",
+      "android": "option<AndroidTag>"
+    },
+    "NDEFReading": {
+      "id": "string",
+      "serialNumber": "string",
+      "apple": "option<AppleTag>",
+      "android": "option<AndroidTag>",
+      "records": "NDEFRecordInfo[]"
+    },
+    "NDEFRecordInfo": {
+      "recordType": "string",
+      "mediaType": "option<string>",
+      "id": "option<string>",
+      "encoding": "option<string>",
+      "lang": "option<string>",
+      "text": "option<string>",
+      "size": "number"
+    },
+    "NDEFRecord": {
+      "recordType": "string",
+      "mediaType": "option<string>",
+      "id": "option<string>",
+      "encoding": "option<string>",
+      "lang": "option<string>",
+      "text": "option<string>",
+      "size": "number",
+      "data": "bytes",
+      "records": "option<NDEFInnerRecord[]>"
+    },
+    "NDEFInnerRecord": {
+      "recordType": "string",
+      "mediaType": "option<string>",
+      "id": "option<string>",
+      "encoding": "option<string>",
+      "lang": "option<string>",
+      "text": "option<string>",
+      "size": "number",
+      "data": "bytes"
+    },
+    "NDEFMessageInit": {
+      "records": "NDEFRecordInit[]"
+    },
+    "NDEFRecordInit": {
+      "recordType": "string",
+      "mediaType": "option<string>",
+      "id": "option<string>",
+      "encoding": "option<string>",
+      "lang": "option<string>",
+      "data": "option<string|bytes>"
+    },
+    "NDEFWriteResult": {
+      "serialNumber": "string"
+    },
+    "TagResponse": {
+      "data": "bytes",
+      "sw1": "option<number>",
+      "sw2": "option<number>"
+    }
+  },
+  "names": [
+    {
+      "source": "nfcStatus",
+      "live": true,
+      "answers": "NFCStatus",
+      "sync": {
+        "name": "nfcStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "partial": true,
+        "default": {
+          "available": true,
+          "radio": "unknown",
+          "state": "granted",
+          "readerUI": "app"
+        },
+        "targets": {
+          "ios": {
+            "readerUI": "system"
+          },
+          "macos": {
+            "available": false
+          },
+          "tvos": {
+            "available": false
+          },
+          "windows": {
+            "available": false
+          },
+          "linux": {
+            "available": false
+          }
+        }
+      }
+    },
+    {
+      "send": "scan",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "once": "option<bool>"
+      },
+      "answers": "NDEFScanEnd",
+      "substitute": {
+        "ticket": "scan",
+        "cancel": {
+          "reason": "cancelled"
+        },
+        "taps": {
+          "timeout": {
+            "reason": "timeout"
+          }
+        },
+        "stopped": {
+          "reason": "stopped"
+        },
+        "strings": [
+          "apple.alertMessage",
+          "apple.doneMessage",
+          "apple.errorMessages.readOnly",
+          "apple.errorMessages.tooSmall",
+          "apple.errorMessages.lost",
+          "apple.errorMessages.notNdef",
+          "apple.errorMessages.failed",
+          "apple.errorMessages.unreadable"
+        ],
+        "unsupported": [
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "abortScan",
+      "answers": null,
+      "substitute": {
+        "stops": [
+          "scan"
+        ]
+      }
+    },
+    {
+      "send": "write",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "message": "NDEFMessageInit",
+        "overwrite": "option<bool>"
+      },
+      "answers": "NDEFWriteResult",
+      "substitute": {
+        "ticket": "write",
+        "cancel": {
+          "error": "AbortError"
+        },
+        "stopped": {
+          "error": "AbortError"
+        },
+        "strings": [
+          "apple.alertMessage",
+          "apple.doneMessage",
+          "apple.errorMessages.readOnly",
+          "apple.errorMessages.tooSmall",
+          "apple.errorMessages.lost",
+          "apple.errorMessages.notNdef",
+          "apple.errorMessages.failed",
+          "apple.errorMessages.unreadable"
+        ],
+        "unsupported": [
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "makeReadOnly",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "answers": "NDEFWriteResult",
+      "substitute": {
+        "ticket": "write",
+        "cancel": {
+          "error": "AbortError"
+        },
+        "stopped": {
+          "error": "AbortError"
+        },
+        "strings": [
+          "apple.alertMessage",
+          "apple.doneMessage",
+          "apple.errorMessages.readOnly",
+          "apple.errorMessages.tooSmall",
+          "apple.errorMessages.lost",
+          "apple.errorMessages.notNdef",
+          "apple.errorMessages.failed",
+          "apple.errorMessages.unreadable"
+        ],
+        "unsupported": [
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "abortWrite",
+      "answers": null,
+      "substitute": {
+        "stops": [
+          "write",
+          "makeReadOnly"
+        ]
+      }
+    },
+    {
+      "send": "ndefRecords",
+      "options": {
+        "reading": "string"
+      },
+      "answers": "NDEFRecord[]",
+      "substitute": {
+        "kept": "reading"
+      }
+    },
+    {
+      "event": "reading",
+      "on": "root",
+      "raised": "emit",
+      "args": [
+        "NDEFReading"
+      ],
+      "hold": 16
+    },
+    {
+      "event": "readingerror",
+      "on": "root",
+      "raised": "emit",
+      "args": [
+        "NFCTag"
+      ],
+      "hold": 16
+    },
+    {
+      "send": "sendCommand",
+      "origin": {
+        "none": [
+          "tool",
+          "wake"
+        ]
+      },
+      "foreground": true,
+      "options": {
+        "tag": "string",
+        "apdu": "bytes"
+      },
+      "answers": "TagResponse",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "android",
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "sendMiFareCommand",
+      "origin": {
+        "none": [
+          "tool",
+          "wake"
+        ]
+      },
+      "foreground": true,
+      "options": {
+        "tag": "string",
+        "packet": "bytes"
+      },
+      "answers": "TagResponse",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "android",
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "transceive",
+      "origin": {
+        "none": [
+          "tool",
+          "wake"
+        ]
+      },
+      "foreground": true,
+      "options": {
+        "tag": "string",
+        "technology": "enum<IsoDep|NfcA|NfcB|NfcF|NfcV|MifareUltralight|MifareClassic>",
+        "data": "bytes",
+        "timeout": "option<number>"
+      },
+      "answers": "TagResponse",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "ios",
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    },
+    {
+      "send": "openNFCSettings",
+      "origin": "app",
+      "answers": null,
+      "substitute": {
+        "unsupported": [
+          "web",
+          "ios",
+          "macos",
+          "tvos",
+          "windows",
+          "linux"
+        ]
+      }
+    }
+  ],
+  "substitute": {
+    "arrival": {
+      "field": "field",
+      "from": "tags",
+      "status": "nfcStatus",
+      "scan": "scan",
+      "write": "write",
+      "lock": "makeReadOnly",
+      "reading": "reading",
+      "readingerror": "readingerror",
+      "hold": 16
+    }
+  }
+}

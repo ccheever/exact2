@@ -1,0 +1,57 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/purchases@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidItemDetails": {
+      "productType": "enum<inapp|subs>",
+      "subscriptionOfferDetails": "option<AndroidOffer[]>"
+    },
+    "AndroidOffer": {
+      "basePlanId": "string",
+      "offerId": "option<string>",
+      "offerToken": "string"
+    },
+    "AndroidPurchaseDetails": {
+      "orderId": "option<string>",
+      "originalJson": "string",
+      "signature": "string",
+      "packageName": "string",
+      "isAutoRenewing": "bool",
+      "products": "string[]"
+    },
+    "AndroidPurchasesStatus": {
+      "countryCode": "option<string>"
+    }
+  },
+  "options": {
+    "purchase": {
+      "basePlanId": "string",
+      "offerToken": "string",
+      "oldPurchaseToken": "string",
+      "replacementMode": "enum<withTimeProration|chargeProratedPrice|chargeFullPrice|withoutProration|deferred>",
+      "obfuscatedProfileId": "string",
+      "isOfferPersonalized": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.android.billingclient:billing:9.1.0"
+  ],
+  "permissions": [
+    "com.android.vending.BILLING",
+    "android.permission.ACCESS_NETWORK_STATE"
+  ],
+  "artifacts": [],
+  "class": "exact.purchases.PurchasesModule"
+}

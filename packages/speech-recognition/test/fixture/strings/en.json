@@ -1,0 +1,4 @@
+{
+  "purpose.microphone": "The conformance suite listens to a spoken track.",
+  "purpose.recognition": "The conformance suite recognises what the track says."
+}

@@ -1,0 +1,33 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/pedometer@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidPedometer": {
+      "source": "enum<recording|sensor>"
+    },
+    "AndroidPedometerStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "sensorManager"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "com.google.android.gms:play-services-fitness:21.3.0"
+  ],
+  "artifacts": [],
+  "class": "exact.pedometer.PedometerModule"
+}

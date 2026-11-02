@@ -1,0 +1,11 @@
+// The authored side: an accent, and the field roles overridden.
+tamber controls
+
+theme
+  // One colour in both schemes: a measurement, not a look.
+  accent.authored = #e0218a
+  Field = #fff1a8
+  FieldText = #0b8a3a
+  placeholder = #d9480f
+  // The design's accent, which a control with no accent-color around it takes.
+  AccentColor = #e0218a

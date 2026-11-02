@@ -1,0 +1,244 @@
+//! `showPicker` and its answer on Linux: refused with
+//! `cancel` outside the agent (there is no desktop host yet); under the agent,
+//! held for `tap @t cancel` or `type @t <path>…`, whose files are copied
+//! into `app:/tmp/picked/` before `change` fires. `saveFile` likewise:
+//! refused with `cancel`, or held as `export` for
+//! `type @t <path>`, which the `app:/` file is copied to. Notifications have
+//! no centre here either: refused, or listed for the agent. On a host with
+//! a shell (Android) the platform has every one of these, and the channel
+//! to it (`requests.rs`) carries none of them yet: the
+//! refusal then says that, beside the runner's own line.
+use super::*;
+use exact_runner::picker_support as support;
+use exact_runner::ControlValue;
+
+pub(crate) mod share;
+
+impl<D: DataSource> Presenter<D> {
+    /// `showPicker(id)`, from an action or a press on a visible file input.
+    pub(crate) fn show_picker(&mut self, id: &str) {
+        if crate::picker::agent() {
+            let request = format!(
+                "{{\"op\":\"showPicker\",\"id\":{}}}",
+                serde_json::Value::from(id)
+            );
+            let _ = self.host.answer_hold(&request);
+            self.dirty = true;
+            return;
+        }
+        self.host.log("picker: refused: unavailable");
+        self.not_carried("showPicker", "unavailable");
+        if let Some(view) = self.host.runner().picker(id).map(|p| p.view) {
+            self.deliver_picker(view, Event::Cancel);
+        }
+    }
+
+    /// The agent's answer to a held picker, after the runner consumed it:
+    /// `request` is the driver's line (its value never journalled), `reply`
+    /// the runner's.
+    pub(crate) fn answer_picker(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        if r["capability"] != "pick" {
+            return;
+        }
+        let Some(view) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        if r["answered"] == "cancel" {
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let value = q["text"].as_str().unwrap_or("");
+        let accept: Vec<String> = self
+            .host
+            .kernel()
+            .node(view)
+            .and_then(|n| n.props.str(PropId::Accept).map(str::to_owned))
+            .unwrap_or_default()
+            .split(',')
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        let mut files = Vec::new();
+        for path in support::answer_paths(value) {
+            let source = std::path::PathBuf::from(&path);
+            let name = source
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let mime = support::mime_for(&name);
+            // A HEIC photo under an `accept` without HEIC is a JPEG,
+            // which this host cannot make.
+            if support::delivered_type(mime, &accept) != mime {
+                self.host.log(format!(
+                    "picker: refused: {mime} to JPEG is unavailable on Linux"
+                ));
+                self.deliver_picker(view, Event::Cancel);
+                return;
+            }
+            let app_path = self.host.runner_mut().picked_path(&name);
+            match crate::picker::copy_in(&source, &app_path, mime) {
+                Ok(f) => files.push(f),
+                Err(e) => {
+                    self.host.log(format!("picker: refused: {e}"));
+                    self.deliver_picker(view, Event::Cancel);
+                    return;
+                }
+            }
+        }
+        self.deliver_picker(view, Event::Change(ControlValue::Files(files)));
+    }
+
+    /// `saveFile(id, from, suggestedName)`: the runner's rule, with no panel.
+    pub(crate) fn save_file(&mut self, args: &[exact_plan::Value]) {
+        use exact_runner::save_file::{arm, Arm, SaveFile};
+        let request = SaveFile::from_args(args);
+        let agent = crate::picker::agent();
+        if let Arm::Refused(reason, view) = arm(self.host.runner_mut(), request, agent, false) {
+            self.not_carried("saveFile", &reason);
+            if let Some(view) = view {
+                self.deliver_picker(view, Event::Cancel);
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// The agent's answer to a held export: copy the `app:/` file (or write
+    /// the `text=`) to the driver's path and fire `change` with its name,
+    /// or `cancel`.
+    pub(crate) fn answer_save(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        if r["capability"] != "export" {
+            return;
+        }
+        let Some(view) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        if r["answered"] == "cancel" {
+            self.host.log("saveFile: cancelled");
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let to = std::path::PathBuf::from(q["text"].as_str().unwrap_or("").trim());
+        let copied = match r["request"]["text"].as_str() {
+            Some(text) => std::fs::write(&to, text).map_err(|e| e.to_string()),
+            None => r["request"]["from"]
+                .as_str()
+                .and_then(crate::picker::resolve)
+                .ok_or_else(|| "no app file to copy".to_owned())
+                .and_then(|from| {
+                    std::fs::copy(from, &to)
+                        .map(drop)
+                        .map_err(|e| e.to_string())
+                }),
+        };
+        match copied {
+            Ok(_) => {
+                self.host.log("saveFile: saved");
+                let name = exact_runner::save_file::chosen_name(&to.to_string_lossy()).to_owned();
+                self.deliver_picker(view, Event::Change(ControlValue::Text(name)));
+            }
+            Err(e) => {
+                self.host.log(format!("saveFile: refused: {e}"));
+                self.deliver_picker(view, Event::Cancel);
+            }
+        }
+    }
+
+    /// `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`:
+    /// the runner's rule, with no picker.
+    pub(crate) fn document_picker(&mut self, name: &str, args: &[exact_plan::Value]) {
+        use exact_runner::file_pickers::{arm, Arm, Kind, Picker};
+        let Some(kind) = Kind::of(name) else {
+            return;
+        };
+        let request = Picker::from_args(kind, args);
+        let agent = crate::picker::agent();
+        if let Arm::Refused(reason, view) = arm(self.host.runner_mut(), kind, request, agent, false)
+        {
+            self.not_carried(name, &reason);
+            if let Some(view) = view {
+                self.deliver_picker(view, Event::Cancel);
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// The agent's answer to a held picker: each path minted as a handle
+    /// the person chose, one per line in `change`, or `cancel`.
+    pub(crate) fn answer_document(&mut self, request: &str, reply: &str) {
+        let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
+        let name = match r["capability"].as_str() {
+            Some("open-file") => "showOpenFilePicker",
+            Some("open-directory") => "showDirectoryPicker",
+            Some("save-file") => "showSaveFilePicker",
+            _ => return,
+        };
+        let Some(view) = r["node"].as_u64().map(|n| n as ViewId) else {
+            return;
+        };
+        if r["answered"] == "cancel" {
+            self.host.log(format!("{name}: cancelled"));
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
+        let docs: Vec<String> =
+            exact_runner::file_pickers::answer_paths(q["text"].as_str().unwrap_or(""))
+                .into_iter()
+                .filter_map(|p| {
+                    // Kept across launches where the app keeps documents.
+                    let p = std::path::Path::new(p);
+                    crate::kept::chosen(0, p).or_else(|| exact_data::documents::mint(p, 0))
+                })
+                .collect();
+        if docs.is_empty() {
+            self.host.log(format!("{name}: refused: nothing to open"));
+            self.deliver_picker(view, Event::Cancel);
+            return;
+        }
+        self.host.log(format!("{name}: chosen"));
+        let value = ControlValue::Text(docs.join("\n"));
+        self.deliver_picker(view, Event::Change(value));
+    }
+
+    /// `requestPermission(id, path, mode)`: the
+    /// runner's rule, then `granted` at `id` for a document that resolves
+    /// (the host owns no permission a person could withhold), else `denied`.
+    pub(crate) fn request_permission(&mut self, args: &[exact_plan::Value]) {
+        let arg = |i: usize| {
+            args.get(i)
+                .and_then(exact_plan::Value::as_str)
+                .unwrap_or("")
+        };
+        let request = serde_json::json!({
+            "command": "requestPermission", "id": arg(0), "path": arg(1), "mode": arg(2),
+        });
+        let ruling =
+            exact_runner::file_pickers::request(self.host.runner_mut(), &request.to_string());
+        let ruling: serde_json::Value = serde_json::from_str(&ruling).unwrap_or_default();
+        self.dirty = true;
+        let Some(view) = ruling["view"].as_u64() else {
+            return;
+        };
+        let granted = exact_data::documents::resolve(arg(1), 0).is_ok();
+        let answer = if granted { "granted" } else { "denied" };
+        self.deliver_picker(
+            view as ViewId,
+            Event::Change(ControlValue::Text(answer.into())),
+        );
+    }
+
+    fn deliver_picker(&mut self, view: ViewId, event: Event) {
+        let now = self.host.now();
+        if let Some(e) = self.host.dispatch_at(view, event, now) {
+            eprintln!("exact: {e}");
+        }
+        self.dirty = true;
+        if let Some(e) = self.after_commit() {
+            eprintln!("exact: {e}");
+        }
+    }
+}

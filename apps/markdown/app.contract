@@ -1,0 +1,396 @@
+// Markdown — a reader for Markdown files.
+//
+// The document is data: `apps/markdown/data` reads the file the person
+// chose through storage (a `doc:` handle) and
+// `apps/markdown/parse` turns it into the ordered blocks and styled runs
+// below. Nothing here parses anything, and no file content is
+// ever Contract source.
+//
+// One field carries every way of opening a document: `⌘O`, a Finder
+// double-click, `mdview README.md`, the Open… and Folder… pickers, a link
+// followed inside a document, a name in the folder beside this one. They are all a value arriving at
+// `open-file`, which is why there is one code path and not five.
+
+// The readers' palette, one `light-dark()` pair an entry; a
+// row names an entry (`color="ink"`). The dark half is warm rather than
+// blue-black, so the same documents read as the same documents, and its text
+// sits below white-on-black contrast, which is what makes a long document
+// comfortable at night. `apps/llp`, `apps/markdown` and
+// `apps/markdown-stress` say the same palette: a theme is the root's.
+theme
+  page="light-dark(#ffffff, #17181b)" // behind the document
+  chrome="light-dark(#f6f5f1, #1e1f23)" // header, index, outline
+  edge="light-dark(#e2e1d9, #2f3138)" // the hairlines between them
+  ink="light-dark(#22221b, #d4d1c9)" // running prose
+  strongInk="light-dark(#16160f, #f1eee7)" // headings
+  softInk="light-dark(#8a8a80, #8b8c92)" // metadata, markers, captions
+  faintInk="light-dark(#b0b0a2, #63656d)" // the quietest text there is
+  accent="light-dark(#4a5a3a, #a2b585)" // the brand mark, a number
+  code="light-dark(#8a3020, #e0a189)" // a code span's text
+  codeBg="light-dark(#f4f4f0, #23252b)" // behind a code block
+  fieldBg="light-dark(#ffffff, #212329)" // inside a text field
+  fieldEdge="light-dark(#d5d4cc, #3a3d45)" // its border
+  pill="light-dark(#e5e8dc, #2f3a28)" // a chosen row
+  pillInk="light-dark(#2c3520, #d6e4c4)" // text on a pill
+  control="light-dark(#e8e7e0, #2a2c32)" // a button that is not a pill
+  quoteEdge="light-dark(#d3d3c8, #3b3e46)" // the rule on a quote
+  quoteInk="light-dark(#55554a, #a6a39b)" // a quote's text
+  warnBg="light-dark(#fdecea, #3a1e1b)" // behind a refusal
+  warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
+  warnInk="light-dark(#8a1c12, #f0a89c)" // its text
+
+use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+use speak, cancelSpeech, pauseSpeech, resumeSpeech, speechSynthesisState, speechUtterance, SpeechUtteranceInfo, SpeechSynthesisState, SpeechUtterance from "@exact/speech-synthesis"
+
+shape Entry
+  id: string
+  name: string
+  path: string
+  current: bool
+
+// A document the reader keeps to reopen after a relaunch: the host keeps
+// what the person chose, on a Mac in File ▸ Open Recent's list.
+shape Kept
+  path: string
+  name: string
+  kind: string
+
+shape Forgot
+  ok: bool
+  message: string
+
+shape Document
+  path: string
+  name: string
+  title: string
+  message: string
+  failed: bool
+  count: number
+  blocks: Block[]
+  siblings: Entry[]
+
+// The system's colour scheme, beneath whatever `setScheme` chose: CSS's
+// `prefers-color-scheme`, on every host.
+shape SystemMedia
+  prefersColorScheme: string
+
+component Markdown
+  state asked = ""
+  state folder = true
+  // Which appearance the reader asked for; `system` follows the OS.
+  state scheme = "system"
+  // What the system is set to. Only read when `scheme` is `system`.
+  resource media = exactViewport() as shape SystemMedia
+  resource doc = open(asked) as shape Document
+  resource recent = recentDocuments() as shape Kept[]
+  mutation forgotten as shape Forgot
+  // The recent document a context menu was opened on.
+  state aimed = ""
+
+  // Listen: the document read aloud, one utterance a block
+  // of prose, queued one after another as each id is answered; the word being
+  // spoken is marked in its block. The queue's ids in order, and the block
+  // each one speaks.
+  state listening = false
+  state spokenIds: string[] = []
+  state spokenBlocks: string[] = []
+  // Which Listen is reading (each starts over), and which one each mutation's
+  // speak was sent for: an answer for an earlier one is not kept.
+  state run = 0
+  state evenRun = 0
+  state oddRun = 0
+  resource voice = speechSynthesisState() as shape SpeechSynthesisState else empty()
+  resource last = speechUtterance(utterance=lastId) as shape SpeechUtterance else empty()
+  mutation cleared as shape SpeechSynthesisState then queueFirst
+  // An answer's `then` may not send its own mutation, so the queue alternates two.
+  mutation queuedEven as shape SpeechUtteranceInfo then keptEven
+  mutation queuedOdd as shape SpeechUtteranceInfo then keptOdd
+  mutation held as shape SpeechSynthesisState
+  derive readable = doc.blocks.filter(b => b.kind == "paragraph" or b.kind == "heading" or b.kind == "item" or b.kind == "quote")
+  derive lastId = match spokenIds.at(-1) { case some(i) => i, case none => "" }
+  derive speakingAt = match voice.utterance { case some(u) => spokenIds.indexOf(u), case none => -1 }
+  derive speakingBlock = speakingAt < 0 ? "" : match spokenBlocks.at(speakingAt) { case some(b) => b, case none => "" }
+  derive finished = listening and last.state == "ended" and spokenIds.length == readable.length
+  derive failure = match last.error { case some(e) => e == "canceled" or e == "interrupted" ? "" : e, case none => "" }
+
+  // What the host delivers, what the field shows, and what a followed link
+  // does are one action, because they are one thing.
+  action openFile(value)
+    asked = value
+    stopListening()
+  // A second Listen starts over: its cancel ends the first queue.
+  action listen
+    listening = true
+    run = run + 1
+    spokenIds = []
+    spokenBlocks = []
+    send cleared = cancelSpeech()
+  action queueFirst
+    queueEven(0)
+  action queueEven(at: number)
+    match readable.at(at)
+      case some(b)
+        evenRun = run
+        send queuedEven = speak(text=b.runs.map(r => r.text).join(""), audioSessionType="playback")
+      case none
+        listening = listening
+  action queueOdd(at: number)
+    match readable.at(at)
+      case some(b)
+        oddRun = run
+        send queuedOdd = speak(text=b.runs.map(r => r.text).join(""), audioSessionType="playback")
+      case none
+        listening = listening
+  action keptEven
+    match queuedEven
+      case some(u)
+        if listening and evenRun == run
+          let next = spokenIds.length + 1
+          keep(u.id)
+          queueOdd(next)
+      case none
+        listening = listening
+  action keptOdd
+    match queuedOdd
+      case some(u)
+        if listening and oddRun == run
+          let next = spokenIds.length + 1
+          keep(u.id)
+          queueEven(next)
+      case none
+        listening = listening
+  action keep(id: string)
+    spokenBlocks = spokenBlocks.concat([match readable.at(spokenIds.length) { case some(b) => b.id, case none => "" }])
+    spokenIds = spokenIds.concat([id])
+  action pauseListening
+    if voice.paused
+      send held = resumeSpeech()
+    else
+      send held = pauseSpeech()
+  action stopListening
+    listening = false
+    send held = cancelSpeech()
+  action toggleFolder
+    folder = not folder
+  action aim(path: string)
+    aimed = path
+  action forgetRecent
+    send forgotten = forgetDocument(aimed)
+  // The File System Access API's pickers, on every host that has them; the
+  // handle arrives at `open-file` like every other way in.
+  action chooseFile
+    showOpenFilePicker("open-file")
+  action chooseFolder
+    showDirectoryPicker("open-file")
+  action chooseScheme(name: string)
+    scheme = name
+    setScheme(name)
+
+  // The one thing the appearance is still needed for: a PNG has no
+  // `currentColor` to follow, so the artwork is chosen rather than tinted.
+  derive iconSet = (scheme == "system" ? media.prefersColorScheme : scheme) == "dark" ? "-dark" : ""
+  derive hasFolder = not doc.siblings.isEmpty()
+  derive hasRecent = not recent.isEmpty()
+  // The window is titled by the file it shows, as a Mac document window
+  // is, so two documents in two windows or tabs tell apart; the welcome
+  // document's name is the app's.
+  derive title = doc.name != "" ? doc.name : "Markdown"
+
+  view
+    main testId="markdown-main" width="100%" height="100%" background-color="page"
+      head title=title
+      column width="100%" height="100%"
+        header width="100%" padding=10 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
+          row gap=8 align-items="center" width="100%"
+            button press=toggleFolder aria-label="Show the folder" testId="folder-toggle" padding=6 border-radius=6 background-color="control"
+              text "Files" font-size=12 font-weight=600 color="ink"
+            // The one node every open route ends at. A path typed here and
+            // a path delivered by Launch Services are the same event.
+            input appearance="none" id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=13 color="ink"
+            button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color="control"
+              text "Open…" font-size=12 font-weight=600 color="ink"
+            button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color="control"
+              text "Folder…" font-size=12 font-weight=600 color="ink"
+            // Listen again starts over from the top.
+            button press=listen aria-label="Read the document aloud" disabled=(readable.length == 0) testId="listen" padding=6 border-radius=6 background-color="control"
+              text "Listen" font-size=12 font-weight=600 color="ink"
+            text doc.name font-size=12 font-weight=600 color="softInk" testId="document-name"
+            // Appearance: system, light, dark — the icons exact1's blog used
+            // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
+            // to PNG because an Exact `image` is a raster asset
+            // and the Apple host decodes through ImageIO, which has no SVG.
+            // Following the system is the absence of an override, not a
+            // third appearance, on every host.
+            SchemeButton(name="system", icon="assets/monitor", label="Follow the system", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="light", icon="assets/sun", label="Light", chosen=scheme, icons=iconSet, press=chooseScheme)
+            SchemeButton(name="dark", icon="assets/moon", label="Dark", chosen=scheme, icons=iconSet, press=chooseScheme)
+        // Listen's controls, on a bar of their own so a phone's narrow header keeps them in reach.
+        if listening
+          row width="100%" padding=8 gap=8 align-items="center" background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box" testId="listen-bar"
+            if finished
+              text "Finished" font-size=12 color="softInk" testId="listen-finished"
+            else
+              button press=pauseListening testId="pause" padding=6 border-radius=6 background-color="control"
+                text (voice.paused ? "Resume" : "Pause") font-size=12 font-weight=600 color="ink"
+            button press=stopListening testId="stop" padding=6 border-radius=6 background-color="control"
+              text (finished ? "Close" : "Stop") font-size=12 font-weight=600 color="ink"
+            if failure != ""
+              text `Could not read aloud: ${failure}` font-size=12 color="warnInk" testId="listen-error"
+        // A file that would not open never replaces the one being read: the
+        // reader says so and keeps the page.
+        if doc.failed
+          row width="100%" padding=10 gap=8 background-color="warnBg" border-bottom-style="solid" border-bottom-width=1 border-color="warnEdge" box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color="warnInk"
+            text doc.message font-size=12 color="warnInk" testId="open-message"
+        // `min-height: 0` is what lets the panes below scroll rather than
+        // grow: a flex item's default `min-height: auto` is its content, so
+        // a row holding a 4,000-point document is 4,000 points tall and the
+        // window merely clips it. The web has the same rule and the same fix.
+        row flex=1 min-height=0 width="100%"
+          if folder and (hasFolder or hasRecent)
+            scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge" testId="folder"
+              column width="100%" box-sizing="border-box" padding=8 gap=1
+                // What the person opened before, kept across launches:
+                // one press reopens it with no panel.
+                if hasRecent
+                  text "Recent" font-size=11 font-weight=600 color="softInk" padding-left=6 padding-top=4 padding-bottom=2
+                  for k in recent key=k.path
+                    button press=openFile(k.path) contextmenu=aim(k.path) contextPopover="recent-menu" aria-label=k.name testId=`recent-${k.name}` width="100%"
+                      row width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=(k.path == doc.path ? "pill" : "transparent")
+                        text k.name font-size=12 color=(k.path == doc.path ? "pillInk" : "ink")
+                  if hasFolder
+                    text "In This Folder" font-size=11 font-weight=600 color="softInk" padding-left=6 padding-top=10 padding-bottom=2
+                for e in doc.siblings key=e.id
+                  FolderRow(entry=e, open=openFile)
+          column id="recent-menu" popover="auto" role="menu"
+            button press=forgetRecent popovertarget="recent-menu" popovertargetaction="hide" testId="recent-forget"
+              text "Remove from Recents"
+          // A virtualized list's container takes no block-axis padding (its
+          // rows are the extent), so the page's top and end space is the
+          // first and last rows' own. A block's id is its index.
+          // A document is text its reader copies from, so it says so: the
+          // web and the Mac select it anyway, and an iPhone selects only
+          // what its author said, one block at a time.
+          list appearance="none" virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" user-select="text" testId="document" box-sizing="border-box"
+            for b in doc.blocks key=`${doc.path}:${b.id}`
+              view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
+                Blocks(block=b, spoken=(b.id == speakingBlock), at=voice.charIndex, length=voice.charLength)
+
+component FolderRow
+  props
+    entry: Entry
+    open: action
+  view
+    button press=open(entry.path) aria-label=entry.name testId=`file-${entry.id}` width="100%"
+      if entry.current
+        row width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill"
+          text entry.name font-size=12 font-weight=600 color="pillInk"
+      else
+        row width="100%" box-sizing="border-box" padding=6 border-radius=6
+          text entry.name font-size=12 color="ink"
+
+// A block Listen is speaking: its plain text, the word at `at` marked as a
+// search hit is. The word's offsets are UTF-16 code units, as `slice` takes them.
+component Marked
+  props
+    words: string
+    at: number
+    length: number
+    size: number
+    weight: number
+  view
+    text words.slice(0, at) font-size=size font-weight=weight
+    text words.slice(at, at + length) font-size=size font-weight=weight background-color="pill" color="pillInk" testId="spoken-word"
+    text words.slice(at + length) font-size=size font-weight=weight
+
+// One block. A document is a flat list of these — Contract inlines
+// components syntactically and cannot recurse, and a flat list is also what
+// a long document needs to stay measurable one row at a time.
+//
+// Every block's root is the reading column itself: as wide as the pane up to
+// 740, centred by its auto margins, 32 of gutter inside. A row is mounted and
+// retired as the reader scrolls, so what a row is made of is what scrolling
+// costs: a paragraph is one `text` node — its own padding, no box around it —
+// where it used to be a text in a box in a column. A `text` that flexes says
+// `min-width=0`, as it would on the web: its width is its share, and the
+// layout is not asked to find its longest word first.
+component Blocks
+  props
+    block: Block
+    // Whether Listen is speaking this block, and the word it is at.
+    spoken: bool
+    at: number
+    length: number
+  view
+    if block.kind == "heading"
+      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+        if spoken
+          Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+        else
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+    else
+      if block.kind == "paragraph"
+        text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color="ink" line-height=1.625
+          if spoken
+            Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+          else
+            Runs(runs=block.runs, size=16, weight=400)
+      else
+        if block.kind == "item"
+          row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" box-sizing="border-box" padding-top=2 padding-bottom=4 padding-left=(36 + block.depth * 22) padding-right=32
+            text block.marker font-size=16 line-height=1.625 color="softInk" width=26
+            text flex=1 min-width=0 color="ink" line-height=1.625
+              if spoken
+                Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+              else
+                Runs(runs=block.runs, size=16, weight=400)
+        else
+          if block.kind == "code"
+            // `pre-wrap` and not a horizontal scroll: a code block inside a
+            // reading column that scrolls sideways is a code block nobody
+            // reads the end of.
+            view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=8 padding-bottom=10 box-sizing="border-box"
+              view background-color="codeBg" border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color="ink" white-space="pre-wrap"
+          else
+            if block.kind == "quote"
+              row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box"
+                view width=3 background-color="quoteEdge" border-radius=2
+                text flex=1 min-width=0 padding-left=16 color="quoteInk" line-height=1.625
+                  if spoken
+                    Marked(words=block.runs.map(r => r.text).join(""), at=at, length=length, size=16, weight=400)
+                  else
+                    Runs(runs=block.runs, size=16, weight=400)
+            else
+              if block.kind == "rule"
+                view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=24 box-sizing="border-box"
+                  view width="100%" height=1 background-color="edge"
+              else
+                // A table is one block and one grid, as a browser lays out a
+                // table: every row shares the columns, which `auto` tracks
+                // size from the cells of all rows, never narrower than their
+                // longest words, and which share what is left of the reading
+                // column (`depth` columns; the first `depth` cells are the
+                // header's). One whose words are wider than the reading column
+                // scrolls sideways inside it, as GitHub's tables do, rather
+                // than running past its edge or breaking its words.
+                if block.kind == "table"
+                  view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-bottom=2 box-sizing="border-box"
+                    scroll testId=`table-${block.id}` width="100%" overflow-x="auto" overflow-y="hidden"
+                      view display="grid" grid-template-columns=`repeat(${block.depth}, auto)`
+                        for c, i in block.cells key=c.id
+                          if i < block.depth
+                            text padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="strongInk" line-height="20px"
+                              Runs(runs=c.runs, size=13, weight=700)
+                          else
+                            text padding=8 border-bottom-style="solid" border-bottom-width=1 border-color="edge" color="ink" line-height="20px"
+                              Runs(runs=c.runs, size=13, weight=400)
+                else
+                  if block.kind == "image"
+                    column testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=10 padding-bottom=12 gap=6 box-sizing="border-box"
+                      image block.href width="100%" object-fit="contain" aria-label=block.text
+                      if block.text != ""
+                        text block.text font-size=12 color="faintInk"
+                  else
+                    // Raw HTML: shown, never interpreted.
+                    text block.text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=4 padding-bottom=6 box-sizing="border-box" font-family="ui-monospace" font-size=12 color="faintInk"

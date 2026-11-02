@@ -1,0 +1,12 @@
+{
+  "name": "@exact/pedometer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The steps the device counted since a moment.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

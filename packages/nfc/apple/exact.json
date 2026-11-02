@@ -1,0 +1,59 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/nfc@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios"
+  ],
+  "shapes": {
+    "AppleTag": {
+      "type": "enum<miFare|iso7816|iso15693|feliCa>",
+      "identifier": "string",
+      "mifareFamily": "option<string>",
+      "historicalBytes": "option<string>",
+      "initialSelectedAID": "option<string>"
+    },
+    "AppleErrorMessages": {
+      "readOnly": "option<strings-key>",
+      "tooSmall": "option<strings-key>",
+      "lost": "option<strings-key>",
+      "notNdef": "option<strings-key>",
+      "failed": "option<strings-key>",
+      "unreadable": "option<strings-key>"
+    }
+  },
+  "options": {
+    "scan": {
+      "alertMessage": "strings-key",
+      "doneMessage": "strings-key",
+      "errorMessages": "AppleErrorMessages",
+      "polling": "enum<iso14443|iso15693|iso18092>[]"
+    },
+    "write": {
+      "alertMessage": "strings-key",
+      "doneMessage": "strings-key",
+      "errorMessages": "AppleErrorMessages"
+    },
+    "makeReadOnly": {
+      "alertMessage": "strings-key",
+      "doneMessage": "strings-key",
+      "errorMessages": "AppleErrorMessages"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "nfcHatch"
+  ],
+  "sources": {
+    "swift": [
+      "Nfc.swift",
+      "NfcRegistry.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "NfcModule",
+  "frameworks": {
+    "CoreNFC": { "ios": "13.0" }
+  }
+}

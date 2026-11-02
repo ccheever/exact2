@@ -1,0 +1,16 @@
+# The VM's machine (runner/src/machine.rs), as shipped, for Charon and
+# Aeneas to translate to Lean (README.md). Its own workspace: Charon's
+# pinned nightly builds it, and nothing in the runner's build depends on it.
+[package]
+name = "vm-extract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+exact-plan = { path = "../../plan" }
+
+[workspace]

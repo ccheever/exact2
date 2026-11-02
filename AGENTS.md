@@ -1,0 +1,214 @@
+# Agent instructions
+
+**Building an app with Exact rather than working on it?** This checkout is the version to use:
+Exact has no releases, tags or npm package, and an app uses the checkout by path. Make it with
+`bun scripts/exact.mjs new <path>` and read `docs/start-here.md`, or for a website
+`docs/start-here-site.md`: it is the only required reading. The rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+`docs/reference.md`) is lookup only, by the section its table names: do not read the long
+guides front to back. `docs/recipes/` answers the common questions in one short file each,
+`contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
+--help` names its flags, and `apps/shelf` is a whole app to grep.
+
+Working on exact2 itself: read `rules/RULES.md` first. `docs/agent-pitfalls.md` lists verified
+footguns in writing apps here; add to it when you hit one.
+
+## Write the web, ship the platform
+
+**What the author writes is CSS**: the
+vocabulary, the layout model, the dev loop. **What the author leaves unsaid is the
+platform's**: controls, colour, type, motion, gestures, presentation, haptics, keyboard and
+accessibility come out as a hand-built UIKit/SwiftUI app following Apple's guidelines would
+have them (AppKit on the Mac, and each platform likewise). **What the author writes wins.**
+Precedence: author > platform > CSS default. One test settles a dispute: *would someone who
+knows the platform notice?* If so it is a tell, and the platform's answer wins; judge against
+a hand-built screen on the same OS version, not against Chrome.
+
+So layout stays CSS (users cannot perceive it): a bare node is `display: block`,
+`box-sizing: content-box`, `flex-direction: row`, `flex-shrink: 1`, and the web is the
+layout parity oracle — a kernel that disagrees with a bare `<div>` brings back the bug
+class of several default layers that each disagree. Names stay CSS (they are what the author writes):
+`object-fit`, `text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`,
+`numberOfLines`; where a common reset (normalize.css, Tailwind's preflight) differs from the
+raw default, its behaviour is a familiar path too. Unsaid presentation is the
+platform's: a `color` a bar button only inherits from the page leaves UIKit's tint. Agents
+writing apps should therefore say less — structure (a header's heading and buttons, a
+`tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
+
+## Numeric typography
+
+On graphical hosts, use tabular digits for numeric columns and values that change
+in place. Use default spacing for prose, ordinary labels and static standalone
+statistics. Apply it to numeric text, keeping the platform font. See the
+[guidance and limits](docs/contract-for-agents.md#tabular-numbers).
+
+## Writing
+
+For all prose, always: comments, commit messages, guides, issues and PR text. This
+section binds (`rules/RULES.md`, "Agents").
+
+- Write with clarity of mind. A reader should understand it on first reading and find
+  nothing ambiguous.
+- Say what the reader needs to know about the topic and nothing more. Do not recount
+  history or keep a diary; an alternative not chosen earns a line when it explains the
+  choice.
+- Cite sources where they help: standard specifications, and host platform API
+  documentation and guidelines.
+- Comments should communicate information that cannot be easily inferred from the code.
+  Judiciously omit or remove comments or parts of comments that do not clearly explain
+  anything that is not already communicated by the code, though take care not to delete
+  comments with meaningful marginal value.
+- Before opening a PR or pushing to main, do an editing pass: reread the prose you added
+  or changed as a reader new to the work would, and hold each line to the points above.
+
+## Working here
+
+- Tooling runs on Bun (pinned in `package.json`); `bun install --frozen-lockfile`.
+  Rolldown remains the app bundler. Node and npm are not required.
+- The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
+  nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
+  else is `rust-toolchain.toml`'s stable, which the six checks use. `build.mjs`
+  names the install commands when the nightly or its `rust-src` is missing.
+
+- `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
+  generates from it. Edit the table, never generated code.
+- Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
+- Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
+- The six checks: `cargo build --all-targets --keep-going` ·
+  `cargo test --tests --no-fail-fast` · `cargo clippy --all-targets
+  --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
+  --all-targets --keep-going`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. The first three's scope is the root
+  `default-members`. The sixth compiles every crate and target
+  of the workspace and runs none of their tests, so it catches crates outside
+  `default-members` that no longer compile (`exact-web-js`, `exact-linux`'s tests). It
+  needs the pinned Bun first on PATH (or named by `BUN`): app crates' build scripts
+  run Bun, and under an older one each fails with "Bun … is older than …". It shares
+  no compiled crate with the build, so it costs its whole time again: on an 18-core
+  Mac, 2 to 5 s with nothing changed, 45 to 90 s after a touched kernel line
+  (the build: 7 to 13 s), 2.4 min cold. The six checks are the gate; CI runs them in
+  `.github/workflows/ci.yml`. Building `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
+- A green `--workspace` build proves the apps compile, not that they work: their Apple
+  crates are rlibs to Cargo, and the archive an app links is built only by
+  `host/apple/build.mjs`, when the app is built to run. When a change can affect how an
+  app runs (the kernel, the runner, a host, the app itself), build and launch the apps it
+  touches (`bun host/apple/build.mjs --ios <app>-apple --run`, `bun host/web/dev.mjs --app
+  <app>`) and use them as a person would, with `scripts/agent.mjs` or by hand.
+- An unset `EXACT_UPDATE_TRUST` bakes development trust, which checks only an
+  origin named by `EXACT_UPDATE_ORIGIN`. `EXACT_UPDATE_TRUST=production` native
+  bakes require an authenticated `EXACT_UPDATE_RECEIPT` or explicit new-stream
+  `EXACT_UPDATE_GENESIS=1` (README).
+- An app outside this repo (one `bun scripts/exact.mjs new <path>` made) builds, runs, and is
+  driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
+  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path. What
+  `exact new` writes (its `AGENTS.md`, `exact.mjs` verbs, `app.json` `$schema`) is `scripts/exact.mjs`'s.
+- The web build, `bun host/web/build.mjs <app>`, makes the JS target (the
+  plan compiled to one ES module over a ~20 KB runtime, `host/web-js`); what it refuses
+  fails the build. A game builds the wasm target, and `--wasm` is the
+  internal flag for the uses below. The dev loop, the agent's web host, the smoke's app drive and
+  metrics run what the build makes: on the JS target an edit rebuilds and reloads the
+  page (~0.1 s, no state carried); a native client opening the dev URL is forwarded to
+  the resident loop's producers (`dev.mjs --wasm`, started at its first request).
+  Delivery bakes the web crate without its wasm for the native streams and publishes
+  the JS build of that bake's plan as the web root; the smoke's bare-plan fixtures and
+  conformance's oracle stay `--wasm` ("Retiring the wasm target on the web").
+- The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract` or its data
+  crate, the page rebuilds and reloads (`--wasm`: the resident loop restarts the plan in
+  place in ~20 ms). `bun scripts/metrics.mjs` prints every number
+  (`--long` adds the macOS build and boot, and the loop's own budgets: the
+  warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
+  iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator;
+  `--tvos --no-install` compiles it with none, which is what to run after a change to Swift it shares with iOS);
+  `--device --run` on a connected iPhone (signed with a team profile on this Mac);
+  `--host` also builds the sample host, the native app that embeds two
+  sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
+  --session a …` addresses; `--ios --host` is the same fixture on a simulator, driven
+  by `smoke.mjs host-ios` and `agent.mjs host-ios`. The Swift is one package, `host/apple/Package.swift`:
+  `ExactKit` (session, view, app owner — what an embedder links) and the executables
+  as adapters over it. `apps/<name>/app.json` is the app manifest: the
+  bundle id, name, host files, and deploy policy come from it, never from a crate name.
+- When you touch `contract/`, `runner/`, `plan/` or `semantics/`, run `cargo run -p
+  contract-difftest -- quick` before landing. It checks the semantics on what you changed,
+  takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
+  day"; `contract verify <app>` is the app author's version).
+- The gate tests only `default-members`. Of the hosts it holds the web host
+  (`exact-web`) and the Apple host's Rust (`exact-apple`; its tests that drive a real
+  socket through URLSession, wait on the wall clock or launch Bun, Swift or a nested
+  cargo build are `#[ignore]`d, and `cargo test -p exact-apple -- --ignored` runs them; its
+  Swift is the XCTests). The
+  others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
+  `exact-render`, …), `js/`, `gpu/` and most apps are
+  not tested by it (the sixth check compiles them, their tests too, and runs none),
+  so the gate does not catch their failing tests. When you touch one, or
+  what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
+  --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
+  Advice, not a check.
+- Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
+- To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
+  "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
+  out.png"` — the driver's ten operations (`perf`: a subtree's work by
+  plan site, `perf <target> during "<op>" …` for the difference a drive made, and
+  `perf frames`, `perf frames live <ms>` for a game's frame pacing; a development build writes a trace on ⌥⌘T
+  (macOS), ⌥⇧T (web), the dev menu's Save Trace (iOS) or `SIGUSR1` (macOS, the iOS simulator, Linux), which `bun
+  scripts/agent.mjs trace <file>` reads, `trace --pid <pid>` asks a running app for, and `trace --phone` copies off a
+  phone; `--plan <dir>` joins another build's source map), the same on every host, with the clock
+  in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
+  50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
+  build older than its sources and names the rebuild. `bun scripts/smoke.mjs
+  <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
+  (`cargo build --profile host-dev -p caltrain-linux`: a development build, as
+  `build.mjs` makes for Apple; `--release` is the one that ships) runs headless
+  anywhere, macOS included. `host-dev` compiles incrementally unless the shell
+  exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
+  line is then 17 s, not 6) and `build.mjs` overrides, saying so.
+- The terminal host: `cargo build --profile host-dev -p harness-terminal`,
+  then `./target/host-dev/harness` runs the coding harness in this terminal (inline;
+  `--fullscreen` for the alternate screen), or `exact-terminal <entry.contract>` any
+  terminal entry. With operations it runs headless (`--size 80x24 type prompt "hi" key
+  Enter until "…" print`); headless, the frames go into a terminal emulator (`vt100`)
+  and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
+  the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
+  document hundreds of times slower. `exact-terminal` is in `default-members`
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  so when you touch the harness run `cargo test -p harness-data`.
+  `examples/replay.rs` replays a recorded session through the same emulator.
+  The LLP reader is the other terminal app: `cargo build --profile
+  host-dev -p llp-terminal`, then `./target/host-dev/llp [a directory or a document]`.
+- Delivery: `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
+  classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
+  `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
+  the repo). `bun scripts/smoke.mjs deploy` drives it; on a Mac it signs production
+  macOS Rust modules, so set `EXACT_RUST_SIGN_IDENTITY` to an identity listed by
+  `security find-identity -v -p codesigning` (an Apple Development one does). Its first
+  deploy builds every release bundle cold; the rest reuse that cache. A native host
+  opens its update store at launch and checks after first pixel
+  (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
+  `state.delivery` shows what it did).
+  `bun scripts/push.mjs <app> [--watch]` publishes an edit to installed release binaries
+  as a signed update in about a second, from the stream a deploy or a production build
+  started; `deploy.activate: "immediate"` applies it while the app is open. A channel's
+  origin `"appdrop"` is AppDrop's, named after the signing key: no account, no server.
+  Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
+- Each worktree builds into its own `target/`: never symlink or share another
+  checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
+  checkout is fine. What a development Apple build takes from the machine
+  instead: the host's two Rust modules, by the SHA-256 of every input
+  (`~/.cache/exact/apple-modules`, `host/apple/modules.mjs`), and, into a
+  `target/` that has compiled nothing, the registry crates another build
+  compiled, which Cargo then accepts or not by its own fingerprints
+  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). A development web
+  build takes the compiler and the leaf wasm modules the same way
+  (`~/.cache/exact/web-modules`, `host/web-js/module.mjs`; `bun
+  host/web-js/module.mjs --prebuild` warms a builder for its checkout's
+  sources). Deleting any of these directories only costs the next first build
+  its time.
+- Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
+  none without a human saying so.
+- Optional capability is a separate artifact loaded on demand (the GPU module) or another
+  executor (the browser, for motion on the web) — never a cargo feature on a core crate.
+  Each crate depends on strictly less than the one above it; there is no build matrix.
+
+Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
+Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
+`bun exact.mjs snapback --rebuild` after changing these pins.

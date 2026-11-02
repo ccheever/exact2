@@ -1,0 +1,201 @@
+{
+  "kind": "interface",
+  "name": "@exact/speech-recognition",
+  "version": "1.0.0",
+  "uses": "@exact/media-capture@1.0.0",
+  "grants": [
+    "device.speech-recognition"
+  ],
+  "substitute": "implementation",
+  "permission": [
+    {
+      "name": "speech-recognition",
+      "status": "speechRecognitionStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "grants": [
+        "device.speech-recognition"
+      ]
+    },
+    {
+      "name": "microphone",
+      "status": "microphoneStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "grants": [
+        "device.microphone"
+      ]
+    }
+  ],
+  "agent": {
+    "heard": "string"
+  },
+  "shapes": {
+    "SpeechRecognitionPhrase": {
+      "phrase": "string",
+      "boost": "option<number>"
+    },
+    "SpeechRecognitionInfo": {
+      "id": "string",
+      "leavesDevice": "bool",
+      "finalCount": "number",
+      "transcript": "option<string>",
+      "files": "number",
+      "error": "option<enum<no-speech|aborted|audio-capture|network|not-allowed|service-not-allowed|language-not-supported|phrases-not-supported>>"
+    },
+    "SpeechRecognitionAlternative": {
+      "transcript": "string",
+      "confidence": "number"
+    },
+    "SpeechRecognitionResult": {
+      "index": "number",
+      "alternatives": "SpeechRecognitionAlternative[]",
+      "start": "option<number>",
+      "end": "option<number>",
+      "apple": "option<AppleRecognitionResult>"
+    },
+    "SpeechRecognitionState": {
+      "id": "string",
+      "state": "enum<starting|listening|stopping|ended>",
+      "audio": "bool",
+      "sound": "bool",
+      "speech": "bool",
+      "results": "SpeechRecognitionResult[]",
+      "finalCount": "number",
+      "interim": "option<SpeechRecognitionResult>",
+      "leavesDevice": "bool",
+      "error": "option<enum<no-speech|aborted|audio-capture|network|not-allowed|service-not-allowed|language-not-supported|phrases-not-supported>>",
+      "message": "option<string>"
+    },
+    "SpeechRecognitionStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "inputs": "enum<track|microphone|file>[]",
+      "local": "bool",
+      "apple": "option<AppleRecognitionStatus>",
+      "android": "option<AndroidRecognitionStatus>"
+    },
+    "SpeechRecognitionAvailability": {
+      "availability": "enum<unavailable|downloadable|downloading|available>"
+    },
+    "SpeechRecognitionInstall": {
+      "installed": "bool"
+    }
+  },
+  "names": [
+    {
+      "send": "startSpeechRecognition",
+      "request": true,
+      "grants": {
+        "*": "device.speech-recognition",
+        "track": "device.microphone",
+        "microphone": "device.microphone"
+      },
+      "origin": {
+        "whenAny": [
+          "track",
+          "microphone"
+        ],
+        "is": "app"
+      },
+      "foreground": true,
+      "options": {
+        "track": "option<handle<track>>",
+        "microphone": "option<bool>",
+        "path": {
+          "type": "path",
+          "access": "read",
+          "optional": true,
+          "for": "recognition"
+        },
+        "transcript": {
+          "type": "path",
+          "access": "write",
+          "directory": true,
+          "optional": true,
+          "for": "recognition"
+        },
+        "lang": "option<string>",
+        "continuous": "option<bool>",
+        "interimResults": "option<bool>",
+        "maxAlternatives": "option<number>",
+        "processLocally": "option<bool>",
+        "unspokenPunctuation": "option<bool>",
+        "phrases": "option<SpeechRecognitionPhrase[]>",
+        "history": "option<number>"
+      },
+      "answers": "SpeechRecognitionInfo",
+      "handles": {
+        "id": "recognition"
+      }
+    },
+    {
+      "send": "stopSpeechRecognition",
+      "options": {
+        "recognition": "handle<recognition>"
+      },
+      "answers": "SpeechRecognitionInfo"
+    },
+    {
+      "send": "abortSpeechRecognition",
+      "options": {
+        "recognition": "handle<recognition>"
+      },
+      "answers": "SpeechRecognitionInfo"
+    },
+    {
+      "source": "speechRecognitionState",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "options": {
+        "recognition": "handle<recognition>",
+        "interval": "option<number>"
+      },
+      "answers": "SpeechRecognitionState"
+    },
+    {
+      "source": "speechRecognitionAvailability",
+      "live": true,
+      "options": {
+        "langs": "string[]",
+        "processLocally": "option<bool>"
+      },
+      "answers": "SpeechRecognitionAvailability"
+    },
+    {
+      "send": "installSpeechRecognition",
+      "options": {
+        "langs": "string[]",
+        "processLocally": "option<bool>"
+      },
+      "answers": "SpeechRecognitionInstall"
+    },
+    {
+      "source": "speechRecognitionStatus",
+      "live": true,
+      "options": {
+        "lang": "option<string>",
+        "processLocally": "option<bool>"
+      },
+      "answers": "SpeechRecognitionStatus",
+      "sync": {
+        "name": "speechRecognitionStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "inputs": [
+            "track",
+            "microphone",
+            "file"
+          ],
+          "local": true
+        }
+      }
+    }
+  ]
+}

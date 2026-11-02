@@ -1,0 +1,13 @@
+component App
+  state n = 0
+  state hidden = false
+  action step
+    n = n + 1
+    if n > 1000
+      hidden = true
+  view
+    button "Step" testId="step" press=step
+
+test "the search has not reached the extra write"
+  tap "step"
+  tap "step"

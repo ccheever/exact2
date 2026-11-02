@@ -1,0 +1,87 @@
+//! A native module's sources and sends.
+//! Contract never declares one: the loader reads them from a package's
+//! `exact.json`, and `use` brings them in as it brings a shape.
+
+use crate::{Field, Span, TypeExpr};
+
+/// Whether a module name is read, as a resource reads a source, sent, as a
+/// mutation's `send` is, or heard, as an event on the app's root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleKind {
+    /// A source: `resource r = name(…)`.
+    Source,
+    /// A send: `send m = name(…)`, or a statement when it answers nothing.
+    Send,
+    /// An event: `name=action` on the root component's
+    /// outermost node.
+    Event,
+}
+
+/// One source or send a module declares.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModuleDecl {
+    /// The name a call writes: the declared one, or its program-unique name
+    /// once scoped.
+    pub name: String,
+    /// The name the module declares, which the wire carries.
+    pub declared: String,
+    /// The interface's package name, `@exact/geolocation`.
+    pub package: String,
+    /// The wire's `extension`, the package's name without its scope.
+    pub extension: String,
+    /// Read or sent.
+    pub kind: ModuleKind,
+    /// Its keyword arguments. One typed `option<T>` may be omitted, and then
+    /// stays the platform's own default; any other is
+    /// required.
+    pub options: Vec<Field>,
+    /// Each platform's words for it, by the key a call writes (`apple`).
+    pub words: Vec<PlatformWords>,
+    /// What it answers; `None` for a send that answers nothing, which is a
+    /// statement, and for an event.
+    pub answers: Option<TypeExpr>,
+    /// An event's arguments, in order; its handler takes a prefix of them.
+    pub args: Vec<TypeExpr>,
+    /// An event's origin rule: `activation`, a person's act on the
+    /// platform's UI that only the host raises; `emit`, the device's; or
+    /// `wake`, raised by the host at the platform's call.
+    pub raised: String,
+    /// How many of an event's deliveries are held before a handler hears
+    /// them; past it the oldest is dropped.
+    pub hold: u32,
+    /// A wake event's milliseconds from the wake's first delivery to its
+    /// deadline; 0 for any other event.
+    pub budget: u32,
+    /// The action an event is bound to, set once its root attribute is read.
+    pub handler: Option<String>,
+    /// A live source: the module announces when its answer changes.
+    pub live: bool,
+    /// Whether a call may show the platform's prompt: `always`,
+    /// `when-prompt` (a source, while the state is `prompt`) or `never`.
+    pub request: String,
+    /// Its synchronous form's name, where it has one.
+    pub sync: Option<String>,
+    /// Callable from data code alone (`"contract": false`): a Contract `use`
+    /// of it is refused, so its answer never
+    /// becomes a mutation's value in `state`.
+    pub data_only: bool,
+    /// The agent's substitute as the package declares it, a JSON object:
+    /// `default`, `from`, `ticket`, `short`, `fill`,
+    /// `cancel`, `timeout`, and the interface's `permission`.
+    pub substitute: String,
+    /// The declaration, in the package's `exact.json`.
+    pub span: Span,
+}
+
+/// One platform's words on a module name (tier 2), as the
+/// implementation that owns them declares them. Every word is optional, and
+/// one a call omits stays distinct from one it writes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlatformWords {
+    /// The key a call writes, `apple` in `apple.desiredAccuracy=…`.
+    pub platform: String,
+    /// The implementation that declares them, `@exact/geolocation/apple`.
+    pub package: String,
+    /// The words and their types.
+    pub words: Vec<Field>,
+}

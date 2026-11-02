@@ -1,0 +1,505 @@
+[
+  {
+    "spec": "# comment\n\nnet.fetch https://api.test\nsecret.keep castle.session",
+    "ok": true,
+    "fetch": [
+      [
+        "https://api.test/x",
+        true
+      ],
+      [
+        "https://api.test.evil/x",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "secret.keep good\nnet.fetch https://ok.test\nsecret.keep crewHost",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep good\nunknown.cap anything",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep a b",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep token user-presence optional apple.orWatch android.strongBox\nsecret.keep plain",
+    "ok": true
+  },
+  {
+    "spec": "secret.keep token biometry-current-set apple.accessible=whenUnlockedThisDeviceOnly",
+    "ok": true
+  },
+  {
+    "spec": "secret.keep token optional",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep token user-presence apple.orWatch optional",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep token user-presence apple.orWatch apple.orWatch",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep exact.presence.token",
+    "ok": false
+  },
+  {
+    "spec": "secret.keep .",
+    "ok": false
+  },
+  {
+    "spec": "storage.kv ...",
+    "ok": false
+  },
+  {
+    "spec": "fs.read ../data",
+    "ok": false
+  },
+  {
+    "spec": "fs.read app:/data/../x",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch :///",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.127.0.0.1",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com/path",
+    "ok": false
+  },
+  {
+    "spec": "net.websocket wss://*.example.com",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com/socket?q=1", true],
+      ["wss://A.B.Example.COM:443/socket", true],
+      ["wss://example.com", false],
+      ["wss://evilexample.com", false],
+      ["wss://a.evilexample.com", false],
+      ["wss://a.example.com.evil.com", false],
+      ["ws://a.example.com:443", false],
+      ["wss://a.example.com:444", false],
+      ["https://a.example.com:443", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com", false]
+    ]
+  },
+  {
+    "spec": "net.websocket wss://*.example.com:8443",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com:8443/socket?q=1", true],
+      ["wss://A.B.Example.COM:8443/socket", true],
+      ["wss://example.com:8443", false],
+      ["wss://evilexample.com:8443", false],
+      ["wss://a.evilexample.com:8443", false],
+      ["wss://a.example.com.evil.com:8443", false],
+      ["ws://a.example.com:8443", false],
+      ["wss://a.example.com:8444", false],
+      ["https://a.example.com:8443", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com:8443", false]
+    ]
+  },
+  {
+    "spec": "net.websocket wss://*.example.com:0",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com:0/socket?q=1", true],
+      ["wss://A.B.Example.COM:0/socket", true],
+      ["wss://example.com:0", false],
+      ["wss://evilexample.com:0", false],
+      ["wss://a.evilexample.com:0", false],
+      ["wss://a.example.com.evil.com:0", false],
+      ["ws://a.example.com:0", false],
+      ["wss://a.example.com:1", false],
+      ["https://a.example.com:0", false]
+    ],
+    "fetch": [
+      ["wss://a.example.com:0", false]
+    ]
+  },
+  {"spec": "net.websocket wss://*.com", "ok": false},
+  {"spec": "net.websocket wss://a.*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.127.0.0.1", "ok": false},
+  {"spec": "net.websocket wss://*.[::1]", "ok": false},
+  {"spec": "net.websocket wss://*.example.com/path", "ok": false},
+  {"spec": "net.websocket wss://*.example.com?", "ok": false},
+  {"spec": "net.websocket wss://*.example.com#", "ok": false},
+  {"spec": "net.websocket wss://*example.com", "ok": false},
+  {"spec": "net.websocket wss://*", "ok": false},
+  {"spec": "net.websocket wss://*.example.com@evil.com", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:pw@evil.com", "ok": false},
+  {"spec": "net.websocket wss://user@*.example.com", "ok": false},
+  {"spec": "net.websocket wss://*.example.com.", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:65536", "ok": false},
+  {"spec": "net.websocket wss://*.example.com:*", "ok": false},
+  {
+    "spec": "net.websocket ws://*.example.com",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com/socket?q=1", true],
+      ["ws://A.B.Example.COM:80/socket", true],
+      ["ws://example.com", false],
+      ["ws://evilexample.com", false],
+      ["ws://a.evilexample.com", false],
+      ["ws://a.example.com.evil.com", false],
+      ["wss://a.example.com:80", false],
+      ["ws://a.example.com:81", false],
+      ["https://a.example.com:80", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com", false]
+    ]
+  },
+  {
+    "spec": "net.websocket ws://*.example.com:8443",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com:8443/socket?q=1", true],
+      ["ws://A.B.Example.COM:8443/socket", true],
+      ["ws://example.com:8443", false],
+      ["ws://evilexample.com:8443", false],
+      ["ws://a.evilexample.com:8443", false],
+      ["ws://a.example.com.evil.com:8443", false],
+      ["wss://a.example.com:8443", false],
+      ["ws://a.example.com:8444", false],
+      ["https://a.example.com:8443", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com:8443", false]
+    ]
+  },
+  {
+    "spec": "net.websocket ws://*.example.com:0",
+    "ok": true,
+    "websocket": [
+      ["ws://a.example.com:0/socket?q=1", true],
+      ["ws://A.B.Example.COM:0/socket", true],
+      ["ws://example.com:0", false],
+      ["ws://evilexample.com:0", false],
+      ["ws://a.evilexample.com:0", false],
+      ["ws://a.example.com.evil.com:0", false],
+      ["wss://a.example.com:0", false],
+      ["ws://a.example.com:1", false],
+      ["https://a.example.com:0", false]
+    ],
+    "fetch": [
+      ["ws://a.example.com:0", false]
+    ]
+  },
+  {"spec": "net.websocket ws://*.com", "ok": false},
+  {"spec": "net.websocket ws://a.*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.127.0.0.1", "ok": false},
+  {"spec": "net.websocket ws://*.[::1]", "ok": false},
+  {"spec": "net.websocket ws://*.example.com/path", "ok": false},
+  {"spec": "net.websocket ws://*.example.com?", "ok": false},
+  {"spec": "net.websocket ws://*.example.com#", "ok": false},
+  {"spec": "net.websocket ws://*example.com", "ok": false},
+  {"spec": "net.websocket ws://*", "ok": false},
+  {"spec": "net.websocket ws://*.example.com@evil.com", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:pw@evil.com", "ok": false},
+  {"spec": "net.websocket ws://user@*.example.com", "ok": false},
+  {"spec": "net.websocket ws://*.example.com.", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:65536", "ok": false},
+  {"spec": "net.websocket ws://*.example.com:*", "ok": false},
+  {"spec": "net.websocket https://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket http://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket ftp://*.example.com:8443", "ok": false},
+  {"spec": "net.websocket custom://*.example.com:8443", "ok": false},
+  {
+    "spec": "net.websocket WSS://*.Example.COM:443/",
+    "ok": true,
+    "websocket": [
+      ["wss://a.example.com/socket", true],
+      ["ws://a.example.com:443", false]
+    ]
+  },
+  {
+    "spec": "net.fetch https://a.*.example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://example.com:65536",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch file:///tmp",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://[:::]",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*example.com",
+    "ok": false
+  },
+  {
+    "spec": "",
+    "ok": true
+  },
+  {
+    "spec": "env.read NODE_ENV",
+    "ok": true
+  },
+  {
+    "spec": "secret.keep castle.state-1_x",
+    "ok": true
+  },
+  {
+    "spec": "fs.read /home//user/",
+    "ok": true
+  },
+  {
+    "spec": "fs.write app:/data",
+    "ok": true
+  },
+  {
+    "spec": "sqlite.open doc:/",
+    "ok": true
+  },
+  {
+    "spec": "storage.kv exact.kept",
+    "ok": true
+  },
+  {
+    "spec": "net.websocket wss://example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com:",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com/path?q#f",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://user:pass@example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://example.com@evil.com",
+    "ok": false
+  },
+  {
+    "spec": "net.websocket wss://example.com@evil.com",
+    "ok": false
+  },
+  {"spec": "net.fetch http:\nnet.websocket ws:", "ok": true,
+   "fetch": [["http://127.0.0.1:49152/api", true], ["http://laptop.tailnet.ts.net/x", true], ["http://[::1]:8080/", true],
+     ["https://127.0.0.1:49152/api", false], ["ws://127.0.0.1:3773/", false]],
+   "websocket": [["ws://127.0.0.1:3773/ws?ticket=t", true], ["ws://[::1]:9/x", true], ["ws://laptop.tailnet.ts.net/ws", true],
+     ["wss://127.0.0.1:3773/ws", false], ["http://127.0.0.1:3773/", false]]},
+  {"spec": "net.fetch HTTPS:\nnet.websocket wss:", "ok": true,
+   "fetch": [["https://xn--mnchen-3ya.de:8443/x", true], ["https://10.0.0.1/", true], ["http://example.com/", false]],
+   "websocket": [["wss://example.com:8443/x", true], ["ws://example.com/", false], ["https://example.com/", false]]},
+  {"spec": "net.websocket wss://exact.example\nnet.fetch https://exact.example", "ok": true,
+   "fetch": [["https://exact.example/x", true], ["https://other.example/x", false]],
+   "websocket": [["wss://exact.example/s", true], ["wss://other.example/s", false], ["ws://exact.example/s", false]]},
+  {"spec": "net.fetch ws:", "ok": false},
+  {"spec": "net.fetch file:", "ok": false},
+  {"spec": "net.fetch app:", "ok": false},
+  {"spec": "net.websocket https:", "ok": false},
+  {"spec": "net.websocket http:", "ok": false},
+  {"spec": "net.fetch *:", "ok": false},
+  {"spec": "net.fetch :", "ok": false},
+  {"spec": "net.fetch https::", "ok": false},
+  {"spec": "net.fetch https: extra", "ok": false},
+  {
+    "spec": "net.fetch https://m\u00fcnchen.de",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://01.2.3.4",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch http://127.1",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://[::ffff:1.2.3.4]",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://a..example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://example.com.",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch app://host:1",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://*.a..example.com",
+    "ok": true
+  },
+  {
+    "spec": "net.fetch https://user@*.example.com",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com:8443/",
+    "ok": true,
+    "fetch": [
+      [
+        "https://a.example.com:8443/x",
+        true
+      ],
+      [
+        "https://example.com:8443",
+        false
+      ],
+      [
+        "https://a.example.com",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch HTTPS://API.Example.COM:443/path",
+    "ok": true,
+    "fetch": [
+      [
+        "https://api.example.com/z",
+        true
+      ],
+      [
+        "http://api.example.com",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch app://one:1",
+    "ok": true,
+    "fetch": [
+      [
+        "app://one:1/x",
+        true
+      ],
+      [
+        "app://two:1/x",
+        false
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch https://m\u00fcnchen.de",
+    "ok": true,
+    "fetch": [
+      [
+        "https://xn--mnchen-3ya.de/x",
+        true
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch https://*.example.com?",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://*.example.com#",
+    "ok": false
+  },
+  {
+    "spec": "net.fetch custom://*.127.0.0.1:90",
+    "ok": true,
+    "fetch": [
+      [
+        "custom://sub.127.0.0.1:90",
+        true
+      ]
+    ]
+  },
+  {
+    "spec": "net.fetch custom://EXAMPLE.com:90",
+    "ok": true,
+    "fetch": [
+      [
+        "custom://example.COM:90",
+        true
+      ]
+    ]
+  },
+  {"spec":"fs.read \"app:/data/a b\"\nfs.write \"doc:/chosen/雪 💾\"", "ok":true,
+   "fs":[["fs.read","app:/data/a b/file",true],["fs.read","app:/data/a big/file",false],["fs.write","doc:/chosen/雪 💾",true],["fs.write","app:/data/a b",false]]},
+  {"spec":"fs.read \"/a\\\"quote/b\\\\slash\"", "ok":true,
+   "fs":[["fs.read","/a\"quote/b\\slash/x",true],["fs.read","/a\"quote/b/slash/x",false]]},
+  {"spec":"fs.read \"C:\\\\Users\\\\With Space\\\\雪\"\nfs.read app:/data", "ok":true,
+   "fs":[["fs.read","app:/data/file",true]],
+   "nativeFs":[["fs.read","C:/Users/With Space/雪/file",true],["fs.read","c:/Users/With Space/雪/file",true],["fs.read","C:/users/With Space/雪/file",false],["fs.read","C:/Users/With Space/雪-other",false],["fs.read","D:/Users/With Space/雪/file",false],["fs.read","/Users/With Space/雪/file",false]]},
+  {"spec":"fs.write c:/\nfs.read \"\\\\\\\\?\\\\c:\\\\Data\"", "ok":true,
+   "nativeFs":[["fs.write","C:/file",true],["fs.write","D:/file",false],["fs.read","C:/Data/file",true],["fs.read","C:/data/file",false]]},
+  {"spec":"fs.read \"app:/data/with\\u0020space\"", "ok":true,
+   "fs":[["fs.read","app:/data/with space/file",true]]},
+  {"spec":"fs.read\u0085\"app:/data/with space\"", "ok":true},
+  {"spec":"fs.read \"/a\\u2028b\"", "ok":true},
+  {"spec":"fs.read \"C:/💾\"", "ok":true},
+  {"spec":"sqlite.open C:/db", "ok":true},
+  {"spec":"sqlite.open \"app:/data/db\"", "ok":false},
+  {"spec":"fs.read \"/valid\" # comment", "ok":false},
+  {"spec":"fs.read \"/valid\" fs.write /", "ok":false},
+  {"spec":"fs.read \"/escaped\\nfs.write /\"", "ok":false},
+  {"spec":"fs.read \"/nul\\u0000\"", "ok":false},
+  {"spec":"fs.read \"/del\\u007f\"", "ok":false},
+  {"spec":"fs.read \"/nel\\u0085\"", "ok":false},
+  {"spec":"fs.read \"/bad\\uD800\"", "ok":false},
+  {"spec":"fs.read \"/bad\\uDC00\"", "ok":false},
+  {"spec":"fs.read \"/bad\\x00\"", "ok":false},
+  {"spec":"fs.read \"/unterminated", "ok":false},
+  {"spec":"fs.read \"C:/CON.txt\"", "ok":false},
+  {"spec":"fs.read \"C:/LPT³.log\"", "ok":false},
+  {"spec":"fs.read \"C:/a:stream\"", "ok":false},
+  {"spec":"fs.read \"C:/trailing.\"", "ok":false},
+  {"spec":"fs.read \"C:/trailing \"", "ok":false},
+  {"spec":"fs.read \"C:/../escape\"", "ok":false},
+  {"spec":"fs.read C:relative", "ok":false},
+  {"spec":"fs.read \"\\\\\\\\server\\\\share\"", "ok":false},
+  {"spec":"fs.read \"\\\\\\\\.\\\\C:\\\\x\"", "ok":false},
+  {"spec":"net.fetch local-network\nnet.websocket local-network", "ok":true,
+   "fetch":[["http://192.168.1.40/json/si",true],["https://wled-a1b2c3.local:8443/",true],["http://Desk.LOCAL/",true],["http://10.0.0.73:4790/",true],["http://169.254.3.4/",true],["http://[fd00::5]:81/",true],["http://[fe80::1]/",true],["http://[::ffff:192.168.1.40]/",true],
+            ["http://127.0.0.1:4790/",false],["http://localhost:4790/",false],["http://[::1]/",false],["http://example.com/",false],["http://172.32.0.1/",false],["http://100.64.0.1/",false],["http://[::ffff:8.8.8.8]/",false],["http://nas.home.arpa/",false]],
+   "websocket":[["ws://192.168.1.40/ws",true],["wss://desk.local/",true],["ws://example.com/",false],["ws://127.0.0.1:4790/",false]]},
+  {"spec":"net.fetch local-network development", "ok":true,
+   "fetch":[["http://127.0.0.1:4790/",true],["http://localhost:4790/",true],["http://[::1]/",true],["http://[::ffff:127.0.0.1]/",true],["http://192.168.1.40/",true],["http://8.8.8.8/",false]],
+   "websocket":[["ws://127.0.0.1:4790/",false]]},
+  {"spec":"net.fetch local-network production", "ok":false},
+  {"spec":"net.websocket local-network development extra", "ok":false},
+  {"spec":"net.fetch local-network:", "ok":false},
+  {"spec":"fs.read home:/.ssh\nfs.write home:/.t3\nfs.read bundle:/Resources/t3-runtime", "ok":true,
+   "fs":[["fs.read","home:/.ssh/config",true],["fs.read","home:/.ssh2",false],["fs.write","home:/.t3/userdata",true],["fs.write","home:/.ssh/config",false],
+         ["fs.read","bundle:/Resources/t3-runtime/a",true],["fs.write","bundle:/Resources/t3-runtime/a",false],["fs.read","/Resources/t3-runtime/a",false],["fs.read","app:/.ssh",false]]},
+  {"spec":"fs.read home:/", "ok":false},
+  {"spec":"fs.write home:/", "ok":false},
+  {"spec":"fs.write bundle:/Resources", "ok":false},
+  {"spec":"sqlite.open bundle:/Resources/db", "ok":false},
+  {"spec":"fs.read home:.ssh", "ok":false}
+]

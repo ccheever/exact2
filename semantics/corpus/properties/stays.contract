@@ -1,0 +1,6 @@
+component App
+  state ready = false
+  action load
+    ready = true
+  view
+    button "Load" testId="load" press=load

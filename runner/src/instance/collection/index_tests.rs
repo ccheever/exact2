@@ -1,0 +1,1185 @@
+use super::*;
+
+#[test]
+fn reorder_gap_requires_current_measured_neighbors_and_right_biases_zero_ties() {
+    let mut i = index(&[20., 0., 0., 30., 10.]);
+    assert_eq!(i.certified_gap(19.).unwrap(), Some(3));
+    assert_eq!(i.certified_gap(20.).unwrap(), Some(3));
+    assert_eq!(i.certified_gap(60.).unwrap(), Some(5));
+    i.invalidate_row("k1").unwrap();
+    assert_eq!(i.certified_gap(20.).unwrap(), None);
+    i.invalidate_all().unwrap();
+    assert_eq!(i.certified_gap(60.).unwrap(), None);
+}
+
+#[test]
+fn reorder_twenty_five_thousand_zero_ties_do_not_scan_rows() {
+    let mut heights = vec![0.; 25_000];
+    heights[0] = 20.;
+    heights[24_999] = 20.;
+    let mut i = index(&heights);
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap(20.).unwrap(), Some(24_999));
+    assert!(i.tree.visits.get() < 200);
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap_excluding(5., 0).unwrap(), Some(24_999));
+    assert!(i.tree.visits.get() < 200);
+    i.invalidate_row("k12000").unwrap();
+    i.tree.visits.set(0);
+    assert_eq!(i.certified_gap(20.).unwrap(), None);
+    assert!(i.tree.visits.get() < 200);
+}
+
+fn keys(count: usize) -> Vec<Rc<str>> {
+    (0..count).map(|i| Rc::from(format!("k{i}"))).collect()
+}
+
+fn index(heights: &[f64]) -> SizeIndex {
+    let mut index = SizeIndex::new(10.0).unwrap();
+    index.replace_keys(keys(heights.len())).unwrap();
+    for (i, &height) in heights.iter().enumerate() {
+        let key = format!("k{i}");
+        let token = index.measurement_token(&key).unwrap();
+        assert!(index.set_measured_height(&key, token, height).unwrap());
+    }
+    index
+}
+
+fn near(actual: f64, expected: f64) {
+    assert!((actual - expected).abs() <= 1e-8, "{actual} != {expected}");
+}
+
+fn linear_row(heights: &[f64], offset: f64) -> Option<usize> {
+    let mut sum = 0.0;
+    heights.iter().position(|height| {
+        sum += height;
+        sum > offset
+    })
+}
+
+fn linear_band(heights: &[f64], start: f64, end: f64) -> Range<usize> {
+    let first = linear_row(heights, start).unwrap_or(heights.len());
+    if start >= end {
+        return first..first;
+    }
+    let mut sum = 0.0;
+    let last = heights.iter().position(|height| {
+        sum += height;
+        sum >= end
+    });
+    first..last.map_or(heights.len(), |i| i + 1)
+}
+
+fn linear_segments(
+    heights: &[f64],
+    start: f64,
+    end: f64,
+    pins: [Option<usize>; 2],
+) -> Vec<Range<usize>> {
+    let mut segments: Vec<Range<usize>> = Vec::new();
+    let mut top = 0.0;
+    for (i, &height) in heights.iter().enumerate() {
+        let bottom = top + height;
+        let intersects = start < end && height > 0.0 && bottom > start && top < end;
+        top = bottom;
+        if !intersects && !pins.contains(&Some(i)) {
+            continue;
+        }
+        if let Some(last) = segments.last_mut() {
+            if last.end == i {
+                last.end += 1;
+                continue;
+            }
+        }
+        segments.push(i..i + 1);
+    }
+    segments
+}
+
+struct Random(u64);
+
+impl Random {
+    fn next(&mut self, n: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % n as u64) as usize
+    }
+}
+
+#[test]
+fn estimated_heights_and_key_rebuild_retain_measurements() {
+    let mut index = SizeIndex::new(12.5).unwrap();
+    index.replace_keys(keys(3)).unwrap();
+    assert_eq!(index.len(), 3);
+    assert_eq!(index.total_height(), 37.5);
+    assert_eq!(index.key(2), Some("k2"));
+    assert_eq!(index.key(3), None);
+    assert_eq!(index.position("k1"), Some(1));
+    assert_eq!(index.position("missing"), None);
+    assert_eq!(index.prefix(4), None);
+    assert!(!index.is_measured("k0"));
+    let token = index.measurement_token("k0").unwrap();
+    index.set_measured_height("k0", token, 21.0).unwrap();
+    index
+        .replace_keys(vec!["k2".into(), "new".into(), "k0".into()])
+        .unwrap();
+    assert_eq!(index.height(0), Some(12.5));
+    assert_eq!(index.height(1), Some(12.5));
+    assert_eq!(index.height(2), Some(21.0));
+    assert_eq!(index.measurement_token("k0"), Some(token));
+    assert!(index.is_measured("k0"));
+    assert!(!index.is_measured("new"));
+    assert_eq!(index.total_height(), 46.0);
+}
+
+#[test]
+fn zero_heights_and_exact_boundaries_have_no_linear_search() {
+    let index = index(&[0.0, 0.0, 10.0, 0.0, 20.0, 0.0, 0.0]);
+    assert_eq!(index.row_at(0.0).unwrap(), Some(2));
+    assert_eq!(index.row_at(9.0).unwrap(), Some(2));
+    assert_eq!(index.row_at(10.0).unwrap(), Some(4));
+    assert_eq!(index.row_at(30.0).unwrap(), None);
+    assert_eq!(index.window(0.0, 10.0, [None; 2]).unwrap().visible, 2..3);
+    assert_eq!(index.window(10.0, 10.0, [None; 2]).unwrap().visible, 4..5);
+    assert_eq!(index.window(0.0, 30.0, [None; 2]).unwrap().visible, 2..5);
+    let all_zero = index_with_zeros(100_000);
+    assert_eq!(all_zero.row_at(0.0).unwrap(), None);
+    let window = all_zero.window(0.0, 100.0, [None; 2]).unwrap();
+    assert!(window.visible.is_empty());
+    assert!(window.segments.is_empty());
+    assert_eq!(all_zero.tree.visits.get(), 0);
+}
+
+fn index_with_zeros(count: usize) -> SizeIndex {
+    let mut index = SizeIndex::new(0.0).unwrap();
+    index.replace_keys(keys(count)).unwrap();
+    index
+}
+
+#[test]
+fn measured_interior_zero_run_keeps_25k_window_and_pins_bounded() {
+    let mut heights = vec![0.0; 25_000];
+    heights[0] = 10.0;
+    heights[24_999] = 10.0;
+    let mut index = index(&heights);
+    assert!(index.is_measured("k12500"));
+    let depth = index.tree.base.ilog2() as usize;
+    index.tree.visits.set(0);
+    let window = index.window(0.0, 10.0, [None; 2]).unwrap();
+    assert_eq!(window.overscan, 0..25_000);
+    assert_eq!(window.segments, vec![0..1, 24_999..25_000]);
+    assert!(index.tree.visits.get() <= 12 * (depth + 1));
+    let pinned = index
+        .window(0.0, 10.0, [Some("k1000"), Some("k24000")])
+        .unwrap();
+    assert_eq!(
+        pinned.segments,
+        vec![0..1, 1000..1001, 24_000..24_001, 24_999..25_000]
+    );
+    // Retained zero estimates stay out until a fresh measurement gives them area.
+    index.invalidate_all().unwrap();
+    assert_eq!(index.window(0.0, 10.0, [None; 2]).unwrap(), window);
+    let token = index.measurement_token("k12500").unwrap();
+    index.set_measured_height("k12500", token, 10.0).unwrap();
+    assert_eq!(
+        index.window(0.0, 30.0, [None; 2]).unwrap().segments,
+        vec![0..1, 12_500..12_501, 24_999..25_000]
+    );
+}
+
+#[test]
+fn randomized_updates_and_geometry_match_linear_oracle() {
+    let mut rng = Random(0xdab5_21c4_a739_0351);
+    for count in [0, 1, 2, 3, 31, 128, 257] {
+        // Quarter-pixel units keep the independent oracle's sums exact.
+        let mut heights: Vec<f64> = (0..count).map(|_| rng.next(100) as f64 / 4.0).collect();
+        let mut index = index(&heights);
+        for _ in 0..400 {
+            if count > 0 {
+                let row = rng.next(count);
+                let key = format!("k{row}");
+                let height = rng.next(200) as f64 / 4.0;
+                let token = index.measurement_token(&key).unwrap();
+                index.set_measured_height(&key, token, height).unwrap();
+                heights[row] = height;
+            }
+            let total: f64 = heights.iter().sum();
+            near(index.total_height(), total);
+            for end in 0..=count {
+                let prefix: f64 = heights[..end].iter().sum();
+                near(index.prefix(end).unwrap(), prefix);
+                assert_eq!(index.row_at(prefix).unwrap(), linear_row(&heights, prefix));
+            }
+            let offset = rng.next((total as usize + 1) * 4 + 100) as f64 / 4.0;
+            let viewport = rng.next(401) as f64 / 4.0;
+            assert_eq!(index.row_at(offset).unwrap(), linear_row(&heights, offset));
+            let pins =
+                std::array::from_fn(|_| (count > 0 && rng.next(3) == 0).then(|| rng.next(count)));
+            let pin_keys = pins.map(|pin| pin.map(|i| format!("k{i}")));
+            let window = index
+                .window(
+                    offset,
+                    viewport,
+                    [pin_keys[0].as_deref(), pin_keys[1].as_deref()],
+                )
+                .unwrap();
+            let clamped = offset.min((total - viewport).max(0.0));
+            assert_eq!(window.offset, clamped);
+            let end = (clamped + viewport).min(total);
+            assert_eq!(window.visible, linear_band(&heights, clamped, end));
+            let band_start = (clamped - viewport).max(0.0);
+            let band_end = (end + viewport).min(total);
+            assert_eq!(window.overscan, linear_band(&heights, band_start, band_end));
+            let expected = linear_segments(&heights, band_start, band_end, pins);
+            assert_eq!(window.segments, expected);
+        }
+    }
+}
+
+#[test]
+fn fractional_heights_do_not_accumulate_delta_drift() {
+    let mut index = index(&[0.1, 0.2, 0.3, 0.4, 0.5]);
+    let token = index.measurement_token("k1").unwrap();
+    for _ in 0..10_000 {
+        index.set_measured_height("k1", token, 12345.6789).unwrap();
+        index.set_measured_height("k1", token, 0.2).unwrap();
+    }
+    near(index.total_height(), 1.5);
+    near(index.prefix(3).unwrap(), 0.6);
+    assert_eq!(index.row_at(0.31).unwrap(), Some(2));
+}
+
+#[test]
+fn rounded_tree_boundaries_are_monotone_and_zero_rows_stay_empty() {
+    let heights = [1e16, 0.0, 0.0, 0.0, 3.0, 0.0, 2.0, 0.0, 1e16];
+    let index = index(&heights);
+    let prefixes: Vec<_> = (0..=heights.len())
+        .map(|i| index.prefix(i).unwrap())
+        .collect();
+    for i in 0..heights.len() {
+        assert!(prefixes[i] <= prefixes[i + 1], "{prefixes:?}");
+        if heights[i] == 0.0 {
+            assert_eq!(prefixes[i], prefixes[i + 1]);
+        }
+    }
+    for &offset in &prefixes {
+        assert_eq!(
+            index.row_at(offset).unwrap(),
+            (0..heights.len()).find(|&i| prefixes[i + 1] > offset)
+        );
+    }
+}
+
+#[test]
+fn pins_are_disjoint_deduplicated_and_bounded() {
+    let index = index(&vec![10.0; 10_000]);
+    let window = index
+        .window(50_000.0, 100.0, [Some("k0"), Some("k9999")])
+        .unwrap();
+    assert_eq!(window.visible, 5000..5010);
+    assert_eq!(window.overscan, 4990..5020);
+    assert_eq!(window.segments, vec![0..1, 4990..5020, 9999..10000]);
+    assert_eq!(
+        window
+            .segments
+            .iter()
+            .map(|range| range.len())
+            .sum::<usize>(),
+        32
+    );
+    assert_eq!(
+        index
+            .window(50_000.0, 100.0, [Some("k0"); 2])
+            .unwrap()
+            .segments,
+        vec![0..1, 4990..5020]
+    );
+    assert_eq!(
+        index
+            .window(50_000.0, 100.0, [Some("k4989"), Some("k5020")])
+            .unwrap()
+            .segments,
+        vec![4989..5021]
+    );
+    assert_eq!(
+        index
+            .window(50_000.0, 100.0, [Some("deleted"), Some("k5000")])
+            .unwrap()
+            .segments,
+        vec![4990..5020]
+    );
+    let hidden = index
+        .window(50_000.0, 0.0, [Some("k3"), Some("k9000")])
+        .unwrap();
+    assert!(hidden.visible.is_empty());
+    assert_eq!(hidden.segments, vec![3..4, 9000..9001]);
+}
+
+#[test]
+fn width_and_content_epochs_reject_stale_reports_without_losing_estimates() {
+    let mut index = index(&[11.0, 22.0, 33.0]);
+    let old = index.measurement_token("k1").unwrap();
+    let rows = index.rows.clone();
+    let tree = index.tree.sums.clone();
+    let allocation = index.rows.as_ptr();
+    index.tree.visits.set(0);
+    index.invalidate_all().unwrap();
+    assert_eq!(index.rows, rows);
+    assert_eq!(index.rows.as_ptr(), allocation);
+    assert_eq!(index.tree.sums, tree);
+    assert_eq!(index.tree.visits.get(), 0);
+    assert!(!index.is_measured("k1"));
+    assert!(!index.set_measured_height("k1", old, 222.0).unwrap());
+    let fresh = index.measurement_token("k1").unwrap();
+    assert_ne!(fresh, old);
+    assert!(index.set_measured_height("k1", fresh, 24.0).unwrap());
+    assert!(index.is_measured("k1"));
+    let next = index.invalidate_row("k1").unwrap();
+    assert_ne!(next, fresh);
+    assert_eq!(index.height(1), Some(24.0));
+    assert!(!index.is_measured("k1"));
+    assert!(!index.set_measured_height("k1", fresh, 300.0).unwrap());
+    assert!(index.set_measured_height("k1", next, 27.0).unwrap());
+    assert_eq!(index.height(0), Some(11.0));
+    assert!(index.invalidate_row("missing").is_err());
+}
+
+#[test]
+fn measurement_identity_survives_reorder_but_not_delete_and_reinsert() {
+    let mut index = index(&[10.0, 20.0, 30.0]);
+    let token = index.measurement_token("k1").unwrap();
+    assert!(!index.set_measured_height("k0", token, 99.0).unwrap());
+    index.replace_keys(vec!["k2".into(), "k1".into()]).unwrap();
+    assert!(index.set_measured_height("k1", token, 21.0).unwrap());
+    index.replace_keys(vec!["k2".into()]).unwrap();
+    assert!(!index.set_measured_height("k1", token, 22.0).unwrap());
+    index.replace_keys(vec!["k1".into(), "k2".into()]).unwrap();
+    assert_ne!(index.measurement_token("k1"), Some(token));
+    assert!(!index.set_measured_height("k1", token, 23.0).unwrap());
+    assert_eq!(index.height(0), Some(10.0));
+}
+
+#[test]
+fn anchors_preserve_key_and_offset_through_prepend_reorder_and_height_changes() {
+    let mut index = index(&[10.0, 20.0, 30.0, 40.0, 50.0]);
+    let anchor = index.capture_anchor(35.0, 20.0, false).unwrap();
+    assert!(Rc::ptr_eq(&anchor.order, &index.order));
+    index
+        .replace_keys(vec![
+            "new".into(),
+            "k0".into(),
+            "k1".into(),
+            "k2".into(),
+            "k3".into(),
+            "k4".into(),
+        ])
+        .unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 45.0);
+    let token = index.measurement_token("k0").unwrap();
+    index.set_measured_height("k0", token, 25.0).unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 60.0);
+    index.invalidate_all().unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 60.0);
+    index
+        .replace_keys(vec![
+            "k4".into(),
+            "k3".into(),
+            "k2".into(),
+            "k1".into(),
+            "k0".into(),
+        ])
+        .unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 95.0);
+}
+
+/// At its start a list anchors nothing, as CSS scroll anchoring selects no
+/// anchor at a zero offset: a row inserted on top shows. An end it
+/// follows still wins where the start is also the end.
+#[test]
+fn a_list_at_its_start_shows_rows_inserted_above() {
+    let mut short = index(&[5.0; 2]);
+    let transcript = short.capture_anchor(0.0, 20.0, true).unwrap();
+    let mut index = index(&[10.0; 5]);
+    let top = index.capture_anchor(0.0, 20.0, false).unwrap();
+    let mut prepended = keys(5);
+    prepended.insert(0, "new".into());
+    index.replace_keys(prepended).unwrap();
+    assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 0.0);
+    assert!(!index.kept_row(&top, 20.0), "the start stays absolute");
+    short.replace_keys(keys(6)).unwrap();
+    assert!(short.restore_anchor(&transcript, 20.0).unwrap() > 0.0);
+    assert_eq!(
+        short.restore_anchor(&transcript, 20.0).unwrap(),
+        short.total_height() - 20.0
+    );
+}
+
+#[test]
+fn deleted_anchor_chooses_next_survivor_in_old_order_then_previous() {
+    let mut index = index(&[10.0; 10]);
+    let anchor = index.capture_anchor(32.0, 10.0, false).unwrap();
+    index
+        .replace_keys(vec!["k9".into(), "k7".into(), "k1".into(), "k0".into()])
+        .unwrap();
+    // k7 is the first old successor still present, even though k9 comes first now.
+    assert_eq!(index.restore_anchor(&anchor, 10.0).unwrap(), 12.0);
+    index
+        .replace_keys(vec!["k0".into(), "k1".into(), "other".into()])
+        .unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 10.0).unwrap(), 12.0);
+    index
+        .replace_keys(vec!["replacement".into(), "other".into()])
+        .unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 10.0).unwrap(), 0.0);
+    index.replace_keys(Vec::new()).unwrap();
+    assert_eq!(index.restore_anchor(&anchor, 10.0).unwrap(), 0.0);
+}
+
+#[test]
+fn end_follow_only_when_requested_and_already_at_end() {
+    let mut index = index(&[10.0; 10]);
+    let follow = index.capture_anchor(80.0, 20.0, true).unwrap();
+    let preserve = index.capture_anchor(80.0, 20.0, false).unwrap();
+    let reading = index.capture_anchor(20.0, 20.0, true).unwrap();
+    index.replace_keys(keys(20)).unwrap();
+    assert_eq!(index.restore_anchor(&follow, 30.0).unwrap(), 170.0);
+    assert_eq!(index.restore_anchor(&preserve, 20.0).unwrap(), 80.0);
+    assert_eq!(index.restore_anchor(&reading, 20.0).unwrap(), 20.0);
+    assert_eq!(index.restore_anchor(&follow, 1000.0).unwrap(), 0.0);
+    index.replace_keys(keys(3)).unwrap();
+    assert_eq!(index.restore_anchor(&preserve, 20.0).unwrap(), 10.0);
+    let mut empty = index_with_zeros(0);
+    let anchor = empty.capture_anchor(0.0, 20.0, true).unwrap();
+    empty.replace_keys(keys(3)).unwrap();
+    assert_eq!(empty.restore_anchor(&anchor, 20.0).unwrap(), 0.0);
+}
+
+/// A port pulled past the end (a rubber band under a finger or a fling)
+/// keeps its overshoot: restored where it was, it owes no correction that
+/// would pull the band back, and a row before it that grows moves it by as
+/// much, from there. With no row to anchor (a list shorter than its port,
+/// padded or not, or a port in the padding after the rows, past the end or
+/// not) it stays where it was, though the rows below it grow.
+#[test]
+fn an_anchor_past_the_end_keeps_its_overshoot() {
+    let mut index = index(&[100.0, 100.0, 100.0, 100.0]);
+    let viewport = 150.0;
+    let max = index.max_offset(viewport);
+    let pulled = max + 19.0;
+    let anchor = index.capture_anchor(pulled, viewport, false).unwrap();
+    assert_eq!(index.restore_anchor(&anchor, viewport).unwrap(), pulled);
+    assert!(index.kept_row(&anchor, viewport));
+    let token = index.measurement_token("k0").unwrap();
+    assert!(index.set_measured_height("k0", token, 110.0).unwrap());
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        pulled + 10.0
+    );
+    // An end it follows keeps it too, past the end the rows now have
+    let following = index.capture_anchor(pulled + 10.0, viewport, true).unwrap();
+    assert!(SizeIndex::follows_end(&following));
+    assert_eq!(
+        index.restore_anchor(&following, viewport).unwrap(),
+        pulled + 10.0
+    );
+    let token = index.measurement_token("k3").unwrap();
+    assert!(index.set_measured_height("k3", token, 125.0).unwrap());
+    assert_eq!(
+        index.restore_anchor(&following, viewport).unwrap(),
+        pulled + 35.0
+    );
+    let mut short = self::index(&[100.0]);
+    let mut padded = self::index(&[100.0; 5]);
+    padded.set_leading(92.0);
+    padded.set_trailing(83.0);
+    let mut after = self::index(&[100.0; 2]);
+    after.set_trailing(300.0);
+    for (list, port, at) in [
+        (&short, viewport, 19.0),
+        (&padded, 600.0, 0.0),
+        (&padded, 600.0, 19.0),
+        (&after, 100.0, 450.0),
+        (&after, 100.0, 300.0),
+    ] {
+        let anchor = list.capture_anchor(at, port, false).unwrap();
+        assert_eq!(
+            list.restore_anchor(&anchor, port).unwrap(),
+            at,
+            "{at} in {port}"
+        );
+    }
+    let anchor = short.capture_anchor(19.0, viewport, false).unwrap();
+    let token = short.measurement_token("k0").unwrap();
+    assert!(short.set_measured_height("k0", token, 400.0).unwrap());
+    assert_eq!(
+        short.restore_anchor(&anchor, viewport).unwrap(),
+        19.0,
+        "its row grew below the port's top"
+    );
+}
+
+#[test]
+fn end_follow_accepts_native_document_rounding() {
+    let mut index = index(&[324_242.100_130_000_04]);
+    let viewport = 502.0;
+    let native_bottom = 323_740.1;
+    assert!(native_bottom < index.max_offset(viewport));
+    let following = index.capture_anchor(native_bottom, viewport, true).unwrap();
+    let reading = index
+        .capture_anchor(native_bottom, viewport, false)
+        .unwrap();
+    assert!(following.follows_end);
+    assert!(!reading.follows_end);
+    index.replace_keys(keys(2)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&following, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+    assert_eq!(
+        index.restore_anchor(&reading, viewport).unwrap(),
+        native_bottom
+    );
+}
+
+#[test]
+fn end_follow_accepts_integer_dom_scroll_height_rounding() {
+    // The real DOM controller fixture supplies these facts: measured wrappers
+    // total 335377.078125, scrollHeight 335377, clientHeight 519, scrollTop
+    // 334858. The user has reached the actual DOM end, not an estimated tail.
+    let mut index = index(&[335_080.0, 297.078_125]);
+    let viewport = 519.0;
+    let dom_bottom = 334_858.0;
+    assert_eq!(index.max_offset(viewport) - dom_bottom, 0.078_125);
+    let anchor = index.capture_anchor(dom_bottom, viewport, true).unwrap();
+    let reader = index
+        .capture_anchor(index.max_offset(viewport) - 1.0, viewport, true)
+        .unwrap();
+    let disabled = index.capture_anchor(dom_bottom, viewport, false).unwrap();
+    assert!(
+        anchor.follows_end,
+        "integer DOM end must follow appended content"
+    );
+    assert!(
+        !reader.follows_end,
+        "a reader a whole pixel up stays anchored"
+    );
+    assert!(!disabled.follows_end);
+    index.replace_keys(keys(3)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+    assert_eq!(
+        index.restore_anchor(&disabled, viewport).unwrap(),
+        dom_bottom
+    );
+}
+
+#[test]
+fn end_follow_accepts_browser_integer_scroll_range_rounding() {
+    // Observed in Messages stress: CSS rows sum to a fractional extent, while
+    // Chrome clamps an authored scrollTop to its integer scroll range.
+    let mut index = index(&[10_497.109_375]);
+    let anchor = index.capture_anchor(10_023.0, 474.0, true).unwrap();
+    assert!(anchor.follows_end);
+    index.replace_keys(keys(2)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, 474.0).unwrap(),
+        index.max_offset(474.0)
+    );
+}
+
+#[test]
+fn end_follow_accepts_webkit_flooring_a_fractional_scroll_range() {
+    // Seen in WebKit (synthetic-lists conformance, 2026-10-07): rows sum to
+    // 210.72 px in a 140 px port; Chrome scrolls to 71, WebKit stops at 70,
+    // 0.72 short of the end. Both are at the end, so both follow it.
+    let mut index = index(&[28.375, 29.594, 31.594, 29.594, 33.594, 28.375, 29.594]);
+    let viewport = 140.0;
+    for reported in [70.0, 71.0] {
+        assert!(
+            index
+                .capture_anchor(reported, viewport, true)
+                .unwrap()
+                .follows_end,
+            "{reported}"
+        );
+    }
+    let anchor = index.capture_anchor(70.0, viewport, true).unwrap();
+    index.replace_keys(keys(8)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+}
+
+#[test]
+fn end_follow_slack_is_less_than_one_logical_pixel_on_every_host() {
+    // Less than END_SLACK short follows; a whole pixel short does not, at
+    // small, medium and large extents alike.
+    for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {
+        let mut index = index(&[height]);
+        let maximum = index.max_offset(viewport);
+        let outside = maximum - END_SLACK;
+        let boundary = outside + 0.001;
+        let following = index.capture_anchor(boundary, viewport, true).unwrap();
+        let reading = index.capture_anchor(outside, viewport, true).unwrap();
+        assert!(following.follows_end, "height={height}");
+        assert!(!reading.follows_end, "height={height}");
+        assert!(
+            !index
+                .capture_anchor(boundary, viewport, false)
+                .unwrap()
+                .follows_end
+        );
+        assert!(
+            !index
+                .capture_anchor(maximum, 0.0, true)
+                .unwrap()
+                .follows_end
+        );
+        index.replace_keys(keys(2)).unwrap();
+        assert_eq!(
+            index.restore_anchor(&following, viewport).unwrap(),
+            index.max_offset(viewport)
+        );
+        assert_eq!(index.restore_anchor(&reading, viewport).unwrap(), outside);
+    }
+}
+
+#[test]
+fn invalid_numbers_and_duplicates_leave_index_unchanged() {
+    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
+        assert!(SizeIndex::new(bad).is_err());
+        let mut index = index(&[10.0, 20.0]);
+        let token = index.measurement_token("k0").unwrap();
+        assert!(index.set_measured_height("k0", token, bad).is_err());
+        assert_eq!(index.total_height(), 30.0);
+        assert_eq!(index.measurement_token("k0"), Some(token));
+        assert!(index.row_at(bad).is_err());
+        // A negative offset is a port in the padding before the first row:
+        // at the rows' start.
+        if bad < 0.0 && bad.is_finite() {
+            assert_eq!(index.window(bad, 10.0, [None; 2]).unwrap().offset, 0.0);
+            assert!(index.capture_anchor(bad, 10.0, false).is_ok());
+        } else {
+            assert!(index.window(bad, 10.0, [None; 2]).is_err());
+            assert!(index.capture_anchor(bad, 10.0, false).is_err());
+        }
+        assert!(index.window(0.0, bad, [None; 2]).is_err());
+        assert!(index.capture_anchor(0.0, bad, false).is_err());
+        let anchor = index.capture_anchor(0.0, 10.0, false).unwrap();
+        assert!(index.restore_anchor(&anchor, bad).is_err());
+    }
+    let mut index = index(&[10.0, 20.0]);
+    let order = Rc::clone(&index.order);
+    let generation = index.next_generation;
+    assert_eq!(
+        index.replace_keys(vec!["new".into(), "new".into()]),
+        Err(IndexError::DuplicateKey("new".into()))
+    );
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(index.next_generation, generation);
+    assert_eq!(index.total_height(), 30.0);
+    let token = index.measurement_token("k0").unwrap();
+    index.set_measured_height("k0", token, -0.0).unwrap();
+    assert_eq!(index.height(0).unwrap().to_bits(), 0.0_f64.to_bits());
+}
+
+#[test]
+fn extent_overflow_is_transactional_and_large_geometry_saturates() {
+    let mut index = index(&[f64::MAX / 2.0, f64::MAX / 4.0]);
+    let token = index.measurement_token("k1").unwrap();
+    let total = index.total_height();
+    assert_eq!(
+        index.set_measured_height("k1", token, f64::MAX),
+        Err(IndexError::ExtentOverflow)
+    );
+    assert_eq!(index.total_height(), total);
+    assert_eq!(index.height(1), Some(f64::MAX / 4.0));
+    let window = index.window(f64::MAX, f64::MAX, [None; 2]).unwrap();
+    assert_eq!(window.offset, 0.0);
+    assert_eq!(window.segments, vec![0..2]);
+    let mut huge = SizeIndex::new(f64::MAX).unwrap();
+    huge.replace_keys(keys(1)).unwrap();
+    let generation = huge.next_generation;
+    assert_eq!(huge.replace_keys(keys(2)), Err(IndexError::ExtentOverflow));
+    assert_eq!(huge.len(), 1);
+    assert_eq!(huge.next_generation, generation);
+}
+
+#[test]
+fn sufficient_padded_bound_includes_boundary_and_bounds_actual_binary_sums() {
+    for count in [0, 1, 2, 3, 257, 25_000] {
+        let mut i = index(&vec![0.0; count]);
+        let bound = (f32::MAX as f64) / (4.0 * i.tree.base as f64);
+        assert!(i.padded_extent_definitely_fits(bound));
+        assert!(!i.padded_extent_definitely_fits(f64::from_bits(bound.to_bits() + 1)));
+        for invalid in [-1.0, f64::NAN, f64::INFINITY] {
+            assert!(!i.padded_extent_definitely_fits(invalid));
+        }
+        for p in 0..count {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), bound)
+                .unwrap();
+        }
+        assert!(i.total_height() <= i.tree.base as f64 * bound);
+        // Unequal padding exercises both physical and relative addition orders.
+        for [leading, trailing] in [[bound, bound], [bound / 3.0, bound], [bound, 0.0]] {
+            assert!(i.total_height() + leading + trailing <= f32::MAX as f64);
+            assert!(i.total_height() + trailing + leading <= f32::MAX as f64);
+        }
+    }
+}
+
+#[test]
+fn sparse_height_preview_is_exact_bounded_and_allocation_free_for_equal_samples() {
+    let empty = SizeIndex::new(32.0).unwrap();
+    let preview = empty.preview_heights();
+    assert_eq!(preview.total_height(), 0.0);
+    assert!(preview.sums.is_none());
+    for count in [1, 257, 25_000] {
+        let mut i = index(&vec![58.0; count]);
+        let before = i.fingerprint();
+        let mut preview = i.preview_heights();
+        for p in 0..count.min(32) {
+            preview.set_height(p, i.denoised(p, 58.00003));
+            preview.set_height(p, 58.0);
+        }
+        assert!(
+            preview.sums.is_none(),
+            "equal/noisy samples allocate no overlay"
+        );
+        assert_eq!(preview.total_height().to_bits(), i.total_height().to_bits());
+        let changes = [
+            (0, 1e38),
+            (count / 2, 7.162362434933901e36),
+            (count - 1, 0.0),
+        ];
+        for (p, h) in changes {
+            preview.set_height(p, h);
+        }
+        let nodes = preview.sums.as_ref().unwrap().len();
+        assert!(nodes <= changes.len() * (i.tree.base.ilog2() as usize + 1));
+        let predicted = preview.total_height();
+        drop(preview);
+        assert_eq!(
+            i.fingerprint(),
+            before,
+            "preview never changes the live tree/epochs"
+        );
+        for (p, h) in changes {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), h)
+                .unwrap();
+        }
+        assert_eq!(i.total_height().to_bits(), predicted.to_bits());
+    }
+}
+
+#[test]
+fn generation_overflow_does_not_revalidate_ancient_tokens() {
+    let mut index = index(&[10.0, 20.0]);
+    index.epoch = u64::MAX;
+    assert_eq!(index.invalidate_all(), Err(IndexError::GenerationExhausted));
+    assert_eq!(index.epoch, u64::MAX);
+    index.next_generation = u64::MAX;
+    let token = index.measurement_token("k0").unwrap();
+    assert_eq!(
+        index.invalidate_row("k0"),
+        Err(IndexError::GenerationExhausted)
+    );
+    assert_eq!(index.measurement_token("k0"), Some(token));
+    assert_eq!(
+        index.replace_keys(keys(3)),
+        Err(IndexError::GenerationExhausted)
+    );
+    assert_eq!(index.len(), 2);
+}
+
+#[test]
+fn twenty_traversals_do_not_rebuild_or_accumulate_scroll_metadata() {
+    let mut index = SizeIndex::new(10.0).unwrap();
+    index.replace_keys(keys(25_000)).unwrap();
+    let order = Rc::clone(&index.order);
+    let rows = index.rows.as_ptr();
+    let sums = index.tree.sums.as_ptr();
+    let rebuilds = index.rebuilds;
+    let generations = index.next_generation;
+    let depth = index.tree.base.ilog2() as usize;
+    for traversal in 0..20 {
+        for step in 0..2500 {
+            let offset = if traversal % 2 == 0 {
+                step * 100
+            } else {
+                (2499 - step) * 100
+            } as f64;
+            index.tree.visits.set(0);
+            let window = index
+                .window(offset, 100.0, [Some("k0"), Some("k24999")])
+                .unwrap();
+            let anchor = index.capture_anchor(offset, 100.0, false).unwrap();
+            assert_eq!(index.restore_anchor(&anchor, 100.0).unwrap(), window.offset);
+            assert!(window.segments.len() <= 3);
+            assert!(window.segments.iter().map(|r| r.len()).sum::<usize>() <= 32);
+            assert!(index.tree.visits.get() <= 12 * (depth + 1));
+            assert!(Rc::ptr_eq(&anchor.order, &order));
+        }
+    }
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(Rc::strong_count(&order), 2);
+    assert_eq!(index.rows.as_ptr(), rows);
+    assert_eq!(index.tree.sums.as_ptr(), sums);
+    assert_eq!(index.rebuilds, rebuilds);
+    assert_eq!(index.next_generation, generations);
+    assert_eq!(index.rows.len(), 25_000);
+    assert_eq!(index.positions.len(), 25_000);
+}
+
+#[test]
+fn twenty_25k_traversals_with_zero_samples_keep_selection_and_metadata_bounded() {
+    let heights: Vec<_> = (0..25_000)
+        .map(|i| {
+            if i % 5 == 0 && !(2000..22_000).contains(&i) {
+                10.0
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let index = index(&heights);
+    let order = Rc::clone(&index.order);
+    let rows = index.rows.as_ptr();
+    let sums = index.tree.sums.as_ptr();
+    let rebuilds = index.rebuilds;
+    let generations = index.next_generation;
+    let depth = index.tree.base.ilog2() as usize;
+    for traversal in 0..20 {
+        for step in 0..2500 {
+            let step = if traversal % 2 == 0 {
+                step
+            } else {
+                2499 - step
+            };
+            let offset = step as f64 * index.total_height() / 2500.0;
+            index.tree.visits.set(0);
+            let window = index
+                .window(offset, 100.0, [Some("k10000"), Some("k12000")])
+                .unwrap();
+            let selected: Vec<_> = window.segments.iter().cloned().flatten().collect();
+            assert!(selected.len() <= 33);
+            assert!(selected.contains(&10_000));
+            assert!(selected.contains(&12_000));
+            assert!(selected.windows(2).all(|pair| pair[0] < pair[1]));
+            assert!(selected
+                .iter()
+                .all(|&i| heights[i] > 0.0 || i == 10_000 || i == 12_000));
+            // Work scales with selected rows and tree depth, never the zero run.
+            assert!(index.tree.visits.get() <= (12 + 4 * selected.len()) * (depth + 1));
+            let anchor = index.capture_anchor(offset, 100.0, false).unwrap();
+            // Past the end the port keeps its overshoot (a rubber band).
+            let beyond = (offset - index.max_offset(100.0)).max(0.0);
+            assert_eq!(
+                index.restore_anchor(&anchor, 100.0).unwrap(),
+                window.offset + beyond
+            );
+            assert!(Rc::ptr_eq(&anchor.order, &order));
+        }
+    }
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(Rc::strong_count(&order), 2);
+    assert_eq!(index.rows.as_ptr(), rows);
+    assert_eq!(index.tree.sums.as_ptr(), sums);
+    assert_eq!(index.rebuilds, rebuilds);
+    assert_eq!(index.next_generation, generations);
+    assert_eq!(index.rows.len(), 25_000);
+    assert_eq!(index.positions.len(), 25_000);
+}
+
+#[test]
+fn source_excluded_gap_certifies_zero_run_even_for_upper_half_of_source() {
+    let mut i = index(&[20., 20., 0., 20.]);
+    assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), Some(3));
+    assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), Some(3));
+    i.invalidate_row("k2").unwrap();
+    assert_eq!(i.certified_gap_excluding(25., 1).unwrap(), None);
+    assert_eq!(i.certified_gap_excluding(35., 1).unwrap(), None);
+}
+
+#[test]
+fn identical_order_preserves_index_allocations_generations_and_measurements() {
+    for n in [0, 3, 25_000] {
+        let heights: Vec<_> = (0..n).map(|i| if i % 3 == 0 { 0. } else { 12.5 }).collect();
+        let mut index = index(&heights);
+        if n > 0 {
+            index.invalidate_row("k1").unwrap();
+        }
+        let order = Rc::clone(&index.order);
+        let rows = index.rows.clone();
+        let positions = index.positions.clone();
+        let row_allocation = index.rows.as_ptr();
+        let tree_allocation = index.tree.sums.as_ptr();
+        let measured_allocation = index.tree.measured.as_ptr();
+        let sums = index.tree.sums.clone();
+        let measured = index.tree.measured.clone();
+        let generation = index.next_generation;
+        let epoch = index.epoch;
+        let rebuilds = index.rebuilds;
+        index.tree.visits.set(17);
+        for _ in 0..3 {
+            index.replace_keys(keys(n)).unwrap();
+            assert_eq!(
+                index.rebuilds, rebuilds,
+                "identical order rebuilt the index"
+            );
+            assert!(Rc::ptr_eq(&index.order, &order));
+            assert_eq!(index.rows.as_ptr(), row_allocation);
+            assert_eq!(index.tree.sums.as_ptr(), tree_allocation);
+            assert_eq!(index.tree.measured.as_ptr(), measured_allocation);
+            assert_eq!(index.rows, rows);
+            assert_eq!(index.positions, positions);
+            assert_eq!(index.tree.sums, sums);
+            assert_eq!(index.tree.measured, measured);
+            assert_eq!(index.next_generation, generation);
+            assert_eq!(index.epoch, epoch);
+            assert_eq!(index.tree.visits.get(), 17);
+        }
+        if n > 0 {
+            assert!(index.is_measured("k0"));
+            assert!(!index.is_measured("k1"));
+            assert!(index.is_measured("k2"));
+        }
+    }
+}
+
+#[test]
+fn identical_order_fastpath_does_not_mask_reorder_insert_delete_or_duplicate() {
+    let mut index = index(&[10., 20., 30.]);
+    let old = index.measurement_token("k1").unwrap();
+    let rebuilds = index.rebuilds;
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert_eq!(index.measurement_token("k1"), Some(old));
+    assert_eq!(index.height(2), Some(20.));
+    let order = Rc::clone(&index.order);
+    let generation = index.next_generation;
+    let rows = index.rows.clone();
+    let sums = index.tree.sums.clone();
+    assert_eq!(
+        index.replace_keys(vec!["k2".into(), "k0".into(), "k2".into()]),
+        Err(IndexError::DuplicateKey("k2".into()))
+    );
+    assert_eq!(index.rebuilds, rebuilds + 1);
+    assert!(Rc::ptr_eq(&index.order, &order));
+    assert_eq!(index.next_generation, generation);
+    assert_eq!(index.rows, rows);
+    assert_eq!(index.tree.sums, sums);
+    index.replace_keys(vec!["k2".into(), "k0".into()]).unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 2);
+    index
+        .replace_keys(vec!["k2".into(), "k0".into(), "k1".into()])
+        .unwrap();
+    assert_eq!(index.rebuilds, rebuilds + 3);
+    assert_ne!(index.measurement_token("k1"), Some(old));
+    assert!(!index.set_measured_height("k1", old, 90.).unwrap());
+    assert_eq!(index.height(2), Some(10.));
+}
+
+#[test]
+fn measured_bands_require_current_rows_without_scanning_the_band() {
+    let mut i = index(&vec![1.; 25_000]);
+    i.tree.visits.set(0);
+    assert!(i.range_measured(0..25_000));
+    assert!(i.tree.visits.get() < 100);
+    i.invalidate_row("k12000").unwrap();
+    assert!(!i.range_measured(0..25_000));
+    assert!(i.range_measured(0..12_000));
+    assert!(i.range_measured(12_001..25_000));
+    assert!(!i.range_measured(0..0));
+    i.invalidate_all().unwrap();
+    assert!(!i.range_measured(0..12_000));
+    let token = i.measurement_token("k0").unwrap();
+    i.set_measured_height("k0", token, 0.).unwrap();
+    assert!(i.range_measured(0..1));
+    assert!(!i.range_measured(0..2));
+}
+
+#[test]
+fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
+    let spliced = |index: &mut SizeIndex| {
+        // Keep k0 and k4; k2 moves ahead of a new key; k1 and k3 go.
+        index.splice_keys(1, 4, vec![("k2".into(), Some(2)), ("new".into(), None)])
+    };
+    let mut a = index(&[10., 20., 30., 40., 50.]);
+    let mut b = index(&[10., 20., 30., 40., 50.]);
+    spliced(&mut a).unwrap();
+    b.replace_keys(vec!["k0".into(), "k2".into(), "new".into(), "k4".into()])
+        .unwrap();
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    let before = a.fingerprint();
+    for middle in [
+        vec![("k2".into(), Some(1)), ("k2".into(), None)],
+        vec![("k0".into(), None)],
+        vec![("x".into(), None), ("x".into(), None)],
+    ] {
+        assert!(matches!(
+            a.splice_keys(1, 3, middle),
+            Err(IndexError::DuplicateKey(_))
+        ));
+        assert_eq!(a.fingerprint(), before);
+    }
+}
+
+/// The padding after the last row extends the scroll range,
+/// not the rows: an offset past the rows' end keeps the last row in the
+/// window, follows the end there, and is where a followed end restores to.
+#[test]
+fn trailing_padding_extends_the_range_past_the_rows() {
+    let mut i = index(&[100.; 10]);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), 483.);
+    near(i.scroll_extent(), 1083.);
+    let w = i.window(483., 600., [None, None]).unwrap();
+    near(w.offset, 483.);
+    assert_eq!(w.visible, 4..10);
+    let end = i.capture_anchor(483., 600., true).unwrap();
+    assert!(SizeIndex::follows_end(&end));
+    near(i.restore_anchor(&end, 600.).unwrap(), 483.);
+    // The rows' end is short of it: not followed.
+    let short = i.capture_anchor(400., 600., true).unwrap();
+    assert!(!SizeIndex::follows_end(&short));
+    // Padding as tall as the port leaves only padding in view.
+    i.set_trailing(600.);
+    let w = i.window(1000., 600., [None, None]).unwrap();
+    assert!(w.visible.is_empty(), "{:?}", w.visible);
+    i.set_trailing(f64::NAN);
+    near(i.max_offset(600.), 400.);
+}
+
+/// A list shorter than its port and paddings ends in the padding before its
+/// first row: the range's end is negative, down to that
+/// padding; a port there follows the end, one above it does not, and the
+/// window still starts at the first row.
+#[test]
+fn a_short_list_ends_in_the_padding_before_its_rows() {
+    let mut i = index(&[100.; 5]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -17.);
+    let end = i.capture_anchor(-17., 600., true).unwrap();
+    assert!(SizeIndex::follows_end(&end));
+    near(i.restore_anchor(&end, 600.).unwrap(), -17.);
+    let top = i.capture_anchor(-92., 600., true).unwrap();
+    assert!(!SizeIndex::follows_end(&top));
+    assert_eq!(i.window(-17., 600., [None, None]).unwrap().offset, 0.0);
+    let mut i = index(&[100.; 4]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -92.);
+}
+
+#[test]
+fn reorder_anchor_keeps_signed_offsets_and_clamps_when_no_other_row_is_visible() {
+    for (offset, port, expected) in [
+        (200., 100., 180.),
+        (207., 100., 187.),
+        (200., 20., 200.),
+        (207., 10., 207.),
+        (0., 100., 0.),
+    ] {
+        let mut i = index(&[20.; 30]);
+        let a = i
+            .capture_anchor_excluding(offset, port, false, Some("k10"))
+            .unwrap();
+        let mut order = keys(30);
+        let source = order.remove(10);
+        order.insert(14, source);
+        i.replace_keys(order).unwrap();
+        assert_eq!(i.restore_anchor(&a, port).unwrap(), expected);
+    }
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k11".into(),
+        "k12".into(),
+        "k13".into(),
+        "k14".into(),
+        "k15".into(),
+        "k16".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 100.).unwrap(), 0.);
+    assert!(!i.kept_row(&a, 100.));
+    let mut i = index(&[20., 20., 0., 20., 20., 20.]);
+    let a = i
+        .capture_anchor_excluding(20., 40., false, Some("k1"))
+        .unwrap();
+    i.replace_keys(vec![
+        "k0".into(),
+        "k2".into(),
+        "k3".into(),
+        "k4".into(),
+        "k1".into(),
+        "k5".into(),
+    ])
+    .unwrap();
+    assert_eq!(i.restore_anchor(&a, 40.).unwrap(), 0.);
+}
+
+#[test]
+fn drop_anchor_requires_a_move_among_surviving_keys() {
+    let mut i = index(&[20.; 30]);
+    let a = i
+        .capture_anchor_excluding(200., 100., false, Some("k10"))
+        .unwrap();
+    let mut order = keys(30);
+    order.insert(10, "new".into());
+    i.replace_keys(order.clone()).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+    order.remove(9);
+    i.replace_keys(order).unwrap();
+    assert!(!i.moved_since(&a, "k10"));
+}
+
+#[test]
+fn pending_drop_with_unchanged_order_does_not_scan_keys() {
+    let i = index(&vec![20.; 10_000]);
+    let a = i.capture_anchor(199_800., 100., false).unwrap();
+    assert!(!i.moved_since(&a, "k9990"));
+    assert_eq!(i.anchor_key_visits.get(), 0);
+}
+
+#[test]
+fn anchor_at_exact_start_keeps_a_relative_correction() {
+    let mut i = index(&[20.; 30]);
+    let a = i.capture_anchor(200., 100., false).unwrap();
+    i.replace_keys(keys(30).into_iter().skip(10).collect())
+        .unwrap();
+    let restored = i.restore_anchor(&a, 100.).unwrap();
+    assert_eq!(restored, 0.);
+    assert!(i.kept_row(&a, 100.));
+}
+
+#[test]
+fn relative_anchor_corrections_include_boundaries_but_exclude_clamping() {
+    let mut i = index(&[20.; 30]);
+    i.set_leading(20.);
+    for (offset, kept, restored) in [
+        (-21., false, -20.),
+        (-20., true, -20.),
+        (0., true, 0.),
+        (500., true, 500.),
+        (501., false, 500.),
+    ] {
+        let anchor = i.anchor_at("k0", offset).unwrap();
+        assert_eq!(i.restore_anchor(&anchor, 100.).unwrap(), restored);
+        assert_eq!(i.kept_row(&anchor, 100.), kept, "offset={offset}");
+    }
+    let end = i.capture_anchor(500., 100., true).unwrap();
+    assert!(!i.kept_row(&end, 100.));
+    let start = i.capture_anchor(0., 100., false).unwrap();
+    assert!(!i.kept_row(&start, 100.));
+}

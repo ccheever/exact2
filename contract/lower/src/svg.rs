@@ -1,0 +1,1311 @@
+//! Inline SVG and CSS animations in Contract.
+//!
+//! The subset and where each attribute belongs, the content model,
+//! `keyframes` and the `animation` longhands, and what is refused, by name.
+//!
+//! `keyframes Name` lowers to one plan row of CSS text; `animation` and its
+//! longhands lower to one `animation` row per node, composed here; an SVG
+//! element may sit only in an `svg` or `g`, takes only what applies to it,
+//! and handles no events (its `svg` is the one hit and accessibility box).
+
+use crate::{err, tags, LowerError, Lowerer};
+use contract_syntax::{Attr, BinOp, Expr, File, Span, TemplatePart};
+use exact_motion::animation::LONGHANDS;
+use exact_motion::{Animation, Animations, Keyframes, Property};
+use std::cell::Cell;
+
+/// The filter primitives and their children, each a
+/// `SvgFe` node whose `fe` prop is its tag.
+pub(crate) const FE: [&str; 24] = [
+    "feBlend",
+    "feColorMatrix",
+    "feComponentTransfer",
+    "feComposite",
+    "feConvolveMatrix",
+    "feDiffuseLighting",
+    "feDisplacementMap",
+    "feDropShadow",
+    "feFlood",
+    "feFuncR",
+    "feFuncG",
+    "feFuncB",
+    "feFuncA",
+    "feGaussianBlur",
+    "feMerge",
+    "feMergeNode",
+    "feMorphology",
+    "feOffset",
+    "feSpecularLighting",
+    "feTile",
+    "feTurbulence",
+    "feDistantLight",
+    "fePointLight",
+    "feSpotLight",
+];
+
+/// The SVG element tags inside an `svg`.
+pub(crate) fn is_element(tag: &str) -> bool {
+    FE.contains(&tag)
+        || matches!(
+            tag,
+            "g" | "path"
+                | "polyline"
+                | "polygon"
+                | "circle"
+                | "ellipse"
+                | "line"
+                | "rect"
+                | "defs"
+                | "linearGradient"
+                | "radialGradient"
+                | "stop"
+                | "use"
+                | "symbol"
+                | "clipPath"
+                | "marker"
+                | "mask"
+                | "pattern"
+                | "foreignObject"
+                | "filter"
+                | "tspan"
+        )
+}
+
+/// Whether a node under `parent_tag` is inside an `svg`: `inside` says an
+/// `svg` encloses it, for a `text` parent is a box outside one.
+pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
+    inside
+        && matches!(
+            parent_tag,
+            Some(
+                "svg"
+                    | "g"
+                    | "defs"
+                    | "symbol"
+                    | "linearGradient"
+                    | "radialGradient"
+                    | "clipPath"
+                    | "marker"
+                    | "mask"
+                    | "pattern"
+                    | "filter"
+                    | "feMerge"
+                    | "feComponentTransfer"
+                    | "feDiffuseLighting"
+                    | "feSpecularLighting"
+                    | "text"
+                    | "tspan"
+            )
+        )
+}
+
+/// What an SVG container may hold: a gradient holds
+/// `stop`s only, and a `stop` only sits in a gradient.
+fn holds(parent: &str, child: &str) -> bool {
+    match parent {
+        // SVG text holds its runs.
+        "text" | "tspan" => child == "tspan",
+        "linearGradient" | "radialGradient" => child == "stop",
+        "filter" => {
+            FE.contains(&child)
+                && !child.starts_with("feFunc")
+                && !child.ends_with("Light")
+                && child != "feMergeNode"
+        }
+        "feMerge" => child == "feMergeNode",
+        "feComponentTransfer" => child.starts_with("feFunc"),
+        "feDiffuseLighting" | "feSpecularLighting" => child.ends_with("Light"),
+        "svg" | "g" | "defs" | "symbol" | "marker" | "mask" | "pattern" => {
+            !FE.contains(&child)
+                && child != "stop"
+                && !(child == "foreignObject" && matches!(parent, "defs" | "mask" | "pattern"))
+                && child != "tspan"
+                && (is_element(child) || matches!(child, "svg" | "text"))
+        }
+        // A clip's children are its geometry: shapes and `use`.
+        "clipPath" => matches!(
+            child,
+            "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect" | "use"
+        ),
+        _ => false,
+    }
+}
+
+/// SVG length attributes CSS cannot set: props holding the authored text,
+/// so a number and `"50%"` are both accepted.
+pub(crate) fn is_length_prop(attr: &str) -> bool {
+    matches!(
+        attr,
+        "x1" | "y1"
+            | "x2"
+            | "y2"
+            | "fx"
+            | "fy"
+            | "fr"
+            | "offset"
+            | "textX"
+            | "textY"
+            | "textDx"
+            | "textDy"
+            | "markerWidth"
+            | "markerHeight"
+            | "refX"
+            | "refY"
+            | "orient"
+    ) || FE_ATTRS.contains(&attr)
+}
+
+/// A filter primitive's attributes, as props holding authored text.
+const FE_ATTRS: [&str; 47] = [
+    "in",
+    "in2",
+    "result",
+    "stdDeviation",
+    "feDx",
+    "feDy",
+    "operator",
+    "k1",
+    "k2",
+    "k3",
+    "k4",
+    "mode",
+    "values",
+    "edgeMode",
+    "feRadius",
+    "tableValues",
+    "slope",
+    "intercept",
+    "amplitude",
+    "exponent",
+    "baseFrequency",
+    "numOctaves",
+    "seed",
+    "stitchTiles",
+    "feScale",
+    "xChannelSelector",
+    "yChannelSelector",
+    "feOrder",
+    "kernelMatrix",
+    "divisor",
+    "bias",
+    "targetX",
+    "targetY",
+    "preserveAlpha",
+    "surfaceScale",
+    "diffuseConstant",
+    "specularConstant",
+    "specularExponent",
+    "azimuth",
+    "elevation",
+    "lightX",
+    "lightY",
+    "lightZ",
+    "pointsAtX",
+    "pointsAtY",
+    "pointsAtZ",
+    "limitingConeAngle",
+];
+
+/// Whether an attribute is an SVG element's own prop (`viewBox`, a
+/// gradient's units, a primitive's `in`, `mode`, `seed`, …), derived from
+/// this module's tables: meaningful only on SVG elements, so on a native
+/// module's tag it stays the module's prop.
+pub(crate) fn svg_only_prop(attr: &str) -> bool {
+    (owners(attr).is_some() || is_length_prop(attr))
+        && matches!(tags::attr(attr), Some(tags::AttrTarget::Prop(_)))
+}
+
+/// The elements an SVG-specific attribute belongs to.
+fn owners(attr: &str) -> Option<&'static [&'static str]> {
+    Some(match attr {
+        "viewBox" | "preserveAspectRatio" => &["svg", "symbol", "marker", "pattern"],
+        "markerWidth" | "markerHeight" | "refX" | "refY" | "orient" | "markerUnits" => &["marker"],
+        "points" => &["polyline", "polygon"],
+        "d" => &["path"],
+        "pathLength" => &[
+            "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
+        ],
+        "x" | "y" => &[
+            "rect",
+            "svg",
+            "use",
+            "mask",
+            "pattern",
+            "foreignObject",
+            "filter",
+            "feBlend",
+            "feColorMatrix",
+            "feComponentTransfer",
+            "feComposite",
+            "feConvolveMatrix",
+            "feDiffuseLighting",
+            "feDisplacementMap",
+            "feDropShadow",
+            "feFlood",
+            "feGaussianBlur",
+            "feMerge",
+            "feMorphology",
+            "feOffset",
+            "feSpecularLighting",
+            "feTile",
+            "feTurbulence",
+        ],
+        "filterUnits" | "primitiveUnits" => &["filter"],
+        "rx" | "ry" => &["rect", "ellipse"],
+        "x1" | "y1" | "x2" | "y2" => &["line", "linearGradient"],
+        "cx" | "cy" => &["circle", "ellipse", "radialGradient"],
+        "r" => &["circle", "radialGradient"],
+        "fx" | "fy" | "fr" => &["radialGradient"],
+        "gradientUnits" | "gradientTransform" | "spreadMethod" => {
+            &["linearGradient", "radialGradient"]
+        }
+        "stop-color" | "stop-opacity" => &["stop"],
+        "offset" => &["stop", "feFuncR", "feFuncG", "feFuncB", "feFuncA"],
+        "clipPathUnits" => &["clipPath"],
+        "maskUnits" | "maskContentUnits" | "mask-type" => &["mask"],
+        "patternUnits" | "patternContentUnits" | "patternTransform" => &["pattern"],
+        "textX" | "textY" | "textDx" | "textDy" | "text-anchor" | "dominant-baseline" => {
+            &["text", "tspan"]
+        }
+        "vector-effect" => &[
+            "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
+        ],
+        _ => return None,
+    })
+}
+
+/// What an SVG element takes besides its own geometry: paint, opacity,
+/// motion, identity.
+fn shared(attr: &str) -> bool {
+    matches!(
+        attr,
+        "fill"
+            | "stroke"
+            | "stroke-width"
+            | "stroke-linecap"
+            | "stroke-linejoin"
+            | "stroke-miterlimit"
+            | "stroke-dasharray"
+            | "stroke-dashoffset"
+            | "fill-opacity"
+            | "stroke-opacity"
+            | "fill-rule"
+            | "opacity"
+            | "color"
+            | "transform"
+            | "transform-origin"
+            | "transform-box"
+            | "translate"
+            | "rotate"
+            | "scale"
+            | "visibility"
+            | "display"
+            | "paint-order"
+            | "clip-path"
+            | "clip-rule"
+            | "mask"
+            | "filter"
+            | "flood-color"
+            | "flood-opacity"
+            | "lighting-color"
+            | "color-interpolation-filters"
+            | "mix-blend-mode"
+            | "isolation"
+            | "font-size"
+            | "font-weight"
+            | "font-style"
+            | "font-family"
+            | "letter-spacing"
+            | "text-anchor"
+            | "dominant-baseline"
+            | "pointer-events"
+            | "marker"
+            | "marker-start"
+            | "marker-mid"
+            | "marker-end"
+            | "animation"
+            | "-exact-animation-trigger"
+            | "transition"
+            | "testId"
+            | "id"
+    )
+}
+
+/// A named refusal for an SVG tag outside the subset.
+pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
+    Some(match tag {
+        "text" | "tspan" | "textPath" => {
+            "text inside `svg` is refused; put a `text` beside the `svg`"
+        }
+        "image" | "feImage" => "not in Exact's SVG yet",
+        "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
+            "refused: Chrome does not implement it"
+        }
+        "animate" | "animateTransform" | "animateMotion" | "set" => {
+            "SMIL is refused: declare `keyframes` and set `animation`"
+        }
+        _ => return None,
+    })
+}
+
+impl Lowerer<'_> {
+    /// Every `keyframes` declaration to a plan row of CSS text, validated by
+    /// the evaluator that will sample it.
+    pub(crate) fn declare_keyframes(&mut self, file: &File) -> Vec<LowerError> {
+        let mut errors = Vec::new();
+        for decl in &file.keyframes {
+            if self.keyframes.contains_key(&decl.name) {
+                errors.push(LowerError {
+                    id: "lower-keyframes-duplicate",
+                    message: format!("`keyframes {}` is declared twice", decl.name),
+                    span: decl.span,
+                });
+                continue;
+            }
+            let mut css = String::new();
+            let mut ok = true;
+            for frame in &decl.frames {
+                let selectors: Vec<String> = frame
+                    .selectors
+                    .iter()
+                    .map(|s| format!("{}%", exact_num::Shortest(*s)))
+                    .collect();
+                css.push_str(&selectors.join(","));
+                css.push('{');
+                for a in &frame.attrs {
+                    // `border-color` is its four sides'.
+                    let sides = [
+                        "border-top-color",
+                        "border-right-color",
+                        "border-bottom-color",
+                        "border-left-color",
+                    ];
+                    let names: &[&str] = match a.name.as_str() {
+                        "border-color" => &sides,
+                        name => &[name],
+                    };
+                    let known = a.name == "animation-timing-function"
+                        || names.iter().all(|n| {
+                            Property::from_author_name(n).is_some_and(|p| p != Property::Height)
+                        });
+                    if let (false, Some(new)) = (known, crate::tags::renamed(&a.name)) {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframe-property",
+                            message: format!("`{}` is spelled `{new}`", a.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    if !known {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframe-property",
+                            message: format!(
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke, font-weight, font-stretch, font-variation-settings and animation-timing-function",
+                                a.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    // A literal, or a palette function of literal arguments
+                    // folded to one.
+                    let Some(value) = crate::keyframes::constant(&a.value, &file.fns) else {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!(
+                                "`{}` in `keyframes {}` is a number or a string known when the app compiles: written, or returned by a function of literal arguments",
+                                a.name, decl.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    };
+                    // A motion token the fold returned.
+                    let value =
+                        crate::motion::folded(&a.name, &value, &crate::theme::motion_tokens())
+                            .unwrap_or(value);
+                    // A keyframe value is checked as an
+                    // attribute's is: an old spelling, and a bare role in a
+                    // colour, are refused with their new names.
+                    let rows = match crate::tags::attr(&a.name) {
+                        Some(crate::tags::AttrTarget::Styles(rows)) => rows,
+                        _ => &[],
+                    };
+                    let colour = names.iter().any(|n| {
+                        Property::from_author_name(n)
+                            .is_some_and(|p| p.is_color() || p == Property::BoxShadow)
+                    });
+                    if a.name == "scale" && value.split_whitespace().nth(1).is_some() {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!("`scale=\"{value}\"` in `keyframes {}`: exact2's `scale` is one factor for both axes, here and on a row; a per-axis scale is not built. A bar can grow by `translate` inside a box that clips (`overflow=\"hidden\"`)", decl.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    // A design token is the colour it stands for.
+                    let value = match colour.then(|| crate::keyframes::tokens(&value, &self.theme))
+                    {
+                        None => value,
+                        Some(Ok(resolved)) => resolved,
+                        Some(Err(why)) => {
+                            ok = false;
+                            errors.push(LowerError {
+                                id: "lower-keyframes",
+                                message: format!("`{}=\"{value}\"` in `keyframes {}`: {why}; animate an opacity layer of each colour instead", a.name, decl.name),
+                                span: a.span,
+                            });
+                            continue;
+                        }
+                    };
+                    let hint = crate::style_names::renamed_token(&value, rows)
+                        .map(|(old, new)| format!("`{old}` is spelled `{new}`"))
+                        .or_else(|| {
+                            colour
+                                .then(|| crate::edits::role_hint(&value, true))
+                                .flatten()
+                                .map(|edit| edit.clause())
+                        });
+                    if let Some(hint) = hint {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!(
+                                "`{}=\"{value}\"` in `keyframes {}`: {hint}",
+                                a.name, decl.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    for name in names {
+                        css.push_str(&format!("{name}:{value};"));
+                    }
+                }
+                css.push('}');
+            }
+            if !ok {
+                continue;
+            }
+            match Keyframes::parse(&css) {
+                Ok(rule) => {
+                    self.b.keyframes(&decl.name, &rule.css());
+                    self.keyframes.insert(decl.name.clone(), rule.properties());
+                }
+                Err(e) => errors.push(LowerError {
+                    id: "lower-keyframes",
+                    message: match e {
+                        // The axes interpolate one by one.
+                        exact_motion::ParseError::InvalidAnimation(
+                            exact_motion::AnimationError::NotAnimatable(
+                                Property::FontVariationSettings,
+                            ),
+                        ) => format!(
+                            "`keyframes {}`: every keyframe that sets `font-variation-settings` names the same axes, which interpolate one by one",
+                            decl.name
+                        ),
+                        e => format!("`keyframes {}`: {e:?}", decl.name),
+                    },
+                    span: decl.span,
+                }),
+            }
+        }
+        errors
+    }
+
+    /// SVG attribute placement and animation names, after the content check.
+    pub(crate) fn check_svg(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[Attr],
+    ) -> Result<(), LowerError> {
+        let in_svg = in_svg(self.svg_depth > 0, parent_tag);
+        check_svg_attrs_with(tag, in_svg, attrs, &|a| {
+            if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
+                self.check_animation_names(tag, &a.value)?;
+            }
+            if a.name == "animation" && timeline_bound(attrs) {
+                self.check_timeline_rows(&a.value)?;
+            }
+            if a.name == "-exact-exit-animation" {
+                exit_ends(&a.value)?;
+            }
+            Ok(())
+        })
+    }
+
+    fn check_animation_names(&self, tag: &str, value: &Expr) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(text, span) => {
+                let Ok(list) = Animations::parse(text) else {
+                    return Ok(()); // the row's own check names the grammar
+                };
+                for a in &list.0 {
+                    let Some(properties) = self.keyframes.get(&a.name) else {
+                        return err(
+                            "lower-animation-name",
+                            format!(
+                                "`animation` names `{}`, and no `keyframes {}` is declared",
+                                a.name, a.name
+                            ),
+                            *span,
+                        );
+                    };
+                    // An SVG element's transform animates as CSS says;
+                    // `r` is a circle's alone.
+                    if properties.contains(&Property::R)
+                        && !matches!(tag, "circle")
+                        && is_element(tag)
+                    {
+                        return err(
+                            "lower-animation-target",
+                            format!(
+                                "`keyframes {}` animates `r`, which only a `circle` has",
+                                a.name
+                            ),
+                            *span,
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                self.check_animation_names(tag, yes)?;
+                self.check_animation_names(tag, no)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// A timeline-bound animation animates paint rows only: what a
+    /// compositor applies (opacity and the transform rows) or a
+    /// paint pass repaints (the colours and `box-shadow`). A
+    /// layout or geometry row would lay the page out in every frame the
+    /// source moves, which v1 does not take. A timeline spans the whole
+    /// animation, so an endless one is refused too: CSS would show its end
+    /// at every position, and the hosts hold its start.
+    fn check_timeline_rows(&self, value: &Expr) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(text, span) => {
+                let Ok(list) = Animations::parse(text) else {
+                    return Ok(());
+                };
+                for a in &list.0 {
+                    if a.iterations.is_infinite() {
+                        return err(
+                            "lower-timeline-endless",
+                            format!(
+                                "`{}` repeats forever, and this `animation` follows an `animation-timeline`: a timeline spans an animation's whole length, so it must end",
+                                a.name
+                            ),
+                            *span,
+                        );
+                    }
+                    let unpainted = self.keyframes.get(&a.name).and_then(|properties| {
+                        properties.iter().copied().find(|p| {
+                            !matches!(
+                                p,
+                                Property::Opacity
+                                    | Property::Translate
+                                    | Property::Scale
+                                    | Property::Rotate
+                            ) && !Property::PAINT.contains(p)
+                        })
+                    });
+                    if let Some(p) = unpainted {
+                        return err(
+                            "lower-timeline-row",
+                            format!(
+                                "`keyframes {}` animates `{}`, and this `animation` follows an `animation-timeline`: a timeline drives paint rows only (opacity, translate, scale, rotate, the colours, box-shadow), never layout or geometry",
+                                a.name,
+                                p.name()
+                            ),
+                            *span,
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                self.check_timeline_rows(yes)?;
+                self.check_timeline_rows(no)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// `animation` and its longhands as one `animation` attribute, or `None`
+    /// when no longhand is set. A longhand overrides the
+    /// shorthand's part whatever the order (a Contract rule; CSS goes by
+    /// declaration order). Literal lists follow CSS: the names set the count
+    /// and other lists repeat to it. A computed part makes one animation.
+    pub(crate) fn compose_animation(
+        &self,
+        attrs: &[Attr],
+    ) -> Result<Option<Vec<Attr>>, LowerError> {
+        let longs: Vec<&Attr> = attrs
+            .iter()
+            .filter(|a| LONGHANDS.contains(&a.name.as_str()))
+            .collect();
+        let Some(first) = longs.first() else {
+            return Ok(None);
+        };
+        let short = attrs.iter().find(|a| a.name == "animation");
+        let literal = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..));
+        // A list's items: its commas outside parentheses, so an easing
+        // function (`cubic-bezier(0.2, 0, 0, 1)`) is one.
+        let items = |text: &str| -> Vec<String> {
+            let (mut out, mut depth, mut start) = (Vec::new(), 0usize, 0);
+            for (i, c) in text.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth = depth.saturating_sub(1),
+                    ',' if depth == 0 => {
+                        out.push(text[start..i].trim().to_string());
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            out.push(text[start..].trim().to_string());
+            out
+        };
+        let text = |e: &Expr| match e {
+            Expr::Str(s, _) => s.clone(),
+            Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+            _ => String::new(),
+        };
+        let bad = |span: Span, message: String| LowerError {
+            id: "lower-animation-longhand",
+            message,
+            span,
+        };
+        let base: Vec<Animation> = match short {
+            Some(s) if literal(&s.value) => Animations::parse(&text(&s.value))
+                .map_err(|e| bad(s.span, format!("`animation`: {e:?}")))?
+                .0,
+            Some(s) => {
+                return Err(bad(
+                    s.span,
+                    "a computed `animation` cannot be combined with longhands: write every part as a longhand".into(),
+                ))
+            }
+            None => Vec::new(),
+        };
+        let value = if short.is_none_or(|s| literal(&s.value))
+            && longs.iter().all(|a| literal(&a.value))
+        {
+            let mut list = base;
+            if let Some(names) = longs.iter().find(|a| a.name == "animation-name") {
+                let names: Vec<String> = items(&text(&names.value));
+                list = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let mut a = list.get(i).cloned().unwrap_or_default();
+                        a.name = n.clone();
+                        a
+                    })
+                    .collect();
+            }
+            for a in longs.iter().filter(|a| a.name != "animation-name") {
+                let items: Vec<String> = items(&text(&a.value));
+                for (i, entry) in list.iter_mut().enumerate() {
+                    entry
+                        .set_longhand(&a.name, &items[i % items.len()])
+                        .map_err(|e| bad(a.span, format!("`{}`: {e:?}", a.name)))?;
+                }
+            }
+            list.retain(|a| a.name != "none");
+            Expr::Str(Animations(list).css(), first.span)
+        } else {
+            // One animation, its parts in shorthand order; a literal list
+            // cannot be combined with a computed part.
+            let defaults = base.into_iter().next().unwrap_or_default();
+            let mut parts = Vec::new();
+            for (i, name) in LONGHANDS.iter().enumerate() {
+                if i > 0 {
+                    parts.push(TemplatePart::Text(" ".into()));
+                }
+                match longs.iter().find(|a| a.name == *name) {
+                    Some(a) if literal(&a.value) && items(&text(&a.value)).len() > 1 => {
+                        return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
+                    }
+                    Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),
+                    Some(a) => parts.push(TemplatePart::Expr(a.value.clone())),
+                    None => parts.push(TemplatePart::Text(default_part(&defaults, i))),
+                }
+            }
+            Expr::Template(parts, first.span)
+        };
+        let mut out: Vec<Attr> = attrs
+            .iter()
+            .filter(|a| a.name != "animation" && !LONGHANDS.contains(&a.name.as_str()))
+            .cloned()
+            .collect();
+        out.push(Attr {
+            name: "animation".into(),
+            value,
+            span: first.span,
+            written: longs.iter().chain(short.iter()).any(|a| a.written),
+        });
+        Ok(Some(out))
+    }
+}
+
+/// [`Lowerer::check_svg`]'s content model and attribute placement, for a
+/// node `in_svg` or not under `parent_tag`, each attribute's motion checks
+/// by `animation` (the keyframes' own): the design server's write check
+/// calls it too (`theme::scan`), so it keeps no row of an element lowering
+/// refuses here.
+pub(crate) fn check_svg_with(
+    tag: &str,
+    in_svg: bool,
+    parent_tag: Option<&str>,
+    attrs: &[Attr],
+    span: Span,
+    animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    check_svg_content(tag, in_svg, parent_tag, span)?;
+    check_svg_attrs_with(tag, in_svg, attrs, animation)
+}
+
+/// Refuse an invalid SVG structure before checking its attributes.
+pub(crate) fn check_svg_content(
+    tag: &str,
+    in_svg: bool,
+    parent_tag: Option<&str>,
+    span: Span,
+) -> Result<(), LowerError> {
+    // A nested `svg` is an SVG element (a new viewport),
+    // and so is `text` inside one.
+    let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
+    if let Some(parent) = parent_tag.filter(|_| in_svg) {
+        if !holds(parent, tag) {
+            return err(
+                "lower-svg-content",
+                format!("`{parent}` does not hold `{tag}`"),
+                span,
+            );
+        }
+    }
+    if tag != "svg" && is_element(tag) && !in_svg {
+        return err(
+            "lower-svg-content",
+            format!("`{tag}` is an SVG element: it goes inside an `svg` or a `g`"),
+            span,
+        );
+    }
+    if in_svg && !element {
+        return err(
+            "lower-svg-content",
+            format!(
+                "an `svg` or `g` holds SVG elements (svg, g, path, polyline, polygon, circle, ellipse, line, rect), not `{tag}`"
+            ),
+            span,
+        );
+    }
+    Ok(())
+}
+
+fn check_svg_attrs_with(
+    tag: &str,
+    in_svg: bool,
+    attrs: &[Attr],
+    animation: &dyn Fn(&Attr) -> Result<(), LowerError>,
+) -> Result<(), LowerError> {
+    let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
+    for a in attrs {
+        // A module tag's own prop named like an SVG attribute (`fx`)
+        // is the module's.
+        if crate::native::leftover(tag, a) {
+            continue;
+        }
+        // A `clipPath` by reference clips SVG elements;
+        // a box's `clip-path` is a path.
+        if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
+            return err(
+                "lower-svg-attr",
+                "per-glyph `rotate` on SVG text is a later stage; rotate the `text` with `transform`",
+                a.span,
+            );
+        }
+        // Blending is SVG elements' so far: a
+        // native box would draw it unblended.
+        if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` applies to SVG elements; boxes do not blend yet",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        if a.name == "clip-path"
+            && !element
+            && matches!(&a.value, Expr::Str(v, _) if v.trim_start().starts_with("url("))
+        {
+            return err(
+                "lower-attr-value",
+                "`clip-path: url(#…)` clips SVG elements; a box takes `path(\"…\")`",
+                a.span,
+            );
+        }
+        if let Some(owners) = owners(&a.name) {
+            if !owners.contains(&tag) {
+                return err(
+                    "lower-attr-tag",
+                    format!(
+                        "`{}` belongs to {}, not `{tag}`",
+                        a.name,
+                        owners.join(" or ")
+                    ),
+                    a.span,
+                );
+            }
+        } else if element
+            && !shared(&a.name)
+            // An element that renders handles
+            // events: the host hits it by `pointer-events`.
+            && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
+                && !matches!(
+                    tag,
+                    "defs"
+                        | "linearGradient"
+                        | "radialGradient"
+                        | "stop"
+                        | "symbol"
+                        | "clipPath"
+                        | "marker"
+                        | "mask"
+                        | "pattern"
+                        | "filter"
+                        | "tspan"
+                ) && !FE.contains(&tag))
+            && !((matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject" | "filter")
+                || (FE.contains(&tag) && !tag.starts_with("feFunc") && !tag.ends_with("Light") && tag != "feMergeNode"))
+                && matches!(a.name.as_str(), "width" | "height"))
+            && !(matches!(tag, "use" | "linearGradient" | "radialGradient" | "pattern")
+                && a.name == "href")
+            && !(tag == "svg"
+                && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
+            && !(FE.contains(&tag) && (is_length_prop(&a.name) || a.name == "type"))
+        {
+            let why = if matches!(
+                tags::attr(&a.name),
+                Some(tags::AttrTarget::Handler("press"))
+            ) {
+                "a definition handles no events: it renders only where it is referenced"
+            } else if matches!(
+                tags::attr_valued(&a.name, &a.value),
+                Some(tags::AttrTarget::Handler(_))
+            ) {
+                "an SVG element takes `press` so far; its other handlers are a later stage"
+            } else {
+                "it does not apply to an SVG element"
+            };
+            return err(
+                "lower-svg-attr",
+                format!("`{}` on `{tag}`: {why}", a.name),
+                a.span,
+            );
+        }
+        let length = match a.name.as_str() {
+            "textX" => Some("x"),
+            "textY" => Some("y"),
+            "textDx" => Some("dx"),
+            "textDy" => Some("dy"),
+            "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "markerWidth" | "markerHeight"
+            | "refX" | "refY" => Some(a.name.as_str()),
+            _ => None,
+        };
+        if let Some(name) = length.filter(|_| element) {
+            check_length(name, &a.value)?;
+        }
+        animation(a)?;
+    }
+    Ok(())
+}
+
+/// Whether a node's animations follow a named timeline: any
+/// `animation-timeline` but a literal `auto` or a clock timeline, which
+/// keeps them on the clock.
+fn timeline_bound(attrs: &[Attr]) -> bool {
+    attrs.iter().any(|a| {
+        a.name == "animation-timeline"
+            && !matches!(&a.value, Expr::Str(v, _)
+                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("-exact-clock("))
+    })
+}
+
+/// An `-exact-exit-animation` must end: its node is removed when it
+/// does, so an `infinite` or `paused` literal is refused here.
+fn exit_ends(value: &Expr) -> Result<(), LowerError> {
+    match value {
+        Expr::Str(text, span) => match Animations::parse(text) {
+            Ok(list) if list.validate_ending().is_err() => err(
+                "lower-exit-endless",
+                "an `-exact-exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
+                *span,
+            ),
+            _ => Ok(()),
+        },
+        Expr::Ternary(_, yes, no, _) => {
+            exit_ends(yes)?;
+            exit_ends(no)
+        }
+        _ => Ok(()),
+    }
+}
+
+// These props bypass CSS length resolution. NUL represents only unknown text;
+// literal neighbors, including empty strings and separators, stay intact.
+fn length_text(value: &Expr, bindings: &[(&str, &Expr)], budget: &Cell<usize>) -> String {
+    if budget.get() == 0 {
+        return "\0".into();
+    }
+    budget.set(budget.get() - 1);
+    match value {
+        Expr::Str(text, _) => text.clone(),
+        Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+        Expr::Ident(name, _) => bindings
+            .iter()
+            .rposition(|(bound, _)| *bound == name)
+            .map(|i| length_text(bindings[i].1, &bindings[..i], budget))
+            .unwrap_or_else(|| "\0".into()),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Text(text) => text.clone(),
+                TemplatePart::Expr(value) => length_text(value, bindings, budget),
+            })
+            .collect(),
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            crate::keyframes::constant(value, &[]).unwrap_or_else(|| {
+                length_text(a, bindings, budget) + &length_text(b, bindings, budget)
+            })
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((name, value));
+            length_text(body, &bindings, budget)
+        }
+        Expr::Typed(body, ..) => length_text(body, bindings, budget),
+        _ => "\0".into(),
+    }
+}
+
+fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+    // Shared derives can expand exponentially. Stop static inspection after a
+    // bounded number of visits; larger expressions stay unchecked like dynamic inputs.
+    check_length_fragment(name, value, "", "", &[], &Cell::new(4096))
+}
+
+fn check_length_fragment(
+    name: &str,
+    value: &Expr,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
+    budget: &Cell<usize>,
+) -> Result<(), LowerError> {
+    check_length_choices(name, value, prefix, suffix, bindings, budget)?;
+    let text = format!("{prefix}{}{suffix}", length_text(value, bindings, budget));
+    if budget.get() == 0 {
+        return Ok(());
+    }
+    check_length_text(name, &text, value.span())
+}
+
+// Splice one choice at a time into its literal neighbors. Other independent
+// choices remain unknown, so the work does not enumerate their combinations.
+fn check_length_choices(
+    name: &str,
+    value: &Expr,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
+    budget: &Cell<usize>,
+) -> Result<(), LowerError> {
+    if budget.get() == 0 {
+        return Ok(());
+    }
+    budget.set(budget.get() - 1);
+    match value {
+        Expr::Ternary(_, yes, no, _)
+        | Expr::Match {
+            some: yes,
+            none: no,
+            ..
+        } => {
+            check_length_fragment(name, yes, prefix, suffix, bindings, budget)?;
+            check_length_fragment(name, no, prefix, suffix, bindings, budget)
+        }
+        Expr::Ident(bound, _) => {
+            if let Some(i) = bindings.iter().rposition(|(name, _)| *name == bound) {
+                check_length_choices(name, bindings[i].1, prefix, suffix, &bindings[..i], budget)?;
+            }
+            Ok(())
+        }
+        Expr::Let {
+            name: bound,
+            value,
+            body,
+            ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((bound, value));
+            check_length_choices(name, body, prefix, suffix, &bindings, budget)
+        }
+        Expr::Typed(body, ..) => check_length_choices(name, body, prefix, suffix, bindings, budget),
+        Expr::Template(parts, _) => {
+            let text: Vec<_> = parts
+                .iter()
+                .map(|part| match part {
+                    TemplatePart::Text(text) => text.clone(),
+                    TemplatePart::Expr(value) => length_text(value, bindings, budget),
+                })
+                .collect();
+            for (i, part) in parts.iter().enumerate() {
+                if let TemplatePart::Expr(value) = part {
+                    check_length_choices(
+                        name,
+                        value,
+                        &format!("{prefix}{}", text[..i].concat()),
+                        &format!("{}{suffix}", text[i + 1..].concat()),
+                        bindings,
+                        budget,
+                    )?;
+                }
+            }
+            Ok(())
+        }
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            check_length_choices(
+                name,
+                a,
+                prefix,
+                &format!("{}{suffix}", length_text(b, bindings, budget)),
+                bindings,
+                budget,
+            )?;
+            check_length_choices(
+                name,
+                b,
+                &format!("{prefix}{}", length_text(a, bindings, budget)),
+                suffix,
+                bindings,
+                budget,
+            )
+        }
+        _ => Ok(()),
+    }
+}
+
+fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerError> {
+    use exact_kernel::svg::Length;
+
+    let keywords: &[&str] = match name {
+        "refX" => &["left", "center", "right"],
+        "refY" => &["top", "center", "bottom"],
+        _ => &[],
+    };
+    if keywords.contains(&text.trim_matches(|c: char| c == '\0' || c.is_whitespace())) {
+        return Ok(());
+    }
+    let refuse = |value: &str| {
+        err(
+            "lower-svg-length",
+            format!("`{value}` on SVG `{name}` is refused: use user units (unitless), px, in, cm, mm, pt, pc or %"),
+            span,
+        )
+    };
+    if let Some((before, _)) = text.split_once('(') {
+        let before = before.trim_end();
+        let start = before
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '-')
+            .len();
+        return refuse(&format!("{}()", &before[start..]));
+    }
+    for word in text.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
+        let mut fragments = word.split('\0').peekable();
+        let mut after_unknown = false;
+        while let Some(fragment) = fragments.next() {
+            let start = fragment
+                .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+                .len();
+            let unit = &fragment[start..];
+            let open_start = after_unknown && start == 0;
+            let open_end = fragments.peek().is_some();
+            after_unknown = true;
+            if unit.is_empty() || Length::parse(&format!("1{unit}")).is_some() {
+                continue;
+            }
+            // A trailing e can become an exponent only across unknown text.
+            if open_end
+                && matches!(unit, "e" | "E")
+                && (open_start || exact_num::parse_f64(&fragment[..start]).is_ok())
+            {
+                continue;
+            }
+            let unit = unit.to_ascii_lowercase();
+            let completes = |known: &str| match (open_start, open_end) {
+                (true, true) => known.contains(&unit),
+                (true, false) => known.ends_with(&unit),
+                (false, true) => known.starts_with(&unit),
+                (false, false) => false,
+            };
+            if Length::ABSOLUTE_UNITS
+                .iter()
+                .any(|(known, _)| completes(known))
+                || keywords.iter().any(|known| completes(known))
+            {
+                continue;
+            }
+            return refuse(&fragment[start..]);
+        }
+    }
+    Ok(())
+}
+
+/// SVG length props take text: a number literal becomes
+/// its text and any other expression is interpolated, so `x1=10`,
+/// `x1="50%"` and `x1=gridX` all lower. `None` when nothing changes.
+pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
+    // Only an SVG element's attributes are SVG lengths: on a box or a
+    // native module's tag a same-named attribute is left as
+    // written (`mode=` on `exact-fixture` is the module's, not feBlend's).
+    if !(is_element(tag) || tag == "svg" || (tag == "text" && in_svg)) {
+        return None;
+    }
+    coerce(tag, in_svg, attrs)
+}
+
+fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
+    // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
+    // rows: they lower to their own props.
+    let text = tag == "tspan" || (tag == "text" && in_svg);
+    // A primitive's `dx`, `dy`, `scale` and
+    // `order`, and a light's `x`, `y`, `z`, are props: the plain names are
+    // rows.
+    if FE.contains(&tag) {
+        let light = tag.ends_with("Light");
+        let renamed: Vec<Attr> = attrs
+            .iter()
+            .map(|a| {
+                let name = match a.name.as_str() {
+                    "dx" => "feDx",
+                    "dy" => "feDy",
+                    "scale" => "feScale",
+                    "radius" => "feRadius",
+                    // CSS `order` is a flex or grid item's.
+                    "order" => "feOrder",
+                    "x" if light => "lightX",
+                    "y" if light => "lightY",
+                    "z" if light => "lightZ",
+                    other => other,
+                };
+                Attr {
+                    name: name.into(),
+                    ..a.clone()
+                }
+            })
+            .collect();
+        let coerced = coerce("g", in_svg, &renamed);
+        return Some(coerced.unwrap_or(renamed));
+    }
+    if text {
+        let renamed: Vec<Attr> = attrs
+            .iter()
+            .map(|a| {
+                let name = match a.name.as_str() {
+                    "x" => "textX",
+                    "y" => "textY",
+                    "dx" => "textDx",
+                    "dy" => "textDy",
+                    other => other,
+                };
+                Attr {
+                    name: name.into(),
+                    ..a.clone()
+                }
+            })
+            .collect();
+        let coerced = coerce("", false, &renamed);
+        return Some(coerced.unwrap_or(renamed));
+    }
+    let svg = is_element(tag) || tag == "svg";
+    // A geometry property's presentation attribute is a unitless number
+    // (`y="46"`), which CSS's grammar for the row would refuse.
+    let unitless = |a: &Attr| {
+        svg && matches!(
+            a.name.as_str(),
+            "x" | "y" | "rx" | "ry" | "cx" | "cy" | "r" | "width" | "height"
+        ) && matches!(&a.value, Expr::Str(t, _) if exact_num::parse_f64(t.trim()).is_ok_and(f64::is_finite))
+    };
+    if !attrs
+        .iter()
+        .any(|a| unitless(a) || (is_length_prop(&a.name) && !matches!(a.value, Expr::Str(..))))
+    {
+        return None;
+    }
+    Some(
+        attrs
+            .iter()
+            .map(|a| {
+                if unitless(a) {
+                    let Expr::Str(t, span) = &a.value else {
+                        unreachable!("unitless is a string")
+                    };
+                    return Attr {
+                        value: Expr::Number(exact_num::parse_f64(t.trim()).unwrap_or(0.0), *span),
+                        ..a.clone()
+                    };
+                }
+                if !is_length_prop(&a.name) {
+                    return a.clone();
+                }
+                let value = match &a.value {
+                    Expr::Str(..) => a.value.clone(),
+                    Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
+                    other => Expr::Template(vec![TemplatePart::Expr(other.clone())], a.span),
+                };
+                Attr { value, ..a.clone() }
+            })
+            .collect(),
+    )
+}
+
+/// One longhand's text from an animation (for a composed template).
+fn default_part(a: &Animation, index: usize) -> String {
+    match index {
+        0 => {
+            if a.name.is_empty() {
+                "none".into()
+            } else {
+                a.name.clone()
+            }
+        }
+        1 => format!("{}s", exact_num::Shortest(a.duration)),
+        2 => exact_motion::animation::easing_css(&a.easing),
+        3 => format!("{}s", exact_num::Shortest(a.delay)),
+        4 => {
+            if a.iterations.is_infinite() {
+                "infinite".into()
+            } else {
+                exact_num::Shortest(a.iterations).to_string()
+            }
+        }
+        5 => a.direction.name().into(),
+        6 => a.fill.name().into(),
+        _ => if a.paused { "paused" } else { "running" }.into(),
+    }
+}

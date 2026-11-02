@@ -1,0 +1,39 @@
+// A child whose prop holds a number that is not finite: its actions still
+// run. A captured prop is the compiler's argument to the lifted action,
+// not the host's, so it is not held to the boundary's finiteness; an
+// action that reads it computes with it as an expression does.
+component App
+  state d = 1
+  action zero
+    d = 0
+  view
+    column
+      button "zero" press=zero testId="zero"
+      Meter(ratio=1 / d, odd=d / d)
+
+component Meter
+  props
+    ratio: number
+    odd: number
+  state taps = 0
+  state big = false
+  state same = true
+  action tap
+    taps = taps + 1
+  action check
+    big = ratio > 1
+    same = odd == odd
+  view
+    column
+      button "tap" press=tap testId="tap"
+      button "check" press=check testId="check"
+      text `${taps} ${big} ${same}` testId="meter"
+
+test "a non-finite prop refuses no action"
+  tap "check"
+  expect text "meter" == "0 false true"
+  tap "zero"
+  tap "tap"
+  expect text "meter" == "1 false true"
+  tap "check"
+  expect text "meter" == "1 true false"

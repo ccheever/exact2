@@ -1,0 +1,246 @@
+//! Actual Chrome history, the real glue and runner.
+use exact_runner::{DataError, DataSource, Value};
+use std::path::Path;
+use std::process::Command;
+
+#[derive(Default)]
+struct Empty;
+impl DataSource for Empty {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::list(vec![]))
+    }
+}
+
+#[test]
+fn incoming_notification_locations_use_the_route_corpus_through_the_web_abi() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
+    let mut bridge = exact_web::abi::Bridge::<caltrain_data::Caltrain>::new();
+    for section in ["location_of", "canonical"] {
+        for case in corpus[section].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let href = if section == "canonical" {
+                format!(
+                    "https://x{}{input}",
+                    if input.starts_with('/') { "" } else { "/" }
+                )
+            } else {
+                input.to_owned()
+            };
+            let count = bridge.input_write(href.as_bytes());
+            let len = bridge.location_of(count);
+            let location = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+            // A canonical case through a URL keeps its fragment,
+            // which its canonical form drops.
+            let location = match section {
+                "canonical" => location.split('#').next().unwrap_or_default(),
+                _ => location,
+            };
+            assert_eq!(location, case["expected"].as_str().unwrap(), "{href}");
+        }
+    }
+}
+
+/// Real Chrome sweep, run by `bun scripts/smoke.mjs web`: the wasm host.
+#[test]
+#[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
+fn browser_session_history_and_published_deep_locations() {
+    sweep(false);
+}
+
+/// The same sweep on the JS target: each plan a JS build.
+#[test]
+#[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
+fn browser_session_history_on_the_js_target() {
+    sweep(true);
+}
+
+fn sweep(js: bool) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dist = std::env::var_os("EXACT_ROUTER_DIST")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("host/web/dist"));
+    assert!(
+        js || dist.join("app.wasm").exists(),
+        "build the web dist first"
+    );
+    // The history fixture retains the corpus's route value, actions and
+    // projection. Its data is constant so the Caltrain carrier needs no app
+    // sources; the Back counter and refusal are authored Contract state.
+    let source = include_str!("../../../../contract/corpus/routes.contract")
+        .replace("  notfound", "  other \"/other\"\n  notfound")
+        .replace("params(nav, \"question\")", "")
+        .replace("params(nav, \"post\")", "")
+        .replace("params(nav, \"person\")", "")
+        .replace(
+            "  state initialUrl",
+            "  state blurPresses = 0\n  action editorBlur\n    blurPresses = blurPresses + 1\n  state initialUrl",
+        )
+        .replace(
+            "  state initialUrl",
+            "  state redirectLink = false\n  state followEnabled = true\n  state navigatePresses = 0\n  state backEnabled = true\n  state backReplacement = false\n  state backPresses = 0\n  state initialUrl",
+        )
+        // Every attribute that navigates, given a script URL: a literal
+        // `link href`, an inline run's `href` and an iframe's `src` bound
+        // to data (the tab hides the scheme from a naive prefix check).
+        .replace(
+            "  state initialUrl",
+            "  state scriptURL = \"java\\tscript:parent.scriptProbe++\"\n  state initialUrl",
+        )
+        .replace(
+            "          if e.name == \"home\"\n",
+            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          if e.name == \"home\"\n",
+        )
+        .replace(
+            "          if e.name == \"home\"\n            text \"Home\"\n",
+            "          if e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+        )
+        // A `data:` document shows in a sandbox without `allow-same-origin`
+        // and nowhere else: a literal or bound source, under a
+        // literal or bound sandbox that `flipFrame` opens and closes. A
+        // flipped one posts its letter from the opaque origin (a post at
+        // boot can come before the wasm host hears input, which drops it).
+        .replace(
+            "  state initialUrl",
+            "  state frameSandbox = \"allow-same-origin\"\n  state frameDoc = \"data:text/html,<script>parent.postMessage('b','*')</script>\"\n  state frameHref = \"/post/42\"\n  state frameHeard = \"\"\n  state httpHeard = 0\n  action heardHTTP(m: string)\n    httpHeard = httpHeard + 1\n  action flipFrame\n    frameSandbox = frameSandbox == \"allow-scripts\" ? \"allow-same-origin\" : \"allow-scripts\"\n  action restrictFrame\n    frameSandbox = \"\"\n  action clearFrameLink\n    frameHref = \"\"\n  action heardFrame(m: string)\n    frameHeard = `${frameHeard}${m}`\n  state initialUrl",
+        )
+        .replace(
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n            iframe \"data:text/html,<p>s</p>\" sandbox=\"allow-scripts\" width=40 height=20 testId=`data-frame-${e.id}`\n            iframe \"data:text/html,x\" width=40 height=20 testId=`data-bare-${e.id}`\n            iframe \"data:text/html,x\" sandbox=\"allow-scripts allow-same-origin\" width=40 height=20 testId=`data-same-${e.id}`\n            iframe \"data:text/html,<script>parent.postMessage('l','*')</script>\" sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-literal-${e.id}`\n            iframe frameDoc sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-bound-${e.id}`\n            iframe \"/__test-guest\" sandbox=frameSandbox message=heardHTTP width=40 height=20 testId=`http-frame-${e.id}`\n            button press=flipFrame testId=`flip-frame-${e.id}`\n              text \"Flip frame\"\n            button press=restrictFrame testId=`restrict-frame-${e.id}`\n              text \"Restrict frame\"\n            link href=frameHref testId=`empty-frame-link-${e.id}`\n              text \"Frame link\"\n            button press=clearFrameLink testId=`clear-frame-link-${e.id}`\n              text \"Clear frame link\"\n",
+        )
+        .replace(
+            "  action followLink(url: string)\n    nav = go(nav, url)",
+            "  action followLink(url: string)\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink\n    redirectLink = true\n  action refuseLink\n    followEnabled = false",
+        )
+        .replace(
+            "  action back\n    nav = back(nav)",
+            "  action back\n    backPresses = backPresses + 1\n    if backReplacement\n      nav = replace(back(nav), \"/?from=back\")\n    else\n      nav = back(nav)\n  action replaceBack\n    backReplacement = true\n  action refuseBack\n    backEnabled = false",
+        )
+        .replace(
+            "          button appearance=\"none\" id=\"back\"",
+            "          textarea blur=editorBlur testId=`editor-${e.id}` height=32\n          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button appearance=\"none\" id=\"back\"",
+        )
+        .replace("button appearance=\"none\" id=\"back\" press=back", "button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back")
+        // A screen with no Back control: browser Back still goes back.
+        .replace(
+            "          button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n            text \"Back\"\n",
+            "          if e.name != \"notifications\"\n            button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n              text \"Back\"\n          button press=push(\"/notifications\") testId=`push-notifications-${e.id}` padding=8\n            text \"Push notifications\"\n",
+        )
+        .replace(
+            "          if e.name == \"home\"",
+            "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          if e.name == \"home\"",
+        );
+    assert!(
+        source.contains("textarea blur=editorBlur"),
+        "the corpus Back anchor must install the focus fixture"
+    );
+    let plan = contract::bake(contract::compile(&source).unwrap(), Empty).unwrap();
+    let dir = std::env::temp_dir().join(format!(
+        "exact-router-browser-{}{}",
+        std::process::id(),
+        if js { "-js" } else { "" }
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.plan"), plan.encode()).unwrap();
+    let no_handler = contract::bake(
+        contract::compile(&source.replace(" navigate=followLink", "")).unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
+    // No `notfound` route and a navigation root: the compiler writes the route and its screen, so a
+    // location no route matches keeps its URL and says so.
+    let no_notfound = contract::bake(
+        contract::compile(
+            "routes nav\n  home \"/\"\n    item \"/item/:id\"\n\ncomponent App\n  state backPresses = 0\n  state navigatePresses = 0\n  action back\n    backPresses = backPresses + 1\n    nav = back(nav)\n  action follow(url: string)\n    navigatePresses = navigatePresses + 1\n    nav = go(nav, url)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" navigate=follow testId=\"navigation\" width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          if e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          if e.name == \"item\"\n            text e.params.id testId=\"item\"\n",
+        )
+        .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-notfound.plan"), no_notfound.encode()).unwrap();
+    // No navigation root either: no screen to draw "Page not found" in, so a launch no route matches opens
+    // the first screen, journaled, on every target.
+    let no_root = contract::bake(
+        contract::compile("routes nav\n  home \"/\"\n  about \"/about\"\n\ncomponent App\n  view\n    text top(nav).url testId=\"url\"\n")
+            .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-root.plan"), no_root.encode()).unwrap();
+    // A visit whose `#moves` and `#other` are far down its navigation root,
+    // which scrolls, beside a picture the server is slow to send, and a bar
+    // stuck at its top: links to its fragments, a `go` only computed, one
+    // in a commit that is refused, and the app's own `scrollIntoView`.
+    let rows = |from: usize| -> String {
+        (from..from + 20)
+            .map(|i| format!("            box id=\"row-{i}\" height=100\n"))
+            .collect()
+    };
+    let fragment = r##"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state peeked = ""
+  state blank = ""
+  action follow(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  action peek
+    peeked = fragment(top(go(nav, "/item/7#moves")))
+  action refused
+    nav = go(nav, "/item/7#moves")
+    nav = push(nav, path("item", blank))
+  action aim
+    scrollIntoView("row-3")
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="port" width="100%" height="100%" overflow-y="auto"
+      row position="sticky" top=0 height=40 gap=8 z-index=1 background-color="#ffffff"
+        link href="#moves" testId="to-moves"
+          text "Moves"
+        link href="#other" testId="to-other"
+          text "Other"
+        link href="#top" testId="to-top"
+          text "Top"
+        button press=peek testId="peek"
+          text "Peek"
+        button press=refused testId="refused"
+          text "Refused"
+        button press=aim testId="aim"
+          text "Aim"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}`
+          if e.name == "item"
+            image "/__test-slow.png" id="first" width=10 height=10 display="block"
+ROWS0            box id="moves" height=100
+ROWS20            box id="other" height=100
+ROWS40"##
+        .replace("ROWS0", &rows(0))
+        .replace("ROWS20", &rows(20))
+        .replace("ROWS40", &rows(40));
+    let fragment = contract::bake(contract::compile(&fragment).unwrap(), Empty).unwrap();
+    std::fs::write(dir.join("fragment.plan"), fragment.encode()).unwrap();
+    let accessibility = contract::compile(include_str!(
+        "../../../../contract/corpus/accessibility.contract"
+    ))
+    .unwrap();
+    std::fs::write(dir.join("accessibility.plan"), accessibility.encode()).unwrap();
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .arg("host/web/tests/navigation.mjs")
+        .env("EXACT_ROUTER_DIST", dist)
+        .env("EXACT_ROUTER_TEST", &dir)
+        .env("EXACT_ROUTER_TARGET", if js { "js" } else { "wasm" })
+        .current_dir(root)
+        .output()
+        .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

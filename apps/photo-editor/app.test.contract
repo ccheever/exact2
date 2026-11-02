@@ -1,0 +1,21 @@
+always "ready_stays"
+  expect state ready stays true
+
+after "rotate" "rotate_only_turns"
+  only writes turns
+
+after "reset" "reset_spec"
+  expect state turns == 0
+  expect state resets == old + 1
+
+test "rotate and reset the photo"
+  tap "rotate"
+  tap "reset"
+  tap "rotate"
+  clock data
+
+after "reset" "reset writes only resets turns"
+  only writes resets turns
+
+always "printSize is one of 3 values"
+  expect state printSize in "4x6" "5x7" "8x10"

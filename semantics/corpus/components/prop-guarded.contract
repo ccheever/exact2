@@ -1,0 +1,36 @@
+// A prop read only where a guard holds is never evaluated where it does
+// not: `range(-1)` refuses, and `if shown` and `shown && ...` keep `values`
+// unevaluated until `n` grows. An inliner that binds a prop once per
+// instance must bind only what every path already evaluates.
+component App
+  state n = -1
+  action grow
+    n = n + 2
+  view
+    column
+      Counted(values=range(n), shown=(n >= 0), count=n * 1)
+      button press=grow testId="grow"
+        text "grow"
+
+component Counted
+  props
+    values: number[]
+    shown: bool
+    count: number
+  view
+    column
+      if shown
+        text `${values.length}` testId="len"
+        text `${values.length > 0}` testId="any"
+      text `${shown && values.length > 0}` testId="and"
+      text `${shown && values.length > 0}` testId="and2"
+      text `${count}/${count}` testId="count"
+
+test "an arm not shown evaluates nothing"
+  expect text "count" == "-1/-1"
+  expect text "and" == "false"
+  tap "grow"
+  expect text "len" == "1"
+  expect text "any" == "true"
+  expect text "and2" == "true"
+  expect text "count" == "1/1"

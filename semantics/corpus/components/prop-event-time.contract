@@ -1,0 +1,51 @@
+// A computed prop read more than once follows its argument as the state
+// moves, and a handler's arguments are read when its event comes: `go(level)`
+// reads the state at the tap, and `at`, an argument that reads the clock,
+// saves 1000 for a tap 1000 ms after the view was made, not 0. An inliner
+// that binds a prop once per instance must keep both.
+component App
+  state saved = -1
+  state n = 3
+  action save(x: number)
+    saved = x
+  action inc
+    n = n + 1
+  view
+    column
+      for k in [1, 2] key=k
+        Cell(at=performanceNow() + 0 * k, level=n * 2 + k, band=(n > 3 ? "high" : "low"), go=save)
+      button press=inc testId="inc"
+        text "inc"
+      text `${saved}` testId="saved"
+
+component Cell
+  props
+    at: number
+    level: number
+    band: string
+    go: action
+  view
+    column
+      text `${level}` testId=`level-${band}`
+      text (level > 8 ? "big" : "small") testId=`size-${level}`
+      text `${band}/${band}` testId=`band-${level}`
+      button press=go(at) testId=`at-${level}`
+        text "at"
+      button press=go(at) testId=`at2-${level}`
+        text "at2"
+      button press=go(level) testId=`go-${level}`
+        text "go"
+
+test "a bound prop follows its argument; a handler reads at its event"
+  expect text "size-7" == "small"
+  expect text "band-8" == "low/low"
+  tap "go-7"
+  expect text "saved" == "7"
+  tap "inc"
+  expect text "size-9" == "big"
+  expect text "band-10" == "high/high"
+  clock +1000
+  tap "at-9"
+  expect text "saved" == "1000"
+  tap "at2-10"
+  expect text "saved" == "1000"

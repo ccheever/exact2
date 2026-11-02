@@ -1,0 +1,16 @@
+// A derive that is NaN at boot refuses the boot: nothing is shown and every
+// tap is refused.
+component App
+  state n = 0
+  derive bad = n / n
+  action inc
+    n = n + 1
+  view
+    column
+      text `${n}` testId="n"
+      button "inc" press=inc testId="inc"
+
+test "boot refused"
+  expect tree missing "n"
+  tap "inc"
+  expect tree missing "inc"

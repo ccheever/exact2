@@ -1,0 +1,133 @@
+{
+  "kind": "interface",
+  "name": "@exact/geolocation",
+  "version": "1.0.0",
+  "grants": [
+    "device.geolocation",
+    "device.geolocation-approximate"
+  ],
+  "permission": {
+    "name": "geolocation",
+    "status": "geolocationStatus",
+    "field": "state",
+    "denied": "PERMISSION_DENIED",
+    "allow": {
+      "accuracy": {
+        "device.geolocation": "precise",
+        "device.geolocation-approximate": "approximate"
+      }
+    }
+  },
+  "shapes": {
+    "GeolocationCoordinates": {
+      "latitude": "number",
+      "longitude": "number",
+      "accuracy": "number",
+      "altitude": "option<number>",
+      "altitudeAccuracy": "option<number>",
+      "heading": "option<number>",
+      "speed": "option<number>"
+    },
+    "GeolocationPosition": {
+      "coords": "GeolocationCoordinates",
+      "timestamp": "number",
+      "apple": "option<AppleLocation>",
+      "android": "option<AndroidLocation>"
+    },
+    "GeolocationStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "accuracy": "enum<precise|approximate|unknown>",
+      "apple": "option<AppleStatus>",
+      "android": "option<AndroidStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "getCurrentPosition",
+      "request": true,
+      "options": {
+        "enableHighAccuracy": "option<bool>",
+        "timeout": "option<number>",
+        "maximumAge": "option<number>"
+      },
+      "answers": "GeolocationPosition",
+      "sync": {
+        "name": "getCurrentPositionSync",
+        "from": "cache"
+      },
+      "substitute": {
+        "from": "watchPosition",
+        "ticket": "position",
+        "cancel": {
+          "error": "POSITION_UNAVAILABLE"
+        },
+        "timeout": "timeout"
+      }
+    },
+    {
+      "source": "watchPosition",
+      "live": true,
+      "request": "when-prompt",
+      "options": {
+        "enableHighAccuracy": "option<bool>",
+        "timeout": "option<number>",
+        "maximumAge": "option<number>"
+      },
+      "answers": "GeolocationPosition",
+      "substitute": {
+        "default": {
+          "error": "POSITION_UNAVAILABLE"
+        },
+        "short": [
+          "coords.latitude",
+          "coords.longitude",
+          "coords.accuracy"
+        ],
+        "fill": {
+          "coords.accuracy": 100,
+          "timestamp": "now"
+        }
+      }
+    },
+    {
+      "source": "geolocationStatus",
+      "live": true,
+      "answers": "GeolocationStatus",
+      "sync": {
+        "name": "geolocationStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "accuracy": "unknown"
+        }
+      }
+    },
+    {
+      "send": "requestPreciseLocation",
+      "request": true,
+      "options": {
+        "purposeKey": "strings-key"
+      },
+      "answers": "GeolocationStatus",
+      "substitute": {
+        "answers": "geolocationStatus",
+        "raise": {
+          "when": {
+            "accuracy": "approximate"
+          },
+          "ticket": "precision",
+          "allow": {
+            "accuracy": "precise"
+          }
+        },
+        "unsupported": [
+          "web"
+        ]
+      }
+    }
+  ]
+}

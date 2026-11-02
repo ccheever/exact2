@@ -1,0 +1,198 @@
+#if os(macOS)
+import AppKit
+
+/// The viewport: a click that reached it, on no node that takes the focus or
+/// a press, leaves the first responder where it is, as a click on a window's
+/// background does, and ends the reader's text selection.
+package final class PageScrollView: NSScrollView {
+    var visibleSizeChanged: (() -> Void)?
+    private var visibleSize = NSSize.zero
+    private var styleObserver: NSObjectProtocol?
+
+    package override init(frame: NSRect) {
+        super.init(frame: frame)
+        followScrollerStyle()
+        styleObserver = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.followScrollerStyle() }
+    }
+    required init?(coder: NSCoder) { nil }
+
+    private func followScrollerStyle() {
+        let style: NSScroller.Style = ExactEnv.agentMode ? .overlay : NSScroller.preferredScrollerStyle
+        if scrollerStyle != style { invalidateDocumentFit(); scrollerStyle = style }
+        tile()
+    }
+
+    private struct DocumentFit {
+        let document: ObjectIdentifier
+        let documentFrame: NSRect
+        let clipSize: NSSize
+        let frameSize: NSSize
+        let style: NSScroller.Style
+        let border: NSBorderType
+        let vertical: Bool
+        let horizontal: Bool
+        let autohides: Bool
+    }
+    // One viewport tracking area sees overflowing descendants and exits even
+    // when no node's bounds contain the pointer. Nodes use the same hit test.
+    // It is the key window's, as AppKit's own hover is:
+    // a window behind another shows no hover, and `lostKey` ends what was
+    // hovered when this one stops being key.
+    var pointerTracking: ((NSEvent) -> Void)?
+    var lostKey: (() -> Void)?
+    private var keyObserver: NSObjectProtocol?
+    deinit {
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        if let styleObserver { NotificationCenter.default.removeObserver(styleObserver) }
+    }
+    var modalAccessibilityChildren: (() -> [NSView]?)?
+    /// The modal's elements, served as this view's children. A modal that
+    /// is no element itself (an `aria-modal` box with no role) is served by
+    /// its elements, as AppKit serves any view's ignored children: its
+    /// field's parent is this view (the walk up passes the ignored box,
+    /// whose parent is this view), so a client finds the field among this
+    /// view's children. Served as itself, it was an `AXUnknown` holding the
+    /// field whose parent named the scroll area, and VoiceOver's cursor
+    /// stayed on the scroll area while the keyboard was in the field
+    /// (realinput-1017k F-2, FN15).
+    private var modalProjection: [Any]? { modalAccessibilityChildren?().map { NSAccessibility.unignoredChildren(from: $0) } }
+    package override func accessibilityChildren() -> [Any]? {
+        modalProjection ?? exposed(super.accessibilityChildren())
+    }
+    package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
+    package override func accessibilityContents() -> [Any]? {
+        modalProjection ?? exposed(super.accessibilityContents())
+    }
+    package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .children || attribute == .contents, let projected = modalProjection { return projected }
+        return super.accessibilityAttributeValue(attribute)
+    }
+    private var pointerArea: NSTrackingArea?
+    package override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if pointerArea == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(area); pointerArea = area
+        }
+    }
+    package override func mouseEntered(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseMoved(with event: NSEvent) { pointerTracking?(event) }
+    package override func mouseExited(with event: NSEvent) { pointerTracking?(event) }
+
+    private var documentFit: DocumentFit?
+    private var prefittingDocument = false
+    var permitsDocumentPrefit: (() -> Bool)?
+
+    func invalidateDocumentFit() { documentFit = nil }
+
+    /// Only a completed root fit may certify axes for the next outer shrink.
+    func acceptDocumentFit() {
+        guard !prefittingDocument, let document = documentView,
+              document.frame.origin == .zero, document.bounds.size == document.frame.size else { return }
+        documentFit = DocumentFit(document: ObjectIdentifier(document), documentFrame: document.frame,
+            clipSize: contentView.bounds.size, frameSize: frame.size, style: scrollerStyle,
+            border: borderType, vertical: hasVerticalScroller, horizontal: hasHorizontalScroller,
+            autohides: autohidesScrollers)
+    }
+
+    package override func setFrameSize(_ newSize: NSSize) {
+        if newSize != frame.size, !prefittingDocument {
+            prefittingDocument = true
+            prefitDocument(for: newSize)
+            super.setFrameSize(newSize)
+            prefittingDocument = false
+        } else {
+            super.setFrameSize(newSize)
+        }
+    }
+
+    /// An old fitting document must not manufacture gutters during tiling.
+    /// Keep overflowing axes and authored root frames untouched; ordinary layout
+    /// can still introduce real overflow and its necessary viewport correction.
+    private func prefitDocument(for newSize: NSSize) {
+        let accepted = documentFit
+        documentFit = nil
+        guard permitsDocumentPrefit?() == true, let fit = accepted, let document = documentView,
+              ObjectIdentifier(document) == fit.document, document.frame == fit.documentFrame,
+              document.bounds.size == document.frame.size, frame.size == fit.frameSize,
+              bounds.size == frame.size, contentView.bounds.size == fit.clipSize,
+              scrollerStyle == fit.style, borderType == fit.border,
+              hasVerticalScroller == fit.vertical, hasHorizontalScroller == fit.horizontal,
+              autohidesScrollers == fit.autohides, !automaticallyAdjustsContentInsets,
+              contentInsets.top == 0, contentInsets.left == 0,
+              contentInsets.bottom == 0, contentInsets.right == 0,
+              newSize.width.isFinite, newSize.height.isFinite,
+              newSize.width > 0, newSize.height > 0 else { return }
+        let width = fit.clipSize.width + newSize.width - fit.frameSize.width
+        let height = fit.clipSize.height + newSize.height - fit.frameSize.height
+        guard width.isFinite, height.isFinite, width > 0, height > 0 else { return }
+        var size = document.frame.size
+        if size.width <= fit.clipSize.width, newSize.width < fit.frameSize.width {
+            size.width = min(size.width, width)
+        }
+        if size.height <= fit.clipSize.height, newSize.height < fit.frameSize.height {
+            size.height = min(size.height, height)
+        }
+        if size != document.frame.size { document.setFrameSize(size) }
+    }
+
+    /// A click that reached the page, on its empty ground: the field being
+    /// edited keeps its editor and its caret, as a click on a window's
+    /// background leaves them. It ends the reader's text
+    /// selection, unless a node under it took the focus on the way up (its
+    /// `mouseDown`: a `tabindex` box).
+    var pressedGround: (() -> Void)?
+    package override func mouseDown(with event: NSEvent) {
+        let hit = window?.contentView?.hitTest(event.locationInWindow)
+        if let focused = window?.firstResponder as? NodeView, let hit, hit.isDescendant(of: focused) {} else { pressedGround?() }
+        super.mouseDown(with: event)
+    }
+    /// AppKit turns automatic titlebar insets back on when this view
+    /// becomes a window's content view, which leaves a black strip the
+    /// height of the titlebar above the document (the night, the deck).
+    package override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        pinInsets()
+        if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
+        keyObserver = window.map { window in
+            NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.lostKey?() }
+        }
+    }
+    package override func tile() {
+        super.tile()
+        pinInsets()
+        syncElasticity()
+        let size = contentView.bounds.size
+        if visibleSize != size {
+            visibleSize = size
+            visibleSizeChanged?()
+        }
+    }
+    /// A page that fits does not rubber-band.
+    ///
+    /// AppKit's `.automatic` elasticity bounces an axis the page cannot
+    /// actually scroll, so an inner pane that reaches its end and chains the
+    /// rest of the gesture up here (`ChainingScrollView`) drags the whole
+    /// window's content — the app's own chrome with it — even though the
+    /// document is exactly the viewport. The browser's rule is the one to
+    /// match: an axis is elastic only while it has somewhere to go. Chaining
+    /// itself is unchanged; a page that really does scroll still bounces.
+    func syncElasticity() {
+        let document = documentView?.frame.size ?? .zero
+        let visible = contentView.bounds.size
+        // Half a point of slack: a fractional layout must not read as scrollable.
+        let x: NSScrollView.Elasticity = document.width - visible.width > 0.5 ? .automatic : .none
+        let y: NSScrollView.Elasticity = document.height - visible.height > 0.5 ? .automatic : .none
+        if horizontalScrollElasticity != x { horizontalScrollElasticity = x }
+        if verticalScrollElasticity != y { verticalScrollElasticity = y }
+    }
+    func pinInsets() {
+        if automaticallyAdjustsContentInsets { automaticallyAdjustsContentInsets = false }
+        if contentInsets.top != 0 || contentInsets.left != 0 || contentInsets.bottom != 0 || contentInsets.right != 0 {
+            contentInsets = NSEdgeInsetsZero
+        }
+    }
+}
+
+#endif

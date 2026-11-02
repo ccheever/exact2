@@ -1,0 +1,8 @@
+4:17: tamber-dial-range: `3` is outside `far`'s range; a value out of range is refused, not clamped
+5:3: tamber-dial-range: a colour dial has no range
+6:3: tamber-dial-range: a number dial has a closed range: `in low..high`
+7:3: tamber-dial-range: `in 2..0`: a range is two numbers, low first
+8:3: tamber-name-reserved: `red` is a CSS word; name the dial otherwise
+9:17: tamber-dial: `-exact-label` is the host's; a dial is a colour the design sets
+10:18: tamber-dial: `brand`: a dial's value is a literal
+11:18: tamber-dial: `2em`: a length dial's value is a length in px

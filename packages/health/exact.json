@@ -1,0 +1,273 @@
+{
+  "kind": "interface",
+  "name": "@exact/health",
+  "version": "1.0.0",
+  "grants": [
+    "device.health-read"
+  ],
+  "substitute": "implementation",
+  "permission": [
+    {
+      "name": "health.steps",
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      },
+      "answered": {
+        "ios": "unknown"
+      }
+    },
+    {
+      "name": "health.distance",
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      },
+      "answered": {
+        "ios": "unknown"
+      }
+    },
+    {
+      "name": "health.activeEnergy",
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      },
+      "answered": {
+        "ios": "unknown"
+      }
+    },
+    {
+      "name": "health.workouts",
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      },
+      "answered": {
+        "ios": "unknown"
+      }
+    },
+    {
+      "name": "health.history",
+      "targets": [
+        "android"
+      ],
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      }
+    },
+    {
+      "name": "health.*",
+      "grants": [
+        "device.health-read"
+      ],
+      "denied": "NotAllowedError",
+      "whilePrompt": {
+        "error": "NotAllowedError",
+        "message": "requestHealthAuthorization"
+      },
+      "answered": {
+        "ios": "unknown"
+      }
+    }
+  ],
+  "agent": {
+    "store": "string",
+    "now": "string"
+  },
+  "shapes": {
+    "HealthTypeStatus": {
+      "type": "string",
+      "read": "enum<granted|prompt|denied|unknown>",
+      "since": "option<number>",
+      "complete": "bool",
+      "android": "option<AndroidHealthTypeStatus>"
+    },
+    "HealthStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "types": "HealthTypeStatus[]",
+      "apple": "option<AppleHealthStatus>",
+      "android": "option<AndroidHealthStatus>"
+    },
+    "HealthBucket": {
+      "start": "number",
+      "end": "number",
+      "value": "option<number>"
+    },
+    "HealthStatistics": {
+      "type": "string",
+      "unit": "string",
+      "since": "option<number>",
+      "complete": "bool",
+      "buckets": "HealthBucket[]"
+    },
+    "HealthWorkout": {
+      "id": "string",
+      "activity": "enum<walking|running|hiking|cycling|swimming|other>",
+      "start": "number",
+      "end": "number",
+      "duration": "number",
+      "distance": "option<number>",
+      "energy": "option<number>",
+      "source": "option<string>",
+      "apple": "option<AppleHealthWorkout>",
+      "android": "option<AndroidHealthWorkout>"
+    },
+    "HealthWorkoutPage": {
+      "workouts": "HealthWorkout[]",
+      "next": "option<string>",
+      "since": "option<number>",
+      "complete": "bool"
+    }
+  },
+  "names": [
+    {
+      "source": "healthStatus",
+      "live": true,
+      "permission": false,
+      "derives": {
+        "android": {
+          "read": {
+            "steps": "android.permission.health.READ_STEPS",
+            "distance": "android.permission.health.READ_DISTANCE",
+            "activeEnergy": "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+            "workouts": "android.permission.health.READ_EXERCISE"
+          },
+          "android.readHealthDataHistory": "android.permission.health.READ_HEALTH_DATA_HISTORY"
+        }
+      },
+      "options": {
+        "read": {
+          "type": "enum<steps|distance|activeEnergy|workouts>[]",
+          "literal": true
+        }
+      },
+      "answers": "HealthStatus",
+      "substitute": {
+        "default": {
+          "available": false,
+          "state": "unknown",
+          "types": []
+        }
+      }
+    },
+    {
+      "send": "requestHealthAuthorization",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "permission": false,
+      "permissionEach": {
+        "read": "health.{}",
+        "android.readHealthDataHistory": "health.history"
+      },
+      "derives": {
+        "android": {
+          "read": {
+            "steps": "android.permission.health.READ_STEPS",
+            "distance": "android.permission.health.READ_DISTANCE",
+            "activeEnergy": "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+            "workouts": "android.permission.health.READ_EXERCISE"
+          },
+          "android.readHealthDataHistory": "android.permission.health.READ_HEALTH_DATA_HISTORY"
+        }
+      },
+      "options": {
+        "read": {
+          "type": "enum<steps|distance|activeEnergy|workouts>[]",
+          "literal": true
+        }
+      },
+      "answers": "HealthStatus",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "macos",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "source": "healthStatistics",
+      "live": true,
+      "origin": "app",
+      "foreground": true,
+      "person": true,
+      "permission": false,
+      "permissionBy": {
+        "apple.quantityType": "health.{}",
+        "android.recordType": "health.{}",
+        "type": "health.{}"
+      },
+      "options": {
+        "type": "option<enum<steps|distance|activeEnergy>>",
+        "start": "number",
+        "end": "number",
+        "interval": "enum<PT1H|P1D|P1W|P1M>"
+      },
+      "answers": "HealthStatistics",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "macos",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "source": "healthWorkouts",
+      "live": true,
+      "origin": "app",
+      "foreground": true,
+      "person": true,
+      "permission": "health.workouts",
+      "options": {
+        "start": "number",
+        "end": "number",
+        "limit": {
+          "type": "option<number>",
+          "min": 1,
+          "max": 500,
+          "default": 50
+        },
+        "after": "option<string>"
+      },
+      "answers": "HealthWorkoutPage",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "macos",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

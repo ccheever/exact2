@@ -1,0 +1,994 @@
+// Virtualized lists on the JS target: the runner's half, ported from
+// `runner/src/instance/collection` — the size index, the window, anchoring,
+// the fill limit, edges, one level of nesting and kept positions — over the
+// web host's own browser half (`collection-glue.js`, loaded after the first
+// paint as the wasm build loads it), which reports the same facts to it.
+// Imported by an app's module only when its plan has a virtualized list.
+// `scrollIntoView` (into_view.rs) is carried, and Arrange's
+// preview (reorder.rs) by reorder.js, which the motion piece loads for a
+// reorder drag; not carried (refused at build): a dynamic `virtualized`.
+import { inactive } from "./document.js";
+import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
+
+const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
+// A port less than END_SLACK from a followed end already sent is at it: hosts round or floor offsets (start.rs `at_target`).
+// How far short of a fractional end a port at its end may report (index.rs `END_SLACK`): Chrome
+// rounds a scroll range to whole pixels, WebKit floors it (210.72 - 140 scrolls to 71 in one, 70 in the other).
+const END_SLACK = 1;
+// A port in the padding before the first row is at the rows' start, unless the target is there too (start.rs).
+const atTarget = (a, c, offset, sent) => { if (c >= 0) offset = Math.max(0, offset); const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
+const travelLead = (port, v) => Math.min(Math.abs(v) * LEAD_SECONDS, port * 2);
+const lead = (port, v) => { const extra = travelLead(port, v); return v > 0 ? [port, port + extra] : [port + extra, port]; };
+// `reach-margin` (reach.rs `Margin`): px or % of the port, before and after an edge; default one port.
+const reachMargin = text => {
+  const parts = (text ?? "100%").trim().split(/\s+/).map(p => { const m = /^(.*?)(px|%)$/i.exec(p), n = m && m[1] !== "" ? Number(m[1]) : NaN; return isFinite(n) && n >= 0 ? [n, m[2] === "%"] : null; });
+  if (parts.length > 2 || parts.includes(null)) throw new Refusal("reach margin must be one or two nonnegative px or % lengths");
+  return [parts[0], parts.at(-1)];
+};
+// The edge band (reach.rs `Margin::band`): the margin, plus the window's travel lead toward the side it travels.
+const reachBand = (margin, port, v) => { const band = margin.map(([n, percent]) => percent ? port * n / 100 : n); if (v) band[v > 0 ? 1 : 0] += travelLead(port, v); return band; };
+const same = Object.is;
+// A row remeasured within this of the height it already has keeps that
+// height (mod.rs `MEASURE_NOISE`): a translated row reads float32 ulps off
+// (58 as 57.99997), and a revision bumped by that would refuse the drop a
+// gap was certified for.
+const MEASURE_NOISE = 0.01;
+const noise = (index, key, position, size) => index.measured(key) && (index.h[position] === 0) === (size === 0) && Math.abs(index.h[position] - size) <= MEASURE_NOISE;
+
+// ---------------------------------------------------------------- the size index (index.rs)
+// A sum tree over row heights; `me` is each leaf's measured epoch (0: an
+// estimate), its nodes the minimum, so a band's measurement is O(log N).
+function tree(h, me) {
+  let base = 1; while (base < Math.max(1, h.length)) base *= 2;
+  const t = { sums: new Float64Array(base * 2), me: new Float64Array(base * 2).fill(Infinity), base, len: h.length, zeros: 0 };
+  for (let i = 0; i < h.length; i++) { t.sums[base + i] = h[i]; t.me[base + i] = me[i]; if (h[i] === 0) t.zeros++; }
+  for (let n = base - 1; n >= 1; n--) { t.sums[n] = t.sums[2 * n] + t.sums[2 * n + 1]; t.me[n] = Math.min(t.me[2 * n], t.me[2 * n + 1]); }
+  if (!isFinite(t.sums[1])) throw new Refusal("collection height exceeds finite geometry");
+  return t;
+}
+function split(t, n, before, after) { const l = t.sums[2 * n]; return l === 0 ? before : t.sums[2 * n + 1] === 0 ? after : Math.min(before + l, after); }
+function prefixT(t, end) {
+  if (end === t.len) return t.sums[1];
+  let n = 1, span = t.base, rem = end, before = 0, after = t.sums[1];
+  while (n < t.base) { span /= 2; const mid = split(t, n, before, after); n *= 2; if (rem >= span) { before = mid; n++; rem -= span; } else after = mid; }
+  return before;
+}
+function find(t, offset, inclusive) {
+  const total = t.sums[1];
+  if (!t.len || total === 0) return null;
+  const has = b => inclusive ? b >= offset : b > offset;
+  if (!has(total)) return null;
+  let n = 1, before = 0, after = total;
+  while (n < t.base) { const b = split(t, n, before, after); n *= 2; if (has(b)) after = b; else { before = b; n++; } }
+  const i = n - t.base;
+  return i < t.len ? i : null;
+}
+function setT(t, i, h) {
+  let n = t.base + i, sum = h;
+  while (n > 1) { sum += t.sums[n ^ 1]; n >>= 1; }
+  if (!isFinite(sum)) throw new Refusal("collection height exceeds finite geometry");
+  n = t.base + i;
+  t.zeros += (h === 0) - (t.sums[n] === 0);
+  t.sums[n] = h;
+  while (n > 1) { n >>= 1; t.sums[n] = t.sums[2 * n] + t.sums[2 * n + 1]; }
+}
+// Nonmutating changed leaves and ancestors, with setT's exact grouping.
+// Instantiated only for an actual height change, never an equal/noisy sample.
+class HeightPreview {
+  constructor(t) { this.t = t; this.sums = new Map(); }
+  set(position, height) {
+    const t = this.t, sums = this.sums;
+    let n = t.base + position;
+    if (height === (sums.get(n) ?? t.sums[n])) return;
+    sums.set(n, height);
+    while (n > 1) {
+      n >>= 1;
+      sums.set(n, (sums.get(2 * n) ?? t.sums[2 * n]) + (sums.get(2 * n + 1) ?? t.sums[2 * n + 1]));
+    }
+  }
+  get total() { return this.sums.get(1) ?? this.t.sums[1]; }
+}
+function setEpoch(t, i, e) { let n = t.base + i; t.me[n] = e; while (n > 1) { n >>= 1; t.me[n] = Math.min(t.me[2 * n], t.me[2 * n + 1]); } }
+function minEpoch(t, a, b) {
+  let l = a + t.base, r = b + t.base, e = Infinity;
+  while (l < r) { if (l & 1) e = Math.min(e, t.me[l++]); if (r & 1) e = Math.min(e, t.me[--r]); l >>= 1; r >>= 1; }
+  return e;
+}
+function positive(t, band, out, n = 1, s = 0, e = t.base) {
+  if (t.sums[n] === 0 || e <= band[0] || s >= band[1]) return out;
+  if (n >= t.base) { const last = out.at(-1); if (last && last[1] === s) last[1] = e; else out.push([s, e]); return out; }
+  const m = s + (e - s) / 2;
+  positive(t, band, out, 2 * n, s, m);
+  return positive(t, band, out, 2 * n + 1, m, e);
+}
+
+class SizeIndex {
+  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; this.leading = 0; }
+  get len() { return this.h.length; }
+  replace(keys) {
+    if (keys.length === this.order.length && keys.every((k, i) => k === this.order[i])) return;
+    const pos = new Map(), h = [], gen = [], me = [];
+    keys.forEach((k, i) => {
+      if (pos.has(k)) throw new Refusal(`duplicate collection key: ${k}`);
+      pos.set(k, i);
+      const o = this.pos.get(k);
+      if (o !== undefined) { h.push(this.h[o]); gen.push(this.gen[o]); me.push(this.me[o]); }
+      else { h.push(this.est); gen.push(++this.next); me.push(0); }
+    });
+    this.t = tree(h, me);
+    Object.assign(this, { order: keys, pos, h, gen, me });
+  }
+  prefix(end) { return prefixT(this.t, end); }
+  get total() { return this.t.sums[1]; }
+  // Sufficient bound: every candidate leaf and padding <= H. B >= 1 is
+  // power-of-two; monotone nonnegative addition bounds each subtree by its
+  // leaf count * H using exact doubling. Root <= B*H, either padded order
+  // <= 4*B*H (two more exact doublings); MAX/(4*B) is also exact. Retained
+  // and denoised leaves <= current root; revived zeros are bounded by est.
+  paddedExtentDefinitelyFits(h) { return h >= 0 && h <= 3.4028234663852886e38 / (4 * this.t.base); }
+  rowAt(offset) { return find(this.t, offset, false); }
+  token(key) { const i = this.pos.get(key); return i === undefined ? null : this.epoch + ":" + this.gen[i]; }
+  measured(key) { const i = this.pos.get(key); return i !== undefined && this.me[i] === this.epoch; }
+  rangeMeasured(a, b) { return a < b && minEpoch(this.t, a, b) >= this.epoch; }
+  invalidateAll() { this.epoch++; }
+  invalidateRow(key) { const i = this.pos.get(key); this.gen[i] = ++this.next; this.me[i] = 0; setEpoch(this.t, i, 0); return this.token(key); }
+  spread(a, b, delta) {
+    if (!isFinite(delta) || Math.abs(delta) < 0.01) return;
+    const open = [];
+    for (let i = a; i < Math.min(b, this.len); i++) if (this.me[i] !== this.epoch) open.push(i);
+    if (!open.length) return;
+    const part = delta / open.length;
+    for (const i of open) { const h = Math.max(0, this.h[i] + part); setT(this.t, i, h); this.h[i] = h; }
+  }
+  setMeasured(key, token, h) {
+    if (!(isFinite(h) && h >= 0)) throw new Refusal("row height must be finite and nonnegative");
+    if (this.token(key) !== token) return false;
+    const i = this.pos.get(key);
+    setT(this.t, i, h); this.h[i] = h; this.me[i] = this.epoch; setEpoch(this.t, i, this.epoch);
+    return true;
+  }
+  // The padding after the last row runs the range past the rows' end;
+  // a list shorter than the port ends in the padding before its first row.
+  get extent() { return this.total + this.trailing; }
+  maxOffset(port) { return Math.max(-this.leading, this.extent - port); }
+  clamp(offset, port) { return Math.max(0, Math.min(offset, this.maxOffset(port))); }
+  band(s, e) {
+    const first = find(this.t, s, false) ?? this.len;
+    if (s >= e) return [first, first];
+    const last = find(this.t, e, true);
+    return [first, last === null ? this.len : last + 1];
+  }
+  window(offset, port, ld = [port, port], pins = []) {
+    offset = this.clamp(offset, port);
+    const end = Math.min(offset + port, this.total), visible = this.band(offset, end);
+    const overscan = this.band(Math.max(0, offset - ld[0]), Math.min(end + ld[1], this.total));
+    const ranges = overscan[0] < overscan[1] ? (this.t.zeros ? positive(this.t, overscan, []) : [overscan.slice()]) : [];
+    for (const k of pins) { const i = k == null ? undefined : this.pos.get(k); if (i !== undefined) ranges.push([i, i + 1]); }
+    ranges.sort((a, b) => a[0] - b[0]);
+    const segments = [];
+    for (const r of ranges) { const last = segments.at(-1); if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]); else segments.push(r.slice()); }
+    return { offset, visible, overscan, segments };
+  }
+  // @ref runner/src/instance/collection/index.rs `Anchor`, `capture_anchor_excluding`, `anchor_at` and
+  // `restore_anchor`: this is their port, so a change to either names the other (#1095 7b0352262f: `beyond`, `raw`).
+  anchor(offset, port, follow, excluded = null) {
+    // The end is judged where the port is, the padding before the rows included (index.rs).
+    const raw = offset, max = this.maxOffset(port), at = Math.max(-this.leading, Math.min(offset, max));
+    offset = Math.max(0, at);
+    const follows = follow && port > 0 && max - at < END_SLACK;
+    // At the start, no anchor unless it follows the end (index.rs
+    // `capture_anchor`): CSS scroll anchoring selects none at a zero offset.
+    let row = offset <= 0 && !follows ? null : find(this.t, offset, false);
+    let within = row === null ? 0 : Math.max(0, offset - this.prefix(row));
+    if (!follows && row !== null && this.order[row] === excluded) {
+      row = find(this.t, this.prefix(row + 1), false);
+      if (row !== null && this.prefix(row) >= offset + port) row = null;
+      within = row === null ? offset : offset - this.prefix(row);
+    }
+    // How far past the end the port was (a rubber band under a finger or a fling), kept past the end; and the
+    // offset it was taken at, unclamped, where a port with no row to anchor stays.
+    return { order: this.order, row, within, follows, beyond: Math.max(0, raw - max), raw };
+  }
+  anchorAt(key, within) { const i = this.pos.get(key); return i === undefined ? null : { order: this.order, row: i, within, follows: false, beyond: 0, raw: 0 }; }
+  anchorPosition(a) {
+    if (a.row === null) return null;
+    let i = this.pos.get(a.order[a.row]);
+    if (i === undefined) for (const k of [...a.order.slice(a.row + 1), ...a.order.slice(0, a.row).reverse()]) if ((i = this.pos.get(k)) !== undefined) break;
+    return i === undefined ? null : this.prefix(i) + a.within;
+  }
+  keptRow(a, port) {
+    const offset = this.anchorPosition(a);
+    return !a.follows && offset !== null && offset >= -this.leading && offset <= this.maxOffset(port);
+  }
+  restoreAnchor(a, port) {
+    const max = this.maxOffset(port);
+    if (a.follows) return max + a.beyond;
+    if (a.row === null) return a.beyond > 0 ? a.raw : this.clamp(a.raw, port);
+    const offset = this.anchorPosition(a);
+    return offset === null ? 0 : Math.min(Math.max(offset, -this.leading), max) + a.beyond;
+  }
+}
+
+// ---------------------------------------------------------------- DOM pieces (views.rs)
+// The wrapper and spacer as the web host styles them (css.rs of the kernel's rows).
+const WRAP = { y: "display:flex;flex-direction:column;flex-shrink:0;min-width:0;width:100%;box-sizing:border-box",
+  x: "display:flex;flex-direction:column;flex-grow:0;flex-shrink:0;min-height:0;box-sizing:border-box" };
+const SPACER = { y: "flex-shrink:0;width:100%", x: "flex-grow:0;flex-shrink:0;align-self:stretch" };
+const MAIN = { y: "height", x: "width" };
+// css.rs `num`: an f32, whole as an integer, else its shortest decimal.
+function num(n) {
+  const f = Math.fround(n);
+  if (Number.isInteger(f) && Math.abs(f) < 1e9) return String(f);
+  for (let p = 1; p < 10; p++) { const s = Number(f.toPrecision(p)); if (Math.fround(s) === f) return String(s); }
+  return String(f);
+}
+/** `keep-mounted` (keep.rs `idents`): at most 64 keys, `none` naming no row;
+ * another value keeps none and says so. */
+function keepIdents(v) {
+  const out = [];
+  try {
+    if (!Array.isArray(v) || v.length > 64) throw new Refusal("not a list of at most 64 keys");
+    for (const k of v) if (k != null) { const t = keyText(k); if (!out.includes(t)) out.push(t); }
+  } catch { journal.push("invalid keepMounted value; unset"); return []; }
+  return out;
+}
+function keyText(k) {
+  if (typeof k === "string") return "s:" + k;
+  if (typeof k === "number" && isFinite(k)) return "n:" + String(k === 0 ? 0 : k);
+  if (typeof k === "boolean") return "b:" + k;
+  throw new Refusal("a collection key is a string, a finite number or a bool");
+}
+
+// ---------------------------------------------------------------- collections
+/** Every mounted collection by its list's view id. */
+const Lists = new Map();
+let Controller = null, Loading = null, Published = "";
+const Deferred = []; // [collection, targets]: an end edge waits for the first edge's requests (runner/collection.rs)
+
+const Held = new Set(); // collections whose edge waits for their covered route to show (runner/collection.rs `held_edges`)
+class Collection {
+  constructor(el, o, own) {
+    this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
+    this.est = o.est ?? ESTIMATED;
+    if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
+    this.index = new SizeIndex(this.est);
+    // The list's literal size along its axis bounds an inner list's first rows.
+    const sizes = (o.x ? o.pw : o.ph).filter(n => typeof n === "number" && isFinite(n) && n > 0);
+    this.port = sizes.length ? Math.min(...sizes) : null;
+    this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
+    Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
+      zeros: new Set(), geometry: null, correction: null, endSent: NaN, followEnd: false, edgeArmed: [true, true], edgeFired: [null, null], pending: false, parent: null,
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0, keepKeys: [] });
+    this.edges = [o.start, o.end]; this.reach = reachMargin(o.reach);
+  }
+  snapshot() {
+    const g = this.geometry;
+    return { view: this.view, axis: this.axis, ...(this.parent != null ? { parent: this.parent } : {}), ...(this.restored ? { restored: true } : {}), ...(this.target ? { seeking: true } : {}),
+      revision: this.revision, scrollSequence: g ? g.scroll_sequence : 0, count: this.index.len, totalExtent: this.index.total,
+      rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
+      pending: this.pending || !!this.target, correction: this.correction }; // an into-view request wants its next report
+  }
+  scrollAnchor() {
+    const horizontal = this.axis === "x", i = this.index;
+    const offset = (horizontal ? this.el.scrollLeft : this.el.scrollTop) - i.leading;
+    const port = horizontal ? this.el.clientWidth : this.el.clientHeight;
+    // The first row shown in the port, and how far into it the port starts
+    // as shown: edges within half a device pixel of the port's start are
+    // drawn at it (traversal.rs).
+    const half = 0.5 / (globalThis.devicePixelRatio || 1), unit = v => Math.round(v * 64) / 64;
+    let p = i.rowAt(Math.max(0, offset));
+    for (let q; p !== null && unit(i.prefix(p + 1)) - offset < half && (q = i.rowAt(i.prefix(p + 1))) !== null && q > p;) p = q;
+    if (p === null || port <= 0 || i.prefix(p) >= offset + port) return [null, 0];
+    const within = offset - i.prefix(p), drawn = offset - unit(i.prefix(p));
+    return [i.order[p].replace(/^d\d+:/, "").slice(2), drawn > -half && drawn <= half ? 0 : within];
+  }
+  // ------------------------------------------------ data (mod.rs update_data)
+  update(items, [idents, dups], fresh) {
+    // The kept keys as they are now, whichever of the two effects ran first.
+    if (this.o.keep) this.keepKeys = keepIdents(this.o.keep());
+    Remount.delete(this);
+    let anchor = this.anchor();
+    const dropAnchor = this.dropAnchor?.(), last = this.index.order.at(-1), count = this.index.len;
+    const compare = !fresh && items.length === this.items.length;
+    const rekeyed = !compare || idents.some((k, i) => k !== this.idents[i]);
+    let inPlace = null;
+    if (compare && !rekeyed) { inPlace = []; items.forEach((it, p) => { if (!same(it, this.items[p])) inPlace.push(p); }); }
+    if (rekeyed) { this.index.replace(idents); this.idents = idents; this.dups = dups; }
+    anchor = this.committedAnchor?.(anchor, dropAnchor) ?? anchor;
+    const moved = rekeyed || !inPlace || inPlace.length;
+    // A grouped session's offsets move with its rows, at once.
+    const instant = !!(moved && (this.incoming || this.preview?.grouped));
+    // A held drop's row already left the index above, so its rows' offsets
+    // fall to zero here, in the commit that moved them: at once too. (The
+    // runner ends the preview before its index changes, mod.rs `update_data`.)
+    if (this.preview && moved) { if (this.preview.holding) this.instant = instant; this.endPreview(); }
+    this.instant = instant;
+    if (moved) this.preparedMove?.();
+    this.items = items;
+    if (this.kept.size) for (const k of [...this.kept.keys()]) if (!this.index.pos.has(k.split("\0")[0])) this.kept.delete(k);
+    const previous = inPlace && JSON.stringify(this.snapshot());
+    if (inPlace) this.invalidateRows(inPlace); else this.invalidateEstimates();
+    if (!this.index.len) this.edgeArmed = [true, true];
+    // Rows that arrived are a new end: the old last row is still here with
+    // rows after it, or the list grew and kept it (a page inserted before a
+    // trailing row that stays last), so it re-arms (provisionally). An
+    // empty page, a replaced last row or a window
+    // that slid past it re-arm nothing.
+    const kept = last === undefined ? undefined : this.index.pos.get(last);
+    if (kept !== undefined && (kept < this.index.len - 1 || this.index.len > count)) this.edgeArmed[1] = true;
+    this.restore(anchor);
+    this.startAtEnd();
+    try { this.realize(true, {}); } finally { this.instant = false; }
+    const now = this.snapshot();
+    if (!previous || previous !== JSON.stringify(now)) this.revision++;
+  }
+  invalidateEstimates() {
+    for (const key of this.zeros) { const t = this.index.token(key); if (t) this.index.setMeasured(key, t, this.est); }
+    this.zeros.clear();
+    this.index.invalidateAll();
+  }
+  invalidateRows(positions) {
+    for (const p of positions) {
+      const key = this.index.order[p];
+      if (this.zeros.delete(key)) { const t = this.index.token(key); if (t) this.index.setMeasured(key, t, this.est); }
+      this.index.invalidateRow(key);
+    }
+  }
+  anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset, g.port_main), g.port_main, this.follows()); }
+  // ------------------------------------------------ scroll-start: end (start.rs)
+  follows() { return (this.followEnd || this.atEnd) && !this.preview; }
+  /** The offset an opening list's anchor is taken at: its end in a port of `port`, no overshoot past it (start.rs). */
+  anchorOffset(offset, port) { return this.atEnd ? this.index.maxOffset(port) : offset; }
+  /** Before any report: the last rows, and the host told to start at the end. */
+  startAtEnd() {
+    if (!this.atEnd || this.geometry || !this.index.len) return;
+    this.startOffset = this.index.extent;
+    this.correction = { scrollSequence: 0, offset: this.startOffset };
+  }
+  /** Travel in two reports running is the reader's, as for an into-view
+   * request; a report short of the end may be the host's clamp. */
+  leaveEndIfMoved(velocity) {
+    if (!this.atEnd) return;
+    this.endTravel = velocity ? this.endTravel + 1 : 0;
+    if (this.endTravel >= 2) this.atEnd = false;
+  }
+  /** Opened: a report at the end that changed nothing (every mounted row
+   * measured, the extent as it was before them), nothing owed or corrected. */
+  settleStart(extent) {
+    const g = this.geometry;
+    if (g && this.atEnd && this.index.len && !this.pending && !this.correction && Math.abs(this.index.total - extent) < 0.01 && this.mounted.every(m => this.index.measured(m.key))
+      && this.index.maxOffset(g.port_main) - g.offset < END_SLACK) this.atEnd = false;
+  }
+  restore(a) {
+    const g = this.geometry;
+    if (!a || !g) return;
+    const c = this.index.restoreAnchor(a, g.port_main);
+    if (!atTarget(a, c, g.offset, this.endSent)) {
+      if (a.follows) this.endSent = c;
+      // An anchor's correction is relative where its row stayed put
+      // (mod.rs `restore`): from where the anchor was taken, or from where
+      // an unacknowledged one began.
+      const was = this.correction;
+      const kept = this.index.keptRow(a, g.port_main);
+      const from = !kept ? undefined : was ? (was.scrollSequence === g.scroll_sequence ? was.from : undefined) : g.offset;
+      this.correction = from === undefined ? { scrollSequence: g.scroll_sequence, offset: c }
+        : { scrollSequence: g.scroll_sequence, offset: c, from };
+      g.offset = c;
+      if (this.restoredAt) this.startOffset = c;
+    }
+  }
+  // ------------------------------------------------ pins (nest.rs)
+  pins() {
+    const g = this.geometry, out = g ? [g.focus_view, g.interaction_view] : [null, null];
+    for (const m of this.mounted) for (const c of m.inner) if (c.geometry) { out[0] ??= c.geometry.focus_view; out[1] ??= c.geometry.interaction_view; }
+    return out;
+  }
+  pin(view) {
+    if (view == null) return null;
+    const el = Views.get(view);
+    const m = this.mounted.find(m => m.view === view || (el && m.wrapper.contains(el)));
+    return m ? m.key : null;
+  }
+  // ------------------------------------------------ the window (mod.rs realize_window)
+  realize(update, fill) {
+    const limit = update ? null : fill.limit ?? null, g = this.geometry, owed = [];
+    let port = null, ranges;
+    if (g) {
+      const pins = this.pins(), focus = this.pin(pins[0]), interaction = this.pin(pins[1]);
+      const w = this.index.window(g.offset, g.port_main, lead(g.port_main, fill.velocity ?? 0), [focus, interaction]);
+      owed.push(w.visible);
+      for (const k of [focus, interaction]) { const i = k == null ? undefined : this.index.pos.get(k); if (i !== undefined) owed.push([i, i + 1]); }
+      port = [w.offset, w.offset + g.port_main];
+      ranges = w.segments;
+    } else {
+      const first = this.atEnd ? Math.max(0, this.index.len - this.bootstrap) : this.index.rowAt(this.startOffset) ?? 0;
+      ranges = [[first, Math.min(this.index.len, first + this.bootstrap)]];
+    }
+    // The rows it keeps mounted are owed wherever the window is (keep.rs).
+    for (const k of this.keepKeys) {
+      const i = this.index.pos.get(k);
+      if (i === undefined) continue;
+      owed.push([i, i + 1]);
+      if (!ranges.some(r => i >= r[0] && i < r[1])) { ranges.push([i, i + 1]); ranges.sort((a, b) => a[0] - b[0]); }
+    }
+    const old = new Map(this.mounted.map(m => [m.key, m]));
+    this.mounted = [];
+    const limited = limit !== null && port !== null;
+    const isOwed = p => owed.some(r => p >= r[0] && p < r[1]);
+    const toward = (fill.velocity ?? 0) < 0;
+    let pending = false;
+    const admitted = new Set();
+    if (limited) {
+      const optional = [];
+      for (const [a, b] of ranges) for (let p = a; p < b; p++) if (!isOwed(p) && !old.has(this.index.order[p])) { const [before, d] = this.distance(p, port); optional.push([before !== toward, d, p]); }
+      optional.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+      pending = optional.length > limit;
+      for (const x of optional.slice(0, limit)) admitted.add(x[2]);
+    }
+    for (const [a, b] of ranges) for (let p = a; p < b; p++) {
+      const key = this.index.order[p];
+      let m = old.get(key);
+      if (m) { old.delete(key); this.reposition(m, p); }
+      else {
+        if (limited && !isOwed(p) && !admitted.has(p)) continue;
+        const token = this.index.invalidateRow(key);
+        m = this.createRow(p, key);
+        m.token = token; m.epoch = ++this.nextEpoch;
+      }
+      this.settle(m);
+    }
+    const leaving = [];
+    for (const [key, m] of old) {
+      const p = this.index.pos.get(key);
+      if (limited && p !== undefined) leaving.push([this.distance(p, port)[1], key, m]);
+      else { if (p !== undefined) this.keep(m); this.retire(m, p === undefined); }
+    }
+    if (limited) {
+      let cap = limit === 0 ? 0 : Math.max(2 * limit, 4);
+      cap = Math.max(cap, leaving.length - this.mounted.length);
+      leaving.sort((a, b) => b[0] - a[0]);
+      let far = 0; while (far < leaving.length && leaving[far][0] > FAR_VIEWPORTS * (port[1] - port[0])) far++;
+      const kept = leaving.splice(Math.min(Math.max(far, cap), leaving.length));
+      for (const [, , m] of leaving) { this.keep(m); this.retire(m); }
+      pending ||= kept.length > 0;
+      for (const [, key, m] of kept) { this.reposition(m, this.index.pos.get(key)); this.settle(m); }
+      this.mounted.sort((a, b) => a.position - b.position);
+    }
+    this.pending = pending;
+    this.emit();
+    if (this.preview || this.incoming || this.hidden != null) this.emitPreview();
+  }
+  distance(p, [top, end]) {
+    const start = this.index.prefix(p), finish = start + this.index.h[p];
+    return finish <= top ? [true, top - finish] : [false, Math.max(0, start - end)];
+  }
+  reposition(m, p) { m.position = p; writeItem(m.item.n, this.items[p]); write(m.index.n, p); }
+  settle(m) {
+    const count = this.index.len;
+    if (m.published[0] !== m.position || m.published[1] !== count) {
+      m.wrapper.setAttribute("aria-posinset", m.position + 1); m.wrapper.setAttribute("aria-setsize", count);
+      m.published = [m.position, count];
+    }
+    const t = this.index.token(m.key);
+    if (t !== m.token) { m.token = t; m.epoch = ++this.nextEpoch; }
+    this.mounted.push(m);
+  }
+  createRow(p, key) {
+    // A rendered page's row is adopted where it stands, so what a reader
+    // pressed before the runtime ran is still in the document.
+    const served = this.served?.get(key);
+    if (served) this.served.delete(key);
+    const w = served ?? document.createElement("div");
+    w.$exactTree = true;
+    w.style.cssText = WRAP[this.axis];
+    w.setAttribute("role", "listitem");
+    w.setAttribute("data-listitemkey", key);
+    const m = { key, position: p, wrapper: w, item: sig(this.items[p]), index: sig(p), published: [-1, -1], inner: [], list: this };
+    // The row's scope names its row, for a list inside it (at any time).
+    const build = () => scope(() => {
+      owner().$row = m;
+      globalThis.exact?.rowWork?.(this.el, "rowConstructed");
+      onEnd(() => globalThis.exact?.rowWork?.(this.el, "rowRetired"));
+      this.o.row(w, m.item, m.index);
+    }, this.own);
+    m.s = served ? adoptRow(w, build) : unadopted(build);
+    m.view = viewId(w); w.dataset.view = m.view;
+    m.root = w.firstElementChild ? viewId(w.firstElementChild) : m.view;
+    if (this.dups.get(p)) journal.push(`list: a key repeats; this row is ${key}`);
+    this.adoptNested(m);
+    return m;
+  }
+  // A row whose item left the data leaves as its wrapper, where the window
+  // placed it, with its root's exit animation (kernel txn.rs `leaving_with`);
+  // one the window scrolled away, at once.
+  retire(m, left) {
+    end(m.s);
+    if (!(left && exitView(m.wrapper, m.wrapper.firstElementChild?.style.getPropertyValue("--exact-exit-animation").trim()))) m.wrapper.remove();
+    Views.delete(m.view); Views.delete(m.root);
+  }
+  emit() {
+    const kids = [];
+    let cursor = 0, n = 0;
+    for (let i = 0; i <= this.mounted.length; i++) {
+      const p = i < this.mounted.length ? this.mounted[i].position : this.index.len;
+      const gap = this.index.prefix(p) - this.index.prefix(cursor);
+      if (gap > 0) {
+        let s = this.spacers[n];
+        if (!s) { const el = document.createElement("div"); el.$exactTree = true; el.setAttribute("aria-hidden", "true"); el.style.cssText = SPACER[this.axis]; s = this.spacers[n] = { el, size: null }; }
+        if (s.size !== gap) { s.el.style.setProperty(MAIN[this.axis], num(gap) + "px"); s.size = gap; }
+        kids.push(s.el); n++;
+      }
+      if (i < this.mounted.length) { kids.push(this.mounted[i].wrapper); cursor = p + 1; }
+    }
+    for (const s of this.spacers.splice(n)) s.el.remove();
+    if (kids.length === this.children.length && kids.every((k, i) => k === this.children[i])) return;
+    // In place, as glue.js's `children` op: kept rows keep their elements.
+    const el = this.el;
+    // A leaving row stays where it was until its animation ends (moving it would cancel it).
+    const past = n => { while (n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; };
+    let at = past(el.firstElementChild);
+    for (const k of kids) { if (k === at) { at = past(at.nextElementSibling); continue; } el.insertBefore(k, at); }
+    while (at) { const next = past(at.nextElementSibling); at.remove(); at = next; }
+    this.children = kids;
+  }
+  // ------------------------------------------------ nesting (nest.rs)
+  keep(m) {
+    for (const c of m.inner) {
+      if (c.manual) continue;
+      const slot = m.key + "\0" + c.site;
+      this.kept.delete(slot);
+      const at = c.position();
+      if (!at) continue;
+      this.kept.set(slot, at);
+      while (this.kept.size > KEPT) this.kept.delete(this.kept.keys().next().value);
+    }
+  }
+  position() {
+    const g = this.geometry;
+    if (!g) {
+      if (!this.restoredAt) return null;
+      const i = this.index.pos.get(this.restoredAt[0]);
+      return i === undefined ? null : [this.restoredAt[0], this.restoredAt[1], this.index.prefix(i)];
+    }
+    const offset = Math.max(0, Math.min(g.offset, this.index.maxOffset(g.port_main)));
+    if (offset <= 0) return null;
+    const row = this.index.rowAt(offset);
+    if (row === null) return null;
+    const start = this.index.prefix(row);
+    return [this.index.order[row], offset - start, start];
+  }
+  adoptNested(m) {
+    const g = this.geometry;
+    for (const c of m.inner) {
+      c.parent = this.view;
+      let again = false;
+      if (g) {
+        let estimate = c.axis === this.axis ? g.port_main : g.cross;
+        if (c.port) estimate = Math.min(c.port, estimate);
+        const rows = Math.max(1, Math.min(64, Math.ceil(estimate / c.est) + 1));
+        if (rows > c.bootstrap && !c.geometry) { c.bootstrap = rows; again = true; }
+      }
+      const kept = !c.manual && this.kept.get(m.key + "\0" + c.site);
+      if (kept) c.restorePosition(...kept);
+      else if (again) c.realize(false, {});
+    }
+  }
+  restorePosition(key, within, start) {
+    const p = this.index.pos.get(key);
+    if (p === undefined) return;
+    this.index.spread(0, p, start - this.index.prefix(p));
+    const offset = this.index.prefix(p) + within;
+    this.startOffset = offset; this.restored = true; this.restoredAt = [key, within]; this.atEnd = false;
+    this.correction = { scrollSequence: 0, offset };
+    this.realize(false, {});
+    this.revision++;
+  }
+  restoring(f) {
+    if (!this.restoredAt) return null;
+    const [key, within] = this.restoredAt;
+    const moved = Math.abs(f.offset - this.startOffset) > 0.5 && f.offset > 0.5;
+    if (moved || this.index.measured(key)) this.restoredAt = null;
+    return moved ? null : this.index.anchorAt(key, within);
+  }
+  contains(c) { for (let p = c.up; p; p = p.up) if (p === this) return true; return false; }
+  releasePins(cats) {
+    if (cats[1] && this.preview) this.losePreviewPin();
+    const g = this.geometry;
+    if (!g || !((cats[0] && g.focus_view != null) || (cats[1] && g.interaction_view != null))) return false;
+    if (cats[0]) g.focus_view = null;
+    if (cats[1]) g.interaction_view = null;
+    this.realize(false, {});
+    this.revision++;
+    return true;
+  }
+  // ------------------------------------------------ feedback (mod.rs)
+  prepare(f) {
+    const g = this.geometry;
+    if (f.view !== this.view || f.revision !== this.revision || (g && f.scroll_sequence < g.scroll_sequence)) return null;
+    if ([f.focus_view, f.interaction_view].some(v => v != null && this.pin(v) === null)) return null;
+    const byView = new Map(this.mounted.map((m, i) => [m.view, i]));
+    let h = Math.max(this.index.total, f.padding[0], f.padding[1]);
+    for (const m of f.measurements) {
+      const i = byView.get(m.view);
+      if (i === undefined || this.mounted[i].epoch !== m.epoch) return null;
+      h = Math.max(h, m.size);
+    }
+    const changedWidth = !g || g.cross !== f.cross;
+    if (changedWidth && this.zeros.size) h = Math.max(h, this.est);
+    if (this.index.paddedExtentDefinitelyFits(h)) return byView;
+    let preview;
+    if (changedWidth) {
+      // Width invalidation revives zero rows; old-width samples are discarded.
+      for (const key of this.zeros) {
+        const p = this.index.pos.get(key);
+        if (p !== undefined && this.index.h[p] !== this.est) (preview ??= new HeightPreview(this.index.t)).set(p, this.est);
+      }
+    } else {
+      for (const r of f.measurements) {
+        const p = this.mounted[byView.get(r.view)].position, key = this.index.order[p];
+        if (r.size !== this.index.h[p] && !noise(this.index, key, p, r.size)) (preview ??= new HeightPreview(this.index.t)).set(p, r.size);
+      }
+    }
+    const extent = preview ? preview.total : this.index.total;
+    const paddedExtent = Math.max(extent + f.padding[0] + f.padding[1], extent + f.padding[1] + f.padding[0]);
+    if (!isFinite(paddedExtent) || paddedExtent > 3.4028234663852886e38) throw new Refusal("collection height exceeds finite geometry");
+    return byView;
+  }
+  dims(f) { const g = this.geometry; return g && g.port_cross === f.port_cross && g.port_main === f.port_main && g.cross === f.cross && g.focus_view === f.focus_view && g.interaction_view === f.interaction_view; }
+  measure(byView, r) {
+    const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
+    this.index.setMeasured(key, m.token, noise(this.index, key, m.position, r.size) ? this.index.h[m.position] : r.size);
+    if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
+  }
+  feedback(f, byView, fill) {
+    // A new padding is no travel (inset.rs): the anchor is taken on the old range.
+    const padding = f.padding, paddingChanged = padding[0] !== this.index.leading || padding[1] !== this.index.trailing;
+    const within = paddingChanged ? undefined : this.travelWithin(f, byView, fill);
+    if (within !== undefined) return [false, within];
+    const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
+    // Arrange's preview (reorder.js, loaded with the motion piece) ends with
+    // the row width and loses its pin with the contact (mod.rs `feedback`).
+    if (this.preview && changedWidth) this.endPreview();
+    if (this.preview && this.geometry.interaction_view !== f.interaction_view) this.losePreviewPin();
+    if (!this.dims(f)) fill.limit = null;
+    if (fill.ancestorMoving) fill.limit = 0;
+    const previous = this.snapshot();
+    this.followIntoView(fill);
+    let measurements = f.measurements;
+    if (this.axis === "x" && !changedWidth) {
+      const first = [];
+      for (const r of measurements) { const m = this.mounted[byView.get(r.view)]; if (this.index.measured(this.index.order[m.position])) this.measure(byView, r); else first.push(r); }
+      measurements = first;
+    }
+    const height = this.geometry ? this.geometry.port_main : f.port_main;
+    this.leaveEndIfMoved(fill.velocity ?? 0);
+    const extent = this.index.total;
+    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding, height !== f.port_main && !(fill.velocity ?? 0));
+    [this.index.leading, this.index.trailing] = padding;
+    this.geometry = { ...f, measurements: [] };
+    this.correction = null;
+    if (changedWidth) this.invalidateEstimates();
+    else for (const r of measurements) this.measure(byView, r);
+    if (this.preview) this.checkPreviewHeight();
+    this.restore(anchor);
+    this.settleIntoView(f.offset);
+    this.realize(false, fill);
+    this.settleStart(extent);
+    const now = this.snapshot();
+    now.scrollSequence = previous.scrollSequence;
+    const changed = paddingChanged || JSON.stringify(previous) !== JSON.stringify(now);
+    if (changed) this.revision++;
+    return [changed, this.edge(fill.velocity ?? 0)];
+  }
+  /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
+   * before the rows moved them (none before a first report), or on the new one when only that follows the end;
+   * `resized` (not by the reader) keeps an end the last report was at. */
+  reportAnchor(offset, port, padding, resized) {
+    const i = this.index, down = this.geometry ? padding[0] - i.leading : 0;
+    const atEnd = resized && this.geometry && this.follows() && i.anchor(this.anchorOffset(this.geometry.offset, port), port, true).follows;
+    let a = i.anchor(this.anchorOffset(offset + down, port), port, this.follows());
+    const moved = padding[0] !== i.leading || padding[1] !== i.trailing;
+    [i.leading, i.trailing] = padding;
+    if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset, port), port, this.follows()); if (b.follows) a = b; }
+    if (atEnd && !a.follows) a = i.anchor(this.anchorOffset(i.maxOffset(port), port), port, true);
+    return a;
+  }
+  travelWithin(f, byView, fill) {
+    const g = this.geometry;
+    if (!g) return undefined;
+    const remeasures = r => {
+      const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
+      return this.index.token(key) === m.token && !(noise(this.index, key, m.position, r.size) && (r.size === 0) === this.zeros.has(key));
+    };
+    if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
+    const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
+    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), f.offset, this.endSent)) return undefined;
+    const pins = this.pins();
+    const w = this.index.window(f.offset, f.port_main, lead(f.port_main, fill.velocity ?? 0), [this.pin(pins[0]), this.pin(pins[1])]);
+    let k = 0;
+    for (const [a2, b] of w.segments) for (let p = a2; p < b; p++) if (this.mounted[k++]?.position !== p) return undefined;
+    if (k !== this.mounted.length) return undefined;
+    this.geometry = { ...f, measurements: [] };
+    return this.edge(fill.velocity ?? 0);
+  }
+  // ------------------------------------------------ scrollIntoView (into_view.rs)
+  /** A key's row identity here, or why it is refused;
+   * the agent types a key as text, which a list keyed by numbers reads as one. */
+  resolve(key) {
+    const exactly = k => {
+      let text; try { text = keyText(k); } catch { return [null, "the key is not a string, number or bool"]; }
+      if (!this.index.pos.has(text)) return [null, `no row keyed ${text} in the list`];
+      if (this.index.pos.has("d1:" + text)) return [null, `the list holds ${text} more than once`];
+      return [text];
+    };
+    if (typeof key === "string" && key.trim() !== "" && isFinite(Number(key))) { const r = exactly(Number(key)); if (r[0]) return r; }
+    if (key === "true" || key === "false") { const r = exactly(key === "true"); if (r[0]) return r; }
+    return exactly(key);
+  }
+  /** Insets from the row wrapper to its border box, expanded by scroll margins. */
+  margins(p) {
+    const m = this.mounted.find(m => m.position === p), root = m?.wrapper.firstElementChild;
+    if (!root) return [0, 0];
+    const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
+    return this.axis === "y" ? [n(cs.marginTop) - n(cs.scrollMarginTop), n(cs.marginBottom) - n(cs.scrollMarginBottom)] : [n(cs.marginLeft) - n(cs.scrollMarginLeft), n(cs.marginRight) - n(cs.scrollMarginRight)];
+  }
+  /** The list's scroll-padding at each end on this axis, read when it aligns, as CSSOM View reads it. */
+  scrollPadding() {
+    const cs = getComputedStyle(this.el), n = v => Math.max(0, parseFloat(v) || 0);
+    return this.axis === "y" ? [n(cs.scrollPaddingTop), n(cs.scrollPaddingBottom)] : [n(cs.scrollPaddingLeft), n(cs.scrollPaddingRight)];
+  }
+  // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
+  aligned(p, align, current, offset) {
+    if (offset != null) return Math.min(Math.max(this.index.prefix(p) + offset, -this.index.leading), this.index.maxOffset(this.geometry?.port_main ?? 0));
+    const [before, after] = this.margins(p);
+    const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
+    const [i0, i1] = this.scrollPadding(), low = i0, high = Math.max(i0, port - i1), view = high - low;
+    const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
+      : this.nearest(start, size, current, low, high);
+    return Math.min(Math.max(at, -this.index.leading), this.index.maxOffset(port));
+  }
+  /** CSSOM View's "nearest" (into_view.rs): a row covering the snapport, or inside it, stays; else the nearer edge aligns. */
+  nearest(start, size, current, low, high) {
+    const above = start - current < low, below = start + size - current > high;
+    return above === below ? current : above === (size <= high - low) ? start - low : start + size - high;
+  }
+  /** Start a request: its window is built at the destination now, and the
+   * host told to move there before it paints (the correction). */
+  intoView(key, align, within) {
+    const p = this.index.pos.get(key), g = this.geometry;
+    const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
+    this.restoredAt = null; this.atEnd = false;
+    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0 };
+    this.status = [key, "pending"];
+    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
+    else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
+    this.realize(false, {});
+    this.revision++;
+  }
+  end(status) { this.status = [this.target.key, status]; this.target = null; }
+  /** The reader's own travel, two reports running, cancels it. */
+  followIntoView(fill) {
+    const t = this.target;
+    if (!t) return;
+    t.travelling = (fill.velocity ?? 0) !== 0 ? t.travelling + 1 : 0;
+    if (t.travelling >= 2) this.end("cancelled");
+  }
+  /** After a report's measurements: where the target now aligns, judged
+   * where the host says the port is; done when it holds for two reports
+   * with every row up to it measured, else corrected, six times at most. */
+  settleIntoView(reported) {
+    const t = this.target, g = this.geometry;
+    if (!t) return;
+    const p = this.index.pos.get(t.key);
+    if (p === undefined) return this.end("cancelled");
+    if (!g) return;
+    const desired = this.aligned(p, t.align, reported, t.offset);
+    // The run of mounted rows that reaches it, and each mounted row before
+    // that run alone: the rows between a kept row and the window are never
+    // measured (into_view.rs `settle_target`).
+    let first = p, joined = true, others = true;
+    for (const q of this.mounted.map(m => m.position).filter(q => q < p).sort((a, b) => b - a)) {
+      if (joined && q + 1 === first) first = q;
+      else { joined = false; others &&= this.index.measured(this.index.order[q]); }
+    }
+    if (Math.abs(desired - reported) <= 0.5) {
+      t.aligned = others && this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
+      if (t.aligned >= 2) this.end("done");
+      return;
+    }
+    t.aligned = 0;
+    if (t.reports >= 6) return this.end("unconverged");
+    g.offset = desired;
+    this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
+    t.reports++;
+  }
+  disarm(i) { this.edgeArmed[i] = false; this.edgeFired[i] = this.index.order[i ? this.index.len - 1 : 0] ?? null; }
+  edge(velocity) {
+    const reached = [false, false], g = this.geometry;
+    if (g && this.index.len) {
+      // Reached within the edge band; re-armed outside it, or outside the band at rest once the edge's row is
+      // another than the one it fired at, and only once the window at rest (one port each side) is measured (reach.rs).
+      const w = this.index.window(g.offset, g.port_main), n = this.index.len - 1;
+      const within = band => { const s = this.index.window(g.offset, g.port_main, band).segments; return [0, n].map(e => s.some(r => e >= r[0] && e < r[1])); };
+      [reached[0], reached[1]] = within(reachBand(this.reach, g.port_main, velocity));
+      if (!(this.edgeArmed[0] && this.edgeArmed[1]) && this.index.rangeMeasured(...w.overscan)) {
+        const rest = within(reachBand(this.reach, g.port_main, 0));
+        for (const i of [0, 1]) this.edgeArmed[i] ||= !reached[i] || (this.edgeFired[i] !== this.index.order[i ? n : 0] && !rest[i]);
+      }
+    }
+    const ready = [0, 1].map(i => reached[i] && this.edgeArmed[i] && !!this.edges[i]);
+    const i = ready.indexOf(true);
+    if (i < 0) return null;
+    this.disarm(i);
+    return { first: i, endAfterNoop: ready[0] && ready[1] };
+  }
+}
+
+// ---------------------------------------------------------------- the seam
+/** A virtualized `list`'s rows: `o` carries the key and row builders, the
+ * edges' handlers, and what the runner reads when the list is created. */
+export function vl(el, subject, key, row, o) {
+  const own = owner();
+  let outer = null;
+  for (let s = own; s && !outer; s = s.up) outer = s.$row;
+  const c = new Collection(el, { ...o, key, row, inRow: !!outer }, own);
+  if (outer) { outer.inner.push(c); c.up = outer.list; c.site = o.site + "/" + outer.inner.length; }
+  Lists.set(c.view, c);
+  el.$list = c;
+  // A rendered page's rows are adopted by key as the first window takes
+  // them (`createRow`); the rest of it (spacers, rows the window doesn't
+  // take) leaves at that window's `emit`.
+  if (adopting()) {
+    c.served = new Map();
+    for (const n of el.children) { const k = n.getAttribute("data-listitemkey"); if (k !== null && n.getAttribute("role") === "listitem") c.served.set(k, n); }
+  } else while (el.firstChild) el.firstChild.remove();
+  el.$n = null;
+  el.$jump = (name, at) => { if (el[name] !== at) (jumps ??= []).push([c.view, at, name]); };
+  onEnd(() => Lists.delete(c.view));
+  let first = true;
+  if (o.follow) effect(() => { c.followEnd = !!o.follow(); });
+  // A changed set mounts its rows and lets the others go after the commit,
+  // in the update's pass when the data changed too (mod.rs `update_data`).
+  if (o.keep) effect(() => {
+    const keys = keepIdents(o.keep());
+    if (keys.join("\0") === c.keepKeys.join("\0")) return;
+    c.keepKeys = keys;
+    if (!first) Remount.add(c);
+  });
+  // The keys are read here, so a key's other inputs rerun the update too.
+  effect(() => {
+    const items = subject(), idents = [], dups = new Map(), unique = new Set();
+    items.forEach((item, i) => {
+      const text = keyText(key(() => item, () => i));
+      let d = 0, id = text;
+      while (unique.has(id)) id = "d" + ++d + ":" + text;
+      unique.add(id);
+      if (d) dups.set(i, d);
+      idents.push(id);
+    });
+    untracked(() => { c.update(items, [idents, dups], first); first = false; c.served = null; });
+  });
+  load();
+}
+let jumps = null;
+const ALIGN = ["start", "center", "end", "nearest"];
+const Refused = [];
+/** The command (`scrollIntoView("id", key, block=, inline=, behavior=,
+ * row=)`) and the agent's `tap <list> into <key>` (`view`), as the runner's
+ * `scroll_into_view` (runner/src/runner/into_view.rs). */
+function intoView(list, key, block, inline, row, view, offset) {
+  const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
+  if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
+  for (const a of [block, inline]) if (!ALIGN.includes(a)) return refuse(`no alignment ${a}`);
+  const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
+  if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
+  else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
+  else {
+    const outer = [...Lists.values()].find(c => !c.up && c.resolve(row)[0]);
+    if (!outer) { let t = ""; try { t = keyText(row); } catch {} return refuse(`no virtualized list holds a row keyed ${t}`); }
+    if (!begin(outer, row, null)) return;
+    const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
+    if (!m) return refuse("the outer row did not mount");
+    const c = m.inner.find(c => c.el.id === list);
+    if (!c) return refuse(`the row holds no list with id ${list}`);
+    begin(c, key);
+  }
+  settled();
+}
+const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's seven (rt.js)
+Hosts.scrollIntoView = (...a) => a.length !== 7 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5], null, a[6]);
+/** `state.scrollIntoView`: each list's latest request, then refusals. */
+const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
+function publish() {
+  // As the web host sends `collections`: only when a snapshot changed.
+  const snapshots = [...Lists.values()].sort((a, b) => a.view - b.view).map(c => c.snapshot());
+  const text = JSON.stringify(snapshots);
+  if (text !== Published) { Published = text; Controller?.commit(snapshots); }
+  else Controller?.restyled(); // a padding change alone
+  if (Controller && jumps) for (const [view, at, name] of jumps.splice(0)) Controller.jump(view, at, name);
+}
+// After each commit: wake an end edge whose first edge's requests landed,
+// then publish (runner/collection.rs `wake_deferred_edges`).
+function wake() {
+  for (const d of Deferred.splice(0)) {
+    if (!Lists.has(d[0].view)) continue;
+    if (d[1].some(t => t.ticket)) Deferred.push(d);
+    else { const c = d[0]; for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
+  }
+}
+// A list whose edge waited under a covered route asks for a report once it
+// shows (runner/collection.rs `release_held_edges`).
+function release() {
+  for (const c of Held) {
+    if (!Lists.has(c.view)) Held.delete(c);
+    else if (!inactive(c.el)) { Held.delete(c); for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
+  }
+}
+// Lists whose kept rows changed in a commit that left their data alone.
+const Remount = new Set();
+function remount() {
+  for (const c of Remount) if (Lists.has(c.view)) {
+    // The revision moves only when a kept row was not mounted (keep.rs `mounts`).
+    const mounted = new Set(c.mounted.map(m => m.key));
+    const mounts = c.keepKeys.some(k => c.index.pos.has(k) && !mounted.has(k));
+    c.realize(true, {});
+    if (mounts) c.revision++;
+  }
+  Remount.clear();
+}
+After.push(() => { remount(); release(); wake(); publish(); });
+function load() {
+  if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  Loading = new Promise(r => requestAnimationFrame(() => r())).then(() => import("./collection-glue.js")).then(({ collectionController }) => {
+    Controller = collectionController({ root: document.getElementById("exact-root"), views: Views, report, agent: clock.agent, settled() {} });
+    Published = "";
+    publish();
+  }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
+  (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading, fireOwedScrolls: async () => await Controller?.fireOwedScrolls() ?? { fired: false, owed: 0 }, owedScrolls: () => Controller?.owedScrolls() ?? 0, scrollsFired: () => Controller?.scrollsFired() ?? 0,
+    into: (view, key, block = "start", inline = "nearest") => {
+      for (const a of [block, inline]) if (!ALIGN.includes(a)) throw Object.assign(new Error(`no alignment ${a}: start, center, end or nearest`), { malformed: true });
+      return intoView(`#${view}`, key, block, inline, null, view);
+    }, intoView: intoViewState,
+    // Arrange's preview, installed by reorder.js (the motion piece's chunk).
+    internals: { Collection, Lists, Views, find, minEpoch, settled, controller: () => Controller } };
+}
+// A report from the browser half (runner/collection.rs `collection_feedback_filled`).
+function report(bytes, f, fill) {
+  f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
+  fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
+  const c = Lists.get(f.view);
+  const byView = c?.prepare(f);
+  if (!byView) return true;
+  const cats = [f.focus_view != null, f.interaction_view != null];
+  if (cats[0] || cats[1]) for (const o of Lists.values()) if (o !== c && !o.contains(c)) o.releasePins(cats);
+  const [, edge] = c.feedback(f, byView, fill);
+  settled();
+  if (edge) edges(c, edge);
+  return true;
+}
+function edges(c, edge) {
+  let endAfterNoop = edge.endAfterNoop;
+  // A list on a route its stack keeps covered is hidden and
+  // inert: its edge waits, armed, for the route to show (runner/collection.rs).
+  if (inactive(c.el)) {
+    c.edgeArmed[edge.first] = true;
+    if (!Held.has(c)) { Held.add(c); journal.push(`t=${clock.now} ${edge.first ? "reachend" : "reachstart"} view ${c.view} waits: its list is on a covered route; it is offered when the route shows`); }
+    return;
+  }
+  for (const [position, i] of [[0, edge.first], [1, 1]]) {
+    if (position === 1 && (!endAfterNoop || !c.edgeArmed[1])) break;
+    if (position === 1) c.disarm(1);
+    if (i === 1 && Deferred.some(d => d[0] === c)) { c.edgeArmed[1] = true; break; }
+    const before = rev(), since = ticket();
+    const ok = c.edges[i]();
+    if (ok === false) { c.edgeArmed[i] = true; break; }
+    if (position === 0 && edge.endAfterNoop && rev() !== before) {
+      endAfterNoop = false;
+      const targets = [...Resources, ...Mutations].filter(t => t.ticket && t.ticket.id > since);
+      for (let k = Deferred.length - 1; k >= 0; k--) if (Deferred[k][0] === c) Deferred.splice(k, 1);
+      Deferred.push([c, targets]);
+      wake();
+    }
+  }
+}

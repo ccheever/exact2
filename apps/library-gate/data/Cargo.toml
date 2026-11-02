@@ -1,0 +1,17 @@
+[package]
+name = "library-gate-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The library gate's data source: none"
+publish = false
+
+[lib]
+name = "library_gate_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

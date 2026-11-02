@@ -1,0 +1,130 @@
+//! Exact kernel.
+//!
+//! A copied-in, borrow-parsed binary command stream with transactional apply,
+//! Taffy layout, and columnar binary exports. The design:
+//!
+//! - **One declaration authority.** `tables/schema.json` generates every node
+//!   type, prop id and kind, style row, enum vocabulary, opcode, and the schema
+//!   digest a frame must carry ([`generated`]).
+//! - **Typed props in a columnar arena.** Nodes are slots; attributes are
+//!   columns; identity is generation-checked ([`arena`], [`id`], [`props`]).
+//! - **One wire, one write path.** EXWF frames and in-process ops both enter
+//!   the validate-then-apply engine; a rejection changes nothing ([`wire`],
+//!   [`txn`]).
+//! - **Layout proportional to change.** Per-node dirty flags, an epoch, and
+//!   changed-geometry receipts ([`layout`]).
+//! - **One crossing per sync.** EXNODE exports the tree as typed rows or one
+//!   sectioned envelope ([`export`]).
+//! - **One seam to motion.** A commit restated as what the motion engine needs
+//!   to hear — new targets and `transition` rows, nothing else ([`motion`]).
+//! - **Injected host services.** Text measurement is a per-kernel trait object,
+//!   never a process-global callback ([`text`]).
+//!
+//! The crate adds no threads, links no platform libraries, and builds for
+//! `wasm32-unknown-unknown`.
+
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
+
+pub mod arena;
+pub mod bars;
+pub mod clip;
+pub mod confirmation;
+pub mod control;
+pub mod control_measurement;
+pub mod corner;
+pub mod error;
+pub mod export;
+mod flow;
+pub mod fragment;
+pub mod generated;
+pub mod gradient;
+pub mod grouped;
+pub mod handoff;
+pub mod id;
+pub mod invocation;
+pub mod kernel;
+pub mod layout;
+pub mod motion;
+pub mod node;
+pub mod paint_order;
+pub mod position_try;
+pub mod props;
+pub mod ratio;
+pub mod region;
+mod replaced;
+pub mod rows;
+pub mod selector;
+mod shared_style;
+pub mod sorted;
+pub mod style;
+pub mod svg;
+pub mod text;
+pub mod time;
+pub mod timeline;
+pub mod transform;
+pub mod txn;
+pub mod wire;
+
+pub use arena::text_style::bolder;
+pub use bars::{Bar, HeaderShape, RootTabs};
+pub use control::{Choice, ControlKind, PressFace, Progress, Range};
+pub use control_measurement::{
+    ButtonFaceStyle, ButtonFonts, ButtonImagePlacement, ButtonMeasure, ButtonMeasureRequest,
+    ControlFont, ControlTextStyles, FieldChrome, FieldChromeRequest, FieldKind,
+};
+pub use error::{
+    ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
+};
+pub use generated::*;
+pub use grouped::{
+    Accessory, GroupedList, GroupedMargins, GroupedRow, GroupedSection, GroupedSeparator, TextFont,
+    TextLook,
+};
+pub use handoff::Handoff;
+pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
+pub use invocation::Invocation;
+pub use kernel::{
+    BlockAxis, BlockMeasure, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight,
+    StickyConstraint,
+};
+pub use layout::LayoutReceipt;
+pub use motion::{motion_node, MotionSync};
+pub use node::NodeFacts;
+pub use props::{PropList, PropValue};
+pub use replaced::{apple_symbol_name, symbol_path, symbol_path_in, Icon, SymbolPath, SymbolSet};
+pub use sorted::{SortedMap, SortedSet};
+pub use style::{
+    link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
+    GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, Region, RowValue,
+    SegmentVar, StyleValue, TitleBarVar, Transitions, Vec2, ViewportUnit,
+};
+pub use text::case::link as link_text_transform;
+pub use text::case::{
+    linked_lowercase, linked_uppercase, lowercase_bounded, uppercase_bounded, CaseMapping,
+};
+pub use text::inline_box::{FontEdges, InlineBox, INLINE_BOX_TEXT};
+pub use text::{
+    Markup, MarkupAtoms, MonospaceMeasurer, OverEdge, ParagraphStamp, SymbolRequest, TextEdges,
+    TextMeasureRequest, TextMeasurer, TextMetrics, TextRun, TextStyle, UnderEdge,
+};
+pub use transform::TransformDragBinding;
+pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
+pub use wire::{look_rows, FrameBuilder, Op, LOOK_FOCUS_VISIBLE, LOOK_HOVER};
+
+pub use region::{
+    ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,
+    RegionPublication, RegionSelection, RegionTextRequest, RegionTextSource, RegionTicket,
+};
+
+/// CSS authored and resolved exclusion geometry.
+pub use exact_textflow::{FlowShape, ShapeOutside};
+pub use flow::FlowRefusal;
+
+// A terminal host's stderr can share stdout's nonblocking open file description.
+// Drop diagnostics on write failure so stopped output cannot panic the host.
+fn diagnostic(args: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let _ = writeln!(std::io::stderr().lock(), "{args}");
+}

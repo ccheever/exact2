@@ -1,0 +1,46 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/media-capture@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidTrack": {
+      "isClientSilenced": "bool",
+      "cameraId": "option<string>",
+      "lensFacing": "option<string>"
+    },
+    "AndroidMicrophoneStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    },
+    "AndroidCameraStatus": {
+      "shouldShowRationale": "bool",
+      "permanentlyDenied": "bool"
+    }
+  },
+  "options": {
+    "getUserMedia": {
+      "audioSource": "enum<mic|camcorder|voiceRecognition|voiceCommunication|unprocessed|voicePerformance>",
+      "privacySensitive": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "audioRecordBuilder"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "artifacts": [],
+  "class": "exact.mediacapture.MediaCaptureModule",
+  "maven": [
+    "androidx.camera:camera-camera2:1.6.2",
+    "androidx.camera:camera-lifecycle:1.6.2",
+    "androidx.lifecycle:lifecycle-runtime:2.9.4"
+  ]
+}

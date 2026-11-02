@@ -1,0 +1,317 @@
+use super::*;
+
+impl World {
+    /// A supplied local interpolation start for this tick; renderer history only.
+    /// Cleared with freshness, excluded from saves, and keyed by incarnation.
+    pub fn interpolation_origin(&self, e: Entity) -> Option<crate::Transform> {
+        self.contains(e)
+            .then(|| self.interpolation_origins.get(&e).copied())
+            .flatten()
+    }
+    /// Declare a cosmetic/derived resource excluded from rest observation only.
+    /// Call in setup/register, like type registration; save and hash are unchanged.
+    pub fn ambient_resource<R: Resource>(&mut self) -> &mut Self {
+        self.register_resource::<R>();
+        self.registry.get_mut(R::NAME).unwrap().ambient = true;
+        self.mutated();
+        self
+    }
+    /// Declare a derived HUD key excluded from rest observation, including record fields.
+    /// Call in setup/register. Publication delivery, journal and EXSIM saves are unchanged.
+    pub fn derived_publication(&mut self, key: &str) -> &mut Self {
+        self.derived_publications.insert(key.into());
+        self.mutated();
+        self
+    }
+
+    /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
+    pub fn mutation_epoch(&self) -> u64 {
+        self.epoch.get()
+    }
+    pub(crate) fn mutated(&self) {
+        self.epoch.set(self.epoch.get().wrapping_add(1));
+    }
+    pub(crate) fn observed(&self) -> bool {
+        self.observed_epoch == self.mutation_epoch()
+    }
+
+    /// Current simulation instant, suitable for sampling or retargeting springs.
+    pub fn now(&self) -> Now {
+        Now {
+            tick: self.tick(),
+            hz: self.hz(),
+        }
+    }
+    /// Initial random seed, as last set by reseed.
+    pub fn seed(&self) -> u64 {
+        self.state.seed
+    }
+    /// A random stream for presentation only (`Game::present`), seeded from the
+    /// world seed, the tick and `salt`: the same each time a boundary is
+    /// presented, different per seed, and never drawn from the world's stream, so
+    /// visuals cannot change the simulation.
+    pub fn presentation_rng(&self, salt: u64) -> Rng {
+        // Each input passes a full splitmix finalizer before the next joins, so
+        // no two (seed, tick, salt) triples share a stream by cancelling bits.
+        fn mix(mut n: u64) -> u64 {
+            n = n.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            n ^ (n >> 31)
+        }
+        Rng::new(mix(mix(
+            mix(self.seed() ^ 0x6a09_e667_f3bc_c908) ^ self.tick()
+        ) ^ salt))
+    }
+    /// Restart the world's random stream from an explicit game argument.
+    pub fn reseed(&mut self, seed: u64) {
+        self.sim_writes(format_args!("reseeded the world"));
+        self.state.seed = seed;
+        self.rng.insert(Rng::new(seed));
+    }
+    /// Keep clock settle running. Reasons expire at the start of the next tick.
+    pub fn busy(&self, reason: &'static str) {
+        self.sim_writes(format_args!("reported busy `{reason}`"));
+        self.mutated();
+        self.state.busy.borrow_mut().push(reason.into());
+    }
+    /// Whether the observed tick changed no countable component, springs rest and no work was reported.
+    #[track_caller]
+    pub fn quiescent(&self) -> bool {
+        self.check_reads(std::panic::Location::caller());
+        self.observed()
+            && self.observation == ObservationState::Still
+            && self.state.busy.borrow().is_empty()
+            && !self
+                .components
+                .iter()
+                .filter(|(name, _)| !self.registry[*name].presentation)
+                .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
+                .chain(
+                    self.resources
+                        .iter()
+                        .filter(|(name, _)| !self.registry[*name].ambient)
+                        .map(|(_, s)| (s, None)),
+                )
+                .any(|(s, skip)| s.moving(self.now(), skip))
+    }
+    pub(crate) fn unobserve(&mut self) {
+        self.observation = ObservationState::Unknown;
+        self.changing.clear();
+    }
+    #[track_caller]
+    pub(crate) fn changing(&self) -> Vec<String> {
+        self.check_reads(std::panic::Location::caller());
+        let mut reasons = if self.observed() {
+            self.changing.clone()
+        } else {
+            Vec::new()
+        };
+        for (&name, storage) in &self.components {
+            if self.registry[name].presentation {
+                continue;
+            }
+            if reasons.len() == 8 {
+                break;
+            }
+            storage.visit_moving(self.now(), self.storage::<crate::Ambient>(), &mut |index| {
+                let e = self.entity_at(index);
+                let reason = format!(
+                    "{}.{}",
+                    self.name(e)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("#{}", e.index())),
+                    name
+                );
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+                reasons.len() < 8
+            });
+        }
+        for (&name, storage) in &self.resources {
+            if reasons.len() == 8 {
+                break;
+            }
+            if !self.registry[name].ambient && storage.moving(self.now(), None) {
+                let reason = format!("resource.{name}");
+                if !reasons.contains(&reason) {
+                    reasons.push(reason);
+                }
+            }
+        }
+        for reason in self.state.busy.borrow().iter() {
+            if reasons.len() == 8 {
+                break;
+            }
+            if !reasons.iter().any(|s| s == reason) {
+                reasons.push(reason.to_string());
+            }
+        }
+        if reasons.is_empty() && (!self.observed() || self.observation == ObservationState::Unknown)
+        {
+            reasons.push("not observed".into());
+        }
+        reasons
+    }
+    #[track_caller]
+    pub(crate) fn settle_tick(&self) -> Option<u64> {
+        self.check_reads(std::panic::Location::caller());
+        if !self.state.busy.borrow().is_empty() {
+            return None;
+        }
+        self.components
+            .iter()
+            .filter(|(name, _)| !self.registry[*name].presentation)
+            .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
+            .chain(
+                self.resources
+                    .iter()
+                    .filter(|(name, _)| !self.registry[*name].ambient)
+                    .map(|(_, s)| (s, None)),
+            )
+            .try_fold(self.tick(), |at, (s, skip)| {
+                Some(at.max(s.settle_tick(self.now(), skip)?))
+            })
+    }
+    pub(crate) fn begin_tick(&mut self) {
+        self.mutated();
+        self.in_tick = true;
+        self.followed.set(false);
+        self.emitted.set(false);
+        self.state.busy.get_mut().clear();
+        self.interpolation_origins.clear();
+        for e in self.fresh.drain(..) {
+            self.state.slots[e.index as usize].fresh = false;
+        }
+    }
+    /// The next journal cursor. Draining a host never erases an agent's history.
+    pub fn journal_next(&self) -> u64 {
+        self.journal_next.get()
+    }
+    pub(crate) fn journal_json(&self, since: u64) -> String {
+        let lines = self.journal.borrow();
+        let next = self.journal_next.get();
+        let from = since.clamp(lines.front().map_or(next, |e| e.index), next);
+        let mut out = format!(
+            "{{\"tick\":{},\"next\":{next},\"from\":{from},\"dropped\":{},\"lines\":[",
+            self.tick(),
+            from.saturating_sub(since)
+        );
+        for (i, event) in lines.iter().filter(|e| e.index >= from).enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            crate::json::quote_into(&mut out, &event.line);
+        }
+        out.push_str("]}");
+        out
+    }
+    pub(crate) fn restore_journal(&mut self, lines: Vec<Event>, next: u64) {
+        *self.journal.borrow_mut() = lines.into();
+        self.journal_next.set(next);
+    }
+    pub(crate) fn publications(&self) -> BTreeMap<String, crate::values::Stored> {
+        self.published.borrow().clone()
+    }
+    pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, crate::values::Stored>) {
+        *self.published.borrow_mut() = values;
+        self.published_text.borrow_mut().clear();
+    }
+    /// The whole record. Exact (`rounded == false`, what the host receives),
+    /// each value's text is kept from its last change, so a change to one
+    /// field re-encodes only that field.
+    pub(crate) fn published_json(&self, rounded: bool) -> String {
+        let published = self.published.borrow();
+        let mut text = self.published_text.borrow_mut();
+        let mut out = String::from("{");
+        for (i, (key, value)) in published.iter().enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            crate::json::quote_into(&mut out, key);
+            out.push(':');
+            if rounded {
+                value.append_json(&mut out, true);
+            } else {
+                out.push_str(text.entry(key.clone()).or_insert_with(|| {
+                    let mut one = String::new();
+                    value.append_json(&mut one, false);
+                    one
+                }));
+            }
+        }
+        out.push('}');
+        out
+    }
+    pub(crate) fn has_component_named(&self, e: Entity, name: &str) -> bool {
+        self.components
+            .get(name)
+            .is_some_and(|s| s.has(e.index() as usize))
+    }
+    pub(crate) fn component_names(&self, e: Entity) -> impl Iterator<Item = &str> {
+        let index = e.index() as usize;
+        self.components
+            .iter()
+            .filter_map(move |(name, s)| s.has(index).then_some(*name))
+    }
+    pub(crate) fn components_json(&self, e: Entity) -> Result<String, DataError> {
+        self.storages_json(&self.components, e.index() as usize)
+    }
+    pub(crate) fn resources_json(&self) -> Result<String, DataError> {
+        self.storages_json(&self.resources, 0)
+    }
+    #[track_caller]
+    fn storages_json(
+        &self,
+        storages: &BTreeMap<&str, Box<dyn Erased>>,
+        index: usize,
+    ) -> Result<String, DataError> {
+        self.check_reads(std::panic::Location::caller());
+        let mut w = crate::json::Encoder::default(); // State round-trips; only layout is rounded.
+        w.begin_struct();
+        for (name, s) in storages {
+            if s.has(index) {
+                w.field(name);
+                s.write_one(index, &mut w);
+            }
+        }
+        w.end_struct();
+        w.finish()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObservationState {
+    Unknown,
+    Still,
+    Changing,
+}
+
+#[cfg(test)]
+mod measurements {
+    use super::*;
+    #[test]
+    #[ignore = "release stillness cost diagnostic"]
+    fn stillness_hash_cost() {
+        for count in [1_000, 10_000, 200_000] {
+            let mut w = World::new(60, 0);
+            for i in 0..count {
+                w.spawn(crate::Transform::at(i as f32, 0.0, 0.0));
+            }
+            let mut snapshot = Observation::default();
+            w.observe(&mut snapshot);
+            let mut samples = Vec::new();
+            for _ in 0..100 {
+                let start = std::time::Instant::now();
+                std::hint::black_box(&w).observe(std::hint::black_box(&mut snapshot));
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "stillness hash {count} Transform entities: {:.6} ms median, {:.6} ms p95",
+                samples[50], samples[95]
+            );
+        }
+    }
+}

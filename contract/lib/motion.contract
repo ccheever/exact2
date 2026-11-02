@@ -1,0 +1,7 @@
+// `exact:motion`: motion every app can name, compiled into the
+// compiler. `use Activity from "exact:motion"`.
+
+// The one app-wide rhythm for loading indicators: every
+// spinner, skeleton and pulse on it keeps one phase, wherever it is drawn
+// and whenever it appeared.
+timeline Activity

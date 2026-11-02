@@ -1,0 +1,185 @@
+{
+  "kind": "interface",
+  "name": "@exact/translation",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "agent": {
+    "translations": "TranslationScriptEntry[]",
+    "detections": "LanguageDetectionResults[]",
+    "downloadSheet": "string"
+  },
+  "shapes": {
+    "TranslatorAvailability": {
+      "availability": "enum<unavailable|downloadable|downloading|available>",
+      "reason": "option<enum<device-not-eligible|not-enabled|model-not-ready|unsupported-options|os|policy|disk|not-supported>>",
+      "progress": "option<number>",
+      "apple": "option<AppleTranslatorAvailability>",
+      "android": "option<AndroidTranslatorAvailability>"
+    },
+    "TranslatorInfo": {
+      "id": "string",
+      "sourceLanguage": "string",
+      "targetLanguage": "string",
+      "inputQuota": "option<number>",
+      "attribution": "option<enum<google-translate>>"
+    },
+    "TranslatorResult": {
+      "text": "string"
+    },
+    "LanguageDetectorAvailability": {
+      "availability": "enum<unavailable|downloadable|downloading|available>",
+      "reason": "option<enum<device-not-eligible|not-enabled|model-not-ready|unsupported-options|os|policy|disk|not-supported>>",
+      "progress": "option<number>"
+    },
+    "LanguageDetectorInfo": {
+      "id": "string",
+      "expectedInputLanguages": "option<string[]>",
+      "inputQuota": "option<number>"
+    },
+    "LanguageDetectionResult": {
+      "detectedLanguage": "string",
+      "confidence": "number"
+    },
+    "LanguageDetectionResults": {
+      "results": "LanguageDetectionResult[]"
+    },
+    "TranslationDone": {
+      "id": "string"
+    },
+    "TranslationScriptEntry": {
+      "text": "option<string>",
+      "error": "option<string>",
+      "reason": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "translatorAvailability",
+      "live": true,
+      "overlays": "implementation",
+      "options": {
+        "sourceLanguage": "string",
+        "targetLanguage": "string"
+      },
+      "answers": "TranslatorAvailability",
+      "substitute": {
+        "default": {
+          "availability": "unavailable",
+          "reason": "not-supported"
+        }
+      }
+    },
+    {
+      "send": "createTranslator",
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "sourceLanguage": "string",
+        "targetLanguage": "string"
+      },
+      "answers": "TranslatorInfo",
+      "handles": {
+        "id": "translator"
+      },
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "translate",
+      "options": {
+        "translator": "handle<translator>",
+        "input": "string"
+      },
+      "answers": "TranslatorResult",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "destroyTranslator",
+      "options": {
+        "translator": "handle<translator>"
+      },
+      "answers": "TranslationDone",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "source": "languageDetectorAvailability",
+      "live": true,
+      "overlays": "implementation",
+      "options": {
+        "expectedInputLanguages": "option<string[]>"
+      },
+      "answers": "LanguageDetectorAvailability",
+      "sync": {
+        "name": "languageDetectorAvailabilitySync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "availability": "unavailable",
+          "reason": "not-supported"
+        }
+      }
+    },
+    {
+      "send": "createLanguageDetector",
+      "origin": "app",
+      "foreground": true,
+      "gesture": true,
+      "options": {
+        "expectedInputLanguages": "option<string[]>"
+      },
+      "answers": "LanguageDetectorInfo",
+      "handles": {
+        "id": "language-detector"
+      },
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "detectLanguage",
+      "options": {
+        "detector": "handle<language-detector>",
+        "input": "string"
+      },
+      "answers": "LanguageDetectionResults",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "send": "destroyLanguageDetector",
+      "options": {
+        "detector": "handle<language-detector>"
+      },
+      "answers": "TranslationDone",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    }
+  ]
+}

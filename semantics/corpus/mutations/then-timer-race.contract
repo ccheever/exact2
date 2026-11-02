@@ -1,0 +1,34 @@
+// A `then` runs before a timer due at the same time: the answer landed
+// first. A timer whose commit lands an answer arms the `then` at its due
+// time, ahead of the next timer due then.
+shape Ack
+  ok: bool
+
+component App
+  state log = ""
+  mutation ack as shape Ack then landed
+  action landed
+    log = log + "T"
+  action a
+    log = log + "a"
+    send ack = ping(log)
+  action b
+    log = log + "b"
+  action poke
+    log = log + "p"
+    send ack = ping(log)
+  task first mount
+    every(10, a)
+  task second mount
+    every(10, b)
+  view
+    column
+      text log testId="log"
+      button "poke" press=poke testId="poke"
+
+test "race"
+  tap "poke"
+  clock +10
+  expect state log == "pTaTb"
+  clock +10
+  expect state log == "pTaTbaTb"

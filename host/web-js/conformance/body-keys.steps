@@ -1,0 +1,5 @@
+# Nothing is focused at load: the root hears the key.
+key heard a
+# The pressed button takes the focus and unmounts; the next key is the root's.
+tap leave
+key heard Shift

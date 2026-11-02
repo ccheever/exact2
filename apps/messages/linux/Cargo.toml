@@ -1,0 +1,22 @@
+[package]
+name = "messages-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "messages-linux"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-linux = { path = "../../../host/linux" }
+exact-js = { path = "../../../js" }
+exact-runner = { path = "../../../runner" }
+exact-plan = { path = "../../../plan" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

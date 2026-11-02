@@ -1,0 +1,20 @@
+// With nothing focused, at load and after the focused button unmounts, a key
+// targets `<body>`: the root's `keycapture`, `key` and `keyup` hear it, as the
+// DOM's `window` listeners do, and the root takes no focus
+// (docs/contract-grammar.md#keys).
+component BodyKeys
+  state heard = ""
+  state gone = false
+  action captured(k: string)
+    heard = `${heard}C${k};`
+  action down(k: string)
+    heard = `${heard}D${k};`
+  action up(k: string)
+    heard = `${heard}U${k};`
+  action leave
+    gone = true
+  view
+    column keycapture=captured key=down keyup=up testId="root" padding=8
+      if not gone
+        button "Leave" press=leave testId="leave"
+      text heard testId="heard"

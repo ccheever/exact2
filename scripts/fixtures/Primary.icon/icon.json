@@ -1,0 +1,7 @@
+{
+  "fill": { "solid": "srgb:0.10000,0.25000,0.70000,1.00000" },
+  "groups": [
+    { "layers": [{ "image-name": "square.svg", "name": "Square" }] }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}

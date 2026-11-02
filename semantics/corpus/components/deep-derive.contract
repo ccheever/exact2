@@ -1,0 +1,21 @@
+// A child's derive read deep inside another derive.
+component App
+  state n = 1
+  action inc
+    n = n + 1
+  view
+    column
+      Show(n=n)
+      button "inc" press=inc testId="inc"
+
+component Show
+  props
+    n: number
+  derive a = n + 1
+  derive b = ((((a + 1) + 1) + 1) + 1)
+  view
+    text `${b}` testId="b"
+
+test "deep"
+  tap "inc"
+  expect text "b" == "7"

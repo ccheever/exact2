@@ -1,0 +1,277 @@
+use crate::{math, queries::queries, Body, BodyKind, CapsuleController, Collider, Shape};
+use exact_game::{Entity, Target, Transform, Vec3, World};
+use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::{
+    control::{CharacterAutostep, CharacterLength, KinematicCharacterController},
+    prelude::*,
+};
+
+/// Move an upright capsule through Rapier's character controller, then apply its
+/// documented collision impulses to bodies within CapsuleController.mass's push budget.
+/// Horizontal input is m/s; the game owns CapsuleController.velocity.y (gravity/jumps).
+/// Installs a kinematic sensor Body/Collider. Call before physics::step.
+fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> CapsuleStep {
+    let mut c = world
+        .get::<CapsuleController>(e)
+        .expect("physics: entity needs CapsuleController")
+        .clone();
+    let mut pose = *world
+        .get::<Transform>(e)
+        .expect("physics: character needs Transform");
+    let before = pose.position;
+    assert!(
+        pose.rotation == exact_game::Quat::IDENTITY && pose.scale == Vec3::ONE,
+        "physics: characters must be upright with unit scale"
+    );
+    assert!(
+        desired_velocity.is_finite()
+            && c.velocity.is_finite()
+            && c.mass.is_finite()
+            && c.mass > 0.0
+            && c.step.is_finite()
+            && c.step >= 0.0
+            && (0.0..90.0).contains(&c.slope_degrees),
+        "physics: invalid CapsuleController"
+    );
+    if !world.has::<Body>(e) {
+        world.insert(
+            e,
+            Body {
+                kind: BodyKind::Kinematic,
+                ..Body::default()
+            },
+        );
+    }
+    assert!(
+        world.get::<Body>(e).unwrap().kind == BodyKind::Kinematic,
+        "physics: character Body must be Kinematic"
+    );
+    let mut collider = world
+        .get::<Collider>(e)
+        .map(|c| c.clone())
+        .unwrap_or_default();
+    collider.shape = Shape::Capsule {
+        radius: c.radius,
+        height: c.height,
+    };
+    collider.sensor = true;
+    let shape = math::shape(&collider.shape, Vec3::ONE);
+    let mask = collider.mask;
+    if world.get::<Collider>(e).as_deref() != Some(&collider) {
+        world.insert(e, collider);
+    }
+    if c.grounded && c.velocity.y < 0.0 {
+        c.velocity.y = 0.0;
+    }
+    let velocity = Vec3::new(desired_velocity.x, c.velocity.y, desired_velocity.z);
+    let carry = c
+        .support
+        .filter(|s| c.grounded && world.contains(*s))
+        .map(|support| {
+            let current = math::world_pose(world, support);
+            let local =
+                c.support_pose.rotation.conjugate() * (pose.position - c.support_pose.position);
+            current.position + current.rotation * local - pose.position
+        });
+    let view = queries(world);
+    let mut scene_guard = view.scene();
+    let scene = &mut *scene_guard;
+    let own = scene.collider(e).unwrap();
+    // The controller sees a BVH of only the colliders it can reach this step, built
+    // in entity order, so its iteration order is a function of the world alone,
+    // not of the shared scene's edit history (restore must continue identically).
+    let reach = |p: Vec3| shape.compute_aabb(&math::pose(Transform::at(p.x, p.y, p.z)));
+    let carried = pose.position + carry.unwrap_or(Vec3::ZERO);
+    let region = reach(pose.position)
+        .merged(&reach(carried))
+        .merged(&reach(carried + velocity * world.dt()))
+        // A deflected slide stays within the move's length of the swept box.
+        .loosened(c.step + c.height * 0.25 + c.radius + 0.1 + (velocity * world.dt()).length());
+    let mut near: Vec<_> = scene
+        .bvh
+        .intersect_aabb(&region)
+        .filter_map(|leaf| scene.rapier.colliders.get_unknown_gen(leaf))
+        .map(|(co, h)| (co.user_data, h, co.compute_aabb()))
+        .collect();
+    near.sort_by_key(|n| n.0);
+    let local = crate::queries::bvh(
+        &near
+            .iter()
+            .map(|(_, h, aabb)| (h.into_raw_parts().0, *aabb))
+            .collect::<Vec<_>>(),
+    );
+    let predicate = |_: ColliderHandle, co: &rapier3d::prelude::Collider| {
+        co.collision_groups().memberships.bits() & mask != 0
+    };
+    let filter = QueryFilter::default()
+        .exclude_sensors()
+        .exclude_collider(own)
+        .predicate(&predicate);
+    let angle = c.slope_degrees * (std::f32::consts::PI / 180.0);
+    let controller = KinematicCharacterController {
+        offset: CharacterLength::Absolute(0.01),
+        autostep: (c.step > 0.0).then_some(CharacterAutostep {
+            max_height: CharacterLength::Absolute(c.step),
+            min_width: CharacterLength::Absolute(c.radius + 0.01),
+            include_dynamic_bodies: false,
+        }),
+        max_slope_climb_angle: angle,
+        min_slope_slide_angle: angle,
+        snap_to_ground: Some(CharacterLength::Absolute(c.step + 0.02)),
+        ..KinematicCharacterController::default()
+    };
+    let q = QueryPipeline {
+        dispatcher: scene.rapier.narrow_phase.query_dispatcher(),
+        bvh: &local,
+        bodies: &scene.rapier.bodies,
+        colliders: &scene.rapier.colliders,
+        filter,
+    };
+    if let Some(delta) = carry {
+        let carry = controller.move_shape(
+            world.dt(),
+            &q,
+            &*shape,
+            &math::pose(pose),
+            math::vector(delta),
+            |_| {},
+        );
+        pose.position += math::vec3(carry.translation);
+    }
+    let mut collisions = Vec::new();
+    let movement = controller.move_shape(
+        world.dt(),
+        &q,
+        &*shape,
+        &math::pose(pose),
+        math::vector(velocity * world.dt()),
+        |hit| collisions.push(hit),
+    );
+    pose.position += math::vec3(movement.translation);
+    c.grounded = movement.grounded;
+    // The realized horizontal velocity, never faster than the one asked for: a
+    // push out of an overlap moves the capsule but is not its speed. Otherwise
+    // a capsule standing in a collider carries the push into its next move and
+    // shuttles in and out every other tick.
+    let realized =
+        exact_game::Vec2::new(movement.translation.x, movement.translation.z) / world.dt();
+    let flat = realized.clamp_length_max(exact_game::Vec2::new(velocity.x, velocity.z).length());
+    c.velocity.x = flat.x;
+    c.velocity.z = flat.y;
+    if c.grounded && c.velocity.y < 0.0 {
+        c.velocity.y = 0.0;
+    }
+    c.support = q
+        .cast_shape(
+            &math::pose(pose),
+            -Vector::Y,
+            &*shape,
+            ShapeCastOptions {
+                max_time_of_impact: 0.03,
+                ..ShapeCastOptions::default()
+            },
+        )
+        .filter(|(_, h)| h.normal1.y >= exact_game::math::cos(angle))
+        .map(|(h, _)| scene.entity(h));
+    if let Some(s) = c.support {
+        c.support_pose = math::world_pose(world, s);
+    }
+    let allowed: std::collections::BTreeSet<_> = near
+        .iter()
+        .filter(|(_, h, _)| {
+            scene.rapier.colliders[*h]
+                .parent()
+                .is_some_and(|b| scene.rapier.bodies[b].mass() <= c.mass)
+        })
+        .map(|(_, h, _)| crate::state::raw(*h))
+        .collect();
+    let push_filter = |h: ColliderHandle, co: &rapier3d::prelude::Collider| {
+        predicate(h, co) && allowed.contains(&crate::state::raw(h))
+    };
+    let r = &mut scene.rapier;
+    let mut q = QueryPipelineMut {
+        dispatcher: r.narrow_phase.query_dispatcher(),
+        bvh: &local,
+        bodies: &mut r.bodies,
+        colliders: &mut r.colliders,
+        filter: filter.predicate(&push_filter),
+    };
+    controller.solve_character_collision_impulses(world.dt(), &mut q, &*shape, c.mass, &collisions);
+    let pushed: Vec<_> = near
+        .iter()
+        .filter_map(|&(index, h, _)| {
+            let rb = r.colliders[h].parent().map(|b| &r.bodies[b])?;
+            rb.is_dynamic().then(|| {
+                (
+                    index as u32,
+                    math::vec3(rb.linvel()),
+                    math::vec3(rb.angvel()),
+                )
+            })
+        })
+        .collect();
+    let entities: Vec<_> = pushed
+        .iter()
+        .map(|&(index, ..)| scene.entity_at(index))
+        .collect();
+    for (entity, (_, v, spin)) in entities.into_iter().zip(pushed) {
+        let changed = world
+            .get::<Body>(entity)
+            .is_some_and(|b| b.velocity != v || b.spin != spin);
+        if changed {
+            let mut b = world.get_mut::<Body>(entity).unwrap();
+            b.velocity = v;
+            b.spin = spin;
+            b.asleep = false;
+        }
+    }
+    drop(scene_guard);
+    drop(view);
+    let result = CapsuleStep {
+        displacement: pose.position - before,
+        grounded: c.grounded,
+    };
+    world.insert(e, pose);
+    world.insert(e, c);
+    result
+}
+
+/// Actual collision-constrained movement, including support/platform carry.
+#[derive(Clone, Copy, Debug)]
+pub struct CapsuleStep {
+    /// World displacement applied this step.
+    pub displacement: Vec3,
+    /// Ground contact at the end of this step.
+    pub grounded: bool,
+}
+/// Named collision controller; its step releases all world/component leases.
+pub struct CapsuleHandle<'a> {
+    world: &'a mut World,
+    entity: Entity,
+}
+/// Address a CapsuleController + Transform by name or handle.
+pub fn capsule(world: &mut World, target: impl Target) -> CapsuleHandle<'_> {
+    let label = || target.label();
+    let entity = target
+        .entity(world)
+        .unwrap_or_else(|| panic!("capsule target `{}` does not exist", label()));
+    assert!(
+        world.has::<CapsuleController>(entity),
+        "capsule target `{}` has no CapsuleController",
+        label()
+    );
+    assert!(!world.has::<exact_game::character::Character>(entity),
+        "capsule target `{}` has both Character and CapsuleController; pick one movement controller", label());
+    assert!(
+        world.has::<Transform>(entity),
+        "capsule target `{}` has no Transform",
+        label()
+    );
+    CapsuleHandle { world, entity }
+}
+impl CapsuleHandle<'_> {
+    /// Move using horizontal metres/second and the controller's saved vertical velocity.
+    pub fn step(self, velocity: Vec3) -> CapsuleStep {
+        move_capsule(self.world, self.entity, velocity)
+    }
+}

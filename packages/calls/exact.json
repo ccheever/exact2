@@ -1,0 +1,828 @@
+{
+  "kind": "interface",
+  "name": "@exact/calls",
+  "version": "1.0.0",
+  "grants": [
+    "device.calls"
+  ],
+  "substitute": "runner",
+  "shapes": {
+    "Call": {
+      "id": "string",
+      "handle": "string",
+      "displayName": "string",
+      "direction": "enum<incoming|outgoing>",
+      "video": "bool",
+      "state": "enum<ringing|dialing|connecting|connected|held|ended>",
+      "muted": "bool",
+      "audio": "bool",
+      "endedReason": "option<enum<local|remote|unanswered|declined|failed|answeredElsewhere|declinedElsewhere>>",
+      "startedAt": "number",
+      "connectedAt": "option<number>"
+    },
+    "CallEvent": {
+      "muted": "option<bool>",
+      "held": "option<bool>"
+    },
+    "CallsStatus": {
+      "available": "bool",
+      "systemUI": "bool"
+    }
+  },
+  "names": [
+    {
+      "send": "startCall",
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "id": "string",
+        "handle": "string",
+        "handleType": "option<enum<phoneNumber|emailAddress|generic>>",
+        "displayName": "option<string>",
+        "video": "option<bool>"
+      },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "calls",
+          "key": "id",
+          "refuse": "InvalidStateError",
+          "with": {
+            "direction": "outgoing",
+            "state": "dialing",
+            "muted": false,
+            "audio": false,
+            "endedReason": null,
+            "connectedAt": null
+          },
+          "stamp": "startedAt",
+          "ends": {
+            "state": [
+              "ended"
+            ]
+          },
+          "inCall": {
+            "state": [
+              "connected"
+            ]
+          },
+          "tap": {
+            "choices": {
+              "answer": {
+                "when": {
+                  "state": [
+                    "ringing"
+                  ]
+                },
+                "set": {
+                  "state": "connected",
+                  "audio": true,
+                  "connectedAt": {
+                    "now": true
+                  }
+                },
+                "event": "callanswer",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  }
+                ]
+              },
+              "hangup": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "local",
+                  "audio": false
+                },
+                "event": "callhangup",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  }
+                ]
+              },
+              "hold": {
+                "when": {
+                  "state": [
+                    "connected"
+                  ]
+                },
+                "set": {
+                  "state": "held"
+                },
+                "event": "callhold",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "held": true
+                  }
+                ]
+              },
+              "unhold": {
+                "when": {
+                  "state": [
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "connected"
+                },
+                "event": "callhold",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "held": false
+                  }
+                ]
+              },
+              "mute": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "muted": true
+                },
+                "event": "callmute",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "muted": true
+                  }
+                ]
+              },
+              "unmute": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "muted": false
+                },
+                "event": "callmute",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "muted": false
+                  }
+                ]
+              },
+              "failed": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "failed",
+                  "audio": false
+                }
+              },
+              "activated": {
+                "when": {
+                  "state": [
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": true
+                }
+              },
+              "deactivated": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": false
+                }
+              }
+            }
+          },
+          "absent": {
+            "handleType": "generic",
+            "displayName": "",
+            "video": false
+          }
+        }
+      }
+    },
+    {
+      "send": "reportIncomingCall",
+      "origin": "app",
+      "foreground": true,
+      "inCall": true,
+      "options": {
+        "id": "string",
+        "handle": "string",
+        "handleType": "option<enum<phoneNumber|emailAddress|generic>>",
+        "displayName": "option<string>",
+        "video": "option<bool>"
+      },
+      "answers": null,
+      "substitute": {
+        "list": {
+          "state": "calls",
+          "key": "id",
+          "refuse": "InvalidStateError",
+          "with": {
+            "direction": "incoming",
+            "state": "ringing",
+            "muted": false,
+            "audio": false,
+            "endedReason": null,
+            "connectedAt": null
+          },
+          "stamp": "startedAt",
+          "ends": {
+            "state": [
+              "ended"
+            ]
+          },
+          "inCall": {
+            "state": [
+              "connected"
+            ]
+          },
+          "tap": {
+            "choices": {
+              "answer": {
+                "when": {
+                  "state": [
+                    "ringing"
+                  ]
+                },
+                "set": {
+                  "state": "connected",
+                  "audio": true,
+                  "connectedAt": {
+                    "now": true
+                  }
+                },
+                "event": "callanswer",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  }
+                ]
+              },
+              "hangup": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "local",
+                  "audio": false
+                },
+                "event": "callhangup",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  }
+                ]
+              },
+              "hold": {
+                "when": {
+                  "state": [
+                    "connected"
+                  ]
+                },
+                "set": {
+                  "state": "held"
+                },
+                "event": "callhold",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "held": true
+                  }
+                ]
+              },
+              "unhold": {
+                "when": {
+                  "state": [
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "connected"
+                },
+                "event": "callhold",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "held": false
+                  }
+                ]
+              },
+              "mute": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "muted": true
+                },
+                "event": "callmute",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "muted": true
+                  }
+                ]
+              },
+              "unmute": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "muted": false
+                },
+                "event": "callmute",
+                "args": [
+                  {
+                    "id": "id",
+                    "handle": "handle",
+                    "displayName": "displayName",
+                    "direction": "direction",
+                    "video": "video",
+                    "state": "state",
+                    "muted": "muted",
+                    "audio": "audio",
+                    "endedReason": "endedReason",
+                    "startedAt": "startedAt",
+                    "connectedAt": "connectedAt"
+                  },
+                  {
+                    "muted": false
+                  }
+                ]
+              },
+              "failed": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "state": "ended",
+                  "endedReason": "failed",
+                  "audio": false
+                }
+              },
+              "activated": {
+                "when": {
+                  "state": [
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": true
+                }
+              },
+              "deactivated": {
+                "when": {
+                  "state": [
+                    "ringing",
+                    "dialing",
+                    "connecting",
+                    "connected",
+                    "held"
+                  ]
+                },
+                "set": {
+                  "audio": false
+                }
+              }
+            }
+          },
+          "absent": {
+            "handleType": "generic",
+            "displayName": "",
+            "video": false
+          }
+        }
+      }
+    },
+    {
+      "send": "answerCall",
+      "origin": "app",
+      "foreground": true,
+      "options": {
+        "id": "string"
+      },
+      "answers": null,
+      "substitute": {
+        "update": {
+          "state": "calls",
+          "key": "id",
+          "when": {
+            "state": [
+              "ringing"
+            ]
+          },
+          "set": {
+            "state": "connected",
+            "audio": true,
+            "connectedAt": {
+              "now": true
+            }
+          },
+          "else": "InvalidStateError"
+        }
+      }
+    },
+    {
+      "send": "reportCallState",
+      "options": {
+        "id": "string",
+        "state": "enum<connecting|connected>"
+      },
+      "answers": null,
+      "substitute": {
+        "update": {
+          "state": "calls",
+          "key": "id",
+          "when": {
+            "state": [
+              "dialing",
+              "connecting"
+            ]
+          },
+          "set": {
+            "state": {
+              "from": "state"
+            },
+            "audio": {
+              "from": "state",
+              "map": {
+                "connected": true
+              }
+            },
+            "connectedAt": {
+              "from": "state",
+              "map": {
+                "connected": {
+                  "now": true
+                }
+              }
+            }
+          },
+          "else": "InvalidStateError"
+        }
+      }
+    },
+    {
+      "send": "setCallHeld",
+      "origin": "app",
+      "when": {
+        "held": false
+      },
+      "options": {
+        "id": "string",
+        "held": "bool"
+      },
+      "answers": null,
+      "substitute": {
+        "update": {
+          "state": "calls",
+          "key": "id",
+          "when": {
+            "state": [
+              "connected",
+              "held"
+            ]
+          },
+          "set": {
+            "state": {
+              "from": "held",
+              "map": {
+                "true": "held",
+                "false": "connected"
+              }
+            }
+          },
+          "else": "InvalidStateError"
+        }
+      }
+    },
+    {
+      "send": "setCallMuted",
+      "origin": "app",
+      "when": {
+        "muted": false
+      },
+      "options": {
+        "id": "string",
+        "muted": "bool"
+      },
+      "answers": null,
+      "substitute": {
+        "update": {
+          "state": "calls",
+          "key": "id",
+          "when": {
+            "state": [
+              "ringing",
+              "dialing",
+              "connecting",
+              "connected",
+              "held"
+            ]
+          },
+          "set": {
+            "muted": {
+              "from": "muted"
+            }
+          },
+          "else": "InvalidStateError"
+        }
+      }
+    },
+    {
+      "send": "endCall",
+      "options": {
+        "id": "string",
+        "reason": "option<enum<local|remote|unanswered|declined|failed|answeredElsewhere|declinedElsewhere>>"
+      },
+      "answers": null,
+      "substitute": {
+        "update": {
+          "state": "calls",
+          "key": "id",
+          "when": {
+            "state": [
+              "ringing",
+              "dialing",
+              "connecting",
+              "connected",
+              "held"
+            ]
+          },
+          "set": {
+            "state": "ended",
+            "endedReason": {
+              "from": "reason",
+              "absent": "local"
+            },
+            "audio": false
+          },
+          "else": "InvalidStateError"
+        }
+      }
+    },
+    {
+      "source": "calls",
+      "live": true,
+      "answers": "Call[]",
+      "substitute": {
+        "listed": {
+          "state": "calls",
+          "fields": [
+            "id",
+            "handle",
+            "displayName",
+            "direction",
+            "video",
+            "state",
+            "muted",
+            "audio",
+            "endedReason",
+            "startedAt",
+            "connectedAt"
+          ]
+        }
+      }
+    },
+    {
+      "source": "callsStatus",
+      "live": true,
+      "answers": "CallsStatus",
+      "sync": {
+        "name": "callsStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "systemUI": false
+        }
+      }
+    },
+    {
+      "event": "callanswer",
+      "on": "root",
+      "raised": "activation",
+      "args": [
+        "Call"
+      ],
+      "hold": 8
+    },
+    {
+      "event": "callhangup",
+      "on": "root",
+      "raised": "activation",
+      "args": [
+        "Call"
+      ],
+      "hold": 8
+    },
+    {
+      "event": "callhold",
+      "on": "root",
+      "raised": "activation",
+      "args": [
+        "Call",
+        "CallEvent"
+      ],
+      "hold": 8
+    },
+    {
+      "event": "callmute",
+      "on": "root",
+      "raised": "activation",
+      "args": [
+        "Call",
+        "CallEvent"
+      ],
+      "hold": 8
+    }
+  ]
+}

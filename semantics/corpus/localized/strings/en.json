@@ -1,0 +1,8 @@
+{
+  "greeting": "Hello, {$name}!",
+  "count": "{n} items, {n} again; done={done}",
+  "escaped": "Braces \\{kept\\} and a backslash \\\\ stay",
+  "plain": "No placeholders",
+  "spaced": "Value: { $value } end",
+  "unicode": "日本 {who} 😀"
+}

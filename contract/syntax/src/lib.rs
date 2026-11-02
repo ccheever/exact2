@@ -1,0 +1,255 @@
+//! Contract syntax: the lexer, the AST, and the parser.
+//!
+//! The language basis is Contract v1 Edition 1, scoped to the v1 app's
+//! constructs.
+//!
+//! The grammar is indentation-structured. A file is a sequence of `shape` and
+//! `component` declarations; a component holds `props`, `state`, `derive`,
+//! `resource`, `action`, `task`, and `view` sections; a view is a tree of
+//! elements, component uses, and the three region constructs `if`/`else`,
+//! `for … in … key=…`, and `match … case some(x) / case none`. Expressions
+//! are closed: literals, template strings, names, member access, calls,
+//! arithmetic, comparison, boolean logic, the conditional operator, `some`,
+//! `none`, and inline `match`.
+//!
+//! Every node carries a [`Span`]; every rejection is a [`SyntaxError`] with
+//! one stable id and a span. Nothing here knows about types or the plan.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+pub mod anatomy;
+pub mod ast;
+mod clock;
+mod colours;
+pub mod fmt;
+pub mod idioms;
+pub mod inline;
+pub mod lexer;
+pub mod members;
+mod midi;
+pub mod migrate;
+mod module_decl;
+mod notfound;
+pub mod params;
+pub mod parser;
+mod part;
+pub mod scope;
+pub mod sequence;
+mod share;
+mod spans;
+pub mod state;
+mod tap;
+mod test_steps;
+pub mod tool;
+
+pub use ast::*;
+pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
+pub use inline::{
+    expand, expand_all, expand_checked, expand_mapped, expand_typed, hygiene, inline, Expanded,
+    Instance, Owner,
+};
+pub use lexer::{Lexer, Token, TokenKind};
+pub use midi::MidiStep;
+pub use module_decl::{ModuleDecl, ModuleKind, PlatformWords};
+pub use notfound::implicit_notfound;
+pub use parser::{
+    is_launch, is_reserved, parse, parse_source, parse_source_all, parse_source_partial,
+    same_launch, Partial, SyntaxError,
+};
+pub use sequence::Sequence;
+pub use share::share_calls;
+pub use spans::VisitSpans;
+
+/// A token range in one source file. Lines and byte columns are 1-based.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
+pub struct Span {
+    /// Line.
+    pub line: u32,
+    /// Inclusive byte column.
+    pub col: u32,
+    /// Exclusive byte column; equal to `col` for a structural position.
+    pub end_col: u32,
+    /// File identity assigned by the loader; zero for a standalone source.
+    pub source_id: u32,
+}
+
+impl Span {
+    /// An empty position in a standalone source.
+    pub const fn point(line: u32, col: u32) -> Self {
+        Self {
+            line,
+            col,
+            end_col: col,
+            source_id: 0,
+        }
+    }
+}
+
+impl std::fmt::Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.col)
+    }
+}
+
+/// The commands a host answers: every name an action body may
+/// call. The web host's `command` op, the Apple session's queue, and the Linux
+/// presenter's `run_commands` match these by name; any other name would reach
+/// them and be refused there, silently to the author, so the type pass
+/// refuses it. It lives here, not in the type pass, because expansion reads
+/// it too: a statement naming one is the command, never a call; one whose
+/// component also has an action, `action` prop or inject of that name, its
+/// own action included, is refused as ambiguous
+/// (`syntax-call-ambiguous`).
+pub const HOST_COMMANDS: &[&str] = &[
+    "blur",
+    "copyText",
+    "deliveryActivate",
+    "deliveryCheck",
+    // A media element's, by HTML's method names:
+    // `fastSeek(id, seconds)` seeks each time, `load(id)` loads its source again.
+    "fastSeek",
+    "focus",
+    "format",
+    // `haptic("success" | "warning" | "error" | …)`.
+    "haptic",
+    "openURL",
+    "load",
+    // `requestFullscreen("id")`: the `video` with that HTML id takes the
+    // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
+    // when it did and when it left.
+    "requestFullscreen",
+    // `requestPictureInPicture("id")`: the `image` with that HTML id floats
+    // in the platform's picture-in-picture window, which shows each picture
+    // its `src` names next; `enterpictureinpicture` and
+    // `leavepictureinpicture` say when it did and when it left.
+    "requestPictureInPicture",
+    // `exitPictureInPicture()`: the app's floating image leaves the window,
+    // as HTML's document.exitPictureInPicture(); no id, as one image floats
+    // at a time.
+    "exitPictureInPicture",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    // `reload(id)`, `reload(id, ignoreCache=true)`: that iframe's page
+    // again, as `close(id)` is a dialog's.
+    "reload",
+    // An iframe's guest moved by the Navigation
+    // API's and WebDriver BiDi's names, by the frame's `id`.
+    "navigate",
+    "traverseHistory",
+    "stopLoading",
+    // WebDriver BiDi's `browsingContext.captureScreenshot`:
+    // a picture of the frame's guest into an `app:/` file, answered by `capture=`.
+    "captureScreenshot",
+    // Electron's `<webview>.openDevTools()`: the
+    // platform's inspector for the frame's guest, in a window of its own.
+    "openDevTools",
+    "relaunch",
+    "removeAllRanges",
+    "selectText",
+    // A field's range, or a reader text's source range, by id.
+    // `setSelectionRange("editor", 4, 4)`.
+    "setSelectionRange",
+    "setRangeText",
+    "setScheme",
+    // `:root { font-size }`: `setRootFontSize(px)`
+    // sets the root size `rem` follows, over the host's; `"medium"` hands it
+    // back. The runner's own; the web also sets it on the document.
+    "setRootFontSize",
+    // `setMode("dark-style", "dim")`: the window's app
+    // modes, as `setScheme` is its scheme. The runner's own.
+    "setMode",
+    // `HTMLInputElement.showPicker()` on a file input.
+    "showPicker",
+    // `startTrace_EXPERIMENTAL()` records the display link's callbacks until
+    // `stopTrace_EXPERIMENTAL()`, which puts the trace on the clipboard as JSON
+    // (`stopTrace_EXPERIMENTAL(maxBytes)`: cut to that size; tvOS, with no
+    // clipboard, only saves the file): Save Trace's frames, from an app's own
+    // control, in a production build too (Apple; web and Linux refuse it in
+    // the journal). Experimental: the names say so while the trace's
+    // fields may still change.
+    "startTrace_EXPERIMENTAL",
+    "stopTrace_EXPERIMENTAL",
+    // `HTMLDialogElement.showModal()` by the dialog's
+    // `id`, from an action; `close(id)` closes it (bare `close()` is still
+    // the window's).
+    "showModal",
+    "showPopover",
+    "hidePopover",
+    "togglePopover",
+    "share",
+    // Export: the host copies an `app:/` file out.
+    "saveFile",
+    // The File System Access API's pickers.
+    "showOpenFilePicker",
+    "showDirectoryPicker",
+    "showSaveFilePicker",
+    // `requestPermission(id, path, mode)`: a kept
+    // document's access asked for again under a press; `change` at `id`.
+    "requestPermission",
+    // A virtualized list's row brought into view, by key.
+    "scrollIntoView",
+    // `Element.scrollBy(x, y)` by the scroller's
+    // `id`, in pixels: a reader's `j` and `k`.
+    "scrollBy",
+    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
+    // text into the surface of that name, delivered in order, never coalesced.
+    "postMessage",
+    // `event.preventDefault()` for the `key` or `wheel` event that ran the
+    // action: the host skips its default action, the key's or the scroll;
+    // for `beforeunload`, the window stays open (docs/contract-grammar.md#events).
+    "preventDefault",
+    // `event.stopPropagation()` for the same event: no ancestor's `key`
+    // handler hears it, and its default still happens.
+    "stopPropagation",
+    // `window.close()`: the window closes without asking
+    // its `beforeunload` again — what an app calls once its own "Save
+    // changes?" is answered. An action prop named `close` may be bound, but
+    // calling it is refused as ambiguous (`syntax-call-ambiguous`).
+    "close",
+    // `playSound(src, at=, gain=, group=, playbackRate=, pan=)`,
+    // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
+    // table, so every host skips them as the runner's own.
+    "playSound",
+    "playSounds",
+    "stopSounds",
+    // `requestMIDIAccess()` and `sendMIDI(output,
+    // data, at=)`: the runner keeps the MIDI queue and answers `exactMIDI()`,
+    // so every host skips them as the runner's own.
+    "requestMIDIAccess",
+    "sendMIDI",
+];
+
+/// A written type as the author writes it: `Item[]`, `option<number>`.
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Enum(values, _) => {
+                write!(f, "enum<")?;
+                for (i, value) in values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{value:?}")?;
+                }
+                write!(f, ">")
+            }
+            TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
+            TypeExpr::List(t, _) => write!(f, "{t}[]"),
+        }
+    }
+}
+
+/// The event a handler's payload and record are typed by, on a node whose
+/// [`ast::payload_control`] is `control`: a text field's `selectionchange` is
+/// its `beforeinput`'s (an `InputEvent`), and an iframe's `navigate` is
+/// `framenavigate`, a `FrameNavigation` with no location.
+/// Every other event is itself.
+pub fn typed_event<'a>(event: &'a str, control: Option<&str>) -> &'a str {
+    match event {
+        "selectionchange" if ast::edits_text(control) => "beforeinput",
+        "navigate" if control == Some("iframe") => "framenavigate",
+        _ => event,
+    }
+}

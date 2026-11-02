@@ -1,0 +1,293 @@
+{
+  "kind": "interface",
+  "name": "@exact/calendar",
+  "version": "1.0.0",
+  "grants": [
+    "device.calendar",
+    "device.calendar-write-only"
+  ],
+  "substitute": "implementation",
+  "permission": [
+    {
+      "name": "calendar",
+      "grants": [
+        "device.calendar-write-only",
+        "device.calendar"
+      ],
+      "status": "calendarStatus",
+      "field": "state",
+      "denied": "NotAllowedError",
+      "allow": {
+        "access": {
+          "device.calendar": "full",
+          "device.calendar-write-only": "write-only"
+        }
+      },
+      "allowOn": {
+        "android": {
+          "access": "full"
+        }
+      },
+      "deny": {
+        "access": "none"
+      }
+    }
+  ],
+  "agent": {
+    "store": "string",
+    "notify": "number"
+  },
+  "shapes": {
+    "CalendarEvent": {
+      "id": "option<string>",
+      "uid": "option<string>",
+      "calendarId": "option<string>",
+      "title": "string",
+      "description": "option<string>",
+      "start": "string",
+      "timeZone": "option<string>",
+      "duration": "string",
+      "showWithoutTime": "bool",
+      "location": "option<string>",
+      "url": "option<string>",
+      "status": "enum<confirmed|tentative|cancelled>",
+      "freeBusyStatus": "enum<busy|free>",
+      "recurrenceId": "option<string>",
+      "utcStart": "option<number>",
+      "utcEnd": "option<number>",
+      "apple": "option<AppleCalendarEvent>"
+    },
+    "CalendarInfo": {
+      "id": "string",
+      "title": "string",
+      "color": "string",
+      "writable": "bool",
+      "isDefault": "bool",
+      "source": "string"
+    },
+    "CalendarList": {
+      "calendars": "CalendarInfo[]"
+    },
+    "EventPage": {
+      "events": "CalendarEvent[]",
+      "next": "option<string>"
+    },
+    "EventEditorResult": {
+      "action": "enum<saved|canceled|deleted|unknown>"
+    },
+    "RemovedEvent": {
+      "id": "string"
+    },
+    "CalendarStatus": {
+      "available": "bool",
+      "state": "enum<granted|prompt|denied|unknown>",
+      "access": "enum<full|write-only|none|unknown>",
+      "editor": "bool",
+      "apple": "option<AppleCalendarStatus>",
+      "android": "option<AndroidCalendarStatus>"
+    }
+  },
+  "names": [
+    {
+      "send": "showEventEditor",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "permission": false,
+      "grants": [],
+      "options": {
+        "event": "CalendarEvent"
+      },
+      "answers": "EventEditorResult",
+      "substitute": {
+        "choose": {
+          "ticket": "editor",
+          "choices": [
+            "save"
+          ],
+          "typed": false
+        },
+        "unsupported": [
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "source": "calendarStatus",
+      "live": true,
+      "answers": "CalendarStatus",
+      "sync": {
+        "name": "calendarStatusSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "available": true,
+          "state": "prompt",
+          "access": "none",
+          "editor": true
+        },
+        "web": {
+          "available": false,
+          "state": "unknown",
+          "access": "unknown"
+        },
+        "targets": {
+          "web": {
+            "available": false,
+            "access": "unknown"
+          },
+          "linux": {
+            "available": false,
+            "access": "unknown",
+            "editor": false
+          },
+          "windows": {
+            "available": false,
+            "access": "unknown",
+            "editor": false
+          },
+          "tvos": {
+            "available": false,
+            "access": "unknown",
+            "editor": false
+          }
+        }
+      }
+    },
+    {
+      "source": "calendars",
+      "live": true,
+      "request": "when-prompt",
+      "grants": [
+        "device.calendar"
+      ],
+      "asks": [
+        "device.calendar"
+      ],
+      "answers": "CalendarList",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "source": "calendarEvents",
+      "live": true,
+      "request": "when-prompt",
+      "grants": [
+        "device.calendar"
+      ],
+      "asks": [
+        "device.calendar"
+      ],
+      "options": {
+        "start": "number",
+        "end": "number",
+        "calendars": "option<string[]>",
+        "limit": {
+          "type": "option<number>",
+          "min": 1,
+          "max": 2000,
+          "default": 500
+        },
+        "after": "option<string>"
+      },
+      "answers": "EventPage",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "saveEvent",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "grants": [
+        "device.calendar-write-only",
+        "device.calendar"
+      ],
+      "asks": [
+        "device.calendar-write-only",
+        "device.calendar"
+      ],
+      "writes": true,
+      "options": {
+        "event": "CalendarEvent",
+        "calendar": "option<string>"
+      },
+      "answers": "CalendarEvent",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "removeEvent",
+      "origin": "app",
+      "foreground": true,
+      "grants": [
+        "device.calendar"
+      ],
+      "writes": true,
+      "options": {
+        "id": "string"
+      },
+      "answers": "RemovedEvent",
+      "substitute": {
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    },
+    {
+      "send": "requestFullCalendarAccess",
+      "request": true,
+      "origin": "app",
+      "foreground": true,
+      "grants": [
+        "device.calendar"
+      ],
+      "asks": [
+        "device.calendar"
+      ],
+      "answers": "CalendarStatus",
+      "substitute": {
+        "answers": "calendarStatus",
+        "raise": {
+          "when": {
+            "access": "write-only"
+          },
+          "ticket": "access",
+          "allow": {
+            "access": "full"
+          }
+        },
+        "unsupported": [
+          "web",
+          "linux",
+          "windows",
+          "tvos"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+# The async render host: a page's runner, its requests run
+# by the native executor core the Apple and Linux hosts share, until the
+# document settles or its deadline passes; then exact-web's projection. The
+# build and the server both run it. Native only: exact-web builds to wasm
+# and gains no target-specific dependencies for it.
+[package]
+name = "exact-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The async render host: a page's requests run until its document settles"
+publish = false
+
+[dependencies]
+# `exact_data::storage`, which the executor core reads a scoped grant through.
+exact-data = { path = "../../data" }
+exact-kernel = { path = "../../kernel" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+exact-grants = { path = "../../grants" }
+exact-web = { path = "../web" }
+exact-web-capabilities = { path = "../web-capabilities" }
+# The executor core's transport, as the Apple and Linux hosts
+# take it: rustls off Apple.
+# `websocket`: the transport for an app's WebSockets (exactStream sockets); the
+# vendored v4 crate gates it behind a default feature (27275f3d4), which
+# default-features = false had turned off.
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
+# The Apple executor's hop check, which this crate compiles, reads a hop's host; a scripted socket transport names the type too.
+url = "2.5"
+serde_json = "1.0"
+# The server's ETags and surrogate keys.
+sha2 = "0.10"
+# The server's content codings: brotli, else gzip.
+brotli = "9"
+flate2 = "1"
+# SIGTERM drains the server.
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# `WSAPoll` keeps graceful closes event-driven across the full held-socket bound.
+windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock"] }
+
+[features]
+# Integration tests only: a new executor waits for a native-worker slot
+# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
+test-wait = []
+
+[dev-dependencies]
+# The listener the shared executor's tests install.
+exact-listen = { path = "../listen" }
+exact-render = { path = ".", features = ["test-wait"] }
+contract = { path = "../../contract/cli" }

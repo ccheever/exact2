@@ -1,0 +1,1380 @@
+//! The server over a small dist: each route's
+//! policy, the statuses and headers of the HTTP contract, its files, and a
+//! full queue.
+
+use exact_plan::Value;
+use exact_render::{Serve, Server};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Response, Store};
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+const SRC: &str = r#"
+routes nav
+  tab home "/" render=build
+    post "/post/:post" render=cached pages=posts("public")
+    live "/live/:post" render=request
+    draft "/draft/:post" render=cached pages=posts("drafts")
+  tab app "/app"
+  notfound render=build
+
+shape Post
+  title: string
+
+component Blog
+  resource post = post(params(nav, "post")) as shape Post else emptyPost()
+  view
+    column
+      for e in stack(nav) key = e.id
+        column
+          if e.name == "notfound"
+            head title="Not found" robots="noindex" status=404
+            text "Nothing here"
+          if e.name == "post" or e.name == "live"
+            head title=post.title
+            text post.title testId="title"
+          if e.name == "draft"
+            head title=post.title robots="noindex"
+            text post.title
+"#;
+
+/// A post by its id: `slow` answers long after any deadline, `boom`
+/// refuses (a render that fails), `down` shows its failure (503).
+#[derive(Default)]
+struct Posts;
+static CACHE_READS: AtomicUsize = AtomicUsize::new(0);
+
+fn post(title: &str) -> Value {
+    Value::record(vec![Value::str(title)])
+}
+
+impl DataSource for Posts {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        let id = match args.first() {
+            Some(Value::List(ids)) => ids
+                .first()
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string(),
+            _ => String::new(),
+        };
+        match (source, id.as_str()) {
+            ("emptyPost", _) => Ok(Answer::Now(post(""))),
+            ("posts", _) if args == [Value::str("public")] => Ok(Answer::Now(Value::list(vec![
+                Value::str("7"),
+                Value::str("an idea"),
+            ]))),
+            ("posts", _) if args == [Value::str("drafts")] => {
+                Ok(Answer::Now(Value::list(vec![Value::str("d1")])))
+            }
+            ("post", "slow") => Ok(Answer::Later(Request::continuation(1))),
+            ("post", "boom") => Err(DataError::Unavailable("boom".into())),
+            ("post", "cache-probe") => Ok(Answer::Now(post(&format!(
+                "Read {}",
+                CACHE_READS.fetch_add(1, Ordering::SeqCst) + 1
+            )))),
+            ("post", id) => Ok(Answer::Now(post(&format!("Post {id}")))),
+            (other, _) => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        Some(Box::new(|| {
+            std::thread::sleep(Duration::from_secs(3));
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: Vec::new(),
+            })
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        Ok(Answer::Now(post("Late")))
+    }
+
+    fn grants(&self) -> &str {
+        "net.fetch https://api.blog.test/\n"
+    }
+}
+
+/// A dist: the web host's shell, a script and an image.
+pub(super) fn dist(name: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("exact-render-serve-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    let shell = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html");
+    std::fs::copy(shell, dir.join("shell.html")).unwrap();
+    std::fs::write(dir.join("glue.js"), "// the glue\n").unwrap();
+    std::fs::write(dir.join("module-binary.js"), "binary").unwrap();
+    std::fs::write(dir.join("module-prelude.js"), "prelude").unwrap();
+    std::fs::write(dir.join("app.js"), "module").unwrap();
+    std::fs::write(
+        dir.join("big.js"),
+        "export const words = ['the same words, again'];\n".repeat(200),
+    )
+    .unwrap();
+    std::fs::write(dir.join("assets/dot.png"), [0x89, b'P', b'N', b'G']).unwrap();
+    dir
+}
+
+pub(super) fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> Served {
+    super::warm_transport();
+    let serve = Serve {
+        dist: dist(name),
+        port: 0,
+        name: "Blog".into(),
+        origin: Some("https://blog.test".into()),
+        deadline: Duration::from_millis(deadline),
+        renders,
+        queue,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    };
+    run(serve)
+}
+
+/// A test's server, drained when the test ends: its workers and their
+/// executors end with it, so the tests' servers never reach the process's
+/// native-worker cap (a leak that turned renders elsewhere `Busy`).
+pub(super) struct Served {
+    pub(super) addr: SocketAddr,
+    stopper: exact_render::Stopper,
+    serving: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        self.stopper.stop();
+        if let Some(serving) = self.serving.take() {
+            let _ = serving.join();
+        }
+    }
+}
+
+/// Run `server` on its own thread until the returned [`Served`] drops.
+pub(super) fn serving<D: exact_runner::DataSource + 'static>(
+    server: Server,
+    data: fn() -> D,
+) -> Served {
+    let (addr, stopper) = (server.addr(), server.stopper());
+    let serving = Some(std::thread::spawn(move || server.run(data)));
+    Served {
+        addr,
+        stopper,
+        serving,
+    }
+}
+
+fn run(serve: Serve) -> Served {
+    let plan = contract::compile(SRC).unwrap();
+    serving(Server::bind(serve, plan, Posts.grants()).unwrap(), || Posts)
+}
+
+/// Status, headers (lowercased names) and body of one request.
+fn fetch(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, String) {
+    let (status, headers, body) = fetch_bytes(addr, request);
+    (status, headers, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// How long a test waits on the server before it fails, naming the wait: a
+/// hang bound, not a deadline (a loaded Mac is slow, never this slow).
+pub(super) const BOUND: Duration = Duration::from_secs(60);
+
+/// The same, the body as bytes.
+fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
+    let what = request.lines().next().unwrap_or("");
+    // One request a connection: it ends at the server's close (an HTTP/1.1
+    // connection is otherwise kept for the next request).
+    let request = &match request.to_ascii_lowercase().contains("\r\nconnection:") {
+        true => request.to_string(),
+        false => request.replacen("\r\n\r\n", "\r\nConnection: close\r\n\r\n", 1),
+    };
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND)
+        .unwrap_or_else(|e| panic!("no connection for {what:?}: {e}"));
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    stream.set_write_timeout(Some(BOUND)).unwrap();
+    stream
+        .write_all(request.as_bytes())
+        .unwrap_or_else(|e| panic!("the server took no request {what:?}: {e}"));
+    let mut bytes = Vec::new();
+    stream
+        .read_to_end(&mut bytes)
+        .unwrap_or_else(|e| panic!("no whole answer to {what:?} within {BOUND:?}: {e}"));
+    // An informational response (a 103) goes before the answer.
+    while bytes.starts_with(b"HTTP/1.1 1") {
+        let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+        bytes.drain(..at + 4);
+    }
+    let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&bytes[..at]).into_owned();
+    let body = bytes[at + 4..].to_vec();
+    let mut lines = head.split("\r\n");
+    let status = lines
+        .next()
+        .unwrap()
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let headers = lines
+        .filter_map(|l| l.split_once(": "))
+        .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
+        .collect();
+    (status, headers, body)
+}
+
+pub(super) fn get(addr: SocketAddr, target: &str) -> (u16, Vec<(String, String)>, String) {
+    fetch(
+        addr,
+        &format!("GET {target} HTTP/1.1\r\nHost: evil.test\r\n\r\n"),
+    )
+}
+
+pub(super) fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(k, _)| k == name)
+        .map(|(_, v)| v.as_str())
+}
+
+#[test]
+fn each_route_answers_by_its_policy() {
+    let served = start("policy", 2, 8, 300);
+    let addr = served.addr;
+    // A cached route: the document, kept by shared caches for its lifetime.
+    let (status, headers, body) = get(addr, "/post/7");
+    assert_eq!(status, 200);
+    assert!(body.contains(">Post 7<"), "{body}");
+    assert!(body.contains("application/vnd.exact.checkpoint"));
+    assert_eq!(
+        header(&headers, "cache-control"),
+        Some("public, max-age=0, s-maxage=120, stale-while-revalidate=120")
+    );
+    // Its surrogate keys go only to a CDN (RFC 8586's `CDN-Loop`), with the
+    // same page, validator and lifetime a browser gets.
+    assert_eq!(header(&headers, "surrogate-key"), None);
+    assert_eq!(header(&headers, "cache-tag"), None);
+    let (status, cdn, cdn_body) =
+        fetch(addr, "GET /post/7 HTTP/1.1\r\nCDN-Loop: cloudflare\r\n\r\n");
+    assert_eq!((status, cdn_body.as_str()), (200, body.as_str()));
+    assert_eq!(header(&cdn, "etag"), header(&headers, "etag"));
+    assert_eq!(
+        header(&cdn, "cache-control"),
+        header(&headers, "cache-control")
+    );
+    let keys = header(&cdn, "surrogate-key").unwrap();
+    assert!(keys.split(' ').any(|k| k == "post"), "{keys}");
+    assert!(keys.split(' ').any(|k| k.starts_with("post:")), "{keys}");
+    assert_eq!(
+        header(&cdn, "cache-tag"),
+        Some(keys.replace(' ', ",").as_str())
+    );
+    let csp = header(&headers, "content-security-policy").unwrap();
+    assert!(
+        csp.contains("connect-src 'self' https://api.blog.test;"),
+        "{csp}"
+    );
+    // Beside it, every device the app does not grant is denied.
+    assert_eq!(
+        header(&headers, "permissions-policy"),
+        Some("microphone=(), camera=(), geolocation=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), serial=(), hid=(), usb=()")
+    );
+    // The page's one inline script that runs, the capture script, by hash.
+    let capture = {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(exact_render::capture().as_bytes());
+        exact_data::envelope::base64(&digest)
+    };
+    assert!(csp.contains(&format!("'sha256-{capture}'")), "{csp}");
+    assert!(body.contains(&format!("<script>{}</script>", exact_render::capture())));
+    let scripts = csp
+        .split(';')
+        .find(|d| d.trim().starts_with("script-src"))
+        .unwrap();
+    assert!(!scripts.contains("unsafe-inline"), "{scripts}");
+    for source in ["binary", "prelude", "module"] {
+        use sha2::{Digest, Sha256};
+        let hash = exact_data::envelope::base64(&Sha256::digest(source.as_bytes()));
+        assert!(csp.contains(&format!("'sha256-{hash}'")), "{csp}");
+    }
+    assert_eq!(header(&headers, "x-content-type-options"), Some("nosniff"));
+    // Only its encoding varies; nothing else of the request shapes a page.
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // Canonical URLs come from the configured origin, not the request's Host.
+    assert!(!body.contains("evil.test"));
+    // An unchanged page is a 304 to a cache that has it, a browser's or a
+    // CDN's, and carries no keys: the stored response has them.
+    let etag = header(&headers, "etag").unwrap().to_string();
+    for via in ["", "CDN-Loop: cloudflare\r\n"] {
+        let (status, fresh, body) = fetch(
+            addr,
+            &format!("GET /post/7 HTTP/1.1\r\n{via}If-None-Match: {etag}\r\n\r\n"),
+        );
+        assert_eq!((status, body.as_str()), (304, ""));
+        assert_eq!(header(&fresh, "etag"), Some(etag.as_str()));
+        assert_eq!(header(&fresh, "surrogate-key"), None);
+    }
+    // HEAD: the same headers, no body.
+    let (status, headers, body) = fetch(addr, "HEAD /post/7 HTTP/1.1\r\n\r\n");
+    assert_eq!((status, body.as_str()), (200, ""));
+    assert_eq!(header(&headers, "etag"), Some(etag.as_str()));
+    // A per-request route isn't kept.
+    let (status, headers, _) = get(addr, "/live/7");
+    assert_eq!(
+        (status, header(&headers, "cache-control")),
+        (200, Some("no-store"))
+    );
+    // A client route is the shell.
+    let (status, _, body) = get(addr, "/app");
+    assert_eq!(status, 200);
+    assert!(body.contains("<div id=\"exact-root\"></div>"));
+    // Anywhere else is the not-found document, never the shell's 200.
+    let (status, headers, body) = get(addr, "/no/such/page");
+    assert_eq!(status, 404);
+    assert!(body.contains(">Nothing here<"), "{body}");
+    assert_eq!(header(&headers, "x-robots-tag"), Some("noindex"));
+    assert_eq!(
+        header(&headers, "cache-control"),
+        Some("public, max-age=0, s-maxage=60")
+    );
+}
+
+#[test]
+fn a_render_that_misses_its_deadline_or_fails_is_not_kept() {
+    let served = start("failure", 2, 8, 300);
+    let addr = served.addr;
+    let (status, headers, body) = get(addr, "/post/slow");
+    assert_eq!(status, 503);
+    assert_eq!(header(&headers, "retry-after"), Some("1"));
+    assert_eq!(header(&headers, "cache-control"), Some("no-store"));
+    assert!(body.contains("\"pending\":[\"post\"]"), "{body}");
+    let (status, headers, _) = get(addr, "/post/boom");
+    assert_eq!(
+        (status, header(&headers, "cache-control")),
+        (500, Some("no-store"))
+    );
+    // …and the server keeps serving.
+    assert_eq!(get(addr, "/post/8").0, 200);
+}
+
+#[test]
+fn files_health_and_the_edges_of_http() {
+    let served = start("edges", 1, 8, 300);
+    let addr = served.addr;
+    let (status, headers, body) = get(addr, "/glue.js");
+    assert_eq!(status, 200);
+    assert_eq!(body, "// the glue\n");
+    assert_eq!(
+        header(&headers, "content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    // The CSP is a page's: on a script it would govern only a worker made
+    // from it, and the module worker evaluates the module it verified.
+    assert!(header(&headers, "content-security-policy").is_none());
+    assert_eq!(get(addr, "/assets/dot.png").0, 200);
+    let (status, _, body) = get(addr, "/.exact/health");
+    assert_eq!((status, body.as_str()), (200, "ok\n"));
+    // A page is never a file: shell.html renders as a location.
+    assert_eq!(get(addr, "/shell.html").0, 404);
+    // Nothing outside the dist.
+    let (status, _, body) = fetch(addr, "GET /../Cargo.toml HTTP/1.1\r\n\r\n");
+    assert!(!body.contains("[package]"));
+    assert_ne!(status, 200);
+    // An encoded climb is a location like any other: it resolves inside
+    // the site, to a page that isn't there.
+    let (status, headers, _) = get(addr, "/%2e%2e/%2e%2e/etc/hosts");
+    assert_eq!(
+        (status, header(&headers, "location")),
+        (301, Some("/etc/hosts"))
+    );
+    assert_eq!(get(addr, "/etc/hosts").0, 404);
+    // One URL per page: the router's canonical form.
+    for (target, canonical) in [
+        ("/post//7/?x=1", "/post/7?x=1"),
+        ("/post/./7", "/post/7"),
+        ("/post/7?a='b'", "/post/7?a=%27b%27"),
+    ] {
+        let (status, headers, _) = get(addr, target);
+        assert_eq!(
+            (status, header(&headers, "location")),
+            (301, Some(canonical)),
+            "{target}"
+        );
+    }
+    assert_eq!(fetch(addr, "POST /post/7 HTTP/1.1\r\n\r\n").0, 405);
+    assert_eq!(fetch(addr, "nonsense\r\n\r\n").0, 400);
+}
+
+#[test]
+fn a_full_queue_answers_503_at_once() {
+    // One render at a time, and nothing may wait for it.
+    // The slow render holds the only worker for a second. A probe that
+    // reaches the worker first (a loaded machine) is simply served.
+    let served = start("queue", 1, 0, 1000);
+    let addr = served.addr;
+    // A probe on the worker can turn the slow request away too: it asks
+    // again until it holds the worker.
+    let slow = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + BOUND;
+        loop {
+            let answer = get(addr, "/post/slow");
+            if answer.2 != "busy\n" {
+                break answer;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "the slow request never got the worker in {BOUND:?}"
+            );
+        }
+    });
+    // Probes until the slow render is over: while it holds the worker, a
+    // probe finds the queue full.
+    let (headers, body) = (0..)
+        .take_while(|_| !slow.is_finished())
+        .find_map(|_| {
+            std::thread::sleep(Duration::from_millis(20));
+            let (status, headers, body) = get(addr, "/post/7");
+            (status == 503).then_some((headers, body))
+        })
+        .expect("a probe found the queue full");
+    assert_eq!(body, "busy\n");
+    assert_eq!(header(&headers, "retry-after"), Some("1"));
+    // The slow one was rendered, at its deadline.
+    let (status, _, body) = slow.join().unwrap();
+    assert_eq!(status, 503);
+    assert!(body.contains("\"pending\":[\"post\"]"), "{body}");
+    assert_eq!(get(addr, "/post/7").0, 200);
+}
+
+#[test]
+fn cached_pages_reuse_public_answers_and_honor_request_cache_controls() {
+    let served = start("origin-cache", 1, 8, 1000);
+    let addr = served.addr;
+    let (status, _, first) = get(addr, "/post/cache-probe");
+    assert_eq!(status, 200);
+    assert!(first.contains("Read 1"));
+    let (_, headers, second) = get(addr, "/post/cache-probe");
+    assert_eq!(second, first);
+    assert!(header(&headers, "age").is_some());
+    assert_eq!(CACHE_READS.load(Ordering::SeqCst), 1);
+    let etag = header(&headers, "etag").unwrap();
+    let (status, _, _) = fetch(
+        addr,
+        &format!("GET /post/cache-probe HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert_eq!(CACHE_READS.load(Ordering::SeqCst), 1);
+    let (_, _, refreshed) = fetch(
+        addr,
+        "GET /post/cache-probe HTTP/1.1\r\nCache-Control: no-cache\r\n\r\n",
+    );
+    assert!(refreshed.contains("Read 2"));
+    let (_, _, unstored) = fetch(
+        addr,
+        "GET /post/cache-probe HTTP/1.1\r\nCache-Control: no-store\r\n\r\n",
+    );
+    assert!(unstored.contains("Read 3"));
+    assert_eq!(get(addr, "/post/cache-probe").2, refreshed);
+    assert!(get(addr, "/live/cache-probe").2.contains("Read 4"));
+    assert!(get(addr, "/live/cache-probe").2.contains("Read 5"));
+}
+
+#[test]
+fn the_sitemap_lists_each_rendered_route_and_its_listed_pages() {
+    let served = start("sitemap", 1, 8, 300);
+    let addr = served.addr;
+    let (status, headers, body) = get(addr, "/sitemap.xml");
+    assert_eq!(status, 200);
+    assert_eq!(
+        header(&headers, "content-type"),
+        Some("application/xml; charset=utf-8")
+    );
+    for url in [
+        "https://blog.test/",
+        "https://blog.test/post/7",
+        "https://blog.test/post/an%20idea",
+    ] {
+        assert!(body.contains(&format!("<loc>{url}</loc>")), "{url}\n{body}");
+    }
+    // A route without a pages source isn't in it; neither is the shell's,
+    // nor a page that says `noindex`, as the build's sitemap leaves them.
+    assert!(!body.contains("/live/") && !body.contains("/app"), "{body}");
+    assert!(!body.contains("/draft/"), "{body}");
+    assert_eq!(get(addr, "/draft/d1").0, 200);
+    let (status, _, body) = get(addr, "/robots.txt");
+    assert_eq!(status, 200);
+    assert_eq!(
+        body,
+        "User-agent: *\nAllow: /\nSitemap: https://blog.test/sitemap.xml\n"
+    );
+}
+
+/// A list that answers a moment after it is asked, before a sibling: the
+/// runner that settles builds the sibling first and the cards when they
+/// land; the runtime, booting with the answer, builds them in page order.
+/// And a list the render's environment refuses (storage), still pending.
+const FEED: &str = r#"
+routes nav
+  tab home "/" render=request
+
+component Feed
+  resource cards = cards() as shape string[]
+  resource saved = saved() as shape string[]
+  view
+    column
+      for c in cards key = c
+        text c
+      text "the end" testId="end"
+      for s in saved key = s
+        text s
+"#;
+
+#[derive(Default)]
+struct Feed;
+
+impl DataSource for Feed {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+        match source {
+            "cards" => Ok(Answer::Later(Request::continuation(1))),
+            "saved" => Ok(Answer::Later(Request::storage(b"get".to_vec()))),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        Some(Box::new(|| {
+            std::thread::sleep(Duration::from_millis(20));
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: b"first second third".to_vec(),
+            })
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let Outcome::Response(response) = outcome else {
+            return Err(DataError::Unavailable("no response".into()));
+        };
+        let body = String::from_utf8_lossy(&response.body).into_owned();
+        Ok(Answer::Now(Value::list(
+            body.split(' ').map(Value::str).collect(),
+        )))
+    }
+
+    fn grants(&self) -> &str {
+        ""
+    }
+}
+
+#[test]
+fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
+    super::warm_transport();
+    let serve = Serve {
+        dist: dist("feed"),
+        port: 0,
+        name: "Feed".into(),
+        origin: None,
+        deadline: Duration::from_secs(10),
+        renders: 1,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    };
+    let plan = contract::compile(FEED).unwrap();
+    let served = serving(
+        Server::bind(serve, plan.clone(), Feed.grants()).unwrap(),
+        || Feed,
+    );
+    let addr = served.addr;
+    let (status, _, body) = get(addr, "/");
+    assert_eq!(status, 200);
+    assert!(body.contains(">third<"), "{body}");
+    assert!(body.contains("\"pending\":[\"saved\"]"), "{body}");
+    // The checkpoint and its digest, as the glue hands them to the runtime.
+    let open = "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"";
+    let at = body.find(open).expect("a checkpoint") + open.len();
+    let digest = body[at..].split('"').next().unwrap();
+    let (_, rest) = body[at..].split_once('>').unwrap();
+    let (checkpoint, _) = rest.split_once("</script>").unwrap();
+    // The runtime boots from it and adopts the document: its first tree,
+    // view ids included, is the document's.
+    exact_web::link(exact_web_capabilities::ALL);
+    let (_, batch) = exact_web::Host::boot_checkpoint(
+        &plan.encode(),
+        Feed,
+        checkpoint,
+        digest,
+        Vec::new(),
+        None,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        batch.contains("{\"op\":\"adopt\",\"adopted\":true}"),
+        "{batch}"
+    );
+}
+
+/// A body as it was before its `Content-Encoding`.
+fn decoded(headers: &[(String, String)], body: &[u8]) -> String {
+    let mut out = Vec::new();
+    match header(headers, "content-encoding") {
+        Some("br") => brotli::Decompressor::new(body, 4096)
+            .read_to_end(&mut out)
+            .map(drop)
+            .unwrap(),
+        Some("gzip") => flate2::read::GzDecoder::new(body)
+            .read_to_end(&mut out)
+            .map(drop)
+            .unwrap(),
+        None => out.extend_from_slice(body),
+        Some(other) => panic!("{other}"),
+    }
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn pages_and_files_go_compressed_as_the_client_accepts() {
+    let served = start("encoding", 1, 8, 300);
+    let addr = served.addr;
+    let page = |accept: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET /live/7 HTTP/1.1\r\nAccept-Encoding: {accept}\r\n\r\n"),
+        )
+    };
+    // Brotli first; gzip when brotli is refused; none when neither is taken.
+    for (accept, encoding) in [
+        ("gzip, deflate, br", Some("br")),
+        ("br;q=0, gzip", Some("gzip")),
+        ("identity", None),
+    ] {
+        let (status, headers, body) = page(accept);
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "content-encoding"), encoding, "{accept}");
+        assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+        let text = decoded(&headers, &body);
+        assert!(text.contains(">Post 7<"), "{text}");
+        if let Some(encoding) = encoding {
+            assert!(body.len() < text.len() / 2, "{encoding}: {}", body.len());
+        }
+    }
+    // A cache holding the brotli page revalidates it by its own ETag.
+    let (_, headers, _) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+    let etag = header(&headers, "etag").unwrap().to_string();
+    assert!(etag.ends_with("-br\""), "{etag}");
+    let (status, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert_eq!(header(&headers, "etag"), Some(etag.as_str()));
+    // A dist file goes as it is until its variant is made, off the request
+    // path; then brotli's best.
+    let script = "export const words = ['the same words, again'];\n".repeat(200);
+    let started = std::time::Instant::now();
+    let (headers, body) = loop {
+        let (status, headers, body) = fetch_bytes(
+            addr,
+            "GET /big.js HTTP/1.1\r\nAccept-Encoding: br, gzip\r\n\r\n",
+        );
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+        assert_eq!(decoded(&headers, &body), script);
+        if header(&headers, "content-encoding").is_some() {
+            break (headers, body);
+        }
+        assert!(started.elapsed() < Duration::from_secs(60), "no variant");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert!(body.len() < script.len() / 10, "{}", body.len());
+    // An image is sent as it is, and says nothing of encodings.
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        "GET /assets/dot.png HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(header(&headers, "content-encoding"), None);
+    assert_eq!(header(&headers, "vary"), None);
+}
+
+#[test]
+fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
+    let served = start("best", 1, 8, 300);
+    let addr = served.addr;
+    let request = "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n";
+    // The render's own response is compressed as it is sent.
+    let (status, first_headers, first) = fetch_bytes(addr, request);
+    assert_eq!(status, 200);
+    assert_eq!(header(&first_headers, "content-encoding"), Some("br"));
+    // A later hit gets the page made at the best, off the request path.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (headers, best) = loop {
+        let (_, headers, body) = fetch_bytes(addr, request);
+        if body.len() < first.len() || std::time::Instant::now() > deadline {
+            break (headers, body);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        best.len() < first.len(),
+        "{} !< {}",
+        best.len(),
+        first.len()
+    );
+    assert_eq!(decoded(&headers, &best), decoded(&first_headers, &first));
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // One representation, one tag: a client holding either gets a 304.
+    let etag = header(&headers, "etag").unwrap();
+    assert_eq!(Some(etag), header(&first_headers, "etag"));
+    let (status, _, body) = fetch_bytes(
+        addr,
+        &format!("GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!((status, body.len()), (304, 0));
+    // A render that isn't kept goes as it is sent.
+    let (_, _, fresh) = fetch_bytes(
+        addr,
+        "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nCache-Control: no-store\r\n\r\n",
+    );
+    // A fresh render captures a new timestamp, which can change compressed bytes.
+    assert!(fresh.len() > best.len());
+}
+
+#[test]
+fn a_kept_page_goes_against_a_dictionary_the_browser_holds() {
+    use sha2::{Digest, Sha256};
+    const USE: &str = "match=\"/*\", match-dest=(\"document\")";
+    let served = start("dictionary", 1, 8, 300);
+    let addr = served.addr;
+    // A kept page says a browser may keep it as a dictionary; its hash names it.
+    let (status, headers, dictionary) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\n\r\n");
+    assert_eq!(
+        (status, header(&headers, "use-as-dictionary")),
+        (200, Some(USE))
+    );
+    let hash = exact_data::envelope::base64(&Sha256::digest(&dictionary));
+    let ask = |extra: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: gzip, deflate, br, zstd, dcb, dcz\r\nAvailable-Dictionary: :{hash}:\r\n{extra}\r\n"),
+        )
+    };
+    // A browser that holds it gets the next page against it: the render that
+    // keeps the page, then a hit.
+    for _ in 0..2 {
+        let (status, headers, body) = ask("");
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "content-encoding"), Some("dcb"));
+        assert_eq!(
+            header(&headers, "vary"),
+            Some("Accept-Encoding, Available-Dictionary")
+        );
+        assert_eq!(header(&headers, "use-as-dictionary"), Some(USE));
+        assert!(header(&headers, "etag").unwrap().ends_with("-dcb\""));
+        assert_eq!(body[..4], [0xff, 0x44, 0x43, 0x42]);
+        assert_eq!(body[4..36], Sha256::digest(&dictionary)[..]);
+        let mut decoded = Vec::new();
+        brotli::Decompressor::new_with_custom_dict(&body[36..], 4096, dictionary.clone().into())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\n\r\n").2);
+        assert!(
+            body.len() * 2 < decoded.len() / 4,
+            "{} of {}",
+            body.len(),
+            decoded.len()
+        );
+    }
+    // Its own ETag gets a 304.
+    let etag = header(&ask("").1, "etag").unwrap().to_string();
+    let (status, _, body) = ask(&format!("If-None-Match: {etag}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    // So does the tag of the page as brotli, which a browser coming back holds
+    // when it now asks with a dictionary: every encoding decodes to the page.
+    let (_, headers, _) = fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+    let br = header(&headers, "etag").unwrap().to_string();
+    assert!(br.ends_with("-br\""), "{br}");
+    let (status, headers, body) = ask(&format!("If-None-Match: {br}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    assert_eq!(header(&headers, "etag"), Some(br.as_str()));
+    // A hash this server doesn't keep falls back to brotli.
+    let unknown = exact_data::envelope::base64(&[0u8; 32]);
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: br, dcb\r\nAvailable-Dictionary: :{unknown}:\r\n\r\n"),
+    );
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // A CDN's request hears of no dictionary and gets none.
+    let (_, headers, _) = ask("CDN-Loop: cloudflare\r\n");
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "use-as-dictionary"), None);
+    // Nor do pages that aren't kept: one per request, or one asked not to be stored.
+    for target in [
+        "/live/7 HTTP/1.1\r\n",
+        "/post/8 HTTP/1.1\r\nCache-Control: no-store\r\n",
+    ] {
+        let (status, headers, _) = fetch_bytes(
+            addr,
+            &format!(
+                "GET {target}Accept-Encoding: br, dcb\r\nAvailable-Dictionary: :{hash}:\r\n\r\n"
+            ),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "use-as-dictionary"), None);
+        assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    }
+}
+
+#[test]
+fn a_named_build_goes_against_the_earlier_one_the_browser_holds() {
+    use sha2::{Digest, Sha256};
+    super::warm_transport();
+    // Two builds that differ in a few places, each incompressible alone.
+    let mut seed = 7u32;
+    let earlier: Vec<u8> = (0..200_000)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 24) as u8
+        })
+        .collect();
+    let mut build = earlier.clone();
+    for at in [10, 50_000, 120_000] {
+        build.splice(at..at + 8, *b"changed!");
+    }
+    let dist = dist("generations");
+    std::fs::write(dist.join("app.wasm"), &build).unwrap();
+    let kept = dist.with_extension("kept");
+    let _ = std::fs::remove_dir_all(&kept);
+    std::fs::create_dir_all(&kept).unwrap();
+    let hex = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+    std::fs::write(kept.join(format!("{}.wasm", hex(&earlier))), &earlier).unwrap();
+    let served = run(Serve {
+        dist,
+        port: 0,
+        name: "Blog".into(),
+        origin: None,
+        deadline: Duration::from_millis(300),
+        renders: 1,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: Some(kept.clone()),
+    });
+    let addr = served.addr;
+    // The server keeps the build it serves beside the earlier one.
+    assert!(kept.join(format!("{}.wasm", hex(&build))).is_file());
+    let named = format!("/app.wasm?v={}", &hex(&build)[..16]);
+    let hash = exact_data::envelope::base64(&Sha256::digest(&earlier));
+    let ask = |target: &str, extra: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET {target} HTTP/1.1\r\nAccept-Encoding: gzip, br, dcb\r\nAvailable-Dictionary: :{hash}:\r\n{extra}\r\n"),
+        )
+    };
+    // The URL names the build, so it caches for good, and a browser may keep
+    // it as the next build's dictionary. The delta is made off the request's
+    // path; until then the build goes as it otherwise would.
+    let waited = std::time::Instant::now();
+    let (headers, body) = loop {
+        let (status, headers, body) = ask(&named, "");
+        assert_eq!(status, 200);
+        assert_eq!(
+            header(&headers, "cache-control"),
+            Some("public, max-age=31536000, immutable")
+        );
+        assert_eq!(
+            header(&headers, "use-as-dictionary"),
+            Some("match=\"/app.wasm\"")
+        );
+        if header(&headers, "content-encoding") == Some("dcb") {
+            break (headers, body);
+        }
+        assert!(waited.elapsed() < BOUND, "no delta within {BOUND:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(
+        header(&headers, "vary"),
+        Some("Accept-Encoding, Available-Dictionary")
+    );
+    let etag = header(&headers, "etag").unwrap().to_string();
+    assert!(etag.ends_with("-dcb\""), "{etag}");
+    assert_eq!(body[..4], [0xff, 0x44, 0x43, 0x42]);
+    assert_eq!(body[4..36], Sha256::digest(&earlier)[..]);
+    let mut decoded = Vec::new();
+    brotli::Decompressor::new_with_custom_dict(&body[36..], 4096, earlier.clone().into())
+        .read_to_end(&mut decoded)
+        .unwrap();
+    assert!(decoded == build, "the delta decodes to the build");
+    assert!(body.len() < 1_000, "{} bytes", body.len());
+    // Its ETag gets a 304.
+    let (status, _, body) = ask(&named, &format!("If-None-Match: {etag}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    // A URL that doesn't name this build revalidates, holds no dictionary and
+    // gets none; nor does a CDN's request, or a dictionary this server lacks.
+    for target in ["/app.wasm", "/app.wasm?v=0123456789abcdef"] {
+        let (status, headers, _) = ask(target, "");
+        assert_eq!(
+            (status, header(&headers, "cache-control")),
+            (200, Some("no-cache"))
+        );
+        assert_eq!(header(&headers, "use-as-dictionary"), None);
+        assert_ne!(header(&headers, "content-encoding"), Some("dcb"));
+    }
+    let (_, headers, _) = ask(&named, "CDN-Loop: cloudflare\r\n");
+    assert_eq!(header(&headers, "use-as-dictionary"), None);
+    assert_ne!(header(&headers, "content-encoding"), Some("dcb"));
+    let unknown = exact_data::envelope::base64(&[0u8; 32]);
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET {named} HTTP/1.1\r\nAccept-Encoding: dcb\r\nAvailable-Dictionary: :{unknown}:\r\n\r\n"),
+    );
+    assert_eq!(header(&headers, "content-encoding"), None);
+}
+
+#[test]
+fn a_file_the_dist_lacks_is_a_plain_404() {
+    let served = start("favicon", 1, 8, 300);
+    let addr = served.addr;
+    // A browser's icon request doesn't render the not-found document…
+    let (status, headers, body) = get(addr, "/favicon.ico");
+    assert_eq!((status, body.as_str()), (404, "not found\n"));
+    assert_eq!(
+        header(&headers, "cache-control"),
+        Some("public, max-age=0, s-maxage=60")
+    );
+    assert_eq!(get(addr, "/old/app.js").0, 404);
+    // …but an unknown page does, dots and all.
+    for target in ["/no/such/page", "/v1.2", "/notes/readme.md"] {
+        let (status, _, body) = get(addr, target);
+        assert_eq!(status, 404, "{target}");
+        assert!(body.contains(">Nothing here<"), "{target}: {body}");
+    }
+}
+
+#[test]
+fn a_drained_server_answers_what_it_took_and_stops() {
+    super::warm_transport();
+    let serve = Serve {
+        dist: dist("drain"),
+        port: 0,
+        name: "Blog".into(),
+        origin: None,
+        deadline: Duration::from_millis(1000),
+        renders: 1,
+        queue: 0,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    };
+    let server = Server::bind(serve, contract::compile(SRC).unwrap(), Posts.grants()).unwrap();
+    let (addr, stopper) = (server.addr(), server.stopper());
+    let running = std::thread::spawn(move || server.run(|| Posts));
+    // The worker is up (before it is, every request finds the queue full)…
+    let until = std::time::Instant::now() + BOUND;
+    while get(addr, "/.exact/health").0 != 200 {
+        assert!(
+            std::time::Instant::now() < until,
+            "the server's worker never came up in {BOUND:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // …then the slow render holds it, and a probe finds it busy.
+    let slow = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + BOUND;
+        loop {
+            let answer = get(addr, "/post/slow");
+            if answer.2 != "busy\n" {
+                break answer;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "the slow request never got the worker in {BOUND:?}"
+            );
+        }
+    });
+    while !slow.is_finished() && get(addr, "/.exact/health").0 != 503 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stopper.stop();
+    // What it took is answered: the render in flight ends at its deadline.
+    let (status, _, body) = slow.join().unwrap();
+    assert_eq!(status, 503);
+    assert!(body.contains("\"pending\":[\"post\"]"), "{body}");
+    // It takes nothing new, and returns.
+    let started = std::time::Instant::now();
+    while !running.is_finished() {
+        assert!(started.elapsed() < Duration::from_secs(30), "still running");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    running.join().unwrap().unwrap();
+    assert!(TcpStream::connect(addr).is_err());
+}
+
+#[test]
+fn a_dist_file_revalidates_by_its_etag() {
+    let served = start("validators", 1, 8, 300);
+    let addr = served.addr;
+    let conditional = |target: &str, accept: &str, etag: &str| {
+        fetch_bytes(
+            addr,
+            &format!(
+                "GET {target} HTTP/1.1\r\nAccept-Encoding: {accept}\r\nIf-None-Match: {etag}\r\n\r\n"
+            ),
+        )
+    };
+    // As it is: a validator of its bytes, and a 304 for a client that has them.
+    let (status, headers, body) = fetch_bytes(addr, "GET /glue.js HTTP/1.1\r\n\r\n");
+    assert_eq!(
+        (status, body.as_slice()),
+        (200, b"// the glue\n".as_slice())
+    );
+    assert_eq!(header(&headers, "cache-control"), Some("no-cache"));
+    let etag = header(&headers, "etag").unwrap().to_string();
+    let (status, headers, body) = conditional("/glue.js", "identity", &etag);
+    assert_eq!((status, body.len()), (304, 0));
+    assert_eq!(header(&headers, "etag"), Some(etag.as_str()));
+    // Only what updates the stored copy.
+    assert_eq!(header(&headers, "cache-control"), Some("no-cache"));
+    assert!(
+        header(&headers, "content-type").is_none() && header(&headers, "content-length").is_none()
+    );
+    // Each encoding is its own representation, with its own validator.
+    let started = std::time::Instant::now();
+    let br = loop {
+        let (_, headers, _) =
+            fetch_bytes(addr, "GET /big.js HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+        if header(&headers, "content-encoding") == Some("br") {
+            break header(&headers, "etag").unwrap().to_string();
+        }
+        assert!(started.elapsed() < Duration::from_secs(60), "no variant");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(br.ends_with("-br\""), "{br}");
+    assert_eq!(conditional("/big.js", "br", &br).0, 304);
+    let (_, headers, _) = fetch_bytes(addr, "GET /big.js HTTP/1.1\r\n\r\n");
+    let identity = header(&headers, "etag").unwrap().to_string();
+    assert_eq!(br, format!("{}-br\"", identity.trim_end_matches('"')));
+    assert_eq!(conditional("/big.js", "br", &identity).0, 200);
+    // An image too.
+    let (_, headers, _) = fetch_bytes(addr, "GET /assets/dot.png HTTP/1.1\r\n\r\n");
+    let image = header(&headers, "etag").unwrap().to_string();
+    assert_eq!(conditional("/assets/dot.png", "br", &image).0, 304);
+}
+
+#[test]
+fn unsafe_canonical_paths_are_refused_before_redirecting() {
+    let served = start("unsafe-paths", 1, 8, 300);
+    let addr = served.addr;
+    for target in [
+        "/\\evil.com/",
+        "//\\evil.com",
+        "/%5cevil.com/",
+        "/bad\nheader/",
+    ] {
+        let (status, headers, _) = get(addr, target);
+        assert_eq!(status, 400, "{target:?}");
+        assert_eq!(header(&headers, "location"), None);
+    }
+    let (status, headers, _) = get(addr, "//post//7/");
+    assert_eq!(status, 301);
+    assert_eq!(header(&headers, "location"), Some("/post/7"));
+    // An encoded slash in a route parameter is valid, unlike a file traversal.
+    assert_ne!(get(addr, "/post/a%2Fb").0, 400);
+}
+
+#[test]
+fn large_static_files_stream_with_lengths_validators_and_head() {
+    let served = start("large-stream", 1, 8, 300);
+    let addr = served.addr;
+    let path = std::env::temp_dir()
+        .join(format!(
+            "exact-render-serve-large-stream-{}",
+            std::process::id()
+        ))
+        .join("large.wasm");
+    let file = std::fs::File::create(&path).unwrap();
+    let size = (16 << 20) + 1;
+    file.set_len(size).unwrap();
+    let (status, headers, body) = fetch_bytes(
+        addr,
+        "GET /large.wasm HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(status, 200);
+    assert_eq!(body.len() as u64, size);
+    assert!(body.iter().all(|b| *b == 0));
+    assert_eq!(
+        header(&headers, "content-length"),
+        Some(size.to_string().as_str())
+    );
+    assert_eq!(header(&headers, "content-encoding"), None);
+    let etag = header(&headers, "etag").unwrap();
+    let (status, head, body) = fetch_bytes(addr, "HEAD /large.wasm HTTP/1.1\r\n\r\n");
+    assert_eq!(status, 200);
+    assert!(body.is_empty());
+    assert_eq!(
+        header(&head, "content-length"),
+        Some(size.to_string().as_str())
+    );
+    assert_eq!(header(&head, "etag"), Some(etag));
+    let (status, _, body) = fetch_bytes(
+        addr,
+        &format!("GET /large.wasm HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert!(body.is_empty());
+    assert_eq!(get(addr, "/glue.js").0, 200);
+}
+
+/// The JavaScript runtime's shell, as host/web-js/build.mjs writes it.
+pub(super) const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+
+/// A chunked body, its chunks joined.
+#[test]
+fn a_connection_is_kept_for_the_next_request() {
+    // HTTP/1.1's default: a connection answers request after request, a
+    // flushed page's included (its chunked body ends it), until the client
+    // says `Connection: close`.
+    super::warm_transport();
+    let dir = dist("kept");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let served = run(Serve {
+        dist: dir,
+        port: 0,
+        name: "Blog".into(),
+        origin: Some("https://blog.test".into()),
+        deadline: Duration::from_millis(2000),
+        renders: 2,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    });
+    let addr = served.addr;
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    let mut pending = Vec::new();
+    // One response off the stream, by its framing.
+    let mut next = |stream: &mut TcpStream| -> (String, Vec<u8>) {
+        let mut buf = [0u8; 8192];
+        loop {
+            // An informational response (a 103) goes before the answer.
+            while pending.starts_with(b"HTTP/1.1 1") {
+                match pending.windows(4).position(|w| w == b"\r\n\r\n") {
+                    Some(at) => drop(pending.drain(..at + 4)),
+                    None => break,
+                }
+            }
+            if let Some(at) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&pending[..at]).to_ascii_lowercase();
+                let body = &pending[at + 4..];
+                let length = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length: "))
+                    .map(|n| n.trim().parse::<usize>().unwrap());
+                let end = match length {
+                    Some(n) if body.len() >= n => Some(n),
+                    None if head.contains("transfer-encoding: chunked") => body
+                        .windows(5)
+                        .position(|w| w == b"0\r\n\r\n")
+                        .map(|p| p + 5),
+                    _ => None,
+                };
+                if let Some(end) = end {
+                    let body = body[..end].to_vec();
+                    pending.drain(..at + 4 + end);
+                    return (head, body);
+                }
+            }
+            let n = stream.read(&mut buf).unwrap();
+            assert!(n > 0, "the server closed a kept connection");
+            pending.extend_from_slice(&buf[..n]);
+        }
+    };
+    for target in ["/post/7", "/post/8"] {
+        write!(stream, "GET {target} HTTP/1.1\r\nHost: blog.test\r\n\r\n").unwrap();
+        let (head, body) = next(&mut stream);
+        assert!(head.starts_with("http/1.1 200"), "{head}");
+        assert!(head.contains("connection: keep-alive"), "{head}");
+        assert!(
+            String::from_utf8_lossy(&body).contains(">Post "),
+            "{target}"
+        );
+    }
+    // A navigation's flushed page, on the same connection.
+    write!(
+        stream,
+        "GET /live/9 HTTP/1.1\r\nSec-Fetch-Dest: document\r\n\r\n"
+    )
+    .unwrap();
+    let (head, body) = next(&mut stream);
+    assert!(
+        head.contains("transfer-encoding: chunked") && head.contains("connection: keep-alive"),
+        "{head}"
+    );
+    assert!(String::from_utf8(unchunk(&body))
+        .unwrap()
+        .ends_with("</script>\n"));
+    // Closed when the client asks.
+    write!(stream, "GET /post/7 HTTP/1.1\r\nConnection: close\r\n\r\n").unwrap();
+    let (head, _) = next(&mut stream);
+    assert!(head.contains("connection: close"), "{head}");
+    let mut rest = Vec::new();
+    stream.read_to_end(&mut rest).unwrap();
+    assert!(rest.is_empty());
+}
+
+pub(super) fn unchunk(mut body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let line = body.windows(2).position(|w| w == b"\r\n").unwrap();
+        let size = usize::from_str_radix(std::str::from_utf8(&body[..line]).unwrap(), 16).unwrap();
+        body = &body[line + 2..];
+        if size == 0 {
+            return out;
+        }
+        out.extend_from_slice(&body[..size]);
+        body = &body[size + 2..];
+    }
+}
+
+#[test]
+fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
+    // The early flush (host/render/src/stream.rs).
+    super::warm_transport();
+    let dir = dist("flush");
+    std::fs::write(dir.join("shell.html"), JS_SHELL).unwrap();
+    let served = run(Serve {
+        dist: dir,
+        port: 0,
+        name: "Blog".into(),
+        origin: Some("https://blog.test".into()),
+        deadline: Duration::from_millis(1500),
+        renders: 2,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+        generations: None,
+    });
+    let addr = served.addr;
+    // One request a connection: the page ends at the server's close, not the keep-alive's idle
+    let navigate = |target: &str| {
+        format!(
+            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\nConnection: close\r\n\r\n"
+        )
+    };
+    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`. Asked
+    // now, so its render runs beside the navigation's (two renders at once)
+    let plain = std::thread::spawn(move || get(addr, "/post/slow").0);
+    // A render held to its deadline: the head arrives long before it.
+    let started = std::time::Instant::now();
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    stream.write_all(navigate("/post/slow").as_bytes()).unwrap();
+    let mut bytes = Vec::new();
+    while !String::from_utf8_lossy(&bytes).contains("</style>") {
+        let mut chunk = [0u8; 4096];
+        let n = stream.read(&mut chunk).unwrap();
+        assert!(n > 0, "closed before the head");
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+    let early = started.elapsed();
+    assert!(
+        early < Duration::from_millis(750),
+        "the head after {early:?}"
+    );
+    let first_chunk = String::from_utf8_lossy(&bytes).into_owned();
+    stream.read_to_end(&mut bytes).unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(1400));
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    // A chunked 200, with no 103: this plan's undeclared routes may wait for
+    // the reader, so nothing names the runtime before the render decides.
+    assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
+    let rest = &bytes[..];
+    let at = rest.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let headers = String::from_utf8_lossy(&rest[..at]).to_ascii_lowercase();
+    assert!(headers.contains("transfer-encoding: chunked"), "{headers}");
+    assert!(
+        headers.contains("cache-control: private, no-cache"),
+        "{headers}"
+    );
+    assert!(!headers.contains("etag"), "{headers}");
+    assert!(headers.contains("content-security-policy: "), "{headers}");
+    let page = String::from_utf8(unchunk(&rest[at + 4..])).unwrap();
+    // The first chunk was the head: the capture script and the stylesheet,
+    // before the render's title. A page held at its deadline runs its
+    // runtime at once, so the preload follows the head's fields.
+    let preload = "<link rel=\"modulepreload\" href=\"./app.js\" fetchpriority=\"low\">";
+    assert!(first_chunk.contains(exact_render::capture_js()));
+    assert!(!first_chunk.contains(preload));
+    assert!(first_chunk.contains("<style>p{margin:0}</style>"));
+    assert!(!first_chunk.contains("<title>"));
+    assert!(page.find("<title>") < page.find(preload), "{page}");
+    assert!(page.contains("data-activate=\"eager\""), "{page}");
+    // The rest: at the deadline, the document with what is pending, which
+    // the runtime asks again once it adopts the page. Its language is the
+    // shell's, the manifest's: this plan has no strings table to name one.
+    assert!(
+        page.starts_with("<!doctype html>\n<html lang=\"en\" dir=\"ltr\">"),
+        "{page}"
+    );
+    assert!(page.contains("\"pending\":[\"post\"]"), "{page}");
+    assert!(page.ends_with("</script>\n"), "{page}");
+    assert_eq!(plain.join().unwrap(), 503);
+    let (status, _, body) = fetch(addr, &navigate("/no/such/page"));
+    assert_eq!(status, 404);
+    assert!(body.contains(">Nothing here<"), "{body}");
+    // A flushed 200 of a cached route is kept: the next request is a hit,
+    // with its validator, and the same page.
+    let (status, headers, body) = fetch(addr, &navigate("/post/7"));
+    assert_eq!((status, header(&headers, "etag")), (200, None));
+    let flushed = String::from_utf8(unchunk(body.as_bytes())).unwrap();
+    assert!(flushed.contains(">Post 7<"), "{flushed}");
+    let (status, headers, kept) = get(addr, "/post/7");
+    assert_eq!(status, 200);
+    assert!(header(&headers, "age").is_some(), "{headers:?}");
+    assert!(header(&headers, "etag").is_some());
+    assert_eq!(kept, flushed);
+    // Compressed as the browser accepts, the head flushed through brotli.
+    let (status, headers, body) = fetch_bytes(
+        addr,
+        "GET /live/9 HTTP/1.1\r\nSec-Fetch-Dest: document\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(status, 200);
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "cache-control"), Some("no-store"));
+    let mut page = Vec::new();
+    brotli::BrotliDecompress(&mut &unchunk(&body)[..], &mut page).unwrap();
+    assert!(String::from_utf8(page).unwrap().contains(">Post 9<"));
+}

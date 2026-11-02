@@ -1,0 +1,26 @@
+{
+  "ticks": {
+    "330": "0xce509bd330c6290a"
+  },
+  "saves": {
+    "continuation": "2b2bb82056828a27e6884b05cd872325db4621fb1ee351f0a254281a6b316cff"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "5b94a754bacfeebae941109de92a54f2bc558a667a7c7a0ab211dfc0e2883e0e",
+  "sourceInputs": "b4fcfed86c34925e53e70ace155c1e20871178e0a78ffba6698ed7f45beaca8a",
+  "game": "placement-fixture",
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
+  "at": "inputs:b4fcfed86c34925e53e70ace155c1e20871178e0a78ffba6698ed7f45beaca8a",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+}

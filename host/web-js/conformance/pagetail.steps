@@ -1,0 +1,8 @@
+# To the end (a page is asked for); each landing takes the reader to the
+# new end in the same commit and the end asks for the next page: five pages.
+wheel feed 100000
+clock +300
+clock +300
+clock +300
+clock +300
+clock +300

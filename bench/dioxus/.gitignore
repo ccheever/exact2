@@ -1,0 +1,16 @@
+# What prepare.sh copies from bench/heavy-list's generated data.
+/heavy-dx/src/messages.json
+/heavy-dx/assets/
+/exact-bounded/data/messages.json
+/exact-bounded/assets/
+# prepare.sh copies the root Cargo.lock; build.mjs resolves it for that workspace. (heavy-dx/Cargo.lock is
+# committed: it pins Dioxus 0.8.0-alpha.1's dependency graph.)
+/exact-bounded/Cargo.lock
+# Build products (results, screenshots and the dx CLI go to <checkout>/target/bench/dioxus).
+/heavy-dx/target/
+/exact-bounded/target/
+/web/dist/
+/device/build/
+/mac/macbench
+/mac/wins
+/mac/tcc

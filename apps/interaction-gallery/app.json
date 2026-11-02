@@ -1,0 +1,45 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Still \u00b7 Interaction Gallery",
+  "short_name": "Still",
+  "id": "com.exact.interaction-gallery",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#225b4c",
+  "background_color": "#f7f6f2",
+  "app": {
+    "id": "com.exact.interaction-gallery",
+    "name": "Still \u00b7 Interaction Gallery"
+  },
+  "rust": {
+    "mode": "off"
+  },
+  "host": {
+    "web": {},
+    "linux": {},
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1180,
+        "height": 860,
+        "minWidth": 420,
+        "minHeight": 640
+      }
+    },
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    }
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

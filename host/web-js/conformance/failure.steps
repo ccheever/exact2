@@ -1,0 +1,7 @@
+tap ask-1
+clock +100
+tap retry
+clock +100
+tap ask-0
+tap ask-1
+clock +100

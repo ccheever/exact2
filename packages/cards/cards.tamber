@@ -1,0 +1,233 @@
+// The design of @exact/cards: the tokens its components'
+// params default to. Spacing and corners are base names. A neutral colour
+// (a ground, a text, a separator) is the platform's role, so a card looks
+// native where no app sets it; the brand's are the package's own. An app
+// sets any of them by full name (the clone sets them all to its palette's
+// colours, and its spacing to its own lengths).
+tamber cards
+
+theme
+  // Colours.
+  cards.surface = -exact-background
+  cards.divider = -exact-separator
+  cards.line = -exact-separator
+  cards.line-thread = -exact-separator
+  cards.name = -exact-label
+  cards.meta = -exact-secondary-label
+  cards.badge = light-dark(#006aff, #0f73ff)
+  cards.badge-mark = #ffffff  scheme=fixed
+  cards.avatar-ground = -exact-secondary-background
+  cards.avatar-default = #0070ff  scheme=fixed
+  // A translucent ring over the picture: no role is one.
+  cards.avatar-ring = light-dark(#dce2ea99, #485b7599)
+  cards.link-ground = -exact-background
+  cards.link-frame = -exact-separator
+  cards.thumb-ground = -exact-secondary-background
+  cards.visit = #6338ff  scheme=fixed
+  cards.visit-ink = #ffffff  scheme=fixed
+  // The profile header's: its banner's brand ground and the fade under the
+  // status bar over it, its surface and "Follows you" pill.
+  // The package's brand ground, a default avatar's and a banner's alike.
+  cards.banner = cards.avatar-default
+  // Over the banner's picture, not the page: fixed in both schemes, as the
+  // status bar's white over it is (no platform role is a scrim's colour).
+  cards.banner-shade = #00000080  scheme=fixed
+  cards.profile-surface = -exact-background
+  cards.pill = -exact-secondary-background
+  cards.alert = -exact-secondary-label
+  cards.alert-ground = -exact-secondary-background
+  // The empty state's icon, title, message and button: Bluesky's (the icon
+  // contrast_low, the message contrast_high; the button the brand primary, a
+  // literal, not the platform accent: white on Apple's default accent falls
+  // under 4.5:1).
+  // Per tone: medium's message contrast_medium; label's message and icon the
+  // text colour (the chats'). The secondary button is Bluesky's secondary,
+  // contrast_50 and contrast_700, as FollowButton's following.
+  cards.empty-icon = -exact-tertiary-label
+  cards.empty-icon-label = -exact-label
+  cards.empty-title = -exact-label
+  cards.empty-message = -exact-label
+  cards.empty-message-medium = -exact-secondary-label
+  cards.empty-message-label = -exact-label
+  cards.empty-button = light-dark(#006aff, #0f73ff)
+  cards.empty-button-ink = #ffffff  scheme=fixed
+  cards.empty-button-secondary = light-dark(#eff2f6, #222e3f)
+  cards.empty-button-secondary-ink = light-dark(#405168, #abb8c9)
+  // The post card's spacing, on the base scale.
+  cards.pad-start: length = space.sm
+  cards.pad-start-thread: length = space.sm
+  cards.pad-end: length = space.md
+  cards.pad-end-thread: length = space.md
+  cards.pad-bottom: length = space.sm
+  cards.column-gap: length = space.sm
+  cards.lead: length = space.sm
+  cards.top: length = space.sm
+  cards.top-thread: length = space.md
+  cards.line-gap: length = space.xs
+  cards.context-gap: length = space.xs
+  cards.context-under: length = space.xs
+  cards.avatar-start: length = space.sm
+  cards.avatar-end: length = space.sm
+  cards.avatar-end-thread: length = space.md
+  cards.meta-gap: length = space.xs
+  cards.meta-under: length = space.xs
+  cards.nudge: length = space.xs
+  // The Attie card's.
+  cards.link-top: length = space.sm
+  cards.link-corner: length = radius.lg
+  cards.link-pad: length = space.md
+  cards.link-gap: length = space.xs
+  cards.link-row-gap: length = space.sm
+  cards.link-name-gap: length = space.xs
+  cards.visit-pad-block: length = space.sm
+  cards.visit-pad-inline: length = space.md
+  cards.visit-corner: length = radius.full
+  // The context line hangs left of the text column by this much.
+  cards.context-hang: length = -16px
+  cards.badge-hang: length = -2px
+  // The reply line's icon sits this much above its text's centre.
+  cards.reply-rise: length = -1px
+  // Sizes: the avatars, the thread line, the icons and the badge.
+  cards.avatar: length = 42px
+  cards.at-avatar: length = 32px
+  // A circle at any avatar size: oversized, so every host clamps it to a
+  // pill (radius.full would square the terminal's box, its 0 there).
+  cards.avatar-corner: length = 999px
+  cards.line-width: length = 2px
+  cards.context-icon: length = 13px
+  cards.reply-icon: length = 12px
+  cards.badge-size: length = 12px
+  cards.visit-icon: length = 20px
+  // Type: the name, handle and time; the context, reply and Attie lines;
+  // the link's title; the Attie card's name and handle.
+  cards.text-size: length = 0.9375rem
+  cards.text-line: length = 1.0625rem
+  cards.small-size: length = 0.81875rem
+  cards.small-line: length = 1.0625rem
+  cards.title-size: length = 1.05625rem
+  cards.title-line: length = 1.375rem
+  cards.at-name-line: length = 0.9375rem
+  cards.tiny-size: length = 0.70625rem
+  cards.tiny-line: length = 0.8125rem
+  // The profile header's sizes and spacing: the banner (and a compact
+  // one's, a pushed header's), the avatar's box overlapping it, its ring
+  // and picture; the names, handle, counts and the actions' row.
+  cards.banner-height: length = 150px
+  cards.banner-compact: length = 100px
+  // How far the status bar's fade reaches below the safe area's top.
+  cards.banner-shade-reach: length = 20px
+  // The avatar overlaps the banner's bottom by its overlap, whatever the
+  // banner's height; its box is the picture and its ring each side.
+  cards.avatar-overlap: length = 46px
+  cards.avatar-top: length = calc(cards.banner-height - cards.avatar-overlap)
+  cards.avatar-top-compact: length = calc(cards.banner-compact - cards.avatar-overlap)
+  cards.profile-avatar-left: length = 10px
+  cards.profile-avatar: length = 90px
+  cards.profile-avatar-ring: length = 2px
+  cards.profile-avatar-box: length = calc(cards.profile-avatar + cards.profile-avatar-ring * 2)
+  cards.profile-pad: length = space.md
+  cards.profile-top: length = 12px
+  cards.profile-bottom: length = space.sm
+  cards.profile-actions-lead: length = 90px
+  cards.profile-actions-gap: length = space.xs
+  cards.profile-actions-under: length = space.sm
+  cards.profile-actions-height: length = 33px
+  cards.profile-names-gap: length = space.xs
+  cards.profile-names-under: length = space.sm
+  cards.profile-names-top: length = 2px
+  cards.profile-name-size: length = 1.51875rem
+  cards.profile-name-line: length = 1.75rem
+  cards.profile-badge: length = 18px
+  cards.profile-badge-gap: length = space.xs
+  cards.profile-badge-drop: length = 2px
+  cards.profile-handle-gap: length = space.sm
+  cards.profile-meta-line: length = 1.25rem
+  cards.profile-counts-gap: length = space.sm
+  cards.pill-pad-block: length = space.xs
+  cards.pill-pad-inline: length = space.sm
+  cards.pill-corner: length = radius.sm
+  cards.alert-gap: length = space.xs
+  cards.alert-under: length = space.sm
+  cards.alert-icon-gap: length = space.xs
+  cards.alert-pad-block: length = space.xs
+  cards.alert-pad-inline: length = 6px
+  cards.alert-icon: length = 14px
+  // The empty state's (EmptyState), Bluesky's: its icon, title and message,
+  // and its button, the primary small one.
+  cards.empty-top: length = 40px
+  cards.empty-pad: length = space.lg
+  cards.empty-gap: length = space.xs
+  cards.empty-icon-box: length = 64px
+  cards.empty-icon-small: length = 32px
+  cards.empty-icon-medium: length = 48px
+  cards.empty-icon-large: length = 64px
+  cards.empty-title-size: length = 1.23125rem
+  cards.empty-message-size: length = 0.9375rem
+  cards.empty-message-line: length = 1.25rem
+  cards.empty-button-top: length = 12px
+  cards.empty-button-gap: length = 5px
+  cards.empty-button-pad-block: length = 8px
+  cards.empty-button-pad: length = 14px
+  cards.empty-button-corner: length = radius.full
+  cards.empty-button-icon: length = 16px
+  cards.empty-button-icon-box: length = 17px
+  cards.empty-button-icon-pull: length = -2px
+  cards.empty-button-size: length = 0.81875rem
+  cards.empty-button-line: length = 1.0625rem
+  cards.empty-button-press: number = 0.97
+  // The divider, the link's frame and split, and the avatar's ring.
+  cards.hairline: length = -exact-hairline
+  // A person in a list (PersonRow, Bluesky's ProfileCard in
+  // ProfileCardWithFollowBtn): the row's py_md px_xl and gap_xs, the
+  // header's gap_sm and 40 avatar; the name text_md semi-bold and the handle
+  // text_sm on leading_snug (20 and 17), the badge md (14) after pl_xs; the
+  // "Follows you" pill (text_xs leading_tight, 3 by 6, corner 4) and the
+  // description (text_sm leading_snug), each pt_xs; a disabled row at half.
+  cards.person-pad-block: length = 12px
+  cards.person-pad-inline: length = 20px
+  cards.person-gap: length = 4px
+  cards.person-header-gap: length = 8px
+  cards.person-avatar: length = 40px
+  cards.person-name-size: length = 0.9375rem
+  cards.person-name-line: length = 1.25rem
+  cards.person-badge: length = 14px
+  cards.person-badge-gap: length = 4px
+  cards.person-handle-size: length = 0.81875rem
+  cards.person-handle-line: length = 1.0625rem
+  cards.person-pill-top: length = 4px
+  cards.person-pill-size: length = 0.70625rem
+  cards.person-pill-line: length = 0.8125rem
+  cards.person-pill-pad-block: length = 3px
+  cards.person-pill-pad-inline: length = 6px
+  cards.person-pill-corner: length = 4px
+  cards.person-description-top: length = 4px
+  cards.person-description-size: length = 0.81875rem
+  cards.person-description-line: length = 1.0625rem
+  cards.person-dim: number = 0.5
+
+// The cards' one-colour icons, as templates every host draws from the same
+// path: no `sf`, so Apple draws the path, not
+// an SF Symbol. Each SVG's `d` is the path function's or inline path's it
+// replaced, byte for byte, except the verified ground, whose circle is drawn
+// as two arcs. The Attie mark and the badges' paths were drawn even-odd, but
+// each one's holes wind against its outline, so nonzero fills it the same and
+// they are written nonzero (no marker, so no new compat id). Each badge is
+// two one-colour templates stacked, its ground in `ink` and its check in
+// `mark`, so both colours stay tokens and params.
+icons
+  // The post card's context line (pinned, reposted) and reply line.
+  cards.repost = icon(svg "repost.svg")
+  cards.pin = icon(svg "pin.svg")
+  cards.corner-down-right = icon(svg "corner-down-right.svg")
+  // The profile header's moderation pills.
+  cards.ban = icon(svg "ban.svg")
+  cards.eye-slash = icon(svg "eye-slash.svg")
+  cards.warning = icon(svg "warning.svg")
+  cards.circle-info = icon(svg "circle-info.svg")
+  // AtCard's visit button.
+  cards.attie = icon(svg "attie.svg")
+  // VerifiedBadge: each badge's ground and its check.
+  cards.verified = icon(svg "verified.svg")
+  cards.verified-check = icon(svg "verified-check.svg")
+  cards.verifier = icon(svg "verifier.svg")
+  cards.verifier-check = icon(svg "verifier-check.svg")

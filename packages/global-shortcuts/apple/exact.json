@@ -1,0 +1,24 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/global-shortcuts@^1.0",
+  "platform": "apple",
+  "targets": [
+    "macos"
+  ],
+  "shapes": {
+    "AppleGlobalShortcutStatus": {
+      "accessibilityTrusted": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "GlobalShortcuts.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "GlobalShortcutsModule"
+}

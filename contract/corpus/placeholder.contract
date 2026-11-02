@@ -1,0 +1,18 @@
+// What shows while a source hasn't answered: a
+// declared placeholder, a source call over values, or a list's empty value.
+routes nav
+  tab home "/"
+  post "/post/:post"
+
+shape Post
+  id: string
+  title: string
+
+component Blog
+  resource post = post(params(nav, "post")) as shape Post else emptyPost()
+  resource comments = comments(params(nav, "post")) as shape string[]
+  view
+    column testId="blog"
+      text post.title testId="title"
+      text (failed(post) ? "failed" : pending(post) ? "loading" : "ready") testId="state"
+      text `${comments.length} comments` testId="comments"

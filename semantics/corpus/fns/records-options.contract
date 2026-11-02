@@ -1,0 +1,38 @@
+// fns over records and options: build, copy, unwrap with a default.
+shape P
+  x: number
+  y: number
+
+fn origin(): P = P(x=0, y=0)
+fn shift(p: P, dx: number): P = P(p, x=p.x + dx)
+fn orElse(o: option<P>, d: P): P = match o { case some(p) => p, case none => d }
+fn show(p: P): string = `(${p.x}, ${p.y})`
+fn maybeShift(o: option<P>, dx: number): option<P> = match o { case some(p) => some(shift(p, dx)), case none => none }
+
+component App
+  state held = none
+  state p = origin()
+  derive shown = show(orElse(maybeShift(held, 5), p))
+  action hold
+    held = some(shift(p, 1))
+  action move
+    p = shift(p, 10)
+  action drop
+    held = none
+  view
+    column
+      text shown testId="shown"
+      button "hold" press=hold testId="hold"
+      button "move" press=move testId="move"
+      button "drop" press=drop testId="drop"
+
+test "fn records"
+  expect text "shown" == "(0, 0)"
+  tap "move"
+  expect text "shown" == "(10, 0)"
+  tap "hold"
+  expect text "shown" == "(16, 0)"
+  tap "move"
+  expect text "shown" == "(16, 0)"
+  tap "drop"
+  expect text "shown" == "(20, 0)"

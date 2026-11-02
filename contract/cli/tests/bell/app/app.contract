@@ -1,0 +1,64 @@
+use bellStatus, ring, setCount, clearCount, requestBell, ringclick, chime, BellStatus, Ring from "@fixture/bell"
+use Panel from "./panel.contract"
+
+shape Time
+  epochAtZero: number
+
+shape Done
+  done: bool
+
+component App
+  state heard = ""
+  resource status = bellStatus() as shape BellStatus
+  mutation answered as shape BellStatus
+  mutation hushed as shape Done
+  resource time = exactTime() as shape Time
+  action rang(tag: string, e: Ring)
+    match e.data
+      case some(d)
+        heard = `${tag} ${d}`
+      case none
+        heard = `${tag} none`
+    send answered = requestBell()
+  action chimed(tag: string)
+    heard = `chime ${tag}`
+    send answered = requestBell()
+  action post
+    ring(tag="t1", data="thread-1")
+  action later
+    ring(tag="t2", data="thread-2", at=time.epochAtZero + performanceNow() + 60000)
+  action badge
+    setCount(contents=3)
+  action flag
+    setCount()
+  action ringChime
+    ring(tag="chime-1")
+  action hushData
+    send hushed = quiet()
+  view
+    column ringclick=rang chime=chimed
+      text testId="heard" heard
+      text testId="status" status.state
+      match answered
+        case some(a)
+          text testId="answered" a.state
+        case none
+          text testId="answered" "none"
+      button testId="post" press=post
+        text "Ring"
+      button testId="later" press=later
+        text "Ring later"
+      button testId="badge" press=badge
+        text "Count 3"
+      button testId="flag" press=flag
+        text "Flag"
+      button testId="chime" press=ringChime
+        text "Chime"
+      button testId="hush-data" press=hushData
+        text "Hush from data"
+      match hushed
+        case some(h)
+          text testId="hushed" `${h.done}`
+        case none
+          text testId="hushed" "none"
+      Panel()

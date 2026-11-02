@@ -1,0 +1,29 @@
+[package]
+name = "gpui-heavy-list"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "gpui-heavy-list"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
+image = { version = "0.25", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

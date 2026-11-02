@@ -1,0 +1,206 @@
+//! A resource's compiled value is released once nothing outside the runner
+//! holds it (`exact_runner::held`): a source that adopted it
+//! answers its edits through a mutation, as a live list does, and the
+//! baked copy of what it replaced is freed. A later read decodes the
+//! plan's bytes again: the value never changes for a reader.
+
+use exact_kernel::{Kernel, PropId};
+use exact_runner::{DataError, DataSource, Items, Runner, Value};
+
+const SRC: &str = r#"
+shape Row
+  id: string
+  text: string
+shape Feed
+  rows: Row[]
+
+component App
+  state peek = false
+  resource initial = feed() as shape Feed
+  mutation changed as shape Feed
+  derive feed = match changed { case some(m) => m, case none => initial }
+  derive baked = peek ? initial.rows.length : 0
+  action edit
+    send changed = edit()
+  action look
+    peek = true
+
+  view
+    column
+      text `${baked}` testId="baked"
+      for r in feed.rows key=r.id
+        text r.text
+"#;
+
+fn row(id: usize, text: &str) -> Value {
+    Value::record(vec![Value::str(&id.to_string()), Value::str(text)])
+}
+
+/// The feed, and after adopting the runner's copy, its edits: each `edit`
+/// replaces the first row and shares the rest.
+#[derive(Default)]
+struct Feed {
+    rows: Vec<Value>,
+    edits: usize,
+}
+
+impl Feed {
+    fn value(&self) -> Value {
+        Value::record(vec![Value::list(self.rows.clone())])
+    }
+}
+
+impl DataSource for Feed {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        if self.rows.is_empty() {
+            self.rows = (0..3).map(|i| row(i, "baked")).collect();
+        }
+        match source {
+            "feed" => Ok(self.value()),
+            "edit" => {
+                self.edits += 1;
+                self.rows[0] = row(0, &format!("edit {}", self.edits));
+                Ok(self.value())
+            }
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn adopt(&mut self, source: &str, _: &[Value], value: &Value) {
+        if let ("feed", Value::Record(fields)) = (source, value) {
+            if let Value::List(rows) = &fields[0] {
+                self.rows = rows.to_vec();
+            }
+        }
+    }
+}
+
+/// The resource's first row, held here: its count says whether the runner's
+/// decoded record still holds it (the record is the row's only other
+/// holder once the row is off screen). Holding the row leaves the record's
+/// own count, the one the runner reads before releasing it, alone.
+fn first_row(r: &Runner<Feed>) -> Items {
+    let Some(Value::Record(record)) = r.resource("initial") else {
+        panic!("a record")
+    };
+    let Value::List(rows) = &record[0] else {
+        panic!("a list")
+    };
+    let Value::Record(first) = &rows[0] else {
+        panic!("a row")
+    };
+    first.clone()
+}
+
+/// Whether anything besides this handle holds `row`.
+fn alive(row: &Items) -> bool {
+    Items::strong_count(row) > 1
+}
+
+fn text(r: &Runner<Feed>, id: &str) -> String {
+    let k = r.kernel();
+    let key = k.find_by_test_id(id)[0];
+    k.node_by_key(key)
+        .unwrap()
+        .props
+        .str(PropId::Text)
+        .unwrap()
+        .to_string()
+}
+
+#[test]
+fn an_adopted_value_replaced_on_screen_is_released_and_reads_the_same() {
+    let plan = contract::bake(contract::compile(SRC).unwrap(), Feed::default()).unwrap();
+    let baked = Value::from_bytes(plan.bytes(plan.resources[0].initial)).unwrap();
+    let mut r = Runner::boot(
+        plan.clone(),
+        Feed::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = first_row(&r);
+    // The list shows it: held.
+    r.advance(0.).unwrap();
+    assert!(alive(&first));
+
+    r.act("edit", vec![]).unwrap();
+    // Replaced on screen by the source's edit, which shares rows 1 and 2:
+    // the record and the row it replaced are freed.
+    assert!(
+        !alive(&first),
+        "the baked record is released, and the replaced row with it"
+    );
+
+    // Read for inspection, it is the same value, decoded again, and
+    // released again after the next update.
+    assert_eq!(r.resource("initial"), Some(&baked));
+    assert!(exact_runner::agent::state(&r).contains("\"baked\""));
+    let again = first_row(&r);
+    r.act("edit", vec![]).unwrap();
+    assert!(!alive(&again), "an inspection's copy is released");
+
+    // A reload carries the value as it was compiled.
+    let carried = r.carry();
+    let reloaded = Runner::boot_carrying(
+        plan.clone(),
+        Feed::default(),
+        Kernel::with_monospace(),
+        &carried,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(reloaded.resource("initial"), Some(&baked));
+
+    // An expression that reads it after the release sees the same value,
+    // and keeps it from then on: no decode per evaluation.
+    r.act("look", vec![]).unwrap();
+    assert_eq!(text(&r, "baked"), "3");
+    let kept = first_row(&r);
+    r.act("edit", vec![]).unwrap();
+    assert!(alive(&kept), "read by an expression: kept");
+    assert_eq!(r.resource("initial"), Some(&baked));
+}
+
+#[test]
+fn a_value_still_on_screen_is_never_released() {
+    let plan = contract::bake(contract::compile(SRC).unwrap(), Feed::default()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Feed::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = first_row(&r);
+    for _ in 0..5 {
+        r.act("look", vec![]).unwrap();
+        r.advance(100.).unwrap();
+    }
+    assert!(alive(&first));
+}
+
+/// Authoring bench: an iOS bake panicked on a source that read storage at build; the
+/// refusal says what to do.
+#[test]
+fn a_source_that_reads_storage_at_bake_is_told_to_catch_it() {
+    struct NoStorage;
+    impl DataSource for NoStorage {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable(
+                "storage is unavailable during bake".into(),
+            ))
+        }
+    }
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n  view\n    text \"a\"\n";
+    let error = contract::bake(contract::compile(src).unwrap(), NoStorage).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.starts_with("`tasks` read storage while baking"),
+        "{message}"
+    );
+    assert!(message.contains("`e.code === 'bake'`"), "{message}");
+}

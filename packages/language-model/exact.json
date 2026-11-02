@@ -1,0 +1,240 @@
+{
+  "kind": "interface",
+  "name": "@exact/language-model",
+  "version": "1.0.0",
+  "substitute": "implementation",
+  "agent": {
+    "responses": "LanguageModelScriptEntry[]",
+    "rate": "number",
+    "contextWindow": "number"
+  },
+  "shapes": {
+    "LanguageModelMessage": {
+      "role": "enum<system|user|assistant>",
+      "content": "string"
+    },
+    "LanguageModelExpected": {
+      "type": "enum<text|tool-call>",
+      "languages": "option<string[]>"
+    },
+    "LanguageModelTool": {
+      "name": "string",
+      "description": "string",
+      "inputSchema": "shape-name"
+    },
+    "LanguageModelAvailability": {
+      "availability": "enum<unavailable|downloadable|downloading|available>",
+      "reason": "option<enum<device-not-eligible|not-enabled|model-not-ready|unsupported-options|os|policy|disk|not-supported>>",
+      "progress": "option<number>",
+      "contextWindow": "option<number>",
+      "leavesDevice": "bool",
+      "structuredOutput": "enum<enforced|validated|none>",
+      "tools": "bool",
+      "apple": "option<AppleLanguageModelStatus>",
+      "android": "option<AndroidLanguageModelStatus>"
+    },
+    "LanguageModelInfo": {
+      "id": "string",
+      "contextUsage": "option<number>",
+      "contextWindow": "number",
+      "tools": "string[]",
+      "overflowed": "bool"
+    },
+    "LanguageModelResult": {
+      "text": "string",
+      "contextUsage": "option<number>",
+      "overflowed": "bool"
+    },
+    "LanguageModelResponseInfo": {
+      "id": "string",
+      "session": "string"
+    },
+    "LanguageModelToolCall": {
+      "id": "string",
+      "name": "string",
+      "arguments": "string",
+      "state": "enum<running|done|failed>",
+      "result": "option<string>",
+      "truncated": "bool"
+    },
+    "LanguageModelResponse": {
+      "id": "string",
+      "session": "string",
+      "state": "enum<generating|calling-tool|complete|aborted|failed>",
+      "text": "string",
+      "toolCalls": "LanguageModelToolCall[]",
+      "overflowed": "bool",
+      "contextUsage": "option<number>",
+      "error": "option<string>",
+      "reason": "option<string>",
+      "message": "option<string>",
+      "apple": "option<AppleLanguageModelResponse>",
+      "android": "option<AndroidLanguageModelResponse>"
+    },
+    "LanguageModelSessionInfo": {
+      "id": "string",
+      "contextUsage": "option<number>",
+      "contextWindow": "number",
+      "responding": "bool"
+    },
+    "LanguageModelContextUsage": {
+      "usage": "number",
+      "contextWindow": "number"
+    },
+    "LanguageModelDone": {
+      "id": "string"
+    }
+  },
+  "names": [
+    {
+      "source": "languageModelAvailability",
+      "live": true,
+      "overlays": "implementation",
+      "options": {
+        "expectedInputs": "option<LanguageModelExpected[]>",
+        "expectedOutputs": "option<LanguageModelExpected[]>"
+      },
+      "answers": "LanguageModelAvailability",
+      "sync": {
+        "name": "languageModelAvailabilitySync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "availability": "unavailable",
+          "reason": "not-supported",
+          "leavesDevice": false,
+          "structuredOutput": "none",
+          "tools": false
+        }
+      }
+    },
+    {
+      "send": "createLanguageModel",
+      "download": {
+        "when": "downloadable",
+        "origin": "app",
+        "foreground": true
+      },
+      "gesture": true,
+      "handlers": "tools[].name",
+      "options": {
+        "initialPrompts": "option<LanguageModelMessage[]>",
+        "expectedInputs": "option<LanguageModelExpected[]>",
+        "expectedOutputs": "option<LanguageModelExpected[]>",
+        "tools": "option<LanguageModelTool[]>"
+      },
+      "answers": "LanguageModelInfo",
+      "handles": {
+        "id": "language-model"
+      }
+    },
+    {
+      "send": "prompt",
+      "handlersFrom": "session",
+      "options": {
+        "session": "handle<language-model>",
+        "input": "string",
+        "responseConstraint": "option<shape-name>",
+        "omitResponseConstraintInput": "option<bool>"
+      },
+      "answers": {
+        "shape": "responseConstraint",
+        "else": "LanguageModelResult"
+      }
+    },
+    {
+      "send": "promptStreaming",
+      "handlersFrom": "session",
+      "options": {
+        "session": "handle<language-model>",
+        "input": "string",
+        "responseConstraint": "option<shape-name>",
+        "omitResponseConstraintInput": "option<bool>"
+      },
+      "answers": "LanguageModelResponseInfo",
+      "handles": {
+        "id": "language-model-response"
+      }
+    },
+    {
+      "source": "languageModelResponse",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100,
+        "while": {
+          "state": [
+            "generating",
+            "calling-tool"
+          ]
+        }
+      },
+      "options": {
+        "response": "handle<language-model-response>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50
+        }
+      },
+      "answers": "LanguageModelResponse"
+    },
+    {
+      "send": "abortLanguageModelResponse",
+      "options": {
+        "response": "handle<language-model-response>"
+      },
+      "answers": "LanguageModelDone"
+    },
+    {
+      "send": "appendLanguageModel",
+      "options": {
+        "session": "handle<language-model>",
+        "input": "string"
+      },
+      "answers": "LanguageModelSessionInfo"
+    },
+    {
+      "source": "measureContextUsage",
+      "options": {
+        "session": "handle<language-model>",
+        "input": "string",
+        "responseConstraint": "option<shape-name>"
+      },
+      "answers": "LanguageModelContextUsage"
+    },
+    {
+      "source": "languageModelSession",
+      "live": true,
+      "options": {
+        "session": "handle<language-model>"
+      },
+      "answers": "LanguageModelSessionInfo"
+    },
+    {
+      "send": "cloneLanguageModel",
+      "handlersFrom": "session",
+      "options": {
+        "session": "handle<language-model>"
+      },
+      "answers": "LanguageModelInfo",
+      "handles": {
+        "id": "language-model"
+      }
+    },
+    {
+      "send": "destroyLanguageModel",
+      "options": {
+        "session": "handle<language-model>"
+      },
+      "answers": "LanguageModelDone"
+    },
+    {
+      "send": "prewarmLanguageModel",
+      "options": {
+        "session": "handle<language-model>"
+      },
+      "answers": "LanguageModelDone"
+    }
+  ]
+}

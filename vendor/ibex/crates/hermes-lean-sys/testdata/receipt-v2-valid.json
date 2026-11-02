@@ -1,0 +1,54 @@
+{
+  "schema": "ibex/hermes-upstream-pinned-receipt/2",
+  "upstream": {
+    "artifact": "facebook/hermes",
+    "sourceCommit": "d412d3bd851278712c20cca25d094e32641a0465",
+    "sourceRef": "hermes-v260318099.0.4",
+    "sourceVersion": "260318099.0.4"
+  },
+  "patchSet": {
+    "digest": "sha256-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "applied": []
+  },
+  "target": "aarch64-apple-darwin",
+  "profile": "release",
+  "build": {
+    "flags": ["-DHERMES_ENABLE_DEBUGGER=false"]
+  },
+  "bytecode": {
+    "version": 99
+  },
+  "compiler": {
+    "binary": "bin/hermesc",
+    "digest": "sha256-1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "engine": {
+    "binary": "lib/libhermesvm_a.a",
+    "binaryDigest": "sha256-2222222222222222222222222222222222222222222222222222222222222222",
+    "variant": "release"
+  },
+  "archives": [
+    {
+      "path": "lib/libhermesvm_a.a",
+      "digest": "sha256-2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "path": "lib/libhermesvmlean_a.a",
+      "digest": "sha256-5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    {
+      "path": "lib/libjsi.a",
+      "digest": "sha256-3333333333333333333333333333333333333333333333333333333333333333"
+    }
+  ],
+  "headers": [
+    {
+      "path": "include/jsi/jsi.h",
+      "digest": "sha256-4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "linkDirectives": [
+    "rustc-link-search=native=lib",
+    "rustc-link-lib=static=hermesvm_a"
+  ]
+}

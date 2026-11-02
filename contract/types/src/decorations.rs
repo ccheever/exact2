@@ -1,0 +1,62 @@
+//! The fixed record order of `textarea decorations=` and of
+//! a Markdown field's `atomFaces` and `atompress`.
+//! The producer bridge serializes `TextDecorations` and `AtomFace` as named
+//! JSON fields.
+
+use super::{Shapes, Ty};
+
+pub(crate) fn declare(shapes: &mut Shapes) {
+    shapes.map.insert(
+        "TextDecorationSpan".into(),
+        vec![
+            ("name".into(), Ty::String),
+            ("start".into(), Ty::Number),
+            ("end".into(), Ty::Number),
+        ],
+    );
+    // A field is never defaulted: an empty `color` or
+    // `backgroundColor` is the kind's paint, as an empty label is the default,
+    // an empty `direction` follows the atom's line, and an empty `ariaLabel`
+    // leaves the label as the accessible name.
+    shapes.map.insert(
+        "AtomFace".into(),
+        vec![
+            ("source".into(), Ty::String),
+            ("label".into(), Ty::String),
+            ("icon".into(), Ty::String),
+            ("title".into(), Ty::String),
+            ("color".into(), Ty::String),
+            ("backgroundColor".into(), Ty::String),
+            (
+                "direction".into(),
+                Ty::Enum(vec!["ltr".into(), "rtl".into(), "".into()]),
+            ),
+            ("ariaLabel".into(), Ty::String),
+        ],
+    );
+    // In the order `exact_runner::AtomEvent` writes it.
+    shapes.map.insert(
+        "AtomEvent".into(),
+        vec![
+            ("kind".into(), Ty::String),
+            ("source".into(), Ty::String),
+            ("href".into(), Ty::String),
+            ("start".into(), Ty::Number),
+            ("end".into(), Ty::Number),
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    shapes.map.insert(
+        "TextDecorations".into(),
+        vec![
+            ("value".into(), Ty::String),
+            (
+                "spans".into(),
+                Ty::List(Box::new(Ty::Record("TextDecorationSpan".into()))),
+            ),
+        ],
+    );
+}

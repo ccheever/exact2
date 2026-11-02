@@ -1,0 +1,25 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Fieldnotes",
+  "short_name": "Fieldnotes",
+  "id": "com.exact.fieldnotes",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#31554a",
+  "background_color": "#f6f3eb",
+  "file_handlers": [
+    { "action": "/", "name": "Fieldnotes backup", "accept": { "application/json": [".json"] } }
+  ],
+  "share_target": {
+    "action": "/share", "method": "POST", "enctype": "multipart/form-data",
+    "params": { "title": "title", "text": "text", "files": [{ "name": "files", "accept": ["text/plain", "text/markdown", "image/*"] }] }
+  },
+  "app": { "id": "com.exact.fieldnotes", "name": "Fieldnotes" },
+  "typescript": { "placement": "worker" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0", "window": { "width": 1100, "height": 760, "minWidth": 760, "minHeight": 560 } },
+    "web": {}
+  },
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

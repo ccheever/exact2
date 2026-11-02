@@ -1,0 +1,14 @@
+// Synthetic conformance plan: `scroll document`. The marked
+// scroller is the page's while `<html data-scrolldocument>` says so; a false
+// binding gives the page back its bounded inner scroller.
+component Document
+  state on = true
+  action flip
+    on = not on
+  view
+    column testId="root" height="100%"
+      button press=flip testId="flip"
+        text on ? "the page scrolls" : "the view scrolls"
+      scroll document=on flex=1 min-height=0 testId="page"
+        column testId="content" height=2000 background-color="#e9c46a"
+          text "top"

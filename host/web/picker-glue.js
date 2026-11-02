@@ -1,0 +1,278 @@
+// The file picker on the web, loaded on the first
+// `showPicker` or file input `change`. The element is the picker;
+// each chosen File becomes an `app:/tmp/picked/…` entry backed by the File
+// itself, described by the browser (pixel size from
+// createImageBitmap, which applies EXIF orientation; a video's from its
+// metadata), and delivered as `change` (host kind 26). Under the agent the
+// driver's bytes arrive as Files and take the same path. Also loaded
+// by the first `app:/` source an `image` or `video` shows: `appURL`,
+// and by a `share` with `files=`: `share`.
+const picked = new Map(); // app:/tmp/picked/… → File
+const urls = new Map(); // app:/… → [its object URL, the version it was made from], for `image`/`video`
+let opened; // the app's file store, or null when it has none (a drive without --storage)
+let emptied; // the store once `app:/tmp/picked/` is emptied, at this page's first pick
+
+// The store the app's own sources open (storage-environment.js `storageKey`,
+// the page's launch URL's), so what a pick puts there the data module reads.
+function fileStore(appId) {
+  return opened ??= (async () => {
+    try {
+      const { storageKey } = await import('./storage-environment.js');
+      const key = storageKey(appId);
+      if (key == null) return null;
+      const { createFileStore } = await import('./storage-fs.js');
+      return createFileStore(key);
+    } catch (error) {
+      console.warn('exact: the app\'s files are not available', String(error));
+      return null;
+    }
+  })();
+}
+
+/** An `app:/` source for an `image` or `video`: an object URL for the
+ * app's own file — one this page picked, or one in its store (a pick the
+ * data module kept in `app:/data`, after a reload too) — or '' when there is
+ * none. A file that changed gets a new URL; the last one is revoked. */
+async function appURL(path, appId) {
+  const file = picked.get(path);
+  if (file) return made(path, file, file);
+  try {
+    const s = await fileStore(appId);
+    if (!s) return '';
+    const { blob, modifiedMs } = await s.blob(path, typeFor(path));
+    return made(path, blob, `${modifiedMs}:${blob.size}`);
+  } catch {
+    return ''; // no such file, or not an app:/data|cache|tmp path: nothing to show
+  }
+}
+function made(path, blob, version) {
+  const was = urls.get(path);
+  if (was?.[1] === version) return was[0];
+  if (was) URL.revokeObjectURL(was[0]);
+  const url = URL.createObjectURL(blob);
+  urls.set(path, [url, version]);
+  return url;
+}
+globalThis.exact.appURL = appURL;
+
+// A bundled page's given files: for a page of the app's origin
+// under its `assets/` or `deck/` (an .html or .htm file), read as the URL parser
+// reads it, each query value that begins `app:/`, decoded as URLSearchParams
+// decodes it; null for any other source. WebModule.swift `givenPaths` reads a
+// source the same way.
+export function pageFiles(src, base = document.baseURI) {
+  let url, root;
+  try { url = new URL(src, base); root = new URL('.', base); } catch { return null; }
+  const name = url.origin === root.origin && url.pathname.startsWith(root.pathname) ? url.pathname.slice(root.pathname.length) : '';
+  if (!/^(assets|deck)\/[^?#]*\.html?$/i.test(name) || !url.search) return null;
+  const pairs = url.search.slice(1).split('&').map(pair => {
+    const at = pair.indexOf('=');
+    let value = null;
+    try { value = at < 0 ? null : decodeURIComponent(pair.slice(at + 1).replace(/\+/g, ' ')); } catch { /* a malformed escape names nothing */ }
+    return { name: at < 0 ? pair : pair.slice(0, at), path: value?.startsWith('app:/') ? value : null, pair };
+  });
+  if (!pairs.some(p => p.path)) return null;
+  return { paths: [...new Set(pairs.filter(p => p.path).map(p => p.path))], rewrite: urlFor => {
+    const out = new URL(url);
+    // A value given nothing is emptied, so no app path reaches the page's server.
+    out.search = '?' + pairs.map(p => p.path ? `${p.name}=${urlFor(p.path) ? encodeURIComponent(urlFor(p.path)) : ''}` : p.pair).join('&');
+    return out.href;
+  } };
+}
+const GIVEN = /^app:\/(cache|tmp)(\/(?!\.\.?(\/|$))[^/\0]+)+$/;
+// The types a browser shows without running script in them; any other (HTML,
+// SVG, any XML) is given as application/octet-stream, which a frame downloads
+// rather than runs as the app's origin. FrameFiles.swift `shown` is the same.
+const SHOWN = /^(image\/(?!svg)[\w.+-]+|audio\/[\w.+-]+|video\/[\w.+-]+|text\/(plain|csv|tab-separated-values|markdown|css)|application\/(json|pdf))$/i;
+const shown = blob => { const type = blob.type.split(';', 1)[0].trim(); return SHOWN.test(type) && !/\+xml$/i.test(type) ? blob : blob.slice(0, blob.size, 'application/octet-stream'); };
+
+// Each value naming a file the page may be given becomes an object URL the
+// frame owns, made from the store as the source commits and revoked with it.
+// Any other is emptied, and the console says why.
+async function framePage(el, state, appId, given, committed, admit) {
+  const store = await fileStore(appId), blobs = new Map();
+  const notGiven = (path, why) => console.warn(`exact: iframe ${state.path}: ${path} is not given (${why})`);
+  for (const path of given.paths) {
+    if (!GIVEN.test(path)) { notGiven(path, 'a page is given app:/cache and app:/tmp files only'); continue; }
+    try { blobs.set(path, picked.get(path) ?? (await store.blob(path, typeFor(path))).blob); } catch { notGiven(path, store ? 'no such file' : 'this page has no app files'); }
+  }
+  if (!state.live) return;
+  const urls = new Map([...blobs].map(([path, blob]) => [path, URL.createObjectURL(shown(blob))])), dispose = state.dispose;
+  state.dispose = function () { dispose.call(this); for (const url of urls.values()) URL.revokeObjectURL(url); };
+  state.url = given.rewrite(path => urls.get(path));
+  admit(state.url);
+  committed();
+}
+
+// An iframe owns its URL: changing its source or ending its node releases
+// it without revoking another element's view of the same file.
+// `admit` writes a page's source through the host's own navigation policy
+// (rt.js `navigable`, glue.js `frameURL`), which an `app:/` file's object URL
+// does not need.
+export async function appFrame(el, state, appId, committed = () => {}, admit = () => el.setAttribute('src', 'about:blank')) {
+  if (!state.path.startsWith('app:/')) {
+    const given = pageFiles(state.path);
+    // The boot glue's test is looser: a source it sent here that gives no
+    // page a file (one outside assets/ and deck/, say) loads as written.
+    if (!given) { state.url = state.path; admit(state.path); return committed(); }
+    return framePage(el, state, appId, given, committed, admit).catch(error => console.warn(`exact: iframe ${state.path}: ${error?.message ?? error}`));
+  }
+  try {
+    const path = state.path.split(/[?#]/, 1)[0];
+    const store = await fileStore(appId);
+    const blob = picked.get(path) ?? (await store.blob(path, typeFor(path))).blob;
+    if (!state.live) return;
+    // Chrome refuses PDF viewers in every sandbox, including allow-same-origin.
+    if (blob.type.split(';', 1)[0].toLowerCase() === 'application/pdf' && el.hasAttribute('sandbox'))
+      throw new Error('sandbox blocks PDF documents');
+    state.url = URL.createObjectURL(blob);
+    el.setAttribute('src', state.url + (state.path.includes('#') ? '#' + state.path.split('#').slice(1).join('#') : ''));
+    committed();
+  } catch (error) {
+    if (!state.live) return;
+    state.failed = true;
+    el.dispatchEvent(new CustomEvent('error', { detail: `iframe: ${state.path}: ${error.message === 'sandbox blocks PDF documents' ? error.message : 'file unavailable'}` }));
+  }
+}
+
+globalThis.exact.picker = function install(host) {
+  // host: { dispatch(id, kind, payload), generation() (none on the JS target), pickedPath(name), appId, log(line) }
+  // A view id names a view only in the generation that asked: an answer that
+  // outlives a restart, which reuses ids, is dropped. `at(g)` is these
+  // operations for generation `g`, the one the glue asked in (the module may
+  // load after a restart); each takes its `since()` before its first await.
+  let pinned;
+  const since = () => { const g = pinned ?? host.generation?.(); return (id, kind, payload) => { if (host.generation?.() === g) host.dispatch(id, kind, payload); }; };
+  // What the last page picked is gone.
+  const pickStore = () => emptied ??= fileStore(host.appId).then(async s => {
+    if (!s) return null;
+    await s.rm('app:/tmp/picked').catch(() => {});
+    await s.mkdir('app:/tmp/picked');
+    return s;
+  }).catch(error => {
+    console.warn('exact: picked files are not stored', String(error));
+    return null;
+  });
+  async function describe(file) {
+    const size = { width: '', height: '', duration: '' };
+    try {
+      if (file.type.startsWith('image/')) {
+        const bitmap = await createImageBitmap(file);
+        size.width = bitmap.width; size.height = bitmap.height; bitmap.close();
+      } else if (file.type.startsWith('video/')) {
+        const video = document.createElement('video'), url = URL.createObjectURL(file);
+        video.preload = 'metadata'; video.muted = true;
+        await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = reject; video.src = url; });
+        size.width = video.videoWidth; size.height = video.videoHeight;
+        if (Number.isFinite(video.duration)) size.duration = video.duration;
+        URL.revokeObjectURL(url);
+      }
+    } catch { /* delivered without the size fields */ }
+    return size;
+  }
+  const clean = (s) => String(s).replace(/[\t\r\n]/g, ' ');
+  async function deliver(id, files, dispatch) {
+    const s = await pickStore(), lines = [];
+    for (const file of files) {
+      const path = await host.pickedPath(file.name);
+      picked.set(path, file);
+      if (s) await s.putBlob(path, file);
+      const { width, height, duration } = await describe(file);
+      lines.push([path, clean(file.name), clean(file.type || typeFor(file.name)), file.size, width, height, duration].join('\t'));
+    }
+    dispatch(id, 26, lines.join('\n'));
+  }
+  // `saveFile`: the `app:/` file's bytes, from the store,
+  // or the `text=` itself, as UTF-8.
+  async function appBytes(from, text) {
+    if (text != null) return new TextEncoder().encode(text);
+    const s = await fileStore(host.appId);
+    if (!s) throw new Error('this page has no app files');
+    return new Uint8Array(await s.readFile(from));
+  }
+  const saved = (dispatch, view, name) => { host.log('saveFile: saved'); dispatch(view, 1, name); };
+  const unsaved = (dispatch, view, line) => { host.log(line); dispatch(view, 27, ''); };
+  const api = {
+    /** `saveFile`'s answer `r` from the runner (refused, or present) and, where the browser
+     * has one, the save picker's pending handle: write the copy there, or
+     * download it under the suggested name (Safari, Firefox). */
+    async save(r, chosen) {
+      const dispatch = since();
+      if (!r.present) return dispatch(r.view, 27, '');
+      let bytes;
+      try { bytes = await appBytes(r.from, r.text); } catch (e) { return unsaved(dispatch, r.view, `saveFile: refused: ${e.message ?? e}`); }
+      if (!chosen) {
+        const url = URL.createObjectURL(new Blob([bytes])), a = document.createElement('a');
+        a.href = url; a.download = r.suggestedName; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        return saved(dispatch, r.view, r.suggestedName);
+      }
+      try {
+        const handle = await chosen, w = await handle.createWritable();
+        await w.write(bytes); await w.close();
+        saved(dispatch, r.view, handle.name);
+      } catch (e) { unsaved(dispatch, r.view, e?.name === 'AbortError' ? 'saveFile: cancelled' : `saveFile: refused: ${e?.name ?? e}`); }
+    },
+    /** The agent's answer to a held export: the bytes go back to the driver,
+     * which writes them at its path; `change` carries that path's name. */
+    async answerSave(r, path) {
+      const dispatch = since();
+      if (r.answered === 'cancel') { unsaved(dispatch, r.node, 'saveFile: cancelled'); return {}; }
+      let bytes;
+      try { bytes = await appBytes(r.request.from, r.request.text); } catch (e) { unsaved(dispatch, r.node, `saveFile: refused: ${e.message ?? e}`); return { error: `saveFile: ${e.message ?? e}` }; }
+      let raw = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) raw += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      saved(dispatch, r.node, String(path).trim().split(/[\\/]/).filter(Boolean).pop());
+      return { bytes: btoa(raw) };
+    },
+    /** `share(files=…)`: the share data `data` with each
+     * `app:/` file the runner allowed (`{path}`) as a File named by its last
+     * segment and typed by its extension, to the browser's sheet when
+     * `navigator.canShare` takes them. Resolves to the journal line. The
+     * reads are awaited inside the press's transient activation, which
+     * `navigator.share` still needs when they end. */
+    async share(data, files) {
+      let made;
+      try {
+        made = await Promise.all(files.map(async ({ path }) => {
+          const name = path.split('/').pop(), type = typeFor(name), file = picked.get(path);
+          if (file) return new File([file], name, { type });
+          const s = await fileStore(host.appId);
+          if (!s) throw new Error('this page has no app files');
+          return new File([(await s.blob(path, type)).blob], name, { type });
+        }));
+      } catch (e) { return `share: refused: ${e?.message ?? e}`; }
+      const members = { ...Object.fromEntries(Object.entries(data).filter(([, v]) => v != null)), files: made };
+      if (typeof navigator.canShare !== 'function' || !navigator.canShare(members)) return 'share: refused: this browser cannot share these files';
+      return navigator.share(members).then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`);
+    },
+    /** The element's own `change`: what the person chose. */
+    change: (el, id) => el.files?.length ? deliver(id, [...el.files], since()).finally(() => { el.value = ''; }) : Promise.resolve(),
+    cancel: (id) => since()(id, 27, ''),
+    appURL: (path) => appURL(path, host.appId),
+    appFrame: (el, state, committed, admit) => appFrame(el, state, host.appId, committed, admit),
+    /** The agent's answer: `files` as the driver sent them, or null for `tap @t cancel`. */
+    answer(id, files) {
+      const dispatch = since();
+      if (!files) { dispatch(id, 27, ''); return Promise.resolve(); }
+      const made = files.map(({ name, bytes }) => {
+        const raw = atob(bytes), data = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+        return new File([data], name, { type: typeFor(name) });
+      });
+      return deliver(id, made, dispatch);
+    },
+  };
+  return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };
+};
+
+function pinnedTo(api, g, pin) {
+  return Object.fromEntries(Object.entries(api).map(([name, f]) => [name, (...args) => { pin(g); try { return f(...args); } finally { pin(undefined); } }]));
+}
+
+// A browser's guess from the name, for the agent's files.
+function typeFor(name) {
+  const ext = name.toLowerCase().split('.').pop();
+  return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
+    svg: 'image/svg+xml', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml', xml: 'application/xml', json: 'application/json', md: 'text/markdown', txt: 'text/plain', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' }[ext] ?? 'application/octet-stream';
+}

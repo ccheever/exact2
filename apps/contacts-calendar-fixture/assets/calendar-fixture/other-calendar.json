@@ -1,0 +1,78 @@
+{
+  "calendars": [
+    {
+      "id": "home",
+      "title": "Home",
+      "color": "#3b82f6",
+      "writable": true,
+      "isDefault": true,
+      "source": "Fixture"
+    },
+    {
+      "id": "work",
+      "title": "Work",
+      "color": "#10b981",
+      "writable": true,
+      "isDefault": false,
+      "source": "Fixture"
+    },
+    {
+      "id": "holidays",
+      "title": "Holidays",
+      "color": "#ef4444",
+      "writable": false,
+      "isDefault": false,
+      "source": "Holidays"
+    }
+  ],
+  "events": [
+    {
+      "id": "o1",
+      "uid": "o1@fixture.exact",
+      "calendarId": "home",
+      "title": "Dentist (moved)",
+      "description": null,
+      "start": "2026-09-16T14:00:00",
+      "timeZone": "America/Los_Angeles",
+      "duration": "PT1H",
+      "showWithoutTime": false,
+      "location": "Smile Dental",
+      "url": null,
+      "status": "confirmed",
+      "freeBusyStatus": "busy",
+      "recurrenceId": null
+    },
+    {
+      "id": "o2",
+      "uid": "o2@fixture.exact",
+      "calendarId": "work",
+      "title": "Piano lesson",
+      "description": null,
+      "start": "2026-09-18T17:00:00",
+      "timeZone": null,
+      "duration": "PT30M",
+      "showWithoutTime": false,
+      "location": null,
+      "url": null,
+      "status": "confirmed",
+      "freeBusyStatus": "busy",
+      "recurrenceId": null
+    },
+    {
+      "id": "o3",
+      "uid": "o3@fixture.exact",
+      "calendarId": "holidays",
+      "title": "Autumn holiday",
+      "description": null,
+      "start": "2026-10-05T00:00:00",
+      "timeZone": null,
+      "duration": "P1D",
+      "showWithoutTime": true,
+      "location": null,
+      "url": null,
+      "status": "confirmed",
+      "freeBusyStatus": "free",
+      "recurrenceId": null
+    }
+  ]
+}

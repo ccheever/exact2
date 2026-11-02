@@ -1,0 +1,15 @@
+[package]
+name = "completion-storm-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+serde_json = "1.0"
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }

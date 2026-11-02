@@ -1,0 +1,5 @@
+never refuses "bad"
+never refuses "poke"
+test "the continuation refuses"
+  tap "poke"
+  clock data

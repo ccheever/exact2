@@ -1,0 +1,4 @@
+component Prototype
+  view
+    main id="page" color="#be1e2d"
+      button id="tinted-control" font-size=24

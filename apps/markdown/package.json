@@ -1,0 +1,9 @@
+{
+  "name": "markdown",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/reading": "file:../../packages/reading",
+    "@exact/speech-synthesis": "file:../../packages/speech-synthesis"
+  }
+}

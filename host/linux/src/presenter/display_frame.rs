@@ -1,0 +1,380 @@
+//! One acknowledged interaction picture and one submitted picture. Headless
+//! and agent frames remain immediate; no glyph/command graph is copied.
+use super::*;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+use crate::paint::Presentation;
+use crate::paint::ScrollBounds;
+use exact_kernel::id::IdMap;
+use exact_kernel::{Kernel, NodeKey};
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+use std::cell::RefCell;
+use std::rc::Rc;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+use std::sync::Arc;
+
+struct Identity {
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    origin: Rc<()>,
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    succeeded: bool,
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    activatable: bool,
+}
+struct Witness {
+    origin: Rc<()>,
+    /// Each painted node's key, parent and (a box's) scroll bounds: one
+    /// table, sized once per paint.
+    nodes: IdMap<ViewId, Seen>,
+    document: (f32, f32),
+    viewport: (f32, f32),
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    scale: u32,
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    model_scroll: BTreeMap<ViewId, collection::ModelScroll>,
+}
+/// What a picture showed of one node.
+struct Seen {
+    key: NodeKey,
+    parent: Option<ViewId>,
+    scroll_parent: Option<ViewId>,
+    scroll: Option<ScrollBounds>,
+}
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+struct Picture {
+    paint: Presentation,
+    boxes: Vec<PaintedBox>,
+    witness: Witness,
+    /// The runner it was painted for (`rangeFrame`'s reader).
+    session: u64,
+}
+
+/// The pending pixel owner. ACK consumes its metadata even if a caller retains
+/// the pixel Arc for VNC, so acknowledged paragraph history cannot accumulate.
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+pub(crate) struct SubmittedFrame {
+    pub(crate) pixels: Arc<Pixmap>,
+    identity: Rc<Identity>,
+    picture: RefCell<Option<Picture>>,
+}
+#[cfg(all(test, target_os = "linux"))]
+impl SubmittedFrame {
+    pub(crate) fn fixture(value: u8) -> Self {
+        let mut pixels = Pixmap::new(1, 1).unwrap();
+        pixels.data_mut()[0] = value;
+        Self {
+            pixels: Arc::new(pixels),
+            identity: Rc::new(Identity {
+                origin: Rc::new(()),
+                succeeded: true,
+                activatable: true,
+            }),
+            picture: RefCell::new(None),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct State {
+    origin: Rc<()>,
+    active: bool,
+    rendering: bool,
+    pending: Option<Rc<Identity>>,
+    acknowledged: Option<Witness>,
+}
+impl State {
+    pub(super) fn blocked(&self) -> bool {
+        self.pending.is_some() || self.rendering
+    }
+    pub(super) fn attached(&self) -> bool {
+        self.active
+    }
+    pub(super) fn submitting(&self) -> bool {
+        self.rendering
+    }
+    pub(super) fn new_session(&mut self) -> bool {
+        // Old DMA ownership survives reload; its event releases that buffer,
+        // but cannot acknowledge or hit into the replacement runtime.
+        self.origin = Rc::new(());
+        self.active
+    }
+    fn witness(&self) -> Option<&Witness> {
+        self.acknowledged
+            .as_ref()
+            .filter(|a| Rc::ptr_eq(&a.origin, &self.origin))
+    }
+    pub(super) fn allows(&self, kernel: &Kernel, id: ViewId) -> bool {
+        if !self.active {
+            return true;
+        }
+        let Some(a) = self.witness() else {
+            return false;
+        };
+        let mut at = Some(id);
+        while let Some(id) = at {
+            let Some(node) = kernel.node(id) else {
+                return false;
+            };
+            let seen = a.nodes.get(&id);
+            if seen.map(|s| s.key) != Some(node.key)
+                || seen.map(|s| s.parent) != Some(node.parent)
+                || node.style.display == exact_kernel::Display::None
+            {
+                return false;
+            }
+            at = node.parent;
+        }
+        true
+    }
+    /// The node the acknowledged picture painted at `id`, if it painted one.
+    pub(super) fn painted_key(&self, id: ViewId) -> Option<NodeKey> {
+        self.witness().and_then(|a| a.nodes.get(&id)).map(|s| s.key)
+    }
+    /// Whether the acknowledged picture holds scroller `id`'s travel (always, with no display): a scroller
+    /// it doesn't (hidden, or not yet painted where it shows) has none to clamp to there.
+    pub(super) fn witnessed(&self, kernel: &Kernel, id: ViewId) -> bool {
+        !self.active
+            || self
+                .witness()
+                .filter(|_| self.allows(kernel, id))
+                .is_some_and(|a| a.nodes.get(&id).is_some_and(|s| s.scroll.is_some()))
+    }
+    pub(super) fn bounds(&self, kernel: &Kernel, id: ViewId) -> Option<ScrollBounds> {
+        if !self.active {
+            return None;
+        }
+        Some(
+            self.witness()
+                .filter(|_| self.allows(kernel, id))
+                .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll))
+                .unwrap_or(ScrollBounds {
+                    axes: (Overflow::Hidden, Overflow::Hidden),
+                    max: (0., 0.),
+                }),
+        )
+    }
+    pub(crate) fn parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        if !self.active {
+            return kernel.node(id).and_then(|n| n.parent);
+        }
+        self.witness()
+            .filter(|_| self.allows(kernel, id))
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.parent))
+            .filter(|parent| self.allows(kernel, *parent))
+    }
+    pub(super) fn scroll_parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        self.witness()
+            .filter(|_| self.allows(kernel, id))
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll_parent))
+            .filter(|parent| self.allows(kernel, *parent))
+    }
+    pub(super) fn document(&self) -> Option<(f32, f32)> {
+        self.active
+            .then(|| self.witness().map_or((0., 0.), |a| a.document))
+    }
+    pub(super) fn viewport(&self) -> Option<(f32, f32)> {
+        self.active
+            .then(|| self.witness().map_or((0., 0.), |a| a.viewport))
+    }
+    pub(super) fn contains(&self, x: f32, y: f32) -> bool {
+        self.viewport().is_none_or(|(w, h)| {
+            x.is_finite() && y.is_finite() && x >= 0. && y >= 0. && x < w && y < h
+        })
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// Direct DRM uses a fixed zero-origin surface. A different extent or
+    /// scale needs a carrier-provided mapping; never guess from live layout C.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn display_input_mapping(&self, viewport: (f32, f32), scale: f32) -> bool {
+        !self.display.active
+            || self.display.witness().is_some_and(|a| {
+                a.viewport.0.to_bits() == viewport.0.to_bits()
+                    && a.viewport.1.to_bits() == viewport.1.to_bits()
+                    && a.scale == scale.to_bits()
+            })
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    pub(crate) fn display_frame(&mut self) -> Option<SubmittedFrame> {
+        if self.display.blocked() {
+            return None;
+        }
+        // Keep A's owners alive for replay/failure during B's paint; swapping
+        // afterward moves B into its receipt, without deep-copying any payload.
+        let old_paint = self.brush.presentation();
+        let old_boxes = std::mem::take(&mut self.boxes);
+        let old_shown = self.ranges.shown.get();
+        self.boxes_serial += 1;
+        self.display.active = true;
+        self.display.rendering = true;
+        let pixels = self.frame();
+        self.display.rendering = false;
+        let identity = Rc::new(Identity {
+            origin: self.display.origin.clone(),
+            succeeded: self.last_frame_succeeded,
+            activatable: self.last_frame_succeeded && !self.dirty,
+        });
+        let limits = self.collection_scroll_limits();
+        let kernel = self.host.kernel();
+        let mut witness = Witness {
+            origin: self.display.origin.clone(),
+            nodes: IdMap::default(),
+            document: self.live_document(),
+            viewport: self.viewport,
+            scale: self.brush.scale.to_bits(),
+            model_scroll: self.painted_collection_scroll(&self.boxes),
+        };
+        if self.last_frame_succeeded {
+            witness.nodes.reserve(self.boxes.len());
+            for b in &self.boxes {
+                if let Some(n) = kernel.node(b.id) {
+                    let scroll = Some(self.brush.scroll_bounds(
+                        kernel,
+                        self.host.content_region(),
+                        &n,
+                        limits.get(&b.id).copied(),
+                    ));
+                    witness.nodes.insert(
+                        b.id,
+                        Seen {
+                            key: n.key,
+                            parent: n.parent,
+                            scroll_parent: self.geometry_parent(n.id),
+                            scroll,
+                        },
+                    );
+                    // An `svg`'s elements paint inside its box and are hit
+                    // there (`svg_hit`), with no boxes of their own.
+                    if n.node_type == NodeType::Svg {
+                        witness_svg(kernel, &n, &mut witness);
+                    }
+                }
+            }
+        }
+        let picture = Picture {
+            paint: self.brush.replace_presentation(old_paint),
+            boxes: std::mem::replace(&mut self.boxes, old_boxes),
+            witness,
+            session: self.ranges.session(),
+        };
+        self.boxes_serial += 1;
+        self.ranges.shown.set(old_shown);
+        self.publish_ranges();
+        self.display.pending = Some(identity.clone());
+        Some(SubmittedFrame {
+            pixels,
+            identity,
+            picture: RefCell::new(Some(picture)),
+        })
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
+    pub(crate) fn display_complete(&mut self, frame: &SubmittedFrame) -> bool {
+        if !self
+            .display
+            .pending
+            .as_ref()
+            .is_some_and(|p| Rc::ptr_eq(p, &frame.identity))
+        {
+            return false;
+        }
+        // Consume once, even after reload. A retained pixel handle never pins
+        // an old native paragraph/picture after this acknowledgement.
+        let picture = frame.picture.borrow_mut().take();
+        if Rc::ptr_eq(&self.display.origin, &frame.identity.origin) && frame.identity.succeeded {
+            if let Some(mut picture) = picture {
+                let scale = picture.witness.scale;
+                let model_scroll = std::mem::take(&mut picture.witness.model_scroll);
+                self.brush.replace_presentation(picture.paint);
+                self.boxes = picture.boxes;
+                self.boxes_serial += 1;
+                self.ranges.shown.set(picture.session);
+                self.publish_ranges();
+                self.display.acknowledged = Some(picture.witness);
+                self.retire_acknowledged_pointer();
+                self.acknowledge_collection_scroll(model_scroll);
+                // Clamp the newest queued intent using B's numeric bounds, not
+                // live C and not B's older scroll intent. If the clamp changes
+                // an offset, B's pixels need a correction even with no live C.
+                self.dirty |= self.clamp_scroll();
+                // A keyboard rose under the field being edited before this
+                // picture: these are the boxes that show where it left it.
+                self.reveal_owed();
+                if self.host.content_region().is_some() {
+                    let before = self.host.content_region().unwrap().publication_painted();
+                    self.last_region_frame = Some(frame.pixels.clone());
+                    self.last_region_scale = Some(scale);
+                    if let Some(e) = self.host.content_region_painted(&self.brush) {
+                        self.host.log(e);
+                    }
+                    if !before && self.host.content_region().unwrap().publication_painted() {
+                        self.queue_collections();
+                        self.dirty |= self.collection.pending();
+                    }
+                }
+            }
+        }
+        self.display.pending = None;
+        if Rc::ptr_eq(&self.display.origin, &frame.identity.origin)
+            && frame.identity.activatable
+            && !self.activation_failed
+        {
+            self.activate_first_pixel();
+        }
+        true
+    }
+
+    pub(super) fn activate_first_pixel(&mut self) {
+        self.painted = true;
+        let activating = self.host.data_pending();
+        match self.host.activate_data() {
+            Ok(true) => {
+                if let Some(error) = self.after_commit() {
+                    self.activation_failed = true;
+                    self.host.log(error);
+                    return;
+                }
+            }
+            Err(error) => {
+                self.activation_failed = true;
+                self.host.log(error);
+                return;
+            }
+            Ok(false) if self.host.data_pending() => return,
+            Ok(false) => {}
+        }
+        if activating && !self.host.data_pending() {
+            self.collection.data_ready();
+            self.queue_collections();
+        }
+        self.land_cold_share();
+        if let Some(u) = self.updates.as_mut() {
+            u.boot_succeeded();
+        }
+        self.sync_delivery();
+    }
+}
+#[cfg(test)]
+mod tests;
+
+/// Witness an `svg`'s element subtree, so a hit on one of its elements finds
+/// its handler through the painted `svg` (an attached display allows only
+/// what the picture showed).
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut Witness) {
+    for id in node.children() {
+        if let Some(child) = kernel.node(id) {
+            // A box's own scroll bounds stay (an element that is also a box).
+            let seen = witness.nodes.entry(id).or_insert(Seen {
+                key: child.key,
+                parent: child.parent,
+                scroll_parent: child.parent,
+                scroll: None,
+            });
+            seen.key = child.key;
+            seen.parent = child.parent;
+            witness_svg(kernel, &child, witness);
+        }
+    }
+}

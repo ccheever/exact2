@@ -1,0 +1,12 @@
+{
+  "bitsPerComponent" : 8,
+  "class" : "standard",
+  "file" : "anim.gif",
+  "id" : "F15",
+  "note" : "two frames, red then green",
+  "patches" : [
+
+  ],
+  "space" : "srgb",
+  "variant" : "own8"
+}

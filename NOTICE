@@ -1,0 +1,25 @@
+Exact
+Copyright (c) 2026 650 Industries, Inc. (Expo). Licensed under the MIT License (LICENSE).
+
+Third-party code under vendor/ keeps its own licence files: accesskit-windows,
+fontique, parley and vello (MIT OR Apache-2.0), wgpu-hal (MIT OR Apache-2.0),
+rapier3d (Apache-2.0), taffy (MIT) and ibex (MIT).
+
+Media
+
+The following images are by Daehyeon Mun and are included with permission:
+  examples/calendar/assets/themes/
+  apps/exact-live/ (photographs)
+  apps/interaction-gallery/ (photographs)
+  apps/duo-lab/art/
+  tamber/tests/import/figma/ (Figma kit fixtures)
+
+Fonts
+
+Exciting Lilt and Exposure Sans (apps/expose/assets, apps/typetour/assets) are
+Copyright (c) 2026 Charlie Cheever, MIT License; see the LICENSE files beside them.
+Roboto Flex (apps/variable-type/assets) is under the SIL Open Font License; DejaVu
+(scripts/fixtures/fonts) under its own licence; both files are beside the fonts.
+
+apps/messages ports Expo's chat-demo (MIT); its licence is in
+apps/messages/assets/reference-LICENSE.txt.

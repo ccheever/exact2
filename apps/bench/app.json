@@ -1,0 +1,40 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Bench",
+  "short_name": "Bench",
+  "id": "com.exact.bench",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.bench",
+    "name": "Bench"
+  },
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 640,
+        "minWidth": 480,
+        "minHeight": 420
+      }
+    },
+    "web": {},
+    "windows": {
+      "window": {
+        "width": 900,
+        "height": 640,
+        "minWidth": 480,
+        "minHeight": 420
+      }
+    }
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "linux": "0",
+      "windows": "0"
+    }
+  }
+}

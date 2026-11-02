@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/text-detection@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidTextDetector": {
+      "script": "string"
+    },
+    "AndroidDetectedText": {
+      "recognizedLanguage": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "artifacts": []
+}

@@ -1,0 +1,5 @@
+# Up past the snap point, then down under it: each release springs the
+# sheet to its snap; a small move holds and returns.
+drag handle 0 -150 300
+drag handle 0 380 300
+drag handle 0 -2 100

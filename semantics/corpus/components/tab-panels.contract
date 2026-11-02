@@ -1,0 +1,58 @@
+component App
+  state selected = "a"
+  state start = 1
+  state showTabs = true
+  action pick(name: string)
+    selected = name
+  action bump
+    start = start + 1
+  action removeTabs
+    showTabs = false
+  view
+    main navigationKey=selected navigationBack="back"
+      button "bump" press=bump testId="bump"
+      button "remove tabs" press=removeTabs testId="remove-tabs"
+      if showTabs
+        row role="tablist"
+          button "A" role="tab" aria-controls="panel-a" aria-selected=(selected == "a") press=pick("a") testId="tab-a"
+          button "B" role="tab" aria-controls="panel-b" aria-selected=(selected == "b") press=pick("b") testId="tab-b"
+          button "C" role="tab" aria-controls="panel-c" aria-selected=(selected == "c") press=pick("c") testId="tab-c"
+      column role="tabpanel" id="panel-a" testId="panel-a"
+        column navigationKey="a"
+          text "first" testId="first"
+      column role="tabpanel" id="panel-b" testId="panel-b"
+        Counter(start=start)
+      column role="tabpanel" id="panel-c" testId="panel-c"
+        column navigationKey="c"
+          text "third" testId="third"
+      column role="tabpanel" id="unnamed"
+        text "unclaimed" testId="unclaimed"
+
+component Counter
+  props
+    start: number
+  state n = start
+  action inc
+    n = n + 1
+  view
+    column navigationKey="b"
+      button "inc" press=inc testId="inc"
+      text `${n}` testId="count"
+
+test "first selection initializes state and revisits retain it"
+  expect tree has "first"
+  expect tree has "panel-b"
+  expect tree missing "count"
+  expect tree missing "third"
+  expect tree has "unclaimed"
+  tap "bump"
+  tap "tab-b"
+  expect text "count" == "2"
+  expect tree missing "third"
+  tap "inc"
+  tap "tab-a"
+  tap "bump"
+  tap "tab-b"
+  expect text "count" == "3"
+  tap "remove-tabs"
+  expect tree has "third"

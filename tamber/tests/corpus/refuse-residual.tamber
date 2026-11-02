@@ -1,0 +1,8 @@
+tamber residual
+
+theme
+  mix.role = color-mix(in srgb, -exact-label 50%, white)
+  pair.role = light-dark(-exact-label, #000)
+  contrast.role = contrast-color(Canvas)
+  relative.role = oklch(from AccentColor l c h)
+  mix.platform = color-mix(in srgb, -exact-platform-color(ios systemTealColor, #30b0c7), white)

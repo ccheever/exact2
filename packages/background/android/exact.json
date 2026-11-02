@@ -1,0 +1,23 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/background@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "androidx.work:work-runtime:2.12.0"
+  ],
+  "artifacts": [],
+  "class": "exact.background.BackgroundModule"
+}

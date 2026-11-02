@@ -1,0 +1,14 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/bell@^1.0",
+  "platform": "apple",
+  "targets": ["ios", "macos"],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "swift": ["Bell.swift"] },
+  "artifacts": [],
+  "class": "BellModule"
+}

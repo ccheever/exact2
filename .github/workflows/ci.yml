@@ -1,0 +1,105 @@
+# The six checks AGENTS.md names, plus the script tests, on every push and pull request.
+#
+# Linux runs everything that does not need Apple's toolchains. macOS runs the
+# same Cargo tests, because host/apple's Rust tests and the Swift package
+# (ExactKit) only build there. Apple app builds, XCTests, simulator drives,
+# Android and Windows builds are not part of CI.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        # The Linux host's DRM/KMS, input and font dependencies.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libudev-dev libinput-dev libdrm-dev libgbm-dev \
+            libxkbcommon-dev libfontconfig1-dev libfreetype-dev libwayland-dev
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Hermes bundle
+        # Ordinary builds are offline (.cargo/config.toml); the installer fetches and
+        # verifies Ibex's pinned, attested release bundle once.
+        run: cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target x86_64-unknown-linux-gnu
+
+      - name: Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: fmt
+        run: cargo fmt --all -- --check
+
+      - name: caps
+        run: bun scripts/caps.mjs
+
+      - name: boot
+        run: bun scripts/boot.mjs
+
+      - name: workspace check
+        run: cargo check --workspace --all-targets --keep-going
+
+      - name: clippy
+        run: cargo clippy --all-targets --keep-going -- -D warnings
+
+      - name: test
+        run: cargo test --tests --no-fail-fast
+
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+
+      - name: script tests
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        run: bun test scripts
+
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Hermes bundle
+        run: cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target aarch64-apple-darwin
+
+      - name: Bun dependencies
+        run: bun install --frozen-lockfile
+
+      - name: workspace check
+        run: cargo check --workspace --all-targets --keep-going
+
+      - name: test
+        run: cargo test --tests --no-fail-fast

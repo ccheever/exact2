@@ -1,0 +1,349 @@
+//! The only unsafe boundary. Presence bits own initialized slots, and row leases
+//! exclude aliasing (`lease.rs`). Structural edits require an exclusive world borrow.
+use crate::{Data, DataError, Reader, Writer};
+use std::any::Any;
+use std::cell::Cell;
+use std::marker::PhantomData;
+use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
+
+mod cell;
+pub(crate) use cell::{make_cell, Singleton};
+mod lease;
+pub(crate) use lease::{At, Conflict, Leases};
+use lease::{Holds, Party, Registration, Via, EVERY};
+use raw::RawStorage;
+mod pages;
+mod query;
+mod raw;
+pub use pages::{Page, Pages, Plain};
+pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
+
+/// Number of entity-indexed slots in each component page.
+pub const PAGE: usize = 512;
+// Storage identities key derived caches; they never reach saves or hashes.
+fn instance() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+const WORDS: usize = PAGE / 64;
+
+/// What a guard releases when it drops: its own hold on one row (or a whole
+/// column), or one reference to the registered query it was yielded from.
+enum Lease<'a> {
+    Hold {
+        holds: &'a Holds,
+        slot: u32,
+    },
+    Query {
+        leases: &'a Leases,
+        query: Registration<'a>,
+    },
+}
+impl Drop for Lease<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        match *self {
+            Self::Hold { holds, slot } => holds.release(slot),
+            Self::Query { leases, query } => leases.release(query),
+        }
+    }
+}
+
+/// A shared component/resource borrow. Keeping it alive keeps its row leased:
+/// other rows of the component stay free, and this one refuses exclusive borrows.
+/// It prints and compares as the value it borrows, so guards go straight into
+/// `assert_eq!`:
+///
+/// ```
+/// use exact_game::*;
+/// let mut w = World::new(120, 7);
+/// w.spawn_named("a", Transform::at(1., 0., 0.));
+/// w.spawn_named("b", Transform::at(1., 0., 0.));
+/// w.spawn_named("c", Transform::at(2., 0., 0.));
+/// assert_eq!(w.get::<Transform>("a"), w.get::<Transform>("b"));
+/// assert_ne!(w.require::<Transform>("a"), w.require::<Transform>("c"));
+/// assert_eq!(format!("{:?}", w.require::<Transform>("a")),
+///     format!("{:?}", Transform::at(1., 0., 0.)));
+/// // `RefMut` does the same, but `get_mut` is a write: it marks the rows edited.
+/// assert_eq!(w.get_mut::<Transform>("a"), w.get_mut::<Transform>("b"));
+/// assert_ne!(w.require_mut::<Transform>("a"), w.require_mut::<Transform>("c"));
+/// assert_eq!(format!("{:?}", w.require_mut::<Transform>("c")),
+///     format!("{:?}", Transform::at(2., 0., 0.)));
+/// ```
+pub struct Ref<'a, C> {
+    ptr: *const C,
+    _lease: Lease<'a>,
+    _life: PhantomData<&'a C>,
+}
+impl<C> Deref for Ref<'_, C> {
+    type Target = C;
+    fn deref(&self) -> &C {
+        // SAFETY: the row lease excludes writers and the world borrow keeps the slot alive.
+        unsafe { &*self.ptr }
+    }
+}
+impl<C: std::fmt::Debug> std::fmt::Debug for Ref<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<Ref<'_, C>> for Ref<'_, C> {
+    fn eq(&self, other: &Ref<'_, C>) -> bool {
+        C::eq(self, other)
+    }
+}
+/// An exclusive component/resource borrow of one row. Other rows of the component
+/// stay free to borrow; this row refuses every other borrow until the guard drops.
+pub struct RefMut<'a, C> {
+    pub(crate) owner: Option<(&'a crate::World, crate::Entity)>,
+    ptr: *mut C,
+    _lease: Lease<'a>,
+    _life: PhantomData<&'a mut C>,
+}
+impl<C> Deref for RefMut<'_, C> {
+    type Target = C;
+    fn deref(&self) -> &C {
+        // SAFETY: this guard owns the row's exclusive lease.
+        unsafe { &*self.ptr }
+    }
+}
+impl<C> DerefMut for RefMut<'_, C> {
+    fn deref_mut(&mut self) -> &mut C {
+        // SAFETY: this noncloneable guard owns the row's exclusive lease, so it is
+        // the only reference to this slot.
+        unsafe { &mut *self.ptr }
+    }
+}
+impl<C: std::fmt::Debug> std::fmt::Debug for RefMut<'_, C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        C::fmt(self, f)
+    }
+}
+impl<C: PartialEq> PartialEq<RefMut<'_, C>> for RefMut<'_, C> {
+    fn eq(&self, other: &RefMut<'_, C>) -> bool {
+        C::eq(self, other)
+    }
+}
+
+// Typed access retains a concrete pointer stride; allocation, masks, epochs and
+// every Data traversal are shared by all component types in RawStorage.
+pub(crate) struct Storage<C> {
+    raw: RawStorage,
+    _type: PhantomData<C>,
+}
+impl<C> Deref for Storage<C> {
+    type Target = RawStorage;
+    fn deref(&self) -> &RawStorage {
+        &self.raw
+    }
+}
+impl<C> Storage<C> {
+    #[inline]
+    fn ptr(&self, index: usize) -> *mut C {
+        self.raw.pages[index / PAGE]
+            .as_ref()
+            .unwrap()
+            .get()
+            .cast::<C>()
+            .wrapping_add(index % PAGE)
+    }
+}
+impl<C: Data> Storage<C> {
+    pub(crate) fn insert(&mut self, index: usize, value: C) {
+        let mut value = std::mem::ManuallyDrop::new(value);
+        // SAFETY: this storage's descriptor is C; insert consumes the value, and
+        // installs its replacement before dropping an old value (even on panic).
+        unsafe { self.raw.insert(index, (&mut *value as *mut C).cast()) };
+    }
+    pub(crate) fn remove(&mut self, index: usize) -> Option<C> {
+        let mut value = MaybeUninit::<C>::uninit();
+        // SAFETY: descriptor and destination agree on C; success initializes it.
+        unsafe {
+            self.raw
+                .remove_into(index, value.as_mut_ptr().cast())
+                .then(|| value.assume_init())
+        }
+    }
+    /// `Err` means a live lease refused this row; `row_conflict` explains it.
+    #[inline]
+    pub(crate) fn get(
+        &self,
+        index: usize,
+        leases: &Leases,
+        at: At,
+    ) -> Result<Option<Ref<'_, C>>, Refused> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        let lease = self
+            .raw
+            .lease_row(index, false, leases, at)
+            .ok_or(Refused)?;
+        Ok(Some(Ref {
+            ptr: self.ptr(index),
+            _lease: lease,
+            _life: PhantomData,
+        }))
+    }
+    #[inline]
+    pub(crate) fn get_mut(
+        &self,
+        index: usize,
+        leases: &Leases,
+        at: At,
+    ) -> Result<Option<RefMut<'_, C>>, Refused> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        let lease = self.raw.lease_row(index, true, leases, at).ok_or(Refused)?;
+        self.edited();
+        self.mark_page(index / PAGE);
+        self.mark_row(index);
+        Ok(Some(RefMut {
+            owner: None,
+            ptr: self.ptr(index),
+            _lease: lease,
+            _life: PhantomData,
+        }))
+    }
+}
+/// A refused row lease; the storage re-derives who holds the row when asked.
+pub(crate) struct Refused;
+
+impl<C: Data + Copy> Storage<C> {
+    /// Copy one present row out without registering a lease: no author code runs
+    /// while it is read, so it only has to find no exclusive lease on the row.
+    #[inline]
+    pub(crate) fn copied(&self, index: usize, leases: &Leases) -> Result<Option<C>, Refused> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        if !self.holds.unwritten() && !self.raw.readable(index, leases) {
+            return Err(Refused);
+        }
+        // SAFETY: presence proves initialization and no exclusive lease holds this
+        // row; the copy completes before any other code runs.
+        Ok(Some(unsafe { self.ptr(index).read() }))
+    }
+}
+
+pub(crate) trait Erased {
+    fn has(&self, index: usize) -> bool;
+    /// The exclusive lease an engine read of every row would alias, if any.
+    fn read_conflict(&self, leases: &Leases, at: At) -> Option<Conflict>;
+    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool;
+    fn visit_moving(
+        &self,
+        now: crate::Now,
+        skip: Option<&Storage<crate::Ambient>>,
+        visit: &mut dyn FnMut(usize) -> bool,
+    );
+    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
+    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
+    /// Identity for caches keyed by page generation or revision.
+    fn instance(&self) -> u64;
+    /// Write generation of the whole storage.
+    fn revision(&self) -> u64;
+    fn page_count(&self) -> usize;
+    fn page_generation(&self, page: usize) -> u64;
+    /// Hash each present row of one page, in index order.
+    fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64));
+    fn any(&self) -> &dyn Any;
+    fn any_mut(&mut self) -> &mut dyn Any;
+    fn len(&self) -> usize;
+    fn remove(&mut self, index: usize);
+    /// Erase every row.
+    fn clear(&mut self);
+    fn clear_presentation(&mut self) {
+        self.clear();
+    }
+    fn retained_bytes(&self) -> usize {
+        0
+    }
+    /// The save representation: columnar rows, or a resource's value.
+    fn write_save(&self, w: &mut dyn Writer);
+    fn read_save(
+        &mut self,
+        r: &mut dyn Reader,
+        alive: &dyn Fn(u32) -> bool,
+    ) -> Result<(), DataError>;
+}
+pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
+    Box::new(Storage::<C> {
+        raw: RawStorage::new::<C>(name, epoch),
+        _type: PhantomData,
+    })
+}
+impl<C: Data> Erased for Storage<C> {
+    fn has(&self, index: usize) -> bool {
+        self.raw.has(index)
+    }
+    fn read_conflict(&self, leases: &Leases, at: At) -> Option<Conflict> {
+        self.raw.read_conflict(leases, Via::Read, at)
+    }
+    fn any(&self) -> &dyn Any {
+        self
+    }
+    fn any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn len(&self) -> usize {
+        self.raw.len()
+    }
+    fn remove(&mut self, index: usize) {
+        self.raw.erase(index);
+    }
+    fn retained_bytes(&self) -> usize {
+        self.raw.retained_bytes()
+    }
+    fn clear_presentation(&mut self) {
+        self.raw.clear_presentation();
+    }
+    fn clear(&mut self) {
+        self.raw.erase_all();
+    }
+    fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
+        self.raw.write_one(index, w)
+    }
+    fn instance(&self) -> u64 {
+        self.raw.instance()
+    }
+    fn revision(&self) -> u64 {
+        self.raw.revision()
+    }
+    fn page_count(&self) -> usize {
+        self.raw.page_count()
+    }
+    fn page_generation(&self, page: usize) -> u64 {
+        self.raw.page_generation(page)
+    }
+    fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64)) {
+        self.raw.digest_page(page, each);
+    }
+    fn write_save(&self, w: &mut dyn Writer) {
+        self.raw.write_save(w);
+    }
+    fn read_save(
+        &mut self,
+        r: &mut dyn Reader,
+        alive: &dyn Fn(u32) -> bool,
+    ) -> Result<(), DataError> {
+        self.raw.read_save(r, alive)
+    }
+    fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
+        self.raw.moving(now, skip)
+    }
+    fn visit_moving(
+        &self,
+        now: crate::Now,
+        skip: Option<&Storage<crate::Ambient>>,
+        visit: &mut dyn FnMut(usize) -> bool,
+    ) {
+        self.raw.visit_moving(now, skip, visit);
+    }
+    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64> {
+        self.raw.settle_tick(now, skip)
+    }
+}

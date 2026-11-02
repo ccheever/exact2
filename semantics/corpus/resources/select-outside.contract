@@ -1,0 +1,25 @@
+// Design Tool: after Lean refuses a select payload as outside its model,
+// a later resource call must not turn that boundary into a divergence.
+shape Answer
+  value: number
+
+component App
+  state mode = "one"
+  state tick = 0
+  resource data = load(mode, tick) as shape Answer
+  action choose(value: string)
+    mode = value
+  action poll
+    tick = tick + 1
+  task repeat mount
+    every(10, poll)
+  view
+    column
+      select value=mode change=choose testId="mode"
+        option "one" value="one"
+        option "grid" value="grid"
+      text `${data.value}` testId="answer"
+
+test "a missing reply after an unsupported select is outside"
+  type "mode" "grid"
+  clock +10

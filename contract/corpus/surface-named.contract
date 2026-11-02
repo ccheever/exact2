@@ -1,0 +1,3 @@
+component App
+  view
+    canvas surface=world(seed=7, paused=false)

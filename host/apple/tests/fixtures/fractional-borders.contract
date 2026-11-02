@@ -1,0 +1,9 @@
+component App
+  view
+    column
+      box width=40 height=20 border-width=0.5 border-style="solid" border-color="black" background-color="white" background-clip="padding-box" testId="thin"
+        box width=10 height=10 testId="child-thin"
+      box width=40 height=20 border-width=0.9 border-style="solid" border-color="black" background-color="white" background-clip="padding-box" testId="middle"
+        box width=10 height=10 testId="child-middle"
+      box width=40 height=20 border-width=1.5 border-style="solid" border-color="black" background-color="white" background-clip="padding-box" testId="thick"
+        box width=10 height=10 testId="child-thick"

@@ -1,0 +1,38 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/alarms@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "apple": {
+    "activity": "alarmkit"
+  },
+  "shapes": {
+    "AppleAlarmStatus": {
+      "authorizationState": "enum<notDetermined|denied|authorized>"
+    }
+  },
+  "options": {
+    "scheduleAlarm": {
+      "tintColor": "string"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "alarmConfiguration"
+  ],
+  "sources": {
+    "swift": [
+      "Alarms.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "AlarmsModule",
+  "frameworks": {
+    "AlarmKit": { "ios": "26.0" }
+  }
+}

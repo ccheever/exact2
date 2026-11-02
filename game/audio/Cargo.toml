@@ -1,0 +1,27 @@
+[package]
+name = "exact-game-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game = { path = "../engine" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["AudioContext", "AudioContextState", "BaseAudioContext", "AudioDestinationNode", "AudioNode", "AudioParam", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "GainNode", "ChannelMergerNode", "ChannelSplitterNode"] }
+
+[[example]]
+name = "web_probe"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "null_probe"
+crate-type = ["cdylib"]
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_Security"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+libloading = "0.8"

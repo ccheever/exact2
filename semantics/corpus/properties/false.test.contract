@@ -1,0 +1,2 @@
+always "at most one"
+  expect state n <= 1

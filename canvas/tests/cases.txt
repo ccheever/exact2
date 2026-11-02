@@ -1,0 +1,368 @@
+# The recorder's rules, case by case (a subset of WPT's). Each line
+# is one call on a fresh context per case; `?` lines read a getter and
+# `=>` is Chrome's answer (recorded from headless Chrome; `bun
+# canvas/tests/cases.mjs --chrome` prints what Chrome says today). A call
+# that throws is followed by `!` and the exception's name. The Rust and
+# TypeScript recorders both run this file.
+
+## lineWidth ignores non-positive and non-finite values
+lineWidth = 3
+lineWidth = 0
+lineWidth = -1
+lineWidth = NaN
+lineWidth = Infinity
+? lineWidth => 3
+
+## miterLimit ignores non-positive values
+miterLimit = 4
+miterLimit = 0
+miterLimit = -2
+? miterLimit => 4
+
+## lineCap and lineJoin ignore unknown values
+lineCap = "round"
+lineCap = "blunt"
+lineJoin = "bevel"
+lineJoin = "ROUND"
+? lineCap => round
+? lineJoin => bevel
+
+## setLineDash doubles an odd list and ignores a bad one
+setLineDash([1, 2, 3])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([4, -1])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([NaN])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([])
+? getLineDash() =>
+lineDashOffset = 2.5
+lineDashOffset = NaN
+? lineDashOffset => 2.5
+
+## globalAlpha ignores values outside [0, 1]
+globalAlpha = 0.5
+globalAlpha = 1.5
+globalAlpha = -0.1
+globalAlpha = NaN
+? globalAlpha => 0.5
+
+## globalCompositeOperation ignores unknown values
+globalCompositeOperation = "multiply"
+globalCompositeOperation = "plus"
+? globalCompositeOperation => multiply
+
+## fillStyle serialises and ignores what does not parse
+fillStyle = "red"
+? fillStyle => #ff0000
+fillStyle = "not a colour"
+? fillStyle => #ff0000
+fillStyle = "rgba(10, 20, 30, 0.25)"
+? fillStyle => rgba(10, 20, 30, 0.25)
+strokeStyle = "hsl(120 100% 50% / 50%)"
+? strokeStyle => rgba(0, 255, 0, 0.5)
+strokeStyle = "#0000"
+? strokeStyle => rgba(0, 0, 0, 0)
+
+## the transform composes and is reported detached
+translate(10, 20)
+scale(2, 3)
+? getTransform() => 2,0,0,3,10,20
+rotate(NaN)
+? getTransform() => 2,0,0,3,10,20
+setTransform(1, 0, 0, 1, 5, 6)
+? getTransform() => 1,0,0,1,5,6
+transform(2, 0, 0, 2, 1, 1)
+? getTransform() => 2,0,0,2,6,7
+resetTransform()
+? getTransform() => 1,0,0,1,0,0
+
+## save and restore carry every attribute, and an extra restore does nothing
+lineWidth = 5
+save()
+lineWidth = 7
+fillStyle = "blue"
+translate(3, 4)
+restore()
+restore()
+? lineWidth => 5
+? fillStyle => #000000
+? getTransform() => 1,0,0,1,0,0
+
+## reset returns every attribute to its default
+lineWidth = 5
+globalAlpha = 0.25
+save()
+reset()
+? lineWidth => 1
+? globalAlpha => 1
+
+## negative radii throw IndexSizeError, non-finite arguments do nothing
+arc(0, 0, -1, 0, 1) ! IndexSizeError
+ellipse(0, 0, 1, -1, 0, 0, 1) ! IndexSizeError
+arcTo(0, 0, 1, 1, -1) ! IndexSizeError
+arc(NaN, 0, -1, 0, 1)
+arc(0, 0, 5, 0, 1)
+
+## roundRect's radii list is checked
+roundRect(0, 0, 10, 10, [-1]) ! RangeError
+roundRect(0, 0, 10, 10, [1, 2, 3, 4, 5]) ! RangeError
+roundRect(0, 0, 10, 10, []) ! RangeError
+roundRect(0, 0, 10, 10, [NaN])
+roundRect(0, 0, 10, 10, [1, {x: 2, y: 3}])
+
+## gradients throw by the IDL and the spec
+g = createLinearGradient(0, 0, NaN, 1) ! TypeError
+g = createRadialGradient(0, 0, -1, 0, 0, 1) ! IndexSizeError
+g = createLinearGradient(0, 0, 10, 0)
+g.addColorStop(1.5, "red") ! IndexSizeError
+g.addColorStop(0.5, "blurple") ! SyntaxError
+g.addColorStop(NaN, "red") ! TypeError
+g.addColorStop(0, "red")
+fillStyle = g
+? fillStyle => [object CanvasGradient]
+
+## geometry resolves the same in both languages
+translate(5, 7)
+rotate(0.3)
+scale(2, 1.5)
+beginPath()
+moveTo(1, 2)
+lineTo(30, 4)
+quadraticCurveTo(10, 20, 3, 9)
+bezierCurveTo(1, 2, 3, 4, 5, 6)
+arc(20, 20, 10, 0.5, 5.5, true)
+arc(20, 20, 10, -1, 1)
+ellipse(40, 10, 12, 4, 0.7, 0, 3, false)
+arcTo(60, 10, 60, 40, 8)
+arcTo(60, 40, 60, 80, 8)
+closePath()
+rect(2, 3, 10, -4)
+roundRect(10, 10, -30, 20, [4, {x: 6, y: 2}, 8])
+roundRect(0, 0, 10, 10, 50)
+fill("evenodd")
+stroke()
+clip()
+fillRect(1, 1, 2, 2)
+strokeRect(0, 0, 5, 0)
+clearRect(0, 0, 4, 4)
+setTransform(0, 0, 0, 1, 0, 0)
+lineTo(9, 9)
+fill()
+resetTransform()
+setLineDash([1, 2, 3])
+lineDashOffset = 1
+g = createRadialGradient(5, 5, 1, 9, 9, 6)
+g.addColorStop(0.25, "hsl(30 80% 50%)")
+g.addColorStop(0.25, "#0f08")
+strokeStyle = g
+globalCompositeOperation = "copy"
+globalCompositeOperation = "xor"
+
+## every compositing operator is accepted
+globalCompositeOperation = "source-in"
+? globalCompositeOperation => source-in
+globalCompositeOperation = "copy"
+? globalCompositeOperation => copy
+fillRect(0, 0, 5, 5)
+
+## font serialises as Chrome does and ignores what does not parse
+? font => 10px sans-serif
+font = "italic small-caps 700 15px/2 serif"
+? font => italic bold small-caps 15px serif
+font = "12pt Georgia, 'Times New Roman', serif"
+? font => 16px Georgia, "Times New Roman", serif
+font = "12px"
+? font => 16px Georgia, "Times New Roman", serif
+font = "2em serif"
+? font => 20px serif
+font = "condensed 12px sans-serif"
+? fontStretch => condensed
+font = "12px serif"
+? fontStretch => normal
+fontVariantCaps = "small-caps"
+font = "bold 12px serif"
+? fontVariantCaps => normal
+
+## the text attributes ignore unknown values
+? textAlign => start
+textAlign = "center"
+textAlign = "middle"
+? textAlign => center
+? textBaseline => alphabetic
+textBaseline = "top"
+textBaseline = "TOP"
+? textBaseline => top
+? direction => ltr
+direction = "rtl"
+direction = "sideways"
+? direction => rtl
+fontKerning = "none"
+font = "13px serif"
+? fontKerning => none
+? textRendering => auto
+textRendering = "optimizeSpeed"
+? textRendering => optimizeSpeed
+fontStretch = "expanded"
+fontStretch = "wide"
+? fontStretch => expanded
+
+## letterSpacing and wordSpacing take lengths with units
+? letterSpacing => 0px
+letterSpacing = "2px"
+? letterSpacing => 2px
+letterSpacing = "1em"
+? letterSpacing => 1em
+letterSpacing = "0"
+letterSpacing = "3%"
+letterSpacing = "bad"
+? letterSpacing => 1em
+wordSpacing = "-1.5px"
+? wordSpacing => -1.5px
+
+## shadows ignore invalid values
+? shadowColor => rgba(0, 0, 0, 0)
+shadowColor = "red"
+shadowColor = "nope"
+? shadowColor => #ff0000
+shadowBlur = 3
+shadowBlur = -1
+shadowBlur = NaN
+? shadowBlur => 3
+shadowOffsetX = 4
+shadowOffsetX = Infinity
+shadowOffsetY = -2
+? shadowOffsetX => 4
+? shadowOffsetY => -2
+fillRect(0, 0, 5, 5)
+
+## image smoothing
+? imageSmoothingEnabled => true
+? imageSmoothingQuality => low
+imageSmoothingEnabled = false
+imageSmoothingQuality = "high"
+imageSmoothingQuality = "best"
+? imageSmoothingEnabled => false
+? imageSmoothingQuality => high
+
+## wide colours keep their own serialisation
+fillStyle = "lab(50% 40 59.5)"
+? fillStyle => lab(50 40 59.5)
+fillStyle = "oklch(0.7 0.1 200 / 0.5)"
+? fillStyle => oklch(0.7 0.1 200 / 0.5)
+strokeStyle = "color(srgb 1 0 0.5)"
+? strokeStyle => color(srgb 1 0 0.5)
+fillStyle = "lab(50, 40, 59.5)"
+? fillStyle => oklch(0.7 0.1 200 / 0.5)
+
+## a display-p3 canvas keeps each colour's serialisation (display-p3)
+fillStyle = "red"
+? fillStyle => #ff0000
+fillRect(0, 0, 1, 1)
+fillStyle = "color(display-p3 1 0 0)"
+? fillStyle => color(display-p3 1 0 0)
+fillRect(0, 0, 1, 1)
+strokeStyle = "oklch(0.7 0.25 150 / 0.5)"
+? strokeStyle => oklch(0.7 0.25 150 / 0.5)
+strokeRect(0, 0, 1, 1)
+shadowColor = "color(display-p3 0 1 0)"
+shadowColor = "#00ff00"
+? shadowColor => #00ff00
+g = createLinearGradient(0, 0, 10, 0)
+g.addColorStop(0, "color(display-p3 0 0 1)")
+g.addColorStop(1, "white")
+fillStyle = g
+fillRect(0, 0, 10, 10)
+putImageData(ctx.createImageData(2, 2), 0, 0)
+
+## conic gradients and pixels throw by the IDL
+g = createConicGradient(NaN, 1, 2) ! TypeError
+g = createConicGradient(0.5, 40, 50)
+g.addColorStop(0, "red")
+g.addColorStop(1, "blue")
+fillStyle = g
+? fillStyle => [object CanvasGradient]
+fillRect(0, 0, 10, 10)
+createImageData(0, 3) ! IndexSizeError
+createImageData(NaN, 3) ! TypeError
+createImageData(65536, 65536) ! RangeError
+createImageData(4294967295, 1) ! TypeError
+putImageData(ctx.createImageData(1, 1), NaN, 0) ! TypeError
+putImageData(ctx.createImageData(2, 2), 3, 4, -1, 1, 5, -3)
+
+## text records its font, alignment and baseline
+font = "bold 20px serif"
+textAlign = "right"
+textBaseline = "middle"
+fillText("Hi\tthere", 50, 40)
+fillText("x", NaN, 40)
+fillText("x", 1, 2, 0)
+strokeText("squeezed", 5, 6, 1)
+save()
+font = "10px monospace"
+fillText("mono", 0, 0)
+restore()
+fillText("serif again", 0, 0)
+
+## Path2D paints under the matrix at the paint and keeps the current path
+beginPath()
+rect(1, 1, 4, 4)
+translate(10, 0)
+fill(new Path2D("M0 0 h 10 v10 H0 z m 2 2 C1 1 2 2 3 3 S 4 4 5 5 Q 6 6 7 7 T 8 8 A 5 5 30 1 0 20 20 L x 9"), "evenodd")
+stroke(new Path2D("M0 0 L 5 5"))
+clip(new Path2D("M0 0 L 5 5 L 0 5 Z"))
+fill()
+
+## CSS predefined rec2020
+fillStyle = "green"
+fillStyle = "color(rec2020 0.2 0.4 0.6)"
+? fillStyle => color(rec2020 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(rec2020 -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(rec2020 -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined a98-rgb
+fillStyle = "green"
+fillStyle = "color(a98-rgb 0.2 0.4 0.6)"
+? fillStyle => color(a98-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(a98-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(a98-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined prophoto-rgb
+fillStyle = "green"
+fillStyle = "color(prophoto-rgb 0.2 0.4 0.6)"
+? fillStyle => color(prophoto-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(prophoto-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(prophoto-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined rec2020 (display-p3)
+fillStyle = "green"
+fillStyle = "color(rec2020 0.2 0.4 0.6)"
+? fillStyle => color(rec2020 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(rec2020 -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(rec2020 -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined a98-rgb (display-p3)
+fillStyle = "green"
+fillStyle = "color(a98-rgb 0.2 0.4 0.6)"
+? fillStyle => color(a98-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(a98-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(a98-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined prophoto-rgb (display-p3)
+fillStyle = "green"
+fillStyle = "color(prophoto-rgb 0.2 0.4 0.6)"
+? fillStyle => color(prophoto-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(prophoto-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(prophoto-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)

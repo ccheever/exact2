@@ -1,0 +1,1498 @@
+// One presenter identity per kernel node; inline text stays
+// unmounted as its paragraph's run data. Mounted NSViews draw
+// backgrounds, borders, and text are drawn; frames come from the kernel's
+// layout; transforms and opacity from presentation values. Everything a
+// node reaches beyond itself — the text engine, the canvases, the web
+// views, the session's clock — it reaches through its presenter's session,
+// never a global.
+#if os(macOS)
+import AppKit
+import CoreImage
+import IOSurface
+/// A material paints, but never supplies a new hit target or focus owner.
+private final class MaterialContent: NSView {
+    weak var owner: NodeView?
+    override func draw(_ dirtyRect: NSRect) {
+        guard let owner, !owner.cssVisibilityHidden else { return }
+        let path = owner.roundedPath(in: bounds)
+        if owner.standsOnSheetGround || owner.standsOnSplitGround {
+            if let ctx = NSGraphicsContext.current?.cgContext { owner.paintBackground(ctx, border: path.cgPath, color: false) }
+        } else {
+            owner.drawBackground(path, rounded: owner.cornerRadii(in: bounds).contains { $0 > 0 })
+        }
+        if owner.materialPaintsBorder { owner.drawBoxBorder() }
+    }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = raisedHit(super.hitTest(point), point)
+        return hit === self ? nil : hit
+    }
+}
+
+@available(macOS 26.0, *)
+private final class GlassBackground: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        contentView?.hitTest(convert(point, from: superview))
+    }
+}
+
+private final class BlurBackground: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = raisedHit(super.hitTest(point), point)
+        return hit === self ? nil : hit
+    }
+}
+
+package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
+    package override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
+
+    package let id: UInt32
+    /// Bumped whenever it moves to another superview or window: a captured
+    /// bubbled press (`PressNode`) does not survive one, even undone.
+    var pressMoves: UInt64 = 0
+    // Twice the kernel rank; transients never overwrite the authored answer.
+    var rank: Int64 = 0
+    var paintLifted = false
+    var paintGhost = false
+    var paintGhosts = 0
+    weak var paintParent: PaintView?
+    weak var ghostParent: NodeView?
+    let firstDraw: DrawReceipt?
+    let kind: String
+    var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
+    /// Its runs' elements, kept until the runs change, and what else made
+    /// them (`textAccessibilityChildren`).
+    var inlineKeyViews: [UInt32: InlineKeyView] = [:]
+    var inlineAccessibility: (key: String?, elements: [NSAccessibilityElement])?
+    var inlinePressed: UInt32?
+    /// An SVG element a click in this `svg` went down on.
+    var svgPressed: UInt32?
+    /// Its button went down as a Control-click's context click.
+    var contextClicked = false
+    var cachedTextSpec: Spec? { didSet { cachedTextHeadroom = nil } }
+    var cachedTextHeadroom: Float?
+    var textLayoutValid = false
+    /// The node whose `accent-color` this view last read as its tint, nil for the system's (NodeColorMac.swift).
+    var tintSource: ObjectIdentifier?
+    /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
+    var textRaster: IOSurface?
+    var textRasterScale: CGFloat = 2
+    var textRasterFrame: CGRect = .zero
+    var textRasterOverflowLayer: CALayer?
+    var textRasterKey: TextRasterKey?
+    var textRasterReady = false
+    var textRasterFailed = false
+    var textRasterPending = false
+    var textRasterUsesStrips = false
+    var flowShapes: [TextFlowShape] = []
+    var columnRecord: ColumnRecord?  // fragments or columns
+    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
+    var liveText: String?
+    package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self); presenter?.mouseChain.bubbledPress?.validate() } }
+    package var style: NodeStyle = [:]
+    /// What the host's own writers hid (a covered route, a tab a native control
+    /// stands in for, a placement); a `display: none` box is hidden besides, as
+    /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
+    /// origin. Reading says whether it is hidden, for either reason.
+    private var hostHidden = false
+    /// Whether the host hid this view, whatever CSS's `display` says: what a
+    /// projection or a placement saves and restores, since `isHidden` also
+    /// reads `display: none` (review B1: restoring that wrote CSS's bit into
+    /// the host's and kept the view hidden once it was displayed).
+    package var hiddenByHost: Bool { hostHidden }
+    package override var isHidden: Bool {
+        get { super.isHidden }
+        set {
+            // Writing back "hidden" that only CSS's `display: none` made is not
+            // the host's word (a save of `isHidden` restored; review B1): a
+            // projection that means it hides again on its next pass.
+            let css = style["display"]?.string == "none"
+            if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
+            super.isHidden = hostHidden || css
+        }
+    }
+    var clipPath: CGPath?, clipRule = CGPathFillRule.winding
+    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.intersection(FileDrag.events) != oldValue.intersection(FileDrag.events) { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
+    var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box
+    var layoutOffset = CGPoint.zero, layoutResize = CGSize.zero // layout*: the box layout moved it from, and its surface's size from the laid-out one
+    var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
+    /// How far its frame stands from layout's: a lifted Arrange row's
+    /// translation plus `stickyOffset` (`applyTransform`).
+    package var arrangeShift = CGPoint.zero
+    /// How far its scroller's scroll moves a sticky box (`Sticky.swift`).
+    var stickyOffset = CGPoint.zero
+    package var scale: CGFloat = 1
+    package var rotate: CGFloat = 0
+    weak package var presenter: Presenter?
+    package var textArea: NSTextView?
+    var textAreaScroll: NSScrollView?
+    package var field: NSTextField?
+    /// The page's own field, while `field` is the one the window's toolbar hosts (HeaderMac.swift).
+    var pageField: NSTextField?
+    /// A number input's stepper beside its field (`NumberStepperMac.swift`).
+    var stepper: FieldStepper?
+    /// The editor's text as the app was last told it (nil once the app has
+    /// set the value since), a `value` that arrived while text was marked,
+    /// applied when the composition ends, and whether a value is being
+    /// written in (`FieldComposition.swift`).
+    var toldText: String?
+    var pendingValue: String?
+    var writingValue = false
+    package var scroll: ChainingScrollView?
+    /// `box-shadow` (`BoxShadow.swift`): outer, and inset.
+    var shadowCaster: ShadowCaster?
+    var insetCaster: InsetShadowCaster?
+    var clipBox: NSView?
+    /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
+    var boxBorder: CALayer?
+    var kernelContentBox: NSRect?
+    /// The padding layout resolved and sent with `kernelContentBox`: top,
+    /// right, bottom, left (`nil` on a native button's unsaid side).
+    var kernelPadding: [CGFloat?]?
+    var fieldInCell = false // a grouped form's field, which is borderless (NativeFieldsMac.swift)
+    var boxFill: CALayer?
+    /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
+    /// builds the layer tree each display cycle, and the decision reads
+    /// colours and radii. Cleared by whatever it reads (style, size, clip,
+    /// raster, symbol, surface).
+    var layerPaintCache: Bool?
+    /// What the host last wrote to AppKit accessibility (props and form state).
+    struct AccessibilityWrite: Equatable { var enabled = true; var identifier: String?; var label: String?; var help: String?; var required = false; var formInitialized = false }
+    var lastAccessibilityWrite = AccessibilityWrite()
+    var boxGradient: CAGradientLayer?
+    var imageLayer: CALayer?
+    /// While it flies as a shared element: where its image is drawn.
+    var flightLook: FlightLook?
+    var materialView: NSView?
+    /// The backdrop blur's σ and mirrored box as last set (`Backdrop.swift`).
+    var backdropDrawn: BackdropDrawn?
+    /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
+    var glassGroupView: NSView?
+    var glassIsolation: NSView?
+    var materialContent: NSView?
+    private var materialKind: String?
+    /// Natural extent from the kernel, before the CSS client-size minimum.
+    var content = CGSize.zero
+    /// The platform view returned by the dlopened iframe arm.
+    var video: VideoView?
+    var web: NSView?
+    /// A canvas node's Metal layer.
+    package var metal: MetalView?
+    package var canvasInput: CanvasInput?
+    /// A canvas's children live here: laid out by the kernel in
+    /// the canvas's box, over the Metal layer; when the surface samples them
+    /// they are painted into its children texture and this view composites
+    /// at alpha 0. `needsCapture`: painted again at the next capture;
+    /// `paintedThisTurn`: a draw on this turn is the capture's own.
+    package var overlay: FlippedView?
+    package var needsCapture = false
+    package var paintedThisTurn = false
+    /// Where a canvas's surface put this direct child: a 3×3
+    /// homography, row major, from this node's own points to the canvas's,
+    /// then its depth (larger nearer); `nil` is the kernel's frame.
+    /// Hit-testing inverts it, nearest child first; accessibility reports the
+    /// mapped box.
+    package var placement: [Double]?
+    private var hiddenBeforePlacement = false
+    package var placementHidden = false {
+        didSet {
+            if placementHidden && !oldValue { hiddenBeforePlacement = hostHidden }
+            if placementHidden { isHidden = true }
+            else if oldValue { isHidden = hiddenBeforePlacement }
+            setAccessibilityHidden(placementHidden || accessibilityInert)
+        }
+    }
+    /// An image node's picture, once loaded (decoded off the main thread),
+    /// the source it came from, and which load is current: a completion
+    /// from an older load, or for a view that was destroyed, is dropped.
+    var symbolView: NSImageView? { didSet { layerPaintCache = nil } }
+    /// A template path's leaf instead of `symbolView` (IconShapeMac.swift).
+    var symbolShape: IconShapeView? { didSet { layerPaintCache = nil } }
+    /// Whether a symbol's leaf, either kind, is in this node.
+    var hasSymbolLeaf: Bool { symbolView != nil || symbolShape != nil }
+    var symbolFound = false
+    var symbolKey: String?
+    var symbolRefusal: String?
+    var symbolClip: NSView?
+    var image: NSImage?
+    var raster: NativeRasterLease? { didSet { layerPaintCache = nil } }
+    var imageSource: String?
+    var loadGeneration = 0
+    package var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var keyboardPressed = false
+    var press = PressFeedback() // the feedback `pressed` drives
+    var pressPaint = PressPaint() // the author's pressed paint
+    var presentedAlpha: CGFloat = 1, disabledShown = false // the opacity presented, and whether the disabled look halves it (PressLookMac.swift)
+    // Projection does not overwrite authored inert.
+    var routeInert = false { didSet { presenter?.mouseChain.bubbledPress?.validate() } }
+    /// What `setAccessibilityHidden` last wrote (`Accessibility.swift`).
+    var accessibilityHiddenWritten = false
+    var webArea: DialogWebArea? // served above it while it is a dialog drawn in the page (`dialogWebArea`)
+    package var inert: Bool { inert(forAccessibility: false) }
+    var accessibilityInert: Bool { inert(forAccessibility: true) }
+    /// Inert by an `inert` attribute or a route behind a presentation, not by
+    /// an open modal dialog: an event bubbling out of the dialog still reaches
+    /// it, as HTML's inertness keeps a node from being a target, not its
+    /// listeners from the bubbling.
+    var authoredInert: Bool { inert(forAccessibility: false, blocked: false) }
+    private func inert(forAccessibility: Bool, blocked: Bool = true) -> Bool {
+        if blocked, forAccessibility ? presenter?.dialogs.accessibilityBlocks(self) == true : presenter?.dialogs.blocks(self) == true { return true }
+        var ancestor: NSView? = self, walked: [ObjectIdentifier] = [], inert = false
+        while let view = ancestor {
+            if let known = NodeView.hitInert?[ObjectIdentifier(view)] { inert = known; break }
+            walked.append(ObjectIdentifier(view))
+            if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { inert = true; break }
+            if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
+            ancestor = presenter?.authoredSuperview(of: view) ?? view.superview
+        }
+        // Every view walked ends at the same answer, so a hit test asks each ancestor once.
+        if NodeView.hitInert != nil { for id in walked { NodeView.hitInert?[id] = inert } }
+        return inert
+    }
+    /// The ancestor walk's answers while a hit test runs: it asks every node it visits whether it is
+    /// inert, and nothing that decides it changes until it returns. Without them a hit test in a long
+    /// list walked to the root from each node, most of the main thread's time while content scrolled
+    /// under the pointer.
+    static var hitInert: [ObjectIdentifier: Bool]?
+    static var hitDepth = 0
+    /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
+    var accessibilityHiddenByProp: Bool {
+        sequence(first: self as NSView, next: { self.presenter?.authoredSuperview(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+    }
+    package var disabled: Bool { props["disabled"] == "true" }
+    /// The pointer's tracking, for a `hover` handler.
+    var tracking: NSTrackingArea?
+    /// Images loaded since launch (smoke reporting).
+    /// The session's text engine (the catalog is the session's).
+    package var text: TextEngine? { presenter?.session?.text }
+    package var canvases: Canvases? { presenter?.session?.canvases }
+
+    /// A native button's command is its own too (a confirmation's close row).
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
+    /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
+    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged(); lookState(focus: focusVisible) } } }
+    /// A focused field whose ring Exact draws (`showFieldFocus`).
+    var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
+    /// A key down's default action at a focused node; its `key` handlers
+    /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
+    /// Space on a pressable fires `press`; Return is the default button's, and here only follows a focused link, as Safari does, or chooses a menu's row (`choosesOnReturn`).
+    package override func keyDown(with event: NSEvent) {
+        guard !inert else { return }
+        if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
+        guard !disabled else { return }
+        if presenter?.menus.key(event) == true || presenter?.dialogs.key(event) == true { return }
+        if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a": presenter?.selection.selectAll(); return
+            case "c": presenter?.selection.copy(); return
+            default: break
+            }
+        }
+        let name = NodeView.keyName(event)
+        // Sequential focus from here, a stop or not (KeyViewLoopMac.swift): which views are stops follows macOS "Keyboard navigation".
+        if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
+            presenter?.tab(from: self, back: event.modifierFlags.contains(.shift), in: window)
+            return
+        }
+        if reorderKey(name) || presenter?.controls.radioKey(self, name, held: KeyCodes.held(event.modifierFlags)) == true { return }
+        let presses = name == " " || name == "Enter" && choosesOnReturn
+        if isButton, !pressable, presses {
+            activateNative()
+            return
+        }
+        if pressable, props["href"] == nil ? presses : name == "Enter" {
+            if name == " " { keyboardPressed = true; pressed = true }
+            let canvas = inputCanvas, ownerWindow = window
+            presenter?.press(id)
+            finishPress(canvas: canvas, window: ownerWindow, pointer: false)
+            return
+        }
+        if keyCommand(event) { return }
+        super.keyDown(with: event)
+    }
+    package override func keyUp(with event: NSEvent) {
+        if NodeView.keyName(event) == " " { releaseKeyboardPress() }
+        guard !inert else { return }
+        if inputCanvas?.canvasInput?.key(event, down: false, source: self) != true { super.keyUp(with: event) }
+    }
+    func releaseKeyboardPress() {
+        guard keyboardPressed else { return }
+        keyboardPressed = false
+        pressed = false
+    }
+    package override func flagsChanged(with event: NSEvent) {
+        guard !inert else { return }
+        if canvasInput?.flags(event) != true { super.flagsChanged(with: event) }
+    }
+    /// ⌘A while this node's field is being edited. The Edit menu is the
+    /// usual path; this catches it when that item is disabled (a secure
+    /// field) or when the event arrives at the window rather than the app.
+    package override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a": presenter?.selection.selectAll(); return true
+            case "c": presenter?.selection.copy(); return true
+            default: break
+            }
+        }
+        if let editor = textArea, NodeView.isCommandA(event), window?.firstResponder === editor {
+            editor.selectAll(nil)
+            return true
+        }
+        if let f = field, NodeView.isCommandA(event),
+           window?.firstResponder === f || window?.firstResponder === f.currentEditor() {
+            NodeView.selectAll(in: f)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+    /// Command-A with no other chord, ignoring Caps Lock / function noise.
+    static func isCommandA(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        return mods == .command && event.charactersIgnoringModifiers?.lowercased() == "a"
+    }
+    /// Select the field's whole value. A secure editor can ignore `selectAll:`.
+    static func selectAll(in f: NSTextField) {
+        if let editor = f.currentEditor() {
+            editor.selectAll(nil)
+            if editor.selectedRange.length == 0 {
+                let n = (editor.string as NSString).length
+                if n > 0 { editor.selectedRange = NSRange(location: 0, length: n) }
+            }
+        } else {
+            f.selectText(nil)
+        }
+    }
+    /// The tracking area a `hover` handler needs, on the node
+    /// or an inline run, kept while one wants it. `.inVisibleRect`: AppKit
+    /// keeps its rect, so nothing here overrides `updateTrackingAreas` —
+    /// AppKit called that on every node view, thousands of them, each time
+    /// the scroll view moved, and posted a notification for each (25 ms/s
+    /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
+    package override func resetCursorRects() {
+        super.resetCursorRects()
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor); return }
+        // `cursor: auto` over a link is AppKit's pointing hand, as
+        // `NSTextView` shows over its links: a `link` node, and
+        // each `href` run of a paragraph.
+        if props["accessibilityRole"] == "link" || !(props["href"] ?? "").isEmpty {
+            addCursorRect(bounds, cursor: .pointingHand)
+            return
+        }
+        for run in inlineText where run.isLink && !run.hidden {
+            for rect in inlineRects(run) { addCursorRect(rect, cursor: .pointingHand) }
+        }
+    }
+    func syncHoverTracking() {
+        let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
+        if wants, tracking == nil {
+            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+            addTrackingArea(t)
+            tracking = t
+        } else if !wants, let t = tracking {
+            removeTrackingArea(t)
+            tracking = nil
+        }
+    }
+    package override func mouseEntered(with event: NSEvent) { presenter?.trackPointer(event) }
+    package override func mouseMoved(with event: NSEvent) {
+        presenter?.trackPointer(event)
+        // A canvas a sibling covers still takes the move (its host emits
+        // nothing for a covered point), so its next motion is one step.
+        if let input = canvasInput, presenter?.trackedCanvas !== input { _ = input.pointer(event, phase: "move") }
+    }
+    package override func mouseExited(with event: NSEvent) { presenter?.trackPointer(event) }
+    /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    /// The exception is a descendant with a role of its own, which stays its
+    /// child as on the web (`controlAccessibilityChildren`). An image or a
+    /// range is a leaf.
+    package override func accessibilityChildren() -> [Any]? {
+        if props["accessibilityElementsHidden"] == "true" || accessibilityHiddenWritten { return [] }
+        if actsAsButton { return withAtoms(controlAccessibilityChildren()) }
+        return props["accessibilityRole"] == "img" || rangeRole != nil ? nil : withAtoms(textAccessibilityChildren() ?? exposed(super.accessibilityChildren()))
+    }
+    /// The viewport's projected children must point back to it. Otherwise
+    /// moving to a modal's authored container exposes the page behind it.
+    private var modalAccessibilityParent: NSView? {
+        guard let presenter, presenter.macModalAccessibilityChildren?.contains(where: { $0 === self }) == true else { return nil }
+        return presenter.viewport
+    }
+    /// The parent the page's tree serves it in; a dialog's web area stands between (`dialogWebArea`).
+    var pageAccessibilityParent: Any? { modalAccessibilityParent ?? withoutWebArea { super.accessibilityParent() } }
+    package override func accessibilityParent() -> Any? { dialogWebArea ?? pageAccessibilityParent }
+    /// A control's descendants with a role of their own, as the web keeps
+    /// them: Chrome's `<button><h2>` is button › heading. Nil when it
+    /// holds only text and images, so it stays a leaf read once by its name.
+    private func controlAccessibilityChildren() -> [Any]? {
+        let named: Set<NSAccessibility.Role> = [.staticText, .image]
+        let children: [Any] = super.accessibilityChildren() ?? []
+        let own = children.filter { child in
+            let role = (child as? NSView)?.accessibilityRole() ?? (child as? NSAccessibilityElement)?.accessibilityRole()
+            return role.map { !named.contains($0) } ?? false
+        }
+        return own.isEmpty ? nil : own
+    }
+    package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + (["AXLanguage"] + Self.ariaAttributes.filter { ariaAttribute($0) != nil }).map { .init(rawValue: $0) }
+    }
+    package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute == .parent, let parent = dialogWebArea ?? modalAccessibilityParent { return parent }
+        if attribute.rawValue == "AXLanguage" {
+            let language = presenter?.documentLanguage ?? ""
+            return language.isEmpty ? nil : language
+        }
+        return ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+    /// `aria-hidden` takes the node and its subtree off the tree, as the
+    /// web's does (a checkbox's visible label stayed exposed).
+    package override func isAccessibilityElement() -> Bool {
+        accessibilityExposed && props["accessibilityElementsHidden"] != "true" && super.isAccessibilityElement()
+    }
+    /// Where an image source resolves, as a page resolves `src`: an `http(s)`
+    /// URL as is; a relative path under the asset root (`EXACT_ASSETS`, else
+    /// the current directory) and never outside it; anything else (`file:`,
+    /// `..` escaping the root) does not load.
+    static func resolveSource(_ source: String, app: ExactApp?) -> URL? {
+        if let u = URL(string: source), let scheme = u.scheme {
+            return scheme == "http" || scheme == "https" ? u : nil
+        }
+        return app?.resolveAsset(source)
+    }
+
+    /// One bounded, session-owned pipeline. Replacement keeps the old raster
+    /// and original intrinsic geometry until a matching new backing is accepted.
+    func loadImage(_ source: String) {
+        let previousSource = imageSource, previousGeneration = loadGeneration
+        imageSource = source; PictureInPictureHost.changed(self)
+        loadGeneration += 1
+        if source.hasPrefix("symbol:") { presenter?.session?.rasters.cancel(id); raster = nil; updateSymbol(); return }
+        clearSymbol(); image = nil
+        if previousSource?.hasPrefix("symbol:") == true { presenter?.intrinsic(id, nil) }
+        guard let session = presenter?.session else { return }
+        if !session.rasters.load(self, source: source, resolver: session.app.resolver) {
+            imageSource = previousSource; loadGeneration = previousGeneration
+        }
+    }
+
+    /// The lease is this load's: shown, its natural size answered for the
+    /// loader to report (`RasterLoader.reconcile`, one report per turn).
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) -> CGSize? {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
+        // A redisplay doesn't re-ask the image layer for a replaced bitmap.
+        raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
+        self.needsDisplay = true
+        if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        presenter.boxFilters.changed(self)
+        return lease.image.naturalSize
+    }
+
+    /// The view is gone: no load in flight may report for it.
+    func forget() {
+        holdGone() // out of the map: a hold on it is let go (HeldState.swift)
+        presenter?.forgetParagraph(self)
+        cancelSurfaceControls()
+        invalidateText()
+        cachedTextLayout = nil
+        dropTextRaster()
+        loadGeneration += 1
+        presenter?.session?.rasters.cancel(id)
+        raster = nil
+        imageSource = nil; PictureInPictureHost.gone(self)
+        clearSymbol()
+        image = nil
+        video?.invalidate(); video = nil
+        destroyEmbedded()
+        web = nil
+        keepHold()
+        presenter = nil
+    }
+
+    init(id: UInt32, kind: String, presenter: Presenter) {
+        self.id = id
+        firstDraw = presenter.session?.drawReceipt()
+        self.kind = kind
+        self.presenter = presenter
+        super.init(frame: .zero)
+        wantsLayer = kind != "text"
+        // A frame change during live resize repaints at the new width
+        // instead of stretching stale pixels.
+        layerContentsRedrawPolicy = .duringViewResize
+        focusRingType = .exterior // a pressable's ring, outside its box (`FocusMac.swift`)
+        if kind == "canvas", let m = SurfacesLink.installed?.makeMetalView() {
+            addSubview(m)
+            metal = m
+            let o = FlippedView(frame: .zero)
+            o.autoresizingMask = [.width, .height]
+            addSubview(o)
+            overlay = o
+        }
+        if kind == "textarea" { makeTextArea() }
+        if kind == "input" {
+            let f = makeField(.plain)
+            addSubview(f)
+            field = f
+        }
+        if kind != "iframe" { presenter.leaves.embed(self) } // a video's player, a module's box; a web view waits for the props (`embedFrame`)
+    }
+    required init?(coder: NSCoder) { nil }
+    package override var isFlipped: Bool { true }
+
+    /// Where children go: the scroll document view, or this view; a glass
+    /// group innermost (`GlassGroup.swift`).
+    var container: NSView { glassGroupContent ?? baseContainer }
+
+    // Two semantic materials, not sampled blur constants.
+    // AppKit owns accessibility/appearance adaptation, including Reduce
+    // Transparency and Increase Contrast; do not freeze the effective appearance.
+    var appliedMaterial: String {
+        guard let materialView, materialView.superview === self || (glassIsolation != nil && materialView.superview?.superview === glassIsolation) else {
+            if let filters = layer?.backgroundFilters, !filters.isEmpty {
+                let effects = filters.compactMap { ($0 as? CIFilter)?.name }
+                    .filter { $0 == "CIGaussianBlur" || $0 == "CIColorMatrix" }
+                return "backgroundFilters(\(effects.joined(separator: ",")))"
+            }
+            return props["backgroundMaterial"] == nil ? "none" : "unsupported"
+        }
+        if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView { return "NSGlassEffectView(.\(glass.style == .clear ? "clear" : "regular"))" }
+        return "NSVisualEffectView(.\(materialKind.map { Materials.resolve($0) { _ in } } ?? "popover"))"
+    }
+
+    func updateMaterial() {
+        let requested = props["backgroundMaterial"]
+        defer { applyBackdrop(); syncGlassSlot(); syncGlassGroup() }
+        let kind = requested ?? (needsSheetMaterial ? "sheet" : nil)
+        if materialKind != kind {
+            releaseGlassIsolation()
+            let children = container.subviews.compactMap { $0 as? NodeView }
+            let old = materialView
+            let oldContent = materialContent
+            materialView = nil
+            materialContent = nil
+            materialKind = kind
+            if let kind {
+                let content = MaterialContent(frame: bounds)
+                content.owner = self
+                content.autoresizingMask = [.width, .height]
+                let effect: NSView
+                let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
+                if apple == "glass" || apple == "glassClear", #available(macOS 26.0, *) {
+                    let glass = GlassBackground(frame: bounds)
+                    glass.style = apple == "glass" ? .regular : .clear
+                    effect = glass
+                } else {
+                    // The table's material; AppKit's stand-in where it lacks
+                    // the named one (ultra-thin draws popover).
+                    let blur = BlurBackground(frame: bounds)
+                    blur.material = Materials.material(apple) ?? .popover
+                    effect = blur
+                }
+                effect.autoresizingMask = [.width, .height]
+                effect.setAccessibilityElement(false)
+                content.setAccessibilityElement(false)
+                addSubview(effect, positioned: .below, relativeTo: subviews.first)
+                addSubview(content, positioned: .above, relativeTo: effect)
+                materialView = effect
+                materialContent = content
+            }
+            // Reconcile before removing the old container, keeping live child
+            // identities, their frames and their native editors intact.
+            for child in children where child.superview !== container { container.addSubview(child) }
+            old?.removeFromSuperview()
+            oldContent?.removeFromSuperview()
+        }
+        if let blur = materialView as? NSVisualEffectView {
+            let sheetGround = requested == nil && needsSheetMaterial
+            blur.blendingMode = sheetGround ? .behindWindow : .withinWindow
+            blur.state = .followsWindowActiveState
+        }
+        syncMaterialVisibility()
+        applyMaterialRadius()
+    }
+
+    /// Visible content participates in the native effect. Hidden materials
+    /// leave visible descendants outside it, including their focused editor.
+    func syncMaterialVisibility() {
+        guard let material = materialView, let content = materialContent else { return }
+        GlassGroups.moving(in: self) {
+            if cssVisibilityHidden {
+                let parent = material.superview ?? self
+                if content.superview !== parent {
+                    if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = nil }
+                    parent.addSubview(content, positioned: .above, relativeTo: material)
+                }
+            } else if !content.isDescendant(of: material) {
+                if #available(macOS 26.0, *), let glass = material as? NSGlassEffectView { glass.contentView = content }
+                else { material.addSubview(content) }
+            }
+            material.isHidden = cssVisibilityHidden
+        }
+    }
+
+    /// The material's corners: the box's radius as CSS reduces it to fit the
+    /// border box (a 100 pt radius on a 28 pt pill is 14), at the current size.
+    func applyMaterialRadius() {
+        guard let materialView else { return }
+        materialView.wantsLayer = true
+        guard let materialLayer = materialView.layer else { return }
+        let radius = BorderPaint.clip(materialLayer, in: bounds, radii: cornerSizes(in: bounds))
+        if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
+            glass.cornerRadius = radius
+        } else {
+            materialView.wantsLayer = true
+            materialView.layer?.cornerRadius = radius
+            materialView.layer?.masksToBounds = true
+        }
+    }
+
+    /// The canvas this node is painted through, if any: the nearest canvas
+    /// above whose overlay holds it.
+    package var canvasAbove: NodeView? {
+        var v: NSView = self
+        while let s = v.superview {
+            if let c = s as? NodeView, c.overlay === v { return c }
+            v = s
+        }
+        return nil
+    }
+
+    /// Something under a canvas repainted outside a batch:
+    /// the canvas captures again on this run-loop turn — unless the draw is
+    /// the capture's own, or follows a batch that already captured.
+    func repaintThrough() {
+        guard !Capture.capturing, let c = canvasAbove, !c.paintedThisTurn else { return }
+        c.needsCapture = true
+        canvases?.scheduleCapture()
+    }
+
+    @objc func clipScrolled() {
+        // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
+        if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
+        if let o = scroll?.contentView.bounds.origin { presenter?.onScrolled?(id, Double(o.x), Double(o.y)) }
+        if let sv = scroll { presenter?.session?.frameHealth.trackScrolled(sv) }
+        presenter?.stickies.scrolled(id)
+        presenter?.collectionScrolled(id)
+        presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
+        // The list window and the text bands follow the scroll; they are not
+        // part of it (`Presenter.scrolled`).
+        presenter?.scrolled()
+        repaintThrough(); queueScrollEvent(); scrollEndMoved()
+    }
+    private var scrollEventQueued = false
+    private var lastScrollEvent = CGPoint.zero
+    var scrollEnd: ScrollEnd?
+    private func queueScrollEvent() {
+        guard handlers.contains("scroll"), !scrollEventQueued else { return }
+        scrollEventQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scrollEventQueued = false
+            self.sendScrollEvent()
+        }
+    }
+    func sendScrollEvent() {
+        guard handlers.contains("scroll"), let sv = scroll, case let point = sv.contentView.bounds.origin, point != lastScrollEvent,
+              presenter?.views[id] === self, hasScrollLayoutBox else { return }
+        lastScrollEvent = point
+        // CSS's extents (`ScrollEvent`): the port, and the port plus
+        // the range the clip view clamps to, so at the end
+        // `scrollHeight - scrollTop - clientHeight` is 0.
+        let port = sv.contentView.bounds.size, document = sv.documentView?.frame.size ?? port
+        let range = CGSize(width: max(0, document.width - port.width), height: max(0, document.height - port.height))
+        presenter?.scroll(id, [point.x, point.y, port.width + range.width, port.height + range.height,
+                               port.width, port.height].map(Double.init))
+    }
+
+    /// The direct child of a canvas this node is under, when that child is
+    /// placed by the surface: the node whose `placement` maps this subtree.
+    var placedAncestor: NodeView? {
+        var v: NSView? = self
+        while let n = v {
+            if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
+            if let s = n.superview as? FlippedView, s.superview is NodeView, (s.superview as? NodeView)?.overlay === s { return nil }
+            v = n.superview
+        }
+        return nil
+    }
+
+    /// A homography applied to a point (row major, projective).
+    static func map(_ h: [Double], _ p: NSPoint) -> NSPoint {
+        let w = h[6] * p.x + h[7] * p.y + h[8]
+        guard abs(w) > 1e-9 else { return NSPoint(x: CGFloat.infinity, y: CGFloat.infinity) }
+        return NSPoint(x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w)
+    }
+
+    /// The inverse of a 3×3 (row major), or nil when singular.
+    static func invert(_ h: [Double]) -> [Double]? {
+        let (a, b, c, d, e, f, g, hh, i) = (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8])
+        let det = a * (e * i - f * hh) - b * (d * i - f * g) + c * (d * hh - e * g)
+        guard abs(det) > 1e-12 else { return nil }
+        let inv = [e * i - f * hh, c * hh - b * i, b * f - c * e,
+                   f * g - d * i, a * i - c * g, c * d - a * f,
+                   d * hh - e * g, b * g - a * hh, a * e - b * d]
+        return inv.map { $0 / det }
+    }
+
+    /// A window point in this node's own coordinates: AppKit's conversion,
+    /// through each transformed box on the way, and through the
+    /// surface's placement when this node is under a placed child — the
+    /// canvas reached first the same way, then the child's points.
+    package func local(_ windowPoint: NSPoint) -> NSPoint {
+        guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
+              let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
+            return descend(windowPoint)
+        }
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
+        return descend(inChild, from: placed)
+    }
+
+    /// The placement changed: accessibility sees the new box.
+    package func placementChanged() {
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    /// Hit-testing through the surface's placements: a canvas
+    /// whose children are placed maps the point through each child's
+    /// inverse, topmost first — straight from the canvas to the child,
+    /// skipping the box AppKit would test. A placed child is only where the
+    /// surface put it, never at its kernel frame: the rest of the overlay
+    /// (children the surface left in place) is tested in AppKit's order
+    /// without them, and then the canvas itself is the hit.
+    package override func hitTest(_ point: NSPoint) -> NSView? {
+        // A plain leaf or clipped box cannot hit beyond its frame. Visible
+        // overflow and transformed or placed children still need the full walk.
+        if overlay == nil, !frame.contains(point), (clipsToBounds || subviews.isEmpty),
+           plane == nil { return nil }
+        NodeView.hitDepth += 1
+        if NodeView.hitDepth == 1 { NodeView.hitInert = [:] }
+        defer { NodeView.hitDepth -= 1; if NodeView.hitDepth == 0 { NodeView.hitInert = nil } }
+        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
+        if drawsRowBezel, let bezel = rowBezelRect, !bezel.contains(convert(point, from: superview)) { return nil }
+        if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
+        if !fragmentHit(convert(point, from: superview)) { return nil }
+        if isSurfaceControl, !cssVisibilityHidden, bounds.contains(convert(point, from: superview)) { return self }
+        func ordinary() -> NSView? {
+            let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
+            // Empty scroll chrome keeps the scroll view's wheel route. Its
+            // mouse contact forwards to this node; children and native
+            // scrollers keep their own hits.
+            let emptyScroll = found != nil && (found === scroll || found === scroll?.contentView || found === scroll?.documentView)
+            let hit: NSView? = emptyScroll ? scroll : (found != nil && found === overlay ? self : found)
+            // `pointer-events: none`, and this box's own hit when it is
+            // `visibility: hidden` (`CssVisibility.swift`). A descendant
+            // node that computes `visible` still takes the click.
+            if let hit, refusesOwnHit(hit, local: convert(point, from: superview)) { return nil }
+            return hit
+        }
+        guard let overlay, let sup = superview else { return ordinary() }
+        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
+        guard !placed.isEmpty else { return ordinary() }
+        let inCanvas = convert(point, from: sup)
+        guard !isHidden, bounds.contains(inCanvas) else { return nil }
+        // Ordinary HUD paints above the captured children, so it hits first.
+        let inOverlay = overlay.convert(inCanvas, from: self)
+        for child in NodeView.hitOrder(overlay.subviews) where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+            if let hit = child.hitTest(inOverlay) { return hit }
+        }
+        // Nearest first: what is seen on top is what a tap reaches.
+        for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
+            guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
+            let p = NodeView.map(inv, inCanvas)
+            guard child.bounds.contains(p) else { continue }
+            // Into the child's superview's space, where AppKit expects it.
+            let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
+            if let hit = child.hitTest(inOverlay) { return hit }
+        }
+        // Missed by every child: the canvas itself, unless it lets the
+        // pointer through (`pointer-events: none`, as `ordinary` says).
+        return refusesOwnHit(self, local: inCanvas) ? nil : self
+    }
+
+    /// CSS visible overflow is hit where it paints, as on iOS: AppKit
+    /// refuses a point outside a view's frame before it asks the subviews,
+    /// so a positioned popup beyond its parent's box took no clicks.
+    /// Outside this box and unclipped, the children are
+    /// asked here, topmost first. `point` is in the superview's space.
+    private func overflowHit(_ point: NSPoint) -> NSView? {
+        guard !isHidden, scroll == nil, clipBox == nil, !clipsToBounds, !subviews.isEmpty else { return nil }
+        let local = convert(point, from: superview)
+        let outsideX = local.x < bounds.minX || local.x > bounds.maxX
+        let outsideY = local.y < bounds.minY || local.y > bounds.maxY
+        guard outsideX || outsideY else { return nil }
+        if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
+        if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
+        let order = subviews.enumerated().sorted {
+            let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+            return a != b ? a > b : $0.offset > $1.offset
+        }
+        for case let child as NodeView in order.map(\.element) {
+            if let hit = child.hitTest(local) { return hit }
+        }
+        return nil
+    }
+
+    /// The box on screen, through the placement of the placed child this
+    /// node is (or is under), for assistive technology — the same box the
+    /// agent's `layout` reports.
+    package override func accessibilityFrame() -> NSRect {
+        if placedAncestor?.placementHidden == true { return .zero }
+        guard placedAncestor?.placement != nil, let win = window else { return super.accessibilityFrame() }
+        return win.convertToScreen(drawnRect(bounds))
+    }
+
+    /// Whether this view draws in the dark appearance. The **owning view's**
+    /// appearance, not `NSAppearance.currentDrawing()`: `currentDrawing()`
+    /// names whatever is drawing at that instant, and colours are not all
+    /// applied inside a draw — a field's `textColor` is assigned in
+    /// `applyStyle`.
+    var drawsDark: Bool {
+        effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    /// The four channels a colour row carries, resolved. A fixed colour is
+    /// the four; a `light-dark()` pair is two fours and this picks one.
+    /// Anything else is not a colour.
+    func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
+        style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: window is SheetWindow, tint: ownTint(for: $0)) }
+    }
+
+    /// Whether any colour on this node is a pair — what says an appearance
+    /// change is something to this view rather than nothing.
+    var hasSchemeColor: Bool {
+        style.values.contains { $0.isSchemeColor || $0.isSchemeGradient || $0.containsSystemColor }
+    }
+
+    /// The appearance changed under this view. A repaint is not enough: the
+    /// text engine caches a paragraph spec and a laid-out paragraph, and a
+    /// `Run` carries a concrete colour, so ink from the previous appearance
+    /// would survive a redisplay. Inline text nodes are not in the native
+    /// hierarchy, so the paragraph that owns them is invalidated too, and
+    /// the colours assigned outside a draw are re-applied.
+    package override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        presenter?.tables.appearanceChanged(self); refreshGroupedSeparator(); presenter?.navigation.split.recolor(self)
+        if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
+        // An `svg`'s paints are resolved again; paint motion hears the appearance.
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock, tint: viewTint); presenter?.session?.noteAppearance(self)
+        // A path icon's fill is a resolved colour; an image view resolved its tint as it drew.
+        tintIconShape()
+        guard hasSchemeColor || fieldGround != nil || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        reapplyColors()
+    }
+    /// A system colour changed under this view (the accent):
+    /// what it resolved is applied again, as for an appearance change; an
+    /// untinted symbol follows the accent, so it counts too.
+    func systemColorsChanged() {
+        presenter?.navigation.split.recolor(self)
+        guard hasSchemeColor || hasSymbolLeaf || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
+        reapplyColors()
+    }
+    func reapplyColors() {
+        paragraphOwner.invalidateText()
+        paragraphOwner.needsDisplay = true
+        applyStyle(style)
+        needsDisplay = true
+    }
+    package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
+        if let n = style[key]?.number { return CGFloat(n) }
+        return fallback
+    }
+
+    /// The field for an input: `NSSecureTextField` for `type="password"`
+    /// (the web's masking), `NSSearchField` for a native `type="search"`, a
+    /// plain one otherwise; the same delegate, borderless, the node paints
+    /// its own box.
+    func makeField(_ kind: FieldClass) -> NSTextField {
+        let f: NSTextField = switch kind {
+        case .secure: SecureField(frame: .zero)
+        case .search: SearchField(frame: .zero)
+        case .plain: Field(frame: .zero)
+        }
+        f.isBordered = false
+        f.isBezeled = false
+        f.drawsBackground = false
+        f.backgroundColor = .clear
+        (f.cell as? NSTextFieldCell)?.drawsBackground = false
+        f.focusRingType = .none
+        f.isEditable = true
+        f.isSelectable = true
+        f.delegate = self
+        f.formatter = TextInputFormatter(self)
+        f.cell?.isScrollable = true
+        f.cell?.wraps = false
+        f.cell?.usesSingleLineMode = true
+        return f
+    }
+
+    func applyPlaceholder(_ f: NSTextField) {
+        if pageField != nil { return syncBarField() }
+        let text = props["placeholder"] ?? ""
+        let font = f.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        if text.isEmpty {
+            keepingEditing(f) { f.placeholderAttributedString = nil; f.placeholderString = nil }
+            return
+        }
+        // Not `placeholderTextColor`: that tracks the window's appearance, so
+        // a white field in a dark app (the night) paints a light placeholder
+        // and it vanishes. Mute this field's text color — the web's
+        // `input::placeholder` (`#3c3c434c` on black type).
+        // An authored `::placeholder` colour wins, its alpha its own.
+        let ink = placeholderColor ?? (isNativeTextControl ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
+        let words = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: ink])
+        keepingEditing(f) { f.placeholderAttributedString = words }
+    }
+
+    // display:none removes the CSS box, but retains its stored scroll position.
+    // UIKit/AppKit collapse the native extent; keep that transient reset out of
+    // scroll events and restore only when the box returns.
+    var beforeLayoutScroll: CGPoint?
+    private var hiddenScroll: CGPoint?
+    var hasScrollLayoutBox: Bool {
+        var ancestor: NSView? = self
+        while let current = ancestor {
+            if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
+            ancestor = current.superview
+        }
+        return true
+    }
+
+    var followedScroll: (top: CGFloat, end: Bool)?
+    /// The scroll anchor chosen before a batch (`ScrollAnchoringMac.swift`).
+    var scrollAnchor: (node: NodeView, y: CGFloat)?
+    func applyPendingScroll() {
+        defer { pendingScrollTop = nil; pendingScrollLeft = nil }
+        guard let sv = scroll, let doc = sv.documentView else { return }
+        guard hasScrollLayoutBox else {
+            if hiddenScroll == nil { hiddenScroll = beforeLayoutScroll ?? .zero }
+            return
+        }
+        if let saved = hiddenScroll {
+            hiddenScroll = nil
+            let target = NSPoint(
+                x: min(max(saved.x, 0), max(0, doc.bounds.width - sv.contentView.bounds.width)),
+                y: min(max(saved.y, 0), max(0, doc.bounds.height - sv.contentView.bounds.height)))
+            if sv.contentView.bounds.origin != target {
+                sv.contentView.scroll(to: target)
+                sv.reflectScrolledClipView(sv.contentView)
+            }
+        }
+        guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
+        cancelElementScroll()
+        let y = pendingScrollTop.map { CGFloat($0) == sv.contentView.bounds.minY ? sv.contentView.bounds.minY : min(max(CGFloat($0), 0), max(0, doc.bounds.height - sv.contentView.bounds.height)) } ?? sv.contentView.bounds.minY
+        let x = pendingScrollLeft.map { CGFloat($0) == sv.contentView.bounds.minX ? sv.contentView.bounds.minX : min(max(CGFloat($0), 0), max(0, doc.bounds.width - sv.contentView.bounds.width)) } ?? sv.contentView.bounds.minX
+        let target = NSPoint(x: x, y: y)
+        guard sv.contentView.bounds.origin != target else { return }
+        // `scroll-behavior: smooth` (CSS) animates a prop write, never a
+        // reader's own scroll. Under the agent's frozen clock it lands at once,
+        // so `layout` reads the target.
+        if style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes {
+            NSAnimationContext.runAnimationGroup({ _ in sv.contentView.animator().setBoundsOrigin(target) },
+                                                 completionHandler: { sv.reflectScrolledClipView(sv.contentView) })
+        } else {
+            sv.contentView.scroll(to: target)
+            sv.reflectScrolledClipView(sv.contentView)
+        }
+    }
+    var pendingScrollLeft: Double?
+    var pendingScrollTop: Double?
+    func applyProps(set: [String: String], clear: [String]) {
+        if clear.contains("action") { cancelSurfaceControls() }
+        if clear.contains("scrollLeft") { pendingScrollLeft = nil }
+        if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
+        if clear.contains("scrollTop") { pendingScrollTop = nil }
+        if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
+        if pendingScrollTop != nil || pendingScrollLeft != nil { presenter?.pendingScrolls.insert(id) }
+        var next = props
+        for k in clear { next.removeValue(forKey: k) }
+        for (k, v) in set { next[k] = v }
+        props = next
+        if set["groupedSeparator"] != nil || clear.contains("groupedSeparator") { applyGroupedSeparator() }
+        if set["symbolEffectValue"] != nil || set["symbolColorWritten"] != nil || clear.contains("symbolColorWritten")
+            || set["symbolFillRule"] != nil || clear.contains("symbolFillRule") { updateSymbol() }
+        applyTextArea()
+        remakeFieldIfNeeded()
+        if let f = field {
+            if let v = props["value"] {
+                // While the field is being edited its field editor holds the
+                // caret; write there so the caret survives, as in a text view.
+                if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v; toldText = nil }
+            }
+            applyPlaceholder(f)
+            f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil)
+            f.isEnabled = !disabled
+            f.isEditable = !disabled && props["editable"] != "false"
+            styleNativeField()
+            updateNumberStepper() // the platform's stepping control for `type="number"`
+        }
+        // Each AppKit accessibility write posts a notification, changed or
+        // not: write only what differs from the last write. The first form
+        // sync establishes enabled/help/required (`Accessibility.swift`).
+        var ax = lastAccessibilityWrite
+        ax.enabled = !disabled && !ariaUnavailable
+        ax.identifier = props["testId"]
+        ax.label = props["accessibilityLabel"]
+        if ax != lastAccessibilityWrite {
+            let last = lastAccessibilityWrite
+            if ax.enabled != last.enabled { setAccessibilityEnabled(ax.enabled) }
+            if ax.identifier != last.identifier { setAccessibilityIdentifier(ax.identifier) }
+            if ax.label != last.label { setAccessibilityLabel(ax.label) }
+            lastAccessibilityWrite = ax
+        }
+        updateTextAccessibility()
+        updateRoleAccessibility()
+        if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
+        if kind == "image", props["imageSource"] == nil, imageSource != nil {
+            loadGeneration += 1
+            presenter?.session?.rasters.cancel(id)
+            raster = nil
+            imageSource = nil
+            clearSymbol()
+            image = nil
+            presenter?.intrinsic(id, nil)
+        }
+        updateEmbedded()
+        video?.update()
+        updateMaterial()
+        needsDisplay = true
+    }
+
+    // Empty container layers carry geometry and children, with no bitmap.
+    private(set) var hasBoxPaint = false
+    package override var wantsUpdateLayer: Bool {
+        if let readerParagraph, readerParagraph.hasPixels {
+            return !hasBoxPaint && !Capture.capturing && canvasAbove == nil
+        }
+        if kind == "text" { return rastersText }
+        // A box the layer can say keeps no backing store (`BoxLayerMac.swift`).
+        return layerBoxEligible && !Capture.capturing && !drawsPaint
+    }
+    package override func updateLayer() {
+        // AppKit has rewritten the layer's geometry by now: the authored
+        // transform goes back on (as after `layout()`).
+        applyTransform()
+        if let readerParagraph {
+            readerParagraph.update(self)
+            layer?.contents = nil
+        } else if kind == "text" {
+            // AppKit asks for its overdraw as well as for what is on screen.
+            // Only what is on screen without pixels is painted here, rather
+            // than shown blank; the rest is a worker's. With both workers
+            // busy, the pump asks again: AppKit is about to clear this
+            // view's dirty flag, and an appearance change dirties every
+            // text at once.
+            if let presenter, !presenter.textRasters.ensure(self, urgent: presenter.textIsVisible(self)) {
+                presenter.requestTextPublication()
+            }
+            if textRaster != nil { presentTextRaster() } else { layer?.contents = nil }
+        } else {
+            layer?.contents = nil
+            applyLayerPaint()
+        }
+        repaintThrough()
+        if presenter?.views[id] === self { firstDraw?.drawn() }
+    }
+
+    /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
+    /// any overflow but `visible`; line-clamp). Without a clip box
+    /// it is `clipsToBounds` (`applyStyle`; a landing flight, `FlightsMac`).
+    var overflowClips: Bool {
+        let over = [style["overflow_x"]?.string ?? "visible", style["overflow_y"]?.string ?? "visible"]
+        return kind == "text" ? over.contains { $0 != "visible" } || number("line_clamp") > 0 : over.contains { $0 == "hidden" || $0 == "clip" }
+    }
+
+    func applyStyle(_ s: NodeStyle) {
+        defer { materialContent?.needsDisplay = true }
+        defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        layerPaintCache = nil
+        let origin = style["transform_origin"]
+        let old = style
+        style = s
+        if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["zoom"] != s["zoom"], kind == "iframe" { updateEmbedded() } // the guest's page zoom
+        if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
+        if old["appearance"] != s["appearance"] { needsLayout = true } // a form row's bezel (FormRowsMac.swift)
+        if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
+        if old["accent_color"] != s["accent_color"] { accentChanged() }
+        if s["transform_origin"] != origin { applyTransform() }
+        applySpace(changedFrom: old)
+        decorationChanged(from: old)
+        syncDynamicRange(from: old)
+        let uniformBorder = number("border_width")
+        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil || fieldGround != nil
+            || number("border_width_top", uniformBorder) > 0
+            || number("border_width_right", uniformBorder) > 0
+            || number("border_width_bottom", uniformBorder) > 0
+            || number("border_width_left", uniformBorder) > 0
+        layerContentsRedrawPolicy = kind != "text" && wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
+        updateSymbol()
+        (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
+        // Inline text is unmounted run data. Its containing paragraph owns
+        // the backing store; create this node's layer only when it mounts.
+        if kind != "text" || superview != nil { wantsLayer = true }
+        applyBoxMask()
+        applyFilter()
+        // Scrolling and clipping come from the effective overflow the host
+        // wrote in (never from the node's kind): `scroll` on an axis makes a
+        // scroll container that scrolls that axis; `hidden` clips.
+        // A paragraph paints its own text and has no child views for a
+        // scroll view to hold; one there (CSS computes `overflow-x: hidden`'s
+        // other axis to `auto`, an ellipsis's usual pair) only took the
+        // clicks a button around the label should hear.
+        // Its overflow clips instead, as the box it paints in.
+        let paragraph = kind == "text"
+        let ox = paragraph ? "visible" : s["overflow_x"]?.string ?? "visible", oy = paragraph ? "visible" : s["overflow_y"]?.string ?? "visible"
+        if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
+            let sv = ChainingScrollView(frame: bounds)
+            sv.pointerOwner = self
+            sv.collectionWillScroll = { [weak self] in
+                guard let self else { return }
+                // The reader's own scroll ends a smooth correction's animation.
+                if presenter?.collections.animating.contains(id) == true, let clip = scroll?.contentView {
+                    NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(clip.bounds.origin) })
+                }
+                presenter?.collections.animationEnded(id, dragging: true)
+                presenter?.collections.userIntent(id, travel: true)
+            }
+            sv.drawsBackground = false
+            sv.hasVerticalScroller = true
+            sv.hasHorizontalScroller = true
+            sv.autohidesScrollers = true
+            sv.automaticallyAdjustsContentInsets = false
+            sv.contentInsets = NSEdgeInsetsZero
+            sv.documentView = FlippedView(frame: .zero)
+            // A scroll under a canvas repaints it.
+            sv.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled), name: NSView.boundsDidChangeNotification, object: sv.contentView)
+            observeLiveScroll(sv, replacing: scroll)
+            sv.autoresizingMask = [.width, .height]
+            GlassGroups.moving(in: self) {
+                let children = container.subviews.filter { $0 is NodeView }
+                addSubview(sv)
+                for child in children { sv.documentView?.addSubview(child) }
+            }
+            scroll = sv
+            presenter?.scrollers.insert(id)
+        }
+        if ox != "scroll" && ox != "auto" && oy != "scroll" && oy != "auto", let sv = scroll {
+            // Neither axis scrolls any more: the children come back out.
+            GlassGroups.moving(in: self) {
+                for child in sv.documentView?.subviews ?? [] where child is NodeView { (overlay ?? materialContent ?? self).addSubview(child) }
+                sv.removeFromSuperview()
+            }
+            observeLiveScroll(nil, replacing: sv)
+            scroll = nil
+            presenter?.covers.report("scroller-\(id)", [:])
+            presenter?.scrollers.remove(id)
+        }
+        scroll?.scrollsX = (ox == "scroll" || ox == "auto")
+        scroll?.scrollsY = (oy == "scroll" || oy == "auto")
+        // `overflow: hidden` clips the children, to the box's rounded corners
+        // as the web and UIKit do. One radius rides the layer;
+        // differing radii clip to the bounds, as UIKit's layer path does.
+        // On a layer-backed view this is the layer's `masksToBounds`, unless
+        // the node casts a shadow that clipping would clip (`BoxShadow.swift`).
+        // A paragraph paints its own text, which a box would not clip.
+        syncClipBox(overflowClips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
+        let clipped = overflowClips && clipBox == nil
+        if clipsToBounds != clipped { clipsToBounds = clipped }
+        applyClipRadius()
+        applyShadow()
+        syncGlassGroup()
+        // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
+        // gesture and bounces, `none` keeps it and does not.
+        let bx = s["overscroll_behavior_x"]?.string ?? "auto"
+        let by = s["overscroll_behavior_y"]?.string ?? "auto"
+        scroll?.containX = bx != "auto"
+        scroll?.containY = by != "auto"
+        scroll?.bouncesX = bx == "contain"
+        scroll?.bouncesY = by == "contain"
+        // Set with the style and not per event: elasticity is what AppKit
+        // reads to decide whether a gesture may stretch past the end, and
+        // writing it while one is in flight disturbs the machine it enables.
+        let ex: NSScrollView.Elasticity = bx == "contain" ? .allowed : bx == "none" ? .none : .automatic
+        let ey: NSScrollView.Elasticity = by == "contain" ? .allowed : by == "none" ? .none : .automatic
+        if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
+        if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
+        let scrollbarWidth = s["scrollbar_width"]?.string ?? "auto"
+        scroll?.hasHorizontalScroller = (ox == "scroll" || ox == "auto") && scrollbarWidth != "none"
+        scroll?.hasVerticalScroller = (oy == "scroll" || oy == "auto") && scrollbarWidth != "none"
+        scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
+        scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
+        styleTextArea()
+        styleLentFieldSide()
+        if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
+            (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
+            ligatures: Int(number("font_variant_ligatures")), stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style))
+            f.textColor = fieldInk
+            applyPlaceholder(f)
+            styleNativeField()
+            updateNumberStepper() // `appearance` may have changed
+        }
+        updateMaterial()
+        needsDisplay = true
+    }
+
+    /// CSS `filter`: the box shows through a filtered
+    /// picture (`BoxFilter`), drawn again when what it shows changes.
+    private(set) var boxFilter: BoxFilter?
+    var hasBoxFilter: Bool { boxFilter != nil }
+    func applyFilter() {
+        // A node with no filter makes no BoxFilter to learn so (three layers
+        // per styled node otherwise; iOS's 50e9abf6e).
+        guard boxFilter != nil || style["filter"] != nil else { return }
+        let f = boxFilter ?? BoxFilter()
+        if f.set(style["filter"]) {
+            boxFilter = f
+            layer?.mask = f.hide
+            presenter?.boxFilters.add(self) { [weak self] in self?.renderFilter(fresh: $0) }
+            renderFilter()
+        } else if let f = boxFilter {
+            f.remove()
+            boxFilter = nil
+            presenter?.boxFilters.remove(self)
+            applyBoxMask()
+        }
+    }
+
+    func renderFilter(fresh: Bool = true) {
+        guard let f = boxFilter, let layer else { return }
+        guard superview != nil else { f.remove(); return }
+        // The picture renders the layer as it stands: a box that is layer
+        // properties (`BoxLayerMac.swift`) gets them now, not at the next
+        // display, so a new filtered box is not pictured empty.
+        if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
+        setPaintPosition(paintZPosition)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark,
+                 node: id, fresh: fresh, shown: window == nil || !visibleRect.isEmpty) { [weak self] in
+            if let self { presenter?.boxFilters.landed(self) }
+        }
+    }
+
+    package override func viewDidMoveToSuperview() {
+        pressMoves &+= 1
+        super.viewDidMoveToSuperview()
+        if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        paintOrderMoved()
+        syncDisabledLook() // a list's row is known by where it is mounted (PressLookMac.swift)
+        if window != nil { retintSubtree() } // and its tint by what is above it (NodeColorMac.swift)
+    }
+
+    /// `overflow: hidden` clips to the rounded corners: one radius rides the
+    /// clipping layer, reduced as CSS reduces it to fit the box (Core
+    /// Animation draws nothing for a radius past half the shorter side);
+    /// differing radii clip to the bounds, as UIKit's layer path does. The
+    /// box's own layer paint decides the radius with it (`applyBoxLayer`).
+    func applyClipRadius() { applyBoxLayer() }
+
+    /// A backdrop mirrors its box where its parent hands it the backdrop.
+    package override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved, !backdropOperations.isEmpty { applyBackdrop() }
+    }
+
+    /// The reduction depends on the size, which the kernel's layout sets
+    /// after the style.
+    package override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        guard changed else { return }
+        if let row = superview as? NodeView, row.style["appearance"] != nil { row.needsLayout = true } // its bezel (FormRowsMac.swift)
+        if focusVisible { noteFocusRingMaskChanged() } // the ring follows the box
+        layerPaintCache = nil
+        if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
+        if materialView != nil { applyMaterialRadius() }
+        if !backdropOperations.isEmpty { applyBackdrop() }
+        // Border, gradient and image sublayers follow the new size.
+        if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
+    }
+
+    func prepareToMount() {
+        guard kind == "text" else { return }
+        wantsLayer = true
+        applyShadow()
+        if let hide = boxFilter?.hide { layer?.mask = hide } else { applyBoxMask() }
+        setPaintPosition(paintZPosition)
+        applyTransform()
+    }
+
+    func fitScroll() {
+        guard let scroll, let document = scroll.documentView else { return }
+        let visible = scroll.contentView.bounds.size
+        let origin = scroll.kernelDocumentOrigin
+        let size = CGSize(width: max(content.width - origin.x, visible.width), height: max(content.height - origin.y, visible.height))
+        if document.frame.size != size { document.setFrameSize(size) }
+    }
+
+    package override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // A plain container's detachment moves no NodeView's superview.
+        pressMoves &+= 1
+        if window == nil { holdPresenter?.mouseChain.bubbledPress?.cancel(in: self) }
+        if window != nil { retint() }
+        presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
+    }
+
+    package override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if textRaster != nil { textRasterKey = nil; textRasterPending = false; needsDisplay = true }
+        // A border's device pixels follow the scale (`BoxLayerMac.swift`).
+        if layerBoxEligible && hasBoxPaint { needsDisplay = true }
+    }
+
+    package override func layout() {
+        if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
+        super.layout()
+        // AppKit rewrites a layer-backed view's layer geometry, transform
+        // included, as it lays it out: the authored one goes back on.
+        applyTransform()
+        if style["perspective"] != nil { applyPerspective() }
+        if kind == "image", flightLook == nil { presenter?.session?.rasters.resized(self) }
+        presenter?.collections.changed(id)
+        presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
+        layoutField()
+        video?.layout()
+        if kind == "native" { presenter?.session?.natives.laidOut(self) }
+        layoutTextArea()
+        layoutSymbol()
+        layoutRowBezel()
+        layoutContent()
+    }
+
+    /// The reduced radii; the layer fast path additionally requires circles.
+    func cornerSizes(in rect: NSRect, inset: CGFloat = 0) -> [CGSize] {
+        BorderPaint.reduced(BorderPaint.radii(style, in: rect, inset: inset), in: rect)
+    }
+    func cornerRadii(in rect: NSRect, inset: CGFloat = 0) -> [CGFloat] {
+        cornerSizes(in: rect, inset: inset).map { $0.width }
+    }
+    func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
+        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
+    }
+
+    package override func draw(_ rect: NSRect) {
+        syncDrawnRange()
+        // The display path a drawn box takes instead of `updateLayer()`:
+        // AppKit has rewritten the layer's transform here too.
+        applyTransform()
+        // Selection, capture, and decorated text return to direct painting.
+        if textRasterUsesStrips {
+            textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
+            textRasterOverflowLayer = nil
+        } else if textRasterOverflowLayer != nil {
+            dropTextRaster()
+            // cacheDisplay does not invalidate the live backing layer. Restore
+            // its pixels on the pump after the offscreen capture has finished.
+            if Capture.capturing { presenter?.requestTextPublication() }
+        }
+        repaintThrough()
+        if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
+            // A canvas nested under a canvas painted through its surface: its
+            // picture into the ancestor's capture; its own Metal
+            // layer is not seen there.
+            let picture = NSImage(size: bounds.size)
+            picture.addRepresentation(rep)
+            picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+        // The first pixel is on its way: the GPU module may load now, on the
+        // next turn. A batch's own attempt runs before the
+        // display pass and finds no first draw yet; an app with no later
+        // batch — no image, no timer, no motion — would never load it
+        // (found by the readback fixture).
+        if presenter?.views[id] === self { firstDraw?.drawn() }
+        if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
+        // What the layer shows (`BoxLayerMac.swift`) is not painted again,
+        // nor into a capture where the capture shows the layer's paint as
+        // the window does (`captureShowsLayerPaint`).
+        let layerPaint = layerBoxEligible && (!Capture.capturing || captureShowsLayerPaint)
+        if layerPaint, !Capture.capturing { applyLayerPaint() }
+        let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw) && !cssVisibilityHidden
+        let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
+        // The box's outline only where something is painted through it.
+        lazy var path = roundedPath(in: bounds)
+        // A layout transition's size shows the surface on its own layer.
+        if paintsBox, materialContent == nil { drawBackground(path, rounded: rounded) }
+        if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
+        if paintsBox, materialContent == nil { drawBoxBorder() }
+        if !cssVisibilityHidden, kind == "image", !hasSymbolLeaf, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
+            // CSS object-fit over the content box (the frame inside border
+            // and padding), clipped by the border box's radius: `fill`
+            // stretches, `contain`/`cover` keep the ratio, `none` is the
+            // natural size, `scale-down` the smaller of none and contain;
+            // an unknown value is the initial `fill`.
+            let fit = style["object_fit"]?.string ?? "fill"
+            let content = contentBox()
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+            let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
+            ctx.saveGState()
+            path.addClip()
+            NSBezierPath(rect: content).addClip()
+            ctx.translateBy(x: rect.minX, y: rect.maxY)
+            ctx.scaleBy(x: 1, y: -1)
+            RasterGeometry.draw(ctx, AnimatedRasters.shared.frame(for: self) ?? bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
+            ctx.restoreGState()
+        }
+        let textDirty = Capture.capturing || canvasAbove != nil || textIsSmall ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
+        if isParagraph, !textDirty.isEmpty, presenter?.session?.regions.owns(self) != true {
+            // The same paragraph the kernel measured at this width, painted.
+            let spec = paragraphSpec()
+            if let readerParagraph, let ctx = NSGraphicsContext.current?.cgContext {
+                if !readerParagraph.present(in: self) {
+                    readerParagraph.draw(self, in: ctx, dirty: textDirty)
+                }
+            } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
+                drawParagraphFragments(ctx, paragraph: paragraph, spec: spec, dirty: textDirty)
+            }
+        }
+        if !cssVisibilityHidden, Capture.capturing, let picture = Capture.web[id] {
+            // Remote WebKit layers supply their own picture for this capture
+            // turn, at the node's normal hierarchy position.
+            picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+
+    /// The click that activates a window presses a control and nothing else,
+    /// as in AppKit (`clicksThrough`, FocusMac.swift).
+    /// The agent's window is never key, so its every click counts.
+    package override func acceptsFirstMouse(for event: NSEvent?) -> Bool { Self.everyClickCounts || clicksThrough }
+
+    // Press: down and up inside the bounds. A click on a button or a
+    // pressable leaves the first responder where it is, as a click on an
+    // `NSButton` does, and so does one nothing consumes, which reaches the
+    // viewport (`takesClickFocus`, FocusMac.swift).
+    // An assistive app's press runs once AppKit's request has returned, as an
+    // inline run's does (`InlineAccessibility.accessibilityPerformPress`).
+    package override func accessibilityPerformPress() -> Bool {
+        if isSurfaceControl { return control("down") && control("up") }
+        guard !disabled, !inert, pressable else { return false }
+        DispatchQueue.main.async { [weak self] in if let self { self.presenter?.press(self.id) } }
+        return true
+    }
+    package override func rightMouseDown(with event: NSEvent) {
+        // DOM's order on a Mac: the secondary button's `pointerdown`, then
+        // the `contextmenu` at its point, on the button's down.
+        // A canvas that wants input takes the pointer as well; the node's
+        // own `contextmenu` still runs (review b5-b 2), and then no system
+        // menu opens.
+        pointerPressed(event)
+        let endKeeping = keepingFocus(for: event)
+        defer { endKeeping() }
+        let canvas = canvasInput?.pointer(event, phase: "down") == true
+        if inlineContextMenu(event) || dispatchContextMenu(at: convert(event.locationInWindow, from: nil), sample: pointerSample(event), click: event) { return }
+        if !canvas, !bubbleContextMenu(event) { super.rightMouseDown(with: event) }
+    }
+    package override func scrollWheel(with event: NSEvent) {
+        // A canvas that wants input scrolls itself; the nodes' `wheel` is
+        // still heard (review b5-b 2).
+        if canvasInput?.wheel(event) == true { _ = wheel(event); return }
+        if presenter?.mouseDrags.transform.scroll(self, event: event) != true, !wheel(event) { super.scrollWheel(with: event) }
+    }
+    package override func magnify(with event: NSEvent) {
+        if presenter?.mouseDrags.transform.magnify(self, event: event) != true, !wheel(event) { super.magnify(with: event) }
+    }
+}
+#endif

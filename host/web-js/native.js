@@ -1,0 +1,44 @@
+// Native modules on the JS runtime:
+// the wasm host's own `native-glue.js` over the app's module
+// artifact (`modules/index.js`, its `modules/web/`), and over the views its
+// packages serve (views.js). A loaded chunk,
+// fetched after first paint by the first module element (rt.js `nm`) or a
+// TypeScript source's `native` (ts-data.js); an app without modules never
+// has it.
+import './native-glue.js';
+
+// The runner's dispatch codes (native-glue.js `DISPATCH`) as the runtime's
+// handler kinds; hover's over and off are its true and false.
+const KINDS = [['press'], ['change'], ['hover', true], ['hover', false], ['focus'], ['blur'], ['key'], ['submit'], ['load'], ['message']];
+let views = null, page = null;
+
+/** The module elements' host: a module's event is an `exact-native` event
+ * on its element, which the handlers take (rt.js `on`). `appId` is the app's,
+ * asked when a view first names an app file: passed, not imported from rt.js,
+ * since a chunk that imports the entry's module is shared code a single-file
+ * bundle can't inline (the paint harness's IIFE build, 642157ccba). */
+export function viewHost(say, appId = () => undefined) {
+  const x = globalThis.exact;
+  // The glue dispatches once the page is ready, which it awaits.
+  if (typeof x.ready?.then !== 'function') x.ready = Promise.resolve(x.ready);
+  // An `app:/` path's object URL for a module's view (the photo editor's
+  // photo), as an `image` shows the app's own file (media.js `appURL`).
+  x.appFileURL ??= path => import(new URL('./picker-glue.js', import.meta.url).href).then(() => x.appURL(path, appId()));
+  return views ??= x.nativeHost({ log: say, packages: x.packageViews ?? null, dispatch(el, code, text) {
+    const [kind, value] = KINDS[code] ?? [];
+    if (kind) el.dispatchEvent(new CustomEvent('exact-native', { detail: { kind, value: value ?? text } }));
+  } });
+}
+
+/** The app's page module itself: its `element` hatches (hatches.js). */
+export const pageTable = () => globalThis.exact.nativeModule();
+
+/** `native.later` and device topics (1016.002): the artifact's
+ * `later(request)`, and its `connect` announcements, each re-asking the
+ * resources whose answers watched the topic (`changed`). */
+export function pageModule({ changed, agent, now }) {
+  page ??= globalThis.exact.pageNative(true, { changed, ready: () => true, generation: () => 0, agent, now });
+  return page.then(p => ({
+    later: request => p.later(btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(request))))).then(JSON.parse),
+  }));
+}

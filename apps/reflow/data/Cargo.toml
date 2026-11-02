@@ -1,0 +1,18 @@
+# Reflow's data crate: Pretext's architecture below the data seam — one advance
+# table per declared face, generated from the app's own font files at build
+# time, and the hosts' shared `exact-textflow` walker over those advances.
+[package]
+name = "reflow-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+exact-textflow = { path = "../../../textflow" }
+
+[build-dependencies]
+ttf-parser = "0.25"

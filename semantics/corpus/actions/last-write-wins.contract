@@ -1,0 +1,52 @@
+// Several writes to one slot in an action: the last one lands. Every read
+// in the body sees the state as it was when the event arrived.
+component App
+  state n = 1
+  state seen = 0
+  state seen2 = 0
+  action twice
+    n = n + 1
+    n = n + 10
+  action readAfter
+    n = 100
+    seen = n
+  action chain
+    n = n * 2
+    seen = n * 2
+    seen2 = seen + 1
+  action override
+    n = 5
+    n = 6
+    n = 7
+  view
+    column
+      text `${n} ${seen} ${seen2}` testId="r"
+      button "twice" press=twice testId="twice"
+      button "read" press=readAfter testId="read"
+      button "chain" press=chain testId="chain"
+      button "override" press=override testId="override"
+
+test "last write wins, reads see pre-state"
+  tap "twice"
+  expect state n == 11
+  tap "twice"
+  expect state n == 21
+
+test "read after write sees old value"
+  tap "read"
+  expect state n == 100
+  expect state seen == 1
+  tap "read"
+  expect state seen == 100
+
+test "chain uses pre-state throughout"
+  tap "chain"
+  expect state n == 2
+  expect state seen == 2
+  expect state seen2 == 1
+  tap "chain"
+  expect text "r" == "4 4 3"
+
+test "three writes"
+  tap "override"
+  expect state n == 7

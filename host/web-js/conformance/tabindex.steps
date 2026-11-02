@@ -1,0 +1,11 @@
+# Tab from a `tabindex=0` box with no handler goes on in tree order, past the
+# plain box and the `-1` one, to the button; then on past the bound `-1`.
+key zero Tab
+key reveal Tab
+# A click focuses `-1`; its own `key` handler hears the key first.
+tap minus
+key minus a
+# Once revealed, the bound box joins the order after the button.
+tap reveal
+key reveal Tab
+key bound Shift+Tab

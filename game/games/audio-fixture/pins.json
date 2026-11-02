@@ -1,0 +1,27 @@
+{
+  "ticks": {
+    "0": "0xc4dfcf05ad79121b",
+    "90": "0x70f5499729b09c87"
+  },
+  "saves": {
+    "continuation": "3d0e35f7b879346d0b13f85359b54b61a1bcf36071df3d97de672530f5207217"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "10e37210aca4642cf456e067400ac53553a2b7e2c9300e3253a232b57dd51fae",
+  "sourceInputs": "f22e2cba6334975162b3dfd8e60165245378fbeb2970ffe5f1355506085be3bc",
+  "game": "audio-fixture",
+  "generated": "bun game/prove.mjs audio-fixture --repin --hosts 'linux,web'",
+  "at": "inputs:f22e2cba6334975162b3dfd8e60165245378fbeb2970ffe5f1355506085be3bc",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+}

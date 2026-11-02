@@ -1,0 +1,6 @@
+# Same keys reordered, back, a subset, reordered from the subset.
+tap by-distance
+tap by-line
+tap closest
+tap by-distance
+tap by-line

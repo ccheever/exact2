@@ -1,0 +1,36 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/age-range@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "frameworks": {
+    "DeclaredAgeRange": {
+      "ios": "26.0",
+      "macos": "26.0"
+    }
+  },
+  "shapes": {
+    "AppleAgeRangeStatus": {
+      "requiredRegulatoryFeatures": "string[]"
+    },
+    "AppleAgeRange": {
+      "activeParentalControls": "string[]",
+      "ageRangeDeclaration": "option<string>"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "AgeRange.swift",
+      "AgentAgeRange.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "AgeRangeModule"
+}

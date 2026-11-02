@@ -1,0 +1,346 @@
+// Paragraph text rasterized off the main thread.
+//
+// AppKit paints a layer-backed view only where it is visible, so a paragraph
+// scrolling into view is painted in strips: a backing buffer, a display-list
+// replay and a texture upload per paragraph per frame, on the main thread, in
+// the frame that has to move — half of what that thread did during a scroll.
+// Here a paragraph's text is drawn once, whole, on a worker, into a surface the
+// view's layer shows. The main thread mounts the row; the pixels arrive behind it,
+// while the row is still a screen away. Scrolling mounted text is compositing.
+//
+// `NodeView.draw` still paints text for everything this declines: a
+// selection, a capture, a canvas, a decorated text box, a clamp, a paragraph
+// taller than a screen, and one too small to repay a surface (unless HDR).
+#if os(macOS)
+import AppKit
+import CoreText
+import IOSurface
+
+final class TextRasterizer {
+    /// Points — about a screenful. A taller paragraph is never seen whole, and a
+    /// bitmap is all or nothing: a 245-line code block was one 33 MB surface,
+    /// more than every other text pixel in the document together. AppKit's
+    /// strips back only what is on screen.
+    static let maxHeight: CGFloat = 1024
+    /// Pixels. A surface has a fixed cost — an IOSurface, and its registration
+    /// with the render server when a layer first shows it — that a few glyphs
+    /// never repay: a table of 32 narrow cells made one per cell as each row
+    /// mounted and scrolled at 31–35 fps, where AppKit drawing the cells into
+    /// their layers' own backing stores made 51–58. Smaller text draws.
+    static let minPixels: CGFloat = 16384
+    // Keep italic overhang and ink outside tight line boxes, but never size
+    // a surface to an unbreakable line's potentially unbounded advance.
+    static let maxInkOverflow = TextRasterJob.maxInkOverflow
+
+    // A slice limits admission rate, not outstanding work. Keep no backlog:
+    // the next pump tries the still-nearby paragraphs again when a worker is
+    // free, so navigation and resize cannot queue obsolete document pixels.
+    private var active = 0
+    private static let maxConcurrent = 2
+
+    private func key(_ node: NodeView) -> TextRasterKey {
+        TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
+                      box: node.paragraphBox(), scale: node.window?.backingScaleFactor ?? 2)
+    }
+
+    private func prepare(_ node: NodeView, key: TextRasterKey) -> TextRasterJob? {
+        guard let engine = node.text else { return nil }
+        let measured = engine.measuredBreaks(key.spec, width: key.box.width)
+        let paragraph = measured == nil ? node.paragraphLayout() : nil
+        guard let geometry = measured ?? paragraph.map(LineGeometry.init) else { return nil }
+        node.textRasterKey = key
+        node.textRasterReady = false
+        node.textRasterFailed = false
+        node.textRasterPending = false
+        let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
+        return TextRasterJob(source: source.copy() as! NSAttributedString,
+                   ranges: geometry.ranges, baselines: geometry.baselines,
+                   flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, whiteSpace: key.spec.whiteSpace, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
+                   box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped,
+                   shadow: key.spec.hdrShadow.map(TextRunShadow.init), antialiased: key.spec.antialiased,
+                   measuredGlyphs: key.spec.color.count == 4 ? engine.measuredGlyphs(key.spec, width: key.box.width) : nil,
+                   measuredColor: TextEngine.color(key.spec.color).cgColor)
+    }
+
+    /// Only first pixels may rasterize synchronously. A replacement uses the
+    /// visible batch below, or a worker if an AppKit display pass gets here first.
+    @discardableResult
+    func ensure(_ node: NodeView, urgent: Bool) -> Bool {
+        if node.textRasterFailed, node.textRasterKey != nil { return true }
+        guard node.rastersText else { return true }
+        let key = key(node)
+        if node.textRasterKey == key, node.textRasterReady || !urgent || node.textRaster != nil {
+            if node.textRasterReady && node.textRasterPending { node.presentTextRaster() }
+            return true
+        }
+        let firstPixels = urgent && node.textRaster == nil && !node.textRasterUsesStrips
+        guard firstPixels || active < Self.maxConcurrent else { return false }
+        guard let job = prepare(node, key: key) else { node.dropTextRaster(); return true }
+        if firstPixels {
+            let lines = job.measuredGlyphs == nil ? node.text?.rasterLines(key.spec, ranges: job.ranges, width: key.box.width).1 : nil
+            let image = Self.render(job, firstPixels: true, lines: lines)
+            node.showTextRaster(image?.surface, for: key, frame: image?.frame, cast: image?.cast)
+            return true
+        }
+        if urgent { node.useTextStrips() }
+        active += 1
+        RegionTextExecutor.queue.addOperation { [weak self, weak node] in
+            let image = Self.render(job)
+            DispatchQueue.main.async { [weak self, weak node] in
+                self?.active -= 1
+                node?.showTextRaster(image?.surface, for: key, frame: image?.frame, cast: image?.cast, deferOffscreen: true)
+            }
+        }
+        return true
+    }
+
+    // One visible replacement set at a time, on the existing raster workers.
+    // The main thread reads results only after both workers leave the group.
+    private final class Replacement {
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var images: [Int: TextRasterImage] = [:]
+        var published = false
+        func put(_ image: TextRasterImage?, at index: Int) {
+            lock.lock(); defer { lock.unlock() }
+            images[index] = image
+        }
+    }
+    private var replacing = false
+
+    /// New geometry and its pixels become visible in one transaction. Spend
+    /// at most a quarter frame waiting; on timeout AppKit draws the new-width
+    /// visible strips in this display pass. No stale line breaks cross a frame.
+    /// A live resize skips full rasters when at least half their pixels are hidden.
+    @discardableResult
+    func replaceVisible(_ nodes: [NodeView], wait: TimeInterval) -> Bool {
+        var jobs: [(NodeView, TextRasterKey, TextRasterJob)] = []
+        var deferred = false
+        for node in nodes where node.needsTextRaster && node.canRasterText && (node.textRaster != nil || node.textRasterUsesStrips) {
+            let key = key(node)
+            if node.textRasterKey == key {
+                if node.textRasterReady && node.textRasterPending { node.presentTextRaster() }
+                continue
+            }
+            let visible = node.presenter?.textIsVisible(node) == true
+            guard visible else { continue }
+            let port = node.presenter?.textScrollportRect(node) ?? node.visibleRect
+            if replacing || active > 0 || (node.inLiveResize && port.height < node.bounds.height * 0.5) {
+                node.useTextStrips()
+                deferred = true
+                continue
+            }
+            if let job = prepare(node, key: key) { jobs.append((node, key, job)) }
+        }
+        guard !jobs.isEmpty else { return deferred }
+        replacing = true
+        let result = Replacement()
+        let work = jobs
+        let workers = min(Self.maxConcurrent, jobs.count)
+        active += workers
+        // Two bounded lanes, no job per paragraph queued behind old widths.
+        for lane in 0..<workers {
+            result.group.enter()
+            RegionTextExecutor.queue.addOperation {
+                for index in stride(from: lane, to: work.count, by: workers) {
+                    result.put(Self.render(work[index].2), at: index)
+                }
+                result.group.leave()
+            }
+        }
+        let publish = { [weak self] in
+            guard !result.published else { return }
+            result.published = true
+            self?.active -= workers
+            self?.replacing = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (index, entry) in jobs.enumerated() {
+                let image = result.images[index]
+                entry.0.showTextRaster(image?.surface, for: entry.1, frame: image?.frame, cast: image?.cast)
+            }
+            CATransaction.commit()
+            // A later width may have superseded this entire group.
+            jobs.first?.0.presenter?.requestTextPublication()
+        }
+        if result.group.wait(timeout: .now() + max(0, wait)) == .success {
+            publish()
+        } else {
+            for (node, _, _) in jobs { node.useTextStrips() }
+            result.group.notify(queue: .main, execute: publish)
+        }
+        return deferred
+    }
+
+    /// The same paint `TextEngine.draw` makes — a y-down context, one
+    /// `CTLineDraw` per line, baselines rounded to points — into an sRGB
+    /// IOSurface. A surface is what the render server composites: a CGImage
+    /// would be converted and copied for it on the main thread, at commit.
+    /// Workers create their own lines from source and ranges.
+    private static func render(_ job: TextRasterJob, firstPixels: Bool = false, lines: [CTLine]? = nil) -> TextRasterImage? {
+        assert(!Thread.isMainThread || firstPixels, "replacement rasterization belongs to workers")
+        return job.render(lines: lines)
+    }
+}
+
+extension NodeView {
+    /// Whether this paragraph's text is a rasterized surface rather than
+    /// something `draw` paints. Asked by AppKit through `wantsUpdateLayer`.
+    var rastersText: Bool { canRasterText && !textRasterUsesStrips }
+
+    var canRasterText: Bool {
+        if textRasterFailed, textRasterKey != nil { return false }
+        // Cheapest first: this is asked of every visible paragraph on every
+        // text refresh, and the ancestor walk and the paragraph's spec are
+        // the costly questions.
+        // `text-overflow: ellipsis` truncates in the raster job, as `draw(_:)`
+        // does, and a `line-clamp`'s last line is made again from the range
+        // it broke at (`LineGeometry.clamped`), as on iOS (873cec46e): a
+        // clamped or ellipsized label no longer paints on the main thread.
+        guard kind == "text", isParagraph, flowShapes.isEmpty, columnRecord == nil, !hasBoxPaint, !Capture.capturing, backgroundClip != "text",
+              bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
+              window != nil, readerParagraph == nil, let presenter else { return false }
+        if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
+        if presenter.session?.regions.owns(self) == true { return false }
+        return canvasAbove == nil && !paintsVisibleInlineRun
+    }
+
+    /// Too few pixels to repay a surface. Such text draws whole rather than in
+    /// bands admitted as it scrolls: bands, and their visit per frame, are for
+    /// paragraphs too large to paint at once. HDR text is never small: only a
+    /// raster's layers follow `dynamic-range-limit`.
+    var textIsSmall: Bool {
+        let scale = window?.backingScaleFactor ?? 2
+        guard bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels else { return false }
+        return !(isParagraph && paragraphHeadroom(drawing: true) > 1)
+    }
+
+    /// Whether the pump still owes this paragraph pixels.
+    var needsTextRaster: Bool {
+        if textRasterFailed, textRasterKey != nil { return false }
+        return !textRasterReady || textRasterKey == nil || textRasterPending
+    }
+
+    /// The box a raster was painted for is gone — the layer would stretch its
+    /// surface to whatever the paragraph is now. Retire the key so the pump
+    /// asks a worker for pixels at the new geometry. AppKit's own dirty flag
+    /// cannot be that record: a paragraph resized while it is off screen is
+    /// not redrawn there, and an `ensure` that finds every worker busy
+    /// declines after `updateLayer` has already cleared the flag. The old
+    /// pixels stay up until the new ones replace them, as `invalidateText`
+    /// leaves them for a changed paragraph.
+    func textRasterGeometryChanged() {
+        // A worker will replace accepted pixels only while this node remains
+        // eligible. Crossing to draw must retire both the surface and any
+        // overflow/shadow sublayer before AppKit chooses its display path.
+        if textRaster != nil, !canRasterText {
+            dropTextRaster()
+            needsDisplay = true
+            return
+        }
+        if let key = textRasterKey, key.size == bounds.size && key.box == contentBox() { return }
+        textRasterKey = nil
+        textRasterPending = false
+        // Position the accepted surface at its original dimensions immediately;
+        // the node's new frame must never stretch old glyphs.
+        if textRaster != nil { presentTextRaster() }
+    }
+
+    func useTextStrips() {
+        textRasterUsesStrips = true
+        needsDisplay = true
+    }
+
+    func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, frame: CGRect? = nil, cast: IOSurface? = nil, deferOffscreen: Bool = false) {
+        // An urgent paint can overtake its worker. Keep the accepted surface
+        // instead of committing identical pixels again when that worker ends.
+        guard textRasterKey == key, !textRasterReady else { return }
+        guard let image else {
+            dropTextRaster()
+            textRasterKey = key
+            textRasterFailed = true
+            needsDisplay = true
+            // A synchronous failure can occur inside updateLayer, whose dirty
+            // flag AppKit is about to clear. Ask again after that display pass,
+            // now through draw. A late successful worker can still replace it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.textRasterFailed, self.textRasterKey == key else { return }
+                self.needsDisplay = true
+            }
+            return
+        }
+        textRasterFailed = false
+        textRasterUsesStrips = false
+        textRaster = image
+        textRasterCast = cast
+        textRasterScale = key.scale
+        textRasterFrame = frame ?? CGRect(origin: .zero, size: key.size)
+        textRasterReady = true
+        guard rastersText else { return }
+        if deferOffscreen, let presenter, !presenter.textIsVisible(self) {
+            textRasterPending = true
+            presenter.requestTextPublication()
+        } else { presentTextRaster() }
+    }
+
+    /// Fitting ink uses the view's contents. Overflow ink needs a positioned
+    /// sublayer so it can escape the layout box, subject to authored clipping.
+    func presentTextRaster() {
+        guard !textRasterUsesStrips, let layer, let surface = textRaster else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        // A `text-shadow` is cast by a sublayer of its own: the view's layer
+        // would cast its box too.
+        let shadow = textRasterKey.flatMap { $0.spec.hdrShadow == nil ? $0.spec.shadow : nil }
+        // HDR ink too needs its own layer, for its range.
+        let headroom = TextRasterJob.headroom(of: surface)
+        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil, headroom <= 1, textRasterCast == nil {
+            textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
+            textRasterOverflowLayer = nil
+            layer.contentsScale = textRasterScale
+            layer.contentsGravity = .resize
+            layer.contents = surface
+            layer.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
+        } else {
+            layer.contents = nil
+            layer.applyTextRange(headroom: 0, limit: style["dynamic_range_limit"]?.string)
+            let ink = textRasterOverflowLayer ?? CALayer()
+            if ink.superlayer == nil { layer.addSublayer(ink) }
+            textRasterOverflowLayer = ink
+            ink.frame = textRasterFrame
+            ink.contentsScale = textRasterScale
+            ink.contentsGravity = .resize
+            ink.contents = surface
+            TextShadowLayer.apply(shadow, to: ink)
+            ink.applyTextRange(headroom: headroom, limit: style["dynamic_range_limit"]?.string)
+            ink.applyTextCast(textRasterCast, headroom: textRasterCast.map(TextRasterJob.headroom) ?? 0, limit: style["dynamic_range_limit"]?.string)
+        }
+        textRasterPending = false
+        CATransaction.commit()
+        presenter?.boxFilters.changed(self)
+    }
+
+    func dropTextRaster() {
+        textRasterOverflowLayer?.dropTextCast(); textRasterOverflowLayer?.removeFromSuperlayer()
+        textRasterOverflowLayer = nil
+        if textRaster != nil { layer?.contents = nil }
+        layer?.setValue(nil, forKey: CALayer.textHeadroomKey)
+        textRaster = nil; textRasterCast = nil
+        textRasterKey = nil
+        textRasterReady = false
+        textRasterFailed = false
+        textRasterPending = false
+        textRasterUsesStrips = false
+    }
+}
+
+nonisolated(unsafe) private var textRasterCastKey: UInt8 = 0
+
+extension NodeView {
+    /// An HDR `text-shadow`'s own surface (`TextRasterImage.cast`).
+    var textRasterCast: IOSurface? {
+        get { objc_getAssociatedObject(self, &textRasterCastKey) as? IOSurface }
+        set { objc_setAssociatedObject(self, &textRasterCastKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
+#endif

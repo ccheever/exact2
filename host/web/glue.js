@@ -1,0 +1,1499 @@
+// The app is the wasm; this is its DOM host.
+import { sheetLeaves, liveById, sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, pageGivenFiles, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, pageStore, routeFlags } from "./navigation.js";
+let guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen, agentInputLoading;
+const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line
+let httpModule, pickerModule, documentsModule, frameModule, frameNavigation; const frameNav = () => frameNavigation ??= loadAfterPaint('./frame-navigation.js', 'frameNavigation'); // frameNavigation: an iframe's navigation records and commands; the file picker and documents, loaded on first use
+const picker = (at = incarnation) => (pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }))).then(m => m.at(at)); // its operations answer generation `at`, the one that asked
+// An `app:/` source: the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it: the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (exact_raster::MAX_DATA_URL_BYTES).
+const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
+function appFrameSource(el, value) { el.exactSource = value; if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/") && !pageGivenFiles(value ?? "")) return false; /* an app file, or a page of the app's origin whose query may name one (picker-glue.js decides) */ const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el), u => frameURL(u, el.getAttribute("sandbox")) ? el.setAttribute("src", localAssetURL(u)) : refuseURL(el, "src", u)))); return true; }
+const documentsGlue = (at = incarnation) => (documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => (d.keeping(globalThis.exact.compat?.inputs?.app, grantSet), d).install({ generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }))).then(m => m.at(at));
+function httpHelpers() {
+  return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
+}
+const root = document.getElementById("exact-root");
+const views = new Map(); // view id -> element
+// Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use.
+const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent: () => agentMode, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady, log: line => log(line),
+  replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
+  wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
+const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
+const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); /* -exact-exit-animation and -exact-layout-transition, after paint at first use */ afterPaint(() => loadAfterPaint('./menu-rows.js', 'menuRows').then(install => install(), console.error)); // a menu row's popover opens from the menu's invoker
+let mediaModule, mediaAttaching = new Set(), sizes = new Set(), soundModule, soundOut, midiModule, midiOut, imageHold, geometry = null, geometryLoading = null, resizes = null, intersects = null; // the voice table's output (sound-glue.js); animated images held to the agent's clock (image-glue.js); geometry reads (geometry-glue.js); the element resize event (resize-glue.js)
+let wakeLock = null; const holdWake = () => (wakeLock ??= loadAfterPaint('./wakelock-glue.js', 'wakeLockGlue')).then(w => w.hold(w.holders(root).length > 0, log)); let orientationLock = null; const holdOrientation = () => (orientationLock ??= loadAfterPaint('./orientationlock-glue.js', 'orientationLockGlue')).then(o => o.hold(o.session(root), log, e => { for (const [i, v] of views) if (v === e) return i; return null; })); // Loaded at the first `wakelock`, then asked after each batch; `orientationlock` the same
+function syncMedia(el, set = {}, clear = []) {
+  if (!(el instanceof HTMLMediaElement)) return;
+  el.exactMedia ??= { props: {}, handlers: [] };
+  Object.assign(el.exactMedia.props, set);
+  for (const name of clear) delete el.exactMedia.props[name];
+  mediaModule ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./media-glue.js', 'installMedia'))));
+  const attach = Promise.all([mediaModule, moduleReady]).then(([install]) => { if (el.isConnected) { install(el, payload => { if (views.get(Number(el.dataset.view)) !== el || !inputReady) return false; send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); const held = !el.exactMediaHeld && globalThis.exact.mediaHold(el); if (held) { el.exactMediaHeld = true; mediaAttaching.add(held.done); held.done.finally(() => { el.exactMediaHeld = false; mediaAttaching.delete(held.done); }); } } }).catch(console.error); mediaAttaching.add(attach); attach.finally(() => mediaAttaching.delete(attach)); // Attached once the data executor settles (a report before then is dropped), reporting what the element has then; `clock settle` waits for it, not `inflight`, which a module replacement drains during activation. A load or a seek in flight then holds a settle too, as on the JS target (media-glue.js `mediaHold`; `removeMedia` lets it go).
+}
+const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
+const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
+const keyChord = e => /* a keydown or keyup as kind 6's or 43's payload: the chord `Event::key` reads, then its code, repeat and isComposing, which a keyCode-229 keydown is too (rt.js `onKey`; `KeyboardEvent::parse`, #140) */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat + "\n" + !!(e.isComposing || e.keyCode === 229 || e.key === "Process");
+let messageListening = false, bodyHeard, keyEvent = null, pointerEvent = null, pointerDepth = 0; // keyEvent: the keydown (or wheel, beforeunload, clipboard event) a handler is running for, which its `preventDefault()` command prevents; pointerEvent: the pointer's down or up, which only its `stopPropagation()` reaches (its default is the browser's), from its own batch alone (`pointerDepth`, `send`)
+let wasm = null, memory = null, inputReady = false, inputHandlers, structuralModalLayers;
+// Native modules: a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
+let nativePaint = null;
+function afterNativePaint() {
+  return nativePaint ??= new Promise(resolve => {
+    let observer;
+    const done = () => { observer?.disconnect(); resolve(); };
+    try { observer = new PerformanceObserver(() => requestAnimationFrame(done)); observer.observe({ type: 'paint', buffered: true }); } catch {}
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250)));
+  });
+}
+let nativeHost = null;
+function nativeCreate(el, id) {
+  const st = el.exactNative = {
+    id, name: el.localName, state: "loading",
+    status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; },
+    destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); },
+  };
+  (nativeHost ??= afterNativePaint()
+    .then(() => loadAfterPaint('./native-glue.js', 'nativeHost'))
+    .then(make => make({ log, dispatch(el, kind, text) {
+      const id = Number(el.dataset.view);
+      if (inputReady && views.get(id) === el && !retiredViews.has(el))
+        send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now()));
+    } }))).then(h => h.attach(el), e => {
+      nativeHost = null;
+      st.state = "unavailable";
+      st.error = String(e?.message ?? e);
+      log(`native ${st.name} #${id}: unavailable: ${st.error}`);
+    });
+}
+const authoredDisabled = new WeakMap();
+let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
+const pageNative = Boolean(document.querySelector('meta[name="exact-native"]'));
+let pageNativeModule = null;
+const loadPageNative = () => pageNativeModule ??= afterNativePaint().then(() => loadAfterPaint('./native-glue.js', 'pageNative'))
+  .then(load => load(pageNative, {
+    ready: () => inputReady, generation: () => incarnation, agent: agentMode, now,
+    changed: topic => { if (wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(topic))))); },
+  })).catch(error => { pageNativeModule = null; throw error; });
+let rustLoader = null, rustLoading = null;
+const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
+  if (!rustLoader) throw new Error('Rust module loader is not ready');
+  return rustLoader[name](...args);
+}]));
+// A Rust source's entropy and, under the agent, the seed of its repeatable
+// stream (`exact_data::crypto`). The seed is
+// storage-environment.js's `agentSeed`: a loopback page only; -1 is none.
+const dataImports = {
+  random: (ptr, len) => { crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, ptr, len)); },
+  agent_seed: () => {
+    const url = new URL(location.href), seed = Number(url.searchParams.get('seed') ?? 1);
+    if (!url.searchParams.has('agent') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return -1;
+    return Number.isSafeInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : 1;
+  },
+};
+function loadAfterPaint(file, exported) {
+  return new Promise((resolve, reject) => {
+    const script = Object.assign(document.createElement('script'), { type: 'module' });
+    script.src = new URL(file, import.meta.url).href;
+    script.onload = () => resolve(globalThis.exact[exported]);
+    script.onerror = () => reject(new Error('host module loader failed: ' + file));
+    document.head.append(script);
+  });
+}
+const pageFile = name => (path, grants) => (globalThis.exact[name] ? Promise.resolve(globalThis.exact[name]) : loadAfterPaint('./storage-request.js', name)).then(f => f(globalThis.exact.compat.inputs.app, grants, path));
+async function loadRust() {
+  if (rustLoader) return;
+  rustLoading ??= loadAfterPaint('./rust-glue.js','createRustRuntime')
+    .then(create=>{rustLoader=create(()=>memory);}).catch(error=>{rustLoading=null;throw error;});
+  await rustLoading;
+}
+// Optional executor, absent from ordinary boots.
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null, flowLanding = false, flowFrames = false, flowWaits = [], flowTolerance = 0, present = timestamp => send(flowWaits.length ? wasm.exact_advance(timestamp - t0, 8) : wasm.exact_frame(timestamp - t0)); // an animation frame
+function flowBatch(batch) {
+  const op = batch.ops?.find(op => op.op === "textflow");
+  if (op) flowContexts = op.contexts;
+  flowDue = batch.timer_due_ms ?? null; flowLanding = !!batch.landing; flowFrames = !!batch.frames; flowWaits = batch.waits ?? []; flowTolerance = batch.timer_tolerance_ms ?? 0;
+  ticker?.update(flowDue, flowFrames, flowWaits, flowTolerance);
+  if (textflow) { textflow.afterBatch(batch); return; }
+  if (!flowContexts.length || flowLoading) return;
+  ticker?.dispose(); ticker = null;
+  const generation = incarnation;
+  flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
+    if (generation !== incarnation) return;
+    const controller = await create({ views, agentMode, log, now,
+      advance: () => { followOffset(now()); send(wasm.exact_advance(now(), 0)); }, present, admitTimers: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } });
+    if (generation !== incarnation) { controller.dispose(); return; }
+    textflow = controller;
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue, frames: flowFrames, waits: flowWaits, timer_tolerance_ms: flowTolerance });
+  });
+  flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
+}
+let resolveModuleReady, headGlue = null, fragmentGlue = null, fragmentTurn = 0, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: globalThis.exact?.taps?.() ?? [] } : null; // a built document, held until the runtime settles; the presses its capture script took before now come first
+const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
+const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor, removed:el => retiredViews.has(el)});
+const focusAutofocus = focus.autofocus;
+function setInputReady(ready) {
+  inputReady = ready;
+  root.setAttribute("aria-busy", String(!ready));
+  if (ready) for (const el of views.values()) {
+    if (authoredDisabled.has(el)) {
+      el.disabled = authoredDisabled.get(el);
+      authoredDisabled.delete(el);
+    }
+  }
+  if (ready) { motion.commit(); focusAutofocus(); }
+}
+for (const kind of ["click", "beforeinput", "submit"]) {
+  root.addEventListener(kind, event => {
+    if (!inputReady && !page?.holding) { event.preventDefault(); event.stopImmediatePropagation(); } else if (event.type === "click") page?.early?.push(event);
+  }, true);
+}
+function moduleCall(op, ptr, len) {
+  if (op === 1) {
+    if (len !== moduleResponse.length) throw new Error('module response buffer mismatch');
+    new Uint8Array(memory.buffer, ptr, len).set(moduleResponse); return len;
+  }
+  try {
+    const request = JSON.parse(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len)));
+    moduleResponse = new TextEncoder().encode(JSON.stringify(moduleLoader?.call(request) ?? { error: 'browser module not loaded' }));
+  } catch (error) { moduleResponse = new TextEncoder().encode(JSON.stringify({ error: String(error) })); }
+  return moduleResponse.length;
+}
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+const t0 = performance.now();
+const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"), agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"), pendingStore = pageStore(); // `--storage` on the page; a nameless drive stays in memory
+// The driver's fetch faults (faults.js, loaded with the first request): an injected failure's journal line is the runner's.
+if (agentMode) globalThis.__exactFaultLog = line => log(line);
+let agentClock = agentMode ? 0 : null, followOnSeek = true;
+// A seek moves drag timelines' sources too: their consumers follow in it.
+const clocks = animationClocks(root), { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
+const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
+const POST_BOUND = 64; // posts held per surface before its canvas is live; gpu-glue.js's exact.postBound, Linux POST_BOUND, Apple Canvases.postBound
+const now = () => agentClock ?? performance.now() - t0;
+function postSurface(name, text, at) { if ([...views.values()].some(e => e instanceof HTMLIFrameElement && e.isConnected && !retiredViews.has(e) && e.id === name)) { const refused = `postMessage: canvas name collides with an iframe id "${name}"`; log(refused); return refused; } if (globalThis.exact.gpu) return globalThis.exact.gpu.post(name, text, at); const held = globalThis.exact.pendingPosts ??= []; if (held.filter(p => p.name === name).length < POST_BOUND) return held.push({ name, text, at, generation: incarnation }), null; const refused = `postMessage: dropped: ${POST_BOUND} posts already wait for surface "${name}"`; log(refused); return refused; } // `postMessage(text, surface)` and the driver's `post`: held per surface name until one of its canvases is live, at most POST_BOUND; the refusal past it, or null
+let frameSampler = null; // a development page's frame sampler (frames.js)
+let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
+let bootAttempt = 0;
+let devAssets = null;
+let installedFonts = [];
+function readOut(len) {
+  const ptr = wasm.exact_out();
+  return decoder.decode(new Uint8Array(memory.buffer, ptr, len));
+}
+function writeIn(text) {
+  const bytes = encoder.encode(text);
+  const ptr = wasm.exact_in(bytes.length);
+  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  return bytes.length;
+}
+function localAssetURL(source, assets = devAssets) {
+  let url;
+  try { url = new URL(source, document.baseURI); } catch { return source; }
+  let name;
+  try { name = decodeURIComponent(url.pathname.replace(/^\//, "")); } catch { return source; }
+  if (assets !== null && url.origin === location.origin && /^(assets|deck|shaders)\//.test(name)) {
+    const card = assets.get(name);
+    if (!card) return `/__dev/absent/${name.split("/").map(encodeURIComponent).join("/")}`;
+    if (card.objectURL) return card.objectURL;
+    const resolved = new URL(card.url); resolved.search = url.search; resolved.hash = url.hash;
+    return resolved.href;
+  }
+  if (/^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname)
+    && /^\/(assets|deck|shaders)\//.test(source)) return new URL('.' + source, document.baseURI).href;
+  return source;
+}
+function assetNamespace(cards) {
+  const assets = new Map();
+  const types = { mp4: "video/mp4", webm: "video/webm", vtt: "text/vtt", wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", oga: "audio/ogg", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", gif: "image/gif", webp: "image/webp", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+  for (const [name, card] of cards) {
+    const type = types[name.split(".").pop().toLowerCase()];
+    assets.set(name, { ...card, objectURL: type ? URL.createObjectURL(new Blob([card.bytes], { type })) : null });
+  }
+  return assets;
+}
+function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
+const lists = new Map();
+let listSelection, listSelectionLoading;
+// A virtualized list has logical rows; its (`collection`) feedback is navigation.js's.
+function listView(el, id, collection) {
+  if (!collection) return;
+  lists.set(el, { id });
+  listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
+    .then(install => { listSelection = install({ root, lists,
+      index: (el, key) => wasm.exact_list_index(Number(el.dataset.view), writeIn(key)),
+      text: (el, a, b) => { const first = encoder.encode(a?.key ?? '').length, len = writeIn((a?.key ?? '') + (b?.key ?? '')); return readOut(wasm.exact_list_text(Number(el.dataset.view), first, len, a?.paragraph ?? 0, a?.offset ?? 0, b?.paragraph ?? 0, b?.offset ?? 0)); },
+    }); listSelection.sync(); }).catch(console.error);
+}
+function syncLists() { listSelection?.sync(); }
+function forgetList(el) { listSelection?.forget(el); lists.delete(el); }
+const pendingScrolls = new Map();
+const { followedScrolls, followScroll, settleFollow, rememberScroll } = scrollFollowers(positionContexts);
+root.addEventListener("pointerdown", event => {
+  const target = event.target;
+  const editor = target.closest?.("input, textarea, select") || target.isContentEditable;
+  if (!editor && target.closest?.('[retainFocus="true"]')) { event.preventDefault(); return; }
+  const button = target.closest?.("button");
+  if (!button) return;
+  for (const preview of root.querySelectorAll("[contextTarget]")) {
+    if (contextPanel(preview)?.contains(button)) { event.preventDefault(); return; }
+  }
+});
+function contextPanel(preview) {
+  for (let parent = preview.parentElement; parent && parent !== root; parent = parent.parentElement) {
+    if (getComputedStyle(parent).position === "absolute") return parent;
+  }
+  return null;
+}
+const contextTransforms = new Set();
+const contextAnchors = new Map(); // preview view id -> mounted source and entry box
+function contextAnchor(target, port = root.getBoundingClientRect()) {
+  const box = target.getBoundingClientRect();
+  const scroll = contextContent(target)?.parentElement;
+  return { target, left: box.left - port.left, top: box.top - port.top,
+    width: box.width, height: box.height, viewportWidth: port.width,
+    scroll, scrollTop: scroll ? scroll.getBoundingClientRect().top - port.top : null };
+}
+function prepareContexts(batch) {
+  for (const op of batch.ops ?? []) {
+    const props = op.op === "create" ? op.props : op.op === "props" ? op.set : null;
+    if (!props?.contextTarget) continue;
+    const target = liveById(props.contextTarget);
+    if (target && contextAnchors.get(op.id)?.target !== target) contextAnchors.set(op.id, contextAnchor(target));
+  }
+}
+function contextContent(source) {
+  for (let child = source; child?.parentElement && child.parentElement !== root; child = child.parentElement) {
+    const parent = child.parentElement;
+    if (parent.dataset.scroll === "true" && /^(auto|scroll)$/.test(getComputedStyle(parent).overflowY)) return child;
+  }
+  return null;
+}
+function positionContexts() {
+  for (const node of contextTransforms) node.style.transform = "";
+  contextTransforms.clear();
+  for (const [id, anchor] of contextAnchors) {
+    const preview = views.get(id);
+    if (!preview?.isConnected || !anchor.target.isConnected
+      || liveById(preview.getAttribute("contextTarget")) !== anchor.target) contextAnchors.delete(id);
+  }
+  const project = (node, transform) => { node.style.transform = transform; contextTransforms.add(node); };
+  for (const preview of root.querySelectorAll("[contextTarget]")) {
+    const target = liveById(preview.getAttribute("contextTarget"));
+    const panel = contextPanel(preview);
+    if (!target || !panel) continue;
+    const box = panel.getBoundingClientRect(), content = preview.getBoundingClientRect();
+    if (content.width <= 0 || content.height <= 0) continue;
+    const liveSource = target.getBoundingClientRect(), port = root.getBoundingClientRect();
+    const id = Number(preview.dataset.view);
+    if (!contextAnchors.has(id) || contextAnchors.get(id).viewportWidth !== port.width) {
+      contextAnchors.set(id, contextAnchor(target, port));
+    }
+    const anchor = contextAnchors.get(id);
+    const source = { left: port.left + anchor.left, top: port.top + anchor.top,
+      right: port.left + anchor.left + anchor.width, width: anchor.width, height: anchor.height };
+    const scale = preview.getAttribute("contextMagnify") === "false" ? 1 : Math.min(1.15, 1 + 26 / Math.max(content.width, content.height));
+    const extra = content.height * (scale - 1);
+    const trailing = source.left + source.width / 2 > port.left + port.width / 2;
+    const dx = trailing ? source.right - content.right - content.width * (scale - 1) / 2
+      : source.left - content.left + content.width * (scale - 1) / 2;
+    for (const sibling of preview.parentElement.children) {
+      if (sibling === preview) continue;
+      const side = sibling.getBoundingClientRect();
+      if (Math.abs(side.top - content.top) >= 0.01) continue;
+      if (side.right <= content.left + 0.01) project(sibling, `translateX(${dx - content.width * (scale - 1) / 2}px)`);
+      else if (side.left >= content.right - 0.01) project(sibling, `translateX(${dx + content.width * (scale - 1) / 2}px)`);
+    }
+    for (let child = preview; child && child !== panel; child = child.parentElement) {
+      const bottom = child.getBoundingClientRect().bottom;
+      for (const sibling of child.parentElement.children) {
+        if (sibling !== child && sibling.getBoundingClientRect().top >= bottom - 0.01) {
+          project(sibling, `translateY(${extra / 2}px)`);
+        }
+      }
+    }
+    project(preview, `translate(${dx}px, ${extra / 2}px) scale(${scale})`);
+    const wanted = source.top + source.height / 2 - (content.top - box.top) - content.height * scale / 2;
+    const overflow = Math.max(extra / 2, content.bottom + extra - box.bottom);
+    const region = panel.offsetParent?.getBoundingClientRect() || port;
+    const minimum = Math.max(region.top, port.top + 8);
+    const maximum = Math.min(region.bottom, port.bottom - 8) - box.height - overflow;
+    const top = Math.max(minimum, Math.min(wanted, maximum));
+    panel.style.top = `${parseFloat(getComputedStyle(panel).top) + top - box.top}px`;
+    let branch = preview;
+    while (branch.parentElement && branch.parentElement !== panel) branch = branch.parentElement;
+    const branchBottom = branch.getBoundingClientRect().bottom;
+    const trailingControls = [...panel.children].filter(node => node !== branch && node.getBoundingClientRect().top >= branchBottom - 0.01);
+    if (trailingControls.length) {
+      const first = Math.min(...trailingControls.map(node => node.getBoundingClientRect().top));
+      const last = Math.max(...trailingControls.map(node => node.getBoundingClientRect().bottom));
+      const overflow = Math.min(Math.max(0, last - Math.min(region.bottom, port.bottom - 8)), Math.max(0, first - minimum));
+      if (overflow) for (const node of trailingControls) project(node, `translateY(${-overflow}px) ${node.style.transform}`);
+    }
+    const contentRoot = contextContent(target);
+    if (contentRoot && !contentRoot.contains(panel)) {
+      const scroll = contentRoot.parentElement;
+      const scrollDelta = scroll === anchor.scroll && !scroll.contains(panel)
+        ? port.top + anchor.scrollTop - scroll.getBoundingClientRect().top : 0;
+      if (scrollDelta) project(scroll, `translateY(${scrollDelta}px)`);
+      project(contentRoot, `translateY(${source.top + top - wanted - liveSource.top - scrollDelta}px)`);
+    }
+  }
+}
+// Viewport facts and display preferences, on every change, without debounce.
+const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && incarnation) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); if (wasm.exact_set_display_scale) applyBatch(JSON.parse(readOut(wasm.exact_set_display_scale(pageFacts.displayScale())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged);
+const mediaChanged = () => { if (wasm && incarnation && innerWidth > 0 && innerHeight > 0) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // The posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
+visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
+const symbolStyle = document.createElement("style"); document.head.append(symbolStyle); // A symbol is drawn in its `color`: a zero-specificity default, so a native face's or a bar's own ink wins. The nearest authored accent (`--exact-accent`), as the role is and UIKit's inherited tint. One whose `color` its author wrote (`data-symbol-color`, element.rs) draws in it.
+symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}:where(img[data-symbol-path]){--exact-tint:currentcolor}:where(img[data-symbol-path][data-symbol-color]){--exact-tint:currentcolor}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,contain);mask-origin:content-box;mask-clip:content-box}';
+// A tinted raster's `scale-down` (element.rs `host_css`): `contain` unless its natural size fits the content box, known once it loads.
+function tintFit(el) {
+  if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return;
+  if (!el.complete) {
+    el.addEventListener("load", () => tintFit(el), { once: true });
+    return;
+  }
+  const cs = getComputedStyle(el);
+  const fits = el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  el.style.setProperty("--exact-tint-fit", fits ? "auto" : "contain");
+}
+// An image's `load` and `error` as HTML `<img>` fires them, once per source, the error with its message (rt.js `imageEvent`); a symbol fires neither. A tinted raster paints
+// through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
+const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", imageProbes = new Map();
+function imageEvents(el, fire) {
+  const probe = src => { if (!imageProbes.has(src)) { const p = new Promise(ok => { Object.assign(new Image(), { crossOrigin: "anonymous", onload: () => ok(true), onerror: () => ok(false) }).src = src; }); inflight.add(p); p.finally(() => inflight.delete(p)); imageProbes.set(src, p); } return imageProbes.get(src); };
+  const settle = failed => { const src = el.currentSrc; if (el.hasAttribute("data-symbol-path") || el.exactSettled === src) return; (failed || !getComputedStyle(el).maskImage?.includes("url(") || /^(data|blob):/.test(src) || new URL(src, location.href).origin === location.origin ? Promise.resolve(!failed) : probe(src)).then(ok => { if (el.currentSrc !== src || el.exactSettled === src) return; el.exactSettled = src; fire(ok ? null : failed ? IMAGE_ERROR : CORS_ERROR); }); };
+  el.addEventListener("load", () => settle(false)); el.addEventListener("error", () => settle(true)); if (el.complete && el.getAttribute("src")) setTimeout(() => el.complete && settle(!el.naturalWidth));
+}
+function refreshSymbols() {
+  const rasters = [], symbols = [...views.values()].filter(el => { if (!(el instanceof HTMLImageElement)) return false; if (el.hasAttribute("data-symbol-path")) return true; rasters.push(el); return false; });
+  // Batch reads before writes; computed styles are live, so keep only scalar values.
+  const titles = symbols.flatMap(el => {
+    const title = el.parentElement?.matches("button[data-button-style]") && el.parentElement.querySelector(":scope > [data-exact-text]"); if (!title) return [];
+    const own = getComputedStyle(el), font = getComputedStyle(title), style = { color: font.color };
+    for (const [axis, prop] of [["size", "fontSize"], ["weight", "fontWeight"]]) if (own.getPropertyValue(`--exact-symbol-${axis}-authored`).trim() !== "1") style[prop] = font[prop];
+    return [[el, style]]; });
+  for (const [el, style] of titles) Object.assign(el.style, style);
+  const configs = symbols.map(el => { const cs = getComputedStyle(el);
+    return { el, point: parseFloat(cs.fontSize) * (parseFloat(cs.getPropertyValue("--exact-symbol-scale")) || 1), weight: Number(cs.fontWeight), objectFit: cs.objectFit }; });
+  for (const { el, point, weight } of configs) {
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
+    if (!path && !el.dataset.symbolSource?.startsWith("symbol:sf/") && el.dataset.symbolSource !== "symbol:" && el.symbolRefusal !== el.dataset.symbolSource) {
+      log(`image ${el.dataset.symbolSource} refused: unknown symbol role`); el.symbolRefusal = el.dataset.symbolSource;
+    }
+    if (el.symbolKey !== key) {
+      el.symbolKey = key; const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
+      el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
+      el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
+    }
+    if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder; el.style.setProperty("--exact-symbol-mask", el.symbolMask);
+  }
+  // Sources can set intrinsic size synchronously; percentage padding must resolve against the resulting layout.
+  const fits = configs.map(({ el, point, objectFit }) => {
+    const cs = getComputedStyle(el), fits = point <= el.clientWidth - (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) && point <= el.clientHeight - (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
+    // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts.
+    return [el, objectFit === "none" || (objectFit === "scale-down" && fits) ? `${point}px ${point}px` : objectFit === "scale-down" || objectFit === "fill" ? "contain" : objectFit];
+  });
+  for (const [el, fit] of fits) el.style.setProperty("--exact-symbol-fit", fit);
+  for (const el of rasters) tintFit(el);
+}
+// The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend.
+const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap(); for (const [type, on] of [["compositionstart", true], ["compositionend", false]]) addEventListener(type, e => { e.target.exactComposing = on; }, true); // which field composes, for a piece loaded later
+function writeValue(el, value) {
+  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
+  const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
+  if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
+  let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
+  const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
+  el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
+let markupModule, decorationsModule; const markupPending = new WeakSet(); function syncMarkup(el) {
+  if (el.exactMarkup) { el.exactMarkup.sync(); return; } if (el.exactDecorations) el.exactDecorations.sync(); else if (el instanceof HTMLTextAreaElement && el.hasAttribute('data-decorations')) loadDecorations(el);
+  if (!(el instanceof HTMLTextAreaElement) || el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
+  markupPending.add(el);
+  (markupModule ??= moduleReady.then(() => loadAfterPaint('./markup-editor.js', 'installMarkupEditor'))).then(install => {
+    const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
+    if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
+    markupPending.delete(el); if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
+    install(el, { live, replace(node) { views.get(id)?.exactIntersect?.(); views.set(id, node); attach(node, id, el.exactHandlers); }, // (the old node's first entry lets go: the new one is observed)
+      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
+  }).catch(error => console.error('exact: Markdown editor:', error));
+}
+let liveTimeModule; const loadLiveTime = el => (liveTimeModule ??= moduleReady.then(() => loadAfterPaint('./live-time-glue.js', 'installLiveTime'))).then(install => { if (el.isConnected && !retiredViews.has(el)) install(el); }).catch(error => console.error('exact: live time:', error)); const loadDecorations = el => (decorationsModule ??= moduleReady.then(() => loadAfterPaint('./decorations.js', 'installDecorations'))).then(install => { if (el.isConnected && !retiredViews.has(el) && el.hasAttribute('data-decorations')) install(el, log); }).catch(error => console.error('exact: decorations:', error)); // a plain textarea's paint-only decorations, after first paint; they follow their attributes and typing themselves
+// `<html data-scrolldocument>` while an element is the page's scroller, and `data-exact-frame` on its ancestors while it is the one, which the shell's rule reads (never a `:has()` over the tree), as host/web-js/document.js `markDocument`.
+let pagePath = []; const scrollDocs = new Set(), markScrollDocument = () => { const live = [...scrollDocs].filter(el => el.isConnected ? el.getAttribute("data-scrolldocument") === "true" : !scrollDocs.delete(el)), path = []; document.documentElement.toggleAttribute("data-scrolldocument", live.length > 0); for (let a = live.length === 1 ? live[0].parentElement : null; a && a.id !== "exact-root"; a = a.parentElement) path.push(a); for (const a of pagePath) if (!path.includes(a)) a.removeAttribute("data-exact-frame"); for (const a of path) if (!a.hasAttribute("data-exact-frame")) a.setAttribute("data-exact-frame", ""); pagePath = path; };
+function applyProps(el, set, clear) {
+  syncMedia(el, set, clear); if (set && "data-scrolldocument" in set) scrollDocs.add(el);
+  let sandboxChanged = false;
+  for (const name of clear || []) {
+    if (el instanceof HTMLIFrameElement && name === "src") { appFrameSource(el, null); iframeLoading.set(el, true); }
+    if (el instanceof HTMLIFrameElement && name === "sandbox" && el.hasAttribute("sandbox")) sandboxChanged = true;
+    if (name === "scrollFollowEnd") followScroll(el, false);
+    else if (name === "scrollTop" || name === "scrollLeft") {
+      const pending = pendingScrolls.get(el); if (pending) delete pending[name];
+    }
+    else if (name === "text") { if (el.localName === "time") el.exactTimeText = null; if (el.localName === "time" && el.childElementCount) el.exactLiveTime?.text(null); else el.textContent = ""; }
+    else if (name === "value") { el.exactValue = undefined; writeValue(el, ""); }
+    else if (name === "checked") { el.exactChecked = undefined; el.checked = false; }
+    else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
+    else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
+    else if (name === "inert") { el.authoredInert = false; el.inert = false; }
+    else el.removeAttribute(name);
+  }
+  for (const [name, value] of Object.entries(set || {})) {
+    if (el instanceof HTMLIFrameElement && name === "sandbox" && el.getAttribute("sandbox") !== value) sandboxChanged = true;
+    if (el instanceof HTMLImageElement && name === "src" && value.startsWith("symbol:")) { el.symbolSource = value; }
+    else if (name === "scrollFollowEnd") followScroll(el, value === "true");
+    else if (name === "scrollTop" || name === "scrollLeft") {
+      const offset = Number(value);
+      if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
+    } else if (name === "text") { if (el.localName === "time") el.exactTimeText = value; if (el.localName === "time" && el.childElementCount) el.exactLiveTime?.text(value); else if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
+    } else if (name === "markupPieces") { renderMarkup(el, value); if (el.hasAttribute("data-atoms") && !globalThis.exact.atoms) loadAfterPaint("./atoms.js", "atoms").then(() => { if (el.isConnected) renderMarkup(el, value); }); // a text with atoms draws its pills once atoms.js is here
+    } else if (name === "contextpopover") { el.setAttribute(name, value); if (!el.exactContext) { el.exactContext = true; el.addEventListener("contextmenu", e => { if (e.$cp || !el.getAttribute(name) || editMenu(e.target) || el.matches(":disabled") || inertAncestor(el)) return; e.$cp = 1; e.preventDefault(); e.stopPropagation(); contextAt(e, () => { if (!el.isConnected || el.matches(":disabled") || inertAncestor(el)) return; const p = liveById(el.getAttribute(name) ?? ""); if (p && !p.matches(":popover-open")) return [p, el]; }); }); } // After the node's own `contextmenu`, the popover it names then opens anchored to it (rt.js `cp`)
+    } else if (name === "data-action") { el.setAttribute(name, value); el.style.touchAction = "none";
+    } else if (name === "value") {
+      writeValue(el, value); if (valuedControl(el)) el.exactValue = value;
+    } else if (name === "checked") {
+      el.exactChecked = value === "true"; el.checked = el.exactChecked;
+    } else if (name === "inert") {
+      el.authoredInert = value === "true"; el.inert = el.authoredInert;
+    } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
+    } else if (name === "disabled" || name === "readonly" || name === "multiple" || (el instanceof HTMLMediaElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
+      if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement && el.matches(":disabled")) el.blur(); } else el.removeAttribute(name); // a focused control that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup); a box keeps it, as `disabled` means nothing on a div
+    } else if (el instanceof HTMLIFrameElement && (name === "src" && appFrameSource(el, value) || /^(partition|appleAllowsBackForwardNavigationGestures|appleAllowsMagnification|appleInactiveSchedulingPolicy)$/i.test(name) && (el["$" + name] = value, true))) { // an iframe's partition and Apple words stay on the element, never DOM attributes
+    } else {
+      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && !(el instanceof HTMLIFrameElement) && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      if (el instanceof HTMLIFrameElement && name === "src") { el.exactSource = value; if (!same) iframeLoading.set(el, true); } // kept: the sandbox decides a `data:` one
+      if (navigates(el, name) && !(name === "src" ? frameURL(value, "sandbox" in set ? set.sandbox : el.getAttribute("sandbox")) : navigableURL(value))) refuseURL(el, name, value); else if (!same && v !== null) el.setAttribute(name, v);
+    }
+  }
+  if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
+    const disabled = set && "disabled" in set ? set.disabled === "true"
+      : clear?.includes("disabled") ? false : authoredDisabled.get(el) ?? el.disabled;
+    authoredDisabled.set(el, disabled);
+    el.disabled = true;
+  }
+  if (el instanceof HTMLIFrameElement && sandboxChanged) {
+    iframeLoading.set(el, true);
+    const source = dataURL(el.exactSource) ? (frameURL(el.exactSource, el.getAttribute("sandbox")) ? el.exactSource : "about:blank") : el.getAttribute("src"); // the new sandbox decides a `data:` source again
+    el.setAttribute("src", source ?? "about:blank");
+    if (source === null) el.removeAttribute("src");
+  }
+  if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
+  if ((set && "value" in set) || clear?.includes("value")) settleValue(el); syncMarkup(el); // a valued control shows its committed value when it changes, not another prop
+  if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
+  if (set && "data-exact-wakelock" in set && !wakeLock) holdWake(); if (set && "data-exact-orientationlock" in set && !orientationLock) holdOrientation();
+}
+function ensureMessageListener() {
+  if (messageListening) return;
+  messageListening = true;
+  window.addEventListener("message", (event) => {
+    for (const el of messageFrames) {
+      if (event.source !== el.contentWindow) continue;
+      if (!guestMessageAuthorized(el, event.origin)) return;
+      let payload = event.data;
+      if (typeof payload !== "string") {
+        try { payload = JSON.stringify(payload); } catch { return; }
+      }
+      if (typeof payload !== "string") return;
+      const id = Number(el.dataset.view);
+      const go = () => { if (views.get(id) === el && !retiredViews.has(el) && messageFrames.has(el) && guestMessageAuthorized(el, event.origin)) send(wasm.exact_dispatch(id, 9, writeIn(payload), now())); };
+      if (inputReady) go(); else moduleReady.then(() => inputReady && go());
+      return;
+    }
+  });
+}
+visualViewport?.addEventListener("resize", syncViewportFit);
+function syncViewportFit() {
+  const first = root.firstElementChild;
+  const cover = first?.getAttribute("viewportFit") === "cover";
+  const widget = first?.getAttribute("interactiveWidget");
+  const meta = document.querySelector('meta[name="viewport"]');
+  const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
+  if (meta && meta.content !== want) meta.content = want;
+  const vv = globalThis.visualViewport;
+  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !document.documentElement.hasAttribute("data-scrolldocument") ? `${Math.min(innerHeight, vv.height)}px` : "";
+}
+function attach(el, id, handlers) {
+  el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
+  el.exactFlowEvents = [...new Set(handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], focusin: ["focusin"], focusout: ["focusout"], key: ["keydown"], keycapture: ["keydown"], keyup: ["keyup"] }[k] ?? [])))];
+  if (el.exactMedia) el.exactMedia.handlers = handlers;
+  if (handlers.includes("message")) messageViews.add(id);
+  const on = (event, handle, capture = false) => { const heard = (e) => {
+    if (((views.get(id) === el && !retiredViews.has(el)) || (event === "focusout" && focus.detached(el, e))) && (inputReady || event === "load" || event === "error" && el instanceof HTMLIFrameElement) && !(page?.restoringFocus && ["focus", "blur", "focusin", "focusout"].includes(event))) handle(e);
+  }; el.addEventListener(event, heard, capture); return heard; }, atBody = (kind, heard) => { (el.exactBody ??= {})[kind] = heard; bodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, e => { const h = root.firstElementChild?.exactBody; if (!h || (e.target !== document.body && e.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(e); h.key?.(e); } else h[t]?.(e); })); }; // with nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (never a node a flow forwards a copy to, detached), on `<html>` as it bubbles, so after the shortcuts and before the document's defaults, its `keycapture` before its `key` (rt.js `atBody`)
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
+    on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
+  if (el.localName === "img" && (handlers.includes("load") || handlers.includes("error"))) imageEvents(el, failure => { // kind 8, or a media `error` (kind 19) with its message
+    const go = () => { if (views.get(id) === el && !retiredViews.has(el) && handlers.includes(failure == null ? "load" : "error")) send(failure == null ? wasm.exact_dispatch(id, 8, 0, now()) : wasm.exact_dispatch(id, 19, writeIn("error\n" + failure), now())); };
+    if (inputReady) go(); else moduleReady.then(() => inputReady && go()); // an image that lands before the data executor is heard once it is
+  });
+  if (el instanceof HTMLIFrameElement) {
+    if (!iframeLoading.has(el)) iframeLoading.set(el, true);
+    const arrived = failure => { iframeLoading.set(el, false); const source = el.exactAppFrame, go = () => { if (views.get(id) === el && !retiredViews.has(el) && el.exactAppFrame === source && handlers.includes(failure == null ? "load" : "error")) send(failure == null ? wasm.exact_dispatch(id, 8, 0, now()) : wasm.exact_dispatch(id, 19, writeIn("error\n" + failure), now())); }; if (inputReady) go(); else moduleReady.then(() => inputReady && go()); };
+    on("error", ev => arrived(ev.detail ?? "iframe did not load"));
+    on("load", () => { if (el.exactAppFrame && !el.exactAppFrame.url) return; arrived(null); }); if (handlers.includes("capture")) on("exactcapture", ev => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 58, writeIn("capture\n" + JSON.stringify(ev.detail)), now())); }); /* a capture's refusal */ if (handlers.some(h => /^(navigate|currententrychange|navigatesuccess|navigateerror)$/.test(h))) frameNav().then(m => m.watch(el, (name, r) => { const go = () => { if (views.get(id) === el && !retiredViews.has(el) && handlers.includes(name)) send(wasm.exact_dispatch(id, 58, writeIn(name + "\n" + JSON.stringify(r)), now())); }; if (inputReady) go(); else moduleReady.then(() => inputReady && go()); })); // a same-origin guest's navigation records, kind 58 (frame-navigation.js)
+    if (handlers.includes("message")) {
+      messageFrames.add(el);
+      ensureMessageListener();
+    }
+  }
+  // element hears these.
+  // A pressable takes the focus too, as natively; input-glue.js activates it by key.
+  if (handlers.some((k) => ["focus", "blur", "key", "keyup", "press", "copy", "cut", "paste"].includes(k)) && !el.matches("input, button, select, textarea, a[href], summary") && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
+  for (const kind of handlers) {
+    if (kind === "press") {
+      // A link inside a pressable node is the innermost activation, as a
+      // nested press is: the link navigates and the outer press stays out.
+      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; for (let n = e.target; n && n !== el.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { e.stopPropagation(); return; } focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, writeIn(`${e.clientX},${e.clientY},` + (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "")), now()))); }); // where the pointer was (0, 0 from a key) and the modifiers held, `Event::press`
+    } else if (kind === "pan") {
+      let pan;
+      on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
+    } else if (kind === "scroll") {
+      // The offsets, then the extents an action's `ScrollEvent` reads.
+      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop},${el.scrollWidth},${el.scrollHeight},${el.clientWidth},${el.clientHeight}`); send(wasm.exact_dispatch(id, 13, n, now())); });
+    } else if (kind === "swiperight") {
+      motion.attachSwipe(el, id, on);
+    } else if (kind === "heightrelease") {
+      motion.attachHeightDrag(el, id, on);
+    } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on); } else if (kind === "resize") { let landed; const first = new Promise(r => { landed = r; }); mediaAttaching.add(first); sizes.add(first); first.finally(() => { mediaAttaching.delete(first); sizes.delete(first); }); el.exactResize = landed; (resizes ??= Promise.all([loadAfterPaint('./resize-glue.js', 'observeResize'), geometryLoading?.catch(() => {})]).then(([o]) => o)).then(observe => { observe(el, r => { try { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 39, writeIn(`${r.x},${r.y},${r.width},${r.height}`), now())); } finally { landed(); } }); if (!el.isConnected || !el.getClientRects().length) landed(); else { const bound = setTimeout(landed, globalThis.__exactFirstSizeBound ?? 2000); first.then(() => clearTimeout(bound)); } }).catch(e => { log(`resize: ${e.message}`); landed(); }); // ResizeObserver's contentRect, host kind 39. A settle waits for the first report (no box: none; no size: 2 s at most; `__exactFirstSizeBound` a test's), held beside the media's attaches, not in `inflight`, which a module replacement drains before `moduleReady`, and in `sizes`, which a clock's due timers wait for as for requests. The first report waits for the geometry its action's `frame()` reads (host/web-js/observers.js's twin)
+    } else if (kind === "intersect") { let landed; const first = new Promise(r => { landed = r; }); mediaAttaching.add(first); sizes.add(first); first.finally(() => { mediaAttaching.delete(first); sizes.delete(first); }); el.exactIntersect = landed; // (a view retired before it is observed lets go at once)
+      (intersects ??= loadAfterPaint('./intersect-glue.js', 'observeIntersect')).then(observe => { if (views.get(id) !== el || retiredViews.has(el)) { landed(); return; } const stop = observe(el, r => { try { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 45, writeIn(`${Number(r.isIntersecting)},${r.intersectionRatio}`), now())); } finally { landed(); } }); el.exactIntersect = () => { stop(); landed(); }; const bound = setTimeout(landed, globalThis.__exactFirstSizeBound ?? 2000); first.then(() => clearTimeout(bound)); }).catch(e => { log(`intersect: ${e.message}`); landed(); }); // The first entry (one always comes) held as a first size is, above: a settle reads the state it made, 2 s at most (host/web-js/observers.js's twin)
+    } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r, e) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = [pointerEvent, pointerDepth]; pointerEvent = k === 31 ? null : e; pointerDepth = sending + 1; try { send(wasm.exact_dispatch(id, k, writeIn(r), now())); } finally { [pointerEvent, pointerDepth] = outer; } }); el.exactPointerDown = (e, hold) => own()?.(e, hold); on("pointerover", () => own()); // DOM's own pointer down/up/move (input-glue `pointer`, whose root listener calls `exactPointerDown`)
+    } else if (kind === "toggle") { on(kind, e => send(wasm.exact_dispatch(id, 50, writeIn(`${e.oldState},${e.newState}`), now()))); } else if (kind === "atompress") { on(kind, e => { const [k, source, href, start, end, ...held] = e.detail; send(wasm.exact_dispatch(id, 59, writeIn(`${start},${end},${["Shift+", "Control+", "Alt+", "Meta+"].filter((_, i) => held[i]).join("")}\n${k}\n${href}\n${source}`), now())); }); // a press on an inline atom, host kind 59
+    } else if (kind === "beforeinput" || (kind === "selectionchange" && sourceField(el))) { controlEvent(el, kind, on, (k, text, e) => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, k, writeIn(text), now())); } finally { keyEvent = outer; } });
+    } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, offsets, rectangle count and coordinates, then text
+      onSelection(el, (text, a, b, rects) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn([a, b, rects.length, ...rects.flatMap(r => r.slice(0, 4)), text].join(",")), now())); });
+    } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's; a field's own paste proceeds; a paste's files are minted `doc:` handles at once (57: their count, a line each, then the text; documents-glue.js `pasted`), the driver's standing in under the agent
+      if (kind === "paste") documentsGlue(); atBody(kind, on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { const text = e.clipboardData?.getData("text/plain") ?? "", driver = agentMode ? globalThis.exact.agentPaste : null; globalThis.exact.agentPaste = null; const files = kind === "paste" && (e.clipboardData?.files?.length || driver) ? globalThis.exact.documents?.pasted(e.clipboardData, driver) ?? [] : []; send(wasm.exact_dispatch(id, files.length ? 57 : 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(files.length ? `${files.length}\n${files.join("\n")}\n${text}` : text), now())); } finally { keyEvent = outer; } })); // preventDefault() cancels the default (a field's own paste; #125)
+    } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload", "dragenter", "dragleave"].includes(kind)) { // with their records (input-glue `mouse`); a running wheel or beforeunload is the event its `preventDefault()` prevents
+      const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
+      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else if (kind === "dragenter" || kind === "dragleave") documentsGlue().then(() => globalThis.exact.documents.hearDrags(el, kind, () => !el.matches(":disabled") && !inertAncestor(el), e => go(kind, e))); else on(kind, e => go(kind, e));
+      if (kind === "drop") on("dragover", e => go("dragover", e));
+    } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal
+      on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
+    } else if (kind === "input" || kind === "change" || (kind === "select" && !el.exactMarkup)) { // navigation.js `controlEvent`: a control's value, a text field's selection
+      controlEvent(el, kind, on, (k, text) => send(wasm.exact_dispatch(id, k, writeIn(text), now())));
+    } else if (kind === "hover") {
+      // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
+      on("pointerenter", () => send(wasm.exact_dispatch(id, 2, 0, now())));
+      on("pointerleave", () => send(wasm.exact_dispatch(id, 3, 0, now())));
+    } else if (kind === "focusin" || kind === "focusout") {
+      on(kind, e => { if (e.exactStopped) return; const target = e.target?.exactExitId ?? e.target?.id ?? "", related = e.relatedTarget?.exactExitId ?? e.relatedTarget?.id, outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, kind === "focusin" ? 46 : 47, writeIn(`${encoder.encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`), now())); } finally { keyEvent = outer; } });
+    } else if (kind === "close" || kind === "scrollend") { on(kind, () => send(wasm.exact_dispatch(id, kind === "close" ? 49 : 51, 0, now()))); } else if (kind === "focus" || kind === "blur") {
+      on(kind, () => { const dispatch = () => send(wasm.exact_dispatch(id, kind === "focus" ? 4 : 5, 0, now())); kind === "blur" ? focus.blur(el, dispatch) : dispatch(); });
+    } else if (kind === "key" || kind === "keycapture" || kind === "keyup") {
+      // `keycapture` (kind 44) hears keydown outermost first; `key` (6) and `keyup` (43) bubble with the web's key name (`e.key`).
+      atBody(kind, on(kind === "keyup" ? "keyup" : "keydown", (e) => { if (e.exactStopped || kind === "keycapture" && e.exactFlowCapture && !e.exactFlowCapture.includes(el)) return; const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, kind === "keycapture" ? 44 : kind === "key" ? 6 : 43, n, now())); } finally { keyEvent = outer; } }, kind === "keycapture"));
+    }
+    if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
+      // The web's implicit submission: Enter in a text input submits — here
+      // to the node's `submit` handler, no form needed (and no reload). It is Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it.
+      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229 && !e.exactSubmit) { e.exactSubmit = true; addEventListener("keydown", w => { if (w !== e || e.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; el.removeEventListener("keydown", run, true); el.removeEventListener("beforeinput", run, true); if (views.get(id) === el) send(wasm.exact_dispatch(id, 7, 0, now())); }; el.addEventListener("keydown", run, true); if (e.target.localName !== "textarea" && !e.target.isContentEditable) el.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); // after the browser's own default, HTML's `change` on Enter; the field's next key or edit runs it first, before the edit applies (not an edit an Enter from a textarea or editor makes), as the JS target's (rt.js)
+    }
+  }
+}
+function viewFor(op, id) {
+  const el = views.get(id);
+  if (!el) console.error(`exact: ${op} names missing view ${id}`);
+  return el;
+}
+function apply(batch) {
+  // Retire before teardown blur. Keep removed descendants attached to their removed parent for the outgoing focusout; presence reads leaving boxes before any op.
+  for (const op of batch.ops ?? []) {
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); } }
+  }
+  presence.live?.before(batch, views);
+  listSelection?.before();
+  prepareContexts(batch);
+  for (const s of followedScrolls.values()) s.scrolled();
+  const focusCommands = [];
+  const collectionOp = batch.ops?.find(op => op.op === "collections");
+  if (batch.error) console.error("exact:", batch.error);
+  for (const op of batch.ops ?? []) {
+    try {
+      switch (op.op) {
+      case "textflow": break; // consumed once after the complete DOM batch
+      case "keyframes": motion.keyframes(op.name, op.css); break; case "looks": { const sheet = document.getElementById("exact-looks") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-looks" })), rules = sheet.exactRules ??= new Map(); if (op.css) rules.set(op.id, op.css); else rules.delete(op.id); if (!sheet.exactFlush) queueMicrotask(sheet.exactFlush = () => { sheet.exactFlush = null; sheet.textContent = [...rules.values()].join(""); }); break; } case "theme": (document.getElementById("exact-theme") ?? document.head.appendChild(Object.assign(document.createElement("style"), { id: "exact-theme" }))).textContent = op.css; break; // The page's @keyframes; a view's state looks (src/host/looks.rs); the theme's :root rule
+      case "language": if (op.lang) document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break; // a plan with no strings table names no language: the page keeps the manifest's // a plan with no strings table names no language: the page keeps the manifest's
+      case "head": pageTitle(op.title ?? null); (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break; // the title at once: the head's, else the route's
+      case "router": navigation.apply(op); if (op.scroll) { op.since = navigation.personScrolls; (fragmentGlue ??= loadAfterPaint('./fragment.js', 'fragment')).then(f => f.arm(root, op, navigation)); } break; // a scroll to the visit's fragment, made at the runner's `scrollToFragment` once its content has arrived, which a scroll by the person since cancels
+      case "sound": if (!agentMode) (soundModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./sound-glue.js', 'installSound')).then(install => install({ files: op.files ?? [], log, origin: () => t0 }))).then(s => { soundOut = s; if (op.files && op.files !== s.files) s.reset(op.files); s.ops(op.ops); }).catch(console.error); break; // The voice table's ops, after first paint; never under the agent, whose clock is virtual case "midi": if (!agentMode) (midiModule ??= new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./midi-glue.js', 'installMidi')).then(install => install({ log, origin: () => t0, deliver: m => { if (wasm?.exact_midi) applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(m)))))); } }))).then(m => { midiOut = m; m.ops(op.ops, op.boot); }).catch(console.error); break; // The MIDI queue's ops and the ports, after first paint; never under the agent, whose runner answers a request itself
+      case "create": {
+        // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
+        const el = page?.adopting?.get(op.id) ?? (op.ns ? document.createElementNS(op.ns, op.tag) : document.createElement(op.tag === "canvas" ? "div" : op.tag)); // an adopted document's element; SVG in its namespace
+        if (op.tag === "canvas" && el.firstElementChild?.dataset.surface === undefined) {
+          const surface = document.createElement("canvas");
+          surface.dataset.surface = "";
+          surface.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
+          el.append(surface);
+        }
+        applyProps(el, op.props, []);
+        const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; noteFit(css); if (el.hasAttribute("data-time-reservation")) loadLiveTime(el); // an adopted element's is already there; a fitted text's scale follows each batch
+        attach(el, op.id, op.handlers);
+        views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
+        listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
+        break;
+      }
+      case "props": {
+        const el = viewFor("props", op.id);
+        if (el) { applyProps(el, op.set, op.clear); if (el.hasAttribute("data-time-reservation") || el.exactLiveTime) loadLiveTime(el); }
+        break;
+      }
+      case "style": {
+        const el = viewFor("style", op.id);
+        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); noteFit(op.css); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
+        break;
+      }
+      case "children": {
+        const el = viewFor("children", op.id);
+        if (!el) break;
+        const want = [];
+        for (const id of op.ids) {
+          const child = viewFor("children", id);
+          if (child) want.push(child);
+        }
+        // Reorder in place: keyed rows keep their elements (and their state).
+        // A canvas's surface element is skipped: not a child, never removed.
+        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; }; // a leaving view stays
+        let cursor = skip(el.firstElementChild);
+        for (const child of want) {
+          if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
+          el.insertBefore(child, cursor);
+        }
+        while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; } settleValue(el); // a select shows its committed value among its new options
+        break;
+      }
+      case "animate": { motion.animate(op); break; }
+      case "timelines": { timelinesMoved = true; break; }
+      case "retire-motion": { motion.retire(op.id, op.property, op.token, op.runtime); break; }
+      case "height-drag": { motion.heightBinding(op); break; }
+      case "transform-drag": { motion.transformBinding(op); break; }
+      case "reorder-drag": { arrange.binding(op); break; }
+      case "reorder-state": { arrange.state(op); break; } case "reorder-group": { arrange.group(op); break; }
+      case "canvas2d": { pieces.canvas2d(op); break; }
+      case "surface": { const surfaceView = views.get(op.id); if (surfaceView) surfaceView.exactSurfaceName = op.name;
+        // A canvas's inputs: to the GPU module when it is
+        // loaded, queued until then. The module itself is fetched only
+        // after a rendering opportunity, and only when a canvas exists.
+        if (globalThis.exact.gpu) globalThis.exact.gpu.surface(op.id, op.name, op.values);
+        else {
+          const pending = (globalThis.exact.pendingSurfaces ??= []);
+          const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
+          if (queued) { queued.name = op.name; queued.values = op.values; }
+          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); afterPaint(loadGpuIfNeeded, agentMode); }
+        }
+        break;
+      }
+      case "grants": { grantSet = createGrantSet(op.set); grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // Armed in the press's call stack; unloaded glue is 428
+      case "store": {
+        // A secret the app kept or forgot: `localStorage`, origin-scoped, is the web's secret store; a persisted
+        // state is kept under its own name, as persist.js keeps it. A nameless agent drive
+        // starts from nothing; a named `--storage` keeps this origin's keys.
+        if (agentKeepsStore) pendingStore.set(op.name, op.value);
+        break;
+      }
+      case "storage": {
+        const requestIncarnation=incarnation;
+        const p=Promise.resolve().then(async()=>{
+          await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
+          if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
+          if(!storageRequests){
+            const app=globalThis.exact.compat.inputs.app;
+            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,grantSet)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
+            storageRequests=pending;
+          }
+          const service=await storageRequests;
+          if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
+          return service.run(op.payload,scopedGrantSet(grantSet,op.scope));
+        }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
+        track(p,op.ticket);break;
+      }
+      case "refuse": { deferFulfill(...refusal(op, incarnation)); break; }
+      case "abort": { const c = byTicket.get(op.ticket); byTicket.delete(op.ticket); forgettable.delete(c); c?.abort(); break; } // the app aborted it: cancelled whatever its method, as a browser's fetch is
+      case "continue": {
+        const requestIncarnation = incarnation;
+        const p = Promise.resolve().then(() => moduleLoader.run(op.token))
+          .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", encoder.encode(JSON.stringify(result))))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", encoder.encode(String(error))));
+        track(p, op.ticket);
+        break;
+      }
+      case "surfaceWork": {
+        const requestIncarnation=incarnation;
+        const p=Promise.resolve().then(async()=>{
+          if(op.refusal)throw Object.assign(new Error(op.refusal),{kind:2});
+          if(!surfaceGranted(op))throw Object.assign(new Error(`refused by grant: surface ${op.name}${unparsed&&`: ${unparsed}`}`),{kind:2});
+          loadGpuIfNeeded();await gpuLoading;
+          if(!exact.gpu)throw Object.assign(new Error(`surface ${op.name}: expected one live surface, found 0`),{kind:2});
+          if(requestIncarnation!==incarnation||wasm.exact_request_active(op.ticket)!==1)throw Object.assign(new Error('surface request retired'),{kind:4});
+          let bytes;
+          if(op.mode==="restore"){
+            if((op.body??"").length>HOST_WORK_BASE64)throw Object.assign(new Error('surface restore exceeds 16 MiB'),{kind:2});
+            bytes=Uint8Array.from(atob(op.body??""),c=>c.charCodeAt(0));
+          }
+          return exact.gpu.surfaceWork(op.name,op.mode,bytes,()=>requestIncarnation===incarnation&&wasm.exact_request_active(op.ticket)===1);
+        }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,op.mode==="capture"?6:7,0,"",bytes??new Uint8Array()))
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",encoder.encode(String(error.message??error))));
+        track(p,op.ticket);break;
+      }
+      case "request": {
+        // A safe read the runner lets go of is aborted after the commit that
+        // forgot it (`letGo`), as the native executor does: a write that
+        // was sent was sent, and runs on, uncounted.
+        const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
+        let p, first, messages = 0; const opened = new Promise(r => { first = r; });
+        const host = {
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller, bodyFile: pageFile('requestBody'), bodyTarget: pageFile('bodyTarget'), // `exactBodyFrom` and `exactBodyTo`: the page's store
+          active: () => requestIncarnation === incarnation,
+          // A stream's message: after its first, the stream is open, not in flight, so `clock settle`
+          // stops waiting on it, an upload only at its reply — what is counted ends there, so a wait already racing it wakes.
+          message: (m) => { if (messages++ === 0) first(); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
+        };
+        controllers.add(controller); if (op.longPoll) controller.replied = () => { first(); if (!heldAsks.has(op.ticket)) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } }; // a long poll's reply of any kind: out of the clocks' count, held and named
+        if (op.url !== "exact-native:" && (/^(GET|HEAD)$/i.test(op.method) || op.upload)) forgettable.set(controller, op.ticket); // an upload let go is aborted, as natively
+        if (op.url !== "exact-native:") byTicket.set(op.ticket, controller);
+        p = httpHelpers().then(({ request }) => request(op, host))
+          .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body, performance.now() - started))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error)), performance.now() - started));
+        if (op.held) { const entry = { target: op.target, owner: requestIncarnation }; heldAsks.set(op.ticket, entry); p.finally(() => { if (heldAsks.get(op.ticket) === entry) heldAsks.delete(op.ticket); }); } else { const counted = op.upload ? p : Promise.race([p, opened]); if (!/^(GET|HEAD)$/i.test(op.method) && /^https?:/i.test(op.url)) counted.write = `${op.method} ${op.url}`; track(counted, op.ticket); } p.finally(() => { forgettable.delete(controller); controllers.delete(controller); if (byTicket.get(op.ticket) === controller) byTicket.delete(op.ticket); }); // a reply the server holds (`exactHeld`) is in flight, but no clock waits on it: listed, not tracked
+        break;
+      }
+      case "command": { if (op.name === "relaunch") { location.reload(); break; }
+        // A capability an action called. `setScheme` is the
+        // document's colour scheme, on the root's own style. `system` removes
+        // it: the page's sheet says `light dark` (index.html), or a dev pin's
+        // rule its scheme, the system's beneath the app's.
+        // `light`/`dark` are the property's own values.
+        if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); else if (op.name === "setRootFontSize") appRootFontSize(op.args?.[0], log); // The runner laid out at the size, the document's root takes it
+        else if (op.name === "scrollToFragment") { const turn = fragmentTurn, [visit, fragment = "", activation] = op.args ?? []; (fragmentGlue ??= loadAfterPaint('./fragment.js', 'fragment')).then(f => { if (turn === fragmentTurn && f.shows(visit, fragment)) f.scroll(root, visit, fragment, log, activation); }); } /* only while its visit still shows that fragment, and no scrollIntoView of the app's came since */ else if (op.name === "focus" || op.name === "selectText" || op.name === "removeAllRanges" || op.name === "setSelectionRange" || op.name === "setRangeText" || op.name === "blur" || op.name === "scrollIntoView") { focusCommands.push({ name: op.name, args: op.args }); if (op.name === "scrollIntoView") { fragmentTurn++; globalThis.exact?.fragment?.cancel(); } } // an element's scrollIntoView (a list row's is the runner's), which a fragment's scroll held or yet to come gives way to
+        else if (["showPopover", "hidePopover", "togglePopover"].includes(op.name)) focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; if (!keyEvent && sending === pointerDepth && pointerEvent?.type === "pointerdown") pointerEvent.preventDefault(); /* a pointerdown action's: the browser keeps the focus, places no caret, starts no selection; the click still fires */ } else if (op.name === "close" && op.args?.[0] == null) window.close(); else if (op.name === "showModal" || op.name === "close") { const id = op.args?.[0], el = [...views.values()].find(el => el.id === id), close = op.name === "close"; if (el instanceof HTMLDialogElement) { if (close) el.close(); else if (!el.open) el.showModal(); else log(`showModal "${id}" ignored: dialog is already open`); } else if (el?.popover != null && el.getAttribute("role") === "alertdialog") { if (close) el.hidePopover(); else if (!el.matches(":popover-open")) el.showPopover(); } else if (!close) log(`showModal "${id}" refused: no dialog or alertdialog popover has that id`); } // `showModal(id)`, `close(id)` from an action: the dialog's own, or an alertdialog popover's, as host/web-js/commands.js `modal`
+        else if (op.name === "stopPropagation") { const e = keyEvent ?? (sending === pointerDepth ? pointerEvent : null); if (e) e.exactStopped = true; /* no ancestor's handler hears this event (a key, focus, the pointer's down or up, a wheel); its default still happens */ } else if (op.name === "requestPictureInPicture" || op.name === "exitPictureInPicture") { const why = "the wasm target does not float an image; the JS target does", el = op.name === "requestPictureInPicture" ? liveById(String(op.args?.[0] ?? "")) : null; log(`${op.name} refused: ${why}`); /* the image hears the refusal after this batch, as its pictureinpictureerror */ if (el?.dataset.view) setTimeout(() => send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn("pictureinpictureerror\n" + why), now()))); } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
+        else if (op.name === "postMessage") { const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now(), frames = [...views.values()].filter(e => e instanceof HTMLIFrameElement && e.isConnected && !retiredViews.has(e) && e.id === name); // the inverse of `message=`: text into the named surface, every one in order
+          if (op.args?.[2] === "iframe") { const captured = frames.map(e => [e, e.exactFrameChannel]); (frameModule ??= loadAfterPaint('./frame-messages.js', 'frameMessages')).then(m => m.postFrameMessage(text, name, views, log, captured)); break; }
+          postSurface(name, text, at);
+        }
+        else if (op.name === "showPicker") { // The element's own picker, inside the press's activation; under the agent, a hold
+          const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");
+          if (agentMode) { const r = ask({ op: "showPicker", id: String(op.args?.[0] ?? "") }); if (r.error) console.warn("exact:", r.error); }
+          else if (!el) log(`picker: refused: no file input with id "${op.args?.[0]}"`);
+          else try { el.showPicker(); } catch (e) { log(`picker: refused: ${e.name}`); const p = picker().then(m => m.cancel(Number(el.dataset.view))); inflight.add(p); p.finally(() => inflight.delete(p)); }
+        }
+        else if (op.name === "fastSeek" || op.name === "load") { const el = [...views.values()].find(el => el.id === op.args?.[0]), queue = () => ((el.exactMedia ??= { props: {}, handlers: [] }).commands ??= []).push([op.name, op.args?.[1]]); if (!(el instanceof HTMLMediaElement)) log(`${op.name} "${op.args?.[0]}" refused: ${el ? "not a video or audio" : "no live node with that id"}`); else if (op.name === "load" && el["exactApp-src"]) appSource(el, "src", el["exactApp-src"], queue); else { queue(); syncMedia(el); } } // a media element's, by HTML's method names: queued for media-glue.js `run`; a `load` of an `app:/` source resolves the file again first
+        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
+        else if (op.name === "openURL") {
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") console.error("exact: openURL requires one string");
+          else try { const target = navigableURL(new URL(op.args[0]).href); if (!target) throw Error("unsupported external URL scheme"); window.open(target, "_blank", "noopener,noreferrer"); } catch (error) { console.error("exact: openURL refused", String(error)); }
+        }
+        else if (op.name === "copyText") {
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
+            console.error("exact: copyText requires one string");
+          } else if (!navigator.clipboard?.writeText) {
+            console.error("exact: copyText unavailable; a secure clipboard context is required");
+          } else {
+            // Start inside the input dispatch while browser user activation
+            // is live. No clipboard read or focus/selection manipulation.
+            const pending = navigator.clipboard.writeText(op.args[0])
+              .catch(error => console.error("exact: copyText failed", String(error)));
+            inflight.add(pending);
+            pending.finally(() => inflight.delete(pending));
+          }
+        }
+        else if (op.name === "saveFile") { const [id, from, suggestedName, text] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from: from ?? undefined, suggestedName, text, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // The runner rules; the save picker starts inside the press's activation, else a download
+          if (r.present || r.view != null) { chosen?.catch(() => {}); const p = picker().then(m => m.save(r, chosen)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
+        else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // The runner rules; a browser without the picker refuses
+          const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } } else if (op.name === "requestPermission") { const [id, path, mode] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, path, mode }))))); if (r.view != null) { const asked = incarnation, p = documentsGlue().then(() => globalThis.exact.documents.permission(r.path, r.mode, v => { if (incarnation === asked && views.has(r.view)) send(wasm.exact_dispatch(r.view, 1, writeIn(v), now())); })); inflight.add(p); p.finally(() => inflight.delete(p)); } } // The runner rules; the browser asks inside the press's activation
+        else if (op.name === "share") {
+          // The runner decides (refused, or held for the agent;
+          // a picture of an element refused on the web); else the
+          // browser's sheet, started inside the input dispatch while activation
+          // is live; files are read first (picker-glue.js). The outcome is a journal line.
+          const [title, text, url, files] = op.args ?? [], ruling = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "share", title, text, url, files, source: op.source, agent: agentMode, web: true })))));
+          if (ruling.present && typeof navigator.share !== "function") log("share: refused: unavailable");
+          else if (ruling.present && ruling.files?.length) { const p = picker().then(m => m.share({ title, text, url }, ruling.files)).then(log); inflight.add(p); p.finally(() => inflight.delete(p)); }
+          else if (ruling.present) navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
+            .then(() => "share: shared", e => e?.name === "AbortError" ? "share: dismissed" : `share: refused: ${e?.name ?? e}`).then(log);
+        }
+        else if (/^(navigate|traverseHistory|stopLoading|captureScreenshot)$/.test(op.name) || op.name === "reload" && op.args?.[0] != null) frameNav().then(m => m.command(op.name, op.args ?? [], log, [...views.values()].filter(e => e instanceof HTMLIFrameElement && !retiredViews.has(e)))); /* a frame's */ else if (op.name === "openDevTools") log(`openDevTools("${op.args?.[0]}") refused: a page cannot open the browser's developer tools; open them from the browser's menu`); /* a frame's inspector */ else if (/^(start|stop)Trace_EXPERIMENTAL$/.test(op.name)) log(`${op.name} refused: the web host does not record traces; use the browser's performance panel`); /* the Apple hosts' */ else if (!/^(playSound|playSounds|stopSounds|sendMIDI|requestMIDIAccess)$/.test(op.name)) console.warn(`exact: unknown command ${op.name}`); // the voice table's and the MIDI queue's are the runner's own, played from its `sound` and `midi` ops
+        break;
+      }
+      case "destroy": {
+        arrange.destroy(op.id);
+        motion.destroy(op.id);
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
+        views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); dropSurface(op.id); break;
+      }
+      case "roots": {
+        const roots = [];
+        for (const id of op.ids) {
+          const el = viewFor("roots", id);
+          if (el) roots.push(el);
+        }
+        if (roots.length !== root.children.length || roots.some((el, i) => root.children[i] !== el)) root.replaceChildren(...roots);
+        syncViewportFit();
+        break;
+      }
+      case "at": {
+        // The ops that follow were committed at this clock (a timer's due
+        // time inside one advance): what the ops before it started belongs
+        // to the clock so far; the animations are then seeked to this
+        // instant before the next ops see them.
+        if (agentMode) { register(agentClock); agentClock = Math.max(agentClock, op.ms); seek(agentClock); }
+        break;
+      }
+      }
+    } catch (e) {
+      // A malformed op is isolated: the runner already committed the whole
+      // batch, so leaving the DOM at a prefix would be the worst outcome.
+      console.error(`exact: ${String(op?.op ?? "unknown")} op failed`, e);
+    }
+  }
+  if (agentKeepsStore) pendingStore.flush();
+  navigation.project(root, log); refreshSymbols();
+  for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
+  for (const s of followedScrolls.values()) settleFollow(s);
+  const jumps = []; // a collection builds a jump's rows, then moves, on its own axis
+  for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
+    // Mirroring the current offset must not restart snapping or cancel a pan.
+    // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
+    // once; the agent's clock cannot seek that animation, so under it the scroll lands at once.
+    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
+      if ((name === "scrollTop" || name === "scrollLeft") && lists.has(el)) jumps.push([Number(el.dataset.view), offset, name]);
+      else if (agentMode && el.style.scrollBehavior === "smooth") el.scrollTo({ [name === "scrollTop" ? "top" : "left"]: offset, behavior: "instant" });
+      else el[name] = offset;
+    }
+    const s = followedScrolls.get(el); if (s) rememberScroll(s);
+  }
+  pendingScrolls.clear();
+  if (collectionOp) collections.commit(collectionOp.items);
+  else collections.restyled();
+  for (const [view, offset, name] of jumps) collections.jump(view, offset, name);
+  listSelection?.after();
+  syncLists();
+  // Focusing can dispatch an action: every node/value of the batch is committed before its focus handler runs.
+  for (const command of focusCommands) { if (["showPopover", "hidePopover", "togglePopover"].includes(command.name)) popoverCommand(command.name, command.args?.[0], command.args?.[1], log); else runFocusCommands([command], { root, ready: inputReady, inertAncestor, log }); }
+  focusAutofocus(); inputHandlers?.arrive(); // then the focus follows the route, unless either set it (input-glue.js)
+  positionContexts(); presence.live?.after(batch, views); markScrollDocument();
+  return batch.timers;
+}
+function applyBatch(batch) { for (const line of batch.alerts?.splice(0) ?? []) console.error('exact:', line);
+  if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
+  const began = frameSampler ? performance.now() : 0; // what applying it cost, for the next frame's record
+  globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
+  const timers = apply(batch); letGo(); refitTexts(); if (wakeLock) holdWake(); if (orientationLock) holdOrientation();
+  motion.commit(); arrange.commit();
+  if (agentMode) {
+    // What the ops since the last marker started belongs to that marker's
+    // time — register before the clock moves on to where the batch landed.
+    register(agentClock);
+    const moved = batch.clock != null && batch.clock > agentClock; if (moved) agentClock = batch.clock;
+    // A same-clock seek registers the batch's animations; its timelines op, not the agent, owns post-commit reconciliation.
+    followOnSeek = moved; try { seek(agentClock); } finally { followOnSeek = true; }
+    if (timelinesMoved) motion.followTimelines(); arrange.commit();
+  } else { clocks.sync(); if (timelinesMoved) motion.followTimelines(); } // synced animations join their clocks; a boot or commit while drag timelines are bound follows them; the agent's register and seek do both
+  timelinesMoved = false;
+  flowBatch(batch);
+  return { timers, batch };
+  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); globalThis.exact.committed?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
+}
+let sending = 0; // batches being applied: a dispatch run while another's applies (a focus it moved) is one deeper
+function send(len) { return sendBatch(len).timers; }
+function sendBatch(len) { sending++; try { return applyBatch(JSON.parse(readOut(len))); } finally { sending--; } }
+// FontFace loading is part of host boot. The DOM remains empty until every local face loaded, or 100 ms elapsed. At the barrier, install
+// every face already ready unless its family has a failed sibling; faces that
+// finish later remain unused for this generation (no post-paint swap).
+async function prepareFonts(faces, assets) {
+  if (!faces?.length) return [];
+  const rows = faces.map((face) => ({ face, state: "pending", loaded: null }));
+  const pending = rows.map(async (row) => {
+    const { face } = row;
+    try {
+      const url = new URL(localAssetURL(face.source, assets), document.baseURI).href;
+      row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
+        weight: face.weight, stretch: face.stretch,
+        style: face.style,
+      }).load();
+      row.state = "loaded";
+    } catch (e) {
+      row.state = "failed";
+      console.error("exact: font.registration.failed", face.family, face.source, String(e));
+    }
+  });
+  let timer;
+  const ready = Promise.all(pending);
+  const timedOut = await Promise.race([
+    ready.then(() => false),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(true), 100); }),
+  ]);
+  clearTimeout(timer);
+  const failed = new Set(rows.filter((row) => row.state === "failed").map((row) => row.face.family));
+  if (timedOut) console.error("exact: font.registration.timeout", faces.length);
+  return rows.filter((row) => row.state === "loaded" && !failed.has(row.face.family)).map((row) => row.loaded);
+}
+function commitFonts(faces) {
+  for (const face of installedFonts) document.fonts.delete(face);
+  for (const face of faces) document.fonts.add(face);
+  installedFonts = faces;
+}
+// Grants come from one whole-set parse; `unparsed` names why an
+// invalid full set admits nothing while retaining raw lines for child scopes.
+// The agent's settle waits on active fetches; replies return to the wasm.
+let grants = [], grantSet = null, unparsed = "";
+let storageRequests = null;
+const inflight = new Set(), heldAsks = new Map(); // `heldAsks`: requests the server holds, ticket to target
+const controllers = new Set(), forgettable = new Map(), byTicket = new Map(); // `byTicket`: each request's controller, for the app's abort
+let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant asks for it
+// A ticket's work, in flight while the runner holds the ticket:
+// a superseded or forgotten one never holds `clock settle`. Work without a
+// ticket counts until it ends.
+function track(p, ticket) { if (ticket != null) { p.ticket = ticket; p.owner = incarnation; } inflight.add(p); p.finally(() => inflight.delete(p)); }
+const holds = (ticket, owner = incarnation) => owner === incarnation && wasm?.exact_request_active(ticket) === 1;
+const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.ticket, p.owner)); const heldNamed = r => { const h = [...heldAsks].filter(([ticket, e]) => holds(ticket, e.owner)); return h.length && r && !r.error ? { ...r, held: h.length, heldTargets: h.map(([, e]) => e.target) } : r; }; // a clock reply names the held asks the runner still holds
+// After each commit: abort the reads whose tickets the runner let go of.
+function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
+const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
+function surfaceGranted(op) {
+  const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
+  const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
+  return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
+}
+function fulfill(requestIncarnation, ticket, kind, status, headersText, body, elapsedMs) {
+  // Boot reuses ticket IDs; an old incarnation's completion must not land.
+  if (!wasm || requestIncarnation !== incarnation) return;
+  if (Number.isFinite(elapsedMs)) log(`reply ${ticket}: wall ${Math.max(0, Math.round(elapsedMs))} ms`); // first: its `writeIn` reuses the buffer the reply fills
+  const h = encoder.encode(headersText);
+  const ptr = wasm.exact_in(h.length + body.length);
+  const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
+  mem.set(h);
+  mem.set(body, h.length);
+  send(wasm.exact_fulfill(ticket, kind, status, h.length, body.length, now()));
+}
+function safelyFulfill(...args) {
+  try { fulfill(...args); }
+  catch (e) { console.error("exact: request fulfillment failed", e); }
+}
+const deferFulfill = deferredFulfill(safelyFulfill, inflight);
+// The agent API's page half. `tree`, `state`, `logs`, and
+// `settle` go to the wasm (`exact_agent`); `layout` reads the browser's
+// boxes — the only layout the web host has; `clock` moves both clocks to
+// one instant: the runner's (`exact_advance`, each timer at its own time)
+// and every animation the browser holds (`Animation.currentTime`), and the
+// GPU module's picture. `tap`, `type`, and `screenshot` are
+// the driver's, over CDP: real input, real pixels.
+function ask(request) { // entering an unloaded stage traps mid-call; callers load it first
+  if (!stageLoaded('inspection')) throw new Error('inspection is a stage that has not loaded: load it before asking');
+  return JSON.parse(readOut(wasm.exact_agent(writeIn(JSON.stringify(request)))));
+}
+// Staged capabilities (the core's `exact.stages`; none unsplit): modules over its memory and tables, named by digest.
+let stages = {}; const stageLoads = new Map(), stageLoaded = (name) => !stages[name] || stageLoads.get(name)?.loaded === true;
+function loadStage(name) { if (!stages[name] || !wasm) return Promise.resolve(); let load = stageLoads.get(name); if (load) return load.promise;
+  load = { loaded: false }; stageLoads.set(name, load); return load.promise = WebAssembly.instantiateStreaming(fetch(new URL(stages[name], import.meta.url)), { primary: wasm })
+    .then(() => { load.loaded = true; }, (error) => { stageLoads.delete(name); throw new Error(`the ${name} stage (${stages[name]}) did not load: ${error}`); }); }
+// A line for the runner's journal: what the page refused, and why.
+function log(line) {
+  if (wasm) wasm.exact_log(writeIn(line));
+}
+// `layout <node>`: the runner's rows and their sources
+// for one node (`node`, answered in the wasm), then what the page knows —
+// the box in the viewport and relative to its parent, the scroll and clip
+// chains above it, whether it is hidden, inert, in the viewport or clipped
+// away, the element that carries it — and the browser's own computed value
+// of every inherited row: the oracle printed beside the kernel's answer.
+// Spaces the page cannot observe (a window, a screen) are absent.
+const INHERITED_CSS = {
+  text_color: "color", font_family: "font-family", font_size: "font-size", font_weight: "font-weight",
+  font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
+  font_variant_numeric: "font-variant-numeric", font_variant_ligatures: "font-variant-ligatures", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align", widows: "widows", orphans: "orphans",
+};
+// A field's value as agent output shows it: a password's is the runner's fixed mark, whatever its length (#134).
+const shownValue = (el) => el.type === "password" && el.value ? "•••" : el.value;
+function nodeDetail(id, plan = false) {
+  const el = views.get(id);
+  if (!el || !el.isConnected) return { error: `stale node #${id}` };
+  const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
+  if (node.error) return node; Object.assign(node, globalThis.exact.heldOf?.(el, ask)); // what is held on it, and its rows with their tokens
+  if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
+  delete node.frame;
+  delete node.absolute;
+  delete node.content;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const rect = (r) => ({ x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) });
+  const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
+  const r = exact.gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
+  node.space = {
+    viewport: rect(r),
+    local: { w: r2(el.clientWidth), h: r2(el.clientHeight) },
+    capture: { scale: devicePixelRatio },
+  };
+  const scroll = [], clip = [];
+  let clipped = r.width === 0 || r.height === 0;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const aid = idOf(a);
+    if (aid == null) continue;
+    const cs = getComputedStyle(a);
+    if (a.dataset.scroll === "true") scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop), ...scrollRange(a) });
+    const clips = (cs.overflowX !== "visible" || cs.overflowY !== "visible" ? ["overflow"] : []).concat(cs.clipPath !== "none" ? ["clip-path"] : []);
+    for (const kind of clips) {
+      clip.unshift({ id: aid, kind });
+      const c = a.getBoundingClientRect();
+      if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
+    }
+  }
+  const page = scrollRange(document.scrollingElement ?? document.documentElement); if (scrollX || scrollY || page.rx || page.ry) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY), ...page }); // the page's entry while it scrolls or has a range
+  node.scroll = scroll;
+  node.clip = clip;
+  node.visible = {
+    hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false,
+    inert: !!inertAncestor(el),
+    inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
+    clipped,
+  };
+  node.native = { element: el.localName }; if (el.hasAttribute("data-symbol-source")) { const source = el.dataset.symbolSource, name = source.slice(source.startsWith("symbol:sf/") ? 10 : 7), found = !!el.dataset.symbolPath || el.hasAttribute("data-symbol-file"); node.native.symbol = { source, name, found, ...(!found ? { reason: source === "symbol:sf/" || source === "symbol:" ? "empty" : source.startsWith("symbol:sf/") ? "platform" : "role" } : {}) }; }
+  const cs = getComputedStyle(el);
+  node.browser = Object.fromEntries(Object.entries(INHERITED_CSS).map(([row, prop]) => [row, cs.getPropertyValue(prop)]));
+  const pressed = globalThis.exact?.pressShown?.(el); if (pressed) node.press_shown = pressed; // what a pressed paint shows (input-glue.js)
+  const flow = textflow?.facts(id);
+  if (flow) { node.flow = flow; node.flow_shapes = flow.shapes; } if (el.getClientRects().length > 1) node.column_fragments = [...el.getClientRects()].map(rect); // a box a multi-column flow fragments, one rect per column
+  node.observed = { clock: now(), wall: Date.now() };
+  return node;
+}
+function tree(request) {
+  const reply = ask(request), flag = routeFlags(root), flags = new Map(); // the page's route flags, not the runner's: it knows no pane, so it would hide a split's list shown beside its detail; a node's flags are at least its parent's, and one off the page (a flowed paragraph's run) takes its parent's, or the runner's when the read starts at it
+  for (const node of reply.nodes ?? []) {
+    const el = views.get(node.id), up = flags.get(node.parent), f = el?.isConnected ? Math.max(flag(el), up ?? 0) : up ?? (node.hidden ? 2 : node.inactive ? 1 : 0); flags.set(node.id, f); delete node.inactive; delete node.hidden; if (f) node.inactive = true; if (f > 1) node.hidden = true;
+    if (node.type === "TextInput" && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) node.props = { ...node.props, value: shownValue(el) };
+    node.focused = el === document.activeElement;
+    if (el?.exactNative) node.module = el.exactNative.status();
+    if (!(el instanceof HTMLIFrameElement)) continue;
+    node.url = el.getAttribute("src") ?? "";
+    node.loading = iframeLoading.get(el) !== false; if (el.$partition != null) node.partition = el.$partition; const nav = el.exactNavigation?.last; if (nav) node.navigation = { url: nav.url, title: nav.title, loading: nav.loading, controller: nav.controller, canGoBack: nav.canGoBack, canGoForward: nav.canGoForward };
+    const guest = guestOutline(el);
+    if (guest !== null) node.guest = guest;
+  }
+  return reply;
+}
+const SETTLE_DEADLINE_MS = 20_000, REPLACE_SETTLE_MS = 1000, GLIDE_BOUND_MS = 4000; // a glide: as a native host waits for a scroll view a finger left moving (agent.mjs reason `scroll`)
+const mediaAttached = (deadline, set = mediaAttaching) => Promise.race([Promise.all(set).then(() => true), new Promise(resolve => setTimeout(() => resolve(false), Math.max(0, deadline - performance.now())))]); // the media glue's attaches (syncMedia), bounded as requests are
+async function waitForInflight(deadline, includeRequests = false) {
+  while (waiting().length || includeRequests && wasm.exact_requests_pending()) {
+    const remaining = deadline - performance.now(); if (remaining <= 0) return false;
+    if (waiting().length) { let timer; const helpers = await Promise.race([httpHelpers(), new Promise(resolve => { timer = setTimeout(() => resolve(null), remaining); })]); clearTimeout(timer); if (!helpers || !await helpers.waitForInflight(waiting, deadline)) return false; }
+    else await new Promise(resolve => setTimeout(resolve, Math.min(50, remaining))); // A source can park a ticket without a host promise to notify this wait.
+  } return true;
+}
+async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; return await globalThis.exact.gpu?.settled() ?? []; }
+function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? heldNamed({clock:agentClock, settled:false, reason:"gpu", pending:names}) : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
+function agentInputReady() {
+  if (viewBox) return Promise.resolve();
+  return agentInputLoading ??= loadAfterPaint('./agent-input.js', 'agentInput').then(helpers => {
+    ({ guestOutline, guestTap, guestType, reveal, backButton, viewBox, layoutBoxes, scrollRange, selectAll, typeControl, glidesSettled, scrollsSeen } = helpers); helpers.watchGlides?.(); // a scroller gliding on its own holds `clock settle` (agent-input.js)
+  });
+}
+// Synchronous once inspection and the agent's input helpers are ready.
+function agent(request) {
+  if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request));
+  if (!viewBox) return agentInputReady().then(() => agent(request));
+  return agentMode && gpuInPlay() ? settleGpu().then(pending => pending.length ? gpuPendingReply(request, pending) : agentNow(request)) : agentNow(request);
+}
+function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
+function agentReply(request) {
+  try {
+    if (!wasm) return { error: "not booted" }; if (agentMode && (request.op === "picture" || request.op === "check" || (request.op === "layout" && request.picture))) { register(agentClock); followOnSeek = false; try { seek(agentClock); } finally { followOnSeek = true; } } // a picture is the clock's: an animation begun since the last commit (a spinner) is put on it first
+    if (request.op === "type" && request.message !== undefined) { const gpu = globalThis.exact.gpu, name = request.id !== undefined ? gpu?.surfaceOf(request.id) : request.surface ?? gpu?.liveSurface(), refused = typeof name === "string" && postSurface(name, String(request.message), now()); return typeof name !== "string" ? { error: name?.error ?? (request.id !== undefined ? `view ${request.id} has no world` : "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is") } : refused ? { error: `post refused: ${refused}` } : tagged({ posted: name, delivery: "posted", ...(gpu?.waiting(name) ?? true ? { held: true } : {}) }); } // the driver's `post`
+    if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
+    if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) { // a held device request, by ticket
+      const { files, ...held } = request, r = ask(held); if (r.capability === "auth") deferFulfill(incarnation, r.ticket, 9, 0, "", new Uint8Array()); // a picker's answer is delivered once the runner took it; an auth answer, the runner settled
+      const picked = { "open-file": "showOpenFilePicker", "open-directory": "showDirectoryPicker", "save-file": "showSaveFilePicker" }[r.capability];
+      if (picked && r.node != null) return documentsGlue().then(m => m.answer(r, picked, files)).then(() => tagged(r));
+      if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // The bytes go back to the driver
+      return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
+    }
+    if (request.op === "perf" && request.frames) return request.live > 0 ? loadAfterPaint('./frames.js', 'liveFrames').then(live => live({ ms: request.live, late: request.late, origin: () => t0, log, clock: () => agentClock, advance: to => applyBatch(JSON.parse(readOut(wasm.exact_advance(to, 0)))), gpu: globalThis.exact.gpu })).then(tagged) : { virtual: true }; // the agent's clock presents no frame, but lends it to the wall for a live window
+    switch (request.op) {
+      case "state": {
+        const st = ask(request);
+        if (st.error) return st;
+        st.presence = presence.live?.observation() ?? [];
+        for (const [c, t] of forgettable) { const s = c.retrying && st.streams?.find(s => s.ticket === t); if (s) s.retrying = { attempt: c.retrying.attempt, inMs: Math.max(0, Math.round(c.retrying.at - performance.now())), error: c.retrying.error }; } /* a long poll's backoff, which only the page sees */ const faults = globalThis.__exactFaults?.entries; if (faults?.length) st.faults = faults; // faults.js keeps the table there
+        const r2 = (x) => Math.round(x * 100) / 100;
+        const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
+        const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.exactMarkup ? idOf(active) : null;
+        st.media = [...views].filter(([, el]) => el instanceof HTMLMediaElement).map(([id, el]) => ({ id, state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: el.constructor.name } })); st.mediaSession = globalThis.exact.mediaSession?.state(idOf) ?? { owner: null, claimants: [], actions: [], playbackState: "none", published: "none" }; // None until a media element loads its glue
+        st.focus = { logical: active ? idOf(active) : null, editor, responder: active ? active.localName : null, pending: null };
+        const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
+        const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
+        st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false }; st.atoms = globalThis.exact.atoms?.state(idOf) ?? []; // atoms.js
+        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; if (st.sounds && soundOut) st.sounds.output = soundOut.state(); if (st.midi && midiOut) st.midi.output = midiOut.state(); // a page that plays
+        const wake = globalThis.exact.wakeLockGlue; if (wake) { const by = wake.holders(root).map(idOf); st.wakelock = { held: by.length > 0, by }; } const orient = globalThis.exact.orientationLockGlue; if (orient) st.orientationlock = orient.state(root, idOf); // What this page shows holds it (a split's list beside its detail, the routes under a sheet), which the runner cannot see; the JS target's agent.js reads the same
+        // The drive's app storage: none unless it names a scratch store, as storage-environment.js's `storageKey`.
+        const store = new URL(performance.getEntriesByType?.("navigation")[0]?.name ?? location.href).searchParams.get("storage");
+        st.storage = store == null ? { available: false, code: "agent", message: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)" } : { available: true, store };
+        return st;
+      }
+      case "layout": {
+        const nodes = layoutBoxes(views, exact.gpu);
+        const reply = { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
+        if (request.id != null) {
+          const detail = nodeDetail(request.id, request.plan === true);
+          if (detail.error) return detail;
+          reply.node = detail;
+        }
+        if (request.agree) return tagged({ clock: reply.clock, viewport: reply.viewport, agreement: { unavailable: "not implemented: app drives run the JS target" } }); else if (request.native && reply.node) { delete reply.nodes; reply.node.native.subviews = { unavailable: "the DOM is the tree; layout <target> names the element" }; }
+        return tagged(reply);
+      }
+      case "midi": case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); /* A fetch fault, a form of `prefer` */ if (request.op === "midi" || request.midi) { if (!wasm.exact_midi) return { error: "midi: this build has no MIDI export" }; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(request)))))); return batch.error != null ? { error: batch.error } : tagged({ midi: true }); } // The agent's MIDI ports and a message from one are the runner's
+        // The page group; the driver sets media through CDP. The fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
+        if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { malformed: true, error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
+        pageChanged(); foldChanged(); if (request.page?.["gpu-tier"]) globalThis.exact.gpu?.retier?.(request.page["gpu-tier"]); /* Each world's renderer made again at the new tier's rung */ const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // The mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest
+        return tagged({ page: { ...pageFacts.read() }, fold: foldEnv(), ...(modes ? { mode: modes.modes } : {}) });
+      }
+      case "focus": {
+        const el = views.get(request.id);
+        if (!el) return { error: `no view ${request.id}` };
+        el.focus(); // any element, as the JS target's agent: a key at a grid is its keydown (docs/contract-grammar.md#keys)
+        const selected = request.select === false ? null : selectAll(el);
+        return selected ? selected.then(() => ({ ok: true })) : { ok: true };
+      }
+      case "tap": {
+        const i = request.into; // The runner's request, its batch applied now
+        if (i) { for (const a of [i.block === undefined ? 'start' : i.block, i.inline === undefined ? 'nearest' : i.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === "string" ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true }; const { batch } = sendBatch(wasm.exact_into_view(request.id, writeIn(`${i.key ?? ''}\n${i.block ?? 'start'}\n${i.inline ?? 'nearest'}`))); return batch.error != null ? { error: batch.error } : tagged({ tapped: request.id, into: i }); }
+        const frame = views.get(request.id); if (request.holdState !== undefined) return (async () => { for (let i = 0; i < 40 && !globalThis.exact.hold; i++) await new Promise(ok => setTimeout(ok, 50)); return globalThis.exact.hold ? (r => r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : tagged({ tapped: request.id, holdState: r.held, delivery: "recognized" }))(globalThis.exact.hold(frame, request.holdState)) : { error: "the input glue is not loaded" }; })(); // `holdState`, once the glue loads (it loads after paint)
+        if (request.history !== undefined || request.back) return request.back ? navigation.back(root) : navigation.travel(frame, request.history); // the agent's `back`
+        if (frame && (inertAncestor(frame) || ["hidden", "collapse"].includes(getComputedStyle(backButton(frame) ?? frame).visibility)))
+          return { handled: true, error: `view ${request.id} is hidden or inert` };
+        return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
+      }
+      case "type": {
+        const frame = views.get(request.id);
+        if (frame?.hasAttribute("navigationBack") && request.key == null) {
+          const batch = globalThis.exact.navigate(request.text ?? "");
+          return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
+        }
+        return typedControl(frame) && request.key == null ? typeControl(frame, request, inertAncestor, settleValue) : frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false }; // a control's value
+      }
+      case "clock": // then the offset at the new virtual date, in case it crossed a DST change
+        return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(heldNamed(r)); }); // naming what the server holds
+      case "tree": return tree(request);
+      case "tags": return ask(request);
+      case "reveal": return tagged(reveal(views.get(request.id), request.id, inertAncestor)); // before a tap or a type (agent-input.js)
+      case "axStamp": // Each live view's id where CDP's DOM snapshot reads it, and the document's nonce
+        for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
+        return tagged({ nonce: performance.timeOrigin });
+      default:
+        return ask(request);
+    }
+  } catch (e) {
+    return { error: String(e), ...(e.malformed === true ? { malformed: true } : {}) };
+  }
+}
+// Reads keep the last settled facts.
+// Await flow only when requested; ordinary agent calls retain their return types.
+async function agentSettled(request) {
+  const begun = performance.now(), pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, 10_000 - (performance.now() - begun))))) return { error: "the presence module did not load within 10 s" }; /* inside an agent call's 15 s carrier deadline */ if (markupModule) await markupModule; if (decorationsModule) await decorationsModule; if (liveTimeModule) await liveTimeModule;
+  if (flowLoading) await flowLoading;
+  if (textflow) await textflow.settle();
+  return agent(request);
+}
+// Every reply carries the runner's `epoch`, `incarnation` and `clock`,
+// read after the operation; a reply's own `clock` (where a
+// `clock` call landed) is kept, and an error is left alone. The driver
+// tags the input replies it delivers through CDP the same way.
+function tagged(reply) {
+  if (!reply || reply.error != null) return reply;
+  const tags = ask({ op: "tags" });
+  if (tags.error != null) return reply;
+  for (const key of Object.keys(tags)) if (reply[key] === undefined) reply[key] = tags[key];
+  return reply;
+}
+// To `to`, or to `settle`: a fixed point — advance to when the last thing
+// in flight ends, and if the timers crossed on the way started more, again
+// (bounded; `settled: false` at the bound). A request in flight
+// is waited for first: its reply commits, and may start motion or ask for
+// more, before the fixed point is measured. What is in flight lands before a
+// timer fires — the runner keeps one request per target, so a
+// tick's send would drop the reply of the one before it: a jump that crosses
+// timers stops after each timer that sends, and its reply is waited for; past
+// the deadline, or 4096 stops, the rest is one advance. The clock lands where
+// the runner says; a timer's refusal is the error. A promise: the driver
+// awaits it. The agent's reply names the requests the server holds, which no clock waits on (`heldNamed`).
+async function clock(request) {
+  // The end of an input: the `then`s of the answers it settled
+  // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
+  // waits for activation and every request in flight, landing until a landing sends nothing (a test's first step).
+  if (request.land || request.data) { if (request.data) await moduleReady; const deadline = performance.now() + SETTLE_DEADLINE_MS, unsettled = { clock: agentClock, settled: false, reason: "requests" };
+    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline, true) && await mediaAttached(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length && !wasm.exact_requests_pending() && !mediaAttaching.size) return { clock: agentClock, settled: true }; } return unsettled; }
+  const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
+  const deadline = performance.now() + SETTLE_DEADLINE_MS, glide = { ms: GLIDE_BOUND_MS };
+  let world = {};
+  const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
+  for (let rounds = 0; ; rounds++) {
+    if (settle && glidesSettled && !(await glidesSettled(glide))) return { ...reply(false), reason: "scroll" }; const scrolled = scrollsSeen?.(); /* a scroller still gliding ends first; one this round's work moves, the next round (agent-input.js) */ if (settle && !(await waitForInflight(deadline, true) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (presence.pending() && !(await presence.landed(Math.max(0, deadline - performance.now())))) return reply(false, true); if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
+    const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
+    if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
+    let batch;
+    for (let steps = 0, stops = 0; ; ) { // while a view declares a layout transition, each due time is a batch of its own, which presence plays from that time (as the native hosts lay out there), in stops apart from the 4096
+      const layout = flowDue != null && flowDue < to && stops < 36000 && presence.live?.tracking(), sensing = wasm.exact_sensor_inputs?.() ? agentClock + 1000 / 60 : Infinity, at = Math.min(layout ? Math.max(flowDue, agentClock) : to, sensing), waited = (flowDue != null && flowDue <= at || flowLanding) && await waitForInflight(deadline) && await mediaAttached(deadline, sizes), held = waited && steps < 4096; // a canvas the substitute feeds a sensor steps a display frame at a time, that frame's samples handed it first
+      if (sensing !== Infinity) globalThis.exact.gpu?.sensors?.(JSON.parse(readOut(wasm.exact_sensor_events(at)))); ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(at, held ? 1 : 0))))); if (sensing !== Infinity && at < to && !batch.error) { globalThis.exact.gpu?.schedule?.(); globalThis.exact.gpu?.clock?.(false); }
+      if (batch.error || !held && at >= to) break; if (layout && !(flowDue != null && flowDue <= at)) stops++; else steps++; // a stop at `to` may leave a timer due there
+    }
+    globalThis.exact.gpu?.schedule?.();
+    if (flowLoading) await flowLoading;
+    if (textflow) await textflow.settle();
+    if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
+    if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
+    world = globalThis.exact.gpu?.clock?.(settle) ?? {};
+    if (!settle) { while (ask({ op: "polls" }).asking && performance.now() < deadline) await new Promise(r => setTimeout(r, 5)); /* a polled module source's ask the jump made lands first */ if (imageHold) await (await imageHold).ready(); const n = waiting().length, b = n ? ask({ op: "state" }).background : null, background = b ? b.queued + b.inFlight : 0; return { ...reply(), ...(n ? { inflight: n } : {}), ...(background ? { background } : {}) }; } // what a jump leaves in flight on real time, which the driver names, and the module's storage
+    collections.settle(); const scrolls = rounds < 15 ? await collections.fireOwedScrolls() : null; if (scrolls?.fired || scrolls?.owed) continue; // every list built and measured where it shows; a list's moved offset owes a `scroll` event, fired at a rendering step with its handler: waited for (collection-glue `owedScrolls`)
+    if (waiting().length || wasm.exact_requests_pending() || mediaAttaching.size) { if (rounds >= 15) return reply(false, true); continue; }
+    const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
+    if (next <= agentClock && !world.pending && settle && glidesSettled && !(await glidesSettled(glide))) return { ...reply(false), reason: "scroll" }; const moved = settle && next <= agentClock && !world.pending && scrollsSeen?.() !== scrolled; /* two frames: a scroll this round's work began has its first event at the next frame's step; then another round */ if (next <= agentClock && !world.pending && !moved) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : collections.owedScrolls() ? { ...reply(false), reason: "scroll-event" } : reply(true); } // a hold is never waited on
+    if (rounds >= 15) return moved ? { ...reply(false), reason: "scroll" } : reply(false);
+  }
+}
+let ticker = null, timerFactory = null, toldOffset = null;
+// The zone's offset follows the clock: told again before an advance whose instant finds it changed (a DST
+// change, a new zone), and after the agent's `clock`; an unchanged one is not told.
+const followOffset = at => { const [epoch, offset] = reportTime(at); if (wasm.exact_set_time && offset !== toldOffset) { toldOffset = offset; applyBatch(JSON.parse(readOut(wasm.exact_set_time(epoch, offset)))); } };
+function startClock() {
+  if (timerFactory && !agentMode && !textflow && !flowLoading) {
+    ticker ??= timerFactory({ now, advance: time => { followOffset(time); send(wasm.exact_advance(time, 0)); }, present, release: (kinds, cutoff) => { const batch = JSON.parse(readOut(wasm.exact_advance(cutoff, 16 | kinds << 8))); applyBatch(batch); return batch; } }); ticker.update(flowDue, flowFrames, flowWaits, flowTolerance);
+  }
+}
+function activateData() {
+  const batch = JSON.parse(readOut(wasm.exact_data_ready()));
+  if (batch.error) throw new Error(batch.error);
+  let inputOpen; const inputOpened = new Promise(resolve => { inputOpen = resolve; });
+  page?.release(applyBatch, inputOpened, () => navigation.activate(root, log)); applyBatch(batch); // early presses replay once input is ready
+  const ready = () => {
+    setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; inputOpen();
+    if (pageNative) loadPageNative().then(native => native.drain()).catch(error => log(`native: ${error}`));
+  };
+  const pending = pieces.pending(); // pieces this tree first uses: input waits for their handlers
+  return pending ? pending.then(ready) : ready();
+}
+// Boot the app: the baked plan, or `bytes` carrying compatible state (the dev loop's restart).
+let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
+function boot(...args) { return mutate(() => bootNow(...args)); }
+async function bootNow(bytes, assets = devAssets, current = () => true, module = null, fresh = false) {
+  const t = performance.now(), request = ++bootAttempt;
+  // Decode and load private font faces while the live page keeps running.
+  // Carry state only at the synchronous host acceptance point below.
+  const bakedLength = bytes ? 0 : wasm.exact_plan();
+  const plan = bytes ?? new Uint8Array(memory.buffer, wasm.exact_out(), bakedLength).slice();
+  let ptr = wasm.exact_in(plan.length);
+  new Uint8Array(memory.buffer, ptr, plan.length).set(plan);
+  const faces = JSON.parse(readOut(wasm.exact_plan_fonts(plan.length)));
+  if (faces.error) throw new Error(faces.error); globalThis.exact.fontAliases = Object.fromEntries(faces.map((f) => [f.declared, f.family])); // canvas text names the declared family
+  const preparedFonts = await prepareFonts(faces, assets);
+  const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
+  // A retiring optional instance cannot delay boot; its generation guard disposes it.
+  if (!current() || request !== bootAttempt) return null;
+  // A replacement lets the current executor finish its answers first. The dev loop's waits a moment, then swaps
+  // anyway, as an app may always have a request out: what is still out is let go as a plan restart lets it go,
+  // and the new runner asks again for what it has not settled. An update refuses instead.
+  let left = [];
+  if (module) {
+    if (!(await waitForInflight(performance.now() + (module.letGo ? REPLACE_SETTLE_MS : SETTLE_DEADLINE_MS)))) { if (!module.letGo) throw new Error('module replacement waits for in-flight requests to settle; retry the update'); left = waiting(); }
+    if (!current() || request !== bootAttempt) return null;
+  }
+  const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // then the date and place the boot's first settle reads
+  const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
+  // A cold WebView or hidden iframe can have no viewport. Wait without a deadline; module swaps reuse the runner's.
+  if (!current() || request !== bootAttempt) return null; while (!module && !(innerWidth > 0 && innerHeight > 0)) { await new Promise(resolve => addEventListener("resize", resolve, { once: true })); if (!current() || request !== bootAttempt) return null; }
+  const appleRoles = wasm.exact_report_colors && getComputedStyle(document.documentElement).getPropertyValue("--exact-apple-roles").trim(); if (appleRoles) { const probe = document.body.appendChild(document.createElement("i")), seen = getComputedStyle(probe), colors = []; for (const dark of [false, true]) { probe.style.colorScheme = dark ? "dark" : "light"; for (const name of JSON.parse(appleRoles).split(" ")) if (seen.getPropertyValue(`--exact-apple-${name}`).trim()) { probe.style.color = `var(--exact-apple-${name})`; colors.push([name, dark, seen.color]); } } probe.remove(); wasm.exact_report_colors(writeIn(JSON.stringify(colors))); } let len; wasm.exact_live_clock?.(agentMode ? 0 : 1); // each role look.mjs names, light and dark, as the page draws it, reported so a colour the kernel resolves itself (a canvas's ink) is the page's (src/colors.rs); the page's clock owns time, the agent's when it drives; kept for every boot
+  if (module) {
+    const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
+    const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
+    payload.set(plan); payload.set(module.receipt, plan.length); payload.set(id, plan.length + module.receipt.length);
+    ptr = wasm.exact_in(payload.length); new Uint8Array(memory.buffer, ptr, payload.length).set(payload);
+    if (module.letGo) left = waiting(); // what this swap lets go, read at the swap: the stage load above yields
+    len = wasm.exact_boot_module(plan.length, module.receipt.length, id.length, module.letGo ? 1 : 0);
+  } else if (bytes) {
+    ptr = wasm.exact_in(bytes.length + launch.length);
+    const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
+    payload.set(bytes); payload.set(launch, bytes.length);
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
+  } else {
+    if (page?.checkpoint) wasm.exact_checkpoint(writeIn(agentMode ? page.checkpoint.replace("\n", " driven\n") : page.checkpoint)); ptr = wasm.exact_in(launch.length); // a drive's clock starts at zero (page.rs)
+    new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
+  }
+  const batch = JSON.parse(readOut(len));
+  if (batch.error) throw new Error(batch.error); if (wasm.exact_presence?.()) presence.preload(); // after first paint, where the plan names a presence row (navigation.js)
+  frameSampler?.reset(); // a new runner numbers its transactions afresh
+  if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left.length) { const writes = left.filter(p => p.write).map(p => p.write); log(`module replacement let go of ${left.length} request${left.length === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms${writes.length ? `; aborted writes the server may or may not have seen: ${writes.join(', ')}` : ''}`); } }
+  navigation.reset(batch.ops.find(op => op.op === "router"));
+  const oldAssets = devAssets;
+  devAssets = assets;
+  shaderCommit?.();
+  // Tear down without yielding; ownership guards refuse retired views.
+  incarnation += 1;
+  globalThis.exact.generation = incarnation;
+  // A queued surface belongs to the plan that named it. The GPU device may
+  // finish loading across a reload; no old surface request may join the new
+  // plan even when view ids are reused.
+  globalThis.exact.pendingSurfaces = [];
+  ticker?.dispose(); ticker = null;
+  arrange.reset(); motion.reset();
+  if (textflow) for (const el of views.values()) retiredViews.add(el);
+  textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null; flowFrames = false;
+  globalThis.exact?.gpu?.reset(Boolean(bytes));
+  for (const el of followedScrolls.keys()) followScroll(el, false);
+  pendingScrolls.clear();
+  collections.reset();
+  for (const el of lists.keys()) forgetList(el);
+  for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
+  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
+  messageFrames.clear(); messageViews.clear();
+  if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
+  grants = []; grantSet = null; unparsed = "";
+  for (const controller of controllers) controller.abort();
+  controllers.clear(); forgettable.clear(); inflight.clear(); heldAsks.clear(); mediaAttaching.clear(); sizes.clear();
+  globalThis.exact.holdQuiet?.(); if (!page?.holding) root.replaceChildren(); document.getElementById("exact-theme")?.remove(); document.getElementById("exact-looks")?.remove(); // a held state goes unsaid (dev.js holds it again); the last plan's theme and state looks: this boot's batch sets its own
+  commitFonts(preparedFonts);
+  focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
+  toldOffset = null; followOffset(now()); // The date, as the clock the runner already reads
+  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace())))));
+  if (wasm.exact_set_page) applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits()))));
+  appRootFontSize("medium"); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); if (wasm.exact_set_display_scale) applyBatch(JSON.parse(readOut(wasm.exact_set_display_scale(pageFacts.displayScale())))); // a new runner holds no app size, and is told the display's scale, which a hairline is one device pixel of
+  globalThis.exact?.gpu?.finishRestart();
+  if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
+  if (oldAssets !== assets) releaseAssets(oldAssets);
+  // An optional initial flow load cannot gate paint/readiness.
+  if (bytes && flowLoading) await flowLoading;
+  if (bytes && textflow) await textflow.settle();
+  startClock();
+  if (bytes) afterPaint(loadGpuIfNeeded, agentMode);
+  return performance.now() - t;
+}
+// `agent`, `agentSettled` and `now` exist only in agent mode; a normal page uses the browser's clock.
+let ready;
+globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), abortWake: function wake() { if (wake.due || !wasm?.exact_collect_aborts) return; wake.due = true; setTimeout(() => { wake.due = false; send(wasm.exact_collect_aborts()); }); }, keptChanged: () => { if (wasm?.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn("doc-watch:doc:/"))))); }, // the GPU tier's reader and teller (gpu-tier.js); a fetch a realm aborted between batches (module-glue.js door 23); the kept documents' list changed (documents-glue.js)
+  // Synchronous for the serialized popstate caller.
+  navigate: (location) => {
+    const nav = root.firstElementChild;
+    if (!inputReady || !nav?.hasAttribute("navigationBack")) return { ops: [], error: "no navigation root" };
+    const batch = JSON.parse(readOut(wasm.exact_dispatch(Number(nav.dataset.view), 14, writeIn(location), now())));
+    applyBatch(batch); return batch;
+  },
+  // A dev-plan event can arrive while the wasm is still fetching. Queue it
+  // behind the initial boot instead of acknowledging a reload that did not
+  // happen.
+  reload: async (bytes, fresh = false) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes, devAssets, () => true, null, fresh); },
+  reloadGeneration: async (bytes, cards, current, module = null, rust = null, letGo = false) => { // letGo: the dev loop's, which swaps with requests in flight
+    await ready;
+    await moduleReady;
+    if (module && !logicInfo) throw new Error('this web client has binary-bound logic; rebuild with the browser module executor');
+    if (!module && !rust && (logicInfo || activeModule)) throw new Error('a module client requires a paired plan/module generation');
+    if (rust && globalThis.exact.compat?.inputs?.rustMode !== 'browser') throw new Error('Rust replacement is disabled in this client; rebuild it');
+    const assets = assetNamespace(cards);
+    let candidate = null;
+    try {
+      if (module) candidate = { ...module, realm: await moduleLoader.prepare(module, logicInfo) };
+      if (rust) {
+        await loadRust();
+        if (candidate) {
+          const js = new TextEncoder().encode(JSON.stringify(candidate.realm.id));
+          const payload = new Uint8Array(js.length + rust.module.length);
+          payload.set(js); payload.set(rust.module, js.length);
+          const decode = bytes => JSON.parse(new TextDecoder('utf-8', {fatal:true}).decode(bytes));
+          candidate = {...candidate, receipt:new TextEncoder().encode(JSON.stringify({version:1,kind:'mixed',javascript:decode(module.receipt),rust:decode(rust.receipt),javascriptBytes:js.length})),rust:payload};
+        } else candidate = { receipt: rust.receipt, rust: rust.module };
+      }
+      if (candidate) candidate.letGo = letGo;
+      return await boot(bytes, assets, current, candidate) !== null;
+    } finally {
+      if (devAssets !== assets) releaseAssets(assets);
+      if (candidate && activeModule !== candidate) candidate.realm?.dispose();
+    }
+  },
+  message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
+  get devAssets() { return devAssets; },
+  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); if (agentMode) await agentInputReady(); }); },
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, readOut, send, views, root, generation: 0, pendingSurfaces: [], postBound: POST_BOUND,
+};
+// The GPU module, on demand: a script element after a rendering opportunity
+// (two animation-frame callbacks), never an eager import, and only when a
+// canvas is on the page. Until one is, an agent reply has nothing to settle.
+let gpuLoading = null; const gpuInPlay = () => Boolean(gpuLoading || globalThis.exact.gpu || globalThis.exact.pendingSurfaces?.length); function dropSurface(id) { const queued = globalThis.exact.pendingSurfaces; if (queued) globalThis.exact.pendingSurfaces = queued.filter(s => s.id !== id); } // a surface gone before its module loads asks none
+function loadGpuIfNeeded() {
+  if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
+  gpuLoading = loadAfterPaint(globalThis.exact.compat?.inputs?.gpuModules ? './gpu-modules.js' : './gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
+}
+async function main() {
+  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "", event = null) => { const outer = keyEvent; keyEvent = event; try { send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())); } finally { keyEvent = outer; } } }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
+  // A served document's download began at its first paint.
+  // A navigation that leaves the page stops it, or the glue's own, and their
+  // preload, so the next document has the link. A page that stays downloads it
+  // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
+  // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
+  // The page names the build in its preload (`./app.wasm?v=…`), so this file is the same across builds.
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_grants: grantOrigins(() => memory), exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_clock: { now: () => performance.now() - t0 }, exact_geometry: { shown: (view, first) => { if (first) { structuralModalLayers = modalLayers(); queueMicrotask(() => { structuralModalLayers = null; }); } const el = views.get(view); if (!el?.isConnected || !root.contains(el) || inertAncestor(el)) return 0; const live = structuralModalLayers; if (live && !live.some(layer => layer.contains(el))) return 0; for (let at = el; at && at !== root; at = at.parentElement) if (getComputedStyle(at).display === "none") return 0; return 1; }, read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0, range: (view, start, end, out) => geometry?.range(views.get(view), start, end, new Float64Array(memory.buffer, out, 4)) ?? 0, point: (x, y) => { const el = geometry?.point(x, y)?.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? id + 1 : 0; }, points: (x, y, out, cap) => { const hits = (geometry?.points(x, y) ?? []).flatMap(hit => { const el = hit.closest("[data-view]"), id = el && root.contains(el) ? Number(el.dataset.view) : NaN; return views.get(id) === el ? [id + 1] : []; }); if (cap) new Uint32Array(memory.buffer, out, Math.min(cap, hits.length)).set(hits.slice(0, cap)); return hits.length; } } }, aborted = e => e?.name === "AbortError";
+  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
+  const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
+  let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
+  let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
+  wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
+  memory = wasm.memory; if (WebAssembly.Module.imports(compiled).some(i => i.module === "exact_geometry")) geometryLoading = new Promise(r => requestAnimationFrame(r)).then(() => loadAfterPaint('./geometry-glue.js', 'geometry')).then(create => { geometry = create(root); }); // an artifact whose actions read geometry imports it
+  globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
+  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: pageNative } : null;
+  setInputReady(false); // Every data executor activates after the baked first pixel.
+  // Restore granted secrets and persisted states before the baked frame.
+  if (agentKeepsStore) {
+    const kept = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("exact.secret.")) kept.push(key.slice("exact.secret.".length), localStorage.getItem(key) ?? ""); else if (key?.startsWith("exact.state.")) kept.push(key, localStorage.getItem(key) ?? "");
+      }
+    } catch (e) { console.warn("exact: store", String(e)); }
+    if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
+  }
+  const first = await globalThis.exact.devFirst?.();
+  // A data module's realm: beside the boot on a served document, whose first
+  // pixel is painted; a client page's after its baked frame.
+  // The baked data source admits only the baked module's revision. A dev
+  // generation's module with another (a TypeScript edit since the wasm was
+  // built) replaces it at activation through the module path, whose receipt
+  // names its revision — no wasm rebuild.
+  const realm = () => typeof wasm.exact_module_artifact !== 'function' ? null : loadAfterPaint('./module-glue.js','moduleRuntime')
+    .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); const replaces = Boolean(first?.module) && JSON.parse(decoder.decode(payload.receipt)).module?.sha256 !== logicInfo.revision; return { ...payload, replaces, realm: await loader.prepare(payload, logicInfo, replaces ? undefined : 0) }; });
+  const prepared = page ? realm() : null; prepared?.catch(() => {}); // awaited, and reported, at activation
+  await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true);
+  if (!page) navigation.activate(root, log); // A served document stays unsplit until release adopts it.
+  root.dataset.bootMs = (performance.now() - t0).toFixed(1);
+  const activate = async () => {
+    loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); if (globalThis.launchQueue) documentsGlue().catch(console.error); // motion links its export; an installed app's launch files
+    if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
+    if (!agentMode && AGENT_ADMITTED) loadAfterPaint('./frames.js', 'createFrameSampler').then(create => { frameSampler = globalThis.exact.frames = create({ origin: () => t0, log, target: 'wasm', covers: ['input', 'scroll', 'batches', 'animations', 'canvas'], gather: () => loadStage('inspection').then(() => ({ journal: ask({ op: 'logs', since: 0 }), perf: ask({ op: 'perf' }), traceEvents: (ask({op:'state', trace_export:true}).world ?? []).flatMap(w => (w.traceEvents ?? []).map(e => ({...e, pid:w.canvas*2+e.pid}))) })) }); }).catch(console.error); // a development page's frames
+    // One optional load, no activation wait or retry queue.
+    loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
+      inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor, editMenu,
+        dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
+        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log, documents: () => documentsGlue() });
+    }).then(() => inputHandlers.arrive()).catch(console.error); // the stack as it stands, for the focus to follow
+    try {
+      const module = await (prepared ?? realm());
+      if (module?.replaces) await boot(first.plan, devAssets, () => true, module); else activeModule = module ?? activeModule;
+      await activateData();
+    } catch (error) { root.dataset.error = String(error); console.error(error); }
+    finally {
+      resolveModuleReady(); if (logicInfo) httpHelpers(); // a data module's first response is read without a load
+      if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {
+        loadRust().then(() => globalThis.exact.followRustUpdates(globalThis.exact, import.meta.url)).catch(error => console.error('Rust update discovery:',error));
+      }
+    }
+  };
+  // Nested rAF gives a client page's baked DOM a rendering opportunity before activation (a served document has painted already);
+  // a page given no frames (a cross-origin frame out of view: the design tool's canvas) activates a second on, once, as rt.js `input()`; not under the agent.
+  let activated; const activateOnce = () => activated ??= activate();
+  if (page) activateOnce(); else { requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activateOnce); }); if (!agentMode) setTimeout(activateOnce, 1000); }
+}
+ready = main();
+ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
+function navigate(location) { const batch = globalThis.exact.navigate(location); return /^NoHandler|no navigation root/.test(batch?.error ?? "") ? false : batch; } // The mirror observes the handler's synchronous commit. false: unheard, so Back is the runner's own
+const hostGo = location => { if (!inputReady) return null; const batch = JSON.parse(readOut(wasm.exact_host_go(writeIn(location), now()))); applyBatch(batch); return batch; }; // the runner's own `go`: Forward, and a link to a route (input-glue.js)
+navigation.connect(root, navigate, log, id => { if (inputReady) applyBatch(JSON.parse(readOut(wasm.exact_host_back(id, now())))); }, globalThis.exact.go = hostGo, href => !!wasm && wasm.exact_route_match(writeIn(href)) === 1, true);

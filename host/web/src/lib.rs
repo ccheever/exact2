@@ -1,0 +1,57 @@
+//! The web host.
+//!
+//! On the web the browser executes motion: the host emits the `transition`
+//! row as CSS and runs nothing per frame.
+//!
+//! One rule: **the DOM mirrors the kernel tree.** The runner and kernel run
+//! in wasm exactly as they do natively; after every commit the host reads the
+//! kernel's receipt and emits a batch — create, props, style, children,
+//! destroy — that makes the page equal to the tree. CSS is computed here, in
+//! Rust, from the kernel's style rows ([`css`]), so the browser is the layout
+//! engine and the motion engine. CSS Exclusions is the one exception: the
+//! optional glue measures segments and places the separate textflow wasm's
+//! fragments; browser frames and CSS feed Rust geometry. The JavaScript
+//! side (`glue.js`) is ~150 lines that apply batches, forward events, and
+//! tick the clock; it is host glue, not app code, and the plan is data baked
+//! into the wasm.
+//!
+//! - [`css`] — style rows → CSS declarations, once.
+//! - [`batch`] — the JSON the glue applies.
+//! - [`motion`] — springs: the one curve CSS cannot play, lowered to frames
+//!   by the same engine every native host runs, once per release.
+//! - [`host`] — the runner wrapped for a DOM: receipts → batches, events,
+//!   timers.
+//! - [`document`] — the same DOM as HTML, before browser layout: what a
+//!   page is before its runtime starts.
+//! - [`parity`] — the browser-driven parity harness: cases a real browser
+//!   runs, and the check that holds the engine to what it recorded.
+//! - [`dev`] — the resident dev driver: a source change observed → the
+//!   plan ready, in one long-lived process; the page restarts from it.
+//! - [`abi`] — the wasm exports, with no `unsafe`: the glue writes into a
+//!   host-owned buffer and reads from another.
+//! - [`link`] — what the artifact links beyond the core: the capabilities
+//!   its generated entry registers, and the boot refusal of a plan that uses
+//!   more.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+pub mod abi;
+pub mod batch;
+#[cfg(test)]
+mod batch_tests;
+pub mod colors;
+pub mod css;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dev;
+pub mod host;
+pub mod link;
+pub mod motion;
+mod pan_velocity;
+pub mod parity;
+mod text_box_css;
+#[cfg(test)]
+mod textflow_tests;
+
+pub use host::{document, DragHooks, Host, HostError, HostLinks};
+pub use link::{link, AnimationsLink, Linked};

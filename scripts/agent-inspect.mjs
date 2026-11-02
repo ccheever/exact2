@@ -1,0 +1,1301 @@
+import { MalformedOperation, inputJSON } from './agent-keys.mjs';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { renderAx } from './agent-ax.mjs';
+import { decodePng, encodePng, shrink } from './png.mjs';
+
+/** Film's bounds: a drive's pictures, not a recording, decoded in memory at once. */
+export const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
+export const WORLD_LIMIT = 256 * 1024 * 1024;
+export function worldFile(path) {
+  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  const bytes = readFileSync(path);
+  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  return bytes;
+}
+
+/** A capture's pixels, decoded once, at the drive's `--scale`: shrunk by area from the capture's own pixels a point, never enlarged. */
+export function scaledScreenshot(r, scale, host) {
+  const png = decodePng(readFileSync(r.screenshot)), drawn = r.scale ?? png.width / r.w, said = Math.round(drawn * 100) / 100;
+  if (scale === undefined) return { image: png, shrunk: false };
+  if (!Number.isFinite(drawn)) throw new Error(`--scale: the ${host} capture did not say its size in points`);
+  if (scale > drawn + 1e-3) throw new Error(`--scale ${scale}: this ${host} capture is ${said} pixel${said === 1 ? '' : 's'} a point; a screenshot is never enlarged`);
+  if (drawn - scale <= 1e-3) return { image: png, shrunk: false };
+  return { image: shrink(png, Math.max(1, Math.round(png.width * scale / drawn)), Math.max(1, Math.round(png.height * scale / drawn))), shrunk: true };
+}
+
+const sourceLocation = value => value && typeof value.file === 'string' && value.file.length > 0
+  && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
+  && value.end_col >= value.col && typeof value.component === 'string';
+
+/** Only the driver reads source maps.
+ * The locator discovers candidates; the node's same-reply digest decides whether
+ * one is compatible. Identical plans can have different formatting/ranges, so
+ * compatibility does not establish the original authored source revision. */
+export function sourceMapReader(locator) {
+  const maps = new Map(), limit = 64 * 1024 * 1024;
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  let lastCard = null, problem = 'no development source map';
+  const remote = typeof locator === 'string' && /^https?:\/\//i.test(locator);
+  async function fetchBytes(url, maximum = limit) {
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000), redirect: 'error', cache: 'no-store' });
+    if (!response.ok) throw Error(`source map HTTP ${response.status}`);
+    if (Number(response.headers.get('content-length')) > maximum) { await response.body?.cancel(); throw Error('source map exceeds size budget'); }
+    const reader = response.body.getReader(), parts = [];
+    let length = 0;
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > maximum) throw Error('source map exceeds size budget');
+        parts.push(value);
+      }
+    } finally { await reader.cancel(); }
+    return Buffer.concat(parts, length);
+  }
+  const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
+  return {
+    /** The map read for a plan digest, if any (`trace --out` writes it). */
+    get(digest) { return maps.get(digest); },
+    /** A map a trace carries: found by its own digest, as a refreshed one is. */
+    add(map) { if (digest(map?.digest) && Array.isArray(map.nodes)) maps.set(map.digest, map); },
+    async refresh() {
+      if (!locator) return false;
+      try {
+        let bytes, key = null, expected = null;
+        if (remote) {
+          const envelopeURL = new URL(new URL(locator).pathname.endsWith('/exact.json') ? locator : '/exact.json', locator);
+          const envelope = JSON.parse((await fetchBytes(envelopeURL, 1024 * 1024)).toString('utf8'));
+          const card = envelope.dev?.sourceMap;
+          if (!card) throw Error('no development source map');
+          if (!digest(card.sha256) || !Number.isSafeInteger(card.bytes) || card.bytes < 0 || card.bytes > limit
+            || typeof card.url !== 'string' || !digest(envelope.plan?.sha256)) throw Error('invalid source map card');
+          const url = new URL(card.url, envelopeURL);
+          if (url.origin !== envelopeURL.origin) throw Error('source map URL must use the development origin');
+          key = `${url.href}:${card.sha256}:${card.bytes}:${envelope.plan.sha256}`;
+          if (key === lastCard) return true;
+          bytes = await fetchBytes(url, card.bytes);
+          if (bytes.length !== card.bytes || hash(bytes) !== card.sha256) throw Error('source map card mismatch');
+          expected = envelope.plan.sha256;
+        } else {
+          const path = `${resolve(locator)}.map.json`;
+          if (statSync(path).size > limit) throw Error('source map exceeds size budget');
+          bytes = readFileSync(path);
+          if (bytes.length > limit) throw Error('source map exceeds size budget');
+          key = hash(bytes);
+          if (key === lastCard) return true;
+        }
+        const map = JSON.parse(bytes.toString('utf8'));
+        if (!digest(map.digest) || !Array.isArray(map.nodes) || (expected && map.digest !== expected)) throw Error('invalid or mismatched source map');
+        maps.delete(map.digest); maps.set(map.digest, map);
+        while (maps.size > 4) maps.delete(maps.keys().next().value);
+        lastCard = key; problem = 'source map does not match the running plan';
+      } catch (error) { problem = error.code === 'ENOENT' ? 'no development source map' : error.message; lastCard = null; }
+      return maps.size > 0;
+    },
+    attach(node) {
+      const origin = o => typeof o === 'string' && /^(own|tag|class:.+)$/.test(o);
+      delete node.bare_reason;
+      for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
+      const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
+      const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
+      if (!entry || !sourceLocation(entry) || !Array.isArray(entry.chain) || !entry.chain.every(sourceLocation)
+        || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
+          // A base origin, absent where only a state part writes the row; each part's own.
+          && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
+        node.sourceMap = {status: 'unavailable', reason: map ? 'invalid source location' : problem};
+        return;
+      }
+      node.sourceMap = {status: 'compatible', digest: map.digest, ...at(entry), chain: entry.chain.map(at)};
+      // The first reason belongs only to this compatible plan site.
+      if (typeof entry.bare_reason === 'string' && entry.bare_reason.length > 0 && entry.bare_reason.length <= 1024) node.bare_reason = entry.bare_reason;
+      for (const b of entry.bindings) {
+        const style = node.style?.[b.row];
+        if (!style || !['authored', 'dynamic'].includes(style.source)) continue;
+        // A row's base origin; a press row has none, and is its `:active` part's, written in its part.
+        const part = b.origin === undefined ? b.states?.find(p => p.state === 'active') : null;
+        if (b.origin === undefined && !part) continue;
+        style.origin = part ? part.origin : b.origin;
+        if (part) style.state = part.state;
+        // (Its place where it has one: a conditional class's part has none.)
+        const written = part?.at;
+        const placed = written && typeof written.file === 'string' && ['line', 'col', 'end_col'].every(k => Number.isSafeInteger(written[k]));
+        if (placed) style.at = {file: written.file, line: written.line, col: written.col, end_col: written.end_col};
+      }
+    },
+  };
+}
+
+/** Several locators as one reader: the first map whose digest is the node's plan's answers; otherwise the last reason. */
+export function sourceMapReaders(locators) {
+  const readers = locators.length ? locators.map(sourceMapReader) : [sourceMapReader(null)];
+  return {
+    add(map) { readers[0].add(map); },
+    get(digest) { for (const r of readers) { const map = r.get(digest); if (map) return map; } return null; },
+    async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
+    attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
+  };
+}
+
+/** Resource declarations are joined only to the digest in this same state reply. */
+export function identifyResources(reply, maps) {
+  const digest = reply.planDigest, map = maps?.get(digest);
+  for (const [name, row] of Object.entries(reply.resourceStatus ?? {})) {
+    const at = map?.resources?.[name];
+    const valid = sourceLocation(at);
+    row.declaration = valid
+      ? {status:'compatible', digest, file:at.file, line:at.line, col:at.col, end_col:at.end_col, component:at.component}
+      : {status:'unavailable', reason:map ? 'no resource declaration in this map' : 'no compatible development source map'};
+  }
+  return reply;
+}
+
+/** List reasons only when geometry and tree
+ * describe the same settlement; a target read already owns its identity. */
+export function identifyLayoutNodes(layout, tree, maps) {
+  const same = layout.epoch === tree.epoch && layout.incarnation === tree.incarnation;
+  const by = new Map(tree.nodes.map(n => [n.id, n]));
+  for (const node of layout.nodes) {
+    const record = by.get(node.id);
+    if (!record) continue;
+    node.type = record.type;
+    if (record.props.testId) node.testId = record.props.testId;
+    if (maps && same) { node.site = record.site; node.planDigest = tree.planDigest; maps.attach(node); }
+  }
+}
+
+/** A targeted reply owns its identity. A concurrently fetched tree may already
+ * describe a replacement plan with reused view IDs and cannot relabel it. */
+/** `layout`'s CLI arguments: `layout
+ * [<target>]`, `layout <target> at <x> <y>`, `layout <target> native
+ * [<depth>]`, `layout agree [<limit>]` — the keyword wins over a testId of
+ * that name, which a numeric id still reaches. Returns `layout`'s arguments. */
+export function layoutArgs(args) {
+  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new MalformedOperation(`layout: ${word} is not an integer`); return n; };
+  if (args[0] === 'agree') return [undefined, undefined, { agree: true, ...(args[1] != null ? { limit: count(args[1]) } : {}) }];
+  if (args[1] === 'native') return [args[0], undefined, { native: args[2] != null ? { depth: count(args[2]) } : {} }];
+  if (args[1] === 'at') return [args[0], [Number(args[2]), Number(args[3])]];
+  return [args[0]];
+}
+
+export function identifyInspectedNode(reply, target) {
+  const node = reply.node;
+  if (!node) return;
+  const testId = node.props?.testId;
+  if (typeof target !== 'number' && !/^\d+$/.test(String(target)) && testId !== target) {
+    throw Error(`layout: target ${target} changed during inspection; retry`);
+  }
+  if (testId != null) node.testId = testId;
+  const box = reply.nodes?.find(value => value.id === node.id);
+  if (box) { box.type = node.type; if (testId != null) box.testId = testId; }
+}
+
+/** HTML's table and description list elements, which a `View` is by its `semanticTag`. */
+const TABLE_ELEMENTS = /^(table|caption|thead|tbody|tfoot|tr|th|td|dl|dt|dd)$/;
+
+/**
+ * The transcript form: the one text rendering of a reply, for
+ * eyes — a pure function of the JSON, lossy on purpose (the JSON is
+ * complete; only text, value, label and checked ride along), never parsed back.
+ * `scripts/fixtures/transcript.txt` pins it. A part in [brackets] appears
+ * only when its field is present (not null); strings are JSON-quoted.
+ *
+ *   tree    epoch E · incarnation I · clock C ms · N nodes
+ *           {"  " × depth}{Type}#{id} [<{element}>, a table's or a description list's] [{testId}] hatch="…" "{text}" value="…" label="…" checked=true|false [focused] [hidden]|[inactive] ({handlers, comma-separated})
+ *           `[hidden]` under a route the host does not show (inactive too), `[inactive]` under one only a sheet covers
+ *           an iframe adds url="…" loading=true|false, a partitioned one partition="…", one that
+ *           reported a navigation at="…" title="…", and `[guest]` outline lines
+ *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
+ *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} of {rx},{ry} [port {x},{y} {w}×{h}] [overscroll {ox},{oy}]
+ *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
+ *           the host's lines indented two spaces; on an iOS simulator, the newest crash report of the build
+ *           on that simulator since the last `logs` (its path, how it ended, the crashing thread's top
+ *           frames); "(nothing new)" when there is nothing
+ *   state   [epoch E · incarnation I · clock C ms], then one line per other section: `{name} {JSON on one line}`;
+ *           an app's state (a reply with `slots`) without its empty sections (`emptySection`), a world's whole;
+ *           over STATE_CAP its small sections and the others' sizes instead (`stateCap`)
+ *   tap, type  [ERROR {error} · ]tapped|typed #{id} "{target}" [· at X,Y, a contact's phase or a drag] · delivery D · epoch E
+ *           [· incarnation I, when not 1] · clock C ms [· key=JSON for every other field but carrier and mode];
+ *           a contact's phase reads `tap {phase}`, a held request's answer `answered @{ticket} "{choice}"`, a reply with
+ *           an error or `delivery: unsupported` `tap`|`type`, never `tapped`|`typed`; a delivered input whose answers did
+ *           not land keeps its verb and says `landing failed: …`
+ *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
+ *           one row per site: component, file:line (or `site N`), then each counter the host has
+ *   perf frames  period P ms (source) · presented N · late L · missed M [· overruns O] · segments S, the window's
+ *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
+ *   others  one line (`renderLine`): what it did ([clock C ms · settled], [screenshot {path} · W×H], else the op),
+ *           the tags, then key=JSON for each other field
+ */
+/** A `layout` reply's presentations the platform draws scaled (iOS's floating sheet), a line each: its boxes are the
+ * authored frames times the factor, which no style asked for and none should undo. */
+export const scaledLines = (layout) => (layout?.scaled ?? []).map((p) =>
+  `route ${p.route || '?'} is a ${p.presentation} the platform draws at ${p.scale} of its laid-out size: its boxes are the authored frames × ${p.scale}, not the app's doing`);
+export function render(op, r, how = {}) {
+  if (op === 'ax' || (op === 'tree' && r.ax)) return renderAx(r);
+  const q = JSON.stringify;
+  switch (op) {
+    case 'check': return r.text; // agent-check.mjs
+    case 'screenshot': return r?.compare ? r.text : renderLine(op, r); // `compare`: the comparison with a reference (agent-compare.mjs)
+    case 'tree': {
+      const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
+      if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');
+      const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
+      const rootDepth = r.nodes[0]?.depth ?? 0;
+      for (const n of r.nodes) {
+        const depth = Math.max(0, n.depth - rootDepth);
+        const p = n.props ?? {};
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${TABLE_ELEMENTS.test(p.semanticTag ?? '') ? ` <${p.semanticTag}>` : ''}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.hidden ? " [hidden]" : n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.status != null ? ` status ${q(n.status)}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}${n.partition != null ? ` partition=${q(n.partition)}` : ''}${n.navigation ? ` at=${q(n.navigation.url)} title=${q(n.navigation.title)}` : ''}`);
+        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
+      }
+      return lines.join('\n');
+    }
+    case 'layout': {
+      if (r.entity) {
+        const e = r.entity, b = e.screen, p = e.world?.position;
+        return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b && ['x','y','w','h'].every(k => Number.isFinite(b[k])) ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ' · screen unavailable'}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible ? ` · inFrustum ${!!e.visible.inFrustum} · behindCamera ${!!e.visible.behindCamera}` : ''}`;
+      }
+      if (r.agreement) return renderAgreement(r.agreement);
+      if (!r.viewport) return q(r);
+      const e = r.env;
+      const insets = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
+      const env = e && insets.some((k) => e[k]) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
+      // The fold, when the device is not flat: its posture, the segment counts and each segment's box.
+      const fold = e && (e['device-posture'] === 'folded' || (e['horizontal-viewport-segments'] ?? 1) * (e['vertical-viewport-segments'] ?? 1) > 1) ? ` · posture ${e['device-posture']} · segments ${e['horizontal-viewport-segments']}×${e['vertical-viewport-segments']}${(e['viewport-segments'] ?? []).map((r) => ` [${r[0]},${r[1]} ${r[2]}×${r[3]}]`).join('')}` : '';
+      // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
+      // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
+      const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
+      // The status bar's style Exact asks for (iOS), when it is not the default.
+      const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
+      // The title-bar area beside the window's controls, where the host defines it.
+      const titlebar = e && e['titlebar-area-width'] != null ? ` · titlebar-area ${e['titlebar-area-x']},${e['titlebar-area-y']} ${e['titlebar-area-width']}×${e['titlebar-area-height']}` : '';
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}${rangeAndPort(n)}` : ''}${past(n)}`}`));
+      lines.splice(1, 0, ...scaledLines(r));
+      if (r.node) lines.push(...renderNode(r.node));
+      return lines.join('\n');
+    }
+    case 'logs':
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => [...(w.dropped > 0 ? [`world ${w.canvas ?? w.id ?? ''} (${w.dropped} earlier lines dropped by the journal ring)`] : []), ...(w.lines ?? []).map((line) => 'world ' + line)]), ...(r.host ?? []).map((l) => '  ' + l), ...(r.crash ?? [])].join('\n') || '(nothing new)';
+    case 'state': {
+      if (!r || typeof r !== 'object') return q(r);
+      if (Array.isArray(r)) return stateCap(q(r), r, how);
+      if (r.draws || r.visible || r.look) return renderLook(r);
+      // One line a section: pretty-printing cost an app's state more than half again its JSON.
+      const { epoch, incarnation, clock, ...rest } = r, app = 'slots' in r;
+      const head = [epoch != null && `epoch ${epoch}`, incarnation != null && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`].filter(Boolean).join(' · ');
+      const sections = Object.entries(rest).filter(([, v]) => !(app && emptySection(v)));
+      return stateCap([head, ...sections.map(([k, v]) => `${k} ${q(v)}`)].filter(Boolean).join('\n'), r, how, head, sections);
+    }
+    case 'perf':
+      return renderPerf(r);
+    case 'type':
+      if (r?.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
+    // falls through: a single input's reply
+    case 'tap': {
+      if (!r || typeof r !== 'object') return q(r);
+      // `carrier` and `mode` are the drive's own (its host, its timing): the JSON keeps them. So does a press's `at`, a
+      // point only a hit-test diagnosis reads; a contact's phase and a drag answer with where the finger is, so theirs shows.
+      const { tapped, typed, target, phase, delivery, epoch, incarnation, clock, at, carrier, mode, error, landError, answered, ticket, ...rest } = r, id = tapped ?? typed;
+      // An input that did not happen (a failure, a form the carrier cannot deliver) never reads in the past tense, and a
+      // failure says so first; a phase names itself (`tap down`), held or not.
+      // A held request's answer (`tap @3 cancel`) was given: `answered @3 "cancel"`.
+      const verb = error != null || phase != null || delivery === 'unsupported' ? `${op}${phase != null ? ` ${phase}` : ''}` : answered != null ? 'answered' : tapped != null ? 'tapped' : typed != null ? 'typed' : op;
+      const head = `${error != null ? `ERROR ${error} · ` : ''}${verb}${ticket != null ? ` @${ticket}` : ''}${answered != null ? ` ${q(answered)}` : ''}${id != null ? ` #${id}` : ''}${target != null ? ` ${q(target)}` : ''}`;
+      const where = (phase != null || r.drag != null) && at != null ? (Array.isArray(at) ? `at ${at.join(',')}` : `at=${q(at)}`) : null;
+      // Delivered, but what it started did not land (`landed`): said next to the verb, which stays `tapped`.
+      return [head, landError != null && `landing failed: ${landError}`, where, delivery != null && `delivery ${delivery}`, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, clock != null && `clock ${clock} ms`,
+        ...Object.entries(rest).map(([k, v]) => `${k}=${q(v)}`)].filter(Boolean).join(' · ');
+    }
+    default:
+      return renderLine(op, r);
+  }
+}
+
+/** A reply with no form of its own, on one line: what it did, its tags as a tap's are, then each other field as
+ * key=JSON (`carrier` and `mode`, the drive's own, only in the JSON). `clock` leads with where it landed and whether
+ * it settled, `screenshot` with its file and size. */
+function renderLine(op, r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return JSON.stringify(r);
+  const { epoch, incarnation, clock, carrier, mode, ...rest } = r;
+  const lead = [op];
+  if (op === 'clock') {
+    if (clock != null) lead[0] = `clock ${clock} ms`;
+    if ('settled' in rest) { lead.push(rest.settled ? 'settled' : `NOT settled${rest.reason != null ? ` (${rest.reason})` : ''}`); delete rest.settled; delete rest.reason; }
+  } else if (op === 'screenshot' && typeof rest.screenshot === 'string') {
+    lead[0] = `screenshot ${rest.screenshot}`;
+    if (rest.w != null && rest.h != null) lead.push(`${rest.w}×${rest.h}`);
+    delete rest.screenshot; delete rest.w; delete rest.h;
+  }
+  // What a picture shows that the app does not (a menu the agent painted, the authored bars), each on a line of its
+  // own: in the run of key=values it read as one more field, and a painted menu as an app bug.
+  const notes = op === 'screenshot' ? ['paintedNote', 'chromeNote', 'unshownNote', 'note'].filter((k) => typeof rest[k] === 'string').map((k) => {
+    const said = rest[k]; delete rest[k]; return `\n  NOTE: ${said}`;
+  }) : [];
+  return [...lead, epoch != null && `epoch ${epoch}`, incarnation != null && incarnation !== 1 && `incarnation ${incarnation}`, op !== 'clock' && clock != null && `clock ${clock} ms`,
+    ...Object.entries(rest).map(([k, v]) => `${k}=${JSON.stringify(v)}`)].filter(Boolean).join(' · ') + notes.join('');
+}
+
+/** The most of a `state` reply its transcript prints whole (`state … --full` prints it all, `--json` every reply):
+ * a sequencer's record was 142.6 KB on iOS, mostly resources, derives and presence. Over it, `slots`, `derives`
+ * and then the smallest sections still print, up to STATE_SHOWN between them. */
+export const STATE_CAP = 8192, STATE_SHOWN = 2048;
+const size = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+
+/** A `state` transcript over STATE_CAP, in its place: its size, the small sections as they are, each other one's size,
+ * largest first, and how to read one or all of it. `name` is what the op named (`state transport`); a world's reply is
+ * paged (`from`, `limit`), never addressed by key. */
+function stateCap(text, r, { full = false, name = null } = {}, head = '', sections = null) {
+  const bytes = Buffer.byteLength(text);
+  if (full || bytes <= STATE_CAP) return text;
+  const what = name ? `state ${name}` : 'state', world = ['tick', 'entities', 'entity'].some((k) => k in r);
+  const sized = sections?.map(([k, v]) => [k, v, Buffer.byteLength(JSON.stringify(v) ?? '')]) ?? [];
+  const shown = new Set();
+  let room = STATE_SHOWN;
+  // The app's own states and derives first, then the smallest of the rest.
+  const own = (k) => (r.slots !== undefined && (k === 'slots' || k === 'derives') ? 0 : 1);
+  for (const [k, , n] of [...sized].sort((a, b) => own(a[0]) - own(b[0]) || a[2] - b[2])) { if (n > room) { if (own(k)) break; continue; } room -= n; shown.add(k); }
+  const rest = sized.filter(([k]) => !shown.has(k)).sort((a, b) => b[2] - a[2]), top = rest[0]?.[0];
+  const one = world ? null
+    : !sections ? `one item: "state ${name ?? '<name>'}.0"`
+    : name ? `one key: "state ${name}.${top}"`
+    : `one section: "state ${top}", or a state, derive or resource by name, dotted: "state ${top}.<key>"`;
+  return [`${what} is ${size(bytes)}, over the ${size(STATE_CAP)} printed whole${head ? ` · ${head}` : ''}`,
+    ...sized.filter(([k]) => shown.has(k)).map(([k, v]) => `${k} ${JSON.stringify(v)}`),
+    sections ? `not shown: ${rest.map(([k, , n]) => `${k} ${size(n)}`).join(' · ')}` : `${r.length} items`,
+    `${one ? `${one}; ` : ''}all of it: "${what} --full", or --json`].join('\n');
+}
+
+/** A section an app's `state` transcript leaves out (the JSON keeps every one): null, an empty list or an
+ * empty record — one that holds nothing, so leaving it out hides no value. Nothing else is judged: a host's defaults
+ * (a hidden keyboard, an idle navigation) show, since the renderer cannot know them on every host. A world's or an
+ * entity's reply has no `slots` and is never filtered: its empty `busy` or `entities` is the answer. */
+export function emptySection(v) {
+  return v === null || (typeof v === 'object' && (Array.isArray(v) ? !v.length : !Object.keys(v).length));
+}
+
+function rangeAndPort(scroller) {
+  const range = scroller.rx != null ? ` of ${scroller.rx},${scroller.ry}` : '', p = scroller.port;
+  return range + (p ? ` port ${p[0]},${p[1]} ${p[2]}×${p[3]}` : '');
+}
+
+/**
+ * The block `layout <target>` adds under the listing: the
+ * node's identity and site, one line per row with its source, its spaces,
+ * the chains above it, its visibility, and what the host mounted. Every
+ * part appears only when the host reported it — a space a host cannot
+ * observe is absent, never a zero.
+ *
+ *   node #{id} [{testId}] {Type} · site {n} · instance {keys} · epoch E · incarnation I
+ *     {row} = {value} ({authored | inherited from #id | initial}[, applied {…}])
+ *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent) · window X,Y W×H · screen X,Y W×H · scale S
+ *     scroll [viewport | #id] sx,sy of rx,ry · … (outermost first)   clip #id overflow|clip-path · …
+ *     visible hidden=… inert=… inViewport=… clipped=…       native key=value …
+ *     browser {row}="{the browser's computed value}" …      (the web's oracle beside the kernel's answer)
+ */
+function renderNode(n) {
+  const q = JSON.stringify;
+  const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
+  const instance = (n.instance ?? []).map((i) => (i.key !== undefined ? q(i.key) : `arm ${i.arm}`)).join(' / ');
+  const out = [`node #${n.id}${n.testId != null ? ` [${n.testId}]` : ''} ${n.type}${n.site != null ? ` · site ${n.site}` : ''}${instance ? ` · instance ${instance}` : ''} · epoch ${n.epoch} · incarnation ${n.incarnation}`];
+  if (n.bare_reason) out.push(`  bare: \`${n.bare_reason}\``);
+  const source = n.sourceMap;
+  if (source?.status === 'compatible') {
+    const at = value => `${value.file}:${value.line}:${value.col}`;
+    out.push(`  @ ${at(source)} (${source.component}) · compatible source map`);
+    for (const call of source.chain) out.push(`    called from ${call.component} @ ${at(call)}`);
+  } else if (source) out.push(`  source unavailable: ${source.reason}`);
+  // Rows and keys sort by name: a host that answers through a dictionary
+  // (AppKit, UIKit) has no order to offer, and the transcript must not
+  // depend on which host answered.
+  const sorted = (o) => Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.origin ? `, ${v.origin}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''}${v.token ? `, token ${v.token.names.join(' ') || v.token.text} in ${v.token.modes || 'the one tuple'}${v.token.implied ? ', implied by the boundary' : ''}` : ''})`);
+  // Web geometry is paragraph-content-local.
+  const flowSpace = n.flow?.coordinate_space === 'content' ? 'leaf content box' : 'leaf border box';
+  for (const { kind, ...values } of n.flow_shapes ?? []) out.push(`  flow ${kind} ${Object.entries(values).map(([k, v]) => `${k}=${q(v)}`).join(' ')} (${flowSpace})`);
+  if (n.flow_skipped ?? n.flow?.skipped) out.push(`  flow skipped: ${n.flow_skipped ?? n.flow.skipped}`);
+  // Painted fragments retain logical byte ranges.
+  for (const f of n.fragments ?? n.flow?.fragments ?? []) out.push(`  fragment bytes ${f.start}..${f.end} · band ${f.band ?? f.line} · ${f.x},${f.y} ${f.width}×${f.height ?? n.flow?.line_height} (leaf content box)`);
+  // A box a multi-column flow breaks, and a container's columns.
+  for (const f of n.column_fragments ?? []) out.push(`  column fragment ${f.x},${f.y} ${f.w}×${f.h}${f.lines ? ` · lines ${f.lines[0]}..${f.lines[1]}` : ''}`);
+  for (const c of n.columns ?? []) out.push(`  column ${c.x},${c.y} ${c.w}×${c.h}${c.holds ? '' : ' · holds nothing'}`);
+  if (n.fragment_skipped) out.push(`  kept whole in its column: ${n.fragment_skipped}`);
+  const sp = n.space ?? {};
+  out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
+  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}${rangeAndPort(c)}`).join(' · ')}`);
+  if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
+  if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+  if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
+  if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
+  // A pressed paint, on the page's images, which the computed opacity and background don't show.
+  if (n.press_shown) out.push(`  press shows opacity=${n.press_shown.opacity} background=${q(n.press_shown.backgroundColor)} color=${q(n.press_shown.color)} (paint ${n.press_shown.paint})`);
+  if (n.native?.subviews) out.push(...renderSubviews(n.native.subviews));
+  return out;
+}
+
+/** The counters a `perf` site row may carry, in the order they print. */
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved', 'rowConstructed', 'rowRebound', 'rowRetired'];
+
+/** `perf [<target>] [during "<op>" …]` and `perf frames [live <ms>] [late <n>]`
+ * `during` reads, drives each quoted op through `step`, reads
+ * again, and subtracts: the delta belongs to the driver, a read changes nothing.
+ * `live <ms>` lends the page's clock to the wall for that long and measures the
+ * frames it presents (a game's 60 fps, say). */
+/** `tap <node>/<part>`: a control a hatch drew, by the id `tree` lists under its node. Reached
+ *  only as real platform input at its place: the host aims (the part live, in its window, not covered), the driver delivers a
+ *  pointer event there (a touch on iOS under `--touch platform`), and the host says where it landed, against the aim's token.
+ *  `unsupported` where no real carrier exists; never a fallback, never an activation by name. Null when `target` names no part. */
+export async function partTap({ s, host, touch }, target, opts = {}) {
+  const cut = typeof target === 'string' ? target.lastIndexOf('/') : -1;
+  if (cut <= 0 || cut === target.length - 1) return null;
+  const of = target.slice(0, cut), name = target.slice(cut + 1);
+  let node;
+  try { node = await s.target(of); } catch { return null; }
+  if (!['web', 'macos', 'ios'].includes(host) || (host === 'ios' && touch === 'agent')) {
+    return { tapped: node.id, part: name, delivery: 'unsupported', reason: host === 'ios' ? 'a part takes a real touch: open the simulator with --touch platform' : `the ${host} host has no real pointer carrier for a part` };
+  }
+  const aim = await s.op({ op: 'tap', id: node.id, part: name, aim: true });
+  if (aim.error) throw new Error(aim.error);
+  // One real click at the aimed point (`clicks 1 at x y`, the mouse form that takes a point on any node); a touch on iOS.
+  await s.tap(of, { ...opts, ...(host === 'ios' ? {} : { clicks: 1 }), at: aim.aimed.at });
+  const landed = await s.op({ op: 'tap', id: node.id, part: name, landed: aim.aimed.token });
+  if (landed.error) throw new Error(landed.error);
+  return { ...landed, target, at: aim.aimed.at };
+}
+
+/** Where each app session's scroll track was last read to (`perf frames track`), per driver and session label (a
+ *  driver can switch `s.session`), so consecutive reads don't repeat rows; cleared when a start succeeds (a new or
+ *  replacing track counts from row 0) and at stop or a track's end. */
+const trackCursorMaps = new WeakMap();
+const trackCursors = {
+  map: s => { let m = trackCursorMaps.get(s); if (!m) trackCursorMaps.set(s, m = new Map()); return m; },
+  get: s => trackCursors.map(s).get(s.session ?? ''),
+  set: (s, cursor) => trackCursors.map(s).set(s.session ?? '', cursor),
+  delete: s => trackCursors.map(s).delete(s.session ?? ''),
+};
+
+/** Every unread page of a scroll track (`perf frames track read`), joined: its rows, the rows the ring overwrote first
+ *  (`dropped`), and the cursor to read on from (kept for the session). A track no longer leased when a later page is
+ *  asked answers its `no-track` refusal, with the rows read before it as `rowsBeforeEnd`, never a page saying more. */
+export async function readTrack(s, cursor = trackCursors.get(s)) {
+  let out = null;
+  for (let i = 0; i < 1000; i++) {
+    const page = await s.op({ op: 'perf', frames: true, track: 'read', ...(cursor !== undefined ? { cursor } : {}) });
+    if (page.error || page.track === false) {
+      trackCursors.delete(s);
+      return out ? { ...page, rowsBeforeEnd: out.rows, droppedBeforeEnd: out.dropped } : page;
+    }
+    out = out ? { ...page, rows: out.rows.concat(page.rows), dropped: out.dropped + page.dropped } : page;
+    cursor = page.cursor;
+    trackCursors.set(s, cursor);
+    if (!page.more) break;
+  }
+  return out;
+}
+
+export async function perfOp(s, args, line, step) {
+  if (args[0] === 'frames') {
+    if (args[1] === 'health') {
+      const source = ['app', 'scroll'].includes(args[2]) ? args[2] : undefined;
+      const end = source ? 3 : 2;
+      if (args.length !== end && args[end] !== 'during') throw new MalformedOperation('perf frames health [app|scroll] [during "<op>" …]');
+      const read = cursor => s.op({ op: 'perf', frames: true, health: true, ...(source ? { source } : {}), ...(cursor ? { cursor } : {}) });
+      let before;
+      try { before = await read(); }
+      catch (e) {
+        if (args[end] !== 'during' || e.reply?.error !== 'native-scroll-unobserved') { throw e; }
+        before = e.reply;
+      }
+      if (args.length === end || (before.error && before.error !== 'native-scroll-unobserved')) return before;
+      const operations = [...line.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(match => inputJSON(`"${match[1]}"`));
+      if (!operations.length) throw new MalformedOperation('perf frames health during requires quoted operations');
+      for (const operation of operations) {
+        const result = await step(operation), reply = Array.isArray(result) ? result[1] : result;
+        if (reply?.error) throw new Error(reply.error);
+      }
+      return read(before.cursor);
+    }
+    if (args[1] === 'report') {
+      if (args.length > 3 || (args[2] !== undefined && !['app', 'scroll'].includes(args[2]))) throw new MalformedOperation('perf frames report [app|scroll]');
+      return s.op({ op: 'perf', frames: true, report: true, ...(args[2] ? { source: args[2] } : {}) });
+    }
+    if (args[1] === 'track') {
+      // `perf frames track start <node> [ms] | read | stop` (exact.frame-health.track/1): one node's scroller, each
+      // committed offset, in a bounded ring under a lease. A read gathers every page; stop reads the rest, then releases.
+      const action = args[2], durationMs = args[4] === undefined ? 30000 : Number(args[4]);
+      if (action === 'start') {
+        if (args.length < 4 || args.length > 5 || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000) throw new MalformedOperation('perf frames track start <node> [1–120000 ms] | read | stop');
+        // A view id goes straight to the host: the start is a bounded frame read and drains nothing, so it can start or
+        // replace a track mid-glide. A testId is resolved first with one `tree`, which lands slices in flight: resolve
+        // it before the glide (or pass the id `tree` lists).
+        const id = /^\d+$/.test(args[3]) ? Number(args[3]) : (await s.target(args[3])).id;
+        const started = await s.op({ op: 'perf', frames: true, track: 'start', node: id, durationMs });
+        if (started.track === true) trackCursors.delete(s);
+        return started;
+      }
+      if (!['read', 'stop'].includes(action) || args.length !== 3) throw new MalformedOperation('perf frames track start <node> [1–120000 ms] | read | stop');
+      const read = await readTrack(s);
+      if (action === 'read' || read.track === false || read.error) return read;
+      // Rows can land between the last read and the stop. The stop freezes the track (no more feeds) and answers its
+      // first page; the rest is read to the end, and the read that answers `more: false` releases the ring.
+      const tail = await s.op({ op: 'perf', frames: true, track: 'stop', cursor: read.cursor });
+      if (tail.error || tail.track === false) { trackCursors.delete(s); return { ...tail, rowsBeforeEnd: read.rows, droppedBeforeEnd: read.dropped }; }
+      trackCursors.set(s, tail.cursor);
+      const rest = tail.more ? await readTrack(s, tail.cursor) : { rows: [], dropped: 0, more: false };
+      trackCursors.delete(s);
+      if (rest.error || rest.track === false) return { ...rest, rowsBeforeEnd: read.rows.concat(tail.rows ?? [], rest.rowsBeforeEnd ?? []), droppedBeforeEnd: read.dropped + (tail.dropped ?? 0) + (rest.droppedBeforeEnd ?? 0) };
+      return { ...tail, ...(tail.more ? { cursor: rest.cursor } : {}), stopped: true, rows: read.rows.concat(tail.rows ?? [], rest.rows ?? []),
+        dropped: read.dropped + (tail.dropped ?? 0) + (rest.dropped ?? 0), more: rest.more === true };
+    }
+    if (args[1] === 'capture') {
+      const action = args[2], durationMs = args[3] === undefined ? 60000 : Number(args[3]);
+      if (!['start', 'stop', 'clear'].includes(action) || args.length > 4 ||
+          (action !== 'start' && args.length !== 3) || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000) {
+        throw new MalformedOperation('perf frames capture start [1–120000 ms] | stop | clear');
+      }
+      return s.op({ op: 'perf', frames: true, capture: action, ...(action === 'start' ? { durationMs } : {}) });
+    }
+    const at = word => { const i = args.indexOf(word); return i < 0 ? undefined : Number(args[i + 1]); };
+    const live = at('live'), late = at('late');
+    if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw new MalformedOperation('perf frames live <ms>: a whole number of milliseconds, 1–120000');
+    if (live !== undefined && ['ios', 'host-ios', 'macos', 'host'].includes(s.host)) {
+      if (live > 30000 || late !== undefined || args.length !== 3 || args[1] !== 'live') throw new MalformedOperation('perf frames live <1–30000 ms> on Apple; use report for hitch detail');
+      const before = await s.op({ op: 'perf', frames: true, health: true });
+      if (before.error || !before.available) return before;
+      if (before.capture?.agentLeaseRemainingMs > 0) throw new MalformedOperation('a live frame capture is already active; read health or stop that capture first');
+      const capture = await s.op({ op: 'perf', frames: true, capture: 'start', durationMs: live + 5000 });
+      if (!capture.capture) return capture;
+      try {
+        await new Promise(resolve => setTimeout(resolve, live));
+        return await s.op({ op: 'perf', frames: true, health: true, cursor: before.cursor });
+      } finally { await s.op({ op: 'perf', frames: true, capture: 'stop' }); }
+    }
+    return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
+  }
+  // `perf streams [start]`: each stream message's receipt to mapper entry, decode and commit.
+  if (args[0] === 'streams') return s.op({ op: 'perf', streams: true, ...(args[1] === 'start' ? { start: true } : {}) });
+  // `perf hatches`: the hatches' calls and what their code counted.
+  if (args[0] === 'hatches') {
+    const read = () => s.op({ op: 'perf', hatches: true });
+    const at = line.search(/\sduring\s/);
+    if (at < 0) return read();
+    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+    if (!ops.length) throw new MalformedOperation('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
+    const before = await read();
+    for (const op of ops) await step(op);
+    return hatchDelta(before, await read());
+  }
+  const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
+  const at = line.search(/\sduring\s/);
+  if (at < 0) return s.perf(target);
+  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => inputJSON(`"${m[1]}"`));
+  if (!ops.length) throw new MalformedOperation('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
+  const before = await s.perf(target);
+  for (const op of ops) await step(op);
+  if (target?.startsWith('world:')) {
+    const after = await s.perf(target, {spanSince: before.spanTicks});
+    if (after.tick < before.tick || after.restarted !== before.restarted) throw Error('perf world: world restarted between reads');
+    return {...after, from:{tick:before.tick}};
+  }
+  return perfDelta(before, await s.perf(target));
+}
+
+/** Two `perf` reads' difference, site by site. Refused by name when they
+ * describe different runs: another plan, another incarnation, or counters
+ * that went backwards (a runner that restarted in place). */
+export function perfDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf: a read names no plan; no difference is defined');
+  // A bounded first read leaves sites out: their whole lifetime would read as new work.
+  if (a.truncated) throw Error(`perf: the first read was partial (${a.walked} walked); name a narrower target`);
+  if (a.plan !== b.plan) throw Error(`perf: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  if (b.seq < a.seq) throw Error(`perf: seq went back (${a.seq} → ${b.seq}): the runner restarted between the reads`);
+  const before = new Map(a.sites.map(x => [x.site, x]));
+  const sites = b.sites.map(x => {
+    const was = before.get(x.site), d = { ...x };
+    for (const k of COUNTERS.slice(1)) if (typeof x[k] === 'number') {
+      d[k] = x[k] - (was?.[k] ?? 0);
+      if (d[k] < 0) throw Error(`perf: site ${x.site}'s ${k} went back (${was[k]} → ${x[k]}): the runner restarted between the reads`);
+    }
+    return d;
+  });
+  // Handlers by site and event; one that ran only between the reads is all new.
+  const ran = new Map((a.handlers ?? []).map(h => [`${h.site} ${h.event}`, h]));
+  const handlers = (b.handlers ?? []).map(h => {
+    const was = ran.get(`${h.site} ${h.event}`);
+    return { ...h, dispatched: h.dispatched - (was?.dispatched ?? 0), committed: h.committed - (was?.committed ?? 0) };
+  }).filter(h => h.dispatched > 0);
+  const counted = {};
+  for (const key of ['work', 'hostWork']) {
+    if (!b[key]) continue;
+    const before = a[key], after = b[key];
+    if (!before || before.since !== after.since || before.scope !== after.scope || before.timebase !== after.timebase)
+      throw Error(`perf: ${key} measurement coverage changed between reads; no difference is defined`);
+    const counts = {};
+    for (const [name, value] of Object.entries(after.counts ?? {})) {
+      if (typeof before.counts?.[name] !== 'number') throw Error(`perf: ${key}.${name} was not measured in the first read`);
+      counts[name] = value - before.counts[name];
+      if (counts[name] < 0) throw Error(`perf: ${key}.${name} went backwards; counters restarted`);
+    }
+    counted[key] = {...after, counts};
+  }
+  // Each resource's asks between the reads; a host that counts none has no `resources`.
+  const asked = new Map((a.resources ?? []).map(r => [r.name, r.asked]));
+  const resources = b.resources?.map(r => ({ ...r, asked: r.asked - (asked.get(r.name) ?? 0) })).filter(r => r.asked > 0);
+  return { ...b, ...counted, sites, handlers, ...(resources ? { resources } : {}), from: { seq: a.seq, clock: a.clock } };
+}
+
+function renderHatchPerf(r) {
+  const ms = v => `${Math.round(v * 100) / 100} ms`;
+  const lines = [`perf hatches: seq ${r.seq}${r.from ? ` (from ${r.from.seq})` : ''}, plan ${r.plan?.slice(0, 12) ?? 'unknown'}${r.measuring ? '' : '; not measuring (a production build collects nothing)'}${r.truncated ? '; truncated' : ''}`];
+  for (const [name, h] of Object.entries(r.hatches)) lines.push(`  ${name}: ${h.calls} calls, ${ms(h.ms)}, worst ${ms(h.worst)}`);
+  for (const c of r.calls) if (c.site != null) lines.push(`    ${c.hatch} site ${c.site} ${c.moment}: ${c.calls} calls, ${ms(c.ms)}`);
+  for (const [scope, names] of Object.entries(r.counters)) for (const [name, n] of Object.entries(names)) lines.push(`  count ${scope} ${name}: ${n}`);
+  for (const [scope, names] of Object.entries(r.timings)) for (const [name, t] of Object.entries(names))
+    lines.push(`  timing ${scope} ${name}: ${t.count} samples, sum ${ms(t.sum)}, max ${ms(t.max)}, p50 ${ms(t.p50)}, p95 ${ms(t.p95)}${t.dropped ? `, ${t.dropped} dropped from the ring` : ''}${t.measured ? ' (measured)' : ''}`);
+  if (r.rejected || r.abandoned || r.limited) lines.push(`  refused: ${r.rejected} calls past a bound or badly named, ${r.abandoned} spans abandoned, ${r.limited} log lines over the rate`);
+  return lines.join('\n');
+}
+
+/** Two `perf hatches` reads' difference: calls, time and counters, each
+ * cumulative, subtracted; the samples' percentiles are the later read's.
+ * Refused across a changed plan or incarnation, as `perfDelta` is. */
+export function hatchDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf hatches: a read names no plan; no difference is defined');
+  if (a.truncated) throw Error('perf hatches: the first read was partial; no difference is defined');
+  if (a.plan !== b.plan) throw Error(`perf hatches: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf hatches: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  const less = (x, was, keys) => { const d = { ...x }; for (const k of keys) if (typeof x[k] === 'number') d[k] = x[k] - (was?.[k] ?? 0); return d; };
+  const key = c => `${c.hatch}\n${c.site ?? ''}\n${c.moment}`, before = new Map(a.calls.map(c => [key(c), c]));
+  const calls = b.calls.map(c => less(c, before.get(key(c)), ['calls', 'ms']));
+  const hatches = Object.fromEntries(Object.entries(b.hatches).map(([name, h]) => [name, less(h, a.hatches[name], ['calls', 'ms'])]));
+  const counters = Object.fromEntries(Object.entries(b.counters).map(([scope, names]) => [scope, less(names, a.counters[scope], Object.keys(names))]));
+  const timings = Object.fromEntries(Object.entries(b.timings).map(([scope, names]) => [scope,
+    Object.fromEntries(Object.entries(names).map(([name, t]) => [name, less(t, a.timings[scope]?.[name], ['count', 'sum'])]))]));
+  return { ...b, hatches, calls, counters, timings, from: { seq: a.seq, clock: a.clock } };
+}
+
+// `perf streams`: a line per stream, its latencies from receipt in ms.
+function renderStreamTiming(t) {
+  if (!t.measuring) return 'stream timing is not measuring: `perf streams start` begins it';
+  const ms = x => `p50 ${x.p50} p95 ${x.p95} p99 ${x.p99} max ${x.max} (${x.n})`;
+  return [`stream timing over ${t.seconds} s`, ...t.streams.map(x => `  ${x.name ?? `ticket ${x.ticket}`}: ${x.messages} messages (${x.messageRate}/s) · ${x.commits} commits (${x.commitRate}/s) · ${x.decodes} decodes (${x.decodeRate}/s, ${x.decodedBytes} bytes)${x.frames != null ? ` · ${x.frames} frames out, ${x.decodeErrors} errors` : ''}${x.refused ? ` · ${x.refused} refused` : ''} · busy ${(x.busy * 100).toFixed(2)}%\n    receipt to entry ${ms(x.toEntry)}\n    receipt to decode ${ms(x.toDecode)}\n    receipt to commit ${ms(x.toCommit)}`)].join('\n');
+}
+/** Events a gesture sends on every frame, and how many make a fling's worth to judge. */
+const CONTINUOUS = new Set(['scroll', 'pointermove', 'wheel', 'drag']), CONTINUOUS_FROM = 20;
+
+/** A scroll track's reply (`exact.frame-health.track/1`): a start, a read or stop's rows summarized, or a refusal. */
+function renderTrack(r) {
+  if (r.error) return `scroll track: ${r.error}${r.reason ? ` (${r.reason})` : ''}`;
+  if (r.track === false) {
+    const why = r.reason === 'no-track' ? 'no track is leased (never started, stopped, replaced, or its lease ended)' : r.reason ?? 'refused';
+    const before = r.rowsBeforeEnd ? ` · ${r.rowsBeforeEnd.length} rows read before it ended` : '';
+    return `scroll track: ${r.available === false ? 'unavailable' : 'none'}: ${why}${before}`;
+  }
+  if (r.track === true) return `scroll track on node ${r.node} · lease ${r.leaseMs} ms · ${r.capacity} rows${r.replaced ? ' · replaced the previous track' : ''}`;
+  const rows = r.rows ?? [], at = name => (r.columns ?? []).indexOf(name);
+  const [ti, ii, mi, oi, pi] = ['t_us', 'interval_us', 'missed', 'offset_cpt', 'phase'].map(at);
+  const intervals = rows.map(x => x[ii]).filter(v => v > 0).sort((a, b) => a - b);
+  const q = f => intervals.length ? `${(intervals[Math.min(intervals.length - 1, Math.floor(f * intervals.length))] / 1000).toFixed(2)} ms` : '—';
+  const phases = {};
+  for (const x of rows) phases[x[pi]] = (phases[x[pi]] ?? 0) + 1;
+  const head = `scroll track node ${r.node}${r.stopped ? ' · stopped' : ''} · ${rows.length} rows · dropped ${r.dropped ?? 0}${r.more ? ' · more unread' : ''} · period ${(r.period_us / 1000).toFixed(2)} ms` +
+    (r.leaseRemainingMs != null && !r.stopped ? ` · lease ${r.leaseRemainingMs} ms left` : '');
+  if (!rows.length) return head;
+  const first = rows[0], last = rows.at(-1);
+  return [head,
+    `  t ${(first[ti] / 1000).toFixed(1)}..${(last[ti] / 1000).toFixed(1)} ms · offset ${first[oi] / 100}..${last[oi] / 100} pt · interval p50 ${q(0.5)} p99 ${q(0.99)} · missed ${rows.reduce((n, x) => n + x[mi], 0)} (proxy)`,
+    `  phases ${Object.entries(phases).map(([k, v]) => `${k} ${v}`).join(' · ')}`].join('\n');
+}
+
+export function renderPerf(r) {
+  if (r.format === 'exact.frame-health.track/1' || ((r.track === false || r.track === true) && r.sites === undefined)) return renderTrack(r);
+  if (r.format === 'exact.frame-health.metrics/2') return renderFrameHealthMetrics(r);
+  if (r.format === 'exact.frame-health/2') return renderFrameHealthReport(r);
+  if (typeof r.capture === 'boolean') return `frame capture ${r.capture ? 'armed' : 'paused'}${r.reason ? `: ${r.reason}` : ''}${r.agentLeaseRemainingMs ? ` · agent lease ${r.agentLeaseRemainingMs} ms` : ''}`;
+  if (r.spans) return [`${r.target} · tick ${r.from ? r.from.tick + '..' : ''}${r.tick} · exclusive ms${r.tickMs ? ` · tick p50 ${r.tickMs.p50} p95 ${r.tickMs.p95} mean ${r.tickMs.mean}` : ''}`,
+    ...r.spans.map(s => `  ${s.name} at ${s.at}: p50 ${s.p50} p95 ${s.p95} max ${s.max} perTick ${s.perTick} (${s.count} ticks)`)].join('\n');
+  if (r.calls && r.hatches) return renderHatchPerf(r);
+  if (r.streamTiming) return renderStreamTiming(r.streamTiming);
+  if (r.virtual) return 'virtual clock: no frame was presented; `perf frames live <ms>` measures a live window';
+  if (r.unavailable) return `this host observes no presented frames${r.reason ? `: ${r.reason}` : ''}`;
+  if (r.unmeasured) return `frames not measured: ${r.unmeasured}`;
+  if (r.lifetime) {
+    const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
+    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed}${r.lifetime.overruns != null ? ` · overruns ${r.lifetime.overruns}` : ''} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
+      `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
+    if (r.live) {
+      const o = r.live.observation;
+      out.unshift(`live window ${r.live.ms} ms · clock ${r.live.from}..${r.live.to} · ${r.live.clockMode ?? 'unspecified'} clock · execution ${r.live.execution ?? 'unspecified'}${r.live.performanceClaim === false ? ' · does not qualify ordinary app performance' : ''}`);
+      if (o) out.push(`observation: ${o.samples} callbacks, ${o.dropped} dropped · ${o.proxy}`);
+      if (r.live.substitutions?.length) out.push(`execution substitutions: ${r.live.substitutions.join('; ')}`);
+    }
+    for (const w of r.world ?? []) {
+      const g = n => n == null ? '—' : `${Math.round(n * 100) / 100} ms`, ms = x => x ? `p50 ${g(x.p50)} p95 ${g(x.p95)} p99 ${g(x.p99)} mean ${g(x.mean)}` : '—';
+      out.push(`  world ${w.canvas}: frame ${ms(w.perf.frameMs)} · tick ${ms(w.perf.tickMs)} · feed ${ms(w.perf.feedMs)} · encode ${ms(w.perf.encodeMs)}`);
+    }
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms)${l.overrun ? ` · main ${l.overrun} ms past the target` : ''} · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}${l.phases ? ` · ${[...l.phases].sort((a, b) => b.ms - a.ms).map(p => `${p.phase} ${p.ms}`).join(' ')} unattributed ${l.unattributed}` : ''}`);
+    return out.join('\n');
+  }
+  const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
+  const span = (from, to) => from != null && from !== to ? `${round(from)}..${round(to)}` : `${round(to)}`;
+  const cols = COUNTERS.filter(k => r.sites.some(x => typeof x[k] === 'number'));
+  // A component used twice is two sites: the nearest call site tells them apart.
+  const where = x => x.source?.status === 'compatible' ? `${x.source.file.split('/').pop()}:${x.source.line}${x.source.chain.length ? ` (from :${x.source.chain[0].line})` : ''}` : `site ${x.site}`;
+  const rows = r.sites.map(x => [x.source?.status === 'compatible' ? x.source.component : '?', where(x), ...cols.map(k => String(x[k]))]);
+  const head = ['component', 'site', ...cols], width = head.map((h, i) => Math.max(h.length, ...rows.map(row => row[i].length)));
+  const pad = row => '  ' + row.map((c, i) => c.padEnd(width[i])).join('  ').trimEnd();
+  const unmapped = r.sites.find(x => x.source?.status !== 'compatible');
+  // Each handler's dispatches and the ones that changed the tree: counts, no judgement.
+  const handlers = (r.handlers ?? []).filter(h => h.dispatched > 0).sort((x, y) => y.dispatched - x.dispatched)
+    .map(h => `  ${h.event} at ${where(h)}${h.source?.status === 'compatible' ? ` (${h.source.component})` : ''}: ${h.dispatched} dispatched, ${h.committed} changed the tree`
+      // A scroll's every event a commit: said once, since that is what a fling multiplies.
+      + (CONTINUOUS.has(h.event) && h.dispatched >= CONTINUOUS_FROM && h.committed * 10 >= h.dispatched * 9
+        ? `\n    each ${h.event} event changed the tree, and each was a runner turn the main thread waited on`
+        : ''));
+  return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
+    pad(head), ...rows.map(pad), ...(handlers.length ? ['handlers', ...handlers] : []), ...(r.resources?.length ? ['resources asked', ...r.resources.map(x => `  ${x.name}: ${x.asked}`)] : []), ...['work', 'hostWork'].filter(k => r[k]).map(k => `${k} (${r[k].scope}, since ${r[k].since ?? 'unmeasured'} ${r[k].timebase}): ${Object.entries(r[k].counts ?? {}).map(([n,v]) => `${n}=${v}`).join(' ')}`)].join('\n');
+}
+
+/** `bun scripts/agent.mjs trace <file>`: a person's session
+ * read back with no app running. Its sites are joined to source by plan
+ * digest: a map `plan` names first (`--plan`), then the one the
+ * trace carries, then `locate`'s, which the live driver tries. The map that
+ * answered is the result's `joinedMap` (not enumerable: `--json` leaves it out). */
+export async function readTrace(file, locate = () => [], plan = null) {
+  if (file.endsWith('.frame-health.json') && statSync(file).size > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
+  const bytes = readFileSync(file, 'utf8');
+  const t = JSON.parse(bytes);
+  if (['exact.frame-health/2', 'exact.frame-health.metrics/2'].includes(t.format)) {
+    if (Buffer.byteLength(bytes, 'utf8') > 4000) throw new Error('Frame health report exceeds the 4 KB limit. Export it again from Exact.');
+    if (t.format === 'exact.frame-health/2') renderFrameHealthReport(t);
+    else renderFrameHealthMetrics(t);
+    return t;
+  }
+  const maps = sourceMapReaders([...(plan ? planLocators(plan) : []), ...(t.map ? [] : locate(t.identity?.app))]);
+  if (t.map) maps.add(t.map);
+  await maps.refresh();
+  const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
+  const digest = perf?.plan ?? t.plan;
+  for (const site of [...(perf?.sites ?? []), ...(perf?.handlers ?? [])]) { const n = { planDigest: digest, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
+  const out = { ...t, perf };
+  Object.defineProperty(out, 'joinedMap', { value: maps.get(digest) ?? null });
+  return out;
+}
+
+/** `--plan <path>`: a plan, its `.map.json`, or a directory
+ * searched four levels deep for plans with a map beside them (a bake's
+ * output, a web build, another checkout's `target/`), as locators. */
+export function planLocators(path) {
+  if (path.endsWith('.map.json')) return [path.slice(0, -'.map.json'.length)];
+  if (!statSync(path).isDirectory()) return [path];
+  const out = [];
+  const walk = (dir, depth) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const f = resolve(dir, e.name);
+      if (e.isDirectory()) { if (depth < 4) walk(f, depth + 1); }
+      else if (e.name.endsWith('.plan.map.json')) out.push(f.slice(0, -'.map.json'.length));
+    }
+  };
+  walk(path, 0);
+  if (!out.length) throw new Error(`--plan ${path}: no plan with a map beside it (\`<name>.plan.map.json\`) in it`);
+  return out;
+}
+
+/** `trace --out <file>`, and `trace --pid`'s copy: the trace
+ * with the map that matched its plan joined in by the driver, so it reads on
+ * a machine with no build of it. No host reads or carries a map. */
+export function writeTrace(t, file) {
+  writeFileSync(file, JSON.stringify(t.joinedMap ? { ...t, map: t.joinedMap } : t));
+  console.error(`trace written to ${file}${t.joinedMap ? ' with its source map' : ' (no source map matched its plan)'}`);
+}
+
+/** `trace --pid <pid>`: a running development app on this Mac,
+ * or in a simulator, asked for its trace by `SIGUSR1` (`TraceSignal`), with
+ * no person at its menu. The process's temporary directory holds the marker
+ * it wrote when it installed the handler, and the trace it writes; a process
+ * with no marker newer than its start is not signalled, since an unhandled
+ * `SIGUSR1` would end it. The trace is copied into `dest(app)`. */
+export async function pidTrace(pid, dest, run = spawnSync, timeout = 10000) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('trace --pid <pid>: name a process id');
+  const ps = (field) => run('ps', ['-o', `${field}=`, '-p', String(pid)], { encoding: 'utf8' }).stdout?.trim() ?? '';
+  const exe = ps('comm');
+  if (!exe) throw new Error(`trace --pid ${pid}: no such process`);
+  const sim = exe.match(/\/CoreSimulator\/Devices\/([0-9A-Fa-f-]+)\/data\/Containers\/Bundle\/Application\/[^/]+\/([^/]+\.app)\//);
+  let dir;
+  if (sim) {
+    const app = exe.slice(0, exe.indexOf(sim[2]) + sim[2].length);
+    const id = run('plutil', ['-extract', 'CFBundleIdentifier', 'raw', resolve(app, 'Info.plist')], { encoding: 'utf8' }).stdout?.trim();
+    const container = run('xcrun', ['simctl', 'get_app_container', sim[1], id, 'data'], { encoding: 'utf8' });
+    if (container.status !== 0) throw new Error(`trace --pid ${pid}: ${container.stderr.trim() || 'simctl get_app_container failed'}`);
+    dir = resolve(container.stdout.trim(), 'tmp');
+  } else {
+    // A Mac app here is unsandboxed: its temporary directory is this user's.
+    dir = run('getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8' }).stdout?.trim();
+  }
+  const ready = resolve(dir, `exact-trace-${pid}.ready`), started = Date.parse(ps('lstart'));
+  if (!existsSync(ready) || (Number.isFinite(started) && statSync(ready).mtimeMs < started - 1000)) {
+    throw new Error(`trace --pid ${pid}: ${exe.split('/').pop()} does not save a trace on SIGUSR1 (no ${ready}): a production bake, an older build, or not an Exact app`);
+  }
+  const saved = resolve(dir, `trace-pid-${pid}.json`), asked = Date.now();
+  process.kill(pid, 'SIGUSR1');
+  for (const until = asked + timeout; ;) {
+    if (existsSync(saved) && statSync(saved).mtimeMs >= asked - 5) break;
+    if (Date.now() > until) throw new Error(`trace --pid ${pid}: no trace in ${timeout / 1000} s at ${saved}`);
+    await new Promise(r => setTimeout(r, 50));
+  }
+  const t = JSON.parse(readFileSync(saved, 'utf8'));
+  const target = dest(t.identity?.app);
+  mkdirSync(target, { recursive: true });
+  const file = resolve(target, `trace-${t.identity?.app ?? 'app'}-${pid}-${new Date(asked).toISOString().replace(/[:.]/g, '-')}.json`);
+  copyFileSync(saved, file);
+  return file;
+}
+
+/** The trace a phone's dev menu saved last (`ExactSession.latestTrace`,
+ * `tmp/trace-latest.json` in the app's container), copied into the app's
+ * `target/traces/`: from a simulator's container, which
+ * devicectl cannot copy, else off the phone as its screenshots are. */
+export function phoneTrace(ph, a, run = spawnSync) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = resolve(a.target, 'traces', `trace-${String(ph.name ?? ph.udid).replace(/[^\w.-]/g, '_')}-${stamp}.json`);
+  mkdirSync(resolve(a.target, 'traces'), { recursive: true });
+  const unsaved = `no trace saved in ${a.id} on ${ph.name ?? ph.udid}: Save Trace in its dev menu first (four fingers tapped once)`;
+  const container = run('xcrun', ['simctl', 'get_app_container', ph.udid, a.id, 'data'], { encoding: 'utf8' });
+  // simctl's 148: no simulator by that id, so a phone. A simulator it knows
+  // but cannot answer for (shut down, the app not installed) says why.
+  if (container.status !== 0 && container.status !== 148) throw new Error(`${ph.name ?? ph.udid}: ${container.stderr.trim() || 'simctl get_app_container failed'}`);
+  if (container.status === 0) {
+    const saved = resolve(container.stdout.trim(), 'tmp/trace-latest.json');
+    if (!container.stdout.trim() || !existsSync(saved)) throw new Error(unsaved);
+    copyFileSync(saved, file);
+  } else {
+    const copied = run('xcrun', ['devicectl', 'device', 'copy', 'from', '--quiet', '--device', ph.udid,
+      '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', 'tmp/trace-latest.json', '--destination', file], { encoding: 'utf8', timeout: 20000 });
+    if (copied.status !== 0) throw new Error(`${unsaved}, or the phone is unreachable: ${copied.stderr || copied.error || copied.stdout}`);
+  }
+  console.error(`trace copied to ${file}`);
+  return file;
+}
+
+/** A trace as text: who and what made it, each timing's proxy, the frames,
+ * each late frame beside the journal lines stamped in its interval and the
+ * transactions it carried (juxtaposition, never a cause), the sites. */
+export function renderTrace(t) {
+  if (t.format === 'exact.frame-health.metrics/2') return renderFrameHealthMetrics(t);
+  if (t.format === 'exact.frame-health/2') return renderFrameHealthReport(t);
+  const id = t.identity ?? {};
+  // A web trace names the checkout's commit at export; a native one its host binary's build.
+  const hb = id.hostBuild ?? {};
+  const build = hb.commit ? ` · host built from ${hb.commit.slice(0, 12)}${hb.dirty === true ? ' (dirty)' : ''}${hb.machine ? ` on ${hb.machine}` : ''}` : '';
+  const out = [`trace · ${[id.host, id.target].filter(Boolean).join('/')} · ${id.app ?? 'app ?'} · ${id.trust ?? 'trust ?'}${id.commit || !hb.commit ? ` · commit ${id.commit?.slice(0, 12) ?? '?'}${id.working_tree ? ' (dirty)' : ''}` : ''}${build}${id.pid ? ` · pid ${id.pid}` : ''}${id.session ? ` session ${id.session}` : ''} · ${[id.platform, id.arch, id.cpu, id.os, id.device].filter(Boolean).join(' ')}`];
+  // No map fitted its plan: what would. The host's build is a
+  // lead, not the plan's source: a development host can run another plan.
+  const digest = t.perf?.plan ?? t.plan;
+  if (t.perf?.sites?.some(x => x.source?.status !== 'compatible') && typeof digest === 'string') {
+    out.push(`source · no map here fits plan ${digest.slice(0, 12)}: pass --plan a build of it (a plan, its map, or a directory such as that checkout's target/)${hb.commit ? `; the host was built from ${hb.commit.slice(0, 12)}${hb.machine ? ` on ${hb.machine}` : ''}` : ''}`);
+  }
+  if (t.proxies) out.push(`proxies · ${Object.entries(t.proxies).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ')}`);
+  if (t.frames?.lifetime) {
+    out.push('', renderPerf({ ...t.frames, late: [] }));
+    // Beside each late frame, the journal lines appended just before its own
+    // line — at most five, none from before the previous late frame: the
+    // journal's `t=` is the runner's logical clock, which need not be the
+    // frame's (a page adopted from a checkpoint keeps the render's).
+    const lines = t.journal?.lines ?? [];
+    if (t.frames.late?.some(r => r.phases)) out.push('  (phases: the main thread\'s host work inside each late interval, each charged only what nothing inside it took; unattributed: idle time, the platform\'s own work, Core Animation putting new pictures on screen, anything not wrapped)');
+    for (const r of t.frames.late ?? []) {
+      const at = lines.findIndex(l => l.includes(` frame late at ${r.t}:`));
+      let from = at;
+      while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
+      const near = at < 0 ? [] : lines.slice(from, at);
+      const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms)${r.overrun ? ` · main ${r.overrun} ms past the target` : ''} · ${r.seq ? `${n} transaction${n === 1 ? '' : 's'} (seq ${r.seq.join('..')})` : 'no transaction range'}${r.batches ? ` · ${r.batches} batch${r.batches === 1 ? '' : 'es'}` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      // The main thread's host phases inside the interval, innermost charged, and the hatch calls that overlapped it.
+      if (r.phases) out.push(`    of its ${r.interval} ms: ${[...[...r.phases].sort((a, b) => b.ms - a.ms).map(p => `${p.phase} ${p.ms}${p.segments > 1 ? ` (${p.segments})` : ''}`), `unattributed ${r.unattributed}`].join(' · ')}${r.phasesCoverage ? ' · recording does not reach its start' : ''}`);
+      if (r.hatches?.length) out.push(`    hatches: ${r.hatches.map(h => `${h.hatch} ${h.ms} ms (${h.calls})`).join(' · ')}${r.coverage ? ' · partial' : ''}`);
+      for (const l of near) out.push(`    ${l}`);
+    }
+  } else if (t.frames) out.push('', renderPerf(t.frames));
+  if (Array.isArray(t.traceEvents)) {
+    const ink = t.traceEvents.filter(e => e.cat === 'ink');
+    if (ink.length) {
+      out.push(`ink trace: ${t.presented?.length ?? 0} presented timestamps, ${ink.length} intervals/marks, ${t.dropped ?? 0} dropped; inclusive phases, not additive; idle gaps are not classified as late`);
+      const phases = new Map();
+      for (const e of ink) {
+        if (!(e.dur > 0)) continue;
+        const values = phases.get(e.name) ?? [];
+        values.push(e.dur / 1000); phases.set(e.name, values);
+      }
+      for (const [name, values] of phases) {
+        values.sort((a, b) => a - b);
+        out.push(`  ${name}: ${values.length} spans · total ${values.reduce((a, b) => a + b, 0).toFixed(3)} ms · p99 ${values[Math.floor(values.length * .99)].toFixed(3)} ms`);
+      }
+    }
+    const cpu = t.traceEvents.filter(e => e.cat === 'world.cpu'), gpu = t.traceEvents.filter(e => e.cat === 'world.gpu');
+    const frames = new Set(cpu.filter(e => e.name === 'frame').map(e => `${e.pid}:${e.args?.frame}`));
+    if (!ink.length || cpu.length || gpu.length) out.push(`world trace: ${cpu.filter(e=>e.name==='tick').length} ticks, ${cpu.length} CPU intervals under ${frames.size} submitted frames, ${gpu.length} GPU passes (independent GPU clock; joined by frame)`);
+  }
+  if (t.perf) out.push('', renderPerf(t.perf));
+  if (t.hatches?.perf?.calls) out.push('', renderHatchPerf(t.hatches.perf));
+  return out.join('\n');
+}
+
+/** Quantiles are bounds from finalized populations; frame rates from callbacks never certify presentation. */
+export function renderFrameHealthMetrics(report) {
+  if (report.error) return `frame health unavailable: ${report.error} · ${report.reason ?? 'read a fresh baseline'}`;
+  if (Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000) throw new Error('Frame health metrics exceed the 4 KB limit. Request a fresh snapshot with a matching Exact reader.');
+  const frames = report.frames ?? {}, work = report.work ?? {}, window = report.window ?? {};
+  const bounds = value => Array.isArray(value) && value.length === 2 ? `${(Number(value[0]) / 1e6).toFixed(2)}–${value[1] == null ? '∞' : (Number(value[1]) / 1e6).toFixed(2)} ms` : 'unknown';
+  const { policy, cadence, target, contentLatency } = report.assessments ?? {};
+  const verdict = (name, a, facts = '') => `${name} ${a?.result ?? 'unknown'} · ${a?.reason ?? 'no reason'} (${a?.evidence ?? 'unknown'} evidence)${facts}`;
+  const c = cadence?.predicates ?? {}, t = target?.predicates ?? {};
+  // Age of the newest callback at the read; null when no callback has arrived
+  const age = report.observationAgeNs == null ? 'unknown' : `${(Number(report.observationAgeNs) / 1e6).toFixed(1)} ms`;
+  const assessed = policy ? [
+    verdict('cadence', cadence, ` · frame intervals ${c.frameIntervals ?? '?'}, skipped refreshes ${c.skippedRefreshes ?? '?'} · late frames ${c.lateFrames ?? 'unknown'}, overdue ${c.overdueFrames ?? 'unknown'} · across schedule changes ${c.unclassifiedIntervals ?? '?'}`),
+    verdict('target rate', target, ` · requested slots ${t.requestedSlots ?? '?'}, missed ${t.missedFrames ?? '?'} · restricted intervals ${t.restrictedIntervals ?? '?'}${target?.context?.length ? ` · at read: ${target.context.join(', ')}` : ''}`),
+    verdict('content latency', contentLatency)] : ['assessments unavailable: the app was built before exact-frame-health-policy/2; rebuild it from this checkout'];
+  return [`frame health · ${report.source ?? 'unknown source'} · ${report.status ?? 'unknown'} · observation age ${age} · ${report.qualification ?? 'unqualified'}`,
+    ...assessed,
+    `generation ${window.generation ?? '?'} · ${window.kind ?? '?'} · intervals finalized ${window.intervalFromNs ?? '?'}..${window.intervalThroughNs ?? '?'} ns · work finalized ${window.workFromNs ?? '?'}..${window.workThroughNs ?? '?'} ns`,
+    `callbacks ${frames.callbacks ?? '?'} · held ${frames.held ?? '?'} · frame intervals ${frames.intervals ?? '?'} · ${frames.perSecond == null ? 'rate unknown' : `${frames.perSecond.toFixed(2)} FPS`} · missed ${frames.missedFrames ?? '?'} of ${frames.requestedSlots ?? '?'} requested slots`,
+    `frame time median ${bounds(frames.medianBoundsNs)} · p99 ${bounds(frames.p99BoundsNs)} · pacing changes ${frames.pacingChanges ?? '?'} · schedule changes ${frames.cadenceChanges ?? '?'}`,
+    `work records ${work.records ?? '?'} · late ${work.late ?? `unknown${work.latenessUnknown ? ` (${work.latenessUnknown})` : ''}`} · in flight ${work.pending ?? '?'}, overdue ${work.overdue ?? 'unknown'} · median ${bounds(work.medianBoundsNs)} · p99 ${bounds(work.p99BoundsNs)} · maximum ${bounds(work.maximumBoundsNs)}`,
+    `coverage ${JSON.stringify(report.coverage ?? {})}`,
+    'Bounds include the lower value and exclude the upper value. A frame is a callback that started frame work, timed from the display link; presentation, Core Animation commits, input latency and GPU execution remain unmeasured, so a proxy pass covers callbacks and Exact\'s own work only.'].join('\n');
+}
+
+/** Read measured boundaries before suggesting causes. Null is missing evidence, never zero cost. */
+export function renderFrameHealthReport(report) {
+  if (report.error) return `frame health unavailable: ${report.error}${report.retryAfterMs ? ` · retry after ${report.retryAfterMs} ms` : ''}`;
+  const { columns, hitches } = report;
+  if (!Array.isArray(columns) || columns.length !== 23 || !Array.isArray(hitches) || hitches.length > 16 ||
+      Buffer.byteLength(JSON.stringify(report), 'utf8') > 4000 || new Set(columns).size !== columns.length) {
+    throw new Error('Frame health report has an invalid structure or exceeds 4 KB. Export it again from Exact.');
+  }
+  const expected = ['sequence', 'capture', 'generation', 'age_us', 'flags', 'target_offset_us', 'period_us', 'requested_period_us', 'gap_us', 'callback_us',
+    'before_gap_us', 'before_callback_us', 'after_offset_us', 'after_gap_us', 'after_callback_us',
+    'owner_queued_offset_us', 'owner_began_offset_us', 'owner_finished_offset_us', 'main_landed_offset_us',
+    'apply_began_offset_us', 'apply_finished_offset_us', 'work_target_offset_us', 'operations'];
+  if (expected.some((name, index) => name !== columns[index])) throw new Error('Frame health report has unknown timing columns. Use a reader from the same Exact version.');
+  const out = [`frame health · ${report.identity?.app ?? 'app'} · callback/apply proxies · ${report.qualification ?? 'unqualified'}`,
+    `retained ${hitches.length} · overwritten ${report.retention?.overwrittenSinceClear ?? '?'} · expired ${report.retention?.expiredAtRead ?? '?'} · omitted for budget ${report.retention?.omittedForBudget ?? '?'} · capture ${report.scope?.armed ? 'armed' : 'paused'}`];
+  if (!report.available) out.push(`unavailable: ${report.unavailableReason ?? 'unknown coverage'}`);
+  const identity = report.identity ?? {};
+  out.push(`build ${identity.build ?? 'unknown'}${identity.buildDirty ? ' (dirty)' : ''} · app build ${identity.appBuild ?? 'unknown'} · ${identity.buildKind ?? 'unknown build kind'} · ${identity.simulator === true ? 'simulator' : identity.simulator === false ? 'physical device' : 'unknown device type'}`,
+    `${identity.device ?? 'unknown device'} · ${identity.os ?? 'unknown OS'} · display maximum ${identity.displayMaximumHz ?? '?'} Hz · live-agent parity ${report.scope?.liveAgentParity ?? 'unknown'}`);
+  if (report.time?.clamped) out.push('Timing values were clamped; exact durations are unavailable beyond the integer range.');
+  const ms = value => value == null ? 'unknown' : `${(value / 1e3).toFixed(3)} ms`;
+  for (const row of hitches) {
+    if (!Array.isArray(row) || row.length !== columns.length || row.slice(0, 3).some(value => typeof value !== 'string' || !/^\d{1,20}$/.test(value)) ||
+        row.slice(3).some(value => value !== null && !Number.isSafeInteger(value))) {
+      throw new Error('Frame health report contains invalid timing values or integers that JSON cannot represent exactly. Export it again from Exact.');
+    }
+    const event = Object.fromEntries(columns.map((name, index) => [name, row[index]]));
+    // A clamped boundary (flag 6) did not fit its field, so a difference taken from it would be invented
+    const clamped = Math.floor(event.flags / 64) % 2 === 1;
+    const elapsed = (end, start) => clamped || event[end] == null || event[start] == null ? null : event[end] - event[start];
+    const applyEnd = event.apply_finished_offset_us;
+    const ended = applyEnd == null ? 'end unknown' : `ended ${ms(Math.abs(applyEnd))} ${applyEnd > 0 ? 'after event start' : 'before event'}`;
+    const bit = number => Math.floor(event.flags / 2 ** number) % 2 === 1;
+    const workload = bit(23) ? ['motion', 'spatial', 'canvas', 'frame tasks', 'fill pending', 'tick pending', 'hatch frames'].filter((_, index) => bit(index + 16)).join(', ') || 'none at observation' : 'unknown';
+    const thermal = ['nominal', 'fair', 'serious', 'critical'][Math.floor(event.flags / 2 ** 32) % 4];
+    const reasons = [event.flags & 1 ? 'callback gap' : null, event.flags & 2 ? 'callback target overrun' : null, event.flags & 4 ? 'tick apply target overrun' : null].filter(Boolean);
+    out.push(`#${event.sequence} / capture ${event.capture} / generation ${event.generation} · ${ms(event.age_us)} ago · ${reasons.join(', ') || 'timing event'}`,
+      `  gap ${ms(event.gap_us || null)} / scheduled ${ms(event.period_us || null)} · requested ${ms(event.requested_period_us || null)} · callback ${ms(event.callback_us || null)} · target offset ${ms(event.target_offset_us)}`,
+      `  ${event.flags & 32 ? 'largest interval apply' : 'last observed apply'} ${ended} · owner queue ${ms(elapsed('owner_began_offset_us', 'owner_queued_offset_us'))} · owner wall ${ms(elapsed('owner_finished_offset_us', 'owner_began_offset_us'))} · main wait ${ms(elapsed('main_landed_offset_us', 'owner_finished_offset_us'))} · apply ${ms(elapsed('apply_finished_offset_us', 'apply_began_offset_us'))} · operations ${event.operations ?? 'unknown'}`,
+      `  preceding gap/work ${ms(event.before_gap_us || null)} / ${ms(event.before_callback_us || null)} · following gap/work ${ms(event.after_gap_us)} / ${ms(event.after_callback_us)}`,
+      `  workload ${workload} · thermal ${thermal} · low power ${bit(34)} · HUD ${bit(35)}${bit(36) ? ' (dragging)' : ''}`);
+  }
+  out.push('Work context is temporal evidence, not causal attribution. Elapsed time includes descheduling.',
+    `Unobserved: ${(report.unobserved ?? ['presentation', 'GPU execution', 'native-only animations']).join(', ')}. Missing evidence is not a health pass.`);
+  return out.join('\n');
+}
+
+const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
+
+/**
+ * `layout <target> native`: the views and flat-leaf
+ * layers under the node, one line each, indented by depth — observation,
+ * no verdicts.
+ *
+ *   subviews {root} · N entries, depth D [· truncated …]
+ *     view {Class} #{node} | {role} [of #{owner}] [hidden] [alpha A] [inert] [masks] [z Z] [transform …] X,Y W×H [· opaque platform, N children]
+ *     layer {Class} {role} #{leaf} … path X,Y W×H [detached] [hidden]
+ */
+function renderSubviews(s) {
+  if (s.unavailable) return [`  subviews unavailable: ${s.unavailable}`];
+  const out = [`  subviews ${s.root} · ${s.count} entries, depth ${s.depth}${s.truncated?.length ? ` · truncated ${s.truncated.join(', ')}` : ''}`];
+  for (const e of s.entries ?? []) {
+    const pad = '    ' + '  '.repeat(e.depth);
+    if (e.kind === 'layer') {
+      out.push(`${pad}layer ${e.class} ${e.role} ${e.leaves.map((id) => `#${id}`).join(' ')}${e.leafCount > e.leaves.length ? ` (+${e.leafCount - e.leaves.length})` : ''} path ${box(e.path)}${e.path?.empty ? ' (empty)' : ''}${e.attached ? '' : ' [detached]'}${e.hidden ? ' [hidden]' : ''}`);
+      continue;
+    }
+    const who = e.node != null ? `#${e.node}` : `${e.role}${e.owner != null ? ` of #${e.owner}` : ''}`;
+    const l = e.layer ?? {};
+    const flags = [e.hidden && '[hidden]', e.alpha !== 1 && `[alpha ${e.alpha}]`, e.interactive === false && '[inert]', l.masksToBounds && '[masks]',
+      l.zPosition && `[z ${l.zPosition}]`, l.transform != null && `[transform ${Array.isArray(l.transform) ? l.transform.join(',') : l.transform}]`].filter(Boolean);
+    out.push(`${pad}view ${e.class} ${who}${flags.length ? ' ' + flags.join(' ') : ''} ${box(e.frame)}${e.opaque ? ` · opaque ${e.opaque}, ${e.children} children` : ''}`);
+  }
+  return out;
+}
+
+/**
+ * `layout agree`: whether the walk was complete, what
+ * it covered, then one line per disagreement.
+ *
+ *   agreement complete|INCOMPLETE (reasons) · N disagreements · ±P px · roots …
+ *     coverage stray J judged, O opaque · frame C compared, S size-only, K skipped · hidden H compared, L claimed · parked roots R
+ *     {kind} #{id} [{testId}] … (frame: kernel X,Y W×H · native X,Y W×H (Δ dx,dy dw×dh); stray: {Class} under #{id} X,Y W×H)
+ *     … N more (truncated)
+ */
+function renderAgreement(a) {
+  if (a.unavailable) return `agreement unavailable: ${a.unavailable}`;
+  const total = Object.values(a.counts ?? {}).reduce((x, y) => x + y, 0);
+  const c = a.coverage ?? {};
+  const sum = (o) => Object.values(o ?? {}).reduce((x, y) => x + y, 0);
+  const out = [`agreement ${a.complete ? 'complete' : `INCOMPLETE (${a.incomplete.join(', ')})`} · ${total} disagreements · ±${a.tolerance?.px} px · roots ${(a.roots?.walked ?? []).join(', ')}${a.roots?.excluded?.length ? ` · excluded ${a.roots.excluded.join(', ')}` : ''}`,
+    `  coverage stray ${c.stray?.judged} judged, ${c.stray?.opaque} opaque · frame ${c.frame?.compared} compared, ${c.frame?.sizeOnly} size-only, ${sum(c.frame?.skipped)} skipped · hidden ${c.hidden?.compared} compared, ${sum(c.hidden?.claimed)} claimed · parked roots ${c.kept?.parkedRoots} · leaving ${c.kept?.leaving}`];
+  const tag = (id, t) => (id != null ? `#${id}${t != null ? ` [${t}]` : ''}` : '');
+  for (const d of a.disagreements ?? []) {
+    if (d.kind === 'frame') out.push(`  frame ${tag(d.id, d.testId)} kernel ${box(d.kernel)} · native ${box(d.native)} (Δ ${d.delta.x},${d.delta.y} ${d.delta.w}×${d.delta.h})${d.sizeOnly ? ' size only' : ''}`);
+    else if (d.kind === 'stray') out.push(`  stray ${d.class}${d.retired != null ? ` (retired #${d.retired})` : ''}${d.under != null ? ` under ${tag(d.under, d.underTestId)}` : ''} ${box(d.frame)}`);
+    else if (d.kind === 'hidden') out.push(`  hidden ${tag(d.id, d.testId)} native hidden=${d.native?.hidden} · expected hidden=${d.expected?.hidden}${d.hider ? ` (${d.hider})` : ''}`);
+    else out.push(`  ${d.kind} ${d.id != null ? tag(d.id, d.testId) : d.class ?? ''}${d.frame ? ` ${box(d.frame)}` : ''}`);
+  }
+  const listed = a.disagreements?.length ?? 0;
+  if (a.truncated?.includes('disagreements')) out.push(`  … ${total - listed} more (truncated)`);
+  return out.join('\n');
+}
+
+/** The `state` op's words. `state` is the whole record; `state <target>` a world's own (a game's
+ * `world:*` or `world:entity`: its entities; `state <canvas> input` its world's input); a name that is a state, derive or resource, or a field of the record
+ * (`mediaSession`), reads that, down a dotted path (`groceries.0.done`) as an authored `expect state` does. Any other
+ * view answers with the whole record, so a name the record holds reads that even when a view carries it as its testId
+ * or text (a sequencer's `transport` bar and the record's `transport`). */
+export async function stateOp(s, args) {
+  // `state <canvas> draws`, `state <canvas>:<entity> visible` and `state <canvas> look` are a world's look frame.
+  const look = ['draws', 'visible', 'look'].includes(args[1]) ? { [args[1]]: true, world: true } : {};
+  const page = { ...look, ...(args[1] === 'events' ? {world:true, events:true, ...(args[2] ? {event_type:args[2]} : {})} : {}), ...(args.includes('from') ? { from: Number(args[args.indexOf('from') + 1]) } : {}), ...(args.includes('limit') ? { limit: Number(args[args.indexOf('limit') + 1]) } : {}), ...(args.includes('resources') ? { resources: true } : {}) };
+  const read = (target) => s.state(target, args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', page);
+  if (args[0] == null) return read();
+  // `state intents.entities <kind> [<text>]`: what the content index's query answers a system's.
+  if (args[0] === 'intents.entities') return s.op({ op: 'entities', kind: args[1], ...(args.length > 2 ? { matching: args.slice(2).join(' ') } : {}) });
+  // `state <canvas> input`: the world's controls, the devices and pads held, contexts, bindings, and
+  // what fired at the last tick.
+  if (args[1] === 'input') {
+    const r = await s.op({ op: 'state', ...await s.target(args[0]), world: true });
+    if (!r.world?.input) throw new Error(`state ${args[0]} input: ${args[0]} is not a world's canvas`);
+    return { tick: r.tick, ...r.world.input };
+  }
+  const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
+  const [name, ...fields] = args[0].split('.'), bag = (record) => ({ ...record.resources, ...record.derives, ...record.slots });
+  const holds = (record) => has(bag(record), name) || has(record, name);
+  const lookup = (record) => {
+    const named = bag(record);
+    let got = has(named, name) ? named[name] : record[name], path = name;
+    for (const field of fields) {
+      if (!has(got, field)) throw new Error(`state ${path} has no field "${field}" (${got !== null && typeof got === 'object' ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got)}`})`);
+      got = got[field]; path += `.${field}`;
+    }
+    return got;
+  };
+  let reply;
+  try { reply = await read(args[0]); } catch (error) {
+    if (!/^no view matches/.test(error.message)) throw error;
+    const record = await s.state();
+    if (!holds(record)) { error.message += `; nor is it a state, derive, resource or field of \`state\`: ${Object.keys(bag(record)).join(', ') || 'none declared'}`; throw error; }
+    return lookup(record);
+  }
+  // An app's whole record (it has `slots`; a world's reply has none) answered a plain view: read the name it holds.
+  return args.length === 1 && has(reply, 'slots') && holds(reply) ? lookup(reply) : reply;
+}
+
+/** The tasks due within 1 ms of `now`, `[name, at]`, soonest first: an `after(1, …)` an input or an answer armed, the web's
+ * `setTimeout(f, 0)`, which runs a commit after the one that armed it. A frozen clock reaches it only when it moves, so
+ * `clock settle` runs it as part of settling and `clock data`, which fires no timer, names it. */
+export async function nextCommitTasks(session, now) {
+  const tasks = Object.entries((await session.state())?.tasks ?? {});
+  return tasks.filter(([, at]) => Number.isFinite(at) && at > now && at <= now + 1).sort((a, b) => a[1] - b[1]);
+}
+
+/** `clock settle`'s reply when tasks are still due a commit later after its 16 rounds: not settled, and which. */
+export function settleBound(soon) {
+  const names = soon.map(([name]) => `\`${name}\``).join(', ');
+  return { settled: false, reason: 'tasks', tasks: Object.fromEntries(soon), diagnostic: `clock settle ran 16 rounds of tasks due a commit later and ${names} ${soon.length > 1 ? 'are' : 'is'} due again at ${soon[0][1]} ms: a task that re-arms itself \`after(1, …)\` never settles; \`clock +N\` moves past it` };
+}
+
+/** Explain a refused placed-child tap using the world's own visibility. */
+export async function tapRefusal(session, target, error) {
+  if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
+  // What covers a target may leave on one of the app's timers, which the agent's frozen clock never reaches (a boot
+  // overlay's `after(900, …)`): the tasks still waiting, and the step that runs them.
+  if (/covers its middle/.test(error.message ?? '')) try {
+    const r = await session.state(), now = r?.clock;
+    const due = Object.entries(r?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > now).sort((a, b) => a[1] - b[1]);
+    if (Number.isFinite(now) && due.length) {
+      const shown = due.slice(0, 3).map(([name, at]) => `\`${name}\` at ${at} ms`).join(', ') + (due.length > 3 ? `, and ${due.length - 3} more` : '');
+      error.message += `; the agent's clock stands at ${now} ms, and the app's tasks wait on it (${shown}): if what covers it leaves on a timer, \`clock +${Math.ceil(due[Math.min(2, due.length - 1)][1] - now)}\` runs ${due.length > 1 ? 'them' : 'it'}`;
+    }
+  } catch { /* the refusal as it was */ }
+  try {
+    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
+      const canvasName = canvas.props?.testId ?? canvas.id;
+      const outline = await session.tree(canvasName);
+      if (!outline.entities?.some(entity => entity.name === target)) continue;
+      const owner = `${canvasName}:${target}`;
+      const state = await session.state(owner).catch(() => null);
+      if (!state?.entity?.placed?.hidden) continue;
+      const box = await session.layout(owner);
+      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
+      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
+      return error;
+    }
+  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
+  return error;
+}
+
+/** A convenience over state, screenshot and type; wire replies keep all tags. */
+export function worldView(session, name) {
+  return {
+    /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
+    async snapshot({all = false} = {}) {
+      const page = {limit:5000};
+      const first = all ? await session.state(`${name}:*`, undefined, false, false, page) : await session.state(`${name}:*`);
+      const {tick, hash} = first, entities = [...first.entities];
+      for (let r = first; all && r.truncated;) {
+        r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
+        if (r.tick !== tick || r.hash !== hash || r.tableEdits !== first.tableEdits) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        entities.push(...r.entities);
+      }
+      return {tick, hash, entities, truncated: all ? false : first.truncated, ...Object.fromEntries(["tableEdits", "developmentEdits", "sessionDevelopmentEdits", "queuedSets"].filter(k => first[k] !== undefined).map(k => [k, first[k]]))};
+    },
+    /** Every resource's value, as `state world:* resources` reads them. */
+    async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
+    state: entity => session.state(`${name}:${entity}`),
+    save: path => session.screenshot(path, name, 'save'),
+    run: ms => {
+      if (!Number.isFinite(ms) || ms < 0) throw new MalformedOperation('run duration must be finite and nonnegative');
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
+    },
+    settle: async () => (await session.clock('settle')).settled === true,
+    tap: code => session.type(name, {key:code}),
+    key_down: code => session.type(name, {key:code, phase:'down'}),
+    key_up: code => session.type(name, {key:code, phase:'up'}),
+    async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async global_position(entity) {
+      try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }
+      catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    async get(entity, component) {
+      try {
+        return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      } catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    hold: (code, ms) => session.type(name, {key:code, for:ms}),
+  };
+}
+
+// The layout regions, `env(-exact-<region>-inset-<edge>)`: the Apple hosts report UIKit's and
+// AppKit's; a host that reports none resolves each to its safe area, which is what its facts then say too.
+const REGIONS = ['safe-area-corners', 'layout-margins', 'layout-margins-corners', 'readable-content', 'readable-content-corners'];
+export function withRegions(env) {
+  if (!env || typeof env !== 'object') return env;
+  for (const region of REGIONS) for (const edge of ['top', 'right', 'bottom', 'left']) env[`-exact-${region}-inset-${edge}`] ??= env[`safe-area-inset-${edge}`] ?? 0;
+  return env;
+}
+
+/** A world's look frame as text: its tells, its draws, or why an entity is or is not drawn. */
+export function renderLook(r) {
+  const q = JSON.stringify, head = `tick ${r.tick} · hash ${r.hash}`;
+  if (r.visible) return `${head}\n${r.entity?.name ?? '#' + r.entity?.id}: ${r.visible} (${r.reason})`;
+  if (r.draws) return [head, ...r.draws.map((d) => [d.pass.padEnd(13), d.draw, d.winding, d.submitted != null && `submitted ${d.submitted}`, d.kept != null && `kept ${d.kept}`, d.variant != null && `variant ${d.variant}`, 'fragments' in d && `fragments ${d.fragments ?? 'not measured'}`, 'covered' in d && (d.covered == null ? 'coverage not measured' : d.covered ? 'covered' : 'COVERED NOTHING'), d.draws != null && `${d.draws} draws`, d.summary && 'one entry for all its draws', `writes ${d.writes}`].filter(Boolean).join(' · '))].join('\n');
+  return [head, ...lookLines(r.look)].join('\n');
+}
+function lookLines(look) {
+  if (!look) return [];
+  const measured = (m, taken) => m == null ? '' : m.unmeasured != null ? `not measured (${m.unmeasured})` : taken(m);
+  const particles = look.particles ? ` · particles ${measured(look.particles, (draws) => draws.map((d) => `${d.batch}: ${d.live} live, ${d.covered} px`).join('; '))}` : '';
+  const casters = look.sunTexels != null ? ` · sun shadow texels ${measured(look.sunTexels, (n) => n)}${look.sunCasters != null ? ` (casters ${look.sunCasters})` : ''}` : '';
+  return [`mean luminance ${look.mean} · clipped ${(look.clipped * 100).toFixed(1)}%${particles}${casters} · readback ${look.readbackBytes} B${look.reduced ? ' · reduced, not judged' : ''}`, ...look.tells.map((t) => t.line), ...(look.gaps ?? []).map((g) => `look: ${g}`)];
+}
+
+/** `screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]`
+ * The world's look frame, the tick the agent's clock has reached drawn offscreen from that view and
+ * written as a PNG, with its tells; `over … every` films it on the clock. A form of `screenshot`, never a new operation:
+ * presentation only, the hash does not move. A device-less host draws it where the machine has a GPU. */
+export async function worldLook(s, args) {
+  const [path, target, , ...from] = args;
+  const usage = 'screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>]';
+  const [view, rest] = from[0] === 'camera' ? [{}, from.slice(1)] : from[0] === 'top' ? [{ top: Number(from[1]) }, from.slice(2)]
+    : [{ yaw: Number(from[0]), pitch: Number(from[1]), distance: Number(from[2]) }, from.slice(3)];
+  if (Object.values(view).some((v) => !Number.isFinite(v))) throw new MalformedOperation(usage);
+  const shoot = (file) => lookPicture(s, file, target, view);
+  if (rest.length === 4 && rest[0] === 'over' && rest[2] === 'every') return s.film(path, { over: Number(rest[1]), every: Number(rest[3]), window: shoot });
+  if (rest.length) throw new MalformedOperation(usage);
+  return s.tagged(await shoot(resolve(path)));
+}
+
+/** After `clock settle` (`r` its reply) and every pixel `screenshot`, each shown world's tells where its canvas draws:
+ * a look frame of the tick the clock reached, whose `look: …` lines reach the world's `logs`. The reply
+ * carries them as `look`, the canvases looked at as `lookSeen`, what a frame could not measure, or a drawing canvas's "no
+ * picture", as `lookGaps`, and a look frame that failed as `lookFailed`. The worlds are the ones shown now (a settle's
+ * reply lists them; otherwise `state` does). A canvas that draws no frames (the GPU-less host) answers at once and adds
+ * none. */
+export async function worldTells(s, r) {
+  if (r == null || r.error != null) return r;
+  const lines = [], gaps = [], failed = [], seen = [];
+  const shown = Array.isArray(r.world) ? r.world : await s.op({ op: 'state' }).then((st) => st.world ?? [], (error) => (failed.push(`worlds: ${error.message}`), []));
+  for (const id of shown.map((w) => w.canvas).filter((c) => c != null)) {
+    const reply = await s.op({ op: 'state', id, world: true, look: true, drawing: true }).catch((error) => ({ error: error.message }));
+    if (reply.unavailable) { if (reply.drawing !== false) gaps.push(`canvas ${id}: ${reply.unavailable}`); continue; }
+    if (reply.error != null || !reply.look) { failed.push(`canvas ${id}: ${reply.error ?? 'no look in the reply'}`); continue; }
+    seen.push(id);
+    lines.push(...reply.look.tells.map((t) => t.line));
+    gaps.push(...(reply.look.gaps ?? []).map((g) => `canvas ${id}: ${g}`));
+  }
+  const tags = [['look', lines], ['lookSeen', seen], ['lookGaps', gaps], ['lookFailed', failed]];
+  return { ...r, ...Object.fromEntries(tags.filter(([, v]) => v.length)) };
+}
+
+/** A film's frames together (`s.film`): each judged frame's tells as one entry of `lookFrames` (a live frame's lines, or
+ * a look frame from the game's camera at full resolution; a reduced or other view's frame is a picture), all of them as
+ * `look`, and every frame's gaps, failures and canvases looked at. */
+export function lookAcross(replies) {
+  const frames = [], gaps = [], failed = [], seen = [];
+  for (const r of replies) {
+    const own = r?.look && !Array.isArray(r.look) && !r.look.reduced && !r.view ? r.look : null;
+    const judged = Array.isArray(r?.look) ? r.look : own ? (own.tells ?? []).map((t) => t.line) : null;
+    if (judged) frames.push(judged);
+    gaps.push(...(r?.lookGaps ?? []), ...(own?.gaps ?? []));
+    failed.push(...(r?.lookFailed ?? []));
+    seen.push(...(r?.lookSeen ?? []));
+  }
+  const tags = [['look', frames.flat()], ['lookFrames', frames.some((f) => f.length) ? frames : []], ['lookGaps', gaps], ['lookFailed', failed], ['lookSeen', [...new Set(seen)]]];
+  return Object.fromEntries(tags.filter(([, v]) => v.length));
+}
+
+/** One look frame of `target` from `view` ({} the game's camera, {top}, or {yaw, pitch, distance}) written to `path`. */
+export async function lookPicture(s, path, target, view = {}) {
+  mkdirSync(dirname(resolve(path)), { recursive: true });
+  const at = await s.target(target);
+  const reply = await s.op({ op: 'screenshot', ...at, world: true, form: 'look', ...view });
+  if (reply.unavailable) throw Object.assign(new Error(`look ${target}: ${reply.unavailable}`), { reply, unavailable: reply.unavailable });
+  if (reply.error || typeof reply.data !== 'string') throw Object.assign(new Error(`look ${target}: ${reply.error ?? 'no pixels in the reply'}`), { reply });
+  writeFileSync(resolve(path), encodePng({ width: reply.width, height: reply.height, data: Buffer.from(reply.data, 'base64') }));
+  const { tick, hash, w, h, look, bounds } = reply, from = Object.fromEntries(Object.entries(view).filter(([k]) => k !== 'resolution'));
+  // `bounds`: the scene's centre and radius an orbit or plan view was drawn within.
+  return { screenshot: resolve(path), w, h, tick, hash, canvas: at.id, look, ...(bounds ? { bounds } : {}), ...(Object.keys(from).length ? { view: from } : {}) };
+}

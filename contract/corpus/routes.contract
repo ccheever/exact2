@@ -1,0 +1,114 @@
+// Interview's table and the selected stack as rows.
+routes nav
+  tab home "/"
+    notifications "/notifications"
+    post "/post/:post"
+  tab prompts "/prompts"
+    ask "/prompts/new"
+    question "/prompt/:question"
+      write "/prompt/:question/write"
+  tab messages "/messages"
+  tab search "/search"
+  tab profile "/profile"
+    settings "/settings"
+  person "/people/:person"
+  notfound
+
+shape Post
+  id: string
+  title: string
+  person: string
+shape Person
+  id: string
+  name: string
+  post: string
+
+component Interview
+  state initialUrl = top(nav).url
+  derive current = top(nav)
+  derive count = depth(nav)
+  derive query = searchParam(current, "q")
+  resource questions = loadQuestions(params(nav, "question")) as shape string[]
+  resource posts = loadPosts(params(nav, "post")) as shape Post[]
+  resource people = loadPeople(params(nav, "person")) as shape Person[]
+  action openPost(id: string)
+    nav = push(nav, path("post", id))
+  action openQuestion(id: number)
+    nav = open(nav, path("question", id))
+  action open(url: string)
+    nav = open(nav, url)
+  action push(url: string)
+    nav = push(nav, url)
+  action replace(url: string)
+    nav = replace(nav, url)
+  action back
+    nav = back(nav)
+  action selectTab(name: string)
+    nav = select(nav, name)
+  action go(url: string)
+    nav = go(nav, url)
+  action followLink(url: string)
+    nav = go(nav, url)
+  action home
+    nav = open(nav, "/")
+  view
+    main navigationKey=`${current.id}` navigationBack="back" navigate=followLink testId="navigation" width="100%" height="100%"
+      text nav.tab testId="tab"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.id}` position="absolute" top=0 bottom=0 left=0 right=0 padding=16 gap=12 box-sizing="border-box" background-color="#ffffff" display="flex" flex-direction="column"
+          row gap=8 padding=8 height=44 box-sizing="border-box" role="tablist"
+            button role="tab" aria-selected=(nav.tab == "home") press=selectTab("home") testId=`select-home-${e.id}`
+              text "Home"
+            button role="tab" aria-selected=(nav.tab == "prompts") press=selectTab("prompts") testId=`select-prompts-${e.id}`
+              text "Prompts"
+            button role="tab" aria-selected=(nav.tab == "search") press=selectTab("search") testId=`select-search-${e.id}`
+              text "Search"
+          button appearance="none" id="back" press=back testId=`back-${e.id}` padding=8
+            text "Back"
+          button appearance="none" press=push("/post/42") testId=`push-post-${e.id}` padding=8
+            text "Push post"
+          button appearance="none" press=push("/people/7") testId=`push-person-${e.id}` padding=8
+            text "Push person"
+          button appearance="none" press=open("/prompt/5/write") testId=`open-write-${e.id}` padding=8
+            text "Open write"
+          button appearance="none" press=push("/prompts/new") testId=`push-modal-${e.id}` padding=8
+            text "Push modal"
+          if e.name == "home"
+            text "Home"
+            scroll testId=`feed-scroll-${e.id}` flex=1 min-height=0 width="100%"
+              column gap=16
+                for p in posts key=p.id
+                  button press=openPost(p.id) testId=`feed-post-${p.id}` height=450 padding=16 background-color="#eeeeee"
+                    text p.title font-size=24
+          if e.name == "notifications"
+            text "Notifications"
+          if e.name == "post"
+            for p in posts key=p.id
+              if p.id == e.params.post
+                text p.title testId=`post-title-${e.id}` font-size=28
+                button appearance="none" press=push(path("person", p.person)) testId=`post-person-${e.id}` padding=16
+                  text "Read author"
+          if e.name == "prompts"
+            text "Prompts"
+          if e.name == "ask"
+            text "Ask"
+          if e.name == "question"
+            text e.params.question
+          if e.name == "write"
+            text `Write ${e.params.question}`
+          if e.name == "messages"
+            text "Messages"
+          if e.name == "search"
+            text searchParam(e, "q")
+          if e.name == "profile"
+            text "Profile"
+          if e.name == "settings"
+            text "Settings"
+          if e.name == "person"
+            for p in people key=p.id
+              if p.id == e.params.person
+                text p.name testId=`person-name-${e.id}` font-size=28
+                button appearance="none" press=openPost(p.post) testId=`person-post-${e.id}` padding=16
+                  text "Read another post"
+          if e.name == "notfound"
+            text "Not found"

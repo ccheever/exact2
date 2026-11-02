@@ -1,0 +1,25 @@
+// The smallest program: a slot, a derive, two actions, a view.
+component App
+  state count = 0
+  state label = "hi"
+  derive double = count * 2
+  derive msg = `${label}: ${count} (${double})`
+  action inc
+    count = count + 1
+  action add(k: number)
+    let m = k * 2
+    count = count + m
+    label = label + "!"
+  view
+    column
+      text msg testId="msg"
+      button "Inc" press=inc testId="inc"
+      button "Add" press=add(3) testId="add"
+
+test "increments"
+  tap "inc"
+  expect state count == 1
+  tap "add"
+  expect text "msg" == "hi!: 7 (14)"
+  tap "missing"
+  expect state count == 7

@@ -1,0 +1,11 @@
+// ResetHoldProbeTests: a sheet the teardown of a restart ends.
+component App
+  state n = 0
+  action open
+    showModal("sheet")
+  view
+    main id="page" width="100%" height="100%"
+      button press=open testId="open"
+        text "Open"
+      dialog id="sheet" width=300 height=200
+        text "A sheet"

@@ -1,0 +1,8 @@
+{
+  "name": "oauth-fixture",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/oauth": "file:../../packages/oauth"
+  }
+}

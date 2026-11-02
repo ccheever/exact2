@@ -1,0 +1,12 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Unsaid",
+  "short_name": "Unsaid",
+  "id": "com.exact.unsaid",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.unsaid",
+    "name": "Unsaid"
+  }
+}

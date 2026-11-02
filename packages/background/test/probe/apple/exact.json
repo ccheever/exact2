@@ -1,0 +1,21 @@
+{
+  "kind": "implementation",
+  "implements": "@fixture/transfer-probe@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {},
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Probe.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "ProbeModule"
+}

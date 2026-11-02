@@ -1,0 +1,22 @@
+[package]
+name = "exact-game-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game = { path = "../engine" }
+gltf = { version = "1.4.1", features = ["import", "KHR_materials_emissive_strength", "KHR_texture_transform", "extensions", "extras"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Ogg Vorbis is decoded at bake time only; no game module links a decoder.
+lewton = "0.10.2"
+serde_json = "1"
+sha2 = "0.10"
+# Bake-time block encoders and decoders (never linked into a game):
+# Intel ISPC kernels (prebuilt) for BC4/5/7, ARM astcenc (vendored C++) for ASTC.
+ctt-intel-texture-compressor = "0.5"
+ctt-astcenc = "0.5"
+bcdec_rs = "0.2"
+
+[dev-dependencies]
+flate2 = "1"

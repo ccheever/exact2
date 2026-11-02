@@ -1,0 +1,31 @@
+[package]
+name = "realworld-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "realworld-render"
+path = "src/bin/realworld-render.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+exact-js-web = { path = "../../../js/web" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+exact-js = { path = "../../../js" }
+exact-render = { path = "../../../host/render" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

@@ -1,0 +1,22 @@
+# The motion evaluator: CSS `transition` semantics over the four compositor
+# properties, one spring, and a seekable clock.
+#
+# The dependency closure is `libm` and `exact-num` (number text) and nothing
+# else: no host crate, no kernel. The kernel depends on this crate for the
+# `transition` style row's type. It builds for wasm32-unknown-unknown.
+[package]
+name = "exact-motion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Motion evaluator: CSS transitions and keyframe animations, a spring, and a seekable clock"
+publish = false
+
+[lib]
+name = "exact_motion"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-color = { path = "../color" }
+exact-num = { path = "../num" }
+libm = "0.2"

@@ -1,0 +1,31 @@
+# The plan runner: one app-independent binary's worth of loop — evaluate the
+# plan's expressions, manage keyed instances, emit kernel ops, dispatch events,
+# tick timers under a seekable clock, and ask the app's data source for data
+# across the data seam. A reload is a restart.
+[package]
+name = "exact-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Plan runner: expression VM, keyed instances, kernel ops, events, timers, and the data seam"
+publish = false
+
+[lib]
+name = "exact_runner"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-grants = { path = "../grants" }
+exact-js-value = { path = "../js/value" }
+exact-canvas = { path = "../canvas" }
+exact-kernel = { path = "../kernel" }
+exact-motion = { path = "../motion" }
+exact-num = { path = "../num" }
+exact-plan = { path = "../plan" }
+exact-route = { path = "../route" }
+sha2 = "0.10"
+serde_json = "1.0"
+
+[dev-dependencies]
+# Compiles every app's Contract source for the incremental-equals-full test.
+contract = { path = "../contract/cli" }

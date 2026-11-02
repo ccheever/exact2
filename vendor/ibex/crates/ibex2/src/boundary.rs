@@ -1,0 +1,224 @@
+//! The host-call boundary.
+//!
+//! One surface, primitives and handles only, no JSON, and the
+//! capability check before dispatch.
+//!
+//! Host calls are async by default, with two sync exceptions
+//! (`localStorage` and `performance.now`). What that rules out is a new
+//! synchronous *cross-thread* call surface. A **pure** op computes on the
+//! calling thread and never leaves it, so it is not a cross-thread call and
+//! returns directly: `new URL()` and `TextEncoder.encode()` are synchronous
+//! web APIs that no application can await. Async-by-default governs the
+//! **delegating** and **ambient** shapes, which do leave the thread.
+//! Everything in this module is pure; nothing here may block.
+//!
+//! Rust owns semantics, the platform owns transport.
+
+use crate::grant::{GrantSet, Operation};
+
+/// An **argument** crossing into Rust.
+///
+/// Borrowed, and deliberately so: an `ArrayBuffer` argument reaches Rust as a
+/// span over the engine's own allocation rather than a copy of it. `HostArg`
+/// is the type that makes copying the arguments impossible rather than merely
+/// discouraged — there is no owned byte variant to copy into.
+///
+/// The lifetime is the duration of one host call and not one instant longer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostArg<'a> {
+    Undefined,
+    Null,
+    Bool(bool),
+    Number(f64),
+    /// Borrowed from the engine's UTF-8 rendering of a JS string. The engine
+    /// allocated that rendering (strings cost one copy no boundary can
+    /// remove); Rust does not add a second.
+    Str(&'a str),
+    /// Borrowed directly from the engine's `ArrayBuffer` storage. No copy.
+    Bytes(&'a [u8]),
+}
+
+impl<'a> HostArg<'a> {
+    pub fn as_str(&self) -> Option<&'a str> {
+        match self {
+            HostArg::Str(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Option<&'a [u8]> {
+        match self {
+            HostArg::Bytes(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            HostArg::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+}
+
+/// A **result** crossing back out to the engine.
+///
+/// Owned, because ownership is what transfers: a `Bytes` result becomes the
+/// backing store of a JavaScript `ArrayBuffer` directly, and the engine frees
+/// it through the boundary when the object is collected. There
+/// is deliberately no `Object` or `Json` variant: a boundary that serializes
+/// has traded parse time for call time.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostValue {
+    Undefined,
+    Null,
+    Bool(bool),
+    Number(f64),
+    Str(String),
+    Bytes(Vec<u8>),
+}
+
+impl HostValue {
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            HostValue::Str(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bytes(&self) -> Option<&[u8]> {
+        match self {
+            HostValue::Bytes(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+/// What a refused or failed host call reports.
+///
+/// The taxonomy is Rust-owned so failures are identical on every platform and
+/// every engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostError {
+    /// The operation was not admitted by the caller's grants. Carries no detail
+    /// about what *would* have been admitted.
+    Denied { capability: &'static str },
+    /// A redirect led outside the caller's grants.
+    DeniedRedirect {
+        capability: &'static str,
+        origin: String,
+    },
+    /// The arguments did not match the operation's contract.
+    InvalidArgument(String),
+    /// The requested family was deliberately omitted from this build.
+    Unavailable { feature: &'static str },
+    /// The operation's own error, e.g. malformed base64 or an unparseable URL.
+    Failed(String),
+    /// A [`HopGate`] refused the hop before it was sent: the grants admit
+    /// it, and the host's own rule does not (Exact patch:
+    /// `person-required`, or a permission the person denied).
+    NotAllowed { reason: String },
+}
+
+impl std::fmt::Display for HostError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostError::Denied { capability } => write!(f, "denied: {capability}"),
+            HostError::DeniedRedirect { capability, origin } => {
+                write!(f, "denied: {capability}, redirected to {origin}")
+            }
+            HostError::InvalidArgument(detail) => write!(f, "invalid argument: {detail}"),
+            HostError::Unavailable { feature } => {
+                write!(f, "unavailable: the {feature} feature is not enabled")
+            }
+            HostError::Failed(detail) => write!(f, "{detail}"),
+            HostError::NotAllowed { reason } => write!(f, "NotAllowedError: {reason}"),
+        }
+    }
+}
+
+/// A host's check beside the grant at every fetch hop (the first and each
+/// redirect) and every WebSocket open, made after the grant admits the URL
+/// and before anything is sent (Exact patch). A binding
+/// carries one per request (`host::Fetch::with_gate`), so it can depend on
+/// who asked; the grant set itself stays static.
+pub trait HopGate: Send + Sync {
+    /// `Err` refuses the hop to `url`; it is then never sent.
+    fn admit(&self, url: &url::Url) -> Result<(), HostError>;
+}
+
+/// The grant check, then `gate`'s, for one hop to `url`.
+pub(crate) fn gated(gate: Option<&dyn HopGate>, url: &str) -> Result<(), HostError> {
+    let Some(gate) = gate else { return Ok(()) };
+    let parsed = url::Url::parse(url).map_err(|e| HostError::Failed(format!("TypeError: {e}")))?;
+    gate.admit(&parsed)
+}
+
+/// Check an operation against the grants the calling binding carries.
+///
+/// This is the single chokepoint, taking the grant as an
+/// argument because authority is carried rather than inferred. There is
+/// deliberately no way to call this without supplying a `GrantSet` — no ambient
+/// lookup, no stack walk, no thread-local.
+pub fn admit(grants: &GrantSet, operation: &Operation) -> Result<(), HostError> {
+    if grants.permits(operation) {
+        return Ok(());
+    }
+    Err(HostError::Denied {
+        capability: capability_name(operation),
+    })
+}
+
+fn capability_name(operation: &Operation) -> &'static str {
+    match operation {
+        Operation::Fetch { .. } => "net.fetch",
+        Operation::WebSocket { .. } => "net.websocket",
+        Operation::FsRead { .. } => "fs.read",
+        Operation::FsWrite { .. } => "fs.write",
+        Operation::EnvRead { .. } => "env.read",
+        Operation::SqliteOpen { .. } => "sqlite.open",
+        Operation::SecretKeep { .. } => "secret.keep",
+        Operation::StorageKv { .. } => "storage.kv",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grant::{Grant, Origin};
+
+    #[test]
+    fn admit_reports_the_capability_that_was_missing() {
+        let grants = GrantSet::none();
+        let op = Operation::Fetch {
+            origin: Origin::new("https", "example.com", 443),
+        };
+        assert_eq!(
+            admit(&grants, &op),
+            Err(HostError::Denied {
+                capability: "net.fetch"
+            })
+        );
+    }
+
+    #[test]
+    fn admit_passes_a_granted_operation() {
+        let origin = Origin::new("https", "example.com", 443);
+        let grants = GrantSet::none().with(Grant::Fetch(origin.clone()));
+        assert_eq!(admit(&grants, &Operation::Fetch { origin }), Ok(()));
+    }
+
+    #[test]
+    fn a_denial_does_not_leak_what_would_have_been_admitted() {
+        let grants =
+            GrantSet::none().with(Grant::Fetch(Origin::new("https", "secret.internal", 443)));
+        let denied = admit(
+            &grants,
+            &Operation::Fetch {
+                origin: Origin::new("https", "example.com", 443),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(format!("{denied}"), "denied: net.fetch");
+    }
+}

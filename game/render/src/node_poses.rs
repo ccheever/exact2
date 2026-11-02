@@ -1,0 +1,303 @@
+//! Retained presentation endpoints shared by palette packing and socket chains.
+use exact_game::{Entity, Mesh, NodeOffsets, Transform, World};
+use glam::{Quat, Vec3};
+use std::collections::BTreeMap;
+
+/// An entity's offsets at the previous and current tick. `NodeOffsets` is a
+/// kilobyte, so a new tick flips which slot is current and copies once.
+#[derive(Clone, Copy)]
+struct Row {
+    entity: Entity,
+    tick: u64,
+    slots: [NodeOffsets; 2],
+    current: usize,
+}
+impl Row {
+    fn pair(&self) -> [&NodeOffsets; 2] {
+        [&self.slots[1 - self.current], &self.slots[self.current]]
+    }
+}
+#[derive(Default)]
+pub(crate) struct Histories {
+    rows: Vec<Row>,
+    empty: NodeOffsets,
+}
+impl Histories {
+    pub fn update(&mut self, w: &World, initial: bool) {
+        if initial {
+            self.rows.clear();
+        }
+        // Rows and the query both ascend by entity index: one walk, not a
+        // component lookup per row.
+        let mut query = w.query::<&NodeOffsets>();
+        let mut offsets = query.iter().peekable();
+        for row in &mut self.rows {
+            if row.tick != w.tick() {
+                row.current = 1 - row.current;
+            }
+            while offsets
+                .next_if(|(e, _)| e.index() < row.entity.index())
+                .is_some()
+            {}
+            row.slots[row.current] = match offsets.peek() {
+                Some((e, o)) if *e == row.entity => **o,
+                _ => NodeOffsets::default(),
+            };
+            if w.is_fresh(row.entity) {
+                row.slots[1 - row.current] = row.slots[row.current];
+            }
+            row.tick = w.tick();
+        }
+        drop(offsets);
+        drop(query);
+        self.rows.retain(|r| {
+            w.contains(r.entity)
+                && r.slots
+                    .iter()
+                    .any(|o| !o.rows().is_empty() || o.overflowed())
+        });
+        for (entity, offsets) in w.query::<&NodeOffsets>().iter() {
+            if offsets.rows().is_empty() && !offsets.overflowed() {
+                continue;
+            }
+            if let Err(at) = self
+                .rows
+                .binary_search_by_key(&entity.index(), |r| r.entity.index())
+            {
+                self.rows.insert(
+                    at,
+                    Row {
+                        entity,
+                        tick: w.tick(),
+                        slots: [
+                            if initial || w.is_fresh(entity) {
+                                *offsets
+                            } else {
+                                NodeOffsets::default()
+                            },
+                            *offsets,
+                        ],
+                        current: 1,
+                    },
+                );
+            }
+        }
+    }
+    pub fn pair(&self, e: Entity, snap: bool) -> [&NodeOffsets; 2] {
+        let pair = self
+            .rows
+            .binary_search_by_key(&e.index(), |r| r.entity.index())
+            .ok()
+            .map(|i| &self.rows[i])
+            .filter(|r| r.entity == e)
+            .map_or([&self.empty; 2], Row::pair);
+        if snap {
+            [pair[1]; 2]
+        } else {
+            pair
+        }
+    }
+}
+pub(crate) fn rotation(q: Quat) -> Quat {
+    glam::Vec4::from(q)
+        .try_normalize()
+        .filter(|q| q.is_finite())
+        .map(Quat::from_vec4)
+        .unwrap_or(Quat::IDENTITY)
+}
+/// Node-frame TRS product. With nonuniform base scale this discards affine shear.
+pub(crate) fn compose(base: Transform, delta: Transform) -> Option<Transform> {
+    if !delta.position.is_finite()
+        || !delta.rotation.is_finite()
+        || !delta.scale.is_finite()
+        || delta.scale.cmple(Vec3::ZERO).any()
+    {
+        return None;
+    }
+    let product = base.rotation * rotation(delta.rotation);
+    if !product.is_finite() {
+        return None;
+    }
+    let t = Transform {
+        position: base.position + base.rotation * (base.scale * delta.position),
+        rotation: rotation(product),
+        scale: base.scale * delta.scale,
+    };
+    (t.position.is_finite() && t.rotation.is_finite() && t.scale.is_finite()).then_some(t)
+}
+pub(crate) fn read(p: &[f32]) -> Transform {
+    Transform {
+        position: Vec3::from_slice(p),
+        rotation: Quat::from_slice(&p[3..]),
+        scale: Vec3::from_slice(&p[7..]),
+    }
+}
+pub(crate) fn put(p: &mut [f32], t: Transform) {
+    p[..3].copy_from_slice(&t.position.to_array());
+    p[3..7].copy_from_slice(&t.rotation.to_array());
+    p[7..10].copy_from_slice(&t.scale.to_array());
+}
+pub(crate) fn node_pair(
+    base: [Transform; 2],
+    rows: [NodeOffsets; 2],
+    node: &exact_game::asset::Node,
+) -> [Transform; 2] {
+    if !node.posable {
+        return base;
+    }
+    let hash = exact_game::NodeName::hash_str(&node.name);
+    resolve_pair(base, [&rows[0], &rows[1]], &node.name, hash).unwrap_or(base)
+}
+/// Validate the whole row before either endpoint is committed. `hash` is
+/// `NodeName::hash_str(name)`, which the caller keeps with the name.
+pub(crate) fn resolve_pair(
+    base: [Transform; 2],
+    rows: [&NodeOffsets; 2],
+    name: &str,
+    hash: u64,
+) -> Option<[Transform; 2]> {
+    let mut pair = base;
+    for i in 0..2 {
+        if let Some(row) = rows[i]
+            .rows()
+            .iter()
+            .find(|r| r.node.hash() == hash && r.node.as_str() == name)
+        {
+            pair[i] = compose(base[i], row.transform)?;
+        }
+    }
+    Some(pair)
+}
+
+/// Observe assignments even while an instance has no visible draw records.
+#[derive(Default)]
+pub(crate) struct Assignments {
+    rows: BTreeMap<Entity, (Mesh, u64)>,
+    revision: u64,
+    /// The world's `Mesh` revision and membership and its entities' revision
+    /// when `rows` last matched it.
+    seen: Option<(u64, u64, u64)>,
+}
+impl Assignments {
+    /// `initial` (a new presentation generation, when `World::changed` cannot
+    /// reach back) compares every `Mesh`; otherwise only those written since.
+    pub fn update(&mut self, w: &World, initial: bool) {
+        let now = (
+            w.revision::<Mesh>(),
+            w.membership::<Mesh>(),
+            w.entities_revision(),
+        );
+        let seen = self.seen.filter(|_| !initial);
+        if seen == Some(now) {
+            return;
+        }
+        if seen.is_none_or(|s| (s.1, s.2) != (now.1, now.2)) {
+            self.rows.retain(|e, _| w.contains(*e) && w.has::<Mesh>(*e));
+        }
+        let mut assign = |e: Entity, mesh: &Mesh| {
+            if self.rows.get(&e).is_none_or(|(old, _)| old != mesh) {
+                self.revision += 1;
+                self.rows.insert(e, (mesh.clone(), self.revision));
+            }
+        };
+        match seen {
+            Some(seen) => {
+                for e in w.changed::<Mesh>(seen.0) {
+                    if let Some(mesh) = w.contains(e).then(|| w.get::<Mesh>(e)).flatten() {
+                        assign(e, &mesh);
+                    }
+                }
+            }
+            None => {
+                for (e, mesh) in w.query::<&Mesh>().iter() {
+                    assign(e, mesh);
+                }
+            }
+        }
+        self.seen = Some(now);
+    }
+    pub fn revision(&self, e: Entity) -> u64 {
+        self.rows.get(&e).map_or(0, |(_, revision)| *revision)
+    }
+}
+
+/// Surface primes survive until drawn; re-feeds at that tick keep the captured endpoint.
+#[derive(Default)]
+pub(crate) struct Priming {
+    tick: Option<u64>,
+    assignment: (u64, u64),
+    posed: bool,
+    forced_tick: Option<u64>,
+    primed_tick: Option<u64>,
+    capture: bool,
+    pending_draw: bool,
+    undrawn: bool,
+    previous: Vec<Transform>,
+    offsets: NodeOffsets,
+}
+impl Priming {
+    /// Then `rows` gives the endpoints to compose with. `current` is the current
+    /// tick's offsets, kept when this capture primes them.
+    pub fn begin(
+        &mut self,
+        tick: u64,
+        assignment: (u64, u64),
+        posed: bool,
+        force: bool,
+        current: &NodeOffsets,
+    ) {
+        self.capture = self.tick.is_none()
+            || self.assignment != assignment
+            || (!self.posed && posed)
+            || (force && self.forced_tick != Some(tick))
+            || (self.pending_draw && self.tick != Some(tick));
+        if force {
+            self.forced_tick = Some(tick);
+        }
+        if self.capture {
+            self.primed_tick = Some(tick);
+            self.undrawn = true;
+            self.offsets = *current;
+        }
+        self.tick = Some(tick);
+        self.assignment = assignment;
+        self.posed = posed;
+    }
+    /// Surface feeds may be overwritten by later ticks before encoding a frame.
+    pub fn retain_until_draw(&mut self, retain: bool) {
+        self.pending_draw = retain && self.undrawn && self.primed_tick == self.tick;
+        if !retain {
+            self.undrawn = false;
+        }
+    }
+    pub fn rows<'a>(&'a self, rows: [&'a NodeOffsets; 2]) -> [&'a NodeOffsets; 2] {
+        if self.primed_tick == self.tick {
+            [&self.offsets, rows[1]]
+        } else {
+            rows
+        }
+    }
+    pub fn capturing(&self) -> bool {
+        self.capture
+    }
+    /// Whether this tick's endpoints come from a capture ([`Self::pair`]
+    /// replaces the earlier one).
+    pub fn primed_now(&self) -> bool {
+        self.primed_tick == self.tick
+    }
+    pub fn captured(&mut self) {
+        self.capture = false;
+    }
+    pub fn pair(&mut self, index: usize, mut base: [Transform; 2]) -> [Transform; 2] {
+        if self.capture {
+            if index >= self.previous.len() {
+                self.previous.resize(index + 1, Transform::default());
+            }
+            self.previous[index] = base[1];
+        }
+        if self.primed_tick == self.tick {
+            base[0] = self.previous[index];
+        }
+        base
+    }
+}

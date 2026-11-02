@@ -1,0 +1,17 @@
+component App
+  state count = 0
+  state enabled = true
+  action tick
+    count = count + 1
+  action disable
+    enabled = false
+  task first when enabled
+    after(49, tick, wait=frame)
+  task second mount
+    after(50, disable)
+  view
+    text `${count}`
+
+test "wait-same-time"
+  clock +50
+  expect state count == 1

@@ -1,0 +1,36 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/notifications@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleNotificationSettings": {
+      "authorizationStatus": "enum<notDetermined|denied|authorized|provisional|ephemeral>",
+      "alertSetting": "enum<notSupported|disabled|enabled>",
+      "soundSetting": "enum<notSupported|disabled|enabled>",
+      "badgeSetting": "enum<notSupported|disabled|enabled>"
+    }
+  },
+  "options": {
+    "showNotification": {
+      "subtitle": "string",
+      "threadIdentifier": "string",
+      "interruptionLevel": "enum<passive|active|timeSensitive>",
+      "relevanceScore": "number",
+      "targetContentIdentifier": "string"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Notifications.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "NotificationsModule"
+}

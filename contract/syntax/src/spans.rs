@@ -1,0 +1,334 @@
+//! Exhaustive source-range traversal for compiler-owned AST transformations.
+
+use crate::anatomy::{Anatomy, Mark, PartDecl};
+use crate::members::{Deferred, Members, MembersLine};
+use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
+use crate::parser::SyntaxError;
+use crate::tool::{Consequence, Tool};
+use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
+
+/// Visit every source range, without changing the AST's non-location fields.
+/// Destructuring is exhaustive so new syntax must account for its locations.
+pub trait VisitSpans {
+    /// Apply `visit` to each range, including nested expressions and types.
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span));
+}
+
+impl VisitSpans for Span {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        visit(self);
+    }
+}
+impl<T: VisitSpans> VisitSpans for Vec<T> {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        for item in self {
+            item.visit_spans(visit);
+        }
+    }
+}
+impl<T: VisitSpans> VisitSpans for Option<T> {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        if let Some(item) = self {
+            item.visit_spans(visit);
+        }
+    }
+}
+impl<T: VisitSpans> VisitSpans for Box<T> {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        (**self).visit_spans(visit);
+    }
+}
+impl<A: VisitSpans, B: VisitSpans> VisitSpans for (A, B) {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        self.0.visit_spans(visit);
+        self.1.visit_spans(visit);
+    }
+}
+impl<A: VisitSpans, B: VisitSpans, C: VisitSpans> VisitSpans for (A, B, C) {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        self.0.visit_spans(visit);
+        self.1.visit_spans(visit);
+        self.2.visit_spans(visit);
+    }
+}
+
+impl<K: VisitSpans + Ord, V: VisitSpans> VisitSpans for std::collections::BTreeMap<K, V> {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        *self = std::mem::take(self)
+            .into_iter()
+            .map(|(mut key, mut value)| {
+                key.visit_spans(visit);
+                value.visit_spans(visit);
+                (key, value)
+            })
+            .collect();
+    }
+}
+
+macro_rules! leaves {
+    ($($ty:ty),* $(,)?) => { $(
+        impl VisitSpans for $ty {
+            fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
+        }
+    )* };
+}
+leaves!(
+    String,
+    bool,
+    f64,
+    u16,
+    [u16; 2],
+    u32,
+    usize,
+    BinOp,
+    UnOp,
+    TaskKind,
+    TapForm,
+    PropertyKind,
+    PropertyForm,
+    ParamValue,
+    ModuleKind,
+    Consequence,
+    crate::members::Splice,
+    &'static str
+);
+
+macro_rules! structs {
+    ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
+        impl VisitSpans for $ty {
+            fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+                let Self { $($field),* } = self;
+                $($field.visit_spans(visit);)*
+            }
+        }
+    )* };
+}
+structs! {
+    NameSpans { names, sources }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, atoms, atom_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, properties, launch, components, members, deferred }
+    KeyframesDecl { name, frames, span }
+    TimelineDecl { name, span }
+    ColorProfileDecl { name, attrs, span }
+    ThemeDecl { entries, span }
+    DesignSource { path, home, text, source_id, bindable, package, root }
+    KeyframeDecl { selectors, attrs, span }
+    RoutesDecl { slot, rows, span }
+    RouteDecl { name, pattern, parent, tab, notfound, fields, span }
+    FontDecl { name, faces, span }
+    SoundDecl { source, span }
+    FontFaceDecl { weight, italic, source, span }
+    TestDecl { name, hosts, steps, span }
+    PropertyDecl { span, kind, name, lines }
+    PropertyLine { span, form }
+    FnDecl { name, params, ret, body, span }
+    ModuleDecl { name, declared, package, extension, kind, options, words, answers, args, raised, hold, budget, handler, live, request, sync, data_only, substitute, span }
+    PlatformWords { platform, package, words }
+    UseDecl { names, path, span }
+    UseName { name, alias, span }
+    StyleDecl { name, attrs, span }
+    ShapeDecl { name, fields, span }
+    Field { name, ty, span }
+    Component { name, props, injects, provides, slot, states, persist, derives, resources,
+        mutations, actions, tools, tasks, sequences, view, params, anatomy, members, span }
+    Tool { name, consequence, additive, idempotent, closed, description, action, returns, fails,
+        available, span }
+    Members { lines, props, outer }
+    Deferred { name, if_action, in_block, error }
+    SyntaxError { id, message, span }
+    MembersLine { path, at, span }
+    Anatomy { parts, marks }
+    PartDecl { name, groups, span }
+    Mark { part, span, node, own }
+    Params { identity, package, root, list }
+    ComponentParam { name, kind, default, default_span, attrs, span }
+    ParamAttr { name, value, span }
+    Sequence { name, gate, key, tracks, options, ended, span }
+    Persist { name, span }
+    Binding { name, expr, span }
+    ResourceDecl { name, source, args, identity, shape, placeholder, span }
+    Placeholder { source, args, span }
+    MutationDecl { name, shape, queue, refreshes, then, span }
+    Param { name, ty, span }
+    Action { name, params, body, span }
+    Task { name, kind, gate, key, timer, options, span }
+    Attr { name, value, span, written }
+}
+
+macro_rules! record_variants {
+    ($ty:ident { $($variant:ident { $($field:ident),* $(,)? }),* $(,)? }) => {
+        impl VisitSpans for $ty {
+            fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+                match self { $(
+                    Self::$variant { $($field),* } => { $($field.visit_spans(visit);)* }
+                )* }
+            }
+        }
+    };
+}
+record_variants! {
+    Step {
+        Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
+        Size { width, height, span }, At { location, span }, Epoch { value, span }, TimeZone { zone, span },
+        Locale { tag, span }, Prefer { name, value, span }, Seed { seed, span }, Fresh { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Request { method, path, body, persona, status, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Pick { target, paths, span }, Authorize { cancel, span }, Clipboard { target, edit, text, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Back { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectRefusal { target, span }, ExpectTree { target, present, span }, ExpectDisabled { target, disabled, span },
+        ExpectText { target, value, span }, ExpectState { name, value, span },
+        ExpectSound { src, present, at, gain, ends, playback_rate, pan, by, span },
+        ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
+        Midi { step, span }, ExpectWakelock { held, span },
+        Perf { steps, span }, ExpectPerf { subject, target, at_most, value, span }, ExpectNoFailures { span },
+    }
+}
+// MIDI's test steps carry no spans of their own.
+impl VisitSpans for crate::MidiStep {
+    fn visit_spans(&mut self, _: &mut impl FnMut(&mut Span)) {}
+}
+record_variants! {
+    Stmt {
+        Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
+        Send { target, source, args, span }, Refresh { target, span },
+        If { cond, then, otherwise, span }, Match { subject, some, none, span },
+        Call { action, args, body, authored, curried, binding, span },
+    }
+}
+record_variants! {
+    Node {
+        Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
+        Children { span },
+        When { tag, cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
+        Match { tag, subject, some, none, span },
+    }
+}
+impl VisitSpans for TypeExpr {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        match self {
+            Self::Enum(_, span) | Self::Named(_, span) => visit(span),
+            Self::Option(inner, span) | Self::List(inner, span) => {
+                inner.visit_spans(visit);
+                visit(span);
+            }
+        }
+    }
+}
+impl VisitSpans for TemplatePart {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        match self {
+            Self::Text(_) => {}
+            Self::Expr(expr) => expr.visit_spans(visit),
+        }
+    }
+}
+impl VisitSpans for Expr {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        match self {
+            Self::Number(_, span)
+            | Self::Str(_, span)
+            | Self::Bool(_, span)
+            | Self::None(span)
+            | Self::Ident(_, span) => visit(span),
+            Self::Template(parts, span) => {
+                parts.visit_spans(visit);
+                visit(span);
+            }
+            Self::NamedArg(_, inner, span)
+            | Self::Typed(inner, _, span)
+            | Self::Some(inner, span)
+            | Self::Member(inner, _, span)
+            | Self::Unary(_, inner, span) => {
+                inner.visit_spans(visit);
+                visit(span);
+            }
+            Self::Call(_, args, span) | Self::List(args, span) => {
+                args.visit_spans(visit);
+                visit(span);
+            }
+            Self::Binary(_, lhs, rhs, span) => {
+                lhs.visit_spans(visit);
+                rhs.visit_spans(visit);
+                visit(span);
+            }
+            Self::Ternary(cond, then, otherwise, span) => {
+                cond.visit_spans(visit);
+                then.visit_spans(visit);
+                otherwise.visit_spans(visit);
+                visit(span);
+            }
+            Self::Match {
+                subject,
+                var: _,
+                some,
+                none,
+                span,
+            } => {
+                subject.visit_spans(visit);
+                some.visit_spans(visit);
+                none.visit_spans(visit);
+                visit(span);
+            }
+            Self::Let {
+                name: _,
+                value,
+                body,
+                span,
+            } => {
+                value.visit_spans(visit);
+                body.visit_spans(visit);
+                visit(span);
+            }
+            Self::Arrow {
+                params: _,
+                body,
+                span,
+            } => {
+                body.visit_spans(visit);
+                visit(span);
+            }
+        }
+    }
+}
+
+impl Step {
+    /// Where: the step's line.
+    pub fn span(&self) -> Span {
+        match self {
+            Step::Tap { span, .. }
+            | Step::Drag { span, .. }
+            | Step::Size { span, .. }
+            | Step::At { span, .. }
+            | Step::Epoch { span, .. }
+            | Step::TimeZone { span, .. }
+            | Step::Locale { span, .. }
+            | Step::Prefer { span, .. }
+            | Step::Seed { span, .. }
+            | Step::Fresh { span, .. }
+            | Step::BeforeData { span }
+            | Step::FailFetch { span, .. }
+            | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
+            | Step::Type { span, .. }
+            | Step::Key { span, .. }
+            | Step::Pick { span, .. }
+            | Step::Authorize { span, .. }
+            | Step::Clipboard { span, .. }
+            | Step::Clock { span, .. }
+            | Step::Reload { span, .. }
+            | Step::Close { span }
+            | Step::Back { span }
+            | Step::Resize { span, .. }
+            | Step::Screenshot { span, .. }
+            | Step::ExpectRefusal { span, .. }
+            | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
+            | Step::ExpectText { span, .. }
+            | Step::ExpectState { span, .. }
+            | Step::ExpectWakelock { span, .. }
+            | Step::ExpectSound { span, .. }
+            | Step::Midi { span, .. }
+            | Step::ExpectMediaSession { span, .. }
+            | Step::ExpectMediaSessionAction { span, .. }
+            | Step::Perf { span, .. }
+            | Step::ExpectPerf { span, .. }
+            | Step::ExpectNoFailures { span } => *span,
+        }
+    }
+}

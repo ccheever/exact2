@@ -1,0 +1,33 @@
+// Accept fixture: `if`/`else` and `match` as statements in an action.
+// Enter submits the query and clears it; any other key is
+// appended; `show` reads an option slot through `match`.
+component Branch
+  state query = ""
+  state submitted = 0
+  state picked = none
+  state seen = ""
+  action setQuery(v)
+    query = v
+  action typed(k)
+    if k == "Enter"
+      submitted = submitted + 1
+      query = ""
+    else
+      query = query + k
+  action pick(id)
+    picked = some(id)
+  action show
+    match picked
+      case some(id)
+        seen = id
+      case none
+        seen = "nothing"
+  view
+    column testId="root"
+      input value=query input=setQuery key=typed testId="q"
+      text `${submitted}` testId="submitted"
+      text seen testId="seen"
+      button press=pick("mv") testId="pick"
+        text "pick"
+      button press=show testId="show"
+        text "show"

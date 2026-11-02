@@ -1,0 +1,28 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/geocoding@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos",
+    "tvos"
+  ],
+  "shapes": {},
+  "options": {
+    "geocode": { "preferredLocale": "string" },
+    "reverseGeocode": { "preferredLocale": "string" }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": {
+    "swift": [
+      "Geocoding.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "GeocodingModule",
+  "frameworks": {
+    "MapKit": { "ios": "17.0", "macos": "14.0", "tvos": "17.0" }
+  }
+}

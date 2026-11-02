@@ -1,0 +1,1497 @@
+//! The painter: the kernel tree is the display list.
+//!
+//! A host that paints has the exact invalidation answer because it *is*
+//! the display list.
+//!
+//! One preorder walk emits each node to a [`Backend`]: its background and
+//! per-corner radii, borders, image by `object-fit`, paragraph as measured
+//! by [`crate::text`], input value or placeholder and caret, then children.
+//! Children inherit overflow clips and scroll offsets. Motion supplies a
+//! transform about `transform-origin` and group opacity (a layer when not 1).
+//! The walk records transformed bounding boxes in viewport points with
+//! their clips; the agent's `layout` and hit-testing share this geometry.
+//!
+//! Backends: [`crate::gpu`] (vello), [`crate::ink`] (instanced geometry),
+//! and [`crate::raster`] (the CPU fallback and pixel oracle).
+
+use crate::image::Bitmap;
+use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
+use exact_kernel::style::{BackdropFilter, BackdropOp};
+use exact_kernel::{
+    BorderStyle, Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId,
+    StyleId, StyleMask, StyleProps, ViewId,
+};
+use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
+use std::sync::Arc;
+use tiny_skia::{Pixmap, Point, Transform};
+mod backend;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+mod presentation;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+pub(crate) use presentation::Presentation;
+pub mod border;
+pub(crate) mod button;
+mod caret;
+pub(crate) mod control;
+pub(crate) mod damage;
+pub(crate) mod dates;
+mod dialog_shadow;
+pub(crate) use dialog_shadow::DialogShadow;
+pub mod gradient;
+mod grouped;
+mod overlay;
+pub(crate) mod scrollbar;
+pub use gradient::GradientPaint;
+pub(crate) use overlay::TopSurface;
+pub(crate) mod field;
+mod fragments;
+pub(crate) use fragments::{center as tap_point, hits};
+pub(crate) use lift::{Ghost, Lift};
+mod alert;
+pub(crate) mod inline;
+pub(crate) mod inline_frame;
+mod layer;
+mod lift;
+pub(crate) mod look;
+pub use look::page_color;
+pub(crate) mod material;
+pub(crate) use alert::Picture as AlertPicture;
+pub use material::{FieldText, FieldTexts};
+mod native;
+pub(crate) mod neutral;
+pub(crate) mod numerals;
+pub use native::NativeKind;
+mod order;
+mod placed;
+mod presented;
+mod region;
+pub mod rows;
+mod shadow;
+pub(crate) mod space;
+mod split;
+mod svg;
+pub(crate) use svg::{fitted, view_box};
+mod text_clip;
+mod text_decoration;
+mod text_shadow;
+mod text_stroke;
+use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
+pub use presented::{PaintValues, Presented};
+pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
+pub use svg::{resolve_with, Ink, SvgPaint};
+
+// Only an explicit row makes a raster a template; motion may supply its ink.
+// `currentcolor` is the node's `color`.
+fn image_tint(node: &NodeRef<'_>, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+    let style = node.style;
+    style.mask.has(StyleId::TintColor).then(|| {
+        presented
+            .colors
+            .color(exact_motion::Property::TintColor)
+            .unwrap_or_else(|| {
+                rgba(
+                    style
+                        .tint_color
+                        .unwrap_or_else(|| node.text_color())
+                        .resolve(dark),
+                )
+            })
+    })
+}
+
+/// A rectangle as (x, y, w, h).
+pub type Rect4 = (f32, f32, f32, f32);
+
+/// A rectangle with per-corner radii (top-left, top-right, bottom-right,
+/// bottom-left), reduced by CSS's one factor so neighbours never overlap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Shape {
+    /// The box.
+    pub rect: Rect4,
+    /// The radii.
+    pub radii: [(f32, f32); 4],
+    /// CSS `corner-shape` when any corner is not `round`.
+    pub corners: Option<exact_kernel::corner::CornerShape>,
+}
+
+impl Shape {
+    /// A box with radii, reduced as CSS reduces them: every corner by the
+    /// one factor that fits the tightest edge.
+    pub fn new(rect: Rect4, radii: [f32; 4]) -> Shape {
+        Self::elliptical(rect, radii.map(|r| (r.max(0.0), r.max(0.0))))
+    }
+
+    /// A box with independent horizontal and vertical corner radii.
+    pub fn elliptical(rect: Rect4, radii: [(f32, f32); 4]) -> Shape {
+        Shape {
+            rect,
+            radii: border::reduced(radii, rect.2, rect.3),
+            corners: None,
+        }
+    }
+
+    /// A plain box.
+    pub fn rect(rect: Rect4) -> Shape {
+        Shape {
+            rect,
+            radii: [(0.0, 0.0); 4],
+            corners: None,
+        }
+    }
+
+    /// The same box with these corner shapes; `round` ones are none.
+    pub fn with_corners(mut self, corners: Option<exact_kernel::corner::CornerShape>) -> Shape {
+        self.corners = corners.filter(|c| !c.is_round());
+        self
+    }
+
+    /// Whether any corner is rounded.
+    pub fn rounded(&self) -> bool {
+        self.radii.iter().any(|r| r.0 > 0.0 && r.1 > 0.0)
+    }
+
+    /// The same box inset on every side (radii shrink with it).
+    pub fn inset(&self, by: f32) -> Shape {
+        Shape::elliptical(
+            (
+                self.rect.0 + by,
+                self.rect.1 + by,
+                (self.rect.2 - 2.0 * by).max(0.0),
+                (self.rect.3 - 2.0 * by).max(0.0),
+            ),
+            self.radii
+                .map(|(x, y)| ((x - by).max(0.0), (y - by).max(0.0))),
+        )
+        .with_corners(self.corners)
+    }
+}
+
+// Frozen numeric/style operands. Capture resolves environment and appearance
+// once; geometry is evaluated at the published frame with ordinary f32 order.
+struct BoxPaint {
+    radii: [Dimension; 4],
+    /// What a radius that is a calculation with a percentage resolves under.
+    env: exact_kernel::Env,
+    /// CSS `background-clip`.
+    clip: exact_kernel::BackgroundClip,
+    corners: Option<exact_kernel::corner::CornerShape>,
+    widths: [f32; 4],
+    styles: [BorderStyle; 4],
+    colors: [[u8; 4]; 4],
+    background: [u8; 4],
+    gradients: Vec<gradient::Captured>,
+    padding: [f32; 4],
+    shadows: Vec<shadow::ShadowPaint>,
+    /// The ordered backdrop functions, or the winning material's blur.
+    backdrop: BackdropFilter,
+}
+struct BoxGeometry {
+    outer: Shape,
+    content: Rect4,
+    // Left and top padding + border, summed as the kernel's measure closure
+    // sums them: flowed text is measured and painted around the same bits.
+    inset: (f32, f32),
+}
+fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
+    (
+        frame.x - offset.0,
+        frame.y - offset.1,
+        frame.width,
+        frame.height,
+    )
+}
+impl BoxPaint {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
+        let effective = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let s = &effective;
+        let widths = s.border_widths();
+        let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
+        let colors = s.border_colors(current);
+        let env = kernel.env();
+        // The padding layout resolved, which input reads too: a percentage
+        // is of the containing block's width
+        let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+        // A material wins over `backdrop-filter`; a
+        // name the table lacks draws ultra-thin ([`material_note`]).
+        let material = node.props.str(PropId::BackgroundMaterial).map(|name| {
+            exact_kernel::generated::material(name)
+                .or_else(|| exact_kernel::generated::material("ultra-thin"))
+                .expect("the schema declares ultra-thin")
+        });
+        Self {
+            radii: [
+                s.border_radius_top_left,
+                s.border_radius_top_right,
+                s.border_radius_bottom_right,
+                s.border_radius_bottom_left,
+            ]
+            .map(|d| d.resolve(&env)),
+            env: env.clone(),
+            corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
+            clip: s.background_clip,
+            widths,
+            styles: [
+                s.border_style_top,
+                s.border_style_right,
+                s.border_style_bottom,
+                s.border_style_left,
+            ],
+            colors: colors.map(|c| rgba(c.resolve(dark))),
+            background: match (look::contrast(), material) {
+                (Some(palette), _)
+                    if !s.written.has(StyleId::BackgroundColor)
+                        && s.background_color.is_some_and(|c| c.resolve(dark).a() != 0) =>
+                {
+                    palette.window
+                }
+                // The material's tint where the author painted no background,
+                // as the web's rule sits under an inline one.
+                (_, Some(m)) if s.background_color.unwrap_or(current).resolve(dark).a() == 0 => {
+                    if dark {
+                        m.dark
+                    } else {
+                        m.light
+                    }
+                }
+                _ => rgba(s.background_color.unwrap_or(current).resolve(dark)),
+            },
+            gradients: gradient::Captured::capture(s, dark),
+            shadows: shadow::ShadowPaint::capture(s, dark),
+            backdrop: material.map_or_else(
+                || s.backdrop_filter.clone(),
+                |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
+            ),
+            padding: [top, right, bottom, left],
+        }
+    }
+    fn geometry(&self, rect: Rect4) -> BoxGeometry {
+        let (x, y, w, h) = rect;
+        let widths = self.widths;
+        let pad = self.padding;
+        BoxGeometry {
+            inset: (pad[3] + widths[3], pad[0] + widths[0]),
+            outer: Shape::elliptical(rect, border::resolve_radii(self.radii, &self.env, w, h))
+                .with_corners(self.corners),
+            content: (
+                x + widths[3] + pad[3],
+                y + widths[0] + pad[0],
+                (w - widths[3] - widths[1] - pad[3] - pad[1]).max(0.0),
+                (h - widths[0] - widths[2] - pad[0] - pad[2]).max(0.0),
+            ),
+        }
+    }
+    fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
+        // The outer shadows, the list's first on top: by the backend's blur
+        // where it has one, else as bands.
+        for s in self.shadows.iter().rev().filter(|s| !s.inset()) {
+            if let Some((color, sigma, shape)) = s.blurred(&geometry.outer) {
+                if backend.blurred_shadow(&shape, color, sigma, &geometry.outer, ts) {
+                    continue;
+                }
+            }
+            for band in s.fills(&geometry.outer, self.widths) {
+                backend.fill_border(&band, ts);
+            }
+        }
+        // The backdrop filters under the background.
+        if !self.backdrop.is_none() {
+            backend.backdrop_filter(&geometry.outer, &self.backdrop, ts);
+        }
+        self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
+        // The last layer first, so the first is on top, within
+        // the background's clip.
+        if let Some(clip) = self.background_shape(geometry) {
+            for g in self.gradients.iter().rev() {
+                gradient::paint(g, &geometry.outer, &clip, self.widths, backend, ts);
+            }
+        }
+        for band in self.inset_shadow_fills(geometry) {
+            backend.fill_border(&band, ts);
+        }
+        for part in self.borders(geometry) {
+            backend.fill_border(&part, ts);
+        }
+    }
+    /// The background colour: within its `background-clip`.
+    fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4])) {
+        let Some(shape) = self.background_shape(geometry) else {
+            return;
+        };
+        if self.background[3] > 0 && shape.rect.2 > 0.0 && shape.rect.3 > 0.0 {
+            emit(shape, self.background);
+        }
+    }
+    /// Where the background paints: the border box, the padding box or the
+    /// content box, each with its radii less what it is inset by; `None` for
+    /// `text`, which the paragraph paints (`text_clip`).
+    fn background_shape(&self, geometry: &BoxGeometry) -> Option<Shape> {
+        use exact_kernel::BackgroundClip;
+        let outer = geometry.outer;
+        let inset = match self.clip {
+            BackgroundClip::BorderBox => return Some(outer),
+            BackgroundClip::Text => return None,
+            BackgroundClip::PaddingBox => self.widths,
+            BackgroundClip::ContentBox => {
+                let (w, p) = (self.widths, self.padding);
+                [w[0] + p[0], w[1] + p[1], w[2] + p[2], w[3] + p[3]]
+            }
+        };
+        let (x, y, w, h) = outer.rect;
+        let [t, r, b, l] = inset;
+        let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
+        Some(
+            Shape::elliptical(
+                (x + l, y + t, (w - l - r).max(0.0), (h - t - b).max(0.0)),
+                [
+                    less(outer.radii[0], l, t),
+                    less(outer.radii[1], r, t),
+                    less(outer.radii[2], r, b),
+                    less(outer.radii[3], l, b),
+                ],
+            )
+            .with_corners(outer.corners),
+        )
+    }
+    /// The outer `box-shadow`s, under everything else, the
+    /// list's first on top.
+    fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| !s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
+    }
+    /// The inset `box-shadow`s, over the background and under the border.
+    fn inset_shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
+    }
+    /// The border, one fill per colour, joined as the web joins sides.
+    fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        let mut fills =
+            border::border_fills_styled(&geometry.outer, self.widths, self.colors, self.styles);
+        fills.extend(border::pattern_fills(
+            &geometry.outer,
+            self.widths,
+            self.colors,
+            self.styles,
+        ));
+        fills
+    }
+}
+type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
+
+/// A node's box as painted: its transformed bounding box in viewport
+/// points, the clip it was painted under (viewport points, axis-aligned),
+/// and its scroll offset when it is a scroll container.
+#[derive(Debug, Clone, Copy)]
+pub struct PaintedBox {
+    /// The node.
+    pub id: ViewId,
+    /// The box.
+    pub rect: Rect4,
+    /// The clip, `None` when unclipped.
+    pub clip: Option<Rect4>,
+    /// The scroll offset for a scroll container.
+    pub scroll: Option<(f32, f32)>,
+    /// Generic pointer eligibility of this painted scene, including inheritance.
+    pub(crate) pointer_hit: bool,
+    projective: Option<ProjectiveHit>,
+    affine: Option<(Transform, Rect4)>,
+    press: f32,
+}
+
+impl PaintedBox {
+    /// Placed by a perspective (`space.rs`), so no rectangle bounds it.
+    pub(crate) fn projected(&self) -> bool {
+        self.projective.is_some()
+    }
+
+    /// The surface's box through the same transform the painter used.
+    /// Projective canvas placements have no affine surface observation.
+    pub fn surface(&self, shown: Presented) -> Option<Rect4> {
+        if self.projective.is_some() {
+            return None;
+        }
+        self.affine.map(|(ts, rect)| bbox(ts, shown.surface(rect)))
+    }
+
+    /// Project the local center, which need not be the projected AABB center.
+    pub fn center(&self) -> (f32, f32) {
+        if let Some((inv, rect, _, _)) = self.projective {
+            if let Some(h) = crate::placement::inverse(inv) {
+                return crate::placement::map(&h, rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            }
+        }
+        (
+            self.rect.0 + self.rect.2 / 2.,
+            self.rect.1 + self.rect.3 / 2.,
+        )
+    }
+
+    /// Whether a point (viewport points) is inside the box and its clip.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
+        let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
+        let (local_x, local_y) = self
+            .projective
+            .map_or((x, y), |(inv, ..)| crate::placement::map(&inv, x, y));
+        let affine_hit = self.affine.is_none_or(|(ts, rect)| {
+            ts.invert().is_some_and(|inverse| {
+                let mut point = tiny_skia::Point::from_xy(local_x, local_y);
+                inverse.map_point(&mut point);
+                point.x >= rect.0
+                    && point.x < rect.0 + rect.2
+                    && point.y >= rect.1
+                    && point.y < rect.1 + rect.3
+            })
+        });
+        affine_hit
+            && inside(self.rect)
+            && self.clip.is_none_or(inside)
+            && self.projective.is_none_or(|(inv, rect, clip, planes)| {
+                let (x, y) = crate::placement::map(&inv, x, y);
+                let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
+                inside(rect) && clip.is_none_or(inside) && crate::placement::accepts(&planes, x, y)
+            })
+    }
+}
+
+/// What a frame is painted from.
+pub struct Scene<'a> {
+    /// The kernel: frames, styles, props.
+    pub kernel: &'a Kernel,
+    /// Hidden route subtrees paint no pixels or hit boxes.
+    pub hidden: &'a dyn Fn(ViewId) -> bool,
+    /// The roots, in order.
+    pub roots: &'a [ViewId],
+    /// A node's presentation values.
+    pub presented: &'a dyn Fn(ViewId) -> Presented,
+    /// A path's `d` while a transition moves it.
+    pub paths: &'a dyn Fn(ViewId) -> Option<exact_motion::PathValue>,
+    /// Scroll offsets of scroll containers (host state).
+    pub scroll: &'a BTreeMap<ViewId, (f32, f32)>,
+    /// The page's scroll offset: the window is a viewport over a document.
+    pub page: (f32, f32),
+    /// Decoded images by node.
+    pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
+    /// The focused input, if any (its caret is painted).
+    pub focus: Option<ViewId>,
+    /// The focused text field's selection.
+    pub selection: Option<exact_runner::FieldSelection>,
+    /// At a wrap, a click or visual-line End can choose the preceding line.
+    pub caret_upstream: bool,
+    /// Unbound checkboxes' own states, which the host keeps.
+    pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Values chosen in a date, range or select, or typed into a field, since
+    /// its bound value last changed: (choice, bound).
+    pub chosen: &'a BTreeMap<ViewId, (String, String)>,
+    /// A select's open menu, painted over everything.
+    pub menu: Option<control::MenuPaint>,
+    /// The pointer, in viewport points, when the host draws one.
+    pub pointer: Option<(f32, f32)>,
+}
+
+mod frame;
+pub use backend::{Backend, FrameTarget, WindowLayer};
+pub use frame::Frame;
+
+/// The painter: the walk over one backend.
+pub struct Painter {
+    pub(crate) split: Option<crate::presenter::split::Split>,
+    pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) direct_canvases: std::collections::BTreeSet<ViewId>,
+    pub(crate) alert: Option<alert::Picture>,
+    /// The text engine, shared with the kernel's measurer.
+    pub text: Shared,
+    /// Device pixels per point.
+    pub scale: f32,
+    /// Which appearance a `light-dark()` colour resolves to:
+    /// what the app's `setScheme` last said, else the system's, which the
+    /// device's shell or an agent tells the presenter; `light` until one does.
+    pub dark: bool,
+    /// How the device writes dates, where its shell told it: what a date
+    /// control shows (`dates.rs`).
+    pub(crate) dates: Option<dates::Dates>,
+    backend: Box<dyn Backend>,
+    #[cfg(test)]
+    pub(crate) rank_passes: usize,
+    /// Retained until the kernel commits; scroll and damage paints reuse it.
+    pub(crate) paint_epoch: Option<u64>,
+    ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// This epoch's walked nodes' potentials, and passes since a full one.
+    fresh_order: HashMap<ViewId, exact_kernel::paint_order::Potentials>,
+    rank_increments: u32,
+    pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    /// Each 2D canvas's latest bitmap.
+    pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
+    /// Each hatched node's overlay as last published.
+    pub(crate) overlays: BTreeMap<ViewId, Arc<Pixmap>>,
+    pub(crate) top_surface: Option<TopSurface>,
+    pub(crate) scrollbars: scrollbar::State,
+    viewport: (f32, f32),
+    cpu_ms: Option<f64>,
+    /// What a reorder lifts: a row in its list, or a ghost over everything.
+    pub(crate) lift: Lift,
+    // Accepted owners retain their paragraph leases while a subsequent backend frame fails.
+    accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    pub(crate) field_text: HashMap<ViewId, Rc<field::PaintedField>>,
+    pub(crate) caret_hidden: bool,
+    pub(crate) composition: Option<Rc<field::Composition>>,
+    pub(crate) inline_text: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
+    region_picture: Option<Rc<region::Picture>>,
+    region_frame: Option<region::Published>,
+    damage: damage::Retained,
+    /// `backgroundMaterial` names the schema lacks, and those not yet logged.
+    materials: (std::collections::BTreeSet<String>, Vec<String>),
+    decoration_warning: bool,
+    /// The node a 3D island paints flat, its own transform being the warp's.
+    pub(crate) flatten: Option<ViewId>,
+    /// The control a finger's press focused: it is the focus and shows no
+    /// ring, which is for a focus a key moved.
+    pub(crate) ringless: Option<ViewId>,
+    /// The focus visual follows WinUI's input tracking, not Chrome's `:focus-visible`: no ring for
+    /// a focus the app moves before any key (`keyless`), and a key held with Ctrl, Alt or the
+    /// Windows key counts as keyboard input.
+    pub(crate) winui_focus: bool,
+    pub(crate) keyless: bool,
+    /// Android's touch mode: a finger or a pen sets `keyless` again.
+    pub(crate) touch_mode: bool,
+    /// Whose shapes a symbol role takes: the process's (`look::symbols`).
+    pub(crate) symbols: exact_kernel::SymbolSet,
+    /// The control under a pointer that hovers, and the one a contact holds
+    /// down (`presenter/feedback.rs`), which the neutral look washes.
+    pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// The control a held `active` presses (`presenter/held.rs`), beside a contact's.
+    pub(crate) held_press: Option<ViewId>,
+    /// The background the last box painted shows, its states' over its own,
+    /// which its `background-clip: text` fills with (`text_clip`).
+    clipped: Option<(ViewId, [u8; 4])>,
+    /// Each hosted text field's content box in its own border box (x, y,
+    /// width, height), as last walked (`field.rs`).
+    pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
+    rows: rows::Rows,
+    /// The `svg` painting now: its elements the reader animates.
+    svg_layers: Vec<(ViewId, Presented)>,
+    /// How many boxes the last walk painted: the next one's room.
+    boxes_hint: usize,
+    /// Numeric text rolling, and the clock it rolls by.
+    pub(crate) numerals: numerals::Numerals,
+    /// Material's fields' labels, floated or resting (`material.rs`).
+    pub(crate) labels: material::Labels,
+}
+
+struct Walk<'a, 'b> {
+    scene: &'b Scene<'a>,
+    boxes: Vec<PaintedBox>,
+    text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
+    fields: HashMap<ViewId, Rc<field::PaintedField>>,
+    inline: HashMap<ViewId, Rc<inline_frame::PaintedInline>>,
+    skip: Option<exact_kernel::NodeKey>,
+    replay: Option<&'b region::Replay<'b>>,
+    /// Each node's rank among its siblings, twice its
+    /// value, from the kernel's one definition.
+    ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// Painting a ghost, whose root this is: the `visibility: hidden` the
+    /// row inherits from its wrapper shows, one its own nodes set does not
+    /// (`lift.rs`).
+    reveal: Option<ViewId>,
+    dialog: Option<ViewId>,
+}
+
+impl Painter {
+    /// Whether `node` has a material (which blurs its backdrop); notes a name
+    /// the schema lacks, once, for the host's log.
+    fn material_note(&mut self, node: &NodeRef<'_>) -> bool {
+        let Some(name) = node.props.str(PropId::BackgroundMaterial) else {
+            return false;
+        };
+        if exact_kernel::generated::material(name).is_none() && self.materials.0.insert(name.into())
+        {
+            self.materials.1.push(format!(
+                "backgroundMaterial `{name}` is not a material; drawing ultra-thin"
+            ));
+        }
+        true
+    }
+
+    /// The lines [`Painter::material_note`] noted since the last call.
+    pub fn take_notes(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.materials.1)
+    }
+
+    /// A painter over a backend.
+    pub fn new(text: Shared, scale: f32, backend: Box<dyn Backend>) -> Painter {
+        Painter {
+            split: None,
+            window_canvas: None,
+            direct_canvases: Default::default(),
+            text,
+            scale,
+            dark: false,
+            dates: None,
+            backend,
+            #[cfg(test)]
+            rank_passes: 0,
+            alert: None,
+            paint_epoch: None,
+            fresh_order: HashMap::new(),
+            rank_increments: 0,
+            ranks: Rc::default(),
+            accepted_text: BTreeMap::new(),
+            lift: Lift::default(),
+            region_picture: None,
+            region_frame: None,
+            damage: Default::default(),
+            materials: Default::default(),
+            decoration_warning: false,
+            placements: BTreeMap::new(),
+            canvases: BTreeMap::new(),
+            overlays: BTreeMap::new(),
+            top_surface: None,
+            scrollbars: Default::default(),
+            viewport: (0., 0.),
+            cpu_ms: None,
+            flatten: None,
+            ringless: None,
+            winui_focus: cfg!(windows),
+            keyless: cfg!(windows) || cfg!(target_os = "android"),
+            touch_mode: cfg!(target_os = "android"),
+            symbols: look::symbols(),
+            feedback: (None, None),
+            held_press: None,
+            clipped: None,
+            field_content: HashMap::new(),
+            field_text: HashMap::new(),
+            caret_hidden: false,
+            composition: None,
+            inline_text: HashMap::new(),
+            rows: Default::default(),
+            boxes_hint: 0,
+            svg_layers: Vec::new(),
+            numerals: Default::default(),
+            labels: Default::default(),
+        }
+    }
+
+    /// The backend's name.
+    pub fn backend(&self) -> &'static str {
+        self.backend.name()
+    }
+
+    pub(crate) fn recycle_frame(&mut self, pixels: Arc<Pixmap>) {
+        if let Ok(pixels) = Arc::try_unwrap(pixels) {
+            self.backend.recycle_frame(pixels);
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn recycle_window_layers(
+        &mut self,
+        below: Pixmap,
+        above: Arc<Pixmap>,
+        rows: (u32, u32),
+    ) {
+        // Damage snapshots contain only the overlay after a split, not a
+        // complete CPU picture. A window repaint rebuilds both layers.
+        self.damage.pixels = None;
+        self.damage.next.clear();
+        self.backend
+            .recycle_window_layers(below, Arc::try_unwrap(above).ok(), Some(rows));
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn take_window_underlay(&mut self) -> Option<WindowLayer> {
+        self.backend.take_window_underlay()
+    }
+
+    /// Something the painter animates owes a frame: a number rolling, a
+    /// field's label floating.
+    pub(crate) fn moving(&self) -> bool {
+        self.numerals.rolling() || self.labels.moving()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn window_overlay_rows(&self) -> Option<(u32, u32)> {
+        self.backend.window_overlay_rows()
+    }
+
+    /// Another backend from here on (the CPU's, once the GPU's failed a
+    /// frame).
+    pub fn replace_backend(&mut self, backend: Box<dyn Backend>) {
+        self.backend = backend;
+    }
+
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
+    pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
+        self.backend
+            .last_frame_ms()
+            .or(self.cpu_ms.map(|ms| (ms, 0.)))
+    }
+
+    /// Accepted leaves that fell back after an incomplete bounded walk.
+    pub fn flow_failures(&self) -> impl Iterator<Item = exact_kernel::NodeKey> + '_ {
+        self.accepted_text
+            .iter()
+            .filter_map(|(key, p)| p.flow_incomplete().then_some(*key))
+    }
+
+    /// Accepted leases outside the current text catalog, deduplicated by Rc.
+    /// A catalog swap followed by failed frames retains the previous accepted
+    /// set until successful replacement. Diagnostic-only; not total residency.
+    pub fn retiring_text_residency(&self) -> crate::text::RetiringResidency {
+        self.text
+            .borrow()
+            .retiring_accepted(self.accepted_text.values())
+    }
+
+    /// Paint the scene into a viewport of the given size (points).
+    pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.paint_selected(scene, viewport, None, None)
+    }
+
+    /// Paint exactly the registered selected branch. An accepted publication
+    /// requires its native snapshot; live candidate text is never a fallback.
+    pub(crate) fn paint_region(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        region: &crate::content_region::ContentRegionState,
+        collection_limits: &BTreeMap<ViewId, f32>,
+        actions: &mut RegionActions<'_>,
+    ) -> Result<Frame, String> {
+        region.validate_scale(self.scale)?;
+        self.validate_region_presentation(scene, region)?;
+        if self.backend.name() == "gpu" {
+            return Err("content-region trial requires CPU painting".into());
+        }
+        let receipt = region
+            .receipt()
+            .ok_or("content region has no successful layout")?;
+        match &receipt.selection {
+            exact_kernel::RegionSelection::Pending(key) if *key == region.binding().pending => {
+                let frame =
+                    self.paint_selected(scene, viewport, Some(region.binding().content), None)?;
+                self.region_picture = None;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: None,
+                });
+                Ok(frame)
+            }
+            exact_kernel::RegionSelection::Pending(_) => {
+                Err("content region placeholder identity mismatch".into())
+            }
+            exact_kernel::RegionSelection::Accepted(publication) => {
+                let picture = if receipt.current {
+                    // A flat native paint/hit snapshot, never an app/layout
+                    // graph. Only bounded action scalars are copied; paragraph
+                    // UTF-8 and cold text lookup remain outside this path.
+                    region::Picture::capture(
+                        self,
+                        scene,
+                        region,
+                        publication,
+                        collection_limits,
+                        actions,
+                    )?
+                } else {
+                    self.region_picture
+                        .as_ref()
+                        .filter(|p| p.belongs_to(region))
+                        .cloned()
+                        .ok_or("retained content has no matching native picture")?
+                };
+                // Validate source, project once, and preflight every prepared
+                // text query before backend.begin or any shell/content emission.
+                let replay = region::Replay::prepare(
+                    &picture,
+                    scene,
+                    receipt.origin,
+                    region.binding().content,
+                    viewport,
+                    self.scale,
+                    actions,
+                )?;
+                let frame = self.paint_selected(
+                    scene,
+                    viewport,
+                    Some(region.binding().pending),
+                    Some(&replay),
+                )?;
+                self.region_frame = Some(region::Published {
+                    incarnation: region.incarnation().clone(),
+                    selection: Some((picture.publication().clone(), receipt.origin)),
+                });
+                self.region_picture = Some(picture);
+                Ok(frame)
+            }
+        }
+    }
+
+    fn paint_selected_for(
+        &mut self,
+        scene: &Scene<'_>,
+        viewport: (f32, f32),
+        skip: Option<exact_kernel::NodeKey>,
+        replay: Option<&region::Replay<'_>>,
+        target: FrameTarget,
+    ) -> Result<Frame<Option<Arc<Pixmap>>>, String> {
+        #[cfg(target_os = "macos")]
+        let _trace = exact_ink::device::apple::Trace::new(c"paint walk");
+        let started = std::time::Instant::now();
+        self.viewport = viewport;
+        self.backend.page(page_color(self.dark));
+        let partial = if let Some(previous) = self.damage.pixels.as_ref().filter(|_| {
+            !self.damage.next.is_empty() && self.top_surface.is_none() && !self.scrollbars.enabled
+        }) {
+            self.backend.begin_damage(
+                viewport.0,
+                viewport.1,
+                self.scale,
+                previous,
+                &self.damage.next,
+            )
+        } else {
+            self.backend.begin(viewport.0, viewport.1, self.scale);
+            false
+        };
+        if partial {
+            self.damage.last = self.damage.next.clone();
+        } else {
+            self.damage.last.clear();
+        }
+        self.damage.next.clear();
+        self.damage.unsupported = false;
+        if self.paint_epoch != Some(scene.kernel.epoch()) {
+            self.refresh_ranks(scene.kernel);
+            self.paint_epoch = Some(scene.kernel.epoch());
+            #[cfg(test)]
+            {
+                self.rank_passes += 1;
+            }
+        }
+        let mut walk = Walk {
+            scene,
+            boxes: Vec::with_capacity(self.boxes_hint),
+            text: BTreeMap::new(),
+            fields: HashMap::new(),
+            inline: HashMap::new(),
+            skip,
+            replay,
+            ranks: self.ranks.clone(),
+            reveal: None,
+            dialog: None,
+        };
+        self.rows_begin(&walk);
+        for root in scene.roots {
+            self.node(&mut walk, *root, Transform::identity(), scene.page, None);
+        }
+        self.paint_ghost(&mut walk);
+        self.paint_alert(&mut walk);
+        self.rows_end();
+        self.paint_scrollbars(&walk);
+        if let Some(menu) = &scene.menu {
+            self.menu(menu);
+        }
+        self.paint_top_surface(viewport);
+        if let Some((px, py)) = scene.pointer {
+            self.backend.pointer(px, py);
+        }
+        self.boxes_hint = walk.boxes.len();
+        #[cfg(target_os = "macos")]
+        drop(_trace);
+        let finished = self.backend.finish_for(target).and_then(|pixels| {
+            if target == FrameTarget::Pixels && pixels.is_none() {
+                Err("paint backend returned no pixels for capture".into())
+            } else {
+                Ok(pixels)
+            }
+        });
+        if self.backend.name() == "cpu" {
+            self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
+        }
+        // Publication is the ownership boundary. On Err the previous accepted
+        // set remains intact; candidate leases simply unwind with `walk`.
+        self.numerals.painted();
+        self.labels.painted();
+        if finished.is_ok() {
+            self.accepted_text = walk.text;
+            self.field_text = walk.fields;
+            self.inline_text = walk.inline;
+        } else {
+            self.discard_rows();
+            drop(walk.text);
+        }
+        // Pending measurements end with every paint attempt, including failure.
+        self.text.borrow_mut().finish_text_frame();
+        let pixmap = finished?.map(Arc::new);
+        self.damage.pixels = pixmap.clone().filter(|_| {
+            self.split.is_some()
+                || self
+                    .accepted_text
+                    .values()
+                    .any(|p| !p.fragments().is_empty())
+        });
+        self.damage.dark = self.dark;
+        self.damage.focus_ink = damage::field_focus_ink(scene.kernel, scene.focus);
+        Ok(Frame {
+            pixmap,
+            boxes: walk.boxes,
+        })
+    }
+
+    fn node_at(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        id: ViewId,
+        ts: Transform,
+        offset: (f32, f32),
+        clip_rect: Option<Rect4>,
+    ) {
+        let offset = sticky(walk.scene, id, offset);
+        if self.placed(walk, id, ts, offset, clip_rect) {
+            self.row_refuse();
+            return;
+        }
+        if let Some(replay) = walk.replay.filter(|r| {
+            walk.scene
+                .kernel
+                .node(id)
+                .is_some_and(|n| n.key == r.content)
+        }) {
+            replay.paint(self, walk, ts, offset, clip_rect);
+            return;
+        }
+        let Some(node) = walk.scene.kernel.node(id) else {
+            return;
+        };
+        // An SVG element is its `svg`'s content, painted there.
+        if walk.skip == Some(node.key) || node.node_type.is_svg_element() {
+            return;
+        }
+        if (walk.scene.hidden)(id)
+            || (self.alert.as_ref().is_some_and(|a| a.key == node.key) && walk.dialog != Some(id))
+            || node.is_inline_run()
+            || node.style.display == Display::None
+            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))
+        {
+            return;
+        }
+        // The roles drawn in the accent read the nearest authored
+        // `accent-color`, for this node and, until one authors its own, below.
+        let _accent = accent_scope(&node);
+        let f = node.frame;
+        let (x, y, w, h) = paint_rect(f, offset);
+        let p = (walk.scene.presented)(id);
+        self.row_node(walk.scene.kernel, node.key, f, &p);
+        // Turned or moved in space: painted apart, warped.
+        if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.row_refuse();
+            self.damage.unsupported = true;
+            return;
+        }
+        // Collect damage eligibility during the
+        // existing paint walk, not an extra whole-document walk per flow tick.
+        // A shadow paints outside the node's box, where damage never looks.
+        self.damage.unsupported |= p.moves()
+            || p.dark.is_some_and(|dark| dark != self.dark)
+            || p.opacity != 1.0
+            || node.node_type == NodeType::Image
+            || !node.style.box_shadow.0.is_empty()
+            // A backdrop reads what is under it, beyond any damage.
+            || !node.style.backdrop_filter.is_none()
+            || self.material_note(&node)
+            || !p.colors.is_empty();
+        let origin = node.style.transform_origin.resolve(w, h);
+        let layer = match self.flatten == Some(id) {
+            true => layer::Opened { lowered: 0 },
+            false => self.box_layer(node.key, &p, (x, y, w, h), origin, ts),
+        };
+        self.damage.unsupported |= layer.lowered != 0;
+        let ts = if layer.transform() {
+            // The layer turns it; a layout transition's offset is drawn.
+            ts.pre_translate(p.layout[0], p.layout[1])
+        } else if p.moves() && self.flatten != Some(id) {
+            // About `transform-origin`, the centre unless authored.
+            ts.pre_concat(p.transform((x, y, w, h), origin))
+        } else {
+            ts
+        };
+        let scrolls = {
+            let (ox, oy) = effective_overflow(&node);
+            ox != Overflow::Visible || oy != Overflow::Visible
+        };
+        // CSS `visibility` is inherited and per element: a hidden box keeps
+        // its geometry, paints nothing of its own, and is not a hit. A
+        // descendant that computes `visible` still paints and is hit.
+        // `opacity: 0` is the one that blanks the group. A ghost asks
+        // `revealed`: the wrapper's inherited hidden shows, and
+        // a node that sets its own hidden does not.
+        let visible = paints(walk.scene.kernel, id, walk.reveal);
+        walk.boxes.push(PaintedBox {
+            id,
+            pointer_hit: node
+                .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                != exact_kernel::PointerEvents::None
+                && visible,
+            projective: None,
+            affine: Some((ts, (x, y, w, h))),
+            press: p.press,
+            rect: bbox(ts, (x, y, w, h)),
+            clip: clip_rect,
+            scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
+        });
+        let opacity = if layer.opacity() {
+            1.0
+        } else {
+            p.opacity.clamp(0.0, 1.0)
+        };
+        // CSS opacity is paint only: a transparent subtree is still hit (the
+        // walk records its boxes) and draws through a backend that draws nothing.
+        // Visibility is not that: only this box's own paint is skipped.
+        let drawn = (opacity <= 0.0)
+            .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
+        if drawn.is_none() && opacity < 1.0 {
+            self.backend.push_opacity(opacity);
+        }
+        // The node's own appearance (a `color-scheme` above it)
+        // for its mask and everything it paints below.
+        let previous = self.dark;
+        self.dark = p.dark.unwrap_or(previous);
+        // The mask is the border box's gradient's alpha.
+        let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
+        if mask.is_some() {
+            self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
+        }
+        // Polygon demo ink and exclusion share an outline.
+        let path_clip = !node.style.rare.clip_path.commands().is_empty()
+            && self
+                .backend
+                .push_css_clip(&node.style.rare.clip_path, ts.pre_translate(x, y));
+        self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
+        self.dark = previous;
+        if path_clip {
+            self.backend.pop_clip();
+        }
+        if let Some(mask) = &mask {
+            self.backend.pop_mask(&Shape::rect((x, y, w, h)), mask, ts);
+        }
+        match drawn {
+            Some(backend) => self.backend = backend,
+            None if opacity < 1.0 => self.backend.pop_opacity(),
+            None => {}
+        }
+        self.layer_close(layer);
+    }
+
+    fn content(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        node: &NodeRef<'_>,
+        rect: Rect4,
+        ts: Transform,
+        offset: (f32, f32),
+        clip_rect: Option<Rect4>,
+    ) {
+        let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
+        let shown = (walk.scene.presented)(node.id);
+        // Paint motion's values over the captured box: background, border sides and shadow; then
+        // its states, its looks and a press's background.
+        let mut paint = BoxPaint::capture(node, walk.scene.kernel, self.dark)
+            .presented(&shown.colors)
+            .states(node, &shown, self.dark);
+        self.split_row(node, &mut paint);
+        self.clipped = Some((node.id, paint.background));
+        let geometry = paint.geometry(rect);
+        // A layout transition's size is the surface's alone.
+        let surface = paint.geometry(shown.surface(rect));
+        // A hidden box paints none of its own chrome. Children still do,
+        // and a text node still walks its runs so a visible inline paints.
+        if paints_self {
+            paint.paint(self.backend.as_mut(), &surface, ts);
+            self.column_rules(walk.scene.kernel, node, rect, ts);
+            let (dark, feedback) = (
+                self.dark,
+                (self.feedback.0, self.presses(node.id).then_some(node.id)),
+            );
+            let kernel = walk.scene.kernel;
+            neutral::row(
+                self.backend.as_mut(),
+                kernel,
+                node,
+                &surface.outer,
+                ts,
+                dark,
+                feedback,
+            );
+        }
+        let outer = geometry.outer;
+        let content = geometry.content;
+        match node.node_type {
+            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
+            // The rest is this element's own paint (its picture, field, or control).
+            _ if !paints_self => {}
+            // A 2D canvas's kept bitmap fills its content box.
+            NodeType::Canvas => {
+                self.row_refuse();
+                if self.window_canvas == Some(node.id) {
+                    self.backend
+                        .split_window_canvas(content, &[Shape::rect(content), outer], ts);
+                } else if let Some(c) = self.canvases.get(&node.id) {
+                    let clips = [Shape::rect(content), outer];
+                    self.backend.canvas(&c.pixels, content, &clips, ts);
+                } else {
+                    self.native(node, content, &outer, ts);
+                }
+            }
+            NodeType::Image => {
+                self.row_image(node.id, walk.scene.images.get(&node.id));
+                if node
+                    .props
+                    .str(exact_kernel::PropId::ImageSource)
+                    .is_some_and(|s| s.starts_with("symbol:"))
+                {
+                    // Its `color` as presented, through a transition or a press, unless the
+                    // platform's sheet tinted it: a grouped row's leading symbol and its chevron,
+                    // as UIKit tints a list cell's image.
+                    let sheet = node.style.mask.has(StyleId::TintColor)
+                        && !node.style.written.has(StyleId::TintColor);
+                    let ink = if sheet {
+                        image_tint(node, &shown, self.dark)
+                    } else {
+                        presented_color(walk, node, self.dark)
+                    };
+                    self.symbol(node, content, ink, ts);
+                } else {
+                    self.row_slot(node.id, content, outer, ts);
+                    self.backend.slot_begin(node.id);
+                    self.picture(walk, node, content, outer, ts);
+                    self.backend.slot_end();
+                }
+            }
+            // Its container, then its text and caret, or the shell's own
+            // field in their place (`field.rs`).
+            NodeType::TextInput => {
+                self.text_input(walk, node, rect, surface.outer.rect, content, &outer, ts)
+            }
+            NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Video | NodeType::WebView | NodeType::NativeView => {
+                self.native(node, content, &outer, ts)
+            }
+            NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
+                let label =
+                    control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
+                let focused = walk.scene.focus == Some(node.id);
+                let label = label.as_deref().unwrap_or("");
+                self.field_control(node, content, focused, ts, label, true);
+            }
+            // A date control is a field showing its
+            // value (`control::date_text`); `type` sets it.
+            NodeType::Control
+                if matches!(
+                    node.props.str(PropId::Type),
+                    Some("date" | "time" | "datetime-local")
+                ) =>
+            {
+                let chosen = walk.scene.chosen.get(&node.id);
+                let shown = control::date_text(node, chosen, self.dates.as_ref());
+                let focused = walk.scene.focus == Some(node.id);
+                self.field_control(node, content, focused, ts, &shown, false);
+            }
+            NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
+                self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
+            }
+            NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
+                if node.props.get(PropId::Value).is_some() {
+                    control::progress_bar(self.backend.as_mut(), node, content, ts, self.dark)
+                } else {
+                    control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+                }
+            }
+            NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
+                let face = walk.scene.kernel.press_face(node.id).unwrap_or_default();
+                let rows = walk
+                    .scene
+                    .kernel
+                    .button_face_style(node.id)
+                    .expect("button");
+                self.button_control(node, surface.outer.rect, ts, &face, &rows, walk);
+            }
+            NodeType::Control
+                if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
+            {
+                self.file_control(node, content, ts);
+            }
+            NodeType::Control => control::paint(
+                self.backend.as_mut(),
+                node,
+                content,
+                ts,
+                self.dark,
+                walk.scene.controls.get(&node.id).copied(),
+                self.feedback.0 == Some(node.id),
+                self.scale,
+            ),
+            _ => {}
+        }
+        // Children: clipped by this box when its overflow is not visible,
+        // moved by its scroll offset when it scrolls.
+        let (ox, oy) = effective_overflow(node);
+        let clips = ox != Overflow::Visible || oy != Overflow::Visible;
+        let mut child_rect = clip_rect;
+        if clips {
+            self.backend.push_clip(&surface.outer, ts);
+            let own = bbox(ts, surface.outer.rect);
+            child_rect = Some(match clip_rect {
+                Some(c) => intersect(c, own),
+                None => own,
+            });
+        }
+        // `clip` clips without being a scroll container (CSS Overflow 3 §3).
+        let scrolls = !matches!(ox, Overflow::Visible | Overflow::Clip)
+            || !matches!(oy, Overflow::Visible | Overflow::Clip);
+        let child_offset = if scrolls {
+            let (sx, sy) = walk
+                .scene
+                .scroll
+                .get(&node.id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            (offset.0 + sx, offset.1 + sy)
+        } else {
+            offset
+        };
+        if paints_self {
+            self.alert_title(walk, node, ts, child_offset);
+        }
+        self.children(walk, node, ts, child_offset, child_rect);
+        if clips {
+            self.backend.pop_clip();
+        }
+        // Native buttons ring their own chrome; a bare
+        // button rings its outer box even without a press handler.
+        if paints_self
+            && (node.node_type == NodeType::Pressable
+                || self.alert.is_some() && node.props.str(PropId::AlertPart) == Some("message"))
+            && node.props.str(PropId::Href).is_none()
+            && walk.scene.focus == Some(node.id)
+            && self.ringless != Some(node.id)
+            && node.props.bool(PropId::Disabled) != Some(true)
+        {
+            let accent = control::ring(node, self.dark);
+            self.field_ring(&outer, accent, ts);
+        }
+        // A hatch's overlay: over the
+        // node's own paint and its descendants, clipped to its border box.
+        if let Some(pixels) = self.overlays.get(&node.id).cloned() {
+            self.row_refuse();
+            self.damage.unsupported = true;
+            let clips = [Shape::rect(rect), surface.outer];
+            self.backend.canvas(&pixels, rect, &clips, ts);
+        }
+        self.hosted_view(node, rect, ts);
+    }
+}
+
+/// A sticky box moves by its constraint's offset at its
+/// scroller's scroll: the scroller's own, the page's for a root that does
+/// not scroll itself, none for a box that only clips. Painted there, it is
+/// hit there too.
+fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
+    let kernel = scene.kernel;
+    let Some(node) = kernel
+        .node(id)
+        .filter(|n| n.layout_position() == exact_kernel::PositionType::Sticky)
+    else {
+        return offset;
+    };
+    let Some(c) = kernel.sticky_constraint(node.key) else {
+        return offset;
+    };
+    let Some(scroller) = kernel.node(c.scroller) else {
+        return offset;
+    };
+    let scroll = if effective_overflow(&scroller) != (Overflow::Visible, Overflow::Visible) {
+        scene.scroll.get(&c.scroller).copied().unwrap_or((0.0, 0.0))
+    } else if scroller.parent.is_none() {
+        scene.page
+    } else {
+        (0.0, 0.0)
+    };
+    let (dx, dy) = c.offset(scroll);
+    (offset.0 - dx, offset.1 - dy)
+}
+
+/// Where a picture goes under CSS `object-fit`, centred in the content box:
+/// `fill` stretches, `contain`/`cover` keep the ratio, `none` is the natural
+/// size, `scale-down` the smaller of none and contain.
+pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option<Rect4> {
+    let (nw, nh) = (natural.0 as f32, natural.1 as f32);
+    if nw <= 0.0 || nh <= 0.0 || content.2 <= 0.0 || content.3 <= 0.0 {
+        return None;
+    }
+    let (sx, sy) = (content.2 / nw, content.3 / nh);
+    let s = match fit {
+        ObjectFit::Contain => Some(sx.min(sy)),
+        ObjectFit::Cover => Some(sx.max(sy)),
+        ObjectFit::None => Some(1.0),
+        ObjectFit::ScaleDown => Some(sx.min(sy).min(1.0)),
+        ObjectFit::Fill => None,
+    };
+    let (dw, dh) = match s {
+        Some(s) => (nw * s, nh * s),
+        None => (content.2, content.3),
+    };
+    Some((
+        content.0 + (content.2 - dw) / 2.0,
+        content.1 + (content.3 - dh) / 2.0,
+        dw,
+        dh,
+    ))
+}
+
+/// A text node's paragraph spec from its rows (the kernel's defaults are
+/// CSS's, so every row reads directly).
+/// Its white space is collapsed per CSS unless the row preserves it; the
+/// caller that replaces the runs collapses again ([`Spec::collapse_white_space`]).
+pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
+    Spec {
+        strut: Run::from_style("", exact_kernel::TextStyle::from_style(s)),
+        runs: vec![Run::from_style(
+            text,
+            exact_kernel::TextStyle::from_style(s),
+        )],
+        align: s.text_align.physical(s.direction),
+        line_clamp: s.line_clamp,
+        overflow_wrap: s.overflow_wrap,
+        white_space: s.white_space,
+        text_wrap_style: s.text_wrap_style,
+        direction: s.direction,
+        text_indent: s.text_indent,
+        text_box_trim: s.text_box_trim,
+        text_box_edge: s.text_box_edge,
+    }
+    .collapse_white_space()
+}
+
+pub use field::effective_overflow;
+
+/// A scroll container's content extent: the kernel's scrollable overflow,
+/// floored with its children's extent plus the end padding (Taffy's block
+/// containers do not always count it), never less than the box itself. A
+/// child in a block of its own (a popover's, the viewport) is elsewhere.
+pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
+    // Read the end padding the engine laid out with, a bar's cover included
+    let (_, _, pad_right, pad_bottom) = kernel.layout_padding(node.key).unwrap_or_default();
+    let mut w = node.frame.width.max(node.content.0);
+    let mut h = node.frame.height.max(node.content.1);
+    for child in node.children() {
+        if let Some(c) = kernel.node_unblocked(child) {
+            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
+            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
+        }
+    }
+    (w, h)
+}
+
+/// The painting scope for `node` (`roles::authored_accent`): the roles drawn
+/// in the accent read the nearest `accent-color` it or an ancestor authored,
+/// as Apple's tint and the web's `var(--exact-accent, AccentColor)` do.
+pub(crate) fn accent_scope(node: &NodeRef<'_>) -> exact_kernel::style::roles::AccentScope {
+    exact_kernel::style::roles::authored_accent(accent_of(node))
+}
+
+/// The nearest `accent-color` `node` or an ancestor authored.
+pub(crate) fn accent_of(node: &NodeRef<'_>) -> Option<exact_kernel::ColorValue> {
+    node.computed_row(StyleId::AccentColor, |s| s.accent_color)
+}
+
+/// A kernel color's channels.
+pub fn rgba(c: exact_kernel::Color) -> [u8; 4] {
+    [c.r(), c.g(), c.b(), c.a()]
+}
+
+/// The bounding box of a rectangle under a transform.
+pub fn bbox(ts: Transform, r: Rect4) -> Rect4 {
+    if ts.is_identity() {
+        return r;
+    }
+    let corners = [
+        (r.0, r.1),
+        (r.0 + r.2, r.1),
+        (r.0, r.1 + r.3),
+        (r.0 + r.2, r.1 + r.3),
+    ];
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for (cx, cy) in corners {
+        let mut p = Point::from_xy(cx, cy);
+        ts.map_point(&mut p);
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+fn intersect(a: Rect4, b: Rect4) -> Rect4 {
+    let x0 = a.0.max(b.0);
+    let y0 = a.1.max(b.1);
+    let x1 = (a.0 + a.2).min(b.0 + b.2);
+    let y1 = (a.1 + a.3).min(b.1 + b.3);
+    (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+}
+
+/// The pointer arrow's outline, at the origin, in points.
+pub const POINTER: [(f32, f32); 7] = [
+    (0.0, 0.0),
+    (0.0, 16.0),
+    (4.0, 12.5),
+    (7.0, 19.0),
+    (9.5, 18.0),
+    (6.5, 11.5),
+    (11.5, 11.5),
+];
+
+#[cfg(test)]
+mod inline_image_tests;
+#[cfg(test)]
+mod paragraph_tests;
+
+/// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
+/// otherwise the computed `visibility` (inherited). A missing node does not
+/// veto a caller that already has nothing to draw.
+pub(crate) fn paints(kernel: &Kernel, id: ViewId, reveal: Option<ViewId>) -> bool {
+    match reveal {
+        Some(root) => revealed(kernel, id, root),
+        None => kernel.node(id).is_none_or(|n| {
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+        }),
+    }
+}
+
+/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
+/// on it or an ancestor below the ghost's root decides, as in the web's
+/// clone whose root alone is made visible (`group-glue.js`); none set shows.
+pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
+    let arena = kernel.arena();
+    let mut at = arena.key_of(id).map(|k| k.index);
+    while let Some(slot) = at {
+        if arena.local_id(slot) == root {
+            return true;
+        }
+        let style = arena.style(slot);
+        if style.mask.has(exact_kernel::StyleId::Visibility) {
+            return style.visibility == exact_kernel::Visibility::Visible;
+        }
+        at = arena.parent(slot);
+    }
+    true
+}

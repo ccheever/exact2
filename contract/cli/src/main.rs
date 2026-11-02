@@ -1,0 +1,582 @@
+//! `contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map]` — compile, print a
+//! one-line summary, write the bytes. Baking needs the app's data crate and
+//! happens in the app's own build (see `apps/caltrain`), not here.
+//! `contract types <file.contract> [-o <app.d.ts>] [--check]` — generate TypeScript's
+//! data-source signatures from the same plan tables the executor reads.
+//! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
+//! structs with their `Value` conversions, for a data crate's `build.rs`.
+//! `contract verify <file.contract>` — the app against the Lean semantics
+//! (`verify.rs`; it needs Lean, and nothing else here does).
+//! `contract gallery <app> -o <dir>` — the design tool's variant gallery of the
+//! app's library components, written into `<dir>` (`contract::gallery`).
+
+use std::process::ExitCode;
+
+mod ambient;
+mod build;
+mod diff;
+mod migrate;
+mod tamber;
+mod tamber_contract;
+mod tamber_explain;
+mod tamber_export;
+mod tamber_gen;
+mod tamber_history;
+mod tamber_import;
+mod tamber_import_css;
+mod tamber_ops;
+mod tamber_packages;
+mod tamber_param_lines;
+mod tamber_rows;
+mod tamber_serve;
+mod verify;
+mod vocab;
+
+const USAGE: &str = "usage:
+  contract build <file.contract> [-o <file.plan>] [--json] [--errors-only] [--map (requires -o)]
+  contract migrate <file.contract>
+  contract symbols <file.contract> [--name <exact-name>]
+  contract sources <file.contract>
+  contract fmt [--check | --stdout] <file.contract>
+  contract fmt --uses <file.contract>
+  contract types <file.contract> [-o <app.d.ts>] [--check]
+  contract rust <file.contract> [-o <shapes.rs>]
+  contract test <file.test.contract>
+  contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
+  contract verify <file.contract> [--types] [--prove <Module>]
+  contract vocab [--json] [--all] [<name> …]
+  contract gallery <app> -o <dir>  (<app>: a directory or app.contract; <dir>: a build cache, never the app's tree)
+  contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)";
+
+#[cfg(windows)]
+fn main() -> ExitCode {
+    // The Windows executable's default 1 MiB stack
+    // cannot compile the supported 256-site depth in a debug build.
+    std::thread::Builder::new()
+        .name("contract-cli".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(run)
+        .expect("cannot start compiler worker")
+        .join()
+        .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
+#[cfg(not(windows))]
+fn main() -> ExitCode {
+    run()
+}
+
+fn run() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--help" | "-h") if args.len() == 1 => {
+            println!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        Some("build") => build::run(&args[1..]),
+        Some("migrate") => migrate::run(&args[1..]),
+        Some("symbols") => symbols(&args[1..]),
+        Some("sources") => sources(&args[1..]),
+        Some("fmt") => fmt(&args[1..]),
+        Some("test") => tests(&args[1..]),
+        Some("lean") => lean(&args[1..]),
+        Some("verify") => verify::run(&args[1..]),
+        Some("vocab") => vocab::run(&args[1..]),
+        Some("gallery") => gallery(&args[1..]),
+        Some("tamber") => tamber::run(&args[1..]),
+        // The union of tokens a binding may name follows the design's `exports`.
+        Some("types") => types(&args[1..], "types", "app.d.ts", |plan, path| {
+            contract::typescript_exporting(plan, contract::design_exports(path).as_deref())
+        }),
+        Some("rust") => types(&args[1..], "rust", "shapes.rs", |plan, _| {
+            contract::rust(plan)
+        }),
+        _ => {
+            eprintln!("{USAGE}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// `contract gallery <app> -o <dir>`: a line per cell refused, and a summary.
+fn gallery(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract gallery <app> -o <dir>";
+    let (input, out) = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input, o, out] if o == "-o" => (input, out),
+        [o, out, input] if o == "-o" => (input, out),
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let input = std::path::Path::new(input);
+    let app = if input.is_dir() {
+        input.join("app.contract")
+    } else {
+        input.to_path_buf()
+    };
+    match contract::gallery::generate(&app, std::path::Path::new(out)) {
+        Ok(g) => {
+            for c in g.cells.iter().filter(|c| c.refused.is_some()) {
+                let what = c
+                    .varied
+                    .as_ref()
+                    .map(|(p, v)| format!("{p}={v}"))
+                    .unwrap_or_else(|| "first values".into());
+                println!(
+                    "gallery: {} · {what}: can't place: {}",
+                    c.component,
+                    c.refused.as_deref().unwrap_or("")
+                );
+            }
+            let components = g
+                .cells
+                .iter()
+                .map(|c| &c.identity)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len();
+            let refused = g.cells.iter().filter(|c| c.refused.is_some()).count();
+            println!(
+                "gallery: {components} components, {} cells ({refused} refused) -> {}",
+                g.cells.len(),
+                g.source.display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("gallery: {why}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn symbols(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract symbols <file.contract> [--name <exact-name>]";
+    let (input, name) = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input] if !input.starts_with('-') => (input, None),
+        [input, flag, name] if !input.starts_with('-') && flag == "--name" => {
+            (input, Some(name.as_str()))
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match contract::symbols_json(std::path::Path::new(input), name) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract sources`: every file compiling the root reads, as JSON, even
+/// when loading stops — what a capture, a watch and a deploy
+/// take with the app. Exits 1 when the loader refused.
+fn sources(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract sources <file.contract>";
+    let input = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input] if !input.starts_with('-') => input,
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let graph = contract::source_graph(std::path::Path::new(input));
+    let sources: Vec<_> = graph
+        .sources
+        .iter()
+        .map(|source| {
+            let path = source.path.display().to_string();
+            match &source.origin {
+                contract::Origin::App => serde_json::json!({"path": path, "origin": "app"}),
+                contract::Origin::Builtin => {
+                    serde_json::json!({"path": path, "origin": "builtin"})
+                }
+                contract::Origin::Package {
+                    name,
+                    version,
+                    root,
+                    manifest,
+                } => serde_json::json!({
+                    "path": path,
+                    "origin": "package",
+                    "package": name,
+                    "version": version,
+                    "root": root.display().to_string(),
+                    "manifest": manifest.display().to_string(),
+                }),
+            }
+        })
+        .collect();
+    let errors: Vec<serde_json::Value> = graph
+        .errors
+        .iter()
+        .map(|e| serde_json::from_str(&e.to_json()).unwrap_or_default())
+        .collect();
+    let packages: Vec<_> = graph
+        .packages
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "version": p.version,
+                "root": p.root.display().to_string(),
+                "manifest": p.manifest.display().to_string(),
+            })
+        })
+        .collect();
+    let consulted: Vec<_> = graph
+        .consulted
+        .iter()
+        .map(|m| m.display().to_string())
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({"sources": sources, "packages": packages, "consulted": consulted, "errors": errors})
+    );
+    if graph.errors.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// `contract types` (TypeScript) or `contract rust` (Rust structs): the
+/// data seam's shapes, derived from the plan.
+fn types(
+    args: &[String],
+    command: &str,
+    out: &str,
+    generate: fn(&exact_plan::Plan, &std::path::Path) -> Result<String, String>,
+) -> ExitCode {
+    let usage = format!(
+        "usage: contract {command} <file.contract> [-o <{out}>]{}",
+        if command == "types" { " [--check]" } else { "" }
+    );
+    let checks = args.iter().filter(|a| a.as_str() == "--check").count();
+    if checks > 1 || (checks > 0 && command != "types") {
+        eprintln!("{usage}");
+        return ExitCode::from(2);
+    }
+    let check = checks == 1;
+    let args: Vec<_> = args
+        .iter()
+        .filter(|a| a.as_str() != "--check")
+        .cloned()
+        .collect();
+    let args = args.as_slice();
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{usage}");
+        return ExitCode::SUCCESS;
+    }
+    let valid = matches!(args, [input] if !input.starts_with('-'))
+        || matches!(args, [input, flag, output] if !input.starts_with('-') && flag == "-o" && !output.starts_with('-'));
+    if !valid {
+        eprintln!("{usage}");
+        return ExitCode::from(2);
+    }
+    // Shapes are all a declaration file needs: a game's surface arguments
+    // never stop it, and are named as warnings.
+    let path = std::path::Path::new(&args[0]);
+    if let Ok(surfaces) = contract::surface_findings(path) {
+        surface_warnings(&surfaces);
+    }
+    if let Ok(warnings) = contract::resource_clock_warnings(path) {
+        for finding in warnings {
+            eprintln!("warning: {finding}");
+        }
+    }
+    let result = contract::compile_path_all_unchecked(path, false)
+        .map_err(|mut all| all.swap_remove(0).to_string())
+        .and_then(|(plan, _)| generate(&plan, path).map_err(|e| format!("{}: {e}", args[0])));
+    match result {
+        Ok(declarations) => {
+            if check {
+                let default = format!("{}.d.ts", args[0]);
+                let output = args.get(2).unwrap_or(&default);
+                if std::fs::read(output).ok().as_deref() != Some(declarations.as_bytes()) {
+                    eprintln!(
+                        "types: {output} is missing or stale; run contract types {} -o {output}",
+                        args[0]
+                    );
+                    return ExitCode::from(1);
+                }
+                eprintln!("types: {output} is current");
+                return ExitCode::SUCCESS;
+            }
+            if let Some(output) = args.get(2) {
+                if let Err(error) = std::fs::write(output, declarations) {
+                    eprintln!("{output}: {error}");
+                    return ExitCode::from(1);
+                }
+                // Silence reads as "did it run?"; stdout stays empty.
+                eprintln!("{command}: wrote {output}");
+            } else {
+                print!("{declarations}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// A game's surface-argument findings on stderr, as warnings: the
+/// declaration is the last GPU build's, which a bake rewrites and checks.
+fn surface_warnings(surfaces: &contract::SurfaceFindings) {
+    for finding in &surfaces.findings {
+        eprintln!("warning: {finding}");
+    }
+    if let (false, Some(newer)) = (surfaces.findings.is_empty(), &surfaces.newer) {
+        eprintln!(
+            "warning: .shells/surfaces.json is older than {}: it names the arguments of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        );
+    }
+}
+
+/// `contract test <file.test.contract>`: the tests as JSON for the agent
+/// driver (`bun scripts/agent.mjs <host> --test <file>` runs them).
+fn tests(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract test <file.test.contract>";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    let input = match args {
+        [input] if !input.is_empty() && !input.starts_with('-') => input,
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let src = match std::fs::read_to_string(input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{input}: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    match contract::tests(&src).and_then(|t| contract::properties(&src).map(|p| (t, p))) {
+        Ok((t, p)) => {
+            if !p.is_empty() {
+                let test = std::path::Path::new(input);
+                let paired = test.with_file_name(
+                    test.file_name()
+                        .unwrap()
+                        .to_string_lossy()
+                        .replace(".test.contract", ".contract"),
+                );
+                let app = test.with_file_name("app.contract");
+                let app = if app.is_file() { app } else { paired };
+                if let Err(errors) = contract::check_properties_path(&app, &p) {
+                    for e in errors {
+                        eprintln!("{input}:{e}");
+                    }
+                    return ExitCode::from(1);
+                }
+            }
+            println!("{}", contract::authored_json(&t, &p));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("{input}:{e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Explicit formatting, with read-only preview and check modes; `--uses`
+/// writes the `use` lines each file of the program lacks.
+fn fmt(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>\n       contract fmt --uses <file.contract>";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    match args {
+        [flag, input] | [input, flag] if flag == "--uses" && !input.starts_with('-') => {
+            return fix_uses(input)
+        }
+        _ => {}
+    }
+    let (input, mode) = match args {
+        [input] if !input.starts_with('-') => (input, ""),
+        [flag, input]
+            if matches!(flag.as_str(), "--check" | "--stdout") && !input.starts_with('-') =>
+        {
+            (input, flag.as_str())
+        }
+        [input, flag]
+            if matches!(flag.as_str(), "--check" | "--stdout") && !input.starts_with('-') =>
+        {
+            (input, flag.as_str())
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    let result = std::fs::read_to_string(input)
+        .map_err(|e| e.to_string())
+        .and_then(|before| {
+            let after = contract_syntax::fmt::format(&before).map_err(|e| e.to_string())?;
+            Ok((before, after))
+        });
+    match result {
+        Ok((before, after)) => match mode {
+            "--stdout" => {
+                print!("{after}");
+                ExitCode::SUCCESS
+            }
+            "--check" if before != after => {
+                print!("{}", diff::unified(input, &before, &after));
+                ExitCode::from(1)
+            }
+            "--check" => ExitCode::SUCCESS,
+            _ if before == after => ExitCode::SUCCESS,
+            _ => match std::fs::write(input, after) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("{input}: {error}");
+                    ExitCode::from(1)
+                }
+            },
+        },
+        Err(error) => {
+            eprintln!("{input}:{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract fmt --uses <root.contract>`: each file written and its lines,
+/// then whatever no line answers, refused as the build refuses it.
+fn fix_uses(input: &str) -> ExitCode {
+    match contract::fix_uses(std::path::Path::new(input)) {
+        Ok((written, refused)) => {
+            for (path, lines) in &written {
+                println!("{}:", path.display());
+                for line in lines {
+                    println!("  {line}");
+                }
+            }
+            // A file no `use` reaches is no part of this program, so its
+            // names were not checked (euxy FRICTION 1): say which.
+            let unreached = contract::unreached(std::path::Path::new(input));
+            let names: Vec<String> = unreached
+                .iter()
+                .filter_map(|p| Some(p.file_name()?.to_string_lossy().into_owned()))
+                .collect();
+            if written.is_empty() && refused.is_empty() && names.is_empty() {
+                println!("{input}: every file names what it uses");
+            } else if refused.is_empty() && !names.is_empty() {
+                let are = if names.len() == 1 { "is" } else { "are" };
+                println!("{input}: every file it reaches names what it uses; {} beside it {are} not reached from it (another entry, or a file it uses nothing from)", names.join(", "));
+            }
+            for e in &refused {
+                eprintln!("{e}");
+            }
+            if refused.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Err(all) => {
+            for e in &all {
+                eprintln!("{e}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract lean <file.contract>`: the program as a `Contract.Program`
+/// term of the Lean semantics (`semantics/`), after the whole compiler
+/// accepts it.
+fn lean(args: &[String]) -> ExitCode {
+    const USAGE: &str =
+        "usage: contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]";
+    let mut input = None;
+    let mut name = "program".to_string();
+    let mut output = None;
+    let mut components = false;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            "--components" => components = true,
+            "--name" => match it.next() {
+                Some(n) => name = n.clone(),
+                None => {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(2);
+                }
+            },
+            "-o" => match it.next() {
+                Some(o) => output = Some(o.clone()),
+                None => {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(2);
+                }
+            },
+            other if !other.starts_with('-') && input.is_none() => input = Some(other.to_string()),
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(input) = input else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    let path = std::path::Path::new(&input);
+    let emitted = if components {
+        contract::lean::lean_components_path(path, &name)
+    } else {
+        contract::lean::lean_path(path, &name)
+    };
+    match emitted {
+        Ok(text) => {
+            let text = format!("import Contract\n\n{text}");
+            match output {
+                Some(o) => {
+                    if let Err(e) = std::fs::write(&o, text) {
+                        eprintln!("{o}: {e}");
+                        return ExitCode::from(1);
+                    }
+                }
+                None => print!("{text}"),
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}

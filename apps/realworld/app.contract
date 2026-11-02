@@ -1,0 +1,1210 @@
+// RealWorld ("Conduit", docs.realworld.show): the Medium clone every frontend
+// framework implements, against the hosted API. The templates' markup and
+// Conduit Minimal CSS v4 are transcribed into rows and styles below. The data
+// is app.ts. Public routes arrive as anonymous HTML, and their runtime
+// loads by the host's default: on the JavaScript runtime, preloaded from the
+// head and run after first paint (eager); a press before it replays once.
+// Client routes show placeholders while loading.
+routes nav
+  tab home "/" render=cached
+    login "/login" render=cached
+    register "/register" render=cached
+    settings "/settings"
+    editor "/editor"
+    edit "/editor/:slug"
+    tag "/tag/:tag" render=cached
+    article "/article/:slug" render=cached
+    profile "/profile/:username" render=cached
+    favorites "/profile/:username/favorites" render=cached
+  notfound
+
+shape User
+  signedIn: bool
+  username: string
+  email: string
+  bio: string
+  image: string
+  avatar: string
+shape Profile
+  found: bool
+  username: string
+  bio: string
+  image: string
+  following: bool
+shape Preview
+  slug: string
+  title: string
+  description: string
+  tags: string[]
+  date: string
+  favorited: bool
+  favoritesCount: number
+  author: Profile
+shape Page
+  n: number
+shape Feed
+  ready: bool
+  message: string
+  articles: Preview[]
+  pages: Page[]
+shape Article
+  found: bool
+  slug: string
+  title: string
+  description: string
+  body: string
+  tags: string[]
+  date: string
+  favorited: bool
+  favoritesCount: number
+  author: Profile
+shape Comment
+  id: string
+  body: string
+  date: string
+  author: Profile
+  mine: bool
+shape Auth
+  ok: bool
+  errors: string[]
+shape Change
+  kind: string
+  ok: bool
+  slug: string
+  errors: string[]
+shape Tags
+  session: number
+  items: string[]
+// What the reader pressed, by author (app.ts `follows`): every view of one
+// reads its state through this, so a press shows at once and asks only this.
+// A favourite is joined into the articles themselves (app.ts
+// `joined`).
+shape Follow
+  username: string
+  following: bool
+
+style Container
+  width="100%" max-width=1140 margin-left="auto" margin-right="auto" padding-left=15 padding-right=15 box-sizing="border-box"
+style NavLink
+  padding-top=7 padding-bottom=7 margin-left=16
+style Btn
+  padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-radius=8 border-style="solid" border-width=1 font-size=16 line-height=1.25
+style BtnSm
+  padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 border-radius=6 border-style="solid" border-width=1 font-size=14 line-height=1.25
+style BtnLg
+  padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 border-radius=10 border-style="solid" border-width=1 font-size=20 line-height=1.25 background-color="AccentColor" border-color="AccentColor" color="AccentColorText" align-self="flex-end"
+style Field
+  width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 font-size=16 line-height=1.25 color="FieldText" background-color="Field" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=8 margin-bottom=16
+style FieldLg
+  width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 font-size=20 line-height=1.25 color="FieldText" background-color="Field" border-style="solid" border-width=1 border-color="-exact-separator" border-radius=10 margin-bottom=16
+style Tag
+  padding-top=5.6 padding-bottom=5.6 padding-left=12 padding-right=12 margin-right=8 margin-bottom=8 border-radius=100 border-style="solid" border-width=1 border-color="-exact-separator" font-size=12.8 line-height=1.1
+style Banner
+  border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="-exact-separator" padding=32 margin-bottom=32 box-sizing="border-box"
+style Avatar
+  width=32 height=32 border-radius=30 object-fit="cover"
+style Tabs
+  display="flex" flex-direction="row" flex-wrap="wrap" border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
+style Error
+  color="-exact-system-red" font-weight=700 padding-left=40 margin-bottom=16
+
+component RealWorld
+  derive current = top(nav)
+  derive slug = ((current.name == "article" or current.name == "edit") ? current.params.slug: "")
+  derive listName = ((current.name == "profile" or current.name == "favorites") ? current.params.username: "")
+  // `/` is the global feed, `/?feed=following` the signed-in reader's: read
+  // from the URL, as React reads `?feed=following`.
+  derive following = (current.name == "home" and searchParam(current, "feed") == "following")
+  derive listKind = (current.name == "home" ? (following ? (me.signedIn ? "feed": ""): "global"): current.name == "tag" ? "tag": current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
+  state page = 1
+  state loginNext = false
+  state editorSession = 0
+  state tagInput = ""
+  state commentDraft = ""
+  mutation auth as shape Auth refreshes me, follows then signedIn
+  // A mutation per kind of write, each refreshing what that write changes:
+  // a favorite the list and the article, which app.ts
+  // answers from what it has, a follow its presses, a comment the thread,
+  // a publish or a delete the lists and the article.
+  mutation change as shape Change refreshes feed, post then changed
+  mutation faved as shape Change queue refreshes feed, post
+  mutation followed as shape Change queue refreshes follows
+  mutation commented as shape Change refreshes thread
+  mutation tagEdit as shape Tags
+  derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
+  resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
+  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape string[]
+  resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed
+  resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
+  resource thread = comments(slug, me.username) as shape Comment[]
+  resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
+  resource follows = followings() as shape Follow[]
+
+  action go(url: string)
+    page = 1
+    tagInput = ""
+    commentDraft = ""
+    if url.includes("/editor")
+      editorSession = editorSession + 1
+    nav = push(nav, url)
+  action back
+    nav = back(nav)
+  action followLink(url: string)
+    page = 1
+    nav = go(nav, url)
+  action showPage(n: number)
+    page = n
+  action login(email: string, password: string)
+    send auth = login(email, password)
+  action register(username: string, email: string, password: string)
+    send auth = register(username, email, password)
+  action saveSettings(image: string, username: string, bio: string, email: string, password: string)
+    send auth = saveSettings(image, username, bio, email, password)
+  action logout
+    send auth = logout()
+  action favorite(target: string, on: bool, count: number)
+    if me.signedIn
+      send faved = favorite(target, on, count)
+    else
+      nav = push(nav, "/register")
+  action follow(name: string, on: bool)
+    if me.signedIn
+      send followed = follow(name, on)
+    else
+      nav = push(nav, "/register")
+  action publish(target: string, title: string, description: string, body: string, tagList: string[])
+    send change = publish(target, title, description, body, tagList)
+  action deleteArticle(target: string)
+    send change = deleteArticle(target)
+  action setComment(v: string)
+    commentDraft = v
+  action postComment(target: string)
+    if commentDraft != ""
+      send commented = addComment(target, commentDraft)
+      commentDraft = ""
+  action setTagInput(v: string)
+    tagInput = v
+  action tagKey(k: string)
+    if k == "Enter"
+      send tagEdit = addTag(editorSession, editorTags, tagInput)
+      tagInput = ""
+  action uncomment(target: string, id: string)
+    send commented = deleteComment(target, id)
+  action removeTag(tag: string)
+    send tagEdit = removeTag(editorSession, editorTags, tag)
+  // An answer runs its mutation's `then` once it lands, which
+  // redirects the way the spec asks: signed in → home; published → the
+  // article; deleted → home. Each checks the answer before it navigates.
+  action signedIn
+    match auth
+      case some(a)
+        if a.ok and (current.name == "login" or current.name == "register" or current.name == "settings")
+          nav = open(nav, "/")
+      case none
+  action changed
+    match change
+      case some(c)
+        if c.ok and c.kind == "publish"
+          nav = open(nav, path("article", c.slug))
+        if c.ok and c.kind == "delete"
+          nav = open(nav, "/")
+      case none
+  // Your Feed is the signed-in reader's; a signed-out visit goes to sign in,
+  // in place of its entry, as React's <Navigate to="/login" replace />. A
+  // tab's first entry can only be its root, so a first visit's entry gives
+  // up its query, and /login follows on the next tick: Back is the global
+  // feed, never Your Feed again. A tick looks, since `me` answering runs
+  // nothing.
+  action settle
+    let nextNav = loginNext and current.name == "home" and not me.signedIn ? push(nav, "/login") : nav
+    if loginNext
+      loginNext = false
+      if current.name == "home" and not me.signedIn
+        nav = nextNav
+    if following and not pending(me) and not me.signedIn
+      if depth(nextNav) > 1
+        nav = replace(nextNav, "/login")
+      else
+        loginNext = true
+        nav = replace(nextNav, "/")
+  task settling mount
+    every(100, settle)
+
+  view
+    main navigationKey=`${current.id}`
+      navigationBack="back"
+      navigate=followLink
+      width="100%"
+      height="100%"
+      position="relative"
+      display="flex"
+      flex-direction="column"
+      font-family="sans-serif"
+      font-size=16
+      line-height=1.5
+      accent-color="light-dark(#238136, #5fcf70)"
+      color="-exact-label"
+      background-color="-exact-background"
+      head title="Conduit" description="A place to share your knowledge."
+      // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
+      // keeps one <Home> mounted: going to a tag changes the feed and the
+      // tabs, not the page.
+      if current.name == "home" or current.name == "tag"
+        column navigationKey=`${current.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${current.name}`
+          // Native routes own their content.
+          Header(me=me, current=current, go=go)
+          head title="Home — Conduit"
+          HomePage(
+            me=me,
+            feed=feed,
+            loading=pending(feed),
+            tags=tags,
+            tagsLoading=pending(tags),
+            following=following,
+            tag=current.params.tag,
+            page=page,
+            go=go,
+            showPage=showPage,
+            favorite=favorite
+          )
+          Footer(go=go)
+      // Every entry of the stack stays mounted, as a native stack keeps the
+      // screens under its top: the navigation root shows the one whose key
+      // is `current.id` and hides the rest and makes them inert. So each
+      // entry's page, and the drafts its components hold (a child's state
+      // lives as long as its instance), survives Back.
+      for e in stack(nav) key = e.id
+        if e.name != "home" and e.name != "tag"
+          column navigationKey=`${e.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${e.name}`
+            Header(me=me, current=e, go=go)
+            if e.name == "login"
+              head title="Sign in — Conduit"
+              AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
+            if e.name == "register"
+              head title="Sign up — Conduit"
+              AuthPage(signup=true, auth=auth, go=go, login=login, register=register)
+            if e.name == "settings"
+              head title="Settings — Conduit"
+              SettingsPage(me=me, auth=auth, save=saveSettings, logout=logout)
+            if e.name == "editor" or e.name == "edit"
+              head title="Editor — Conduit"
+              EditorPage(
+                post=post,
+                editing=(e.name == "edit"),
+                change=change,
+                tags=editorTags,
+                tagInput=tagInput,
+                setTagInput=setTagInput,
+                tagKey=tagKey,
+                removeTag=removeTag,
+                publish=publish
+              )
+            if e.name == "article"
+              head title=`${post.title} — Conduit`
+              ArticlePage(
+                me=me,
+                post=post,
+                loading=pending(post),
+                thread=thread,
+                go=go,
+                    follows=follows,
+                favorite=favorite,
+                follow=follow,
+                remove=deleteArticle,
+                draft=commentDraft,
+                setDraft=setComment,
+                postComment=postComment,
+                uncomment=uncomment
+              )
+            if e.name == "profile" or e.name == "favorites"
+              head title=`${e.params.username} — Conduit`
+              ProfilePage(
+                me=me,
+                person=person,
+                feed=feed,
+                loading=pending(feed),
+                favorites=(e.name == "favorites"),
+                page=page,
+                go=go,
+                showPage=showPage,
+                    follows=follows,
+                favorite=favorite,
+                follow=follow
+              )
+            if e.name == "notfound"
+              head title="Not found — Conduit" status=404
+              column class=Container padding-top=24
+                text "This page doesn't exist." font-size=24
+            Footer(go=go)
+
+component Header
+  props
+    me: User
+    current: Entry
+    go: action
+  view
+    nav padding-top=8 padding-bottom=8 padding-left=16 padding-right=16
+      row class=Container align-items="center"
+        link href="/" press=go("/")
+          testId="brand"
+          padding-bottom=4
+          margin-right=32
+          font-family="serif"
+          font-size=24
+          color="-exact-label"
+          text "conduit"
+        row margin-left="auto" align-items="center" flex-wrap="wrap"
+          link href="/" press=go("/")
+            class=NavLink
+            color=(current.name == "home" ? "-exact-label": "-exact-secondary-label")
+            testId="nav-home"
+            text "Home"
+          if me.signedIn
+            link href="/editor" press=go("/editor")
+              class=NavLink
+              color=(current.name == "editor" ? "-exact-label": "-exact-secondary-label")
+              testId="nav-editor"
+              text "✎ New Article"
+            link href="/settings" press=go("/settings")
+              class=NavLink
+              color=(current.name == "settings" ? "-exact-label": "-exact-secondary-label")
+              testId="nav-settings"
+              text "⚙ Settings"
+            link href=`/profile/${encodeURIComponent(me.username)}` press=go(`/profile/${encodeURIComponent(me.username)}`)
+              class=NavLink
+              color=((current.name == "profile" and current.params.username == me.username) ? "-exact-label": "-exact-secondary-label")
+              testId="nav-profile"
+              row align-items="center" gap=5
+                image me.avatar width=26 height=26 border-radius=50 object-fit="cover" aria-label=""
+                text me.username
+          else
+            link href="/login" press=go("/login")
+              class=NavLink
+              color=(current.name == "login" ? "-exact-label": "-exact-secondary-label")
+              testId="nav-login"
+              text "Sign in"
+            link href="/register" press=go("/register")
+              class=NavLink
+              color=(current.name == "register" ? "-exact-label": "-exact-secondary-label")
+              testId="nav-register"
+              text "Sign up"
+
+component Footer
+  props
+    go: action
+  view
+    footer margin-top=42
+      padding-top=16
+      padding-bottom=16
+      border-top-style="solid"
+      border-top-width=1
+      border-color="-exact-separator"
+      row class=Container align-items="baseline"
+        link href="/" press=go("/") font-family="serif" color="-exact-label"
+          text "conduit"
+        text "An interactive learning project. Code & design licensed under MIT." margin-left=10
+          font-size=12.8
+          color="-exact-secondary-label"
+          font-weight=300
+
+component Meta
+  props
+    author: Profile
+    date: string
+    go: action
+  view
+    row align-items="center"
+      link href=`/profile/${encodeURIComponent(author.username)}` press=go(`/profile/${encodeURIComponent(author.username)}`) aria-label=author.username
+        image author.image class=Avatar aria-label=""
+      column margin-left=8 margin-right=24 line-height=1
+        link href=`/profile/${encodeURIComponent(author.username)}` press=go(`/profile/${encodeURIComponent(author.username)}`)
+          font-weight=500
+          color="AccentColor"
+          text author.username
+        text date font-size=12.8 color="-exact-secondary-label" margin-top=2
+
+// A preview's ♥.
+component Heart
+  props
+    slug: string
+    on: bool
+    n: number
+    favorite: action
+  view
+    button press=favorite(slug, not on, n)
+      class=BtnSm
+      margin-left="auto"
+      border-color="AccentColor"
+      color=(on ? "AccentColorText": "AccentColor")
+      background-color=(on ? "AccentColor": "-exact-background")
+      testId=`favorite-${slug}`
+      text `♥ ${n}`
+component Previews
+  props
+    me: User
+    feed: Feed
+    loading: bool
+    page: number
+    go: action
+    showPage: action
+    favorite: action
+  view
+    column
+      if loading and not feed.ready
+        text "Loading articles..." padding-top=24
+          padding-bottom=24
+          border-top-style="solid"
+          border-top-width=1
+          border-color="-exact-separator"
+          testId="feed-loading"
+      else
+        if feed.message != ""
+          text feed.message padding-top=24
+            padding-bottom=24
+            border-top-style="solid"
+            border-top-width=1
+            border-color="-exact-separator"
+            testId="feed-empty"
+      for a in feed.articles key = a.slug
+        article padding-top=24
+          padding-bottom=24
+          border-top-style="solid"
+          border-top-width=1
+          border-color="-exact-separator"
+          testId=`preview-${a.slug}`
+          row align-items="center" margin-bottom=16
+            Meta(author=a.author, date=a.date, go=go)
+            // Signed out, the ♥ goes to sign up: a link, so it works
+            // before the runtime loads.
+            if me.signedIn
+              Heart(slug=a.slug, on=a.favorited, n=a.favoritesCount, favorite=favorite)
+            else
+              link href="/register" press=go("/register")
+                class=BtnSm
+                margin-left="auto"
+                border-color="AccentColor"
+                color="AccentColor"
+                background-color="-exact-background"
+                testId=`favorite-${a.slug}`
+                text `♥ ${a.favoritesCount}`
+          link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
+            color="-exact-label"
+            testId=`open-${a.slug}`
+            text a.title font-size=24 font-weight=600 line-height=1.1 margin-bottom=3
+            text a.description font-weight=300 color="-exact-secondary-label" margin-bottom=15 line-height="20.8px"
+          row align-items="center" justify-content="space-between" flex-wrap="wrap"
+            link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
+              font-size=12.8
+              font-weight=300
+              color="-exact-secondary-label"
+              text "Read more..."
+            row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
+              for t in a.tags key = t
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
+                  class=Tag
+                  color="-exact-secondary-label"
+                  font-weight=300
+                  background-color="-exact-background"
+                  text t
+      if feed.pages.length > 0
+        row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
+          for p in feed.pages key = p.n
+            button press=showPage(p.n)
+              padding-top=8
+              padding-bottom=8
+              padding-left=12
+              padding-right=12
+              margin-left=- 1
+              border-style="solid"
+              border-width=1
+              border-color="-exact-separator"
+              color=(p.n == page ? "-exact-label": "AccentColor")
+              background-color=(p.n == page ? "-exact-fill": "-exact-background")
+              testId=`page-${p.n}`
+              text `${p.n}`
+
+component HomePage
+  props
+    me: User
+    feed: Feed
+    loading: bool
+    tags: string[]
+    tagsLoading: bool
+    following: bool
+    tag: string
+    page: number
+    go: action
+    showPage: action
+    favorite: action
+  view
+    column
+      column class=Banner align-items="center"
+        text "conduit" font-family="serif"
+          font-size=56
+          font-weight=700
+          line-height=1.1
+          padding-bottom=8
+          text-align="center"
+        text "A place to share your knowledge." font-weight=300 color="-exact-secondary-label" text-align="center"
+      row class=Container flex-wrap="wrap" gap=30
+        column flex=3 min-width=300
+          // The tabs are links, as React's are: Your Feed and Global Feed
+          // push their URL; a tag's own tab is where you are.
+          row class=Tabs
+            if me.signedIn
+              link href="/?feed=following" press=go("/?feed=following")
+                padding-top=8
+                padding-bottom=8
+                padding-left=16
+                padding-right=16
+                border-bottom-style="solid"
+                border-bottom-width=2
+                border-color=(following ? "AccentColor": "transparent")
+                color=(following ? "AccentColor": "-exact-secondary-label")
+                background-color="-exact-background"
+                testId="tab-feed"
+                text "Your Feed"
+            link href="/" press=go("/")
+              padding-top=8
+              padding-bottom=8
+              padding-left=16
+              padding-right=16
+              border-bottom-style="solid"
+              border-bottom-width=2
+              border-color=((tag == "" and not following) ? "AccentColor": "transparent")
+              color=((tag == "" and not following) ? "AccentColor": "-exact-secondary-label")
+              background-color="-exact-background"
+              testId="tab-global"
+              text "Global Feed"
+            if tag != ""
+              link href=`/tag/${encodeURIComponent(tag)}`
+                padding-top=8
+                padding-bottom=8
+                padding-left=16
+                padding-right=16
+                border-bottom-style="solid"
+                border-bottom-width=2
+                border-color="AccentColor"
+                color="AccentColor"
+                background-color="-exact-background"
+                testId="tab-tag"
+                text `# ${tag}`
+          Previews(
+            me=me,
+            feed=feed,
+            loading=loading,
+            page=page,
+            go=go,
+            showPage=showPage,
+            favorite=favorite
+          )
+        column flex=1 min-width=200
+          column padding-left=20
+            border-left-style="solid"
+            border-left-width=1
+            border-color="-exact-separator"
+            testId="sidebar"
+            text "Popular Tags" margin-bottom=3
+            if tagsLoading and tags.length == 0
+              text "Loading tags..." color="-exact-secondary-label"
+            row flex-wrap="wrap"
+              for t in tags key = t
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
+                  class=Tag
+                  color="-exact-label"
+                  background-color="-exact-background"
+                  testId=`tag-${t}`
+                  text t
+
+component Errors
+  props
+    errors: string[]
+  view
+    column class=Error testId="errors"
+      for m in errors key = m
+        text `• ${m}`
+
+component AuthPage
+  props
+    signup: bool
+    auth: option<Auth>
+    go: action
+    login: action
+    register: action
+  state username = ""
+  state email = ""
+  state password = ""
+  action setUsername(v: string)
+    username = v
+  action setEmail(v: string)
+    email = v
+  action setPassword(v: string)
+    password = v
+  // The button, or Enter in a field (`submit`), as a form's would.
+  action submitForm
+    if signup
+      register(username, email, password)
+    else
+      login(email, password)
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=540
+        text(signup ? "Sign up": "Sign in") font-size=40
+          font-weight=500
+          line-height=1.1
+          margin-bottom=8
+          text-align="center"
+        link href=(signup ? "/login": "/register") press=go(signup ? "/login": "/register")
+          color="AccentColor"
+          align-self="center"
+          margin-bottom=16
+          text(signup ? "Have an account?": "Need an account?")
+        match auth
+          case some(a)
+            if not a.ok
+              Errors(errors=a.errors)
+          case none
+            box
+        column
+          if signup
+            input value=username
+              input=setUsername
+              submit=submitForm
+              placeholder="Username"
+              aria-label="Username"
+              class=FieldLg
+              testId="username"
+          input value=email
+            input=setEmail
+            submit=submitForm
+            placeholder="Email"
+            aria-label="Email"
+            class=FieldLg
+            testId="email"
+          input value=password
+            input=setPassword
+            submit=submitForm
+            type="password"
+            placeholder="Password"
+            aria-label="Password"
+            class=FieldLg
+            testId="password"
+          button press=submitForm class=BtnLg testId="submit"
+            text(signup ? "Sign up": "Sign in")
+
+component SettingsPage
+  props
+    me: User
+    auth: option<Auth>
+    save: action
+    logout: action
+  // A field shows the account's value until it is edited.
+  state image = ""
+  state name = ""
+  state bio = ""
+  state email = ""
+  state password = ""
+  state imageSet = false
+  state nameSet = false
+  state bioSet = false
+  state emailSet = false
+  derive shownImage = (imageSet ? image: me.image)
+  derive shownName = (nameSet ? name: me.username)
+  derive shownBio = (bioSet ? bio: me.bio)
+  derive shownEmail = (emailSet ? email: me.email)
+  action setImage(v: string)
+    imageSet = true
+    image = v
+  action setName(v: string)
+    nameSet = true
+    name = v
+  action setBio(v: string)
+    bioSet = true
+    bio = v
+  action setEmail(v: string)
+    emailSet = true
+    email = v
+  action setPassword(v: string)
+    password = v
+  // The button, or Enter in a one-line field (`submit`), as a form's would.
+  action update
+    save(shownImage, shownName, shownBio, shownEmail, password)
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=540
+        text "Your Settings" font-size=40
+          font-weight=500
+          line-height=1.1
+          margin-bottom=16
+          text-align="center"
+        match auth
+          case some(a)
+            if not a.ok
+              Errors(errors=a.errors)
+          case none
+            box
+        input value=shownImage
+          input=setImage
+          submit=update
+          placeholder="URL of profile picture"
+          aria-label="URL of profile picture"
+          class=Field
+          testId="image"
+        input value=shownName
+          input=setName
+          submit=update
+          placeholder="Your Name"
+          aria-label="Your Name"
+          class=FieldLg
+          testId="username"
+        textarea value=shownBio
+          input=setBio
+          placeholder="Short bio about you"
+          aria-label="Short bio about you"
+          class=FieldLg
+          height=200
+          testId="bio"
+        input value=shownEmail
+          input=setEmail
+          submit=update
+          placeholder="Email"
+          aria-label="Email"
+          class=FieldLg
+          testId="email"
+        input value=password
+          input=setPassword
+          submit=update
+          type="password"
+          placeholder="New Password"
+          aria-label="New Password"
+          class=FieldLg
+          testId="password"
+        button press=update
+          class=BtnLg
+          testId="save-settings"
+          text "Update Settings"
+        box margin-top=16
+          margin-bottom=16
+          border-top-style="solid"
+          border-top-width=1
+          border-color="-exact-separator"
+        button press=logout
+          class=Btn
+          align-self="flex-start"
+          border-color="-exact-system-red"
+          color="-exact-system-red"
+          background-color="-exact-background"
+          testId="logout"
+          text "Or click here to logout."
+
+component EditorPage
+  props
+    post: Article
+    editing: bool
+    change: option<Change>
+    tags: string[]
+    tagInput: string
+    setTagInput: action
+    tagKey: action
+    removeTag: action
+    publish: action
+  // A field shows the article's value (or nothing, for a new one) until it is edited.
+  state title = ""
+  state description = ""
+  state body = ""
+  state titleSet = false
+  state descriptionSet = false
+  state bodySet = false
+  derive shownTitle = (titleSet ? title: post.title)
+  derive shownDescription = (descriptionSet ? description: post.description)
+  derive shownBody = (bodySet ? body: post.body)
+  action setTitle(v: string)
+    titleSet = true
+    title = v
+  action setDescription(v: string)
+    descriptionSet = true
+    description = v
+  action setBody(v: string)
+    bodySet = true
+    body = v
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=950
+        match change
+          case some(c)
+            if not c.ok and c.kind == "publish"
+              Errors(errors=c.errors)
+          case none
+            box
+        input value=shownTitle
+          input=setTitle
+          placeholder="Article Title"
+          aria-label="Article Title"
+          class=FieldLg
+          testId="title"
+        input value=shownDescription
+          input=setDescription
+          placeholder="What's this article about?"
+          aria-label="What's this article about?"
+          class=Field
+          testId="description"
+        textarea value=shownBody
+          input=setBody
+          placeholder="Write your article (in markdown)"
+          aria-label="Write your article (in markdown)"
+          class=Field
+          height=200
+          testId="body"
+        input value=tagInput
+          input=setTagInput
+          key=tagKey
+          placeholder="Enter tags"
+          aria-label="Enter tags"
+          class=Field
+          margin-bottom=4
+          testId="tags"
+        row flex-wrap="wrap" margin-bottom=16
+          for t in tags key = t
+            row class=Tag
+              align-items="center"
+              gap=4
+              background-color="-exact-fill"
+              border-color="-exact-separator"
+              color="-exact-label"
+              button appearance="none" press=removeTag(t)
+                aria-label=`Remove ${t}`
+                color="-exact-label"
+                testId=`remove-tag-${t}`
+                text "×"
+              text t
+        button press=publish((editing ? post.slug: ""), shownTitle, shownDescription, shownBody, tags)
+          class=BtnLg
+          testId="publish"
+          text "Publish Article"
+
+component ArticleActions
+  props
+    me: User
+    post: Article
+    go: action
+    follows: Follow[]
+    favorite: action
+    follow: action
+    remove: action
+    light: bool
+  derive pressed = first(follows.filter(f => f.username == post.author.username))
+  derive following = match pressed { case some(f) => f.following, case none => post.author.following }
+  view
+    row align-items="center" flex-wrap="wrap" gap=8
+      Meta(author=post.author, date=post.date, go=go)
+      if me.signedIn and me.username == post.author.username
+        button press=go(`/editor/${encodeURIComponent(post.slug)}`)
+          class=BtnSm
+          border-color="-exact-separator"
+          color="-exact-secondary-label"
+          background-color="-exact-background"
+          testId="edit-article"
+          text "✎ Edit Article"
+        button press=remove(post.slug)
+          class=BtnSm
+          border-color="-exact-system-red"
+          color="-exact-system-red"
+          background-color="-exact-background"
+          testId="delete-article"
+          text "🗑 Delete Article"
+      else
+        // Signed out, both go to sign up: links, so they work before the
+        // runtime loads.
+        if me.signedIn
+          button press=follow(post.author.username, not following)
+            class=BtnSm
+            border-color="-exact-separator"
+            color=(following ? "-exact-label": "-exact-secondary-label")
+            background-color=(following ? "-exact-fill": "-exact-background")
+            testId="follow"
+            text(following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
+          button press=favorite(post.slug, not post.favorited, post.favoritesCount)
+            class=BtnSm
+            border-color="AccentColor"
+            color=(post.favorited ? "AccentColorText": "AccentColor")
+            background-color=(post.favorited ? "AccentColor": "-exact-background")
+            testId="favorite"
+            text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+        else
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="-exact-separator"
+            color="-exact-secondary-label"
+            background-color="-exact-background"
+            testId="follow"
+            text `+ Follow ${post.author.username}`
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="AccentColor"
+            color="AccentColor"
+            background-color="-exact-background"
+            testId="favorite"
+            text `♥ Favorite Article (${post.favoritesCount})`
+
+component ArticlePage
+  props
+    me: User
+    post: Article
+    loading: bool
+    thread: Comment[]
+    go: action
+    follows: Follow[]
+    favorite: action
+    follow: action
+    remove: action
+    draft: string
+    setDraft: action
+    postComment: action
+    uncomment: action
+  view
+    column
+      if not post.found
+        column class=Container padding-top=24
+          text(loading ? "Loading article...": "This article doesn't exist.") testId="article-loading"
+      else
+        column class=Banner padding-left=0 padding-right=0
+          column class=Container
+            text post.title font-size=44.8
+              font-weight=600
+              color="-exact-label"
+              line-height=1.1
+              margin-bottom=8
+              testId="article-title"
+            ArticleActions(
+              me=me,
+              post=post,
+              go=go,
+                follows=follows,
+              favorite=favorite,
+              follow=follow,
+              remove=remove,
+              light=true
+            )
+        column class=Container
+          column width="100%" max-width=720 margin-left="auto" margin-right="auto"
+            text post.body markup="markdown"
+              font-family="serif"
+              font-size=19.2
+              line-height="28.8px"
+              testId="article-body"
+            row flex-wrap="wrap" margin-top=16
+              for t in post.tags key = t
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
+                  class=Tag
+                  color="-exact-secondary-label"
+                  font-weight=300
+                  background-color="-exact-background"
+                  text t
+            box margin-top=16
+              margin-bottom=16
+              border-top-style="solid"
+              border-top-width=1
+              border-color="-exact-separator"
+            row justify-content="center" margin-bottom=24
+              ArticleActions(
+                me=me,
+                post=post,
+                go=go,
+                    follows=follows,
+                favorite=favorite,
+                follow=follow,
+                remove=remove,
+                light=false
+              )
+            column width="100%" max-width=620 margin-left="auto" margin-right="auto"
+              if me.signedIn
+                column border-style="solid"
+                  border-width=1
+                  border-color="-exact-separator"
+                  border-radius=12
+                  margin-bottom=12
+                  overflow="hidden"
+                  textarea appearance="none" value=draft
+                    input=setDraft
+                    placeholder="Write a comment..."
+                    aria-label="Write a comment"
+                    height=90
+                    box-sizing="border-box"
+                    padding=20
+                    border-width=0
+                    font-size=16
+                    testId="comment-body"
+                  row align-items="center"
+                    justify-content="space-between"
+                    padding-top=12
+                    padding-bottom=12
+                    padding-left=20
+                    padding-right=20
+                    background-color="-exact-secondary-background"
+                    border-top-style="solid"
+                    border-top-width=1
+                    border-color="-exact-separator"
+                    image me.avatar width=30
+                      height=30
+                      border-radius=30
+                      object-fit="cover"
+                      aria-label=""
+                    button press=postComment(post.slug)
+                      class=BtnSm
+                      border-color="AccentColor"
+                      background-color="AccentColor"
+                      color="AccentColorText"
+                      font-weight=700
+                      testId="post-comment"
+                      text "Post Comment"
+              else
+                row flex-wrap="wrap" gap=4 margin-bottom=16
+                  link href="/login" press=go("/login") color="AccentColor"
+                    text "Sign in"
+                  text "or"
+                  link href="/register" press=go("/register") color="AccentColor"
+                    text "sign up"
+                  text "to add comments on this article."
+              for c in thread key = c.id
+                column border-style="solid"
+                  border-width=1
+                  border-color="-exact-separator"
+                  border-radius=12
+                  margin-bottom=12
+                  overflow="hidden"
+                  testId=`comment-${c.id}`
+                  text c.body padding=20
+                  row align-items="center"
+                    padding-top=12
+                    padding-bottom=12
+                    padding-left=20
+                    padding-right=20
+                    background-color="-exact-secondary-background"
+                    border-top-style="solid"
+                    border-top-width=1
+                    border-color="-exact-separator"
+                    gap=6
+                    font-size=12.8
+                    image c.author.image width=20
+                      height=20
+                      border-radius=30
+                      object-fit="cover"
+                      aria-label=""
+                    link href=`/profile/${encodeURIComponent(c.author.username)}` press=go(`/profile/${encodeURIComponent(c.author.username)}`)
+                      color="AccentColor"
+                      text c.author.username
+                    text c.date color="-exact-secondary-label"
+                    if c.mine
+                      button press=uncomment(post.slug, c.id)
+                        margin-left="auto"
+                        color="-exact-label"
+                        background-color="-exact-secondary-background"
+                        aria-label="Delete comment"
+                        testId=`delete-comment-${c.id}`
+                        text "🗑"
+
+component ProfilePage
+  props
+    me: User
+    person: Profile
+    feed: Feed
+    loading: bool
+    favorites: bool
+    page: number
+    go: action
+    showPage: action
+    follows: Follow[]
+    favorite: action
+    follow: action
+  derive pressed = first(follows.filter(f => f.username == person.username))
+  derive following = match pressed { case some(f) => f.following, case none => person.following }
+  view
+    column
+      column padding-top=32
+        padding-bottom=16
+        border-bottom-style="solid"
+        border-bottom-width=1
+        border-color="-exact-separator"
+        border-top-style="solid"
+        border-top-width=1
+        column class=Container align-items="center"
+          image person.image width=100
+            height=100
+            border-radius=100
+            object-fit="cover"
+            margin-bottom=16
+            aria-label=""
+          text person.username font-size=24
+            font-weight=700
+            line-height=1.1
+            margin-bottom=8
+            testId="profile-name"
+          text person.bio color="-exact-secondary-label"
+            font-weight=300
+            max-width=450
+            text-align="center"
+            margin-bottom=8
+          if person.found
+            if me.signedIn and me.username == person.username
+              button press=go("/settings")
+                class=BtnSm
+                align-self="flex-end"
+                border-color="-exact-separator"
+                color="-exact-secondary-label"
+                background-color="-exact-background"
+                testId="edit-settings"
+                text "⚙ Edit Profile Settings"
+            else
+              if me.signedIn
+                button press=follow(person.username, not following)
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="-exact-separator"
+                  color=(following ? "-exact-label": "-exact-secondary-label")
+                  background-color=(following ? "-exact-fill": "-exact-background")
+                  testId="follow-profile"
+                  text(following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+              else
+                link href="/register" press=go("/register")
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="-exact-separator"
+                  color="-exact-secondary-label"
+                  background-color="-exact-background"
+                  testId="follow-profile"
+                  text `+ Follow ${person.username}`
+      column class=Container max-width=950
+        row class=Tabs margin-top=24
+          link href=`/profile/${encodeURIComponent(person.username)}` press=go(`/profile/${encodeURIComponent(person.username)}`)
+            padding-top=8
+            padding-bottom=8
+            padding-left=16
+            padding-right=16
+            border-bottom-style="solid"
+            border-bottom-width=2
+            border-color=(favorites ? "transparent": "AccentColor")
+            color=(favorites ? "-exact-secondary-label": "AccentColor")
+            background-color="-exact-background"
+            testId="tab-mine"
+            text "My Articles"
+          link href=`/profile/${encodeURIComponent(person.username)}/favorites` press=go(`/profile/${encodeURIComponent(person.username)}/favorites`)
+            padding-top=8
+            padding-bottom=8
+            padding-left=16
+            padding-right=16
+            border-bottom-style="solid"
+            border-bottom-width=2
+            border-color=(favorites ? "AccentColor": "transparent")
+            color=(favorites ? "AccentColor": "-exact-secondary-label")
+            background-color="-exact-background"
+            testId="tab-favorites"
+            text "Favorited Articles"
+        Previews(
+          me=me,
+          feed=feed,
+          loading=loading,
+          page=page,
+          go=go,
+          showPage=showPage,
+          favorite=favorite
+        )

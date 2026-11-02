@@ -1,0 +1,30 @@
+// A restart's reset (ResetGateTests): a field with an edit open, a
+// virtualized list reporting its rows, and a timer every 50 ms, so the
+// teardown has an edit to end, a list to report and an advance to want;
+// a native switch sized by its own measure (its intrinsics).
+component ResetGate
+  state ticks = 0
+  state draft = ""
+  state saved = ""
+  action tick
+    ticks = ticks + 1
+  task ticker mount
+    every(50, tick)
+  action edit(v: string)
+    draft = v
+  action save(v: string)
+    saved = v
+  state on = false
+  action flip(v: bool)
+    on = v
+  state rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+  view
+    main testId="root" width="100%" height="100%" display="flex" flex-direction="column" font-family="system-ui"
+      text `Ticks ${ticks}` testId="ticks"
+      text `Saved ${saved}` testId="saved"
+      input value=draft input=edit change=save aria-label="Draft" testId="field" width="12rem"
+      input type="checkbox" switch checked=on change=flip aria-label="On" testId="switch" align-self="flex-start"
+      list virtualized=true id="reset-gate-list" flex=1 min-height=0
+        for n in rows key=n
+          column testId=`row-${n}` height=44 padding=8
+            text `Row ${n}`

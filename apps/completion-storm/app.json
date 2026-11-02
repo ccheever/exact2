@@ -1,0 +1,38 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Completion Storm",
+  "short_name": "Completion Storm",
+  "id": "com.exact.completionstorm",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#14263d",
+  "background_color": "#edf2f7",
+  "app": {
+    "id": "com.exact.completionstorm",
+    "name": "Completion Storm"
+  },
+  "rust": {
+    "mode": "off"
+  },
+  "host": {
+    "web": {},
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1000,
+        "height": 1000,
+        "minWidth": 500,
+        "minHeight": 640
+      }
+    },
+    "linux": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

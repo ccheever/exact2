@@ -1,0 +1,68 @@
+// @exact/cards's shared pieces: what its components draw with. Avatar and
+// VerifiedBadge are exported (index.contract's `use`);
+// the Name style is not.
+
+style Name
+  color="cards.name"
+
+// A person's picture in a circle, or the default figure, under a hairline.
+component Avatar
+  props
+    src: string
+    size: string
+  view
+    column position="relative"
+      width=size
+      height=size
+      border-radius="cards.avatar-corner"
+      overflow="hidden"
+      flex-shrink=0
+      background-color="cards.avatar-ground"
+      if src != ""
+        image src width=size height=size object-fit="cover" alt=""
+      else
+        svg viewBox="0 0 24 24" width=size height=size aria-hidden=true
+          circle cx=12 cy=12 r=12 fill="cards.avatar-default"
+          circle cx=12 cy=9.5 r=3.5 fill="cards.badge-mark"
+          path fill="cards.badge-mark"
+            d="M 12.058 22.784 C 9.422 22.784 7.007 21.836 5.137 20.262 C 5.667 17.988 8.534 16.25 11.99 16.25 C 15.494 16.25 18.391 18.036 18.864 20.357 C 17.01 21.874 14.64 22.784 12.058 22.784 Z"
+      box position="absolute"
+        inset=0
+        border-radius="cards.avatar-corner"
+        border-width="cards.hairline"
+        border-style="solid"
+        border-color="cards.avatar-ring"
+        aria-hidden=true
+
+// A verification badge: "verified", "verifier", or "none", which draws
+// nothing (an enum, as ProfileHeader's and PersonRow's `badge`). Each
+// is two one-colour icon tokens stacked, its ground in `ink` and its
+// check in `mark`, labelled on the box that holds them.
+component VerifiedBadge
+  props
+    badge: enum<"none", "verified", "verifier">
+    size: string
+    // Its ground and its check's colours (a card's tokens, a header's params).
+    ink: string
+    mark: string
+  view
+    if badge == "verified"
+      column testId="verified-badge"
+        role="img"
+        aria-label="Verified"
+        position="relative"
+        width=size
+        height=size
+        flex-shrink=0
+        image "symbol:cards.verified" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=ink
+        image "symbol:cards.verified-check" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=mark
+    else if badge == "verifier"
+      column testId="verifier-badge"
+        role="img"
+        aria-label="Trusted verifier"
+        position="relative"
+        width=size
+        height=size
+        flex-shrink=0
+        image "symbol:cards.verifier" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=ink
+        image "symbol:cards.verifier-check" position="absolute" top=0 left=0 width=size height=size aria-hidden=true color=mark

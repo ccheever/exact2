@@ -1,0 +1,28 @@
+// Signed zero: -0 equals 0, prints as "0", and is told apart only by
+// division.
+component App
+  state z = 0
+  derive nz = -z
+  derive same = nz == z
+  derive sign = 1 / nz < 0
+  derive printed = `${nz}`
+  derive viaFloor = floor(-0.5)
+  derive floorSign = 1 / viaFloor < 0
+  derive prodSign = 1 / (-1 * z) < 0
+  derive sumSign = 1 / (nz + 0) < 0
+  derive subSign = 1 / (nz - 0) < 0
+  derive maxZero = 1 / max(nz, z) < 0
+  derive minZero = 1 / min(z, nz) < 0
+  view
+    text printed testId="p"
+
+test "negative zero"
+  expect state same == true
+  expect state sign == true
+  expect state printed == "0"
+  expect state floorSign == true
+  expect state prodSign == true
+  expect state sumSign == false
+  expect state subSign == true
+  expect state maxZero == false
+  expect state minZero == true

@@ -1,0 +1,550 @@
+//! `cases.txt` against the Rust recorder: the same calls, the same getters
+//! and throws Chrome gave. The TypeScript recorder runs the
+//! same file through `cases.mjs`.
+
+use exact_canvas::{list, CanvasGradient, CanvasWindingRule, Context2d, DomMatrix, Radius, Style};
+
+#[derive(Debug, Clone)]
+enum V {
+    B(bool),
+    N(f64),
+    S(String),
+    L(Vec<V>),
+    P(f64, f64),
+    G,
+}
+
+fn parse_value(s: &str) -> (V, &str) {
+    let s = s.trim_start();
+    if let Some(rest) = s.strip_prefix('"') {
+        let end = rest.find('"').unwrap();
+        return (V::S(rest[..end].replace("\\t", "\t")), &rest[end + 1..]);
+    }
+    if let Some(mut rest) = s.strip_prefix('[') {
+        let mut items = Vec::new();
+        loop {
+            rest = rest.trim_start();
+            if let Some(r) = rest.strip_prefix(']') {
+                return (V::L(items), r);
+            }
+            let (v, r) = parse_value(rest);
+            items.push(v);
+            rest = r.trim_start().strip_prefix(',').unwrap_or(r);
+        }
+    }
+    if let Some(rest) = s.strip_prefix('{') {
+        let end = rest.find('}').unwrap();
+        let mut x = 0.0;
+        let mut y = 0.0;
+        for kv in rest[..end].split(',') {
+            let (k, v) = kv.split_once(':').unwrap();
+            let v: f64 = v.trim().parse().unwrap();
+            if k.trim() == "x" {
+                x = v
+            } else {
+                y = v
+            }
+        }
+        return (V::P(x, y), &rest[end + 1..]);
+    }
+    for (word, v) in [("true", V::B(true)), ("false", V::B(false))] {
+        if let Some(rest) = s.strip_prefix(word) {
+            return (v, rest);
+        }
+    }
+    if let Some(rest) = s.strip_prefix('g') {
+        return (V::G, rest);
+    }
+    let end = s.find([',', ')', ']']).unwrap_or(s.len());
+    let t = s[..end].trim();
+    let n = match t {
+        "NaN" => f64::NAN,
+        "Infinity" => f64::INFINITY,
+        _ => t.parse().unwrap_or_else(|_| panic!("number `{t}`")),
+    };
+    (V::N(n), &s[end..])
+}
+
+fn args(s: &str) -> Vec<V> {
+    let mut rest = s.trim();
+    let mut out = Vec::new();
+    while !rest.is_empty() {
+        let (v, r) = parse_value(rest);
+        out.push(v);
+        rest = r.trim_start().strip_prefix(',').unwrap_or(r).trim();
+    }
+    out
+}
+
+fn n(v: &V) -> f64 {
+    match v {
+        V::N(x) => *x,
+        other => panic!("not a number: {other:?}"),
+    }
+}
+
+fn s(v: &V) -> &str {
+    match v {
+        V::S(x) => x,
+        other => panic!("not a string: {other:?}"),
+    }
+}
+
+type R = Result<(), exact_canvas::DomException>;
+
+fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
+    if let Some((lhs, rhs)) = line.split_once(" = ") {
+        let lhs = lhs.trim();
+        if lhs == "g" {
+            let (name, a) = rhs.split_once('(').unwrap();
+            let a = args(a.strip_suffix(')').unwrap());
+            let f = |i: usize| n(&a[i]);
+            *g = Some(match name {
+                "createLinearGradient" => ctx.create_linear_gradient(f(0), f(1), f(2), f(3))?,
+                "createRadialGradient" => {
+                    ctx.create_radial_gradient(f(0), f(1), f(2), f(3), f(4), f(5))?
+                }
+                "createConicGradient" => ctx.create_conic_gradient(f(0), f(1), f(2))?,
+                other => panic!("{other}"),
+            });
+            return Ok(());
+        }
+        let (v, _) = parse_value(rhs);
+        match (lhs, &v) {
+            ("lineWidth", v) => ctx.set_line_width(n(v)),
+            ("miterLimit", v) => ctx.set_miter_limit(n(v)),
+            ("lineCap", v) => ctx.set_line_cap(s(v)),
+            ("lineJoin", v) => ctx.set_line_join(s(v)),
+            ("lineDashOffset", v) => ctx.set_line_dash_offset(n(v)),
+            ("globalAlpha", v) => ctx.set_global_alpha(n(v)),
+            ("globalCompositeOperation", v) => ctx.set_global_composite_operation(s(v))?,
+            ("fillStyle", V::G) => ctx.set_fill_style_canvas_gradient(g.as_ref().unwrap()),
+            ("strokeStyle", V::G) => ctx.set_stroke_style_canvas_gradient(g.as_ref().unwrap()),
+            ("fillStyle", v) => ctx.set_fill_style_str(s(v)),
+            ("strokeStyle", v) => ctx.set_stroke_style_str(s(v)),
+            ("font", v) => ctx.set_font(s(v)),
+            ("textAlign", v) => ctx.set_text_align(s(v)),
+            ("textBaseline", v) => ctx.set_text_baseline(s(v)),
+            ("direction", v) => ctx.set_direction(s(v)),
+            ("fontKerning", v) => ctx.set_font_kerning(s(v)),
+            ("textRendering", v) => ctx.set_text_rendering(s(v)),
+            ("fontStretch", v) => ctx.set_font_stretch(s(v)),
+            ("fontVariantCaps", v) => ctx.set_font_variant_caps(s(v)),
+            ("letterSpacing", v) => ctx.set_letter_spacing(s(v)),
+            ("wordSpacing", v) => ctx.set_word_spacing(s(v)),
+            ("shadowColor", v) => ctx.set_shadow_color(s(v)),
+            ("shadowBlur", v) => ctx.set_shadow_blur(n(v)),
+            ("shadowOffsetX", v) => ctx.set_shadow_offset_x(n(v)),
+            ("shadowOffsetY", v) => ctx.set_shadow_offset_y(n(v)),
+            ("imageSmoothingEnabled", V::B(b)) => ctx.set_image_smoothing_enabled(*b),
+            ("imageSmoothingQuality", v) => ctx.set_image_smoothing_quality(s(v)),
+            (other, _) => panic!("attribute {other}"),
+        }
+        return Ok(());
+    }
+    let (name, rest) = line.split_once('(').unwrap();
+    if let Some(d) = rest.strip_prefix("new Path2D(\"") {
+        let (d, after) = d.split_once("\")").unwrap();
+        let path = exact_canvas::Path2d::new_with_path_string(d);
+        let rule = if after.contains("evenodd") {
+            CanvasWindingRule::Evenodd
+        } else {
+            CanvasWindingRule::Nonzero
+        };
+        match name {
+            "fill" => ctx.fill_with_path_2d_and_winding(&path, rule),
+            "stroke" => ctx.stroke_with_path(&path),
+            "clip" => ctx.clip_with_path_2d_and_winding(&path, rule),
+            other => panic!("path method {other}"),
+        }
+        return Ok(());
+    }
+    if name == "putImageData" {
+        let (w, tail) = rest
+            .strip_prefix("ctx.createImageData(")
+            .unwrap()
+            .split_once(')')
+            .unwrap();
+        let wh = args(w);
+        let data = ctx.create_image_data_with_sw_and_sh(n(&wh[0]), n(&wh[1]))?;
+        let a = args(tail.trim_start_matches(',').strip_suffix(')').unwrap());
+        let f = |i: usize| n(&a[i]);
+        return if a.len() == 2 {
+            ctx.put_image_data(&data, f(0), f(1))
+        } else {
+            ctx.put_image_data_with_dirty_x_and_dirty_y_and_dirty_width_and_dirty_height(
+                &data,
+                f(0),
+                f(1),
+                f(2),
+                f(3),
+                f(4),
+                f(5),
+            )
+        };
+    }
+    let a = args(rest.strip_suffix(')').unwrap());
+    let f = |i: usize| n(&a[i]);
+    let b = |i: usize| matches!(&a[i], V::B(true));
+    let rule = |v: &V| {
+        if s(v) == "evenodd" {
+            CanvasWindingRule::Evenodd
+        } else {
+            CanvasWindingRule::Nonzero
+        }
+    };
+    match name {
+        "g.addColorStop" => g.as_ref().unwrap().add_color_stop_f64(f(0), s(&a[1]))?,
+        "save" => ctx.save(),
+        "restore" => ctx.restore(),
+        "reset" => ctx.reset(),
+        "translate" => ctx.translate(f(0), f(1))?,
+        "scale" => ctx.scale(f(0), f(1))?,
+        "rotate" => ctx.rotate(f(0))?,
+        "setTransform" => ctx.set_transform(f(0), f(1), f(2), f(3), f(4), f(5))?,
+        "transform" => ctx.transform(f(0), f(1), f(2), f(3), f(4), f(5))?,
+        "resetTransform" => ctx.reset_transform()?,
+        "setLineDash" => {
+            let V::L(items) = &a[0] else { panic!() };
+            ctx.set_line_dash(&items.iter().map(n).collect::<Vec<_>>())?
+        }
+        "arc" if a.len() == 6 => ctx.arc_with_anticlockwise(f(0), f(1), f(2), f(3), f(4), b(5))?,
+        "arc" => ctx.arc(f(0), f(1), f(2), f(3), f(4))?,
+        "ellipse" if a.len() == 8 => {
+            ctx.ellipse_with_anticlockwise(f(0), f(1), f(2), f(3), f(4), f(5), f(6), b(7))?
+        }
+        "ellipse" => ctx.ellipse(f(0), f(1), f(2), f(3), f(4), f(5), f(6))?,
+        "beginPath" => ctx.begin_path(),
+        "moveTo" => ctx.move_to(f(0), f(1)),
+        "lineTo" => ctx.line_to(f(0), f(1)),
+        "quadraticCurveTo" => ctx.quadratic_curve_to(f(0), f(1), f(2), f(3)),
+        "bezierCurveTo" => ctx.bezier_curve_to(f(0), f(1), f(2), f(3), f(4), f(5)),
+        "closePath" => ctx.close_path(),
+        "rect" => ctx.rect(f(0), f(1), f(2), f(3)),
+        "fill" if a.is_empty() => ctx.fill(),
+        "fill" => ctx.fill_with_canvas_winding_rule(rule(&a[0])),
+        "stroke" => ctx.stroke(),
+        "clip" if a.is_empty() => ctx.clip(),
+        "clip" => ctx.clip_with_canvas_winding_rule(rule(&a[0])),
+        "fillRect" => ctx.fill_rect(f(0), f(1), f(2), f(3)),
+        "strokeRect" => ctx.stroke_rect(f(0), f(1), f(2), f(3)),
+        "clearRect" => ctx.clear_rect(f(0), f(1), f(2), f(3)),
+        "arcTo" => ctx.arc_to(f(0), f(1), f(2), f(3), f(4))?,
+        "roundRect" if matches!(a[4], V::N(_)) => {
+            ctx.round_rect_with_f64(f(0), f(1), f(2), f(3), f(4))?
+        }
+        "roundRect" => {
+            let V::L(items) = &a[4] else { panic!() };
+            let radii: Vec<Radius> = items
+                .iter()
+                .map(|v| match v {
+                    V::N(r) => Radius { x: *r, y: *r },
+                    V::P(x, y) => Radius { x: *x, y: *y },
+                    other => panic!("{other:?}"),
+                })
+                .collect();
+            ctx.round_rect_with_radii(f(0), f(1), f(2), f(3), &radii)?
+        }
+        "createImageData" => ctx
+            .create_image_data_with_sw_and_sh(f(0), f(1))
+            .map(|_| ())?,
+        "fillText" if a.len() == 4 => ctx.fill_text_with_max_width(s(&a[0]), f(1), f(2), f(3))?,
+        "fillText" => ctx.fill_text(s(&a[0]), f(1), f(2))?,
+        "strokeText" if a.len() == 4 => {
+            ctx.stroke_text_with_max_width(s(&a[0]), f(1), f(2), f(3))?
+        }
+        "strokeText" => ctx.stroke_text(s(&a[0]), f(1), f(2))?,
+        other => panic!("method {other}"),
+    }
+    Ok(())
+}
+
+fn query(ctx: &Context2d, q: &str) -> String {
+    let style = |st: Style| match st {
+        Style::Color(c) => c,
+        Style::Gradient(_) => "[object CanvasGradient]".into(),
+        Style::Pattern(_) => "[object CanvasPattern]".into(),
+    };
+    let num = |v: f64| format!("{v}");
+    match q {
+        "lineWidth" => num(ctx.line_width()),
+        "miterLimit" => num(ctx.miter_limit()),
+        "lineCap" => ctx.line_cap(),
+        "lineJoin" => ctx.line_join(),
+        "lineDashOffset" => num(ctx.line_dash_offset()),
+        "globalAlpha" => num(ctx.global_alpha()),
+        "globalCompositeOperation" => ctx.global_composite_operation(),
+        "fillStyle" => style(ctx.fill_style()),
+        "strokeStyle" => style(ctx.stroke_style()),
+        "font" => ctx.font(),
+        "textAlign" => ctx.text_align(),
+        "textBaseline" => ctx.text_baseline(),
+        "direction" => ctx.direction(),
+        "fontKerning" => ctx.font_kerning(),
+        "textRendering" => ctx.text_rendering(),
+        "fontStretch" => ctx.font_stretch(),
+        "fontVariantCaps" => ctx.font_variant_caps(),
+        "letterSpacing" => ctx.letter_spacing(),
+        "wordSpacing" => ctx.word_spacing(),
+        "shadowColor" => ctx.shadow_color(),
+        "shadowBlur" => num(ctx.shadow_blur()),
+        "shadowOffsetX" => num(ctx.shadow_offset_x()),
+        "shadowOffsetY" => num(ctx.shadow_offset_y()),
+        "imageSmoothingEnabled" => ctx.image_smoothing_enabled().to_string(),
+        "imageSmoothingQuality" => ctx.image_smoothing_quality(),
+        "getLineDash()" => ctx
+            .get_line_dash()
+            .iter()
+            .map(|v| num(*v))
+            .collect::<Vec<_>>()
+            .join(","),
+        "getTransform()" => {
+            let m: DomMatrix = ctx.get_transform().unwrap();
+            m.operands()
+                .iter()
+                .map(|v| num(*v))
+                .collect::<Vec<_>>()
+                .join(",")
+        }
+        other => panic!("query {other}"),
+    }
+}
+
+/// A fresh context for a case: a `display-p3` canvas's when its name ends
+/// `(display-p3)`.
+fn context(name: &str) -> Context2d {
+    let ctx = Context2d::new();
+    if name.ends_with("(display-p3)") {
+        ctx.set_env(exact_canvas::Env {
+            p3: true,
+            ..Default::default()
+        });
+    }
+    ctx
+}
+
+/// Every case's lists from the Rust recorder, by case name.
+fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
+    let mut out: Vec<(String, Vec<Vec<u8>>)> = Vec::new();
+    let mut ctx = Context2d::new();
+    let mut g = None;
+    for raw in text.lines().chain(std::iter::once("## end")) {
+        let line = raw.trim();
+        if let Some(n) = line.strip_prefix("## ") {
+            if let Some(last) = out.last_mut() {
+                last.1 = ctx.take_lists();
+            }
+            out.push((n.to_string(), Vec::new()));
+            ctx = context(n);
+            g = None;
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || line.starts_with("? ") {
+            continue;
+        }
+        let stmt = line.rsplit_once(" ! ").map_or(line, |(c, _)| c.trim());
+        let _ = call(&ctx, &mut g, stmt);
+    }
+    out.pop();
+    out
+}
+
+/// The TypeScript recorder's lists for the same cases (`bun cases.mjs
+/// --lists`) equal the Rust recorder's: the same records, operands equal to
+/// 1e-9 (the two languages' `sin`/`cos` may differ in the last bit).
+#[test]
+fn the_typescript_recorder_writes_the_rust_recorders_lists() {
+    exact_canvas::color::link_wide();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+        .arg(dir.join("cases.mjs"))
+        .arg("--lists")
+        .output()
+        .expect("bun runs the TypeScript recorder (the repo pins it)");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let js = String::from_utf8(out.stdout).unwrap();
+    let mut failures = Vec::new();
+    for (name, lists) in rust_lists(include_str!("cases.txt")) {
+        let key = format!("{:?}:", name);
+        let Some(at) = js.find(&key) else {
+            failures.push(format!("{name}: missing from the TypeScript run"));
+            continue;
+        };
+        let rest = &js[at + key.len()..];
+        let array = &rest[..rest.find(']').unwrap() + 1];
+        let hexes: Vec<&str> = array
+            .trim_matches(|c| c == '[' || c == ']')
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_matches('"'))
+            .collect();
+        if hexes.len() != lists.len() {
+            failures.push(format!(
+                "{name}: {} lists in TypeScript, {} in Rust",
+                hexes.len(),
+                lists.len()
+            ));
+            continue;
+        }
+        for (hex, rust) in hexes.iter().zip(&lists) {
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let (a, b) = (list::records(&bytes).unwrap(), list::records(rust).unwrap());
+            if a.len() != b.len() {
+                failures.push(format!(
+                    "{name}: {} records in TypeScript, {} in Rust",
+                    a.len(),
+                    b.len()
+                ));
+                continue;
+            }
+            for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+                let close = x.op == y.op
+                    && x.len() == y.len()
+                    && x.operands()
+                        .zip(y.operands())
+                        .all(|(p, q)| (p - q).abs() <= 1e-9 * (1.0 + q.abs()));
+                if !close {
+                    failures.push(format!("{name}: record {i}: TypeScript {x:?}, Rust {y:?}"));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn the_shared_cases_hold_for_the_rust_recorder() {
+    exact_canvas::color::link_wide();
+    let text = include_str!("cases.txt");
+    let mut failures = Vec::new();
+    let mut ctx = Context2d::new();
+    let mut g = None;
+    let mut name = "";
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(n) = line.strip_prefix("## ") {
+            name = n;
+            ctx = context(n);
+            g = None;
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(q) = line.strip_prefix("? ") {
+            let (q, want) = q.split_once("=>").unwrap();
+            let got = query(&ctx, q.trim());
+            if got != want.trim() {
+                failures.push(format!(
+                    "{name}: {} => {got}, want {}",
+                    q.trim(),
+                    want.trim()
+                ));
+            }
+            continue;
+        }
+        let (stmt, throws) = match line.rsplit_once(" ! ") {
+            Some((c, t)) => (c.trim(), Some(t.trim())),
+            None => (line, None),
+        };
+        match (call(&ctx, &mut g, stmt), throws) {
+            (Ok(()), None) => {}
+            (Err(e), Some(t)) if e.name == t => {}
+            (Ok(()), Some(t)) => failures.push(format!("{name}: {stmt} did not throw {t}")),
+            (Err(e), _) => failures.push(format!("{name}: {stmt} threw {}", e.name)),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A palette cycled through more colours than the recorder keeps parsed
+/// records each paint's colour as a fresh context would.
+#[test]
+fn a_cycled_palette_records_what_a_fresh_parse_records() {
+    use exact_canvas::list::{records, Op};
+    // The palette has a wide form (oklch): linked here, not by whichever test
+    // happens to run first (the link is process-wide).
+    exact_canvas::color::link_wide();
+    let palette = [
+        "#ef4444",
+        "rgb(1 2 3 / 50%)",
+        "red",
+        "hsl(120 50% 50%)",
+        "#10b98180",
+        "oklch(0.7 0.1 200 / 0.8)",
+        "transparent",
+        "#3b82f6",
+        "rebeccapurple",
+    ];
+    let colours = |ctx: &Context2d| -> Vec<Vec<f64>> {
+        let mut out = Vec::new();
+        for l in ctx.take_lists() {
+            for r in records(&l).unwrap() {
+                if r.op == Op::FillColor {
+                    out.push(r.operands().collect());
+                }
+            }
+        }
+        out
+    };
+    let cycled = Context2d::new();
+    for i in 0..40 {
+        cycled.set_fill_style_str(palette[(i * 7) % palette.len()]);
+        cycled.fill_rect(0.0, 0.0, 1.0, 1.0);
+    }
+    let got = colours(&cycled);
+    let mut want = Vec::new();
+    for i in 0..40 {
+        let fresh = Context2d::new();
+        fresh.set_fill_style_str(palette[(i * 7) % palette.len()]);
+        fresh.fill_rect(0.0, 0.0, 1.0, 1.0);
+        want.extend(colours(&fresh));
+    }
+    assert_eq!(got, want);
+}
+
+/// A `display-p3` canvas records Display P3 bytes: sRGB red
+/// converted, P3 red as written, and an sRGB `ImageData`'s pixels converted
+/// as they are put. `recorder.test.mjs` holds the TypeScript recorder to the
+/// same numbers.
+#[test]
+fn a_display_p3_canvas_records_display_p3_bytes() {
+    exact_canvas::color::link_wide();
+    let ctx = context("(display-p3)");
+    assert_eq!(ctx.color_space(), exact_canvas::ColorSpace::DisplayP3);
+    ctx.set_fill_style_str("red");
+    ctx.fill_rect(0.0, 0.0, 1.0, 1.0);
+    ctx.set_fill_style_str("color(display-p3 1 0 0)");
+    ctx.fill_rect(0.0, 0.0, 1.0, 1.0);
+    let srgb =
+        exact_canvas::ImageData::new_with_u8_clamped_array_and_sh(vec![255, 0, 0, 255], 1, None)
+            .unwrap();
+    ctx.put_image_data(&srgb, 0.0, 0.0).unwrap();
+    let mine = ctx.create_image_data_with_sw_and_sh(1.0, 1.0).unwrap();
+    assert_eq!(mine.color_space, exact_canvas::ColorSpace::DisplayP3);
+    let lists = ctx.take_lists();
+    let records = list::records(&lists[0]).unwrap();
+    let colors: Vec<Vec<f64>> = records
+        .iter()
+        .filter(|r| r.op == list::Op::FillColor)
+        .map(|r| r.operands().collect())
+        .collect();
+    assert_eq!(
+        colors,
+        [vec![234.0, 51.0, 35.0, 1.0], vec![255.0, 0.0, 0.0, 1.0]]
+    );
+    let put = records
+        .iter()
+        .find(|r| r.op == list::Op::PutImageData)
+        .unwrap();
+    let pixel = put.operands().nth(4).unwrap() as u32;
+    assert_eq!(pixel.to_be_bytes(), [234, 51, 35, 255]);
+}

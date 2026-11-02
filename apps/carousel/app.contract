@@ -1,0 +1,134 @@
+// Carousel — a horizontal virtualized list written as
+// a web page writes a carousel, a flex row that scrolls on x. 25,000 cards of
+// five widths, estimated at 128, so first measurements replace estimates
+// left of what shows (anchored, so what shows stays put) and an authored `scrollLeft`
+// builds its cards before it moves.
+//
+// "Eager" swaps in the unvirtualized strip of the first 2,000 of the same
+// cards: the oracle. At the same offset, the cards' boxes are the same.
+
+routes nav
+  tab home "/"
+
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+// A feed row: every fifth holds a strip, every seventh an
+// inbox, each its own virtualized list inside the feed's row.
+shape Post
+  id: string
+  n: number
+  kind: string
+  cards: Card[]
+
+component Carousel
+  state eager = false
+  state jump = 0
+  resource cards = cards(25000) as shape Card[]
+  resource few = cards(2000) as shape Card[]
+  resource posts = posts(200) as shape Post[]
+  state page = "strip"
+  state feedTop = 0
+  action feedFar
+    feedTop = 6000
+  action feedTopAgain
+    feedTop = 0
+  action showFeed
+    page = page == "feed" ? "strip" : "feed"
+  action far
+    jump = jump + 100000
+  action toggle
+    eager = not eager
+  view
+    main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="-exact-background" color="-exact-label" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding=12
+        text "Cards" flex=1 font-size=17 font-weight=600
+        button press=far testId="far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
+          text "Far" font-size=13
+        button press=showFeed testId="feed-page" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
+          text (page == "feed" ? "Strip" : "Feed") font-size=13
+        button press=feedFar testId="feed-far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
+          text "Down" font-size=13
+        button press=feedTopAgain testId="feed-top" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
+          text "Top" font-size=13
+        button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="-exact-fill"
+          text (eager ? "Virtualized" : "Eager") font-size=13
+      if page == "feed"
+        if eager
+          list appearance="none" width="100%" flex=1 min-height=0 overflow-x="hidden" scrollTop=feedTop testId="feed"
+            for p in posts key=p.id
+              PostView(p=p, virtual=false)
+        else
+          list appearance="none" virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=180 scrollTop=feedTop testId="feed"
+            for p in posts key=p.id
+              PostView(p=p, virtual=true)
+      else
+        if eager
+          list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId="strip"
+            for c in few key=c.id
+              CardView(c=c)
+        else
+          list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
+            for c in cards key=c.id
+              CardView(c=c)
+        text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="-exact-secondary-label"
+
+// Card labels stay white on the fixed content hues in the data module, in either scheme.
+component CardView
+  props
+    c: Card
+  view
+    column testId=`card-${c.n}` width=c.width height=116 flex-shrink=0 margin-right=8 box-sizing="border-box" border-radius=10 background-color=c.color padding=10 justify-content="flex-end"
+      text c.label font-size=14 color="#ffffff" white-space="nowrap"
+
+// One feed row. `virtual` picks the virtualized inner lists or their eager
+// oracle; the boxes are the same either way.
+component PostView
+  props
+    p: Post
+    virtual: bool
+  view
+    column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
+      text `Post ${p.n}` padding-left=12 font-size=15 font-weight=600 height=24
+      if p.kind == "strip"
+        if virtual
+          list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+            for c in p.cards key=c.id
+              FeedCard(post=p.n, c=c)
+        else
+          list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+            for c in p.cards key=c.id
+              FeedCard(post=p.n, c=c)
+      if p.kind == "inbox"
+        if virtual
+          list virtualized=true width="100%" height=300 overflow-x="hidden" estimated-item-height=48 testId=`inbox-${p.n}`
+            for m in p.cards key=m.id
+              Message(post=p.n, m=m)
+        else
+          list width="100%" height=300 overflow-x="hidden" testId=`inbox-${p.n}`
+            for m in p.cards key=m.id
+              Message(post=p.n, m=m)
+      if p.kind == "text"
+        text "An ordinary row between the lists." padding-left=12 font-size=13 color="-exact-secondary-label" height=40
+
+component FeedCard
+  props
+    post: number
+    c: Card
+  view
+    column testId=`card-${post}-${c.n}` width=c.width height=116 flex-shrink=0 margin-right=8 box-sizing="border-box" border-radius=10 background-color=c.color padding=10 justify-content="flex-end"
+      text c.label font-size=14 color="#ffffff" white-space="nowrap"
+
+// A message's height follows its card's width, so an inbox's estimates are
+// replaced by real, varied measurements.
+component Message
+  props
+    post: number
+    m: Card
+  view
+    row testId=`msg-${post}-${m.n}` width="100%" height=(m.width / 2) box-sizing="border-box" padding-left=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator"
+      text m.label font-size=13

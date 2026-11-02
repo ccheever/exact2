@@ -1,0 +1,316 @@
+fn validate(schema: &Schema) {
+    validate_controls(schema);
+    let mut roles = BTreeSet::new();
+    for [role, apple, path] in &schema.symbols {
+        // Digits name a skip's seconds (`skip-back-15`, podcast F3), never first.
+        assert!(
+            role.starts_with(|c: char| c.is_ascii_lowercase())
+                && role != "sf"
+                && role.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'),
+            "schema: invalid symbol role"
+        );
+        assert!(roles.insert(role), "schema: duplicate symbol role {role}");
+        assert!(
+            !apple.is_empty() && !path.is_empty(),
+            "schema: incomplete symbol {role}"
+        );
+        assert!(
+            path.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b" .,-".contains(&c)),
+            "schema: invalid symbol path {role}"
+        );
+        // A filled state is its own role, named as Apple names it, beside its outline.
+        let base = role.strip_suffix("-fill");
+        assert!(
+            base.is_some() == apple.ends_with(".fill")
+                && base.is_none_or(|base| schema.symbols.iter().any(|row| row[0] == base)),
+            "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
+        );
+    }
+    symbol_spellings(schema);
+    let mut glyphs = BTreeSet::new();
+    for (role, platform, path, _) in &schema.symbol_glyphs {
+        assert!(
+            roles.contains(role) && ["fluent", "material"].contains(&platform.as_str()),
+            "schema: symbol glyph {role} on {platform}: no such role or platform"
+        );
+        assert!(
+            glyphs.insert((role, platform)),
+            "schema: duplicate symbol glyph {role} on {platform}"
+        );
+        assert!(
+            drawn_path(path),
+            "schema: invalid symbol glyph path {role} on {platform}"
+        );
+    }
+    let mut materials = BTreeSet::new();
+    for [name, ios, macos, blur, saturate, ..] in &schema.materials {
+        assert!(
+            !name.is_empty() && name.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+            "schema: invalid material name {name}"
+        );
+        assert!(materials.insert(name), "schema: duplicate material {name}");
+        for platform in [ios, macos] {
+            let apple = platform.strip_prefix('~').unwrap_or(platform);
+            assert!(
+                !apple.is_empty() && apple.bytes().all(|c| c.is_ascii_alphanumeric()),
+                "schema: material {name}: an Apple name, or `~` and the one drawn instead"
+            );
+        }
+        assert!(
+            blur.parse::<u16>().is_ok() && saturate.parse::<u16>().is_ok(),
+            "schema: material {name}: whole blur and saturate"
+        );
+    }
+    assert_eq!(
+        schema.schema_version, 1,
+        "schema: unsupported schemaVersion"
+    );
+    let mut ids = BTreeSet::new();
+    for (i, row) in schema.node_types.iter().enumerate() {
+        assert_eq!(
+            row.id as usize, i,
+            "schema: node type ids must be contiguous from 0"
+        );
+        assert!(
+            ids.insert(row.name.clone()),
+            "schema: duplicate node type `{}`",
+            row.name
+        );
+    }
+    let mut prop_ids = BTreeSet::new();
+    let mut prop_names = BTreeSet::new();
+    for row in &schema.props {
+        assert!(
+            prop_ids.insert(row.id),
+            "schema: duplicate prop id {}",
+            row.id
+        );
+        assert!(
+            prop_names.insert(row.name.clone()),
+            "schema: duplicate prop `{}`",
+            row.name
+        );
+        assert!(
+            matches!(row.kind.as_str(), "str" | "bool" | "int" | "float"),
+            "schema: prop `{}` has unknown kind `{}`",
+            row.name,
+            row.kind
+        );
+    }
+    for (name, def) in &schema.enums {
+        assert!(
+            !def.values.is_empty(),
+            "schema: enum `{name}` has no values"
+        );
+        assert!(def.values.len() <= 255, "schema: enum `{name}` exceeds u8");
+        let set: BTreeSet<_> = def.values.iter().collect();
+        assert_eq!(
+            set.len(),
+            def.values.len(),
+            "schema: enum `{name}` has duplicate values"
+        );
+        assert!(
+            def.values.contains(&def.default),
+            "schema: enum `{name}` default is not a member"
+        );
+    }
+    let mut fields = BTreeSet::new();
+    for (i, row) in schema.styles.iter().enumerate() {
+        assert_eq!(
+            row.bit as usize, i,
+            "schema: style bits must be contiguous from 0 (`{}`)",
+            row.field
+        );
+        assert!(
+            fields.insert(row.field.clone()),
+            "schema: duplicate style field `{}`",
+            row.field
+        );
+        let codec = parse_codec(&row.codec);
+        if let Codec::Enum(name) = &codec {
+            assert!(
+                schema.enums.contains_key(name),
+                "schema: style `{}` references unknown enum `{name}`",
+                row.field
+            );
+        }
+        if let Some(name) = &row.keywords {
+            assert!(
+                matches!(codec, Codec::U8) && row.default.as_f64() == Some(0.0),
+                "schema: keywords apply to u8 rows defaulting to 0 (`{}`)",
+                row.field
+            );
+            // The first value and a `none` take no bit; eight bits are left.
+            assert!(
+                schema.enums.get(name).is_some_and(|e| {
+                    e.values.len() - e.values[1..].iter().filter(|v| *v == "none").count() <= 9
+                }),
+                "schema: style `{}` keywords `{name}` must name an enum of at most 8 values besides the first and `none`",
+                row.field
+            );
+        }
+        let ends_ok = !row.ends || matches!(codec, Codec::Animations);
+        assert!(
+            ends_ok,
+            "schema: ends applies to animations rows (`{}`)",
+            row.field
+        );
+        if row.admits_auto || row.refuses_percent {
+            assert!(
+                matches!(codec, Codec::Dimension),
+                "schema: admitsAuto and refusesPercent only apply to dimension rows (`{}`)",
+                row.field
+            );
+        }
+    }
+    assert!(
+        schema.styles.len() <= 64 * 4,
+        "schema: more style rows than the mask can carry"
+    );
+    for row in &schema.styles {
+        match parse_codec(&row.codec) {
+            Codec::Enum(name) => match &row.default {
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) => assert!(
+                    schema.enums[name.as_str()].values.contains(s),
+                    "schema: style `{}` default `{s}` is not a member of enum `{name}`",
+                    row.field
+                ),
+                _ => panic!(
+                    "schema: style `{}` enum default must be a string",
+                    row.field
+                ),
+            },
+            Codec::Tracks | Codec::Placement => {
+                assert!(
+                    row.default.is_null(),
+                    "schema: style `{}` cannot declare a default",
+                    row.field
+                )
+            }
+            _ => {}
+        }
+    }
+    let mut op_ids = BTreeSet::new();
+    let mut op_names = BTreeSet::new();
+    for row in &schema.opcodes {
+        assert!(row.id != 0, "schema: opcode 0 is reserved");
+        assert!(op_ids.insert(row.id), "schema: duplicate opcode {}", row.id);
+        assert!(
+            op_names.insert(row.name.clone()),
+            "schema: duplicate opcode `{}`",
+            row.name
+        );
+    }
+}
+
+/// `StyleProps::validate_domain`: every masked row against the schema's
+/// closed value domain.
+fn write_validate_domain(w: &mut String, schema: &Schema) {
+    writeln!(
+        w,
+        "    /// Validate every masked row against the schema's closed value domain."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    pub fn validate_domain(&self) -> Result<(), StyleDomainError> {{"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "        self.check_finite().map_err(StyleDomainError::NonFinite)?;"
+    )
+    .unwrap();
+    for row in &schema.styles {
+        let id = pascal(&row.field);
+        let field = &at(row);
+        match parse_codec(&row.codec) {
+            Codec::LineHeight => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
+            }
+            Codec::Dimension => {
+                if !row.admits_auto {
+                    writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
+                }
+                if row.refuses_percent {
+                    writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.has_percent() {{ return Err(StyleDomainError::PercentNotAdmitted(StyleId::{id})); }}").unwrap();
+                }
+            }
+            Codec::Tracks => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
+            }
+            Codec::Placement => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
+            }
+            Codec::Transitions => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
+            }
+            Codec::Animations => {
+                let check = ["validate", "validate_ending"][row.ends as usize];
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
+            }
+            _ => {}
+        }
+    }
+    writeln!(w, "        Ok(())").unwrap();
+    writeln!(w, "    }}").unwrap();
+}
+
+/// The control-role table: a known control, with a state
+/// part's state where it names one; a parameter `accent-color` or a colour
+/// role; each host a fidelity, `: why` after it; one row a pair.
+fn validate_controls(schema: &Schema) {
+    const CONTROLS: [&str; 10] = ["switch", "checkbox", "radio", "range", "progress", "spinner", "select", "button-prominent", "field", "textarea"];
+    const STATES: [&str; 5] = ["active", "hover", "focus-visible", "disabled", "checked"];
+    let mut seen = BTreeSet::new();
+    for [control, parameter, hosts @ ..] in &schema.controls {
+        let (name, state) = control.split_once(':').map_or((control.as_str(), None), |(n, s)| (n, Some(s)));
+        assert!(CONTROLS.contains(&name), "schema: controls: unknown control {control}");
+        assert!(state.is_none_or(|s| STATES.contains(&s)), "schema: controls: {control}: unknown state");
+        assert!(
+            parameter == "accent-color" || schema.colors.iter().any(|row| row[0] == *parameter),
+            "schema: controls: {control}: {parameter} is neither accent-color nor a colour role"
+        );
+        assert!(seen.insert((control, parameter)), "schema: controls: {control} {parameter} twice");
+        for cell in hosts {
+            let (fidelity, why) = cell.split_once(": ").map_or((cell.as_str(), None), |(f, w)| (f, Some(w)));
+            // `exact` needs no why; the others say what the platform does.
+            assert!(
+                ["exact", "best-effort", "none"].contains(&fidelity)
+                    && match why {
+                        None => fidelity == "exact",
+                        Some(w) => fidelity != "exact" && !w.trim().is_empty(),
+                    },
+                "schema: controls: {control} {parameter}: `{cell}` is no fidelity"
+            );
+        }
+    }
+}
+
+/// A path's `d` that starts with a move and then draws: each command but a
+/// close takes numbers, and one besides the moves and closes draws a segment.
+fn drawn_path(d: &str) -> bool {
+    let mut commands = Vec::new();
+    let mut numbers = 0;
+    for c in d.chars() {
+        if c.is_ascii_alphabetic() {
+            if !"MmLlHhVvCcSsQqTtAaZz".contains(c) {
+                return false;
+            }
+            commands.push((c, numbers));
+        } else if !(c.is_ascii_digit() || " .,-".contains(c)) {
+            return false;
+        } else if c.is_ascii_digit() {
+            numbers += 1;
+        }
+    }
+    let takes_numbers = commands.iter().enumerate().all(|(i, &(c, at))| {
+        let next = commands.get(i + 1).map_or(numbers, |&(_, n)| n);
+        "Zz".contains(c) || next > at
+    });
+    commands.first().is_some_and(|&(c, _)| "Mm".contains(c))
+        && takes_numbers
+        && commands.iter().any(|&(c, _)| !"MmZz".contains(c))
+}

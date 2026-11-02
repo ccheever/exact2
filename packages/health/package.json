@@ -1,0 +1,12 @@
+{
+  "name": "@exact/health",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The person's steps, distance, active energy and workouts from the platform's health store, read under a grant per type.",
+  "exports": {
+    ".": "./exact.json",
+    "./apple": "./apple/exact.json",
+    "./android": "./android/exact.json",
+    "./web": "./web/exact.json"
+  }
+}

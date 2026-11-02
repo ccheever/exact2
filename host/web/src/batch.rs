@@ -1,0 +1,1135 @@
+//! The batch: what the glue applies, as JSON built by hand (no serde in the
+//! wasm; the shape is six op kinds and a handful of strings). The ops a
+//! page's boot and first press send are written piece by piece
+//! (`exact_num::text!`, `format!`'s `{}` without `core::fmt`); the drag
+//! ops still format.
+
+use exact_num::{push_text, text, Piece, Shortest};
+
+/// A JSON writer for one batch.
+#[derive(Debug, Default)]
+pub struct Batch {
+    ops: Vec<String>,
+    collection_accepted: bool,
+    seq: Option<(u64, u64)>,
+    alerts: Vec<String>,
+    /// A data module's timer continuation an advance released is still out
+    /// (`Runner::data_timer_landing`): the agent's jump waits for its reply.
+    landing: bool,
+}
+
+/// Validate before token translation or storage/continuation serialization.
+impl Batch {
+    /// `{"op":"auth","ticket":N}`: an auth session for the page to arm and
+    /// open inside this batch, in the press's call stack.
+    pub fn auth(&mut self, ticket: u64) {
+        self.ops
+            .push(format!("{{\"op\":\"auth\",\"ticket\":{ticket}}}"));
+    }
+}
+
+pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
+    if let exact_runner::HttpScheduling::Independent { .. } = request.http {
+        if request.storage.is_some() || request.continuation.is_some() {
+            return Some("only HTTP may opt into independent transport");
+        }
+    }
+    (request.ceiling_refusal())
+        .or(request.timeout_refusal())
+        .or(request.body_from_refusal())
+        .or(request.body_to_refusal())
+        .or(request.long_poll_refusal())
+        .or(request.upload_progress_refusal())
+}
+
+pub(crate) fn quote(s: &str, out: &mut String) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    out.push('"');
+    // Every byte that needs an escape is ASCII, so the runs between them
+    // end on character boundaries and are copied whole.
+    let mut run = 0;
+    for (at, b) in s.bytes().enumerate() {
+        let escape = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            0..0x20 => "",
+            _ => continue,
+        };
+        out.push_str(&s[run..at]);
+        if escape.is_empty() {
+            out.push_str("\\u00");
+            out.push(char::from(HEX[usize::from(b >> 4)]));
+            out.push(char::from(HEX[usize::from(b & 15)]));
+        } else {
+            out.push_str(escape);
+        }
+        run = at + 1;
+    }
+    out.push_str(&s[run..]);
+    out.push('"');
+}
+
+fn string_map(pairs: &[(&str, String)], out: &mut String) {
+    out.push('{');
+    for (i, (k, v)) in pairs.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        quote(k, out);
+        out.push(':');
+        quote(v, out);
+    }
+    out.push('}');
+}
+
+fn string_list(items: &[&str], out: &mut String) {
+    out.push('[');
+    for (i, s) in items.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        quote(s, out);
+    }
+    out.push(']');
+}
+
+impl Batch {
+    /// The resolved strings table owns the document's language and direction.
+    pub fn language(&mut self, lang: &str, dir: &str) {
+        let mut s = String::from("{\"op\":\"language\",\"lang\":");
+        quote(lang, &mut s);
+        s.push_str(",\"dir\":");
+        quote(dir, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    pub(crate) fn reorder_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<exact_runner::ReorderBinding>,
+        kernel: &exact_kernel::Kernel,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let keys = binding.map(|b| [b.list, b.wrapper, b.root]);
+        let id = |i: usize| {
+            keys.and_then(|k| kernel.node_by_key(k[i]))
+                .map_or("null".into(), |n| n.id.to_string())
+        };
+        let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
+        self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
+    }
+    /// One op already written as JSON (a grouped reorder's).
+    pub(crate) fn push_op(&mut self, json: String) {
+        self.ops.push(json);
+    }
+    pub(crate) fn reorder_state(
+        &mut self,
+        runtime: u64,
+        token: u64,
+        terminal: bool,
+        released: bool,
+        frame: &str,
+    ) {
+        self.ops.push(format!("{{\"op\":\"reorder-state\",\"runtime\":\"{runtime}\",\"token\":\"{token}\",\"terminal\":{terminal},\"released\":{released},\"frame\":{frame}}}"));
+    }
+
+    /// Geometry committed, even if its subsequent edge action refused.
+    pub(crate) fn accept_collection(&mut self) {
+        self.collection_accepted = true;
+    }
+
+    pub(crate) fn transform_drag(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        handle: exact_kernel::NodeKey,
+        binding: Option<[(exact_kernel::NodeKey, u32); 2]>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        let id = |i: usize| binding.map_or("null".into(), |b| b[i].1.to_string());
+        let key =
+            |i: usize| binding.map_or("null".into(), |b| format!("\"{}\"", motion_node(b[i].0)));
+        self.ops.push(format!("{{\"op\":\"transform-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"target\":{},\"targetKey\":{},\"clip\":{},\"clipKey\":{}}}",motion_node(handle),id(0),key(0),id(1),key(1)));
+    }
+
+    pub(crate) fn retire_transform_token(
+        &mut self,
+        view: u32,
+        runtime: u64,
+        token: exact_motion::HoldToken,
+    ) {
+        self.ops.push(format!("{{\"op\":\"retire-motion\",\"id\":{view},\"property\":\"{}\",\"runtime\":\"{runtime}\",\"token\":\"{}\"}}",token.property().name(),token.serial()));
+    }
+
+    /// A resolved authored handle. Packed generational keys remain decimal
+    /// strings; JavaScript Numbers cannot preserve all NodeKey bits.
+    pub fn height_drag(
+        &mut self,
+        view: u32,
+        handle: exact_kernel::NodeKey,
+        target: Option<(exact_kernel::NodeKey, u32)>,
+    ) {
+        use exact_kernel::motion::motion_node;
+        self.ops.push(format!(
+            "{{\"op\":\"height-drag\",\"id\":{view},\"target\":{},\"handleKey\":\"{}\",\"targetKey\":{}}}",
+            target.map_or("null".into(), |(_, view)| view.to_string()),
+            motion_node(handle),
+            target.map_or("null".into(), |(key, _)| format!("\"{}\"", motion_node(key))),
+        ));
+    }
+
+    /// Empty.
+    pub fn new() -> Batch {
+        Batch::default()
+    }
+
+    /// One coalesced router change beside commands. Its
+    /// `url` is the visit's location with its fragment, which the history
+    /// mirrors, and `scroll` asks for the scroll to it.
+    pub fn router(&mut self, change: &exact_runner::RouterChange) {
+        let mut s = text!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
+        quote(&change.location(), &mut s);
+        s.push_str(",\"fragment\":");
+        quote(&change.fragment, &mut s);
+        s.push_str(if change.scroll {
+            ",\"scroll\":true"
+        } else {
+            ",\"scroll\":false"
+        });
+        s.push_str(",\"activation\":");
+        s.push_str(&change.activation.to_string());
+        s.push_str(",\"removed\":[");
+        for (i, id) in change.removed.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            id.push_to(&mut s);
+        }
+        s.push_str("],\"visits\":[");
+        for (i, (id, url)) in change.visits.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            id.push_to(&mut s);
+            s.push(',');
+            quote(url, &mut s);
+            s.push(']');
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// Full live collection metadata, serialized by the common runner seam.
+    pub(crate) fn collections(&mut self, snapshots: &str) {
+        self.ops
+            .push(text!("{{\"op\":\"collections\",\"items\":{}}}", snapshots));
+    }
+
+    /// A terminal admission refusal, delivered after the enclosing DOM batch.
+    /// A request the app aborted: the page cancels it, whatever its method.
+    pub(crate) fn abort(&mut self, ticket: u64) {
+        self.ops
+            .push(text!("{{\"op\":\"abort\",\"ticket\":{}}}", ticket));
+    }
+
+    pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
+        let mut out = text!("{{\"op\":\"refuse\",\"ticket\":{},\"message\":", ticket);
+        quote(message, &mut out);
+        out.push('}');
+        self.ops.push(out);
+    }
+
+    /// Wrapping contexts and their paragraph/exclusion identities; geometry is the DOM's.
+    pub(crate) fn textflow(&mut self, contexts: &str) {
+        self.ops
+            .push(text!("{{\"op\":\"textflow\",\"contexts\":{}}}", contexts));
+    }
+
+    /// Whether nothing was recorded.
+    pub fn is_empty(&self) -> bool {
+        self.ops.is_empty()
+    }
+
+    /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`,
+    /// plus `"ns":"http://www.w3.org/2000/svg"` for an SVG element.
+    pub fn create(
+        &mut self,
+        id: u32,
+        tag: &str,
+        props: &[(&str, String)],
+        css: &str,
+        handlers: &[&str],
+    ) {
+        let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
+        quote(tag, &mut s);
+        if matches!(
+            tag,
+            "svg"
+                | "g"
+                | "path"
+                | "polyline"
+                | "polygon"
+                | "circle"
+                | "ellipse"
+                | "line"
+                | "rect"
+                | "defs"
+                | "linearGradient"
+                | "radialGradient"
+                | "stop"
+                | "use"
+                | "symbol"
+                | "clipPath"
+                | "marker"
+                | "mask"
+                | "pattern"
+                | "foreignObject"
+                | "filter"
+                | "text"
+                | "tspan"
+        ) || tag.starts_with("fe")
+        {
+            s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
+        }
+        s.push_str(",\"props\":");
+        string_map(props, &mut s);
+        s.push_str(",\"css\":");
+        quote(css, &mut s);
+        s.push_str(",\"handlers\":");
+        string_list(handlers, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"head","title":…,"description":…,"image":…,"canonical":…,
+    /// "robots":…,"status":…}`: the active head's fields, `null` where none
+    /// is set.
+    pub fn head(&mut self, head: &exact_runner::Head) {
+        let mut s = String::from("{\"op\":\"head\"");
+        for (name, value) in head.fields() {
+            push_text!(&mut s, ",\"{}\":", name);
+            match value {
+                Some(value) => quote(value, &mut s),
+                None => s.push_str("null"),
+            }
+        }
+        match head.status {
+            Some(code) => {
+                push_text!(&mut s, ",\"status\":{}", code);
+            }
+            None => s.push_str(",\"status\":null"),
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"adopt","adopted":…}`: whether the page's document is this
+    /// runtime's own first tree, so the glue binds it
+    /// rather than replacing it.
+    pub fn adopt(&mut self, adopted: bool) {
+        self.ops
+            .push(text!("{{\"op\":\"adopt\",\"adopted\":{}}}", adopted));
+    }
+
+    /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
+    pub fn props(&mut self, id: u32, set: &[(&str, String)], clear: &[&str]) {
+        let mut s = text!("{{\"op\":\"props\",\"id\":{},\"set\":", id);
+        string_map(set, &mut s);
+        s.push_str(",\"clear\":");
+        string_list(clear, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"keyframes","name":…,"css":…}`: one `@keyframes` rule for the
+    /// page's stylesheet, sent once per name before a node names it.
+    pub fn keyframes(&mut self, name: &str, css: &str) {
+        let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"theme","css":…}`: the theme's `:root` rule, at
+    /// a boot whose plan has one (none for an empty rule), and after a live
+    /// edit moves the roles.
+    pub fn theme(&mut self, css: &str) {
+        if css.is_empty() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"theme\",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"looks","id":…,"css":…}`: a view's state-look rules for the
+    /// page's looks sheet, `""` to drop them.
+    pub fn looks(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"looks\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
+    pub fn style(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"children","id":…,"ids":[…]}`.
+    pub fn children(&mut self, id: u32, ids: &[u32]) {
+        let mut s = text!("{{\"op\":\"children\",\"id\":{},\"ids\":[", id);
+        for (i, c) in ids.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            c.push_to(&mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
+    /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
+    /// pairs, `[x,y,px,py]` with percentages of the box,
+    /// the rest numbers. No values means stop playing the property.
+    pub fn animate(
+        &mut self,
+        id: u32,
+        property: &str,
+        delay_ms: f64,
+        duration_ms: f64,
+        values: &[[f64; 4]],
+        pair: bool,
+    ) {
+        self.animate_op(None, id, property, (delay_ms, duration_ms), values, pair);
+    }
+
+    /// A spring's frames as [`Batch::animate`] writes them, with `"at":ms`
+    /// after `property`: the host's clock when the spring was lowered, which
+    /// `delay` counts from. The page starts its animation there, as the
+    /// engine did, not when the browser next commits a pending animation.
+    pub fn spring(
+        &mut self,
+        at_ms: f64,
+        id: u32,
+        property: &str,
+        (delay_ms, duration_ms): (f64, f64),
+        values: &[[f64; 4]],
+    ) {
+        let pair = property == "translate";
+        self.animate_op(
+            Some(at_ms),
+            id,
+            property,
+            (delay_ms, duration_ms),
+            values,
+            pair,
+        );
+    }
+
+    fn animate_op(
+        &mut self,
+        at_ms: Option<f64>,
+        id: u32,
+        property: &str,
+        (delay_ms, duration_ms): (f64, f64),
+        values: &[[f64; 4]],
+        pair: bool,
+    ) {
+        let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
+        quote(property, &mut s);
+        if let Some(at_ms) = at_ms {
+            push_text!(&mut s, ",\"at\":{}", Shortest(at_ms));
+        }
+        let (delay_ms, duration_ms) = (Shortest(delay_ms), Shortest(duration_ms));
+        push_text!(
+            &mut s,
+            ",\"delay\":{},\"duration\":{},\"values\":[",
+            delay_ms,
+            duration_ms
+        );
+        for (i, [x, y, px, py]) in values.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let (x, y) = (Shortest(*x), Shortest(*y));
+            if pair && (*px != 0.0 || *py != 0.0) {
+                push_text!(&mut s, "[{},{},{},{}]", x, y, Shortest(*px), Shortest(*py));
+            } else if pair {
+                push_text!(&mut s, "[{},{}]", x, y);
+            } else {
+                x.push_to(&mut s);
+            }
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// `{"op":"timelines"}` — a boot or commit while drag timelines are
+    /// bound: the page seeks their consumers again once
+    /// the batch is applied.
+    pub fn timelines(&mut self) {
+        self.ops.push("{\"op\":\"timelines\"}".into());
+    }
+
+    /// End a property's ownership, including a held presentation override.
+    pub fn retire_motion(&mut self, id: u32, property: &str) {
+        let mut s = text!("{{\"op\":\"retire-motion\",\"id\":{},\"property\":", id);
+        quote(property, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// Watch a 2D canvas's box: the page reports its geometry.
+    pub fn canvas2d_watch(&mut self, view: u32) {
+        self.ops.push(text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"watch\":true}}",
+            view
+        ));
+    }
+
+    /// Image handles for the page to load for Canvas 2D.
+    pub fn canvas2d_images(&mut self, srcs: &[String]) {
+        let mut s = String::from("{\"op\":\"canvas2d\",\"images\":[");
+        for (i, src) in srcs.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(src, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// Whether a 2D canvas wants the page's animation frames.
+    pub fn canvas2d_frames(&mut self, frames: bool) {
+        self.ops
+            .push(text!("{{\"op\":\"canvas2d\",\"frames\":{}}}", frames));
+    }
+
+    /// A 2D canvas's stamped lists, in order, as `[address,
+    /// length]` pairs in this wasm's memory: the glue replays them in place,
+    /// with no text between (the host keeps them alive for the batch);
+    /// `fresh` starts a new bitmap at `w`×`h`, `p3` and `float16` its
+    /// getContext settings.
+    pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
+        let mut s = text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"p3\":{},\"float16\":{},\"lists\":[",
+            c.view,
+            Shortest(c.lifetime as f64),
+            c.generation,
+            Shortest(c.seq as f64),
+            c.fresh,
+            c.pixel_width,
+            c.pixel_height,
+            Shortest(c.scale),
+            c.stretch,
+            c.settings.p3,
+            c.settings.float16
+        );
+        for (i, l) in c.lists.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            push_text!(&mut s, "[{},{}]", l.as_ptr() as usize, l.len());
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// A canvas binding, preserving positional values or authored argument names.
+    pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
+        let mut s = text!("{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);
+        quote(&update.name, &mut s);
+        s.push_str(",\"values\":");
+        s.push_str(&update.arguments_json());
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"request","ticket":N,"target":…,"method":…,"url":…,"headers":[[k,v]…],"body":"<base64>","cache":"default"|"reload"}`
+    /// — a request the runner handed the host to run; the
+    /// reply comes back through `exact_fulfill`.
+    pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        if let Some(message) = request_refusal(&r.request) {
+            self.refuse(r.ticket, message);
+            return;
+        } else if let Some(work) = r.request.surface.as_deref() {
+            let (mode, name, bytes) = match work {
+                exact_runner::SurfaceRequest::Capture { name } => ("capture", name, None),
+                exact_runner::SurfaceRequest::Restore { name, bytes } => {
+                    ("restore", name, Some(bytes.as_slice()))
+                }
+            };
+            let mixed = r.request.continuation.is_some()
+                || r.request.storage.is_some()
+                || r.request.method != "GET"
+                || !r.request.url.is_empty()
+                || !r.request.headers.is_empty()
+                || !r.request.body.is_empty();
+            let oversized =
+                bytes.is_some_and(|bytes| bytes.len() > exact_runner::MAX_HOST_WORK_BYTES);
+            let mut s = text!(
+                "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{}\",\"name\":",
+                r.ticket,
+                mode
+            );
+            quote(name, &mut s);
+            s.push_str(",\"scope\":");
+            if let Some(scope) = &r.request.grants {
+                quote(scope, &mut s)
+            } else {
+                s.push_str("null")
+            }
+            if let Some(bytes) = bytes.filter(|_| !mixed && !oversized) {
+                s.push_str(",\"body\":\"");
+                s.push_str(&exact_runner::agent::base64(bytes));
+                s.push('"');
+            }
+            if oversized {
+                s.push_str(",\"refusal\":\"surface restore exceeds 16 MiB\"");
+            } else if mixed {
+                s.push_str(",\"refusal\":\"surface request combines multiple host-work kinds\"");
+            }
+            s.push('}');
+            self.ops.push(s);
+            return;
+        }
+        if let Some(token) = r.request.continuation {
+            self.ops.push(text!(
+                "{{\"op\":\"continue\",\"ticket\":{},\"token\":{}}}",
+                r.ticket,
+                token
+            ));
+            return;
+        }
+        if let Some(payload) = &r.request.storage {
+            let mut s = text!("{{\"op\":\"storage\",\"ticket\":{},\"payload\":", r.ticket);
+            // Empty text is invalid JSON and refuses before effects; never repair
+            // malformed bytes into a different, executable storage request.
+            quote(std::str::from_utf8(payload).unwrap_or(""), &mut s);
+            s.push_str(",\"scope\":");
+            if let Some(scope) = &r.request.grants {
+                quote(scope, &mut s)
+            } else {
+                s.push_str("null")
+            }
+            s.push('}');
+            self.ops.push(s);
+            return;
+        }
+        let mut s = text!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
+        quote(&r.target, &mut s);
+        s.push_str(",\"scope\":");
+        if let Some(scope) = &r.request.grants {
+            quote(scope, &mut s)
+        } else {
+            s.push_str("null")
+        }
+        if let exact_runner::HttpScheduling::Independent { max_response_bytes } = r.request.http {
+            push_text!(
+                &mut s,
+                ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{}",
+                max_response_bytes
+            );
+        }
+        if let Some(ms) = r.request.timeout_ms {
+            push_text!(&mut s, ",\"timeoutMs\":{}", ms);
+        }
+        // `exactHeld`: the page lists it, and no clock waits on it.
+        if r.request.is_held() {
+            s.push_str(",\"held\":true");
+        }
+        s.push_str(",\"method\":");
+        quote(&r.request.method, &mut s);
+        s.push_str(",\"url\":");
+        quote(&r.request.url, &mut s);
+        s.push_str(",\"headers\":[");
+        for (i, (k, v)) in r.request.headers.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            quote(k, &mut s);
+            s.push(',');
+            quote(v, &mut s);
+            s.push(']');
+        }
+        s.push(']');
+        // `exactBodyFrom`: the page reads the app file
+        // into the body (http-body.js), under the request's grants.
+        if let Some(path) = &r.request.body_from {
+            s.push_str(",\"bodyFrom\":");
+            quote(path, &mut s);
+        }
+        // `exactBodyTo`: the page writes a 2xx body to the app file.
+        if let Some(path) = &r.request.body_to {
+            s.push_str(",\"bodyTo\":");
+            quote(path, &mut s);
+        }
+        // Absent is `follow` (http-body.js)
+        if r.request.redirect != exact_runner::Redirect::Follow {
+            s.push_str(",\"redirect\":");
+            quote(r.request.redirect.name(), &mut s);
+        }
+        // Who asked it, for the local network's rule at the page's fetch
+        // and WebSocket open; absent is the app's own.
+        // Under the agent the substitute's state stands for the browser's.
+        let reach = r.request.reach;
+        if reach.origin != exact_runner::CallOrigin::App {
+            push_text!(&mut s, ",\"origin\":\"{}\"", reach.origin.word());
+            if let Some(state) = reach.substitute {
+                push_text!(&mut s, ",\"reachState\":\"{}\"", state.word());
+            }
+        }
+        s.push_str(",\"body\":\"");
+        s.push_str(&exact_runner::agent::base64(&r.request.body));
+        s.push_str("\",\"cache\":\"");
+        s.push_str(if r.forced { "reload" } else { "default" });
+        s.push('"');
+        // An answer that keeps coming: the page reads the
+        // body as events and delivers each as a message (kind 8).
+        if r.request.stream {
+            s.push_str(",\"stream\":true");
+        }
+        // An upload: the page sends it with XMLHttpRequest and
+        // delivers its bytes sent as messages, then its reply.
+        if r.request.upload_progress {
+            s.push_str(",\"upload\":true");
+        }
+        // A long poll: the page asks again with each reply's cursor.
+        if let Some(poll) = &r.request.long_poll {
+            s.push_str(",\"longPoll\":{\"cursor\":");
+            quote(&poll.cursor, &mut s);
+            s.push_str(",\"from\":");
+            quote(&poll.from, &mut s);
+            s.push_str(match poll.same_cursor_event {
+                true => ",\"sameCursorEvent\":true}",
+                false => ",\"sameCursorEvent\":false}",
+            });
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
+    /// the app kept or forgot, for the page to persist after
+    /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
+    /// for a persisted state, kept under its own name. A kept
+    /// answer's bytes go as base64, since `localStorage` holds text.
+    pub fn store(&mut self, w: &exact_runner::StoreWrite) {
+        let tier = if w.name.starts_with(exact_runner::Store::STATE) {
+            "plain"
+        } else {
+            "secret"
+        };
+        let mut s = format!("{{\"op\":\"store\",\"tier\":\"{tier}\",\"name\":");
+        quote(&w.name, &mut s);
+        s.push_str(",\"value\":");
+        match &w.value {
+            Some(v) if w.name.starts_with(exact_runner::Store::KEPT) => {
+                quote(&exact_runner::agent::base64(v), &mut s)
+            }
+            Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"grants","lines":[…]}` — what the app may reach,
+    /// once at boot, from the runner's one parse of the whole set; the page
+    /// refuses a request outside them itself. A set that does not parse
+    /// grants nothing, as on a native host: `lines` is empty and `error`
+    /// says why, for the page to name in each refusal.
+    pub fn grants(&mut self, grants: &str) {
+        let parsed = exact_runner::grants::parse(grants);
+        let mut s = String::from("{\"op\":\"grants\",\"lines\":[");
+        for (i, line) in parsed.iter().flat_map(|set| set.lines()).enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(line, &mut s);
+        }
+        s.push(']');
+        if let Err(errors) = &parsed {
+            s.push_str(",\"error\":");
+            quote(&exact_runner::grants::refusal(errors), &mut s);
+        }
+        s.push_str(",\"set\":");
+        s.push_str(&exact_runner::grants::normalized_json(grants));
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"command","name":…,"args":[…]}` — a capability an action
+    /// called, for the glue to execute after the commit.
+    pub fn command(&mut self, name: &str, args: &[exact_plan::Value], source: Option<u32>) {
+        let mut s = String::from("{\"op\":\"command\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"args\":[");
+        for (i, v) in args.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            value_json(v, &mut s);
+        }
+        s.push(']');
+        if let Some(id) = source {
+            s.push_str(&text!(",\"source\":{}", id));
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"sound","files":[…],"ops":[…]}`: the voice
+    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` (with
+    /// `playbackRate` and `pan` when not 1 and 0) and
+    /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
+    /// boot names the files to decode, in declaration order (a new boot
+    /// silences the last one's voices); nothing is sent when there is
+    /// nothing to say.
+    pub fn sound(
+        &mut self,
+        ops: Vec<exact_runner::sound::SoundOp>,
+        plan: Option<&exact_plan::Plan>,
+    ) {
+        use exact_runner::sound::SoundOp;
+        let files = plan.filter(|p| !p.sounds.is_empty());
+        if ops.is_empty() && files.is_none() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"sound\"");
+        if let Some(plan) = files {
+            s.push_str(",\"files\":[");
+            for (i, row) in plan.sounds.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(plan.str(row.src), &mut s);
+            }
+            s.push(']');
+        }
+        s.push_str(",\"ops\":[");
+        for (i, op) in ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            match op {
+                SoundOp::Play {
+                    id,
+                    sound,
+                    at,
+                    gain,
+                    playback_rate,
+                    pan,
+                } => {
+                    push_text!(
+                        &mut s,
+                        "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}",
+                        id,
+                        sound,
+                        Shortest(*at),
+                        Shortest(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        push_text!(&mut s, ",\"playbackRate\":{}", Shortest(*playback_rate));
+                    }
+                    if *pan != 0.0 {
+                        push_text!(&mut s, ",\"pan\":{}", Shortest(*pan));
+                    }
+                    s.push('}');
+                }
+                SoundOp::End { id, at } => push_text!(
+                    &mut s,
+                    "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",
+                    id,
+                    Shortest(*at)
+                ),
+                // A sequence step's haptic, at its time.
+                SoundOp::Haptic { id, kind, at } => {
+                    push_text!(&mut s, "{{\"op\":\"haptic\",\"id\":{},\"kind\":", id);
+                    quote(kind, &mut s);
+                    push_text!(&mut s, ",\"at\":{}}}", Shortest(*at));
+                }
+                SoundOp::Unhaptic { id } => {
+                    push_text!(&mut s, "{{\"op\":\"unhaptic\",\"id\":{}}}", id)
+                }
+            }
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take:
+    /// the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
+    }
+
+    /// `{"op":"destroy","id":…}`.
+    pub fn destroy(&mut self, id: u32) {
+        self.ops.push(text!("{{\"op\":\"destroy\",\"id\":{}}}", id));
+    }
+
+    /// `{"op":"exit","id":…,"css":…}` — the view leaves with `css`, the CSS
+    /// `animation` list of its `-exact-exit-animation`: the page keeps
+    /// it, inert, where it was until the exit ends. Its `destroy` ops follow
+    /// as usual.
+    pub fn exit(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"exit\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"at","ms":…}` — the clock at which the ops that follow were
+    /// committed (a timer's due time inside one `advance`), so a page that
+    /// owns time can attribute the transitions they start to that instant
+    /// (one seek and sixty give the same bits).
+    pub fn at(&mut self, ms: f64) {
+        self.ops
+            .push(text!("{{\"op\":\"at\",\"ms\":{}}}", Shortest(ms)));
+    }
+
+    /// `{"op":"roots","ids":[…]}`.
+    pub fn roots(&mut self, ids: &[u32]) {
+        let mut s = String::from("{\"op\":\"roots\",\"ids\":[");
+        for (i, c) in ids.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            c.push_to(&mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// The kernel transactions this batch carries, `"seq":[first,last]`, when
+    /// the runner measures: a development page's frame sampler
+    /// joins its frames to them.
+    pub fn seq(mut self, range: Option<(u64, u64)>) -> Batch {
+        self.seq = range;
+        self
+    }
+
+    /// Failure lines already bounded by the runner, delivered once.
+    pub fn alerts(mut self, lines: Vec<String>) -> Batch {
+        self.alerts = lines;
+        self
+    }
+
+    /// With `"landing":true` while a released timer's continuation is out.
+    pub fn landing(mut self, landing: bool) -> Batch {
+        self.landing = landing;
+        self
+    }
+
+    /// Carry the runner deadline, not a poll interval.
+    /// The batch as one JSON document:
+    /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
+    /// the runner's clock after the call (an advance a timer refused stops at
+    /// that timer's due time); `"frames":true` while a frame task wants each
+    /// animation frame.
+    pub fn finish(
+        self,
+        timer_due_ms: Option<f64>,
+        frames: bool,
+        clock_ms: f64,
+        error: Option<&str>,
+    ) -> String {
+        let mut s = String::from("{\"ops\":[");
+        for (i, op) in self.ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(op);
+        }
+        s.push(']');
+        let timers = timer_due_ms.is_some();
+        if !self.alerts.is_empty() {
+            s.push_str(",\"alerts\":[");
+            for (i, line) in self.alerts.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
+        }
+        if let Some(due) = timer_due_ms {
+            push_text!(&mut s, ",\"timer_due_ms\":{}", Shortest(due));
+        }
+        if frames {
+            s.push_str(",\"frames\":true");
+        }
+        if self.collection_accepted {
+            s.push_str(",\"accepted\":true");
+        }
+        if self.landing {
+            s.push_str(",\"landing\":true");
+        }
+        if let Some((first, last)) = self.seq {
+            push_text!(&mut s, ",\"seq\":[{},{}]", first, last);
+        }
+        push_text!(
+            &mut s,
+            ",\"timers\":{},\"clock\":{},\"error\":",
+            timers,
+            Shortest(clock_ms)
+        );
+        match error {
+            Some(e) => quote(e, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+        s
+    }
+}
+
+/// A plan value as JSON.
+pub fn value_json(v: &exact_plan::Value, out: &mut String) {
+    use exact_plan::Value;
+    match v {
+        Value::Number(n) if n.is_finite() => Shortest(*n).push_to(out),
+        Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        v @ exact_plan::str_value!() => quote(v.text(), out),
+        Value::Option(Some(inner)) => value_json(inner, out),
+        Value::List(items) | Value::Record(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                value_json(item, out);
+            }
+            out.push(']');
+        }
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    #[test]
+    fn batches_carry_deadlines_and_omit_them_without_timers() {
+        let next = super::Batch::new().finish(Some(16.0), false, 0.0, None);
+        assert!(next.contains("\"timer_due_ms\":16,"), "{next}");
+        assert!(next.contains("\"timers\":true"), "{next}");
+        let empty = super::Batch::new().finish(None, false, 0.0, None);
+        assert!(!empty.contains("timer_due_ms"), "{empty}");
+        assert!(!empty.contains("frames"), "{empty}");
+        let frames = super::Batch::new().finish(None, true, 0.0, None);
+        assert!(frames.contains("\"frames\":true"), "{frames}");
+        assert!(empty.contains("\"timers\":false"), "{empty}");
+        let alerts = super::Batch::new()
+            .alerts(vec!["bad \"field\"\n".into()])
+            .finish(None, false, 0.0, None);
+        assert!(
+            alerts.contains("\"alerts\":[\"bad \\\"field\\\"\\n\"]"),
+            "{alerts}"
+        );
+        assert!(!empty.contains("alerts"));
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    #[test]
+    fn strings_are_json_with_every_control_escaped() {
+        let mut out = String::new();
+        super::quote("a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}é€😀", &mut out);
+        assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}é€😀\"");
+    }
+
+    /// Inline and shared text with the same bytes are one JSON text.
+    #[test]
+    fn inline_and_shared_text_are_one_json_text() {
+        use exact_plan::Value;
+        for s in [
+            "",
+            "bold",
+            "exactly14bytes",
+            "a\"b\n",
+            "longer than fourteen bytes",
+        ] {
+            let row =
+                |t: Value| Value::record(vec![t, Value::list(vec![Value::some(Value::str(s))])]);
+            let (mut a, mut b) = (String::new(), String::new());
+            super::value_json(&row(Value::str(s)), &mut a);
+            super::value_json(&row(Value::str_shared_for_tests(s)), &mut b);
+            assert_eq!(a, b);
+            let mut quoted = String::new();
+            super::quote(s, &mut quoted);
+            assert!(a.starts_with(&format!("[{quoted},")), "{a}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use exact_runner::StoreWrite;
+
+    /// A kept answer's bytes cross `localStorage` as base64 and come back
+    /// whole; a secret is its text.
+    #[test]
+    fn a_kept_answers_bytes_round_trip_through_the_page() {
+        let bytes = vec![0, 255, b'|', 0x80, b'\0'];
+        let mut batch = super::Batch::new();
+        batch.store(&StoreWrite {
+            name: "exact.kept.answer".into(),
+            value: Some(bytes.clone()),
+        });
+        batch.store(&StoreWrite {
+            name: "token".into(),
+            value: Some(b"s3cret".to_vec()),
+        });
+        let out = batch.finish(None, false, 0.0, None);
+        assert!(
+            out.contains("\"name\":\"exact.kept.answer\",\"value\":\"AP98gAA=\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("\"name\":\"token\",\"value\":\"s3cret\""),
+            "{out}"
+        );
+        // An older build's hex is kept empty: never used, and still forgettable
+        let page = "exact.kept.answer\0AP98gAA=\0token\0s3cret\0exact.kept.hex\0!!";
+        assert_eq!(
+            crate::abi::page_snapshot(page.as_bytes()),
+            [
+                ("exact.kept.answer".to_string(), bytes),
+                ("token".to_string(), b"s3cret".to_vec()),
+                ("exact.kept.hex".to_string(), Vec::new())
+            ]
+        );
+    }
+}

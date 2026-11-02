@@ -1,0 +1,633 @@
+use exact_kernel::Kernel;
+use exact_runner::{DataError, DataSource, Runner, Value};
+struct NoData;
+impl DataSource for NoData {
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        panic!("unexpected {name}")
+    }
+    fn ready(&self) -> bool {
+        false
+    }
+}
+const SOURCE: &str = include_str!("../../../corpus/surface.contract");
+#[test]
+fn bake_defaults_are_the_first_frame_and_never_kept_or_typescript() {
+    let p = contract::bake(contract::compile(SOURCE).unwrap(), NoData).unwrap();
+    assert_eq!(
+        Value::from_bytes(p.bytes(p.resources[0].initial)).unwrap(),
+        Value::record(vec![Value::Number(0.)])
+    );
+    assert!(p.resources[0].reader);
+    assert!(!contract::typescript(&p).unwrap().contains("exactSurface"));
+    let mut r = Runner::boot(p, NoData, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    r.set_surface_record("world", Some(r#"{"beacons":1}"#))
+        .unwrap();
+    assert_eq!(
+        r.resource("hud"),
+        Some(&Value::record(vec![Value::Number(1.)]))
+    );
+    r.set_surface_record("status", Some(r#"{"ready":true}"#))
+        .unwrap();
+    assert_eq!(
+        r.resource("status"),
+        Some(&Value::record(vec![Value::Bool(true)]))
+    );
+    assert_eq!(
+        r.resource("same"),
+        Some(&Value::record(vec![Value::Bool(false)]))
+    );
+    r.set_surface_record("world", Some(r#"{"beacons":2,"ready":true}"#))
+        .unwrap();
+    assert_eq!(
+        r.resource("same"),
+        Some(&Value::record(vec![Value::Bool(true)]))
+    );
+    assert!(r.take_store_writes().is_empty());
+}
+#[test]
+fn lint_refuses_arity_nonliteral_nonrecord_and_unknown_surface_by_name() {
+    let cases = [
+        SOURCE.replace("exactSurface(\"world\")", "exactSurface()"),
+        SOURCE.replace(
+            "exactSurface(\"world\")",
+            "exactSurface(\"world\", \"other\")",
+        ),
+        SOURCE.replace("exactSurface(\"world\")", "exactSurface(12)"),
+        SOURCE
+            .replace(
+                "  resource hud",
+                "  state surfaceName = \"world\"\n  resource hud",
+            )
+            .replace("exactSurface(\"world\")", "exactSurface(surfaceName)"),
+        SOURCE.replace("exactSurface(\"world\")", "exactSurface(\"missing\")"),
+    ];
+    let mut nonrecord = contract::compile(SOURCE).unwrap();
+    let number = nonrecord.fields[0].ty;
+    nonrecord.resources[0].ty = number;
+    assert!(matches!(
+        contract::bake(nonrecord, NoData),
+        Err(contract::BakeError::Lint {
+            id: "bake-surface-record",
+            ..
+        })
+    ));
+    for source in cases {
+        let p = contract::compile(&source).unwrap();
+        let error = contract::bake(p, NoData).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                contract::BakeError::Lint {
+                    id: "bake-surface-record",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("hud"));
+    }
+}
+
+#[test]
+fn viewport_and_delivery_readers_choose_subsets_without_source_unification() {
+    for (source, fields) in [
+        ("exactViewport", ["width: number", "height: number"]),
+        (
+            "exactDelivery",
+            ["stream: string", "compatibilityId: string"],
+        ),
+    ] {
+        let text = format!("shape A\n  {}\nshape B\n  {}\ncomponent App\n  resource a = {source}() as shape A\n  resource b = {source}() as shape B\n  view\n    text \"facts\"\n", fields[0], fields[1]);
+        let p = contract::compile(&text).unwrap();
+        // Named once in the plan's source table, never unified.
+        assert_eq!(p.sources.len(), 1);
+        contract::bake(p, NoData).unwrap();
+    }
+}
+
+#[test]
+fn control_action_is_a_canvas_child_property() {
+    let source = "component Controls\n  view\n    canvas\n      button action=\"jump\" testId=\"jump\"\n        text \"Jump\"\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(exact_runner::agent::tree(&r).contains(r#""action":"jump""#));
+    let outside = source
+        .replace("    canvas\n", "")
+        .replace("      button", "    button")
+        .replace("        text", "      text");
+    assert!(contract::compile(&outside)
+        .unwrap_err()
+        .to_string()
+        .contains("analyze-control-parent"));
+    assert!(
+        contract::compile(&source.replace("button action", "view action"))
+            .unwrap_err()
+            .to_string()
+            .contains("analyze-control-parent")
+    );
+}
+
+#[test]
+fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
+    let source = r#"component Named
+  state paused = false
+  state again = false
+  action pause
+    paused = not paused
+  view
+    canvas surface=world(restart=again, seed=min(9, 7), paused=paused)
+"#;
+    let compiled = contract::compile(source).unwrap();
+    let plan = exact_plan::Plan::decode(&compiled.encode()).unwrap();
+    assert_eq!(compiled.encode(), plan.encode());
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = runner.take_surface_updates().pop().unwrap();
+    assert_eq!(first.names, ["restart", "seed", "paused"]);
+    assert_eq!(
+        first.arguments_json(),
+        r#"{"restart":false,"seed":7,"paused":false}"#
+    );
+    runner.act("pause", vec![]).unwrap();
+    let next = runner.take_surface_updates().pop().unwrap();
+    assert_eq!(next.view, first.view);
+    assert_eq!(
+        next.arguments_json(),
+        r#"{"restart":false,"seed":7,"paused":true}"#
+    );
+    runner.advance(100.).unwrap();
+    assert!(runner.take_surface_updates().is_empty());
+    for (call, diagnostic) in [
+        ("world(seed=7, seed=8)", "duplicate surface argument `seed`"),
+        (
+            "world(7, paused=false)",
+            "either named or positional surface arguments (`paused` is named)",
+        ),
+        (
+            "world(seed=7, false)",
+            "either named or positional surface arguments (`seed` is named)",
+        ),
+        ("world(seed=missing)", "unknown name `missing`"),
+        (
+            "world(seed=min(a=1, b=2))",
+            "another call's arguments are positional",
+        ),
+    ] {
+        let bad = source.replace("world(restart=again, seed=min(9, 7), paused=paused)", call);
+        let error = contract::compile(&bad).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+    let child = "component App\n  state seed = 11\n  view\n    Scene(seed=seed)\ncomponent Scene\n  props\n    seed: number\n  view\n    canvas surface=world(seed=seed)\n";
+    let plan = contract::compile(child).unwrap();
+    let mut inlined = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(
+        inlined.take_surface_updates()[0].arguments_json(),
+        r#"{"seed":11}"#
+    );
+    let mut signed = first;
+    signed.values[1] = Value::Number(-0.0);
+    assert!(
+        signed.arguments_json().contains("\"seed\":-0"),
+        "binding transport preserves signed zero"
+    );
+    let mut bad = compiled;
+    let args = bad.surfaces[0].args;
+    let first = args.iter().next().unwrap().0 as usize;
+    bad.surface_args[first + 1].name = bad.surface_args[first].name;
+    assert!(bad.validate().is_err());
+    assert!(
+        exact_plan::Plan::decode(&bad.encode()).is_err(),
+        "decoder also refuses duplicate argument names"
+    );
+}
+
+#[test]
+fn d6_empty_v5_surface_call_is_named_and_v4_refuses() {
+    let plan = contract::compile("component App\n  view\n    canvas surface=world()\n").unwrap();
+    assert_eq!(plan.surfaces[0].mode, exact_plan::SurfaceArgsMode::Named);
+    let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
+    let mut runner = Runner::boot(
+        plan.clone(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.take_surface_updates()[0].arguments_json(), "{}");
+    let mut old = plan.encode();
+    old[4..8].copy_from_slice(&4u32.to_le_bytes());
+    assert!(matches!(
+        exact_plan::Plan::decode(&old),
+        Err(exact_plan::PlanError::UnsupportedVersion(4))
+    ));
+}
+#[test]
+fn r13_colon_call_refuses_with_equals_hint() {
+    let error = contract::compile("component App\n  view\n    canvas surface=world(seed: 7)\n")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("seed="), "{error}");
+}
+
+/// A game's declaration from before an `Options` edit
+/// never hides the compile's own refusals, warns rather than refuses while the
+/// game's Rust is newer, and never stops `contract rust`.
+#[test]
+fn a_stale_surface_declaration_warns_and_hides_nothing() {
+    let dir = std::env::temp_dir().join(format!("contract-stale-surfaces-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    std::fs::create_dir_all(dir.join("logic/src")).unwrap();
+    let declaration = dir.join(".shells/surfaces.json");
+    std::fs::write(&declaration, r#"{"world":[{"name":"seed"}]}"#).unwrap();
+    let path = dir.join("app.contract");
+    let broken =
+        "component App\n  state n = 1 + \"one\"\n  view\n    canvas surface=world(level=2)\n";
+    std::fs::write(&path, broken).unwrap();
+    let ids = |all: Vec<contract::CompileError>| all.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    // A bake checks against the declaration its GPU build just wrote: both refusals, together.
+    let all = contract::compile_path_all(&path, false).err().unwrap();
+    assert_eq!(ids(all), ["type-operand", "analyze-surface-arguments"]);
+    // Rust newer than the declaration: the author's build says so and refuses only the type.
+    let lib = dir.join("logic/src/lib.rs");
+    std::fs::write(&lib, "").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(&declaration)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let surfaces = contract::surface_findings(&path).unwrap();
+    assert_eq!(surfaces.newer, Some(lib.canonicalize().unwrap()));
+    assert_eq!(ids(surfaces.findings), ["analyze-surface-arguments"]);
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let severities: Vec<(&str, &str)> = reply
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["id"].as_str().unwrap(), d["severity"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        severities,
+        [
+            ("type-operand", "error"),
+            ("analyze-surface-arguments", "warning")
+        ],
+        "under --json the stale declaration's findings are the array's warnings"
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    let out = run(&["build", path.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&out.stderr)
+        .contains("warning: .shells/surfaces.json is older than"));
+    // Without the type error the build passes, and `contract rust` writes its shapes either way.
+    std::fs::write(
+        &path,
+        "component App\n  view\n    canvas surface=world(level=2)\n",
+    )
+    .unwrap();
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    let reply: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(reply[0]["severity"], "warning", "{reply}");
+    assert_eq!(reply.as_array().unwrap().len(), 1, "{reply}");
+    assert!(out.status.success());
+    std::fs::File::options()
+        .write(true)
+        .open(&declaration)
+        .unwrap()
+        .set_modified(std::time::SystemTime::now())
+        .unwrap();
+    let out = run(&["rust", path.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("warning:"));
+    let out = run(&["build", path.to_str().unwrap(), "--json"]);
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("analyze-surface-arguments"),
+        "a current declaration refuses"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn file_compilation_checks_surface_arguments_at_the_source() {
+    let dir = std::env::temp_dir().join(format!("contract-surfaces-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let declaration = dir.join(".shells/surfaces.json");
+    std::fs::write(
+        &declaration,
+        r#"{"world":[{"name":"seed"},{"name":"paused"},{"name":"restart"}]}"#,
+    )
+    .unwrap();
+    let path = dir.join("app.contract");
+    for (call, expected) in [
+        ("world(sead=7)", "sead"),
+        ("world(1, false, false, 4)", "got 4"),
+        ("missing()", "unknown surface"),
+    ] {
+        let source = format!("component App\n  view\n    canvas surface={call}\n");
+        let error = contract::compile_path_source(&path, &source).unwrap_err();
+        assert_eq!(error.id, "analyze-surface-arguments");
+        assert!(error.message.contains(expected), "{error}");
+        assert_eq!(error.file.as_deref(), Some(path.as_path()));
+        assert_eq!(error.span.line, 3);
+        let marked = &source.lines().nth(2).unwrap()
+            [error.span.col as usize - 1..error.span.end_col as usize - 1];
+        assert_eq!(
+            marked,
+            if expected == "sead" {
+                "sead"
+            } else {
+                call.split('(').next().unwrap()
+            }
+        );
+    }
+    for call in [
+        "world()",
+        "world(7)",
+        "world(seed=7)",
+        "world(paused=true, seed=7)",
+    ] {
+        let source = format!("component App\n  view\n    canvas surface={call}\n");
+        let checked = contract::compile_path_source(&path, &source).unwrap();
+        assert_eq!(
+            checked.encode(),
+            contract::compile(&source).unwrap().encode(),
+            "validation leaves plan bytes unchanged"
+        );
+    }
+    let imported = dir.join("child.contract");
+    std::fs::write(
+        &imported,
+        "component Child\n  view\n    canvas surface=world(typo=7)\n",
+    )
+    .unwrap();
+    let source = "use Child from \"./child.contract\"\ncomponent App\n  view\n    Child()\n";
+    let error = contract::compile_path_source(&path, source).unwrap_err();
+    let diagnostic: serde_json::Value = serde_json::from_str(&error.to_json()).unwrap();
+    assert_eq!(
+        diagnostic["file"],
+        imported.canonicalize().unwrap().to_str().unwrap()
+    );
+    assert_eq!(diagnostic["line"], 3);
+    assert_eq!(error.id, "analyze-surface-arguments");
+
+    for malformed in ["{", r#"{"world":[{"default":0}]}"#, "[]"] {
+        std::fs::write(&declaration, malformed).unwrap();
+        let error = contract::compile_path_source(&path, source).unwrap_err();
+        assert_eq!(error.id, "analyze-surface-declaration");
+        assert_eq!(
+            error.file.as_deref(),
+            Some(declaration.canonicalize().unwrap().as_path())
+        );
+    }
+    std::fs::remove_file(&declaration).unwrap();
+    assert!(
+        contract::compile_path_source(&path, source).is_ok(),
+        "a plain surface without an emitted interface retains runtime binding"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn r13_surface_call_corpus_fixtures_roundtrip() {
+    for source in [
+        include_str!("../../../corpus/surface-named.contract"),
+        include_str!("../../../corpus/surface-empty.contract"),
+        include_str!("../../../corpus/surface-short.contract"),
+    ] {
+        let p = contract::compile(source).unwrap();
+        assert_eq!(
+            exact_plan::Plan::decode(&p.encode()).unwrap().encode(),
+            p.encode()
+        );
+    }
+}
+
+#[test]
+fn finite_surface_defaults_include_nested_omitted_fields() {
+    let source = r#"shape Nested
+  one: enum<"a|b","n🥳">
+  maybe: option<enum<"a|b","n🥳">>
+  many: enum<"a|b","n🥳">[]
+shape State
+  state: enum<"a|b","n🥳">
+  nested: Nested
+component App
+  resource hud = exactSurface("world") as shape State
+  view
+    canvas surface=world()
+      text hud.state
+"#;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let default = Value::record(vec![
+        Value::str("a|b"),
+        Value::record(vec![
+            Value::str("a|b"),
+            Value::Option(None),
+            Value::list(vec![]),
+        ]),
+    ]);
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(runner.resource("hud"), Some(&default));
+    for json in ["{}", r#"{"nested":{}}"#] {
+        runner.set_surface_record("world", Some(json)).unwrap();
+        assert_eq!(runner.resource("hud"), Some(&default));
+    }
+    runner
+        .set_surface_record("world", Some(r#"{"state":"n🥳"}"#))
+        .unwrap();
+    let Value::Record(fields) = runner.resource("hud").unwrap() else {
+        panic!("record")
+    };
+    assert_eq!(fields[0], Value::str("n🥳"));
+    assert!(runner
+        .set_surface_record("world", Some(r#"{"state":"invalid"}"#))
+        .is_err());
+}
+
+/// A button's `aria-keyshortcuts` on a key the game's
+/// `Actions` bind (`.shells/keys.json`, from its GPU build) is a warning
+/// naming both, through a component prop too; it refuses nothing, and a
+/// key no action binds, or a game without the declaration, says nothing.
+#[test]
+fn a_shortcut_on_a_key_the_game_binds_warns() {
+    let dir = std::env::temp_dir().join(format!("contract-shortcut-keys-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        "component App\n  view\n    canvas surface=world()\n      Shop(hotkey=\"1\")\n      button action=\"jump\" aria-keyshortcuts=\"Shift+J 9\" aria-label=\"Jump\"\n        text \"Jump\"\ncomponent Shop\n  props\n    hotkey: string\n  view\n    button action=\"buy\" aria-keyshortcuts=hotkey aria-label=\"Buy\"\n      text \"Buy\"\n",
+    )
+    .unwrap();
+    assert!(
+        contract::shortcut_findings(&path).unwrap().is_empty(),
+        "no declaration, no warning"
+    );
+    // A game whose last GPU build wrote no keys is told so.
+    std::fs::write(dir.join(".shells/surfaces.json"), r#"{"world":[]}"#).unwrap();
+    let ids =
+        |found: Vec<contract::CompileError>| found.into_iter().map(|e| e.id).collect::<Vec<_>>();
+    assert_eq!(
+        ids(contract::shortcut_findings(&path).unwrap()),
+        ["analyze-shortcut-keys-stale"]
+    );
+    std::fs::write(
+        dir.join(".shells/keys.json"),
+        r#"{"world":{"Digit1":["one"],"KeyJ":["jump"],"KeyW":["move"]}}"#,
+    )
+    .unwrap();
+    let found = contract::shortcut_findings(&path).unwrap();
+    let said: Vec<_> = found
+        .iter()
+        .map(|e| (e.id.as_str(), e.is_warning(), e.span.line))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            ("analyze-shortcut-world-key", true, 5),
+            ("analyze-shortcut-world-key", true, 11)
+        ],
+        "{found:?}"
+    );
+    // `Shift+J` takes Shift+KeyJ alone: the world still hears J pressed otherwise.
+    assert!(
+        found[0]
+            .message
+            .contains("takes KeyJ pressed with exactly Shift held")
+            && found[0]
+                .message
+                .contains("with other modifiers still reaches it")
+            && found[0].message.contains("button's own `action`"),
+        "{}",
+        found[0]
+    );
+    assert!(
+        found[1]
+            .message
+            .contains("\"1\" takes Digit1 pressed with no modifier held")
+            && found[1]
+                .message
+                .contains("does not hear that press as `one`"),
+        "{}",
+        found[1]
+    );
+    assert_eq!(found[1].related.len(), 1, "the use that passed \"1\"");
+    assert_eq!(found[1].related[0].span.line, 4);
+    // Rust newer than the keys: they may predate an `Actions` edit.
+    std::fs::create_dir_all(dir.join("logic/src")).unwrap();
+    std::fs::write(dir.join("logic/src/lib.rs"), "").unwrap();
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(dir.join(".shells/keys.json"))
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let stale = contract::shortcut_findings(&path).unwrap();
+    assert_eq!(stale.len(), 3, "{stale:?}");
+    assert!(
+        stale[2]
+            .message
+            .starts_with(".shells/keys.json is older than"),
+        "{}",
+        stale[2]
+    );
+    let compiled = contract::compile_path_all(&path, false);
+    assert!(
+        compiled.is_ok(),
+        "a warning refuses nothing: {:?}",
+        compiled.err()
+    );
+    let (_, warned) = contract::compile_path_all_with_warnings(&path, false);
+    assert_eq!(
+        warned
+            .iter()
+            .filter(|e| e.id == "analyze-shortcut-world-key")
+            .count(),
+        2,
+        "a build prints them"
+    );
+    assert!(warned.iter().any(|e| e.id == "analyze-shortcut-keys-stale"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The modifiers a chord as ARIA spells it holds and the physical keys
+/// that type its key with exactly those held, which the shortcut warning
+/// compares with the codes `Actions` bind.
+#[test]
+fn a_chord_names_its_modifiers_and_the_physical_keys_that_type_it() {
+    let codes = contract_analyze::chord_codes;
+    let none: Vec<&str> = Vec::new();
+    let names = |chord| codes(chord).1;
+    assert_eq!(
+        codes("1"),
+        (none.clone(), vec!["Digit1".into(), "Numpad1".into()])
+    );
+    assert_eq!(codes("Shift+a"), (vec!["Shift"], vec!["KeyA".into()]));
+    assert_eq!(codes("Space"), (none.clone(), vec!["Space".into()]));
+    assert_eq!(names("Enter"), ["Enter", "NumpadEnter"]);
+    assert_eq!(names("F13"), ["F13"]);
+    // A key Shift types is its main-row key only with Shift held; the keypad's either way.
+    assert_eq!(names("*"), ["NumpadMultiply"]);
+    assert_eq!(names("Shift+*"), ["Digit8", "NumpadMultiply"]);
+    assert_eq!(
+        codes("Control+Plus"),
+        (vec!["Control"], vec!["NumpadAdd".into()])
+    );
+    assert_eq!(codes("Meta++"), (vec!["Meta"], vec!["NumpadAdd".into()]));
+    assert_eq!(names("Control+Shift+Plus"), ["Equal", "NumpadAdd"]);
+    assert_eq!(names("Shift+!"), ["Digit1"]);
+    assert_eq!(names("-"), ["Minus", "NumpadSubtract"]);
+    assert_eq!(names("Shift+_"), ["Minus"]);
+    assert_eq!(names("Shift+-"), ["NumpadSubtract"]);
+    // Chords no key types with exactly their modifiers on a US layout.
+    for chord in [
+        "!",
+        "_",
+        "Shift+1",
+        "Control+Shift+1",
+        "F36",
+        "Volume",
+        "Hyper+K",
+    ] {
+        assert!(names(chord).is_empty(), "{chord}: {:?}", names(chord));
+    }
+}

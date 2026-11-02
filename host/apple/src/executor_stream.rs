@@ -1,0 +1,558 @@
+//! Answers that keep coming, natively: a streamed `fetch` whose body is
+//! server-sent events, opened by the worker that owns the transport and read on
+//! a thread of its own, so an open stream holds no I/O worker. Each event is
+//! one `Outcome::Message` to the ticket; anything that ends the body ends the
+//! stream. The host never reconnects on its own.
+//!
+//! A `ws:` or `wss:` URL is a WebSocket instead, admitted
+//! by `net.websocket`: each text message is one `Message`, and the far
+//! side's close, a binary message or one over the ceiling ends it. Nothing
+//! is sent: the request's method, headers and body are not used, as a
+//! browser's `WebSocket` could not send them either. A request that says
+//! `socket` owns a two-way socket instead (`socket.rs`).
+//! A request that says `bytes` reads a 2xx body that is not
+//! `text/event-stream` as a byte stream instead of one answer (`bytes.rs`).
+//! An upload (`upload_progress`) delivers the body's bytes sent as they go
+//! and then its reply, read whole, as the one answer that ends it.
+use super::{
+    check_headers, complete, failed, fetch_failure, fetch_request, has_ready, wake, Completed,
+    Deadline, Shared, MAX_BODY,
+};
+use exact_runner::{FailureKind, HttpScheduling, Message, Outcome, Request, Response};
+use ibex2::stdlib::{
+    abort::AbortController,
+    fetch::{Sent, StreamingResponse},
+    websocket::{Incoming, MessageSource},
+};
+use std::sync::Arc;
+use std::time::Duration;
+pub(super) use upload::Uploads;
+pub(super) use upload::{forget as forget_uploads, freed as place_freed, queue as queue_upload};
+use upload::{progress, timed_out, COPIES};
+pub(super) use upload::{start_waiting as start_uploads, waiting_full as uploads_full};
+
+/// What a stream opened as.
+enum Opened {
+    Events(StreamingResponse, usize),
+    Bytes(StreamingResponse, usize),
+    Socket(Box<dyn MessageSource>, usize),
+    /// A long poll, asked by its own loop: its first request and per-reply ceiling.
+    LongPoll(Request, usize),
+}
+pub(super) use socket::{close as close_sockets, release, Socket};
+
+/// A WebSocket's URL (the scheme is the whole spelling).
+pub(super) fn is_socket(url: &str) -> bool {
+    let scheme = url.split(':').next().unwrap_or("");
+    scheme.eq_ignore_ascii_case("ws") || scheme.eq_ignore_ascii_case("wss")
+}
+
+/// A stream's own thread: it opens with a transport of its own (so it never
+/// waits behind held replies for a worker or a lease), then reads to the end.
+/// When a stream ends, an upload waiting may take its place (`upload.rs`).
+pub(super) fn run(
+    shared: &Arc<Shared>,
+    ticket: u64,
+    request: Request,
+    forced: bool,
+    grants: &str,
+    host: &dyn Fn() -> ibex2::host::Host,
+    abort: AbortController,
+) {
+    opened(shared, ticket, request, forced, grants, host, abort, None);
+    upload::start(shared);
+}
+
+/// [`run`]'s stream, an upload with its place in the upload budget.
+#[allow(clippy::too_many_arguments)]
+fn opened(
+    shared: &Arc<Shared>,
+    ticket: u64,
+    mut request: Request,
+    forced: bool,
+    grants: &str,
+    host: &dyn Fn() -> ibex2::host::Host,
+    abort: AbortController,
+    mut held: Option<upload::Held>,
+) {
+    // Retirement aborts every stream, as it does every job.
+    let _retiring = {
+        let abort = abort.clone();
+        shared.abort.signal().register(move || abort.abort())
+    };
+    if shared.abort.signal().aborted() {
+        abort.abort();
+    }
+    // A local listener, on this thread until it is let go.
+    if request.listen.is_some() {
+        return listen::run(shared, ticket, request, grants, abort);
+    }
+    // An upload's deadline (`exactTimeout`) is the whole exchange's, armed
+    // before its file is read, as a plain request's is.
+    let timeout = request.timeout_ms.filter(|_| request.upload_progress);
+    let deadline = match timeout.map(|ms| Deadline::arm(ms, &abort)).transpose() {
+        Ok(deadline) => deadline,
+        Err(why) => return complete(shared, ticket, failed(FailureKind::Refused, why)),
+    };
+    let sent = (request.upload_progress).then(|| progress(shared, ticket, abort.signal()));
+    let two_way = request.socket;
+    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // A source's scope narrows the app's grants, as on the workers.
+        let admitted = match request.grants.as_deref() {
+            Some(scope) => exact_data::storage::scope(grants, Some(scope)).map(str::to_string),
+            None => Ok(grants.to_string()),
+        };
+        let bindings = admitted.and_then(|g| {
+            ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&g))
+                .map(|g| super::reach::gate_bindings(host().endow(g), request.reach))
+                .map_err(|e| format!("the app's grants did not parse: {e}"))
+        });
+        match bindings {
+            Ok(b) if request.long_poll.is_some() => {
+                let limit = match request.http {
+                    HttpScheduling::Ordered => MAX_BODY,
+                    HttpScheduling::Independent { max_response_bytes } => {
+                        max_response_bytes as usize
+                    }
+                };
+                Ok((Opened::LongPoll(request.clone(), limit), b))
+            }
+            Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
+            // A body from an app file, read as the stream opens.
+            Ok(b) => {
+                super::body::resolve(shared.roots_for(&request), grants, &mut request, &|| {
+                    abort
+                        .signal()
+                        .aborted()
+                        .then(|| failed(FailureKind::Aborted, "native request aborted"))
+                })
+                .and_then(|()| {
+                    // An upload's place in the budget, held until its
+                    // exchange ends (`open` reads it whole), is its body's.
+                    if let Some(held) = held.as_mut() {
+                        held.keep(request.body.len().saturating_mul(COPIES));
+                    }
+                    open(Ok(&b), request, forced, &abort, sent)
+                })
+                .map(|opened| (opened, b))
+            }
+            Err(message) => Err(failed(FailureKind::Refused, message)),
+        }
+    }))
+    .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
+    drop(held);
+    let passed = deadline.as_ref().is_some_and(Deadline::passed);
+    let opened = opened.map_err(|end| timed_out(end, passed, timeout.unwrap_or(0)));
+    match opened {
+        // The bindings live as long as the body they opened.
+        Ok((Opened::Events(response, limit), _bindings)) => {
+            read_events(shared, ticket, response, limit, abort)
+        }
+        Ok((Opened::Bytes(response, limit), _bindings)) => {
+            bytes::read(shared, ticket, response, limit, abort)
+        }
+        Ok((Opened::Socket(socket, limit), _bindings)) if two_way => {
+            socket::read(shared, ticket, socket, limit, abort)
+        }
+        Ok((Opened::Socket(socket, _), _bindings)) => read_socket(shared, ticket, socket, abort),
+        Ok((Opened::LongPoll(request, limit), bindings)) => {
+            long_poll::run(shared, ticket, request, forced, &bindings, limit, abort)
+        }
+        Err(outcome) => complete(shared, ticket, outcome),
+    }
+}
+
+/// Open a WebSocket, admitted by `net.websocket`; its ceiling is per message.
+fn open_socket(
+    b: &ibex2::host::Bindings,
+    request: Request,
+    abort: &AbortController,
+) -> Result<Opened, Outcome> {
+    let limit = match request.http {
+        HttpScheduling::Ordered => MAX_BODY,
+        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
+    };
+    b.websocket
+        .open(&request.url, limit, &abort.signal())
+        .map(|socket| Opened::Socket(socket, limit))
+        .map_err(|e| fetch_failure(e, abort))
+}
+
+/// Read an open socket to its end, delivering each text message.
+fn read_socket(
+    shared: &Shared,
+    ticket: u64,
+    mut socket: Box<dyn MessageSource>,
+    abort: AbortController,
+) {
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
+        match socket.next() {
+            Ok(Incoming::Text(data)) => {
+                let m = Message {
+                    data,
+                    ..Message::default()
+                };
+                if !message(shared, ticket, m) {
+                    return failed(FailureKind::Aborted, "the stream was let go");
+                }
+            }
+            Ok(Incoming::Binary(_)) => {
+                return failed(
+                    FailureKind::Refused,
+                    "a binary message: a socket's messages are text",
+                )
+            }
+            Ok(Incoming::TooLarge) => {
+                return failed(
+                    FailureKind::Refused,
+                    "a message exceeds the response ceiling",
+                )
+            }
+            Ok(Incoming::Closed { code, reason }) => {
+                return failed(FailureKind::Network, socket_closed(code, &reason))
+            }
+            Err(_) if abort.signal().aborted() => {
+                return failed(FailureKind::Aborted, "native request aborted")
+            }
+            Err(e) => return failed(FailureKind::Network, e.to_string()),
+        }
+    }))
+    .unwrap_or_else(|_| failed(FailureKind::Aborted, "the stream reader panicked"));
+    drop(socket);
+    complete(shared, ticket, run);
+}
+
+/// One message of the open stream `ticket`, false once nobody wants more
+/// (forgotten, retired, ended). The newest undelivered message per ticket is
+/// kept and the ones it replaces are counted on it: display
+/// data coalesces, and a log sees the gap and re-asks from its cursor.
+fn message(shared: &Shared, ticket: u64, message: Message) -> bool {
+    deliver(shared, ticket, message, false)
+}
+
+/// A long poll's reply that is no event: a message of the
+/// reserved event `LONG_POLL_REPLY`, which never takes an event's place nor
+/// counts as one dropped, and which an event that follows replaces.
+fn reply(shared: &Shared, ticket: u64) -> bool {
+    let m = Message {
+        event: exact_runner::LONG_POLL_REPLY.into(),
+        ..Message::default()
+    };
+    deliver(shared, ticket, m, true)
+}
+
+fn deliver(shared: &Shared, ticket: u64, mut message: Message, reply: bool) -> bool {
+    let mut state = shared.state.lock().unwrap();
+    if state.retired {
+        return false;
+    }
+    let Some((lane, elapsed_ms)) = state
+        .running
+        .iter()
+        .find(|run| run.ticket == ticket && !run.forgotten)
+        .map(|run| {
+            (
+                run.lane,
+                run.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            )
+        })
+    else {
+        return false;
+    };
+    // An upload's start is never folded into another message, nor another
+    // into it: it says the upload reached the network.
+    let start =
+        |done: &Completed| matches!(&done.outcome, Outcome::Message(m) if m.upload_started());
+    let waiting = (state.completed[lane].iter_mut())
+        .find(|done| done.ticket == ticket && done.message && !start(done))
+        .filter(|_| !message.upload_started());
+    match waiting {
+        Some(done) if reply => {
+            done.elapsed_ms = elapsed_ms;
+        }
+        Some(done) if done.reply => {
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+            done.reply = false;
+        }
+        Some(done) => {
+            if let Outcome::Message(older) = &done.outcome {
+                message.coalesced = message
+                    .coalesced
+                    .saturating_add(older.coalesced)
+                    .saturating_add(1);
+            }
+            done.outcome = Outcome::Message(message);
+            done.elapsed_ms = elapsed_ms;
+        }
+        None => state.completed[lane].push_back(Completed {
+            elapsed_ms,
+            ticket,
+            outcome: Outcome::Message(message),
+            // Charged to the running stream: its ceiling covers one message.
+            bytes: 0,
+            message: true,
+            stream: true,
+            light: false,
+            again: false,
+            reply,
+        }),
+    }
+    if has_ready(&state) {
+        wake(&mut state);
+    }
+    true
+}
+
+/// How a socket's close reads, on every host: `the socket closed (1000)`,
+/// or with the far side's reason after a colon.
+pub fn socket_closed(code: u16, reason: &str) -> String {
+    if reason.is_empty() {
+        format!("the socket closed ({code})")
+    } else {
+        format!("the socket closed ({code}: {reason})")
+    }
+}
+
+/// Open `request` as a stream. `Ok` is an event stream to read, or a byte
+/// stream when the request says `bytes`, with its per-message ceiling;
+/// anything else is the stream's one answer, whole: a status that is not
+/// 2xx, a body that is not `text/event-stream` (unless `bytes`), an
+/// upload's reply, or the failure that kept it from opening. `sent` is told
+/// an upload's bytes as they are sent.
+fn open(
+    bindings: Result<&ibex2::host::Bindings, &str>,
+    request: Request,
+    forced: bool,
+    abort: &AbortController,
+    sent: Option<Sent>,
+) -> Result<Opened, Outcome> {
+    if abort.signal().aborted() {
+        return Err(failed(FailureKind::Aborted, "native request aborted"));
+    }
+    let b = bindings.map_err(|unbound| failed(FailureKind::Refused, unbound))?;
+    let limit = match request.http {
+        HttpScheduling::Ordered => MAX_BODY,
+        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
+    };
+    // A response with no body (Fetch's null body status, or to a `HEAD`) is
+    // the one answer, as the web's, whose `response.body` is null for it.
+    let as_bytes = request.bytes && !request.method.eq_ignore_ascii_case("HEAD");
+    let upload = request.upload_progress;
+    let timeout = request.timeout_ms.filter(|_| upload);
+    let mut req = fetch_request(request, forced);
+    if !upload && !req.headers.has("accept") {
+        req.headers.set("accept", "text/event-stream");
+    }
+    // The ceiling is per message: the stream as a whole has none.
+    req.max_body = Some(usize::MAX);
+    req.sent = sent;
+    // An upload's platform limits follow its deadline a second later, as a
+    // plain request's do (`execute`): the portable transport's 30 s for
+    // the whole exchange and URLSession's 60 s without data never end it
+    // first.
+    req.timeout = timeout.map(|ms| Duration::from_millis(u64::from(ms) + 1_000));
+    let r = b
+        .fetch
+        .stream(req, &abort.signal())
+        .and_then(check_headers)
+        .map_err(|e| fetch_failure(e, abort))?;
+    let events = !upload
+        && r.ok()
+        && r.headers.get("content-type").is_some_and(|t| {
+            t.split(';')
+                .next()
+                .is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream"))
+        });
+    if events {
+        return Ok(Opened::Events(r, limit));
+    }
+    if as_bytes && !upload && r.ok() && !matches!(r.status, 204 | 205) {
+        return Ok(Opened::Bytes(r, limit));
+    }
+    let (status, headers) = (r.status, r.headers.entries().to_vec());
+    let mut body = r.body;
+    let mut bytes = Vec::new();
+    let mut chunk = [0; 16 * 1024];
+    loop {
+        match body.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) if bytes.len() + n > limit => {
+                body.cancel();
+                return Err(failed(FailureKind::Refused, "HTTP response exceeds limit"));
+            }
+            Ok(n) => bytes.extend_from_slice(&chunk[..n]),
+            Err(e) => return Err(fetch_failure(e, abort)),
+        }
+    }
+    Err(Outcome::Response(Response {
+        status,
+        headers,
+        body: bytes,
+    }))
+}
+
+/// Read the open stream `ticket` to its end, delivering each event. It ends
+/// when the far side closes, the connection drops, an event is over the
+/// ceiling, or the runner lets the ticket go (forgetting aborts the read).
+fn read_events(
+    shared: &Shared,
+    ticket: u64,
+    response: StreamingResponse,
+    limit: usize,
+    abort: AbortController,
+) {
+    let mut body = response.body;
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut events = EventStream::new(limit);
+        let mut chunk = [0; 16 * 1024];
+        loop {
+            match body.read(&mut chunk) {
+                Ok(0) => return failed(FailureKind::Network, "the event stream ended"),
+                Ok(n) => match events.push(&chunk[..n]) {
+                    Ok(messages) => {
+                        for m in messages {
+                            if !message(shared, ticket, m) {
+                                return failed(FailureKind::Aborted, "the stream was let go");
+                            }
+                        }
+                    }
+                    Err(e) => return failed(FailureKind::Refused, e),
+                },
+                Err(_) if abort.signal().aborted() => {
+                    return failed(FailureKind::Aborted, "native request aborted")
+                }
+                Err(e) => {
+                    return failed(
+                        FailureKind::Network,
+                        e.to_string().chars().take(2048).collect::<String>(),
+                    )
+                }
+            }
+        }
+    }))
+    .unwrap_or_else(|_| failed(FailureKind::Aborted, "the stream reader panicked"));
+    body.cancel();
+    complete(shared, ticket, run);
+}
+
+/// A `text/event-stream` parser (HTML's "Parsing an event stream"): bytes
+/// in, dispatched events out. Lines end at CR, LF, or CRLF, even split
+/// across reads; `data` lines join with LF; `id` persists as the cursor;
+/// comments and `retry` are read and dropped (the host never reconnects).
+/// One event, or one line, over `limit` bytes is refused, never truncated.
+pub struct EventStream {
+    line: Vec<u8>,
+    after_cr: bool,
+    started: bool,
+    event: String,
+    data: String,
+    has_data: bool,
+    id: String,
+    limit: usize,
+}
+
+impl EventStream {
+    /// A parser whose events may carry up to `limit` bytes of data.
+    pub fn new(limit: usize) -> Self {
+        Self {
+            line: Vec::new(),
+            after_cr: false,
+            started: false,
+            event: String::new(),
+            data: String::new(),
+            has_data: false,
+            id: String::new(),
+            limit,
+        }
+    }
+
+    /// The events these bytes complete, in order.
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<Message>, &'static str> {
+        let mut out = Vec::new();
+        for &b in bytes {
+            if std::mem::take(&mut self.after_cr) && b == b'\n' {
+                continue;
+            }
+            match b {
+                b'\r' | b'\n' => {
+                    self.after_cr = b == b'\r';
+                    let line = std::mem::take(&mut self.line);
+                    if let Some(m) = self.line_done(&line)? {
+                        out.push(m);
+                    }
+                }
+                _ => {
+                    if self.line.len() >= self.limit.saturating_add(64) {
+                        return Err("an event exceeds the response ceiling");
+                    }
+                    self.line.push(b);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn line_done(&mut self, line: &[u8]) -> Result<Option<Message>, &'static str> {
+        let mut line = String::from_utf8_lossy(line).into_owned();
+        if !std::mem::replace(&mut self.started, true) {
+            if let Some(rest) = line.strip_prefix('\u{feff}') {
+                line = rest.to_string();
+            }
+        }
+        if line.is_empty() {
+            let event = std::mem::take(&mut self.event);
+            if !std::mem::take(&mut self.has_data) {
+                self.data.clear();
+                return Ok(None);
+            }
+            let mut data = std::mem::take(&mut self.data);
+            if data.ends_with('\n') {
+                data.pop();
+            }
+            return Ok(Some(Message {
+                event,
+                id: self.id.clone(),
+                data,
+                coalesced: 0,
+                binary: None,
+            }));
+        }
+        if line.starts_with(':') {
+            return Ok(None);
+        }
+        let (field, value) = match line.split_once(':') {
+            Some((field, value)) => (field, value.strip_prefix(' ').unwrap_or(value)),
+            None => (line.as_str(), ""),
+        };
+        match field {
+            "data" => {
+                if self.data.len() + value.len() + 1 > self.limit {
+                    return Err("an event exceeds the response ceiling");
+                }
+                self.data.push_str(value);
+                self.data.push('\n');
+                self.has_data = true;
+            }
+            "event" => self.event = value.to_string(),
+            "id" if !value.contains('\0') => self.id = value.to_string(),
+            _ => {}
+        }
+        Ok(None)
+    }
+}
+
+#[path = "executor_bytes.rs"]
+mod bytes;
+#[path = "executor_listen.rs"]
+pub(crate) mod listen;
+#[path = "executor_longpoll.rs"]
+mod long_poll;
+#[path = "executor_socket.rs"]
+mod socket;
+#[path = "executor_upload.rs"]
+mod upload;
+
+#[cfg(test)]
+#[path = "executor_stream_tests.rs"]
+mod tests;

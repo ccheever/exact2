@@ -1,0 +1,46 @@
+// The web host's own modules the JS target's runtime loads, copied beside it,
+// and the rewrites that point the runtime's `../web/…` imports at those copies.
+// One list for every runtime staged from host/web-js: a page (build.mjs) and
+// the differential driver's headless runtime (semantics/difftest/js/drive.mjs),
+// which lost the bundle when it kept a list of its own (intersect-glue.js,
+// 2026-10-12).
+import { cpSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+export const HOST_WEB_GLUE = [
+  // Loaded after first paint: motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, sounds.js; wakelock.js imports wakelock-glue.js, orientationlock.js orientationlock-glue.js.
+  'frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'agent-input.js', 'markup-editor.js', 'atoms.js', 'decorations.js', 'textflow-glue.js', 'timer-glue.js', 'timer-waits-glue.js', 'timer-observations.js',
+  'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'media-glue.js',
+  'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js', 'orientationlock-glue.js', 'menu-rows.js',
+  // Virtualized lists' browser half; animated images on the agent's clock (agent.js only); Canvas 2D's replayer.
+  'collection-glue.js', 'image-glue.js', 'canvas2d-glue.js',
+  // An iframe's navigation records and commands (commands.js, rt.js `onFrameNavigation`).
+  'frame-navigation.js', 'frame-messages.js',
+  // Sign-in, storage, request bodies, injected faults and the local network's spaces (ts-data.js, auth.js, admission.js, agent.js, modules.js).
+  'auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js', 'address-space.js',
+  // The scroll to a location's fragment, at its first (router.js).
+  'fragment.js',
+];
+
+/** Copy the host/web glue from the repository at `root` into `dir`. */
+export function stageHostGlue(root, dir) {
+  for (const f of HOST_WEB_GLUE) cpSync(resolve(root, 'host/web', f), resolve(dir, f));
+}
+
+/**
+ * What the differential driver's headless runtime copies from the repository
+ * at `root`, as paths relative to it: every host/web-js module, the glue, and
+ * navigation.js and its grant admission whole (build.mjs splits them for
+ * chunking).
+ */
+export function driverRuntime(root) {
+  const own = readdirSync(resolve(root, 'host/web-js')).filter(f => f.endsWith('.js')).sort().map(f => `host/web-js/${f}`);
+  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js', 'frame-messages.js'].map(f => `host/web/${f}`)];
+}
+
+/** A runtime module's `../web/…` imports, pointed at the copies beside it. */
+export const localImports = text => text
+  .replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'")
+  .replaceAll("'../web/faults.js'", "'./faults.js'")
+  .replaceAll("'../web/address-space.js'", "'./address-space.js'")
+  .replaceAll('"../web/address-space.js"', '"./address-space.js"');

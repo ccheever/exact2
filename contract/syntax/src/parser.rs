@@ -1,0 +1,1438 @@
+//! A recursive-descent parser over the lexer's tokens.
+//!
+//! Every rejection carries a stable id (`syntax-…`), a message, and a span.
+//! A refused top-level declaration is skipped to the next line that starts
+//! in the first column, so one run reports each declaration's first error.
+
+use crate::ast::*;
+use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::members::Deferred;
+use crate::Span;
+
+mod anatomy;
+mod color_profile;
+mod component;
+mod decls;
+mod decorations;
+mod expr;
+mod keyframes;
+mod media_session;
+mod midi;
+mod migration;
+pub(crate) use migration::parsed_with_edits;
+mod names;
+pub use names::is_reserved;
+mod params;
+mod parts;
+mod properties;
+#[path = "routes.rs"]
+mod routes;
+mod sequence;
+mod sounds;
+mod states;
+mod steps;
+mod theme;
+mod tool;
+mod view;
+pub use steps::{is_launch, same_launch};
+use steps::{launch_word, LAUNCH};
+
+/// A parse failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyntaxError {
+    /// Stable id.
+    pub id: &'static str,
+    /// What went wrong.
+    pub message: String,
+    /// Where.
+    pub span: Span,
+}
+
+impl From<LexError> for SyntaxError {
+    fn from(e: LexError) -> Self {
+        SyntaxError {
+            id: e.id,
+            message: e.message,
+            span: e.span,
+        }
+    }
+}
+
+impl std::fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} [{}] {}", self.span, self.id, self.message)
+    }
+}
+
+/// At most this many refusals from one file's lexing or parsing.
+pub const MAX_REFUSALS: usize = 20;
+
+/// Parse one file.
+pub fn parse(src: &str) -> Result<File, SyntaxError> {
+    parse_source(src, 0)
+}
+
+/// Parse a file with the loader's source identity on every token and error.
+pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
+    parse_source_all(src, source_id).map_err(|mut all| all.swap_remove(0))
+}
+
+/// Parse a file and report every refusal (at most [`MAX_REFUSALS`], except
+/// retired spellings, which are all reported): each
+/// line that does not lex, else each top-level declaration that does not
+/// parse — a refused declaration is skipped to the next line that starts in
+/// the first column, and parsing goes on from there — and within a component
+/// each member that does not parse.
+pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxError>> {
+    parse_source_partial(src, source_id).map_err(|partial| partial.errors)
+}
+
+/// A file some of which was refused: what parsed, when later passes can
+/// check it, and the names of what was refused.
+#[derive(Debug)]
+pub struct Partial {
+    /// The declarations and members that parsed; `None` when the file's
+    /// declarations cannot all be told apart (a line that does not lex, or
+    /// [`MAX_REFUSALS`] reached) or its first component was refused, which
+    /// would make another component the app.
+    pub file: Option<Box<File>>,
+    /// Every refusal, as [`parse_source_all`] reports them.
+    pub errors: Vec<SyntaxError>,
+    /// The names the refused declarations and members declared: what a later
+    /// pass says about one of them may be only that it is missing.
+    pub hidden: Vec<String>,
+}
+
+/// [`parse_source_all`], keeping what parsed beside the refusals.
+pub fn parse_source_partial(src: &str, source_id: u32) -> Result<File, Partial> {
+    parsed_with_edits(src, source_id).0
+}
+
+/// Parse lexer output and return its unchanged tokens for source-preserving tools.
+pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), SyntaxError> {
+    let mut p = Parser::new(tokens);
+    let file = p.file()?;
+    Ok((file, p.tokens))
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+    names: NameSpans,
+    /// Expressions (and prefix operators) open around the current token.
+    depth: u32,
+    view_depth: usize,
+    /// The tree depth of the expression last parsed.
+    last: usize,
+    /// Free calls of a method's name (`trim(s)`), each with its refusal: refused
+    /// at the end of the file unless the file declares a `fn`, shape or action
+    /// of that name.
+    free: Vec<(String, SyntaxError, Vec<crate::migrate::Edit>, bool)>,
+    retired: Vec<SyntaxError>,
+    edits: Vec<crate::migrate::Edit>,
+    /// Method calls (`s.trim()`, `xs.length`): refused at the end of the file
+    /// when it declares a `fn`, shape or action of that name, which the
+    /// rewritten call would reach where TypeScript's method never would.
+    methods: Vec<(String, Span, bool)>,
+    /// Whether the parser is in a members block: each
+    /// `free` and `methods` entry records it.
+    in_block: bool,
+    /// Whether a refused component member is recorded and skipped.
+    recover: bool,
+    /// The refusals recorded inside a declaration that was kept.
+    recovered: Vec<SyntaxError>,
+    /// What the refused declarations and members named ([`Partial::hidden`]).
+    hidden: Vec<String>,
+    /// Whether a component was refused before any component parsed.
+    first_refused: bool,
+}
+
+type R<T> = Result<T, SyntaxError>;
+
+fn duplicate<T>(what: &str, name: &str, span: Span, first: Span) -> R<T> {
+    Err(SyntaxError {
+        id: "syntax-duplicate-declaration",
+        message: format!("{what} `{name}` is declared twice; first declared at {first}"),
+        span,
+    })
+}
+
+impl Parser {
+    fn named_ident(&mut self, owner: Span) -> R<String> {
+        let (name, span) = self.ident()?;
+        self.names.names.insert(owner, span);
+        Ok(name)
+    }
+
+    fn source_ident(&mut self, owner: Span) -> R<String> {
+        let (name, span) = self.ident()?;
+        self.names.sources.insert(owner, span);
+        Ok(name)
+    }
+
+    fn peek(&self) -> &Token {
+        &self.tokens[self.pos.min(self.tokens.len() - 1)]
+    }
+
+    fn peek_kind(&self) -> &TokenKind {
+        &self.peek().kind
+    }
+
+    fn peek2(&self) -> &TokenKind {
+        &self.tokens[(self.pos + 1).min(self.tokens.len() - 1)].kind
+    }
+
+    fn next(&mut self) -> Token {
+        let t = self.peek().clone();
+        if self.pos < self.tokens.len() - 1 {
+            self.pos += 1;
+        }
+        t
+    }
+
+    fn at_ident(&self, word: &str) -> bool {
+        matches!(self.peek_kind(), TokenKind::Ident(w) if w == word)
+    }
+
+    fn at_punct(&self, p: &str) -> bool {
+        matches!(self.peek_kind(), TokenKind::Punct(q) if *q == p)
+    }
+
+    fn eat_punct(&mut self, p: &str) -> bool {
+        if self.at_punct(p) {
+            self.next();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn err<T>(&self, id: &'static str, message: impl Into<String>) -> R<T> {
+        Err(SyntaxError {
+            id,
+            message: message.into(),
+            span: self.peek().span,
+        })
+    }
+
+    fn expect_punct(&mut self, p: &'static str) -> R<Span> {
+        if self.at_punct(p) {
+            Ok(self.next().span)
+        } else {
+            self.err(
+                "syntax-expected",
+                format!("expected `{p}`, found {}", describe(self.peek_kind())),
+            )
+        }
+    }
+
+    fn expect_word(&mut self, w: &'static str) -> R<Span> {
+        if self.at_ident(w) {
+            Ok(self.next().span)
+        } else {
+            self.err(
+                "syntax-expected",
+                format!("expected `{w}`, found {}", describe(self.peek_kind())),
+            )
+        }
+    }
+
+    fn newline(&mut self) -> R<()> {
+        match self.peek_kind() {
+            TokenKind::Newline => {
+                self.next();
+                Ok(())
+            }
+            TokenKind::Eof => Ok(()),
+            other => {
+                // `if filter = "all"`: a comparison was meant. `x = a if c else b`:
+                // Python's conditional. `save: action(string)`: a typed action prop.
+                let before = self.pos.checked_sub(1).map(|i| &self.tokens[i].kind);
+                let hint = match other {
+                    TokenKind::Punct("=") => "; `==` compares, and only a statement assigns",
+                    TokenKind::Ident(w) if w == "if" => {
+                        "; a value chosen by a condition is `cond ? a : b`"
+                    }
+                    TokenKind::Punct("(") if matches!(before, Some(TokenKind::Ident(w)) if w == "action") => {
+                        "; an action prop is declared `action`, and what it is called with is inferred"
+                    }
+                    _ => "",
+                };
+                self.err(
+                    "syntax-expected-newline",
+                    format!("expected end of line, found {}{hint}", describe(other)),
+                )
+            }
+        }
+    }
+
+    /// Consume `Indent`, run `body` until the matching `Dedent`.
+    fn block<T>(&mut self, item: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {
+        if !matches!(self.peek_kind(), TokenKind::Indent) {
+            return Ok(Vec::new());
+        }
+        self.next();
+        self.block_rest(item)
+    }
+
+    fn block_rest<T>(&mut self, mut item: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {
+        let mut out = Vec::new();
+        loop {
+            match self.peek_kind() {
+                TokenKind::Dedent => {
+                    self.next();
+                    return Ok(out);
+                }
+                TokenKind::Eof => return Ok(out),
+                TokenKind::Newline => {
+                    self.next();
+                }
+                _ => out.push(item(self)?),
+            }
+        }
+    }
+
+    fn required_block<T>(
+        &mut self,
+        span: Span,
+        construct: &str,
+        item: impl FnMut(&mut Self) -> R<T>,
+    ) -> R<Vec<T>> {
+        let body = self.block(item)?;
+        if body.is_empty() {
+            return Err(SyntaxError {
+                id: "syntax-empty-block",
+                message: format!("`{construct}` needs a non-empty indented body"),
+                span,
+            });
+        }
+        Ok(body)
+    }
+
+    // ---- declarations -----------------------------------------------------
+
+    fn file(&mut self) -> R<File> {
+        self.declarations(false)
+            .map_err(|mut partial| partial.errors.swap_remove(0))
+    }
+
+    fn file_all(&mut self) -> Result<File, Partial> {
+        self.declarations(true)
+    }
+
+    /// The file's declarations. With `recover`, a refused declaration is
+    /// recorded and parsing resumes at the next line starting in column 1,
+    /// and a refused component member at the next member.
+    fn declarations(&mut self, recover: bool) -> Result<File, Partial> {
+        self.recover = recover;
+        let mut file = File::default();
+        let mut errors = Vec::new();
+        loop {
+            let start = self.pos;
+            self.in_block = false;
+            let declared = self.declaration(&mut file);
+            errors.append(&mut self.recovered);
+            match declared {
+                Ok(true) if errors.len() < MAX_REFUSALS => {}
+                Ok(true) => return Err(self.partial(None, errors)),
+                Ok(false) => {
+                    let declared = |name: &str| {
+                        file.fns.iter().any(|f| f.name == name)
+                            || file.shapes.iter().any(|s| s.name == name)
+                            || file
+                                .components
+                                .iter()
+                                .any(|c| c.actions.iter().any(|a| a.name == name))
+                    };
+                    // Whether a method's name is an action is the whole
+                    // component's to decide where another file may declare it:
+                    // in a members block, and anywhere in a
+                    // file whose components list members files.
+                    let host = file.components.iter().any(|c| !c.members.lines.is_empty());
+                    let mut deferred = Vec::new();
+                    // A free call of a refused declaration's or member's name may
+                    // be a call of it, as of one that parsed.
+                    let free = std::mem::take(&mut self.free);
+                    for (name, error, edits, in_block) in free {
+                        if declared(&name) || self.hidden.contains(&name) {
+                            continue;
+                        }
+                        if in_block || host {
+                            deferred.push(Deferred {
+                                name,
+                                if_action: false,
+                                in_block,
+                                error,
+                            });
+                        } else {
+                            errors.push(error);
+                            self.edits.extend(edits);
+                        }
+                    }
+                    errors.append(&mut self.retired);
+                    for (n, span, in_block) in std::mem::take(&mut self.methods) {
+                        let call = if n == "length" {
+                            ".length".to_string()
+                        } else {
+                            format!(".{n}(…)")
+                        };
+                        let error = SyntaxError {
+                            id: "syntax-method-shadowed",
+                            message: format!(
+                                "rename this file's `{n}`: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            ),
+                            span,
+                        };
+                        if declared(&n) {
+                            errors.push(error);
+                        } else if in_block || host {
+                            let message = format!(
+                                "rename the action `{n}`, which another of this component's files declares: `{call}` is the built-in method, as in TypeScript, where a function named `{n}` never replaces it"
+                            );
+                            let error = SyntaxError { message, ..error };
+                            deferred.push(Deferred {
+                                name: n,
+                                if_action: true,
+                                in_block,
+                                error,
+                            });
+                        }
+                    }
+                    if !file.components.is_empty() {
+                        errors.extend(file.properties.iter().map(|p| SyntaxError {
+                            id: "syntax-property-component",
+                            message: "a property lives in the test file beside the app".into(),
+                            span: p.span,
+                        }));
+                    }
+                    file.deferred = deferred;
+                    file.names = std::mem::take(&mut self.names);
+                    if errors.is_empty() {
+                        return Ok(file);
+                    }
+                    errors.sort_by_key(|e| (e.span.line, e.span.col));
+                    if !errors.iter().any(|e| crate::migrate::is_retired(e.id)) {
+                        errors.truncate(MAX_REFUSALS);
+                    }
+                    let kept = (!self.first_refused).then_some(file);
+                    return Err(self.partial(kept, errors));
+                }
+                Err(e) => {
+                    errors.push(e);
+                    if !recover || errors.len() >= MAX_REFUSALS {
+                        return Err(self.partial(None, errors));
+                    }
+                    self.refused(start, &file);
+                    // A declaration refused where it began is stepped past.
+                    if self.pos == start {
+                        self.next();
+                    }
+                    self.skip_to_declaration();
+                }
+            }
+        }
+    }
+
+    fn partial(&mut self, file: Option<File>, errors: Vec<SyntaxError>) -> Partial {
+        Partial {
+            file: file.map(Box::new),
+            errors,
+            hidden: std::mem::take(&mut self.hidden),
+        }
+    }
+
+    /// What the declaration refused at token `start` named: a `use` line's
+    /// names, else the word after its keyword (`component Card`, `fn total`).
+    fn refused(&mut self, start: usize, file: &File) {
+        let line: Vec<&TokenKind> = self.tokens[start..]
+            .iter()
+            .map(|t| &t.kind)
+            .take_while(|k| !matches!(k, TokenKind::Newline | TokenKind::Indent | TokenKind::Eof))
+            .collect();
+        let word = |k: &TokenKind| match k {
+            TokenKind::Ident(w) => Some(w.clone()),
+            _ => None,
+        };
+        match line.as_slice() {
+            [TokenKind::Ident(k), rest @ ..] if k == "use" => self.hidden.extend(
+                rest.iter()
+                    .take_while(|t| !matches!(t, TokenKind::Ident(w) if w == "from"))
+                    .filter_map(|t| word(t))
+                    .filter(|w| w != "as"),
+            ),
+            [TokenKind::Ident(k), name, ..] => {
+                if k == "component" && file.components.is_empty() {
+                    self.first_refused = true;
+                }
+                self.hidden.extend(word(name));
+            }
+            _ => {}
+        }
+    }
+
+    /// Past a refused declaration: to the next token that begins a line in
+    /// the first column, where every declaration begins (possibly the token
+    /// the refusal stopped at), or the end.
+    fn skip_to_declaration(&mut self) {
+        while !matches!(self.peek_kind(), TokenKind::Eof) {
+            let at_line_start = self.pos > 0
+                && matches!(
+                    self.tokens[self.pos - 1].kind,
+                    TokenKind::Newline | TokenKind::Dedent
+                );
+            if at_line_start
+                && self.peek().span.col == 1
+                && matches!(self.peek_kind(), TokenKind::Ident(_))
+            {
+                return;
+            }
+            self.next();
+        }
+    }
+
+    /// One top-level declaration into `file`; `false` at the end.
+    fn declaration(&mut self, file: &mut File) -> R<bool> {
+        {
+            match self.peek_kind() {
+                TokenKind::Eof => return Ok(false),
+                TokenKind::Newline => {
+                    self.next();
+                }
+                TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
+                TokenKind::Ident(w) if w == "sound" => file.sounds.push(self.sound_decl()?),
+                TokenKind::Ident(w) if w == "routes" => {
+                    if file.routes.is_some() {
+                        return self.err(
+                            "route-duplicate",
+                            "an app declares exactly one `routes` table",
+                        );
+                    }
+                    file.routes = Some(self.routes_decl()?);
+                }
+                TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
+                TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "decoration" => {
+                    file.decorations.push(self.decoration()?)
+                }
+                TokenKind::Ident(w) if w == "atom" => file.atoms.push(self.atom()?),
+                TokenKind::Ident(w) if w == "keyframes" => {
+                    let decl = self.keyframes_decl()?;
+                    if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
+                        return duplicate("keyframes", &decl.name, decl.span, first.span);
+                    }
+                    file.keyframes.push(decl);
+                }
+                TokenKind::Ident(w) if w == "timeline" => {
+                    let span = self.expect_word("timeline")?;
+                    let name = self.named_ident(span)?;
+                    self.newline()?;
+                    if let Some(first) = file.timelines.iter().find(|t| t.name == name) {
+                        return duplicate("timeline", &name, span, first.span);
+                    }
+                    file.timelines.push(TimelineDecl { name, span });
+                }
+                TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
+                TokenKind::Ident(w) if w == "theme" => self.theme(file)?,
+                TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
+                TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if matches!(w.as_str(), "always" | "after" | "never") => {
+                    file.properties.push(self.property_decl()?);
+                }
+                TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
+                    let line = self.step()?;
+                    if !is_launch(&line) {
+                        return self.err("syntax-expected-declaration", "only media preferences may lead a test file; MIDI preferences belong inside a test");
+                    }
+                    if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
+                        return duplicate(
+                            "launch line",
+                            launch_word(&line),
+                            line.span(),
+                            first.span(),
+                        );
+                    }
+                    file.launch.push(line);
+                }
+                TokenKind::Ident(w) if w == "component" => {
+                    let component = self.component()?;
+                    if let Some(first) = file
+                        .components
+                        .iter()
+                        .find(|prior| prior.name == component.name)
+                    {
+                        return duplicate("component", &component.name, component.span, first.span);
+                    }
+                    file.components.push(component);
+                }
+                TokenKind::Ident(w) if w == "members" => {
+                    let block = self.members_block()?;
+                    if let Some(first) = &file.members {
+                        return duplicate("members block", &block.name, block.span, first.span);
+                    }
+                    file.members = Some(block);
+                }
+                TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
+                other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-declaration") {
+                        return e;
+                    }
+                    return self.err(
+                        "syntax-expected-declaration",
+                        format!(
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `decoration`, `keyframes`, `timeline`, `color-profile`, `theme`, `fn`, `use`, `component`, or `members`, found {}",
+                        describe(other)
+                    ),
+                    );
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// `use A, B as C from "./file.contract"`.
+    /// Only a `.contract` file may be used: no TypeScript, no behaviours —
+    /// data comes from the app's data source and formatting from the roster
+    /// or a `fn`.
+    fn use_decl(&mut self) -> R<UseDecl> {
+        let span = self.expect_word("use")?;
+        let mut names = Vec::new();
+        loop {
+            let (name, name_span) = self.ident()?;
+            if names.is_empty() {
+                self.names.names.insert(span, name_span);
+            }
+            let alias = if self.at_ident("as") {
+                self.next();
+                Some(self.ident()?.0)
+            } else {
+                None
+            };
+            names.push(UseName {
+                name,
+                alias,
+                span: name_span,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
+        self.expect_word("from")?;
+        let path = match self.peek_kind().clone() {
+            TokenKind::Str(s) => {
+                self.next();
+                s
+            }
+            other => {
+                return self.err(
+                    "syntax-expected-path",
+                    format!("expected a file path in quotes, found {}", describe(&other)),
+                )
+            }
+        };
+        // A relative path names a `.contract` file; `exact:name` and a
+        // package name are resolved by the driver. Any other
+        // file — TypeScript, JavaScript, JSON — is never Contract's to load.
+        let relative = path.starts_with("./") || path.starts_with("../");
+        let other = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]
+            .iter()
+            .any(|ext| path.ends_with(ext));
+        if (relative && !path.ends_with(".contract")) || other {
+            return Err(SyntaxError {
+                id: "contract-no-imports",
+                message: format!("`use … from \"{path}\"` is not admitted: only a `.contract` file may be used — data comes from the app's Rust data source and formatting from the stdlib roster"),
+                span,
+            });
+        }
+        self.newline()?;
+        Ok(UseDecl { names, path, span })
+    }
+
+    /// `fn name(param: type, …): type = expr`.
+    fn fn_decl(&mut self) -> R<FnDecl> {
+        let span = self.expect_word("fn")?;
+        let name = self.named_ident(span)?;
+        self.expect_punct("(")?;
+        let mut params = Vec::new();
+        while !self.at_punct(")") {
+            let (pname, pspan) = self.ident()?;
+            if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
+                return duplicate("function parameter", &pname, pspan, first.span);
+            }
+            self.expect_punct(":")?;
+            let ty = self.type_expr()?;
+            params.push(Param {
+                name: pname,
+                ty: Some(ty),
+                span: pspan,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
+        self.expect_punct(")")?;
+        self.expect_punct(":")?;
+        let ret = self.type_expr()?;
+        self.expect_punct("=")?;
+        // The body may start on the next line, indented: one
+        // expression, as after `= (`.
+        let body = if matches!(self.peek_kind(), TokenKind::Newline)
+            && matches!(self.peek2(), TokenKind::Indent)
+        {
+            self.next();
+            self.next();
+            let body = self.expr()?;
+            self.newline()?;
+            if !matches!(self.peek_kind(), TokenKind::Dedent) {
+                return self.err(
+                    "syntax-expected-expression",
+                    "a `fn`'s body is one expression: wrap a long one in parentheses, `(…`, with the rest of it on the lines under it",
+                );
+            }
+            self.next();
+            body
+        } else {
+            self.on_its_line("fn")?;
+            let body = self.expr()?;
+            self.newline()?;
+            body
+        };
+        Ok(FnDecl {
+            name,
+            params,
+            ret,
+            body,
+            span,
+        })
+    }
+
+    /// `style Name` then lines of `attr=literal`.
+    fn style(&mut self) -> R<StyleDecl> {
+        let span = self.expect_word("style")?;
+        let name = self.named_ident(span)?;
+        self.newline()?;
+        // A part's block (`::placeholder`) beside the rows (parts.rs).
+        let owner = format!("style {name}");
+        let mut attrs = Vec::new();
+        self.block(|p| {
+            if p.at_part() {
+                p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else if p.at_state() {
+                p.state_part(&format!("`{owner}`"), true, &mut attrs)
+            } else {
+                attrs.extend(p.literal_line(&owner)?);
+                Ok(())
+            }
+        })?;
+        unique_attrs(&attrs, &owner)?;
+        Ok(StyleDecl { name, attrs, span })
+    }
+
+    /// One line of `attr=literal` pairs, through its newline: a `style`'s
+    /// (several to a line, each name once) or a keyframe's.
+    fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
+        let mut attrs = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+            let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
+                (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
+                // CSS's `background-color: "…"`: the row it meant,
+                // rewritten.
+                (TokenKind::Ident(n), TokenKind::Punct(":")) => {
+                    let value = match &self.tokens[(self.pos + 2).min(self.tokens.len() - 1)].kind {
+                        TokenKind::Str(v) => format!("{v:?}"),
+                        TokenKind::Number(v) => v.to_string(),
+                        _ => "…".into(),
+                    };
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!("`{n}:` is CSS's declaration; a line of `{owner}` is `attr=literal`: write `{n}={value}`"),
+                    );
+                }
+                (other, _) => {
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!(
+                            "expected `attr=literal` in `{owner}`, found {}",
+                            describe(&other)
+                        ),
+                    )
+                }
+            };
+            self.next();
+            let value = match self.expr()? {
+                // `-0.2` is a literal to anyone writing a style: fold it, so
+                // `letter-spacing=-0.2` is a constant like `0.2`.
+                // Its span the `-` through the number, as an attribute's
+                // (the `-` alone where the number is on another line).
+                Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                    let Expr::Number(n, at) = *inner else {
+                        unreachable!()
+                    };
+                    Expr::Number(
+                        -n,
+                        Span {
+                            end_col: if at.line == span.line {
+                                at.end_col
+                            } else {
+                                span.end_col
+                            },
+                            ..span
+                        },
+                    )
+                }
+                other => other,
+            };
+            // A `timeline`'s name is a constant too.
+            let timeline = matches!(aname.as_str(), "animation-timeline" | "animationTimeline")
+                && matches!(value, Expr::Ident(..));
+            if !timeline && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+                return Err(SyntaxError {
+                    id: "contract-style-literal",
+                    message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
+                    span: aspan,
+                });
+            }
+            attrs.push(Attr {
+                name: aname,
+                value,
+                span: aspan,
+                written: true,
+            });
+        }
+        self.newline()?;
+        Ok(attrs)
+    }
+
+    fn shape(&mut self) -> R<ShapeDecl> {
+        let span = self.expect_word("shape")?;
+        let name = self.named_ident(span)?;
+        self.newline()?;
+        let fields = self.block(|p| {
+            let (name, span) = p.field_name()?;
+            p.expect_punct(":")?;
+            let ty = p.type_expr()?;
+            p.newline()?;
+            Ok(Field { name, ty, span })
+        })?;
+        for (index, field) in fields.iter().enumerate() {
+            if let Some(first) = fields[..index]
+                .iter()
+                .find(|prior| prior.name == field.name)
+            {
+                return duplicate("shape field", &field.name, field.span, first.span);
+            }
+        }
+        Ok(ShapeDecl { name, fields, span })
+    }
+
+    fn type_expr(&mut self) -> R<TypeExpr> {
+        // `action` is a keyword everywhere else; as a prop type it names an
+        // action reference (children are views over their props).
+        if self.at_ident("action") {
+            let span = self.next().span;
+            return Ok(TypeExpr::Named("action".into(), span));
+        }
+        let (name, span) = self.ident()?;
+        let mut ty = match name.as_str() {
+            "enum" => {
+                self.expect_punct("<")?;
+                let mut values = Vec::new();
+                loop {
+                    let token = self.next();
+                    let TokenKind::Str(value) = token.kind else {
+                        return self.err("syntax-enum", "enum members are quoted strings");
+                    };
+                    if values.contains(&value) {
+                        return self.err("syntax-enum", "enum members must be distinct");
+                    }
+                    values.push(value);
+                    if self.at_punct(">") {
+                        break;
+                    }
+                    self.expect_punct(",")?;
+                }
+                self.expect_punct(">")?;
+                TypeExpr::Enum(values, span)
+            }
+            "option" => {
+                self.expect_punct("<")?;
+                let inner = self.type_expr()?;
+                self.expect_punct(">")?;
+                TypeExpr::Option(Box::new(inner), span)
+            }
+            // A list type is `T[]`.
+            "list" if self.at_punct("<") => {
+                let open = self.next().span;
+                let inner = self.type_expr()?;
+                let close = self.expect_punct(">")?;
+                self.edits.push(crate::migrate::Edit::new(span, span, ""));
+                self.edits.push(crate::migrate::Edit::new(open, open, ""));
+                self.edits
+                    .push(crate::migrate::Edit::new(close, close, "[]"));
+                self.retired.push(SyntaxError {
+                    id: "syntax-list-type",
+                    message: format!("write `{inner}[]`: a list type is `T[]`, as in TypeScript"),
+                    span,
+                });
+                TypeExpr::List(Box::new(inner), span)
+            }
+            _ => TypeExpr::Named(name, span),
+        };
+        while self.at_punct("[") && matches!(self.peek2(), TokenKind::Punct("]")) {
+            self.next();
+            self.next();
+            ty = TypeExpr::List(Box::new(ty), span);
+        }
+        Ok(ty)
+    }
+
+    fn resource(&mut self) -> R<ResourceDecl> {
+        let span = self.expect_word("resource")?;
+        let name = self.named_ident(span)?;
+        self.expect_punct("=")?;
+        let source = self.source_ident(span)?;
+        self.expect_punct("(")?;
+        let mut args = self.call_args()?;
+        // Context remains ordinary source arguments.
+        let identity = if self.at_ident("with") {
+            self.next();
+            let identity = args.len();
+            loop {
+                args.push(self.expr()?);
+                if !self.eat_punct(",") {
+                    break;
+                }
+            }
+            Some(identity)
+        } else {
+            None
+        };
+        self.expect_word("as")?;
+        self.expect_word("shape")?;
+        let shape = self.type_expr()?;
+        // What shows until the source answers.
+        let placeholder = if self.at_ident("else") {
+            self.next();
+            let at = self.peek().span;
+            if !matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                // `else []`, `else ""`: a value, where a call goes.
+                return self.err(
+                    "syntax-placeholder-call",
+                    "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
+                );
+            }
+            let source = self.source_ident(at)?;
+            self.expect_punct("(")?;
+            let args = self.call_args()?;
+            Some(Placeholder {
+                source,
+                args,
+                span: at,
+            })
+        } else {
+            None
+        };
+        self.newline()?;
+        Ok(ResourceDecl {
+            name,
+            source,
+            args,
+            identity,
+            shape,
+            placeholder,
+            span,
+        })
+    }
+
+    fn action(&mut self) -> R<Action> {
+        let span = self.expect_word("action")?;
+        let name = self.named_ident(span)?;
+        let mut params = Vec::new();
+        if self.eat_punct("(") {
+            while !self.at_punct(")") {
+                let (pname, pspan) = self.ident()?;
+                if let Some(first) = params.iter().find(|p: &&Param| p.name == pname) {
+                    return duplicate("action parameter", &pname, pspan, first.span);
+                }
+                let ty = if self.eat_punct(":") {
+                    Some(self.type_expr()?)
+                } else {
+                    None
+                };
+                params.push(Param {
+                    name: pname,
+                    ty,
+                    span: pspan,
+                });
+                if !self.eat_punct(",") {
+                    break;
+                }
+            }
+            self.expect_punct(")")?;
+        }
+        // The body is the one statement of effects.
+        if self.at_ident("writes") {
+            return self.err(
+                "syntax-writes-clause",
+                format!(
+                    "`{name}`'s effects are inferred from its body: delete the `writes` clause"
+                ),
+            );
+        }
+        self.newline()?;
+        let body = self.block(|p| p.stmt())?;
+        Ok(Action {
+            name,
+            params,
+            body,
+            span,
+        })
+    }
+
+    fn stmt(&mut self) -> R<Stmt> {
+        if self.at_ident("if") {
+            let span = self.expect_word("if")?;
+            let cond = self.expr()?;
+            self.newline()?;
+            let then = self.required_block(span, "if", |p| p.stmt())?;
+            let mut otherwise = Vec::new();
+            if self.at_ident("else") {
+                self.next();
+                // `else if` is an `else` whose one statement is the next
+                // `if`: the tree, so the plan and the semantics, is the
+                // nested form's (the chess, kanban2 and spreadsheet diaries).
+                if self.at_ident("if") {
+                    otherwise = vec![self.stmt()?];
+                } else if self.at_ident("when") {
+                    return self.err("syntax-else-keyword", "write `else if`");
+                } else {
+                    self.after_else("if")?;
+                    otherwise = self.required_block(span, "else", |p| p.stmt())?;
+                }
+            }
+            return Ok(Stmt::If {
+                cond,
+                then,
+                otherwise,
+                span,
+            });
+        }
+        if self.at_ident("match") {
+            let span = self.expect_word("match")?;
+            let subject = self.expr()?;
+            self.newline()?;
+            let mut some = None;
+            let mut none = None;
+            self.block(|p| {
+                let case_span = p.expect_word("case")?;
+                if p.at_ident("some") {
+                    if some.is_some() {
+                        return duplicate("match arm", "some", case_span, span);
+                    }
+                    p.next();
+                    p.expect_punct("(")?;
+                    let var = p.named_ident(span)?;
+                    p.expect_punct(")")?;
+                    p.case_end(Some(&var), "statements")?;
+                    some = Some((var, p.block(|q| q.stmt())?));
+                } else {
+                    p.expect_word("none")?;
+                    if none.is_some() {
+                        return duplicate("match arm", "none", case_span, span);
+                    }
+                    p.case_end(None, "statements")?;
+                    none = Some(p.block(|q| q.stmt())?);
+                }
+                Ok(())
+            })?;
+            let some = some.ok_or(SyntaxError {
+                id: "contract-match-arms",
+                message: "`match` needs `case some(x)`".into(),
+                span,
+            })?;
+            let none = none.ok_or(SyntaxError {
+                id: "contract-match-arms",
+                message: "`match` needs `case none`".into(),
+                span,
+            })?;
+            return Ok(Stmt::Match {
+                subject,
+                some,
+                none,
+                span,
+            });
+        }
+        // `send` is a keyword only where the send statement starts: `send`
+        // then a name. Elsewhere (`send = x`, `send(x)`, a prop or state
+        // named `send`) it is an ordinary name.
+        if self.at_ident("send") && matches!(self.peek2(), TokenKind::Ident(_)) {
+            let span = self.expect_word("send")?;
+            let target = self.named_ident(span)?;
+            self.expect_punct("=")?;
+            let source = self.source_ident(span)?;
+            self.expect_punct("(")?;
+            let args = self.call_args()?;
+            self.newline()?;
+            return Ok(Stmt::Send {
+                target,
+                source,
+                args,
+                span,
+            });
+        }
+        // `refresh` starts a statement only before a name, as `send` and
+        // `let` do: `refresh = x` assigns a state so named.
+        if self.at_ident("refresh") && matches!(self.peek2(), TokenKind::Ident(_)) {
+            let span = self.expect_word("refresh")?;
+            let target = self.named_ident(span)?;
+            self.newline()?;
+            return Ok(Stmt::Refresh { target, span });
+        }
+        // `let` starts a statement only before a
+        // name, as `send` does; `let = x` assigns a state named `let`.
+        if self.at_ident("let") && matches!(self.peek2(), TokenKind::Ident(_)) {
+            self.next();
+            let (name, span) = self.ident()?;
+            self.expect_punct("=")?;
+            let expr = self.expr()?;
+            self.newline()?;
+            return Ok(Stmt::Let { name, expr, span });
+        }
+        let (name, span) = self.ident()?;
+        if self.eat_punct("=") {
+            let expr = self.expr()?;
+            self.newline()?;
+            return Ok(Stmt::Assign {
+                target: name,
+                expr,
+                span,
+            });
+        }
+        if self.eat_punct("(") {
+            let args = self.call_args()?;
+            self.newline()?;
+            return Ok(Stmt::Command { name, args, span });
+        }
+        // A bare name is most often a call of another action written without
+        // its parentheses.
+        if matches!(
+            self.peek_kind(),
+            TokenKind::Newline | TokenKind::Dedent | TokenKind::Eof
+        ) {
+            return Err(SyntaxError {
+                id: "syntax-expected-statement",
+                message: format!(
+                    "write `{name}()` to call the action or command `{name}`; a name alone is not a statement (`{name} = expr` assigns a state)"
+                ),
+                span,
+            });
+        }
+        self.err(
+            "syntax-expected-statement",
+            "expected `slot = expr`, `let name = expr`, a call of an action or command `name(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
+        )
+    }
+
+    // ---- view -------------------------------------------------------------
+
+    fn node(&mut self) -> R<Node> {
+        // The compiler accepts at most 256 nested sites. Refuse before constructing
+        // a deeper AST: all later compiler passes recursively walk this tree.
+        if self.view_depth >= 256 {
+            return self.err("syntax-view-depth", "views nest more than 256 sites deep");
+        }
+        self.view_depth += 1;
+        let result = self.node_inner();
+        self.view_depth -= 1;
+        result
+    }
+
+    fn node_inner(&mut self) -> R<Node> {
+        if self.at_state() {
+            return self.err(
+                "syntax-state",
+                "a state part (`:disabled`) goes under its node, before the node's children",
+            );
+        }
+        let (word, span) = match self.peek_kind().clone() {
+            TokenKind::Ident(w) => (w, self.peek().span),
+            other => {
+                return self.err(
+                    "syntax-expected-node",
+                    format!("expected a view node, found {}", describe(&other)),
+                )
+            }
+        };
+        if self.at_continuation() {
+            return self.err(
+                "syntax-continuation-indent",
+                format!(
+                    "`{word}=` continues an element's attributes only on a line indented deeper than the element's; a child begins with a tag or component name"
+                ),
+            );
+        }
+        match word.as_str() {
+            // `provide` is a component section;
+            // the nested view form, whose scope was its subtree, is gone.
+            "provide" => {
+                let name = match self.peek2() {
+                    TokenKind::Ident(name) => name.clone(),
+                    _ => "name".into(),
+                };
+                self.err(
+                    "syntax-provide-in-view",
+                    format!(
+                        "`provide` is a component section, not a view node: write `provide` \
+                         beside `props` and `inject`, with `{name} = …` (or `{name}` alone, \
+                         for the value of that name) indented under it; it reaches the \
+                         component's whole view"
+                    ),
+                )
+            }
+            "children" => {
+                self.next();
+                self.newline()?;
+                Ok(Node::Children { span })
+            }
+            "if" => self.node_if(span),
+            "for" => self.node_for(span),
+            // The view's former words, refused with the edit.
+            "when" => {
+                self.retired_view(span, "if");
+                self.node_if(span)
+            }
+            "each" => {
+                self.retired_view(span, "for");
+                self.node_for(span)
+            }
+            "match" => self.node_match(span),
+            "else" | "case" => self.err(
+                "syntax-stray-keyword",
+                names::stray(&word),
+            ),
+            "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
+                "syntax-map-view",
+                format!("`{word}` makes a value, not view nodes: repeat children with `for x in xs key=x.id`"),
+            ),
+            // `xs.map(x => …)` as a view line: the JSX habit, as a method call.
+            _ if matches!(self.peek2(), TokenKind::Punct("."))
+                && matches!(
+                    self.tokens.get(self.pos + 2).map(|t| &t.kind),
+                    Some(TokenKind::Ident(m)) if matches!(m.as_str(), "map" | "filter" | "forEach")
+                ) =>
+            {
+                self.err(
+                    "syntax-map-view",
+                    format!("`{word}.map(…)` makes a value, not view nodes: repeat children with `for x in {word} key=x.id`"),
+                )
+            }
+            _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
+            _ => self.node_element(word, span),
+        }
+    }
+
+    /// Whether the line begins `name=`: an element's continued attributes.
+    fn at_continuation(&self) -> bool {
+        matches!(
+            (self.peek_kind(), self.peek2()),
+            (TokenKind::Ident(_), TokenKind::Punct("="))
+        ) || self.platform_attr_ahead()
+    }
+
+    /// One line of an element: `attr=expr` pairs and, on the element's own
+    /// line, positional expressions.
+    fn attr_line(
+        &mut self,
+        positional: &mut Vec<Expr>,
+        attrs: &mut Vec<Attr>,
+        continuation: bool,
+    ) -> R<()> {
+        while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+            let platform = self.platform_attr_ahead();
+            if let (true, _, _) | (_, TokenKind::Ident(_), TokenKind::Punct("=")) =
+                (platform, self.peek_kind().clone(), self.peek2().clone())
+            {
+                let (name, aspan) = if platform {
+                    self.platform_attr_name()
+                } else {
+                    let TokenKind::Ident(name) = self.peek_kind().clone() else {
+                        unreachable!()
+                    };
+                    let aspan = self.next().span;
+                    self.next();
+                    (name, aspan)
+                };
+                let value = self.attr_value()?;
+                self.unquoted_unit(&name, &value)?;
+                if attrs.iter().any(|a: &Attr| a.name == name) {
+                    return Err(SyntaxError {
+                        id: "syntax-duplicate-attr",
+                        message: format!("attribute `{name}` appears twice on the same element"),
+                        span: aspan,
+                    });
+                }
+                attrs.push(Attr {
+                    name,
+                    value,
+                    span: aspan,
+                    written: true,
+                });
+            } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
+                let aspan = self.next().span;
+                if attrs.iter().any(|a| a.name == "autofocus") {
+                    return self.err(
+                        "syntax-duplicate-attr",
+                        "attribute `autofocus` appears twice",
+                    );
+                }
+                attrs.push(Attr {
+                    name: "autofocus".into(),
+                    value: Expr::Bool(true, aspan),
+                    span: aspan,
+                    written: true,
+                });
+            } else if continuation {
+                return self.err(
+                    "syntax-expected-attr",
+                    format!(
+                        "a continued attribute line holds `name=value` pairs only, found {}",
+                        describe(self.peek_kind())
+                    ),
+                );
+            } else {
+                positional.push(self.expr()?);
+            }
+        }
+        Ok(())
+    }
+
+    /// An attribute's value. A negation of a lone number, as the whole value,
+    /// is the negative literal (`min=-40`, `margin-top=-8`, `step=-0.5`,
+    /// `min=-1e300`; the formatter's `- 1` is the same), the number it is, as
+    /// the positive one is: every place that reads a literal number reads it,
+    /// it is a constant in the plan, and `margin-top=-8px` is the unquoted
+    /// length it is. Anything else is the expression it was: `a - b`, `-x`,
+    /// `-(1 + 2)`, `-8 + a`. A `-exact-` name is no `-`: the lexer makes one
+    /// token of it where it is an attribute's name, and a string holds it
+    /// anywhere else.
+    fn attr_value(&mut self) -> R<Expr> {
+        Ok(match self.expr()? {
+            Expr::Unary(UnOp::Neg, inner, minus) => match *inner {
+                Expr::Number(n, at) => Expr::Number(
+                    -n,
+                    Span {
+                        end_col: if at.line == minus.line {
+                            at.end_col
+                        } else {
+                            minus.end_col
+                        },
+                        ..minus
+                    },
+                ),
+                inner => Expr::Unary(UnOp::Neg, Box::new(inner), minus),
+            },
+            other => other,
+        })
+    }
+
+    /// `width=10px` lexes as the number `10` and then a name `px` written
+    /// against it: say it is a string rather than let `px` be an unknown name.
+    fn unquoted_unit(&self, attr: &str, value: &Expr) -> R<()> {
+        let (Expr::Number(n, at), TokenKind::Ident(unit)) = (value, self.peek_kind()) else {
+            return Ok(());
+        };
+        let next = self.peek().span;
+        if next.line != at.line || next.col != at.end_col {
+            return Ok(());
+        }
+        Err(SyntaxError {
+            id: "syntax-unquoted-length",
+            message: format!(
+                "`{attr}={n}{unit}` needs quotes: a value with a unit is a string, `{attr}=\"{n}{unit}\"` (a bare number is pixels)"
+            ),
+            span: Span { end_col: next.end_col, ..*at },
+        })
+    }
+
+    fn named_args(&mut self) -> R<Vec<Attr>> {
+        let mut out = Vec::new();
+        while !self.at_punct(")") {
+            let (name, span) = self.field_name()?;
+            self.expect_punct("=")?;
+            let value = self.expr()?;
+            out.push(Attr {
+                name,
+                value,
+                span,
+                written: true,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
+        self.expect_punct(")")?;
+        Ok(out)
+    }
+
+    fn call_args(&mut self) -> R<Vec<Expr>> {
+        let (mut out, mut deepest) = (Vec::new(), 0);
+        while !self.at_punct(")") {
+            let arg = if let Some(words) = self.dotted_name_ahead() {
+                self.dotted_arg(words)?
+            } else if matches!(self.peek_kind(), TokenKind::Ident(_))
+                && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
+            {
+                let (name, span) = self.field_name()?;
+                if self.at_punct(":") {
+                    return self.err(
+                        "syntax-named-argument",
+                        format!("named arguments use `{name}=value`, not `{name}: value`"),
+                    );
+                }
+                self.expect_punct("=")?;
+                let value = self.expr()?;
+                self.last += 1;
+                Expr::NamedArg(name, Box::new(value), span)
+            } else if self.arrow_ahead() {
+                self.arrow()?
+            } else {
+                self.expr()?
+            };
+            deepest = deepest.max(self.last);
+            out.push(arg);
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
+        self.expect_punct(")")?;
+        self.last = deepest;
+        Ok(out)
+    }
+}
+
+fn describe(k: &TokenKind) -> String {
+    match k {
+        TokenKind::Ident(w) => format!("`{w}`"),
+        TokenKind::Number(n) => format!("number {n}"),
+        TokenKind::Str(_) => "a string".into(),
+        TokenKind::Template(_) => "a template string".into(),
+        TokenKind::Punct(p) => format!("`{p}`"),
+        TokenKind::Newline => "end of line".into(),
+        TokenKind::Indent => "an indented block".into(),
+        TokenKind::Dedent => "the end of a block".into(),
+        TokenKind::Eof => "end of file".into(),
+    }
+}
+
+/// Each attribute name once in `owner`.
+fn unique_attrs(attrs: &[Attr], owner: &str) -> R<()> {
+    for (index, attr) in attrs.iter().enumerate() {
+        if attrs[..index].iter().any(|prior| prior.name == attr.name) {
+            return Err(SyntaxError {
+                id: "syntax-duplicate-attr",
+                message: format!("attribute `{}` appears twice in `{owner}`", attr.name),
+                span: attr.span,
+            });
+        }
+    }
+    Ok(())
+}

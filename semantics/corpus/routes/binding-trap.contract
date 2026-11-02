@@ -1,0 +1,37 @@
+// Agents' empty route parameter is a trapped href binding, not a failed
+// action or a poisoned app. Timers and later handlers must still run.
+routes nav
+  tab chats "/"
+    chat "/chat/:id"
+
+component App
+  state id = "first"
+  state count = 0
+  task poll mount
+    every(10, empty)
+  action empty
+    id = ""
+    count = count + 1
+  action restore
+    id = "next"
+    count = count + 1
+  view
+    column
+      link href=path("chat", id) testId="chat-link"
+        text "Chat"
+      button "Delete" press=empty testId="delete"
+      button "Restore" press=restore testId="restore"
+      text `${count}` testId="count"
+
+test "a handler can unset a bad href and recover"
+  tap "delete"
+  expect state count == 1
+  expect tree has "chat-link"
+  tap "restore"
+  expect state count == 2
+
+test "a timer can unset a bad href and keep firing"
+  clock +20
+  expect state count == 2
+  tap "restore"
+  expect state count == 3

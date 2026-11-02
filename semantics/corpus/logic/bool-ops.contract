@@ -1,0 +1,52 @@
+// and / or / not truth tables, precedence (not > and > or) and ternaries.
+component App
+  state p = false
+  state q = false
+  derive both = p and q
+  derive either = p or q
+  derive neither = not p and not q
+  derive xor = (p or q) and not (p and q)
+  derive prec = p or q and false
+  derive prec2 = not p or q
+  derive tern = p ? (q ? "pq" : "p") : (q ? "q" : "none")
+  derive nested = p ? 1 : q ? 2 : 3
+  action flipP
+    p = not p
+  action flipQ
+    q = not q
+  view
+    column
+      text `${both} ${either} ${neither} ${xor}` testId="ops"
+      text tern testId="tern"
+      button "p" press=flipP testId="p"
+      button "q" press=flipQ testId="q"
+
+test "ff"
+  expect text "ops" == "false false true false"
+  expect state prec == false
+  expect state prec2 == true
+  expect state tern == "none"
+  expect state nested == 3
+
+test "tf"
+  tap "p"
+  expect text "ops" == "false true false true"
+  expect state prec == true
+  expect state prec2 == false
+  expect state tern == "p"
+  expect state nested == 1
+
+test "ft"
+  tap "q"
+  expect text "ops" == "false true false true"
+  expect state prec == false
+  expect state prec2 == true
+  expect state tern == "q"
+  expect state nested == 2
+
+test "tt"
+  tap "p"
+  tap "q"
+  expect text "ops" == "true true false false"
+  expect state tern == "pq"
+  expect state nested == 1

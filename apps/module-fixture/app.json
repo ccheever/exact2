@@ -1,0 +1,23 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Module Fixture",
+  "short_name": "Modules",
+  "id": "com.exact.modulefixture",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.modulefixture",
+    "name": "Module Fixture"
+  },
+  "deploy": {
+    "store": {
+      "linux": "0",
+      "android": "0"
+    }
+  },
+  "host": {
+    "android": {
+      "minimumOS": "10"
+    }
+  }
+}

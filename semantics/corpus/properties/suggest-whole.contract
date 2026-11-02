@@ -1,0 +1,16 @@
+component App
+  state n = 0
+  action step
+    n = n + 1
+  action fractional
+    if n > 1000
+      n = performanceNow() / 3
+  view
+    column
+      button "Step" testId="step" press=step
+      button "Fractional" testId="fractional" press=fractional
+
+test "whole observations do not bound the clock"
+  tap "step"
+  tap "step"
+  tap "fractional"

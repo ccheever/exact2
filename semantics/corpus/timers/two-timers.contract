@@ -1,0 +1,20 @@
+// Two timers: fired in due-time order, ties in declaration order; each
+// fire is its own commit and sees the previous one's writes.
+component App
+  state log = ""
+  action a
+    log = log + "a"
+  action b
+    log = log + "b"
+  task ta mount
+    every(30, a)
+  task tb mount
+    every(20, b)
+  view
+    text log testId="log"
+
+test "interleaving"
+  clock +60
+  expect state log == "babab"
+  clock +60
+  expect state log == "bababbabab"

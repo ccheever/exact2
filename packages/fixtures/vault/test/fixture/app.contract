@@ -1,0 +1,28 @@
+// The fixture of @fixture/vault: each press asks the native module or the
+// app's own storage, and the answer is shown by testId for the suite.
+shape Answer
+  text: string
+
+component Fixture
+  mutation last as shape Answer
+  action ask(op: string, path: string)
+    send last = vault(op, path)
+  view
+    column gap=8 padding=16
+      button press=ask("answer", "") testId="answer"
+        text "Ask the library"
+      button press=ask("open", "app:/data/vault.sqlite") testId="open"
+        text "Open the vault"
+      button press=ask("open", "app:/data/other.sqlite") testId="open-ungranted"
+        text "Open another file"
+      button press=ask("close", "") testId="close"
+        text "Close the vault"
+      button press=ask("own-open", "app:/data/vault.sqlite") testId="own-open"
+        text "Open the vault here"
+      button press=ask("own-close", "") testId="own-close"
+        text "Close it here"
+      match last
+        case some(answer)
+          text answer.text testId="last"
+        case none
+          text "none" testId="last"

@@ -1,0 +1,18 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/gamepad@^1.0",
+  "platform": "windows",
+  "targets": ["windows"],
+  "shapes": {
+    "WindowsGamepad": {
+      "userIndex": "number"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "sources": { "rust": ["../linux/lib.rs"] },
+  "artifacts": [],
+  "class": "Gamepad"
+}

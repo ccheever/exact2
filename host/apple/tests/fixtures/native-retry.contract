@@ -1,0 +1,10 @@
+// NativeTaskTimersTests' idle ticker: a task's native timer is all the work it has (no list, no field, no frame
+// task), so nothing but the timer's own queue applies a batch.
+component NativeRetry
+  state ticks = 0
+  action tick
+    ticks = ticks + 1
+  task ticker mount
+    every(50, tick)
+  view
+    text `Ticks ${ticks}`

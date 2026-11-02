@@ -1,0 +1,30 @@
+// The fixture of @fixture/swatch: its view placed, shown, hidden and rebound,
+// and what the session's instance heard of it, by testId for the suites.
+use swatchReports, SwatchReports from "@fixture/swatch"
+
+component Fixture
+  state shown = false
+  state hidden = false
+  state tint = "#d33"
+  state last = ""
+  resource heard = swatchReports() as shape SwatchReports else empty()
+  action show
+    shown = not shown
+  action hide
+    hidden = not hidden
+  action recolor
+    tint = (tint == "#d33" ? "#36c" : "#d33")
+  action tapped(at: string)
+    last = at
+  view
+    column gap=8 padding=16
+      button press=show testId="show"
+        text (shown ? "Remove" : "Show")
+      button press=hide testId="hide"
+        text (hidden ? "Unhide" : "Hide")
+      button press=recolor testId="recolor"
+        text "Recolor"
+      if shown
+        swatch-box tint=tint caption="swatch" message=tapped display=(hidden ? "none" : "block") width=160 height=90 testId="box"
+      text heard.text testId="heard"
+      text last testId="last"

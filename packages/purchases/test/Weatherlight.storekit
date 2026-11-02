@@ -1,0 +1,41 @@
+{
+  "identifier" : "6C0E1F0A",
+  "nonRenewingSubscriptions" : [ ],
+  "products" : [
+    {
+      "displayPrice" : "0.99",
+      "familyShareable" : false,
+      "internalID" : "6450000001",
+      "localizations" : [ { "description" : "Thanks for the weather.", "displayName" : "A Small Tip", "locale" : "en_US" } ],
+      "productID" : "tip.small",
+      "referenceName" : "Tip",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : { },
+  "subscriptionGroups" : [
+    {
+      "id" : "21000001",
+      "localizations" : [ ],
+      "name" : "weatherlight.plus",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [ ],
+          "codeOffers" : [ ],
+          "displayPrice" : "2.99",
+          "familyShareable" : true,
+          "groupNumber" : 1,
+          "internalID" : "6450000002",
+          "introductoryOffer" : null,
+          "localizations" : [ { "description" : "Sixteen days, a month at a time.", "displayName" : "Weatherlight+ Monthly", "locale" : "en_US" } ],
+          "productID" : "plus.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Monthly",
+          "subscriptionGroupID" : "21000001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : { "major" : 4, "minor" : 0 }
+}

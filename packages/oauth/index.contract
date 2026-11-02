@@ -1,0 +1,25 @@
+// @exact/oauth's shapes: what its `session()` and its
+// `signIn()` and `signOut()` answer, for `as shape` in an app's Contract.
+
+shape OAuthSession
+  signedIn: bool
+  // The ID token's `sub`, or "" without one.
+  subject: string
+  // When the access token expires, in epoch milliseconds; 0 when unknown.
+  expiresAt: number
+  scopes: string[]
+  // Why the next sign-in cannot be prepared or the last session ended, for the person; "" otherwise.
+  error: string
+  // The last session ended, by the provider or because the package could not go on with it: `error` says why, as against a sign-in that cannot be prepared.
+  ended: bool
+
+shape OAuthResult
+  ok: bool
+  // A stable code: "cancelled", "access_denied", "invalid_grant", "network", …
+  code: string
+  // A sentence for the person; "" when ok.
+  error: string
+  // Trying again later may succeed.
+  retryable: bool
+  // The HTTP status, 400 or over, of the reply that failed; 0 otherwise: no reply came, or the package refused a 2xx or 3xx it could not use.
+  status: number

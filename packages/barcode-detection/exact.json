@@ -1,0 +1,111 @@
+{
+  "kind": "interface",
+  "name": "@exact/barcode-detection",
+  "version": "1.0.0",
+  "uses": "@exact/media-capture@1.0.0",
+  "substitute": "implementation",
+  "shapes": {
+    "BarcodeFormats": {
+      "formats": "string[]",
+      "tracks": "bool",
+      "apple": "option<AppleBarcodeFormats>",
+      "android": "option<AndroidBarcodeFormats>"
+    },
+    "Rect": {
+      "x": "number",
+      "y": "number",
+      "width": "number",
+      "height": "number"
+    },
+    "Point": {
+      "x": "number",
+      "y": "number"
+    },
+    "DetectedBarcode": {
+      "rawValue": "string",
+      "format": "string",
+      "boundingBox": "Rect",
+      "cornerPoints": "Point[]",
+      "apple": "option<AppleDetectedBarcode>",
+      "android": "option<AndroidDetectedBarcode>"
+    },
+    "DetectedBarcodeList": {
+      "barcodes": "DetectedBarcode[]",
+      "width": "number",
+      "height": "number"
+    },
+    "SeenBarcode": {
+      "rawValue": "string",
+      "format": "string",
+      "firstSeen": "number",
+      "lastSeen": "number",
+      "frames": "number"
+    },
+    "BarcodeScan": {
+      "state": "enum<idle|scanning|ended>",
+      "barcodes": "DetectedBarcode[]",
+      "seen": "SeenBarcode[]",
+      "frame": "number",
+      "width": "number",
+      "height": "number",
+      "error": "option<string>"
+    }
+  },
+  "names": [
+    {
+      "source": "getSupportedFormats",
+      "live": true,
+      "answers": "BarcodeFormats",
+      "sync": {
+        "name": "getSupportedFormatsSync",
+        "from": "read"
+      },
+      "substitute": {
+        "default": {
+          "formats": [],
+          "tracks": false
+        }
+      }
+    },
+    {
+      "send": "detectBarcodes",
+      "options": {
+        "image": {
+          "type": "path",
+          "access": "read"
+        },
+        "formats": "option<string[]>"
+      },
+      "answers": "DetectedBarcodeList",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    },
+    {
+      "source": "detectedBarcodes",
+      "live": true,
+      "poll": {
+        "option": "interval",
+        "default": 100
+      },
+      "options": {
+        "track": "handle<track>",
+        "formats": "option<string[]>",
+        "interval": {
+          "type": "option<number>",
+          "min": 50
+        }
+      },
+      "answers": "BarcodeScan",
+      "substitute": {
+        "unsupported": [
+          "linux",
+          "windows"
+        ]
+      }
+    }
+  ]
+}

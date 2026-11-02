@@ -1,0 +1,42 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/speech-recognition@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "AppleRecognitionResult": {
+      "engine": "enum<speechTranscriber|dictationTranscriber|sfSpeechRecognizer>"
+    },
+    "AppleRecognitionStatus": {
+      "authorizationStatus": "enum<notDetermined|denied|restricted|authorized>",
+      "supportsOnDeviceRecognition": "bool",
+      "engine": "enum<speechTranscriber|dictationTranscriber|sfSpeechRecognizer>"
+    }
+  },
+  "options": {
+    "startSpeechRecognition": {
+      "engine": "enum<speechTranscriber|dictationTranscriber|sfSpeechRecognizer>",
+      "taskHint": "enum<unspecified|dictation|search|confirmation>",
+      "addsPunctuation": "bool"
+    },
+    "speechRecognitionStatus": {
+      "engine": "enum<speechTranscriber|dictationTranscriber|sfSpeechRecognizer>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "analyzer",
+    "request"
+  ],
+  "sources": {
+    "swift": [
+      "SpeechRecognition.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "SpeechRecognitionModule"
+}

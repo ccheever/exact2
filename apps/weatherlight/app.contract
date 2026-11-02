@@ -1,0 +1,528 @@
+// Weatherlight: one Contract UI, network data below the seam, an optional GPU sky.
+
+// The one page renders at build into dist/: revision 0
+// answers the empty forecast, so the document is the page before its data
+// arrives, rendered with no network. The view doesn't branch on the route.
+// "Use my location": the device's position, approximate,
+// through @exact/geolocation; from then on the forecast follows the person.
+use getCurrentPosition, geolocationStatus, GeolocationPosition, GeolocationStatus from "@exact/geolocation"
+// The platform's geocoder names the followed position's city; where there is
+// none (the web, Linux) it stays "Current location".
+use reverseGeocode, geocodingStatus, Place as GeoPlace, GeocodingStatus from "@exact/geocoding"
+// The sky rests in Low Power Mode or a serious
+// thermal state, and the refresh waits while the person saves power or data.
+use powerState, connection, PowerState, NetworkInformation from "@exact/device"
+// Weatherlight+: a subscription shows sixteen days, a tip
+// is a consumable. Contract gates and prices the screen; the data code's
+// delivery loop is the one place a purchase is delivered and finished.
+use getDetails, listPurchases, unfinishedPurchases, purchase, restorePurchases, purchasesStatus, ItemDetails, PurchaseDetails, PurchasesStatus from "@exact/purchases"
+use requestReview, storeReviewStatus, StoreReviewStatus from "@exact/store-review"
+
+routes nav
+  tab home "/" render=build
+
+shape Hour
+  id: string
+  time: string
+  temp: number
+  feels: number
+  humidity: number
+  cloud: number
+  rain: number
+  chance: number
+  wind: number
+  code: number
+  day: number
+  hour: number
+shape Day
+  id: string
+  low: number
+  high: number
+  code: number
+  chance: number
+  sunrise: string
+  sunset: string
+  uv: number
+shape Forecast
+  lat: number
+  lon: number
+  ready: bool
+  stale: bool
+  message: string
+  updated: string
+  current: Hour
+  hours: Hour[]
+  days: Day[]
+shape Place
+  id: string
+  name: string
+  detail: string
+  lat: number
+  lon: number
+shape Places
+  items: Place[]
+  message: string
+shape HourCard
+  id: string
+  label: string
+  temp: string
+  icon: string
+  chance: string
+shape DayCard
+  id: string
+  label: string
+  condition: string
+  icon: string
+  chance: string
+  low: string
+  high: string
+  left: string
+  span: string
+shape Outlook
+  ready: bool
+  temp: string
+  condition: string
+  feels: string
+  wind: string
+  humidity: string
+  chance: string
+  range: string
+  sunrise: string
+  sunset: string
+  uv: string
+  summary: string
+  selectedLabel: string
+  cloud: number
+  rain: number
+  day: number
+  hour: number
+  speed: number
+  hours: HourCard[]
+  days: DayCard[]
+
+// The media queries: a wide landscape viewport puts the
+// look-ahead and the elements in a column beside the sky; no pointer (a TV's
+// remote) leaves room around the hour cards for the focus ring.
+shape Viewport
+  width: number
+  height: number
+  pointer: string
+// The tips the delivery loop has counted, and the days the person opened the app.
+shape Delivery
+  tips: number
+shape Visit
+  days: number
+  ask: bool
+shape Time
+  epochAtZero: number
+
+component Weatherlight
+  state city = "San Francisco"
+  state region = "California, United States"
+  state lat = 37.7749
+  state lon = -122.4194
+  state units = "F"
+  state selected = "now"
+  state revision = 0
+  state refreshedAt = -600000
+  state searching = false
+  state query = ""
+  state submitted = ""
+  // "", "play" or "pause": the person's choice, once pressed, over the device's.
+  state skyChoice = ""
+  // Following the person's position; `locating` counts asks and choices, so
+  // a position that answers after a city was chosen (`asked` behind it) is
+  // ignored.
+  state following = false
+  state locating = 0
+  state asked = 0
+  // Whether hour cards are hidden past the row's left or right edge.
+  state hoursLeft = false
+  state hoursRight = true
+  state supporting = false
+  state thanks = ""
+  resource store = purchasesStatus() as shape PurchasesStatus else empty()
+  resource owned = listPurchases() as shape PurchaseDetails[] else empty()
+  resource queue = unfinishedPurchases() as shape PurchaseDetails[] else empty()
+  resource plans = getDetails(itemIds=["plus.yearly", "plus.monthly", "tip.small"]) as shape ItemDetails[] else empty()
+  resource review = storeReviewStatus() as shape StoreReviewStatus else empty()
+  resource time = exactTime() as shape Time
+  resource tipped = tips() as shape Delivery
+  resource visit = visits() with time.epochAtZero as shape Visit
+  mutation bought as shape PurchaseDetails then thanked
+  mutation restored as shape PurchaseDetails[]
+  mutation delivered as shape Delivery refreshes tipped
+  mutation reviewed as shape Visit
+  // A screen gates on what the person holds, never on the queue.
+  derive plus = owned.filter(p => p.itemId.startsWith("plus.")).length > 0
+  // What the store has delivered and the app has not finished, by token.
+  derive due = queue.filter(p => p.purchaseState == "purchased").map(p => p.purchaseToken).join(",")
+  derive purchaseError = match failure(bought) { case some(f) => f.code == "AbortError" ? "" : "The purchase didn’t go through. Try again.", case none => "" }
+  resource forecast = forecast(lat, lon, revision, following, plus) as shape Forecast
+  resource outlook = outlook(forecast, units, selected, lat, lon, following) as shape Outlook
+  resource location = geolocationStatus() as shape GeolocationStatus else empty()
+  mutation located as shape GeolocationPosition then arrived
+  resource geocoding = geocodingStatus() as shape GeocodingStatus else empty()
+  mutation named as shape GeoPlace[] then labelled
+  resource places = places(submitted) as shape Places
+  resource viewport = exactViewport() as shape Viewport
+  resource power = powerState() as shape PowerState else empty()
+  resource network = connection() as shape NetworkInformation else empty(type="unknown")
+  derive hot = match power.thermalState { case some(t) => t == "serious" or t == "critical", case none => false }
+  derive resting = power.lowPowerMode or hot
+  derive animated = skyChoice == "play" or (skyChoice == "" and not resting)
+  derive saving = power.lowPowerMode or network.saveData
+  derive wide = viewport.width >= 1100 and viewport.width > viewport.height
+  derive tv = viewport.pointer == "none"
+  derive locationError = asked == locating ? match failure(located) { case some(f) => f.code, case none => "" } : ""
+  // A TV is read from across a room: text, and the boxes sized by it, grow.
+  derive k = tv ? 1.4 : 1
+
+  action openSearch
+    searching = true
+    focus("city-query")
+  action closeSearch
+    searching = false
+  action changeQuery(value)
+    query = value
+  action search
+    submitted = query
+    refresh places
+  action searchKey(k: string)
+    if k == "Enter"
+      submitted = query
+      refresh places
+    if k == "Escape"
+      searching = false
+  action choose(name: string, detail: string, latitude: number, longitude: number)
+    city = name
+    region = detail
+    lat = latitude
+    lon = longitude
+    selected = "now"
+    searching = false
+    query = ""
+    submitted = ""
+    following = false
+    locating = locating + 1
+  action useLocation
+    locating = locating + 1
+    asked = locating + 1
+    send located = getCurrentPosition(maximumAge=600000, apple.desiredAccuracy="threeKilometers", android.quality="lowPower")
+  // The position answers: follow it, unless a city was chosen since.
+  action arrived
+    if asked == locating
+      match located
+        case some(p)
+          following = true
+          city = "Current location"
+          region = ""
+          lat = p.coords.latitude
+          lon = p.coords.longitude
+          selected = "now"
+          if geocoding.available
+            send named = reverseGeocode(latitude=p.coords.latitude, longitude=p.coords.longitude)
+        // Never: a `then` runs only after an answer.
+        case none
+          following = following
+  // The followed position's place: its city and country, else the label stays.
+  action labelled
+    if following
+      match named
+        case some(places)
+          match first(places)
+            case some(place)
+              match place.city
+                case some(c)
+                  city = c
+                  match place.country
+                    case some(k)
+                      region = k
+                    case none
+                      region = ""
+                case none
+                  city = city
+            case none
+              city = city
+        case none
+          city = city
+  action openSettings
+    openURL("app-settings:")
+  action setUnits(value: string)
+    units = value
+  action explore(id: string)
+    selected = id
+  action reloadWeather
+    revision = revision + 1
+    selected = "now"
+  action hoursScrolled(x: number, y: number, e: ScrollEvent)
+    hoursLeft = e.scrollLeft > 1
+    hoursRight = e.scrollWidth - e.scrollLeft - e.clientWidth > 1
+  action toggleMotion
+    skyChoice = animated ? "pause" : "play"
+  action openSupport
+    supporting = true
+  action closeSupport
+    supporting = false
+  action upgrade(itemId: string)
+    thanks = ""
+    send bought = purchase(itemId=itemId)
+  action restore
+    send restored = restorePurchases()
+  // The purchase's answer is for this screen alone; delivery is the queue's.
+  action thanked
+    match bought
+      case some(p)
+        thanks = p.purchaseState == "pending" ? "Waiting for approval." : p.itemId.startsWith("plus.") ? "Welcome to Weatherlight+." : "Thank you for the tip."
+      case none
+        thanks = thanks
+  action deliver
+    send delivered = deliverPurchases()
+  task delivering when due != "" key=due
+    after(1, deliver)
+  // The rating prompt: on the fifth day opened, with a forecast showing,
+  // once per version, never from a button.
+  action askReview
+    requestReview()
+    send reviewed = reviewAsked()
+  task reviewing when review.available and outlook.ready and visit.ask
+    after(2000, askReview)
+  // Refresh every ten minutes by the clock, not by counting ticks, which a
+  // suspension skips; every thirty while saving. The first forecast is
+  // fetched at once whatever the device says.
+  action tick
+    let now = performanceNow()
+    if revision == 0 or now - refreshedAt >= (saving ? 1800000 : 600000)
+      revision = revision + 1
+      refreshedAt = now
+  task updates mount
+    every(1000, tick)
+
+  // Apple keeps AccentColorText white; selected controls name their ink in both schemes.
+  view
+    main testId="weatherlight" accent-color="light-dark(#183444, #b8cfda)" width="100%" min-height="100%" box-sizing="border-box" background-color="-exact-grouped-background" color="-exact-label" display="flex" flex-direction="column" align-items="center"
+      column width="100%" max-width=(wide ? 1600 : 1200) box-sizing="border-box" padding=20 gap=22 flex-shrink=0 flex-grow=(wide ? 1 : 0)
+        row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=16
+          row align-items="center" gap=10
+            text "◒" font-size=(32 * k) color="-exact-system-brown"
+            column gap=2
+              text "weatherlight" color="AccentColor" font-size=(24 * k) font-family="serif" font-weight=600 letter-spacing=-1
+              text "A LITTLE CLOSER TO OUTSIDE" font-size=(9 * k) font-weight=600 letter-spacing=2 color="-exact-secondary-label"
+          row align-items="center" gap=8 order=2
+            if location.available and location.state != "denied"
+              button press=useLocation testId="use-location" padding=11 border-radius=22 background-color=(following ? "-exact-fill" : "-exact-tertiary-fill")
+                text (following ? "◉  Following you" : "◎  Use my location") font-size=(13 * k) color="-exact-label"
+            button press=openSearch testId="change-city" aria-label="Search for a city" padding=11 border-radius=22 background-color="-exact-tertiary-fill"
+              text "⌕  Find a city" font-size=(13 * k) color="-exact-label"
+            if store.available
+              button press=openSupport testId="support" padding=11 border-radius=22 background-color=(plus ? "-exact-fill" : "-exact-tertiary-fill")
+                text (plus ? "✦  Weatherlight+" : "✧  Support") font-size=(13 * k) color="-exact-label"
+            row padding=3 gap=2 border-radius=22 background-color="-exact-tertiary-fill"
+              button press=setUnits("C") testId="unit-c" aria-label="Celsius" padding=8 border-radius=18 background-color=(units == "C" ? "AccentColor" : "transparent")
+                text "°C" font-size=(13 * k) color=(units == "C" ? "light-dark(#ffffff, #000000)" : "-exact-label") font-weight=600
+              button press=setUnits("F") testId="unit-f" aria-label="Fahrenheit" padding=8 border-radius=18 background-color=(units == "F" ? "AccentColor" : "transparent")
+                text "°F" font-size=(13 * k) color=(units == "F" ? "light-dark(#ffffff, #000000)" : "-exact-label") font-weight=600
+          // Wide, the cities sit in the header row; narrow, they wrap to a line of their own.
+          row gap=8 flex-wrap="wrap" align-items="center" order=(wide ? 1 : 3) width=(wide ? "auto" : "100%")
+            text "ELSEWHERE" font-size=(10 * k) letter-spacing=2 color="-exact-secondary-label" margin-right=6
+            button press=choose("San Francisco", "California, United States", 37.7749, -122.4194) testId="city-sf" padding=8 border-radius=16 background-color=(city == "San Francisco" ? "-exact-fill" : "-exact-grouped-background")
+              text "San Francisco" font-size=(12 * k) color="-exact-label"
+            button press=choose("London", "England, United Kingdom", 51.5074, -0.1278) testId="city-london" padding=8 border-radius=16 background-color=(city == "London" ? "-exact-fill" : "-exact-grouped-background")
+              text "London" font-size=(12 * k) color="-exact-label"
+            button press=choose("Tokyo", "Japan", 35.6762, 139.6503) testId="city-tokyo" padding=8 border-radius=16 background-color=(city == "Tokyo" ? "-exact-fill" : "-exact-grouped-background")
+              text "Tokyo" font-size=(12 * k) color="-exact-label"
+            button press=choose("Reykjavík", "Iceland", 64.1466, -21.9426) testId="city-reykjavik" padding=8 border-radius=16 background-color=(city == "Reykjavík" ? "-exact-fill" : "-exact-grouped-background")
+              text "Reykjavík" font-size=(12 * k) color="-exact-label"
+        if location.state == "denied"
+          row align-items="center" gap=12 flex-wrap="wrap" padding=14 border-radius=14 background-color="-exact-secondary-grouped-background" testId="location-denied"
+            text "Location is off for Weatherlight. Turn it on in Settings, or choose a city." font-size=(13 * k) color="-exact-label" flex=1
+            button press=openSettings testId="open-settings" padding=8 border-radius=14 background-color="-exact-fill"
+              text "Open Settings" font-size=(12 * k) color="-exact-label"
+        if location.state != "denied" and locationError != ""
+          row padding=14 border-radius=14 background-color="-exact-secondary-grouped-background" testId="location-error"
+            text (locationError == "PERMISSION_DENIED" ? "Location access was denied. Allow location in your browser or device settings, or choose a city." : "Couldn't get your location. Try again, or choose a city.") font-size=(13 * k) color="-exact-label"
+        if supporting
+          Support(plans=plans, plus=plus, store=store, tips=tipped.tips, thanks=thanks, error=purchaseError, busy=pending(bought), k=k, upgrade=upgrade, restore=restore, close=closeSupport)
+        if searching
+          column padding=20 gap=14 background-color="-exact-secondary-grouped-background" border-radius=18 border-style="solid" border-width=1 border-color="-exact-separator" testId="search-panel"
+            row justify-content="space-between" align-items="center"
+              text "Where shall we go?" font-family="serif" font-size=(24 * k)
+              button appearance="none" press=closeSearch testId="close-search" aria-label="Close city search" padding=8
+                text "Close ×" font-size=(16 * k) color="-exact-secondary-label"
+            row gap=8
+              input appearance="none" id="city-query" testId="city-query" value=query input=changeQuery key=searchKey placeholder="City or postal code" aria-label="City or postal code" flex=1 min-width=0 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="-exact-separator" font-size=(16 * k)
+              button press=search testId="search-city" padding=12 border-radius=8 background-color="AccentColor"
+                text "Search" font-size=(16 * k) color="light-dark(#ffffff, #000000)"
+            if pending(places)
+              text "Looking for places…" color="-exact-secondary-label" font-size=(13 * k)
+            else
+              text places.message color="-exact-secondary-label" font-size=(13 * k) testId="search-message"
+            for place in places.items key=place.id
+              button press=choose(place.name, place.detail, place.lat, place.lon) testId=`place-${place.id}` padding=12 border-radius=8 background-color="-exact-grouped-background"
+                row justify-content="space-between" gap=12 flex-wrap="wrap"
+                  text place.name font-size=(16 * k) font-weight=600
+                  text place.detail color="-exact-secondary-label" font-size=(13 * k)
+        // Wide: the sky and the hours, and beside them the two cards.
+        view display="flex" flex-direction=(wide ? "row" : "column") gap=22 align-items=(wide ? "stretch" : "flex-start") width="100%" flex-grow=(wide ? 1 : 0)
+          column gap=22 flex=1 min-width=0 width=(wide ? "auto" : "100%")
+            // The fallback is sky artwork too; it stays blue beneath the dark overlay.
+            canvas surface=weather(outlook.cloud, outlook.rain, outlook.day, outlook.hour, outlook.speed, animated) testId="weather-sky" width="100%" height=440 flex-grow=(wide ? 1 : 0) border-radius=24 overflow="hidden" color-scheme="dark" background-color="#183e56" display="flex" flex-direction="column" justify-content="space-between" padding=26 box-sizing="border-box" color="-exact-label"
+              row justify-content="space-between" align-items="flex-start" gap=12
+                column gap=6 flex=1 min-width=0
+                  text city testId="city-name" font-family="serif" font-size=(34 * k) letter-spacing=-1 color="-exact-label"
+                  text region font-size=(12 * k) color="-exact-secondary-label"
+                button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") width=(40 * k) height=(40 * k) border-radius=(20 * k) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="-exact-fill"
+                  text (animated ? "Ⅱ" : "▷") color="-exact-label" font-size=(14 * k)
+              column gap=3
+                text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=(10 * k) font-weight=600 letter-spacing=2 color="-exact-secondary-label"
+                text (outlook.ready ? outlook.temp : "—°") testId="temperature" font-size=(92 * k) font-weight=300 letter-spacing=-6 line-height=`${100 * k}px` color="-exact-label"
+                text (outlook.ready ? outlook.condition : "Finding your patch of sky…") testId="condition" font-size=(22 * k) font-family="serif" color="-exact-label"
+                text outlook.range font-size=(13 * k) color="-exact-secondary-label" margin-top=8
+              row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=12
+                text (outlook.ready ? outlook.summary : "The forecast will appear here when it arrives.") font-size=(13 * k) color="-exact-label" max-width=650
+                if selected != "now"
+                  button press=explore("now") testId="back-now" padding=10 border-radius=18 background-color="-exact-fill"
+                    text "↶ Back to now" font-size=(12 * k) color="-exact-label"
+            if forecast.message != "" and not pending(forecast)
+              row gap=12 justify-content="space-between" align-items="center" padding=14 border-radius=12 background-color="-exact-secondary-grouped-background" testId="network-notice"
+                text forecast.message color="-exact-label" font-size=(13 * k) flex=1
+                button appearance="none" press=reloadWeather testId="retry-weather" padding=8
+                  text "Try again ↻" font-size=(16 * k) font-weight=600 color="-exact-label"
+            column gap=14
+              row justify-content="space-between" align-items="center" gap=12
+                column gap=4
+                  text "The day, unfolding" font-family="serif" font-size=(25 * k) letter-spacing=-0.5
+                  text "Choose an hour. Watch the sky change." font-size=(12 * k) color="-exact-secondary-label"
+                text "NEXT 24 HOURS" font-size=(9 * k) font-weight=600 letter-spacing=2 color="-exact-secondary-label"
+              // The row scrolls sideways; a faded edge says more cards are there.
+              view position="relative"
+                row overflow-x="scroll" overflow-y="hidden" gap=(tv ? 20 : 8) padding-top=(tv ? 8 : 0) padding-left=(tv ? 12 : 0) padding-right=(tv ? 12 : 0) padding-bottom=(tv ? 12 : 8) scroll=hoursScrolled testId="hourly-timeline"
+                  button press=explore("now") testId="hour-now" disabled=(not outlook.ready) height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "AccentColor" : "-exact-secondary-grouped-background")
+                    column gap=13 align-items="center"
+                      text "Now" font-size=(12 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
+                      text "◉" font-size=(22 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-system-brown")
+                      text (outlook.ready ? "Live" : "—") font-size=(16 * k) font-weight=600 color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-label")
+                      text "Today" font-size=(10 * k) color=(selected == "now" ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
+                  for hour in outlook.hours key=hour.id
+                    button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=(150 * k) width=(88 * k) flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "AccentColor" : "-exact-secondary-grouped-background")
+                      column gap=13 align-items="center"
+                        text hour.label font-size=(12 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
+                        text hour.icon font-size=(22 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-system-brown")
+                        text hour.temp font-size=(18 * k) font-weight=600 color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-label")
+                        text hour.chance font-size=(10 * k) color=(selected == hour.id ? "light-dark(#ffffff, #000000)" : "-exact-secondary-label")
+                row position="absolute" top=0 bottom=0 left=0 width=56 background-image="linear-gradient(90deg, -exact-grouped-background 0%, transparent 100%)" opacity=(hoursLeft ? 1 : 0) transition="opacity 160ms ease" pointer-events="none" aria-hidden=true testId="hours-more-left"
+                row position="absolute" top=0 bottom=0 right=0 width=56 background-image="linear-gradient(270deg, -exact-grouped-background 0%, transparent 100%)" opacity=(hoursRight and outlook.ready ? 1 : 0) transition="opacity 160ms ease" pointer-events="none" aria-hidden=true testId="hours-more-right"
+          // Wide, the page fills the screen and the column is as tall as the
+          // sky and the hours beside it; its cards scroll inside it, where
+          // positioned, they add nothing to its height.
+          view position="relative" width=(wide ? 440 * k : "100%") flex-shrink=0 testId="side-column"
+            view position=(wide ? "absolute" : "relative") top=0 bottom=0 left=0 right=0 overflow-y=(wide ? "scroll" : "visible") aria-label="The week ahead and the elements" testId="side-scroll" display="flex" flex-direction=(wide ? "column" : "row") flex-wrap=(wide ? "nowrap" : "wrap") gap=18 align-items="stretch" box-sizing="border-box"
+              LookAhead(outlook=outlook, k=k)
+              Elements(outlook=outlook, k=k)
+        row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" padding-bottom=10
+          column gap=5
+            link href="https://open-meteo.com/" color="-exact-secondary-label" font-size=(11 * k)
+              text "Weather data by Open-Meteo · CC BY 4.0"
+            text (outlook.ready ? `Local forecast time ${forecast.updated}${pending(forecast) ? " · updating" : forecast.stale ? " · last available forecast" : ""}` : "Waiting for a forecast · times are local to the city") font-size=(10 * k) color="-exact-secondary-label" testId="forecast-status"
+          button press=reloadWeather disabled=pending(forecast) testId="refresh-weather" padding=10 border-radius=16 background-color="-exact-tertiary-fill"
+            text (pending(forecast) ? "Updating…" : "Refresh ↻") font-size=(12 * k) color="-exact-label"
+
+
+// The seven days: each one's low, high and the span between.
+component LookAhead
+  props
+    outlook: Outlook
+    k: number
+  view
+    column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-radius=20 testId="seven-day"
+      text "A look ahead" font-family="serif" font-size=(25 * k) letter-spacing=-0.5
+      text `${outlook.days.length}-DAY FORECAST` testId="forecast-days" font-size=(9 * k) letter-spacing=2 color="-exact-secondary-label"
+      for day in outlook.days key=day.id
+        row align-items="center" gap=10 height=(41 * k) box-sizing="border-box" padding-top=9 padding-bottom=9
+          text day.label width=(48 * k) font-size=(13 * k) font-weight=600
+          text day.icon width=(23 * k) font-size=(19 * k) color="-exact-system-brown" aria-label=day.condition
+          text day.chance width=(34 * k) font-size=(11 * k) color="-exact-secondary-label"
+          text day.low width=(30 * k) font-size=(13 * k) color="-exact-secondary-label" text-align="right"
+          row flex=1 height=5 background-color="-exact-fill" border-radius=3 min-width=20
+            box width=day.left height=5
+            box width=day.span height=5 background-color="-exact-system-brown" border-radius=3
+          text day.high width=(30 * k) font-size=(13 * k) font-weight=600
+
+// Right now, or the chosen hour: wind, humidity, feel, rain, the sun.
+component Elements
+  props
+    outlook: Outlook
+    k: number
+  view
+    column flex=1 min-width=290 gap=16 padding=22 box-sizing="border-box" background-color="-exact-secondary-grouped-background" border-radius=20
+      text "Out in the elements" font-family="serif" font-size=(25 * k) letter-spacing=-0.5
+      text outlook.selectedLabel font-size=(9 * k) letter-spacing=2 color="-exact-secondary-label"
+      row gap=14 flex-wrap="wrap"
+        column flex=1 min-width=100 gap=6 padding=14 background-color="-exact-tertiary-grouped-background" border-radius=12
+          text "↗  WIND" font-size=(10 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.wind testId="wind" font-size=(22 * k) font-family="serif"
+        column flex=1 min-width=100 gap=6 padding=14 background-color="-exact-tertiary-grouped-background" border-radius=12
+          text "◌  HUMIDITY" font-size=(10 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.humidity font-size=(22 * k) font-family="serif"
+      row gap=14 flex-wrap="wrap"
+        column flex=1 min-width=100 gap=6 padding=14 background-color="-exact-tertiary-grouped-background" border-radius=12
+          text "◈  FEELS LIKE" font-size=(10 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.feels testId="feels-like" font-size=(22 * k) font-family="serif"
+        column flex=1 min-width=100 gap=6 padding=14 background-color="-exact-tertiary-grouped-background" border-radius=12
+          text "☂  RAIN CHANCE" font-size=(10 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.chance font-size=(22 * k) font-family="serif"
+      row justify-content="space-between" gap=12 padding-top=8 flex-wrap="wrap"
+        column gap=5
+          text "SUNRISE" font-size=(9 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.sunrise font-size=(17 * k) font-family="serif"
+        column gap=5
+          text "SUNSET" font-size=(9 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.sunset font-size=(17 * k) font-family="serif"
+        column gap=5
+          text "UV INDEX" font-size=(9 * k) letter-spacing=1 color="-exact-secondary-label"
+          text outlook.uv font-size=(17 * k) font-family="serif"
+
+// Weatherlight+: the plans at the store's own prices, a tip, and restoring.
+component Support
+  props
+    plans: ItemDetails[]
+    plus: bool
+    store: PurchasesStatus
+    tips: number
+    thanks: string
+    error: string
+    busy: bool
+    k: number
+    upgrade: action
+    restore: action
+    close: action
+  view
+    column padding=20 gap=14 background-color="-exact-secondary-grouped-background" border-radius=18 border-style="solid" border-width=1 border-color="-exact-separator" testId="support-panel"
+      row justify-content="space-between" align-items="center"
+        text "Weatherlight+" font-family="serif" font-size=(24 * k) role="heading"
+        button appearance="none" press=close testId="close-support" aria-label="Close Weatherlight+" padding=8
+          text "Close ×" font-size=(16 * k) color="-exact-secondary-label"
+      text (plus ? "You have Weatherlight+: sixteen days ahead." : "See sixteen days ahead instead of seven.") testId="plus-state" font-size=(13 * k) color="-exact-label"
+      if not plus
+        for plan in plans.filter(p => p.type == "subscription") key=plan.itemId
+          button press=upgrade(plan.itemId) disabled=busy testId=(plan.itemId == "plus.yearly" ? "plan-yearly" : "plan-monthly") padding=12 border-radius=10 background-color="-exact-grouped-background"
+            row justify-content="space-between" gap=12 flex-wrap="wrap"
+              text plan.title font-size=(15 * k) font-weight=600
+              text `${plan.displayPrice} a ${match plan.subscriptionPeriod { case some(p) => p == "P1Y" ? "year" : "month", case none => "period" }}${match plan.freeTrialPeriod { case some(t) => ", free for a week first", case none => "" }}` font-size=(13 * k) color="-exact-secondary-label"
+      for tip in plans.filter(p => p.itemId == "tip.small") key=tip.itemId
+        button press=upgrade(tip.itemId) disabled=busy testId="tip" padding=12 border-radius=10 background-color="-exact-grouped-background"
+          row justify-content="space-between" gap=12
+            text "Leave a tip" font-size=(15 * k)
+            text tip.displayPrice font-size=(13 * k) color="-exact-secondary-label"
+      if tips > 0
+        text `Tips so far: ${tips}. Thank you.` testId="tip-count" font-size=(12 * k) color="-exact-secondary-label"
+      if thanks != ""
+        text thanks testId="thanks" font-size=(13 * k) color="-exact-label"
+      if error != ""
+        text error testId="purchase-error" font-size=(13 * k) color="-exact-system-red"
+      row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap"
+        link href="https://www.apple.com/legal/internet-services/itunes/dev/stdeula/" color="-exact-secondary-label" font-size=(11 * k)
+          text "Terms of Use"
+        if store.store == "app-store"
+          button appearance="none" press=restore testId="restore" padding=8
+            text "Restore Purchases" font-size=(13 * k) color="-exact-label"

@@ -1,0 +1,1043 @@
+//! A source on an owner of its own. `Placed` runs its
+//! source on a host-owned thread from activation on, answers every call
+//! `Later`, runs each turn there against a scoped snapshot — staying on the
+//! owner through the source's own continuation waits — and hands the turn's
+//! envelope back for the runner to commit. With `Placement::Main` it
+//! is the source, inline, and costs nothing. The same proxy serves a Rust
+//! source that can be moved to the thread and a TypeScript module that must
+//! be built there.
+
+use crate::envelope;
+use exact_plan::{Plan, Value};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Reply,
+    Request, Store, Target, Work,
+};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
+
+fn unavailable(message: impl Into<String>) -> DataError {
+    DataError::Unavailable(message.into())
+}
+
+/// How the owner thread obtains its instance: built there, or moved in.
+pub type Obtain<D> = Box<dyn FnOnce() -> Result<D, DataError> + Send + 'static>;
+
+/// One turn for the owner: a call, or a resumption after a yield. A plan
+/// `Value` is not `Send`, so arguments cross as their canonical bytes.
+enum Job {
+    Answer {
+        target: Option<Target>,
+        source: String,
+        args: Vec<Vec<u8>>,
+        snapshot: Vec<(String, Vec<u8>)>,
+        /// The runner's clock at dispatch (`Store::clock_ms`).
+        clock: f64,
+        reply: Reply,
+    },
+    Resume {
+        target: Option<Target>,
+        source: String,
+        args: Vec<Vec<u8>>,
+        outcome: Outcome,
+        snapshot: Vec<(String, Vec<u8>)>,
+        clock: f64,
+        reply: Reply,
+    },
+    /// What is still in flight, after a commit that let requests go: the
+    /// instance drops the calls it parked for the rest, in turn order.
+    Forgotten(Arc<Mutex<Option<Retirement>>>),
+}
+
+/// A call still in flight as the owner hears it: its target, source and
+/// encoded arguments, without a token.
+type Flight = (Target, String, Vec<Vec<u8>>);
+
+type Retirement = (Vec<Flight>, Vec<(String, Vec<u8>)>);
+
+struct OwnerQueue {
+    sender: Sender<Job>,
+    pending: Option<Arc<Mutex<Option<Retirement>>>>,
+    /// Turns dispatched whose job the host has not handed over yet, by
+    /// token, with their call's key (none for an untargeted call, which the
+    /// instance never lets go). A retirement whose view leaves the key out
+    /// takes it out, as the instance lets a parked call go, and its job is
+    /// then never sent: it would begin after the marker that let it go, and
+    /// park for good.
+    unqueued: HashMap<u64, Option<Flight>>,
+}
+
+/// A dispatched turn's entry in [`OwnerQueue::unqueued`], removed when its
+/// closure is dropped (run or abandoned).
+struct Unqueued(Arc<Mutex<OwnerQueue>>, u64);
+
+impl Drop for Unqueued {
+    fn drop(&mut self) {
+        if let Ok(mut queue) = self.0.lock() {
+            queue.unqueued.remove(&self.1);
+        }
+    }
+}
+
+impl OwnerQueue {
+    fn forgotten(&mut self, retirement: Retirement) {
+        if let Some(slot) = &self.pending {
+            let mut current = slot.lock().unwrap();
+            if let Some((was, _)) = current.as_ref() {
+                // Coalesced with the one still waiting (no turn between them,
+                // so the owner's calls are the same for both): a call either
+                // lets go stays let go. What stays in flight is what both say
+                // is; the newer storage snapshot stands.
+                let (mut in_flight, snapshot) = retirement;
+                in_flight.retain(|entry| was.contains(entry));
+                *current = Some((in_flight, snapshot));
+                return;
+            }
+        }
+        let slot = Arc::new(Mutex::new(Some(retirement)));
+        if self.sender.send(Job::Forgotten(slot.clone())).is_ok() {
+            self.pending = Some(slot);
+        }
+    }
+
+    /// The job back if the owner is gone: its reply is the caller's to drop,
+    /// outside this queue's lock.
+    fn turn(&mut self, job: Job) -> Option<Job> {
+        // A later view cannot pass this turn, even if its marker is still queued.
+        self.pending = None;
+        self.sender.send(job).err().map(|e| e.0)
+    }
+}
+
+/// The host's wake for an abort heard on the owner ([`DataSource::abort_wake`]).
+type AbortWake = Arc<dyn Fn() + Send + Sync>;
+
+/// Hand the aborts an owner's turn heard to the host and wake it: the turn's
+/// reply may be discarded (a forgotten one's), and a let-go has none.
+fn publish_aborts(
+    found: Vec<u64>,
+    aborted: &std::sync::Mutex<Vec<u64>>,
+    wake: &std::sync::Mutex<Option<AbortWake>>,
+) {
+    if found.is_empty() {
+        return;
+    }
+    aborted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .extend(found);
+    let wake = wake.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(wake) = wake {
+        wake();
+    }
+}
+
+fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {
+    args.iter().map(Value::to_bytes).collect()
+}
+
+fn decode_args(args: &[Vec<u8>]) -> Result<Vec<Value>, DataError> {
+    args.iter()
+        .map(|bytes| {
+            Value::from_bytes(bytes)
+                .map_err(|e| unavailable(format!("an argument did not cross: {e:?}")))
+        })
+        .collect()
+}
+
+/// A call recorded at `answer` or `parse`, dispatched later.
+enum Recorded {
+    Answer {
+        target: Option<Target>,
+        source: String,
+        args: Vec<Value>,
+    },
+    Resume {
+        target: Option<Target>,
+        source: String,
+        args: Vec<Value>,
+        outcome: Outcome,
+    },
+}
+
+/// What a parked call is waiting for: its turn's envelope, or the host's
+/// outcome for the request its turn yielded.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage {
+    Turn,
+    Yielded,
+}
+
+/// A call's stages are keyed by the runner's target when it named one,
+/// then by source and arguments: two targets asking one source with equal
+/// arguments are two calls.
+type Key = (Option<Target>, String, Vec<u8>);
+
+fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
+    let mut bytes = Vec::new();
+    for a in args {
+        bytes.extend(a.to_bytes());
+    }
+    (target, source.to_string(), bytes)
+}
+
+fn recorded_key(recorded: &Recorded) -> Key {
+    match recorded {
+        Recorded::Answer {
+            target,
+            source,
+            args,
+        }
+        | Recorded::Resume {
+            target,
+            source,
+            args,
+            ..
+        } => key(*target, source, args),
+    }
+}
+
+/// How a worker instance comes to exist on its thread.
+enum Spawn<D> {
+    /// The instance itself moves there, activated: the function was
+    /// instantiated by `new`, where `D: Send` holds.
+    Move(fn(D) -> Obtain<D>),
+    /// The instance is built there from what the template on this thread
+    /// knows (a TypeScript module: bytecode, identity, directories, plan).
+    Build(fn(&D) -> Obtain<D>),
+}
+
+/// A source with a placement.
+pub struct Placed<D> {
+    /// The source (`Main`), the template (`Worker`, built there), or nothing
+    /// once moved to its owner (`Worker`, moved there).
+    inner: Option<D>,
+    placement: Placement,
+    spawn: Spawn<D>,
+    app_id: String,
+    grants: String,
+    revision: Option<String>,
+    /// Taken at construction: a moved source's handle still reaches it on its
+    /// owner, and a built instance shares its template's.
+    interrupt: Option<Interrupt>,
+    /// Taken at construction too: the instance on the owner fills it.
+    native: Option<exact_runner::Native>,
+    /// The Canvas 2D roster, read at construction.
+    canvas_surfaces: Vec<(String, usize)>,
+    owner: Option<Arc<Mutex<OwnerQueue>>>,
+    recorded: BTreeMap<u64, Recorded>,
+    stages: HashMap<Key, VecDeque<Stage>>,
+    next: u64,
+    validation: bool,
+    logs: Vec<String>,
+    /// The fetches the app aborted on the owner, as its turns hand them over:
+    /// shared, so a turn whose reply is discarded still delivers them.
+    aborted: Arc<std::sync::Mutex<Vec<u64>>>,
+    /// The host's wake, which the owner calls when it hands an abort over
+    /// with no reply to bring the host (a let-go's).
+    abort_wake: Arc<std::sync::Mutex<Option<AbortWake>>>,
+    storage_changed: Arc<std::sync::atomic::AtomicBool>,
+    /// The sources the journal said don't overlay on the owner thread.
+    told_overlay: std::collections::BTreeSet<String>,
+}
+
+impl<D: DataSource + Send + 'static> Placed<D> {
+    /// `source`, placed; on `Worker` it moves to its owner at activation.
+    /// Nothing thread-affine crosses: `D: Send` says so.
+    pub fn new(source: D, placement: Placement) -> Self {
+        Self::with_spawn(source, placement, Spawn::Move(moved))
+    }
+}
+
+/// The moved instance, as the closure the owner runs to obtain it.
+fn moved<D: DataSource + Send + 'static>(source: D) -> Obtain<D> {
+    Box::new(move || Ok(source))
+}
+
+impl<D: DataSource + 'static> Placed<D> {
+    /// `template`, placed; on `Worker` the owner thread builds its own
+    /// instance from `build(&template)` at activation, and the template stays
+    /// here for identity, configuration and replacement. For a source that
+    /// cannot be sent — one that owns a VM.
+    pub fn built(template: D, placement: Placement, build: fn(&D) -> Obtain<D>) -> Self {
+        Self::with_spawn(template, placement, Spawn::Build(build))
+    }
+
+    fn with_spawn(source: D, placement: Placement, spawn: Spawn<D>) -> Self {
+        Self {
+            storage_changed: Default::default(),
+            app_id: source.app_id().to_string(),
+            grants: source.grants().to_string(),
+            revision: source.revision().map(str::to_string),
+            interrupt: source.interrupt(),
+            native: source.native(),
+            canvas_surfaces: source.canvas_surfaces(),
+            inner: Some(source),
+            placement,
+            spawn,
+            owner: None,
+            recorded: BTreeMap::new(),
+            stages: HashMap::new(),
+            next: 0,
+            validation: false,
+            logs: Vec::new(),
+            aborted: Default::default(),
+            abort_wake: Default::default(),
+            told_overlay: Default::default(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn staged_keys(&self) -> usize {
+        self.stages.len()
+    }
+
+    /// The placement this was given (what `placement()` reports outside
+    /// validation).
+    pub fn given_placement(&self) -> Placement {
+        self.placement
+    }
+
+    fn here(&mut self) -> Result<&mut D, DataError> {
+        self.inner
+            .as_mut()
+            .ok_or_else(|| unavailable("the source is on its owner thread"))
+    }
+
+    fn inline(&self) -> bool {
+        self.owner.is_none()
+    }
+
+    fn token(&mut self) -> Result<u64, DataError> {
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| unavailable("placed tokens exhausted"))?;
+        Ok(self.next)
+    }
+
+    fn record(&mut self, k: Key, recorded: Recorded) -> Result<Answer, DataError> {
+        let token = self.token()?;
+        self.recorded.insert(token, recorded);
+        self.stages.entry(k).or_default().push_back(Stage::Turn);
+        Ok(Answer::Later(Request::continuation(token)))
+    }
+
+    fn answer_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if self.inline() {
+            return crate::answer(self.here()?, target, store, source, args);
+        }
+        self.record(
+            key(target, source, args),
+            Recorded::Answer {
+                target,
+                source: source.to_string(),
+                args: args.to_vec(),
+            },
+        )
+    }
+
+    fn parse_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if self.inline() {
+            return crate::parse(self.here()?, target, store, source, args, outcome);
+        }
+        let k = key(target, source, args);
+        let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+        if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+            self.stages.remove(&k);
+        }
+        match stage {
+            Some(Stage::Turn) => {
+                let answer = envelope::apply(outcome, store, &mut self.logs);
+                // A wait for the answer's own timer: its next turn, recorded
+                // now, under a token the runner keeps back until it is due.
+                if let Ok(Answer::Later(Request {
+                    due_ms: Some(due), ..
+                })) = &answer
+                {
+                    let resume = Recorded::Resume {
+                        target,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome: Dispatch::again_outcome(),
+                    };
+                    let due = *due;
+                    return self.record(k, resume).map(|answer| match answer {
+                        Answer::Later(request) => Answer::Later(request.due(due)),
+                        answer => answer,
+                    });
+                }
+                if let Ok(Answer::Later(_)) = &answer {
+                    self.stages.entry(k).or_default().push_back(Stage::Yielded);
+                }
+                answer
+            }
+            Some(Stage::Yielded) => self.record(
+                k,
+                Recorded::Resume {
+                    target,
+                    source: source.to_string(),
+                    args: args.to_vec(),
+                    outcome,
+                },
+            ),
+            None => Err(unavailable(format!(
+                "`{source}`: a reply for an answer not in flight"
+            ))),
+        }
+    }
+
+    /// Start the owner: it obtains its instance, then runs
+    /// turns in order until this proxy drops its end of the channel.
+    fn spawn_owner(&mut self, obtain: Obtain<D>) -> Result<(), DataError> {
+        let (jobs, rx) = channel::<Job>();
+        let grants = self.grants.clone();
+        let storage_changed = self.storage_changed.clone();
+        let aborted = self.aborted.clone();
+        let abort_wake = self.abort_wake.clone();
+        std::thread::Builder::new()
+            .name("exact-owner".into())
+            .spawn(move || {
+                let mut source = obtain();
+                for job in rx {
+                    let (target, name, args, outcome, snapshot, clock, reply) = match job {
+                        Job::Forgotten(slot) => {
+                            let retirement = slot.lock().unwrap().take();
+                            if let (Ok(source), Some((in_flight, snapshot))) =
+                                (&mut source, retirement)
+                            {
+                                forget(source, &Store::new(&grants, snapshot), &in_flight);
+                                // A let-go call's continuations run here, and
+                                // may abort another call's fetch.
+                                publish_aborts(source.take_aborted(), &aborted, &abort_wake);
+                            }
+                            continue;
+                        }
+                        Job::Answer {
+                            target,
+                            source,
+                            args,
+                            snapshot,
+                            clock,
+                            reply,
+                        } => (target, source, args, None, snapshot, clock, reply),
+                        Job::Resume {
+                            target,
+                            source,
+                            args,
+                            outcome,
+                            snapshot,
+                            clock,
+                            reply,
+                        } => (target, source, args, Some(outcome), snapshot, clock, reply),
+                    };
+                    let mut local = Store::new(&grants, snapshot);
+                    local.set_clock_ms(clock);
+                    let result = match &mut source {
+                        Err(e) => Err(e.clone()),
+                        Ok(source) => decode_args(&args).and_then(|args| {
+                            turn(source, &mut local, target, &name, &args, outcome)
+                        }),
+                    };
+                    if source.as_mut().is_ok_and(|s| s.take_storage_changed()) {
+                        storage_changed.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
+                    if let Ok(source) = source.as_mut() {
+                        publish_aborts(source.take_aborted(), &aborted, &abort_wake);
+                    }
+                    reply.send(envelope::encode(result, &mut local, logs));
+                }
+                // Retired on its owner, after its last turn.
+                drop(source);
+            })
+            .map_err(|e| unavailable(format!("the owner thread could not start: {e}")))?;
+        self.owner = Some(Arc::new(Mutex::new(OwnerQueue {
+            sender: jobs,
+            pending: None,
+            unqueued: HashMap::new(),
+        })));
+        Ok(())
+    }
+}
+
+/// Tell the instance on its owner what is still in flight, without tokens:
+/// the proxy's mean nothing there. An argument that doesn't cross leaves its
+/// request out, which only lets its call go too.
+fn forget<D: DataSource>(
+    source: &mut D,
+    store: &Store,
+    in_flight: &[(Target, String, Vec<Vec<u8>>)],
+) {
+    let decoded: Vec<(Target, &str, Vec<Value>)> = in_flight
+        .iter()
+        .filter_map(|(target, name, args)| Some((*target, name.as_str(), decode_args(args).ok()?)))
+        .collect();
+    let view: Vec<InFlight<'_>> = decoded
+        .iter()
+        .map(|(target, source, args)| InFlight {
+            target: *target,
+            source,
+            args,
+            continuation: None,
+        })
+        .collect();
+    source.forgotten(store, &view);
+}
+
+/// One turn (change 3): begin or resume; stay on the owner
+/// through every wait the source runs itself (its storage, its own worker
+/// closures); end at an answer, an error, or a request only the host can run
+/// (`fetch`, the portable storage protocol) — a yield.
+fn turn<D: DataSource>(
+    source: &mut D,
+    local: &mut Store,
+    target: Option<Target>,
+    name: &str,
+    args: &[Value],
+    outcome: Option<Outcome>,
+) -> Result<Answer, DataError> {
+    let mut result = match outcome {
+        None => crate::answer(source, target, local, name, args),
+        Some(outcome) => crate::parse(source, target, local, name, args, outcome),
+    };
+    loop {
+        match result {
+            // A long poll on the worker's own work: refused before that work runs.
+            Ok(Answer::Later(request)) if request.long_poll_refusal().is_some() => {
+                if let Some(token) = request.continuation {
+                    source.discard(token);
+                }
+                return Err(unavailable(request.long_poll_refusal().unwrap_or_default()));
+            }
+            // A wait for the answer's own timer is the runner's to keep
+            // until due: it yields, as a fetch does.
+            Ok(Answer::Later(request))
+                if request.continuation.is_some() && request.due_ms.is_none() =>
+            {
+                let token = request.continuation.expect("checked");
+                let Some(work) = source.continuation(token) else {
+                    return Err(unavailable(format!(
+                        "`{name}`: a continuation with no work on its owner"
+                    )));
+                };
+                let outcome = work();
+                result = crate::parse(source, target, local, name, args, outcome);
+            }
+            other => return other,
+        }
+    }
+}
+
+impl<D: DataSource + 'static> DataSource for Placed<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.here()?.prepare_snapshot(module, deadline)?;
+        // The headless invocation already has an owner. Keep its disposable
+        // source there, including its interrupt and read-only storage policy.
+        self.placement = Placement::Main;
+        self.interrupt = self.here()?.interrupt();
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        let owner = self
+            .storage_changed
+            .swap(false, std::sync::atomic::Ordering::AcqRel);
+        self.inner
+            .as_mut()
+            .is_some_and(DataSource::take_storage_changed)
+            || owner
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        if let Some(inner) = &mut self.inner {
+            inner.set_document_owner(owner);
+        }
+    }
+
+    /// The wrapper's envelope lines, plus the inline module's journal.
+    /// A worker owner keeps the module's journal: nothing of
+    /// it is forwarded while the owner holds it.
+    fn take_logs(&mut self) -> Vec<String> {
+        if self.owner.is_none() {
+            if let Some(source) = &mut self.inner {
+                self.logs.extend(DataSource::take_logs(source));
+            }
+        }
+        std::mem::take(&mut self.logs)
+    }
+
+    fn abort_wake(&mut self, wake: Arc<dyn Fn() + Send + Sync>) {
+        if let Some(source) = &mut self.inner {
+            DataSource::abort_wake(source, wake.clone());
+        }
+        *self.abort_wake.lock().unwrap_or_else(|e| e.into_inner()) = Some(wake);
+    }
+
+    fn take_aborted(&mut self) -> Vec<u64> {
+        if self.owner.is_none() {
+            if let Some(source) = &mut self.inner {
+                return DataSource::take_aborted(source);
+            }
+        }
+        std::mem::take(&mut *self.aborted.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    fn placement(&self) -> Placement {
+        if self.validation {
+            Placement::Main
+        } else {
+            self.placement
+        }
+    }
+
+    fn app_id(&self) -> &str {
+        &self.app_id
+    }
+
+    fn grants(&self) -> &str {
+        &self.grants
+    }
+
+    fn revision(&self) -> Option<&str> {
+        self.revision.as_deref()
+    }
+
+    fn interrupt(&self) -> Option<Interrupt> {
+        self.interrupt.clone()
+    }
+
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.native.clone()
+    }
+
+    fn ready(&self) -> bool {
+        if self.owner.is_some() {
+            return true;
+        }
+        self.inner.as_ref().is_some_and(D::ready)
+    }
+
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.canvas_surfaces.clone()
+    }
+
+    /// A worker-placed module does not draw yet:
+    /// its canvases report the error through `state`.
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        match (&self.owner, self.inner.as_mut()) {
+            (None, Some(inner)) => inner.draw(request, ctx),
+            _ => exact_runner::Drawn::Now(exact_runner::DrawReply {
+                error: Some("a worker-placed module does not draw Canvas 2D yet".into()),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        if let (None, Some(inner)) = (&self.owner, self.inner.as_mut()) {
+            inner.canvases_retired(retired);
+        }
+    }
+
+    fn preload(&self) -> Result<bool, DataError> {
+        match &self.inner {
+            Some(inner) => inner.preload(),
+            None => Ok(true),
+        }
+    }
+
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        match &self.inner {
+            Some(inner) => inner.when_preloaded(wake),
+            None => wake(),
+        }
+    }
+
+    fn bind(&mut self, plan: &Plan) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.bind(plan);
+        }
+    }
+
+    /// A source on a worker is not told: a value reaches it only as a copy,
+    /// which is what adopting saves.
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.adopt(source, args, value);
+        }
+    }
+
+    fn configure_storage(
+        &mut self,
+        data: std::path::PathBuf,
+        cache: std::path::PathBuf,
+        temporary: std::path::PathBuf,
+    ) -> Result<(), DataError> {
+        self.here()?.configure_storage(data, cache, temporary)
+    }
+
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.validation = false;
+        if self.placement != Placement::Worker {
+            return self.here()?.activate();
+        }
+        if self.owner.is_some() {
+            return Ok(());
+        }
+        if cfg!(target_arch = "wasm32") {
+            return Err(unavailable(
+                "a worker placement is unavailable on this host",
+            ));
+        }
+        let obtain: Obtain<D> = match self.spawn {
+            Spawn::Build(build) => build(self.here()?),
+            Spawn::Move(moved) => {
+                let mut source = self
+                    .inner
+                    .take()
+                    .ok_or_else(|| unavailable("the source is on its owner thread"))?;
+                if let Err(e) = source.activate() {
+                    self.inner = Some(source);
+                    return Err(e);
+                }
+                moved(source)
+            }
+        };
+        self.spawn_owner(obtain)
+    }
+
+    /// Validation is disposable and runs inline, on this thread: a candidate
+    /// is judged by its answers, not by where it would run. A built worker's
+    /// template is what gets validated.
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        self.validation = true;
+        self.owner = None;
+        self.here()?.activate_for_validation()
+    }
+
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.here()?.query(source, args)
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(None, store, source, args)
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(Some(target), store, source, args)
+    }
+
+    fn parse(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(None, store, source, args, outcome)
+    }
+
+    /// Inline, the source's own overlay. On its owner thread it can't be
+    /// called synchronously, so the answer shows; the journal says so once.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if self.inline() {
+            return self.here()?.overlay(source, args, answer, writes);
+        }
+        if self.told_overlay.insert(source.to_string()) {
+            self.logs.push(format!(
+                "overlay: {source} runs on its owner thread, so its writes show when answered"
+            ));
+        }
+        Ok(None)
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(Some(target), store, source, args, outcome)
+    }
+
+    /// What the runner still has in flight, in this proxy's tokens.
+    /// A recorded call whose token isn't in flight was replaced or let
+    /// go, and is dropped. A key no longer in flight loses its stages; one
+    /// whose in-flight request is a newer recorded call (a refresh with
+    /// equal arguments) keeps that call's stage alone. A turn already running
+    /// on the owner ends there; the runner drops its reply. The source hears
+    /// the same, in turn order on its owner, where it has no call yet for a
+    /// key whose recorded call hasn't been dispatched.
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
+        let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
+        self.recorded.retain(|token, _| tokens.contains(token));
+        let live: HashMap<Key, Option<u64>> = in_flight
+            .iter()
+            .map(|f| (key(Some(f.target), f.source, f.args), f.continuation))
+            .collect();
+        let recorded = &self.recorded;
+        let newer = |k: &Key| matches!(live.get(k), Some(Some(t)) if recorded.contains_key(t));
+        self.stages
+            .retain(|k, _| k.0.is_none() || live.contains_key(k));
+        for (k, stages) in self.stages.iter_mut() {
+            if k.0.is_some() && newer(k) {
+                stages.clear();
+                stages.push_back(Stage::Turn);
+            }
+        }
+        if let Some(owner) = &self.owner {
+            let view: Vec<Flight> = in_flight
+                .iter()
+                .filter(|f| {
+                    !matches!(
+                        f.continuation.and_then(|t| self.recorded.get(&t)),
+                        Some(Recorded::Answer { .. })
+                    )
+                })
+                .map(|f| (f.target, f.source.to_string(), encode_args(f.args)))
+                .collect();
+            let snapshot = envelope::snapshot(store, &self.grants);
+            let mut queue = owner.lock().unwrap();
+            // A dispatched turn not yet handed over whose call this view lets
+            // go is never sent: under the same lock as the marker, so it is
+            // either queued before the marker or not at all. By key, as the
+            // instance lets parked calls go (a wrapper may not pass tokens).
+            queue
+                .unqueued
+                .retain(|_, key| key.as_ref().is_none_or(|key| view.contains(key)));
+            queue.forgotten((view, snapshot));
+        } else if let Some(inner) = self.inner.as_mut() {
+            inner.forgotten(store, in_flight);
+        }
+    }
+
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        let Some(recorded) = self.recorded.remove(&token) else {
+            return match self.inner.as_mut() {
+                Some(inner) if self.owner.is_none() => inner.dispatch(token, store),
+                _ => Dispatch::Missing,
+            };
+        };
+        let Some(owner) = self.owner.clone() else {
+            return Dispatch::Missing;
+        };
+        let snapshot = envelope::snapshot(store, &self.grants);
+        // Everything the closure carries is `Send`: names, bytes, the
+        // outcome, the snapshot. The reply arrives on the host's I/O worker.
+        let (target, source, args, outcome) = match recorded {
+            Recorded::Answer {
+                target,
+                source,
+                args,
+            } => (target, source, encode_args(&args), None),
+            Recorded::Resume {
+                target,
+                source,
+                args,
+                outcome,
+            } => (target, source, encode_args(&args), Some(outcome)),
+        };
+        let clock = store.clock_ms();
+        let key = target.map(|target| (target, source.clone(), args.clone()));
+        owner.lock().unwrap().unqueued.insert(token, key);
+        // An abandoned closure (the host drops it unrun) leaves no entry.
+        let guard = Unqueued(owner.clone(), token);
+        Dispatch::Run(Work::Later(Box::new(move |reply| {
+            let _guard = guard;
+            let job = match outcome {
+                None => Job::Answer {
+                    target,
+                    source,
+                    args,
+                    snapshot,
+                    clock,
+                    reply,
+                },
+                Some(outcome) => Job::Resume {
+                    target,
+                    source,
+                    args,
+                    outcome,
+                    snapshot,
+                    clock,
+                    reply,
+                },
+            };
+            // A closed channel drops the reply, which reports `Aborted`; so
+            // does a call let go before its job was handed over. Either reply
+            // reports to the host after the queue's lock is released.
+            let mut queue = owner.lock().unwrap();
+            let unsent = match queue.unqueued.remove(&token) {
+                Some(_) => queue.turn(job),
+                None => Some(job),
+            };
+            drop(queue);
+            drop(unsent);
+        })))
+    }
+
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.release(store),
+            _ => Vec::new(),
+        }
+    }
+
+    fn discard(&mut self, token: u64) {
+        match self.recorded.remove(&token) {
+            Some(recorded) => {
+                let k = recorded_key(&recorded);
+                if let Some(stages) = self.stages.get_mut(&k) {
+                    stages.pop_back();
+                    if stages.is_empty() {
+                        self.stages.remove(&k);
+                    }
+                }
+            }
+            None => {
+                if let Some(owner) = &self.owner {
+                    owner.lock().unwrap().unqueued.remove(&token);
+                }
+                if let Some(inner) = self.inner.as_mut() {
+                    inner.discard(token);
+                }
+            }
+        }
+    }
+
+    fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if self.owner.is_some() {
+            return None;
+        }
+        self.inner.as_mut()?.continuation(token)
+    }
+
+    /// Background work is the inline module's alone: a
+    /// worker's answers wait for their storage, so nothing is forwarded
+    /// while an owner holds the module.
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background(store),
+            _ => None,
+        }
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background_landed(store, outcome),
+            _ => Ok(None),
+        }
+    }
+
+    /// Work that outlives its answer is the inline module's alone:
+    /// a worker's let-go requests are cancelled, as before.
+    fn keep_sent(
+        &mut self,
+        store: &Store,
+        let_go: &[InFlight<'_>],
+        refused: bool,
+    ) -> Vec<Option<u64>> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.keep_sent(store, let_go, refused),
+            _ => vec![None; let_go.len()],
+        }
+    }
+
+    fn module_landed(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<(), DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.module_landed(store, token, outcome),
+            _ => Ok(()),
+        }
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        match self.inner.as_ref() {
+            Some(inner) if self.owner.is_none() => inner.background_state(),
+            _ => None,
+        }
+    }
+
+    /// A replacement keeps its placement. A moved source
+    /// has no `Self` left here to pair; a built one is replaced through its
+    /// template.
+    fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
+        match (&self.inner, &self.spawn) {
+            (Some(inner), Spawn::Build(build)) => Ok(Self::with_spawn(
+                inner.replacement(plan, receipt, module)?,
+                self.placement,
+                Spawn::Build(*build),
+            )),
+            (Some(inner), Spawn::Move(moved)) => Ok(Self::with_spawn(
+                inner.replacement(plan, receipt, module)?,
+                self.placement,
+                Spawn::Move(*moved),
+            )),
+            (None, _) => Err(unavailable(
+                "a placed source is binary-bound once on its owner; rebuild it",
+            )),
+        }
+    }
+}
+
+impl<D> Drop for Placed<D> {
+    fn drop(&mut self) {
+        // Closing the channel ends the owner after its current turn; the
+        // runner's thread never waits on it.
+        self.owner.take();
+    }
+}
+
+#[cfg(test)]
+#[path = "placed_tests.rs"]
+mod tests;

@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "digest": "cd3401ad51a42cb0",
+  "name": "influence",
+  "tuples": 1,
+  "axes": [],
+  "dials": [
+    {"name": "hue", "kind": "number", "value": "0", "range": ["0", "360"], "meta": {}},
+    {"name": "accent", "kind": "color", "value": "#1083feff", "range": null, "meta": {}}
+  ],
+  "tokens": [
+    {"name": "hued", "kind": "color", "role": null, "values": ["#ff0000ff"], "entries": null, "dials": ["hue"], "fallback": ["#ff0000ff", "#ff0000ff"]},
+    {"name": "shadow", "kind": "color", "role": null, "values": ["color(srgb 0 0 0)"], "entries": null, "dials": ["accent"], "fallback": ["#000000ff", "#000000ff"]}
+  ],
+  "exports": null
+}

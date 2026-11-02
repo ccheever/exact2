@@ -1,0 +1,1192 @@
+//! The native ABI: what the presenter `dlopen`s.
+//!
+//! One thread-local module; calls on the main thread. Strings are UTF-8
+//! bytes with lengths. The `unsafe` this module owns: the platform target
+//! handoff (a `CAMetalLayer` pointer the presenter registered, valid until
+//! it calls `destroy`) and the byte ranges a host hands over — each checked
+//! for a null pointer before it becomes a slice, every count checked for
+//! overflow in the module, so a confused host gets a refusal by name, never
+//! undefined behaviour (the ABI is the one `unsafe` boundary).
+
+use crate::{json, Frame, Module, Registry};
+use std::cell::RefCell;
+use std::ffi::c_void;
+
+thread_local! {
+    static MODULE: RefCell<Option<Module>> = const { RefCell::new(None) };
+    static ERROR: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
+    MODULE.with(|m| m.borrow_mut().as_mut().map(f))
+}
+
+/// Drain requested asset paths as JSON.
+pub fn assets(id: u32) -> String {
+    with(|m| m.take_assets(id).json()).unwrap_or_else(|| crate::AssetChanges::default().json())
+}
+/// Deliver named bytes, including a missing file, without requiring a device.
+pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+    with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
+}
+
+/// Deliver a terminal transport failure.
+pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
+    with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
+}
+
+/// Record a refusal made by the ABI itself, before the module was reached.
+pub fn refuse(why: &str) {
+    ERROR.with(|s| *s.borrow_mut() = why.to_string());
+}
+
+/// A host's byte range as a slice — `None`, with the refusal recorded, for
+/// a null pointer.
+///
+/// # Safety
+/// `ptr`, when non-null, is `len` readable bytes that outlive the call.
+pub unsafe fn bytes<'a>(what: &str, ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+    if len == 0 {
+        return Some(&[]);
+    }
+    if ptr.is_null() {
+        refuse(&format!("{what}: a null pointer for {len} bytes"));
+        return None;
+    }
+    // SAFETY: the caller's contract, the pointer checked.
+    Some(unsafe { std::slice::from_raw_parts(ptr, len) })
+}
+
+/// A host's writable byte range as a slice — `None`, with the refusal
+/// recorded, for a null pointer.
+///
+/// # Safety
+/// `ptr`, when non-null, is `len` writable bytes that outlive the call.
+pub unsafe fn bytes_mut<'a>(what: &str, ptr: *mut u8, len: usize) -> Option<&'a mut [u8]> {
+    if len == 0 {
+        return Some(&mut []);
+    }
+    if ptr.is_null() {
+        refuse(&format!("{what}: a null pointer for {len} bytes"));
+        return None;
+    }
+    // SAFETY: the caller's contract, the pointer checked.
+    Some(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
+}
+
+/// The top two u32 values mean absent/refused carry; never truncate a length.
+pub fn carry_length(len: usize) -> Option<u32> {
+    match u32::try_from(len) {
+        Ok(n) if n < u32::MAX - 1 => Some(n),
+        _ => {
+            refuse("gpu_carry: carry exceeds ABI byte limit");
+            None
+        }
+    }
+}
+
+/// Every canvas takes the told tier ([`Module::retier`]).
+pub fn retier() {
+    with(|m| m.retier());
+}
+
+/// Create the device and the module. Returns 0 on success, 1 on failure
+/// (see [`error`]).
+pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
+    crate::report_panics();
+    let prepared = {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A device [`prepare`] is still creating: wait for it.
+        while matches!(*slot, Prepared::Creating) {
+            slot = PREPARED.1.wait(slot).unwrap_or_else(|e| e.into_inner());
+        }
+        match std::mem::replace(&mut *slot, Prepared::None) {
+            Prepared::Ready(gpu) => Some(gpu),
+            _ => None,
+        }
+    };
+    match prepared.unwrap_or_else(create_gpu) {
+        Ok(gpu) => {
+            let mut module = Module::new(registry);
+            module.cache_artifact = Some(artifact);
+            module.set_gpu(gpu);
+            MODULE.with(|m| *m.borrow_mut() = Some(module));
+            0
+        }
+        Err(e) => {
+            ERROR.with(|s| *s.borrow_mut() = e.to_string());
+            1
+        }
+    }
+}
+
+fn create_gpu() -> Result<crate::Gpu, crate::DeviceFailure> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        flags: crate::device::instance_flags(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    crate::block_on(crate::device::load_gpu_as(instance, None, true))
+}
+
+enum Prepared {
+    None,
+    Creating,
+    Ready(Result<crate::Gpu, crate::DeviceFailure>),
+}
+
+/// The device [`prepare`] creates, for the next [`load`] on any thread.
+static PREPARED: (std::sync::Mutex<Prepared>, std::sync::Condvar) = (
+    std::sync::Mutex::new(Prepared::None),
+    std::sync::Condvar::new(),
+);
+
+/// Create the device on a thread of its own, now, for the next [`load`]
+/// (which waits for it): a host starting up makes it while it boots, and
+/// the canvas's first frame does not. The device and queue are
+/// `Send`; the module itself stays on the thread that loads it.
+pub fn prepare() {
+    {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(*slot, Prepared::None) {
+            return;
+        }
+        *slot = Prepared::Creating;
+    }
+    let made = std::thread::Builder::new()
+        .name("exact-gpu-prepare".into())
+        .spawn(|| {
+            let gpu = create_gpu();
+            *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::Ready(gpu);
+            PREPARED.1.notify_all();
+        });
+    if made.is_err() {
+        *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::None;
+    }
+}
+
+/// Whether a [`load`] would take its device now: 0 while [`prepare`]'s thread
+/// is still making it (a host skips its canvases for a frame rather than
+/// wait), 1 otherwise.
+pub fn prepared() -> u32 {
+    let slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+    u32::from(!matches!(*slot, Prepared::Creating))
+}
+
+/// The active Metal device identity, for filtering host removal notifications.
+pub fn device_registry_id() -> u64 {
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+    return with(|m| {
+        use objc2_metal::MTLDevice;
+        let gpu = m.gpu.as_ref()?;
+        // SAFETY: borrowed only to read the device identity; no HAL mutation.
+        unsafe { gpu.device.as_hal::<wgpu::hal::api::Metal>() }.map(|d| d.raw_device().registryID())
+    })
+    .flatten()
+    .unwrap_or(0);
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
+    0
+}
+
+/// Includes a failed replacement, which still needs a device.
+pub fn device_is_lost() -> bool {
+    with(|m| m.instance.is_some() && m.gpu().is_none()).unwrap_or(false)
+}
+
+/// Recover the loaded module without replacing its surface table. JSON outcome.
+pub fn recover() -> String {
+    let Some(result) = with(|m| crate::block_on(m.recover())) else {
+        refuse("GPU module not loaded");
+        return "{\"status\":\"failed\",\"code\":\"recovery\",\"error\":\"GPU module not loaded\"}"
+            .into();
+    };
+    match result {
+        Ok(report) => report,
+        Err(error) => {
+            refuse(error.message());
+            error.json()
+        }
+    }
+}
+
+/// Load surface ownership only; no adapter is requested.
+pub fn load_headless(registry: &'static Registry, artifact: &'static str) {
+    crate::report_panics();
+    let mut module = Module::new(registry);
+    module.cache_artifact = Some(artifact);
+    module.set_seekable(true);
+    MODULE.with(|m| *m.borrow_mut() = Some(module));
+}
+
+/// Create a surface without presentation; zero means refusal.
+pub fn create_headless(name: &str) -> u32 {
+    with(|m| m.create_headless(name)).flatten().unwrap_or(0)
+}
+
+/// Drop the device and every canvas; [`load`] may run again. A thread that
+/// loaded a module must not leave it for thread-local teardown: wgpu's own
+/// thread-locals may already be gone by then, and dropping a device without
+/// them aborts the process (found by the first test to load one off the main thread).
+pub fn unload() {
+    let module = MODULE.with(|m| m.borrow_mut().take());
+    drop(module);
+}
+
+/// Create a canvas's surface on a `CAMetalLayer`. Returns the canvas id,
+/// or 0 on failure.
+///
+/// # Safety
+/// `layer` must be a live `CAMetalLayer` that outlives the canvas.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) -> u32 {
+    let created = with(|m| {
+        let gpu = m.gpu()?;
+        // SAFETY: the caller's contract — the presenter's layer, alive until destroy.
+        let target = unsafe {
+            gpu.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
+        };
+        match target {
+            Ok(t) => {
+                let id = m.create(name, t, width, height)?;
+                m.instances.get_mut(&id)?.layer = Some(layer as usize);
+                Some(id)
+            }
+            Err(e) => {
+                ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
+                None
+            }
+        }
+    })
+    .flatten();
+    created.unwrap_or(0)
+}
+
+/// Off Apple there is no layer to present to yet: the module
+/// still loads, and a surface runs through [`crate::fixture`]; a canvas on a
+/// platform target is refused by name.
+///
+/// # Safety
+/// None: `layer` is never read.
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
+pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse(&format!(
+        "gpu_create `{name}`: this platform has no presentable target yet"
+    ));
+    0
+}
+
+/// Give canvas `id` (made by [`create_headless`]) an Android window to
+/// present to. 0 on success, 1 on a refusal (see [`error`]).
+///
+/// # Safety
+/// `window` must be a live `ANativeWindow` that outlives the attachment
+/// (until [`detach`] or the canvas's destroy).
+#[cfg(target_os = "android")]
+pub unsafe fn attach(id: u32, window: *mut c_void, width: u32, height: u32) -> u32 {
+    use wgpu::rwh::{
+        AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let Some(window) = std::ptr::NonNull::new(window) else {
+        refuse("gpu_attach: a null window");
+        return 1;
+    };
+    let attached = with(|m| {
+        m.join_retired();
+        let gpu = m.gpu()?;
+        // SAFETY: the caller's contract — the window outlives the surface.
+        let target = unsafe {
+            gpu.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(
+                        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    ),
+                    raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(
+                        window,
+                    )),
+                })
+        };
+        match target {
+            Ok(t) => Some(m.attach(id, t, width, height)),
+            Err(e) => {
+                ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
+                None
+            }
+        }
+    })
+    .flatten();
+    u32::from(attached != Some(true))
+}
+
+/// No window to attach off Android.
+///
+/// # Safety
+/// None: `window` is never read.
+#[cfg(not(target_os = "android"))]
+pub unsafe fn attach(_id: u32, _window: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse("gpu_attach: this platform presents through gpu_create");
+    1
+}
+
+/// Give canvas `id` buffers to render into, which a reader draws itself
+/// (`crate::buffers`). 0 on success, 1 on a refusal (see [`error`]).
+#[cfg(target_os = "android")]
+pub fn attach_buffers(id: u32, width: u32, height: u32) -> u32 {
+    u32::from(with(|m| m.attach_buffers(id, width, height)) != Some(true))
+}
+
+/// Canvas `id`'s newest finished frame: its `AHardwareBuffer*` (alive until
+/// the canvas is detached or resized) with `[generation, slot, serial]` in
+/// `out`, or null.
+#[cfg(target_os = "android")]
+pub fn buffer(id: u32, out: &mut [u32; 3]) -> *mut c_void {
+    match with(|m| m.buffer(id)).flatten() {
+        Some((words, buffer)) => {
+            *out = words;
+            buffer
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Drop canvas `id`'s window target; its state stays.
+pub fn detach(id: u32) {
+    with(|m| m.detach(id));
+}
+
+/// Register the text of shader `name`: validated, its
+/// interface checked against the one this module's Rust binds. Returns 0 on
+/// success, 1 on a refusal (see [`error`]). The module must be loaded.
+pub fn shader(name: &str, text: &str) -> u32 {
+    match with(|m| m.set_shader(name, text.to_string())) {
+        Some(true) => 0,
+        Some(false) => 1,
+        None => {
+            refuse("gpu_shader: the module is not loaded (gpu_load first)");
+            1
+        }
+    }
+}
+
+/// Validate without replacing a live shader, during app generation preparation.
+pub fn validate_shader(name: &str, text: &str) -> u32 {
+    let result = with(|m| {
+        let digest = m
+            .expected_digest(name)
+            .ok_or_else(|| format!("no shader named `{name}` in this module"))?;
+        crate::shaders::validate_shader(name, text, Some(digest)).map(|_| ())
+    })
+    .unwrap_or_else(|| Err("GPU module not loaded".into()));
+    match result {
+        Ok(()) => 0,
+        Err(error) => {
+            refuse(&error);
+            1
+        }
+    }
+}
+
+/// Bind inputs (a JSON array of values). Returns 0 on success.
+pub fn bind(id: u32, values: &str) -> u32 {
+    bind_at(id, values, None)
+}
+
+/// Bind inputs at an optional host commit clock.
+pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
+    match with(|m| m.bind_json(id, values, at_ms)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// Record one frame into the tick's open frame; nothing is
+/// shown until [`flush`]. Returns 1 when the surface wants another frame, 0
+/// otherwise, 2 on failure, 3 when presentation has no device.
+pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
+    let frame = Frame {
+        width,
+        height,
+        scale,
+        now_ms,
+        children_generation: 0,
+        seekable: false,
+        period_ms: 0.0,
+        shader_generation: 0,
+        headroom: 1.0,
+    };
+    match with(|m| m.render(id, &frame)).flatten() {
+        Some(true) => 1,
+        Some(false) => 0,
+        None if with(|m| m.instances.contains_key(&id) && !m.has_device(id)).unwrap_or(false) => 3,
+        None => 2,
+    }
+}
+
+/// Submit the tick's recorded frame once and present every canvas in it.
+/// 0 on success, 1 when a surface failed (see [`error`]).
+pub fn flush() -> u32 {
+    match with(|m| m.flush()) {
+        Some(false) => 1,
+        _ => 0,
+    }
+}
+
+/// Whether a canvas's surface wants each child as its own texture.
+pub fn children_mode(id: u32) -> u32 {
+    with(|m| m.children_mode(id).code()).unwrap_or(0)
+}
+
+/// The `index`th direct child of a canvas as pixels with its frame.
+/// 0 on success.
+pub fn child(
+    id: u32,
+    index: u32,
+    name: &str,
+    frame: [f32; 4],
+    size: [u32; 2],
+    bytes: &[u8],
+) -> u32 {
+    match with(|m| m.child(id, index as usize, name, frame, size, bytes)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// How many direct children a canvas has now. 0 on success.
+pub fn children_count(id: u32, count: u32) -> u32 {
+    match with(|m| m.children_count(id, count as usize)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// Where the surface put a child: the homography (nine floats, row major)
+/// then the depth; `None` when it is the kernel's frame.
+pub fn placement(id: u32, index: u32) -> Option<crate::Placement> {
+    with(|m| m.placement(id, index as usize)).flatten()
+}
+
+/// The canvas's children as pixels (`width`×`height` premultiplied
+/// RGBA). 0 on success.
+pub fn texture(id: u32, width: u32, height: u32, bytes: &[u8]) -> u32 {
+    match with(|m| m.texture(id, width, height, bytes)) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// The module's GPU work complete. 0 on success.
+pub fn sync() -> u32 {
+    match with(|m| m.sync()) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// The canvas's children as a Metal texture the host rendered, imported as
+/// it is. 0 on success.
+///
+/// # Safety
+/// `raw` is a live `MTLTexture` of `width`×`height`, `rgba8Unorm`, kept
+/// alive by the host while the canvas lives.
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_void) -> u32 {
+    // SAFETY: the caller's contract, passed on.
+    match with(|m| unsafe { m.texture_from_metal(id, width, height, raw) }) {
+        Some(true) => 0,
+        _ => 1,
+    }
+}
+
+/// A canvas's picture as pixels into `out` — `width`×`height` points at
+/// `scale`, RGBA rows top-down, `out` at least the pixel count × 4 (nested
+/// canvases). 0 on success, 2 on success when the surface wants
+/// another frame, 1 on failure, 3 when the device is unavailable.
+pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: &mut [u8]) -> u32 {
+    let frame = Frame {
+        width,
+        height,
+        scale,
+        now_ms,
+        children_generation: 0,
+        seekable: false,
+        period_ms: 0.0,
+        shader_generation: 0,
+        headroom: 1.0,
+    };
+    match with(|m| m.readback_into(id, &frame, out)).flatten() {
+        Some(true) => 2,
+        Some(false) => 0,
+        None if with(|m| m.instances.contains_key(&id) && m.gpu().is_none()).unwrap_or(false) => 3,
+        None => 1,
+    }
+}
+
+/// Current instance policy: bit 0 promises alpha one; bit 1 requests SDR.
+/// Available before attachment, including for headless canvases.
+pub fn presentation_flags(id: u32) -> u32 {
+    with(|m| m.presentation_flags(id)).unwrap_or(0)
+}
+
+/// Whether a canvas wants raw input.
+pub fn wants_input(id: u32) -> bool {
+    with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Present between CPU UI layers without reading the game back.
+/// # Safety
+/// The HWND remains live until `window_detach`; slices contain premultiplied RGBA.
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn window_frame(
+    id: u32,
+    hwnd: usize,
+    hinstance: usize,
+    width: f32,
+    height: f32,
+    scale: f32,
+    now_ms: f64,
+    below: &[u8],
+    above: &[u8],
+    changed: bool,
+    above_rows: std::ops::Range<u32>,
+) -> u32 {
+    let frame = Frame {
+        width,
+        height,
+        scale,
+        now_ms,
+        children_generation: 0,
+        seekable: false,
+        period_ms: 0.,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    match with(|m| unsafe {
+        m.present_window(
+            id, hwnd, hinstance, &frame, below, above, changed, above_rows,
+        )
+    }) {
+        Some(Ok(())) => 0,
+        Some(Err(e)) => {
+            refuse(&e);
+            1
+        }
+        None => 1,
+    }
+}
+
+/// Release the native window before its HWND goes away.
+#[cfg(windows)]
+pub fn window_detach() {
+    with(|m| m.detach_window());
+}
+
+/// Whether a canvas draws above SDR white.
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to.
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
+}
+
+/// Deliver a JSON device event. True on success.
+pub fn input(id: u32, event: &str) -> bool {
+    with(|m| m.input_json(id, event)).unwrap_or(false)
+}
+
+/// Capture state; None is distinct from a zero-byte carry.
+pub fn carry(id: u32) -> Result<Option<Vec<u8>>, crate::SurfaceError> {
+    with(|m| m.carry(id))
+        .unwrap_or_else(|| Err(crate::SurfaceError("GPU module is not loaded".into())))
+}
+
+/// Restore state. False leaves the surface unchanged; error explains why.
+pub fn restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+    let Ok(mode) = crate::Restore::from_code(mode) else {
+        return false;
+    };
+    with(|m| m.restore(id, bytes, mode)).unwrap_or(false)
+}
+
+/// Take the latest changed public record, if any.
+pub fn published(id: u32) -> Option<String> {
+    with(|m| m.take_published(id)).flatten()
+}
+
+/// Drain posted messages as a JSON array.
+pub fn messages(id: u32) -> Option<String> {
+    let messages = with(|m| m.take_messages(id)).unwrap_or_default();
+    (!messages.is_empty()).then(|| json::strings(&messages))
+}
+
+/// Ask the surface; an empty string means no answer.
+pub fn agent(id: u32, request: &str) -> String {
+    with(|m| m.agent(id, request)).flatten().unwrap_or_default()
+}
+
+/// Deliver a host lifecycle notification without advancing the surface.
+pub fn lifecycle(id: u32, code: u32) {
+    with(|m| m.lifecycle(id, code));
+}
+
+/// Set the host's clock ownership.
+pub fn seekable(on: bool) {
+    with(|m| m.set_seekable(on));
+}
+
+/// The display's frame period in milliseconds (0 = unknown), for every frame after.
+pub fn period(period_ms: f64) {
+    with(|m| m.set_period(period_ms));
+}
+
+/// Whether a canvas has inputs it has not rendered.
+pub fn dirty(id: u32) -> bool {
+    with(|m| m.dirty(id)).unwrap_or(false)
+}
+
+/// Whether a canvas's last render drew into the frame the next flush submits.
+pub fn drew(id: u32) -> bool {
+    with(|m| m.drew(id)).unwrap_or(false)
+}
+
+/// Whether a canvas's last render went without a drawable.
+pub fn starved(id: u32) -> bool {
+    with(|m| m.starved(id)).unwrap_or(false)
+}
+
+/// Whether a render of the canvas has something to do: `false` while its
+/// drawable in flight has not landed.
+pub fn landed(id: u32) -> bool {
+    with(|m| m.landed(id)).unwrap_or(false)
+}
+
+/// Register the presenter's callback for a starved canvas's drawable: it
+/// runs on the thread that acquired it, and asks for a render on the main
+/// thread. `None` removes it.
+pub fn on_acquire(callback: Option<extern "C" fn()>) {
+    crate::acquire::on_acquire(callback);
+}
+
+/// Whether a canvas's first frame has been handed to the compositor.
+pub fn seen(id: u32) -> bool {
+    with(|m| m.seen(id)).unwrap_or(false)
+}
+
+/// Register the presenter's callback for a canvas's first frame: on Metal it
+/// runs on the thread that scheduled the frame, and the presenter asks
+/// [`seen`] on its own thread. `None` removes it.
+pub fn on_presented(callback: Option<extern "C" fn()>) {
+    crate::frame::on_presented(callback);
+}
+
+/// Drop a canvas's surface.
+pub fn destroy(id: u32) {
+    with(|m| m.destroy(id));
+}
+
+/// The last failure's text: the ABI's own refusal when there is one
+/// (reported once), else the module's.
+pub fn error() -> String {
+    let own = ERROR.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    if !own.is_empty() {
+        return own;
+    }
+    with(|m| m.take_error()).unwrap_or_default()
+}
+
+/// The exports for one app's registry, C ABI.
+#[macro_export]
+macro_rules! module {
+    ($registry:expr) => {
+        thread_local! {
+            static EXACT_GPU_OUT: ::std::cell::RefCell<Vec<u8>> = const { ::std::cell::RefCell::new(Vec::new()) };
+        }
+
+        /// Create the device. 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_load() -> u32 {
+            $crate::native::load(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION")))
+        }
+
+        /// Start creating the device on a thread of its own; `gpu_load` takes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepare() {
+            $crate::native::prepare()
+        }
+
+        /// 1 when `gpu_load` would not wait for a prepared device, 0 while it is made.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepared() -> u32 {
+            $crate::native::prepared()
+        }
+
+        /// Active Metal registry identity, or zero off Metal.
+        #[no_mangle]
+        pub extern "C" fn gpu_device_registry_id() -> u64 { $crate::native::device_registry_id() }
+        /// Whether the loaded module needs a replacement device.
+        #[no_mangle]
+        pub extern "C" fn gpu_device_is_lost() -> bool { $crate::native::device_is_lost() }
+        /// Recover the device; JSON outcome in gpu_out_ptr, returning its length.
+        #[no_mangle]
+        pub extern "C" fn gpu_recover() -> u32 {
+            let bytes = $crate::native::recover().into_bytes();
+            let len = bytes.len() as u32;
+            EXACT_GPU_OUT.with(|out| *out.borrow_mut() = bytes);
+            len
+        }
+
+        /// Release all instances and module TLS before unloading the library.
+        #[no_mangle]
+        pub extern "C" fn gpu_unload() { $crate::native::unload(); }
+
+        /// Load ownership without a GPU.
+        #[no_mangle]
+        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"))); }
+
+        /// Create ownership without a presentation target. Zero means refusal.
+        /// # Safety
+        /// `name` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_create_headless(name: *const u8, len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_create_headless", name, len) }) else { return 0 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_create_headless: invalid UTF-8"); return 0 };
+            $crate::native::create_headless(name)
+        }
+
+        /// Create a canvas's surface on a CAMetalLayer. The canvas id, or 0.
+        ///
+        /// # Safety
+        /// `name` is `len` bytes of UTF-8; `layer` a live CAMetalLayer that
+        /// outlives the canvas.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_create(name: *const u8, len: usize, layer: *mut ::std::ffi::c_void, width: u32, height: u32) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_create", name, len) }) else { return 0 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_create: the name is not UTF-8"); return 0 };
+            if layer.is_null() { $crate::native::refuse("gpu_create: a null layer"); return 0 }
+            unsafe { $crate::native::create(name, layer, width, height) }
+        }
+
+        /// Give a canvas made headless an Android window (an `ANativeWindow`) to present to. 0 on success.
+        ///
+        /// # Safety
+        /// `window` is a live `ANativeWindow` until `gpu_detach` or `gpu_destroy`.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_attach(id: u32, window: *mut ::std::ffi::c_void, width: u32, height: u32) -> u32 {
+            unsafe { $crate::native::attach(id, window, width, height) }
+        }
+
+        /// Drop a canvas's window target; its state stays.
+        #[no_mangle]
+        pub extern "C" fn gpu_detach(id: u32) { $crate::native::detach(id) }
+
+        /// Buffers for a canvas a reader draws itself; 0 on success.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub extern "C" fn gpu_attach_buffers(id: u32, width: u32, height: u32) -> u32 { $crate::native::attach_buffers(id, width, height) }
+
+        /// The canvas's newest finished buffer, `[generation, slot, serial]` in `out`; or null.
+        ///
+        /// # Safety
+        /// `out` is three writable `u32`s.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_buffer(id: u32, out: *mut u32) -> *mut ::std::ffi::c_void { $crate::native::buffer(id, &mut *out.cast::<[u32; 3]>()) }
+
+        /// Clear the previous complete shader namespace after app acceptance.
+        #[no_mangle]
+        pub extern "C" fn gpu_shaders_clear() { $crate::shaders::clear_shaders(); }
+        /// Validate source and interface without changing the current shader.
+        /// # Safety
+        /// Each pointer is readable for its corresponding byte length.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_shader_validate(name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_shader_validate", name, name_len) }) else { return 1 };
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_shader_validate", text, text_len) }) else { return 1 };
+            let (Ok(name), Ok(text)) = (::std::str::from_utf8(name), ::std::str::from_utf8(text)) else { return 1 };
+            $crate::native::validate_shader(name, text)
+        }
+        /// Register validated shader text for the next surface frame.
+        /// # Safety
+        /// Each pointer is readable for its corresponding byte length.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_shader(name: *const u8, name_len: usize, text: *const u8, text_len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_shader", name, name_len) }) else { return 1 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_shader: the name is not UTF-8"); return 1 };
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_shader", text, text_len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_shader: the text is not UTF-8"); return 1 };
+            $crate::native::shader(name, text)
+        }
+
+        /// Bind inputs: `len` bytes of a JSON array. 0 on success.
+        ///
+        /// # Safety
+        /// `values` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_bind(id: u32, values: *const u8, len: usize) -> u32 {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_bind", values, len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_bind: the values are not UTF-8"); return 1 };
+            $crate::native::bind(id, text)
+        }
+
+        /// Bind inputs at the host commit clock. 0 on success.
+        ///
+        /// # Safety
+        /// `values` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_bind_at(id: u32, values: *const u8, len: usize, at_ms: f64) -> u32 {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_bind_at", values, len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_bind_at: the values are not UTF-8"); return 1 };
+            $crate::native::bind_at(id, text, Some(at_ms))
+        }
+
+        /// Record one frame (shown at `gpu_flush`): 1 = wants another, 0 = done, 2 = failed.
+        #[no_mangle]
+        pub extern "C" fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
+            $crate::native::render(id, width, height, scale, now_ms)
+        }
+
+        /// Submit the tick's frame once and present its canvases: after
+        /// the tick's renders. 0 on success, 1 on a surface's failure.
+        #[no_mangle]
+        pub extern "C" fn gpu_flush() -> u32 {
+            $crate::native::flush()
+        }
+
+        /// Child composition: overlay=0, composite=1, composite/history=2, each=3.
+        #[no_mangle]
+        pub extern "C" fn gpu_children_mode(id: u32) -> u32 {
+            $crate::native::children_mode(id)
+        }
+
+        /// The `index`th direct child of a canvas: its frame in points and
+        /// `len` bytes of premultiplied RGBA, `width`×`height`.
+        /// 0 on success.
+        ///
+        /// # Safety
+        /// `name` and `bytes` are readable for their corresponding byte lengths.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_child_view(id: u32, index: u32, name: *const u8, name_len: usize, x: f32, y: f32, w: f32, h: f32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_child_view", name, name_len) }) else { return 1 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_child_view: invalid UTF-8"); return 1 };
+            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_child_view", bytes, len) }) else { return 1 };
+            $crate::native::child(id, index, name, [x, y, w, h], [width, height], bytes)
+        }
+
+        /// How many direct children a canvas has now. 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_children_count(id: u32, count: u32) -> u32 {
+            $crate::native::children_count(id, count)
+        }
+
+        /// Where the surface put a child: ten floats into
+        /// `out`, which is `len` floats long (at least ten) — the homography,
+        /// row major, then the depth; 1 when placed, 0 when it is the
+        /// kernel's frame or `out` cannot hold it; 2 means hidden, with `out` untouched.
+        ///
+        /// # Safety
+        /// `out`, when non-null, points at `len` writable floats, at any
+        /// alignment.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_placement(id: u32, index: u32, out: *mut f32, len: usize) -> u32 {
+            if out.is_null() || len < 10 { $crate::native::refuse("gpu_placement: out is null or shorter than ten floats"); return 0 }
+            match $crate::native::placement(id, index) {
+                Some(p) if p.hidden => 2,
+                Some(p) => {
+                    for (i, v) in p.homography.iter().chain(std::iter::once(&p.depth)).enumerate() {
+                        // SAFETY: the caller's contract — `len` ≥ 10 floats at `out`, checked above.
+                        unsafe { out.add(i).write_unaligned(*v) }
+                    }
+                    if len >= 16 {
+                        for (i, v) in p.clip_depth.iter().flatten().enumerate() {
+                            // SAFETY: this optional extension checks all sixteen output floats.
+                            unsafe { out.add(10 + i).write_unaligned(*v) }
+                        }
+                    }
+                    1
+                }
+                None => 0,
+            }
+        }
+
+        /// The canvas's children, painted: `len` bytes of premultiplied
+        /// RGBA, `width`×`height`, rows top-down. 0 on success.
+        ///
+        /// # Safety
+        /// `bytes` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_texture(id: u32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
+            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_texture", bytes, len) }) else { return 1 };
+            $crate::native::texture(id, width, height, bytes)
+        }
+
+        /// The module's GPU work complete, so a texture it was reading may be
+        /// drawn into. 0 on success.
+        #[no_mangle]
+        pub extern "C" fn gpu_sync() -> u32 {
+            $crate::native::sync()
+        }
+
+        /// The canvas's children as a Metal texture the host rendered:
+        /// imported as it is. 0 on success.
+        ///
+        /// # Safety
+        /// `raw` is a live `MTLTexture` of that size, `rgba8Unorm`, alive
+        /// while the canvas is.
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_texture_metal(id: u32, width: u32, height: u32, raw: *mut ::std::ffi::c_void) -> u32 {
+            unsafe { $crate::native::texture_from_metal(id, width, height, raw) }
+        }
+
+        /// A canvas's picture as pixels into `out`, `len` bytes (nested
+        /// canvases). 0 on success, 2 when the surface also wants
+        /// another frame, 1 on failure, 3 when the device is unavailable.
+        ///
+        /// # Safety
+        /// `out` is `len` writable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: *mut u8, len: usize) -> u32 {
+            let Some(out) = (unsafe { $crate::native::bytes_mut("gpu_readback", out, len) }) else { return 1 };
+            $crate::native::readback(id, width, height, scale, now_ms, out)
+        }
+
+        /// Present a canvas between CPU UI layers. The HWND outlives this attachment.
+        /// # Safety
+        /// `above` contains `len` bytes. `below` contains four premultiplied RGBA
+        /// bytes when flag bit 1 is set, otherwise `len`. Bit 0 marks changed UI.
+        /// The overlay is transparent outside `above_top..above_bottom` device rows.
+        /// HWND stays live until detach.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_window_frame(id: u32, hwnd: usize, hinstance: usize, width: f32, height: f32,
+            scale: f32, now_ms: f64, below: *const u8, above: *const u8, len: usize, changed: u32,
+            above_top: u32, above_bottom: u32) -> u32 {
+            let below_len = if changed & 2 != 0 { 4 } else { len };
+            let Some(below) = (unsafe { $crate::native::bytes("gpu_window_frame", below, below_len) }) else { return 1 };
+            let Some(above) = (unsafe { $crate::native::bytes("gpu_window_frame", above, len) }) else { return 1 };
+            unsafe { $crate::native::window_frame(id, hwnd, hinstance, width, height, scale, now_ms, below, above, changed & 1 != 0, above_top..above_bottom) }
+        }
+
+        /// Release the native window before its HWND goes away.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub extern "C" fn gpu_window_detach() { $crate::native::window_detach(); }
+
+        /// Whether a canvas wants raw input.
+        #[no_mangle]
+        pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
+        /// Instance policy: bit 0 promises alpha one, bit 1 requests SDR.
+        #[no_mangle]
+        pub extern "C" fn gpu_presentation_flags(id: u32) -> u32 { $crate::native::presentation_flags(id) }
+
+        /// Whether a canvas draws above SDR white: 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn gpu_high_dynamic_range(id: u32) -> u32 { u32::from($crate::native::high_dynamic_range(id)) }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[no_mangle]
+        pub extern "C" fn gpu_headroom(id: u32, headroom: f32) { $crate::native::headroom(id, headroom) }
+
+        /// Deliver one JSON event; 0 on success, 1 on refusal.
+        /// # Safety
+        /// `text` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_input(id: u32, text: *const u8, len: usize) -> u32 {
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_input", text, len) }) else { return 1 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_input: the event is not UTF-8"); return 1 };
+            u32::from(!$crate::native::input(id, text))
+        }
+
+        /// Requested paths as JSON in the output buffer.
+        #[no_mangle]
+        pub extern "C" fn gpu_assets(id: u32) -> u32 {
+            let text = $crate::native::assets(id);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+        /// Deliver requested bytes; null data with zero length means missing. True on success.
+        /// # Safety
+        /// name and non-null data point to readable ranges of the supplied lengths.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_asset(id: u32, name: *const u8, name_len: usize, data: *const u8, len: usize) -> bool {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_asset name", name, name_len) }) else { return false };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_asset: invalid UTF-8 name"); return false };
+            let bytes = if data.is_null() && len == 0 { None } else {
+                let Some(bytes) = (unsafe { $crate::native::bytes("gpu_asset", data, len) }) else { return false };
+                Some(bytes)
+            };
+            $crate::native::asset(id, name, bytes)
+        }
+        /// # Safety
+        /// Both strings must be readable UTF-8 byte slices for this call.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn gpu_asset_failed(id: u32, name: *const u8, name_len: usize, reason: *const u8, reason_len: usize) -> bool {
+            let Some(name) = (unsafe { $crate::native::bytes("asset name", name, name_len) }) else { return false };
+            let Some(reason) = (unsafe { $crate::native::bytes("asset reason", reason, reason_len) }) else { return false };
+            let (Ok(name), Ok(reason)) = (::std::str::from_utf8(name), ::std::str::from_utf8(reason)) else { return false };
+            $crate::native::asset_failed(id, name, reason)
+        }
+
+
+        /// Carry in the output buffer; MAX means nothing, MAX-1 a refusal; zero is empty.
+        #[no_mangle]
+        pub extern "C" fn gpu_carry(id: u32) -> u32 {
+            EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
+            match $crate::native::carry(id) {
+                Ok(Some(bytes)) => {
+                    let Some(len) = $crate::native::carry_length(bytes.len()) else { return u32::MAX - 1 };
+                    EXACT_GPU_OUT.with(|b| *b.borrow_mut() = bytes);
+                    len
+                },
+                Ok(None) => u32::MAX,
+                Err(error) => { $crate::native::refuse(&error.0); u32::MAX - 1 },
+            }
+        }
+
+        /// Restore state; true on success, false with gpu_error on refusal.
+        /// # Safety
+        /// `data` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_restore(id: u32, data: *const u8, len: usize, mode: u32) -> bool {
+            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_restore", data, len) }) else { return false };
+            $crate::native::restore(id, bytes, mode)
+        }
+
+        /// Changed public record in the output buffer; u32::MAX means unchanged.
+        #[no_mangle]
+        pub extern "C" fn gpu_published(id: u32) -> u32 {
+            match $crate::native::published(id) {
+                Some(text) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
+        }
+
+        /// Drain messages into the output buffer; u32::MAX means no messages.
+        #[no_mangle]
+        pub extern "C" fn gpu_messages(id: u32) -> u32 {
+            match $crate::native::messages(id) {
+                Some(text) => EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 }),
+                None => u32::MAX,
+            }
+        }
+
+        /// Ask the surface; returns the output byte length, zero for no answer.
+        /// # Safety
+        /// `text` is `len` readable bytes.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_agent(id: u32, text: *const u8, len: usize) -> u32 {
+            EXACT_GPU_OUT.with(|b| b.borrow_mut().clear());
+            let Some(text) = (unsafe { $crate::native::bytes("gpu_agent", text, len) }) else { return 0 };
+            let Ok(text) = ::std::str::from_utf8(text) else { $crate::native::refuse("gpu_agent: the request is not UTF-8"); return 0 };
+            let text = $crate::native::agent(id, text);
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+
+        /// Host lifecycle code; unknown codes are ignored.
+        #[no_mangle]
+        pub extern "C" fn gpu_lifecycle(id: u32, code: u32) { $crate::native::lifecycle(id, code); }
+        /// Set the host clock ownership.
+        #[no_mangle]
+        pub extern "C" fn gpu_seekable(on: bool) { $crate::native::seekable(on); }
+
+        /// The display's frame period in milliseconds, 0 while unknown.
+        #[no_mangle]
+        pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
+
+        /// The host's GPU tier before `gpu_load` (`GpuTier::code`: 0 high, 1 mid,
+        /// 2 low); 3 asks. Returns the tier the module's surfaces use.
+        #[no_mangle]
+        pub extern "C" fn gpu_tier(code: u32) -> u32 {
+            if code < 3 { $crate::set_tier($crate::GpuTier::from_code(code)); }
+            $crate::tier().code()
+        }
+
+        /// Remake each canvas's renderer at the told tier, keeping its world.
+        #[no_mangle]
+        pub extern "C" fn gpu_retier() { $crate::native::retier(); }
+
+        /// Output address, valid until the next carry, published, agent, messages or error call.
+        #[no_mangle]
+        pub extern "C" fn gpu_out_ptr() -> *const u8 { EXACT_GPU_OUT.with(|b| b.borrow().as_ptr()) }
+
+        /// Whether a canvas has unrendered inputs.
+        #[no_mangle]
+        pub extern "C" fn gpu_dirty(id: u32) -> u32 {
+            u32::from($crate::native::dirty(id))
+        }
+
+        /// Whether a canvas's last render drew into the frame the next
+        /// `gpu_flush` submits: one that found no drawable drew nothing.
+        #[no_mangle]
+        pub extern "C" fn gpu_drew(id: u32) -> u32 {
+            u32::from($crate::native::drew(id))
+        }
+
+        /// Whether a canvas's last render went without a drawable: render it
+        /// again after `gpu_on_acquire`'s callback.
+        #[no_mangle]
+        pub extern "C" fn gpu_starved(id: u32) -> u32 {
+            u32::from($crate::native::starved(id))
+        }
+
+        /// 0 while the drawable a starved canvas waits for is in flight and
+        /// not back: a render of it would draw nothing, and the presenter
+        /// leaves it to the callback below.
+        #[no_mangle]
+        pub extern "C" fn gpu_landed(id: u32) -> u32 {
+            u32::from($crate::native::landed(id))
+        }
+
+        /// The presenter's callback for a starved canvas's drawable, called on
+        /// the acquiring thread; null removes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_on_acquire(callback: Option<extern "C" fn()>) {
+            $crate::native::on_acquire(callback)
+        }
+
+        /// Whether a canvas's first frame has been handed to the
+        /// compositor: a presenter that reuses a layer keeps it hidden
+        /// until then (the layer still holds its last canvas's picture).
+        #[no_mangle]
+        pub extern "C" fn gpu_seen(id: u32) -> u32 {
+            u32::from($crate::native::seen(id))
+        }
+
+        /// The presenter's callback for a canvas's first frame, called on
+        /// the thread that scheduled it; null removes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_on_presented(callback: Option<extern "C" fn()>) {
+            $crate::native::on_presented(callback)
+        }
+
+        /// Drop a canvas's surface.
+        #[no_mangle]
+        pub extern "C" fn gpu_destroy(id: u32) {
+            $crate::native::destroy(id)
+        }
+
+        /// The last failure's text: writes it to a module-owned buffer and
+        /// returns its length; `gpu_error_ptr` returns the buffer.
+        #[no_mangle]
+        pub extern "C" fn gpu_error() -> u32 {
+            let text = $crate::native::error();
+            EXACT_GPU_OUT.with(|b| { *b.borrow_mut() = text.into_bytes(); b.borrow().len() as u32 })
+        }
+
+        /// The shared output address (valid until the next carry, published, agent, messages or error call).
+        #[no_mangle]
+        pub extern "C" fn gpu_error_ptr() -> *const u8 {
+            EXACT_GPU_OUT.with(|b| b.borrow().as_ptr())
+        }
+    };
+}
+
+#[cfg(test)]
+#[path = "native_placement_tests.rs"]
+mod placement_abi_tests;
+
+#[cfg(test)]
+#[path = "native_device_loss_tests.rs"]
+mod device_loss_tests;

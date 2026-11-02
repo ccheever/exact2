@@ -1,0 +1,365 @@
+// A request-answering data source in TypeScript — Weird Castle's login in
+// miniature, the executor's fixture: `fetch` is the web's
+// and goes through the host's ticket path; the store is the seam's; an
+// answer may await two fetches in a row; a refusal is a thrown `DataError`.
+
+type Session = { ok: boolean; username: string; error: string };
+
+interface Store {
+  get(name: string): string | null;
+  set(name: string, value: string): void;
+  forget(name: string): void;
+}
+
+class DataError extends Error {
+  constructor(public kind: "UnknownSource" | "BadArguments" | "Unavailable", message: string) {
+    super(message);
+  }
+}
+
+const SECRET = "castle.session";
+const API = "https://api.castle.xyz/graphql";
+const LOGIN = "mutation Login($who: String!, $password: String!) { loginV2(who: $who, password: $password) { token username } }";
+
+const idle: Session = { ok: false, username: "", error: "" };
+let flushing = false, lastError = "";
+
+function text(args: unknown[], i: number): string {
+  const v = args[i];
+  if (typeof v === "string") return v;
+  throw new DataError("BadArguments", `argument ${i}`);
+}
+
+function remember(store: Store): Session {
+  const kept = store.get(SECRET);
+  if (kept === null) return idle;
+  const k = JSON.parse(kept) as { token: string; username: string };
+  return { ok: true, username: k.username, error: "" };
+}
+
+async function login(who: string, password: string, store: Store): Promise<Session> {
+  who = who.trim();
+  if (who === "" || password === "") return { ...idle, error: "Enter a username and a password" };
+  let r: Response;
+  try {
+    r = await fetch(API, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ query: LOGIN, variables: { who, password } }),
+    });
+  } catch (e: any) {
+    const error =
+      e.kind === "Refused" ? "Castle is not a host this app may reach"
+      : e.kind === "Unsupported" ? "This host cannot reach Castle yet"
+      : `Couldn't reach Castle (${e.message})`;
+    return { ...idle, error };
+  }
+  let j: any;
+  try { j = await r.json(); } catch { return { ...idle, error: `Castle answered HTTP ${r.status} without JSON` }; }
+  const user = j?.data?.loginV2;
+  if (user && typeof user.token === "string" && user.token !== "") {
+    store.set(SECRET, JSON.stringify({ token: user.token, username: String(user.username ?? "") }));
+    return { ok: true, username: String(user.username ?? ""), error: "" };
+  }
+  return { ...idle, error: String(j?.errors?.[0]?.message ?? `Login failed (HTTP ${r.status})`) };
+}
+
+// Two fetches in a row: who am I, then that user's profile — the second
+// request depends on the first reply (`parse` → `Later`).
+async function profile(store: Store): Promise<Session> {
+  const kept = store.get(SECRET);
+  if (kept === null) return { ...idle, error: "Not signed in" };
+  const token = (JSON.parse(kept) as { token: string }).token;
+  await Promise.resolve(); // A microtask before the first fetch still owns this call.
+  const me = await fetch("https://api.castle.xyz/me", { headers: { "x-auth-token": token } });
+  const username = String(((await me.json()) as any).username ?? "");
+  const p = await fetch(`https://api.castle.xyz/profile/${encodeURIComponent(username)}`);
+  return { ok: true, username, error: await p.text() };
+}
+
+function logout(store: Store): Session {
+  store.forget(SECRET);
+  return idle;
+}
+
+// An answer that awaits something no fetch will ever resolve.
+async function stuck(): Promise<Session> {
+  await new Promise<void>(() => {});
+  return idle;
+}
+
+// A refusal, thrown, and one thrown after a fetch.
+function refused(): Session {
+  throw new DataError("Unavailable", "refused on purpose");
+}
+async function refusedLater(): Promise<Session> {
+  await fetch("https://api.castle.xyz/ping");
+  throw new Error("after the fetch");
+}
+// A Snapback refusal as the snapback4 driver throws it (`refused`): its code
+// is `failure(x).reason`; an `E_OFFLINE` one is also a fetch's `Network`.
+async function refusedWhy(offline: string): Promise<Session> {
+  await fetch("https://api.castle.xyz/ping");
+  const code = offline ? "E_OFFLINE" : "SLOT_FULL", error = Object.assign(new Error(`${code}: no`), { code, reason: code });
+  // `name` is defined, not assigned: Error.prototype's is read-only here (frozen intrinsics).
+  throw offline ? Object.defineProperties(error, { name: { value: "FetchError" }, kind: { value: "Network" } }) : error;
+}
+
+// One fetch two answers share, as a page's code memoizes one: the second
+// answer awaits the first's request, not one of its own.
+const items = new Map<string, Promise<string>>();
+function item(id: string): Session | Promise<Session> {
+  if (!id) return idle;
+  if (!items.has(id)) items.set(id, fetch(`https://api.castle.xyz/item/${id}`).then(r => r.text()));
+  return items.get(id)!.then(error => ({ ok: true, username: id, error }));
+}
+
+// It awaits the shared fetch, then fetches again: that continuation runs as
+// the answer whose reply settled the shared one, so its request lands among
+// that answer's tickets (review r4a 1).
+async function followup(id: string): Promise<Session> {
+  if (!id) return idle;
+  const first = await item(id);
+  const more = await fetch(`https://api.castle.xyz/comments/${id}`);
+  return { ok: true, username: id, error: first.error + " + " + await more.text() };
+}
+
+// A save that does not await its POST: the answer is given at once, the
+// request still goes (a browser runs it), even while another answer is in
+// flight.
+async function saveQuietly(id: string): Promise<Session> {
+  void fetch(`https://api.castle.xyz/save/${id}`, { method: "POST", body: id });
+  return { ok: true, username: id, error: "saved" };
+}
+
+// One controller for every fetch (review r4a 7): a browser realm's fetch
+// watches its signal with a listener it removes when the fetch settles;
+// Hermes's watches through Ibex's own abort hooks and adds none.
+const reusedController = new AbortController();
+const listening = { added: 0, removed: 0 };
+{
+  const signal = reusedController.signal as any, add = signal.addEventListener, remove = signal.removeEventListener;
+  signal.addEventListener = function (...args: unknown[]) { listening.added++; return add.apply(this, args); };
+  signal.removeEventListener = function (...args: unknown[]) { listening.removed++; return remove.apply(this, args); };
+}
+async function reused(): Promise<Session> {
+  await fetch("https://api.castle.xyz/reused", { signal: reusedController.signal });
+  return { ok: true, username: "", error: `${listening.added}/${listening.removed}` };
+}
+
+async function parallel(): Promise<Session> {
+  const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
+  // A fetched reply's clone reads the same bytes; its statusText is empty: the host gives none. Its headers, and its
+  // clone's, take no change, and its body reads once, as a fetched Response's do (Fetch's "immutable" guard, "consume
+  // body").
+  const said = (f: () => unknown): string => { try { f(); return "changed"; } catch (e) { return (e as Error).name; } };
+  const read = await b.text(), again = await b.text().then(() => "read again", (e: Error) => e.name);
+  return {ok:true,username:"parallel",error:[Array.from(new Uint8Array(await a.clone().arrayBuffer())).join(","), read, JSON.stringify(a.statusText),
+    said(() => a.headers.set("x-a", "b")), said(() => a.clone().headers.set("x-a", "b")), again, String(b.bodyUsed), said(() => b.clone())].join("/")};
+}
+
+// A fetch the app aborts from another answer (the abort runtime gap): its
+// controller kept by id; the aborted fetch rejects, and this answer goes on.
+const held = new Map<string, AbortController>();
+async function holding(id: string, method: string): Promise<Session> {
+  const controller = new AbortController();
+  // A call again replaces its last fetch: the source aborts it (the same key).
+  held.get(id)?.abort(new Error("replaced"));
+  held.set(id, controller);
+  try {
+    await fetch(`https://api.castle.xyz/held/${id}`, { method, body: method === "GET" ? undefined : id, signal: controller.signal });
+    return { ok: true, username: id, error: "fetched" };
+  } catch (e) {
+    // It rejects with its signal's reason, as Fetch does: that very value, or
+    // an AbortError for a bare abort().
+    if (e !== controller.signal.reason) return { ok: false, username: id, error: `not its reason: ${(e as Error).name}` };
+    if (e instanceof DOMException) return { ok: false, username: id, error: `aborted: ${e.name}` };
+    return { ok: false, username: id, error: `aborted: ${(e as Error).message}` };
+  }
+}
+function abortHeld(id: string, bare?: boolean): Session {
+  if (bare) held.get(id)?.abort();
+  else held.get(id)?.abort(new Error("by the app"));
+  return { ok: true, username: id, error: "aborting" };
+}
+// Aborted, it falls back to another fetch of its own: the abort, answered
+// after the first request's reply landed, must not reach the second.
+async function fallingBack(id: string): Promise<Session> {
+  const controller = new AbortController();
+  held.set(id, controller);
+  try {
+    await fetch(`https://api.castle.xyz/held/${id}`, { signal: controller.signal });
+    return { ok: true, username: id, error: "fetched" };
+  } catch {
+    const r = await fetch(`https://api.castle.xyz/fallback/${id}`);
+    return { ok: true, username: id, error: `fell back: ${await r.text()}` };
+  }
+}
+// Two fetches, the second aborted before its answer awaits it: withdrawn
+// unsent; the answer awaits the first.
+async function withdrawn(): Promise<Session> {
+  const controller = new AbortController();
+  const first = fetch("https://api.castle.xyz/first");
+  const second = fetch("https://api.castle.xyz/second", { signal: controller.signal });
+  controller.abort();
+  const why = await second.then(() => "sent", (e: Error) => e.name);
+  return { ok: true, username: await (await first).text(), error: why };
+}
+
+function answer(source: string, args: unknown[], store: Store): unknown {
+  switch (source) {
+    case "remember": return remember(store);
+    case "login": return login(text(args, 0), text(args, 1), store);
+    case "profile": return profile(store);
+    case "logout": return logout(store);
+    case "stuck": return stuck();
+    case "refused": return refused();
+    case "refusedLater": return refusedLater();
+    case "refusedWhy": return refusedWhy(text(args, 0));
+    case "parallel": return parallel();
+    case "item": case "thread": return item(text(args, 0));
+    case "followup": return followup(text(args, 0));
+    case "reused": return reused();
+    case "holding": return holding(text(args, 0), text(args, 1));
+    case "abortHeld": return abortHeld(text(args, 0));
+    case "abortBare": return abortHeld(text(args, 0), true);
+    case "withdrawn": return withdrawn();
+    case "fallingBack": return fallingBack(text(args, 0));
+    case "saveQuietly": return saveQuietly(text(args, 0));
+    // An answer that keeps coming: each event, and the end.
+    case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
+      exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
+    } as RequestInit);
+    // A long poll: each reply an event, its cursor the id.
+    case "changes": return fetch("https://api.castle.xyz/changes?since=" + args[0] + "&wait=25", {
+      exactStream: (e: { type: string; data: string; lastEventId: string; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.lastEventId}:${e.data}`,
+      exactLongPoll: { cursor: "since", from: "seq", ...(args[1] ? { sameCursor: args[1] } : {}) },
+    } as RequestInit);
+    // What a long poll refuses, each before anything is sent.
+    case "pollRefused": {
+      const poll: Record<string, unknown> = { cursor: "since", from: "seq" };
+      const map = (e: { type: string }) => e.type;
+      const asks: Record<string, [string, Record<string, unknown>]> = {
+        stream: ["https://api.castle.xyz/c", { exactLongPoll: poll }],
+        socket: ["wss://api.castle.xyz/c", { exactStream: map, exactLongPoll: poll }],
+        post: ["https://api.castle.xyz/c", { method: "POST", exactStream: map, exactLongPoll: poll }],
+        shape: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: "since" }],
+        cursor: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { from: "seq" } }],
+        from: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { cursor: "since", from: "x".repeat(257) } }],
+        same: ["https://api.castle.xyz/c", { exactStream: map, exactLongPoll: { ...poll, sameCursor: "always" } }],
+      };
+      const [url, init] = asks[text(args, 0)];
+      return fetch(url, init as RequestInit).then(() => "sent", (e: Error) => e.message);
+    }
+    // A body that is not events is bytes (the byte stream).
+    // The gate's stub decode is there under the agent only.
+    case "gate": return typeof (globalThis as { __exact_gate_decode?: unknown }).__exact_gate_decode;
+    case "bytes": return fetch("https://api.castle.xyz/screen.avcc", {
+      exactStream: (e: { type: string; data: ArrayBuffer | string; message?: string }) =>
+        e.type === "error" ? `ended: ${e.message}` : `${e.type}:${e.data instanceof ArrayBuffer ? new Uint8Array(e.data).join(",") : "text"}`,
+    } as RequestInit);
+    // A socket is the same answer with a `wss:` URL:
+    // Jetstream's shape, the cursor a query parameter.
+    case "socket": return fetch("wss://jetstream.castle.xyz/subscribe?cursor=" + args[0], {
+      exactStream: (e: { type: string; data: string; message?: string }) =>
+        e.type === "error" ? `closed: ${e.message}` : `${e.type}:${e.data}`,
+    } as RequestInit);
+    case "scheduled": return fetch("https://api.castle.xyz/search/" + args[0], {
+      method: "POST",
+      ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
+    }).then(r => r.text());
+    // A send that marks the module busy across its fetch, and the mark.
+    case "flush":
+      flushing = true;
+      return fetch("https://api.castle.xyz/send", { method: "POST", body: text(args, 0) })
+        .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
+        .finally(() => { flushing = false; });
+    case "flushing": return `${flushing} ${lastError}`;
+    // A read whose rejection, run with no store, reads the store.
+    case "peek":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), () => {
+        try { return `kept ${store.get("castle.session")}`; } catch (e) { lastError = (e as Error).message; return "threw"; }
+      });
+    // Each store operation tried where there is no store, what each said kept for `flushing`.
+    case "peekAll":
+      return fetch("https://api.castle.xyz/peek").then(r => r.text(), async () => {
+        const s = store as unknown as Record<string, (...a: unknown[]) => unknown>;
+        const said: string[] = [];
+        for (const [op, ...a] of [["get", "castle.session"], ["has", "castle.session"], ["locked", "castle.session"], ["unlock", "castle.session"], ["protect", "castle.session"], ["unprotect", "castle.session"], ["set", "castle.session", "x"], ["forget", "castle.session"], ["keepKey", "castle.key", null], ["key", "castle.key"]]) {
+          try { await s[op](...a); said.push(`${op} answered`); } catch (e) { said.push((e as Error).message.split(". ")[0]); }
+        }
+        lastError = said.join(" | ");
+        return "threw";
+      });
+    // A BufferSource body goes as its bytes: a view into
+    // the middle of a buffer, the buffer itself, and a DataView, each once.
+    case "upload": {
+      const all = new Uint8Array([9, 0, 255, 128, 10, 13, 0, 9]);
+      const body = args[0] === "buffer" ? all.buffer : args[0] === "dataview" ? new DataView(all.buffer, 1, 6) : all.subarray(1, 7);
+      const sent = fetch("https://api.castle.xyz/blob", { method: "POST", headers: { "content-type": "image/png" }, body });
+      all[1] = 7; // a write after the call changes nothing sent
+      return sent.then(r => r.text());
+    }
+    // Fetch's refusals of a body, before any request: any body on a GET or
+    // HEAD, and what Web IDL's BufferSource leaves out. A detached buffer is
+    // no bytes. "unsupported" where the engine has no such buffer.
+    case "oddUpload": {
+      const B = ArrayBuffer as unknown as { new (n: number, o?: { maxByteLength: number }): ArrayBuffer; prototype: { transfer?: () => ArrayBuffer } };
+      let init: RequestInit;
+      if (args[0] === "get") init = { body: new ArrayBuffer(0) };
+      else if (args[0] === "head") init = { method: "HEAD", body: new Uint8Array(1) };
+      else if (args[0] === "shared") {
+        if (typeof SharedArrayBuffer === "undefined") return "unsupported";
+        init = { method: "POST", body: new Uint8Array(new SharedArrayBuffer(2)) };
+      } else if (args[0] === "resizable") {
+        const b = new B(3, { maxByteLength: 6 }) as ArrayBuffer & { resizable?: boolean };
+        if (b.resizable !== true) return "unsupported";
+        init = { method: "POST", body: new Uint8Array(b) };
+      } else {
+        const b = new Uint8Array([1, 2]).buffer as ArrayBuffer & { transfer?: () => ArrayBuffer };
+        if (typeof b.transfer !== "function") return "unsupported";
+        const view = new Uint8Array(b);
+        b.transfer();
+        init = { method: "POST", body: view };
+      }
+      return fetch("https://api.castle.xyz/blob", init).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
+    }
+    // A HEAD's reply has no body (Fetch, "HTTP-network fetch"): it reads empty as often as asked, and is never used
+    case "head": return fetch("https://api.castle.xyz/blob", { method: "HEAD" })
+      .then(async r => [JSON.stringify(await r.text()), JSON.stringify(await r.text()), String(r.bodyUsed)].join("/"));
+    // Nor has a reply whose status has none (a 204's, a 205's, a 304's)
+    case "noBody": return fetch("https://api.castle.xyz/blob")
+      .then(async r => [r.status, JSON.stringify(await r.text()), JSON.stringify(await r.text()), String(r.bodyUsed)].join("/"));
+    // A deadline for the whole exchange: a timeout rejects with its kind.
+    case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
+      .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
+    // A reply the server may hold: marked on the request; beside a stream, or not a boolean, refused.
+    case "held": return fetch("https://api.castle.xyz/changes", (args[0] === "stream" || args[0] === "yes-stream"
+      ? { exactHeld: args[0] === "stream" ? true : "yes", exactStream: (event: unknown) => event }
+      : { exactHeld: args[0] === "true" ? true : args[0] === "false" ? false : args[0] }) as RequestInit).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
+    case "redirected": return fetch("https://api.castle.xyz/moved", {
+      ...(args[0] === "" ? {} : { redirect: args[0] }),
+    }).then(r => r.status + " " + (r.headers.get("location") ?? ""));
+    // A `redirect` getter that throws rejects the fetch, which the source can recover from.
+    case "redirectThrows": return fetch("https://api.castle.xyz/moved", {
+      get redirect(): RequestRedirect { throw new Error("no mode"); },
+    }).then(() => "sent", (e: Error) => `recovered: ${e.message}`);
+    // A bad mode is a TypeError before an aborted signal's reason, as Fetch checks it first.
+    case "redirectAborted": {
+      const aborted = new AbortController();
+      aborted.abort(new Error("stop"));
+      return fetch("https://api.castle.xyz/moved", { redirect: "sideways" as RequestRedirect, signal: aborted.signal })
+        .then(() => "sent", (e: Error) => `${e instanceof TypeError ? "TypeError" : "other"}: ${e.message}`);
+    }
+    default: throw new DataError("UnknownSource", source);
+  }
+}
+
+(globalThis as any).exact = {
+  abi: 1,
+  appId: "xyz.castle.test",
+  grants: "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
+  answer,
+};

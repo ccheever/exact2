@@ -1,0 +1,253 @@
+// A synthetic Messages workload: manual/eager controls beside real viewport collections.
+shape Message
+  id: string
+  sender: string
+  body: string
+  outgoing: bool
+  meta: string
+shape History
+  rows: Message[]
+  materialized: number
+  revision: number
+  changed: number
+  bodyBytes: number
+  earlier: string
+  later: string
+  hasEarlier: bool
+  hasLater: bool
+
+component MessagesStress
+  state count = 100
+  state revision = 0
+  state batch = 8
+  state running = false
+  state eager = false
+  state windowed = false
+  state bounded = false
+  state cursor = ""
+  state tailRequest = 0
+  state page = 0
+  state draft = ""
+  state echo = ""
+  state draftTooLong = false
+  state replying = ""
+  derive offset = max(0, count - 100 - page * 100)
+  // One answer carries at most 16 MiB (a Rust module's seam):
+  // the full history is asked up to 10,000 records (about 2.3 MB of bodies);
+  // past that the virtualized transcript asks overlapping 200-record
+  // windows, as the bounded mode does.
+  derive whole = count <= 10000
+  derive paged = bounded or (windowed and not whole)
+  resource history = history(count, revision, batch, echo, offset, eager or (windowed and whole), paged ? some(cursor) : none) as shape History
+
+  action chooseCount(value: number)
+    cursor = ""
+    tailRequest = tailRequest + 1
+    count = value
+    revision = 0
+    running = false
+    page = 0
+  action chooseBatch(value: number)
+    batch = value
+    revision = 0
+    running = false
+  action toggleEager
+    cursor = ""
+    tailRequest = tailRequest + 1
+    bounded = false
+    eager = not eager
+    windowed = false
+    running = false
+    revision = 0
+    page = 0
+  action toggleWindowed
+    cursor = ""
+    tailRequest = tailRequest + 1
+    bounded = false
+    windowed = not windowed
+    eager = false
+    running = false
+    revision = 0
+    page = 0
+  action toggleBounded
+    bounded = not bounded
+    windowed = false
+    eager = false
+    running = false
+    revision = 0
+    page = 0
+    cursor = ""
+    tailRequest = tailRequest + 1
+  action reachEarlier
+    if paged and history.hasEarlier
+      cursor = history.earlier
+  action reachLater
+    if paged and history.hasLater
+      cursor = history.later
+  action earlier
+    page = min(count / 100 - 1, page + 1)
+  action later
+    page = max(0, page - 1)
+  action latest
+    page = 0
+    cursor = ""
+    tailRequest = tailRequest + 1
+  action start
+    revision = 0
+    running = true
+  action pause
+    running = false
+  action tick
+    if running
+      // Action reads use the pre-commit snapshot. Revision 119 schedules the last tick.
+      running = revision < 119
+      revision = min(120, revision + 1)
+  action step
+    running = false
+    revision = min(120, revision + 1)
+  action editDraft(value)
+    if value.length <= 512
+      draft = value
+      draftTooLong = false
+    else
+      draftTooLong = true
+  action replyTo(id: string)
+    replying = id
+  action cancelReply
+    replying = ""
+  action sendDraft
+    if not draft.isEmpty()
+      cursor = ""
+      tailRequest = tailRequest + 1
+      echo = draft
+      draft = ""
+      draftTooLong = false
+      replying = ""
+  action reset
+    cursor = ""
+    tailRequest = tailRequest + 1
+    bounded = false
+    count = 100
+    revision = 0
+    batch = 8
+    running = false
+    eager = false
+    windowed = false
+    page = 0
+    draft = ""
+    echo = ""
+    draftTooLong = false
+    replying = ""
+
+  task producer mount
+    every(250, tick)
+
+  view
+    main testId="messages-stress" display="flex" flex-direction="column" width="100%" height="100%" min-height=0 background-color="#f1f5fa" color="#17283f"
+      column flex-shrink=0 padding=12 gap=6 box-sizing="border-box" width="100%" background-color="#ffffff"
+        row gap=12 align-items="center" flex-wrap="wrap"
+          text "Messages stress" font-size=22 font-weight=700
+          text "Synthetic, local only" font-size=12 color="#53637b"
+          button press=reset testId="reset" padding=6 border-radius=6 background-color="#e8edf5"
+            text "Reset to 100" font-size=12
+        row gap=6 align-items="center" flex-wrap="wrap"
+          text "Logical history" font-size=12
+          CountButton(n=100, chosen=count, choose=chooseCount)
+          CountButton(n=1000, chosen=count, choose=chooseCount)
+          CountButton(n=10000, chosen=count, choose=chooseCount)
+          CountButton(n=100000, chosen=count, choose=chooseCount)
+        row gap=6 align-items="center" flex-wrap="wrap"
+          button press=toggleBounded testId="toggle-bounded" padding=7 border-radius=6 background-color=(bounded ? "#2668d8" : "#e2eaff")
+            text "Bounded virtualized" font-size=12 font-weight=600 color=(bounded ? "#ffffff" : "#17283f")
+          button press=toggleWindowed testId="toggle-windowed" padding=7 border-radius=6 background-color=(windowed ? "#2668d8" : "#e2eaff")
+            text (windowed ? "Use bounded page" : "Virtualized transcript") font-size=12 font-weight=600 color=(windowed ? "#ffffff" : "#17283f")
+          button press=toggleEager testId="toggle-eager" padding=7 border-radius=6 background-color="#e2eaff"
+            text (eager ? "Use bounded page" : "Construct ALL rows (eager)") font-size=12 font-weight=600
+          text (bounded ? "BOUNDED VIRTUALIZED: up to 200 records + echo; scrollbar spans this window." : windowed ? (whole ? "VIRTUALIZED: full records; only viewport rows stay mounted." : "VIRTUALIZED: over 10,000 records, 200-record windows; one answer carries at most 16 MiB.") : eager ? "EAGER: full selected history; may block input." : "BOUNDED: manual 100-row page, not virtualization.") testId="mode" font-size=12 color="#80521c"
+        row gap=6 align-items="center" flex-wrap="wrap"
+          text "Tail rows revised / tick" font-size=12
+          BatchButton(n=1, chosen=batch, choose=chooseBatch)
+          BatchButton(n=8, chosen=batch, choose=chooseBatch)
+          BatchButton(n=32, chosen=batch, choose=chooseBatch)
+          if running
+            button press=pause testId="pause" padding=7 background-color="#fce3da" border-radius=6
+              text "Pause" font-size=12
+          else
+            button press=start testId="start" padding=7 background-color="#d9eee1" border-radius=6
+              text "Start 120 ticks" font-size=12
+          button press=step testId="step" padding=7 background-color="#e8edf5" border-radius=6
+            text "Step" font-size=12
+        text `${count} logical · ${history.materialized} supplied records · revision ${history.revision}/120 · ${history.changed} revised records in this slice` testId="stats" font-size=12
+        text `${history.bodyBytes} UTF-8 body bytes (not memory) · requested 4 ticks/s · ${running ? "running" : "paused"}` testId="load-stats" font-size=12 color="#53637b"
+        if failed(history)
+          text "The last history request failed; this is the previous answer." testId="history-failed" font-size=12 color="#9c3d24"
+        text "No FPS / latency measured here. Synchronous generation and eager mounting can block. Pause cannot interrupt in-flight work." font-size=11 color="#80521c"
+      if paged
+        row flex-shrink=0 padding=8 gap=8 align-items="center" background-color="#e8edf5"
+          button appearance="none" press=latest testId="latest" padding=6
+            text "Latest" font-size=12
+          text `${history.earlier}–${history.later} · resident window, not whole history` testId="window-range" font-size=12
+      if not eager and not windowed and not bounded
+        row flex-shrink=0 padding=8 gap=8 align-items="center" flex-wrap="wrap" background-color="#e8edf5"
+          button appearance="none" press=earlier testId="earlier" padding=6
+            text "Earlier 100" font-size=12
+          button appearance="none" press=later testId="later" padding=6
+            text "Later 100" font-size=12
+          button appearance="none" press=latest testId="latest" padding=6
+            text "Latest page" font-size=12
+          text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
+      if windowed or bounded
+        list appearance="none" virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+          for m in history.rows key=m.id
+            column padding-left=12 padding-right=12 padding-top=5 padding-bottom=5 width="100%" box-sizing="border-box"
+              box testId=`reply-hit-${m.id}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+                MessageBubble(message=m)
+              button tabindex=0 retainFocus=true press=replyTo(m.id) testId=`reply-${m.id}` padding=4 border-width=0 background-color="#00000000" align-self="flex-end"
+                text "Reply" font-size=11 color="#2668d8"
+      else
+        scroll testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+          column padding=12 gap=10 width="100%" box-sizing="border-box"
+            for m in history.rows key=m.id
+              MessageBubble(message=m)
+      column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color="#ffffff"
+        if replying != ""
+          row align-items="center" gap=8
+            text `Replying to ${replying}` testId="reply-target" font-size=12 color="#53637b"
+            button press=cancelReply testId="cancel-reply" padding=4 border-width=0 background-color="#00000000"
+              text "Cancel" font-size=12 color="#2668d8"
+        text "Composer · 512 Unicode characters max · one local echo retained" font-size=11 color="#53637b"
+        row gap=8 width="100%" align-items="center"
+          input appearance="none" value=draft input=editDraft submit=sendDraft testId="stress-input" aria-label="Type while messages update" placeholder="Type while messages update…" flex=1 min-width=0 padding=10 border-radius=10 border-width=1 border-color="#b7c5da" background-color="#f8faff" color="#17283f" font-size=14
+          button press=sendDraft testId="send" padding=10 border-radius=8 background-color="#2668d8"
+            text "Local echo" color="#ffffff" font-size=12
+        text draft testId="stress-echo" font-size=12 color="#53637b"
+        if draftTooLong
+          text "Input over 512 characters refused; the previous draft is retained." testId="draft-error" color="#9c3d24" font-size=12
+
+component CountButton
+  props
+    n: number
+    chosen: number
+    choose: action
+  view
+    button press=choose(n) testId=`history-${n}` padding=7 border-radius=6 background-color=(chosen == n ? "#2668d8" : "#e8edf5")
+      text `${n}` font-size=12 color=(chosen == n ? "#ffffff" : "#17283f")
+
+component BatchButton
+  props
+    n: number
+    chosen: number
+    choose: action
+  view
+    button press=choose(n) testId=`batch-${n}` padding=7 border-radius=6 background-color=(chosen == n ? "#2668d8" : "#e8edf5")
+      text `${n}` font-size=12 color=(chosen == n ? "#ffffff" : "#17283f")
+
+component MessageBubble
+  props
+    message: Message
+  view
+    column testId=`message-${message.id}` width="100%" align-items=(message.outgoing ? "flex-end" : "flex-start") gap=3
+      text message.sender font-size=11 color="#53637b"
+      column max-width="88%" box-sizing="border-box" padding=10 gap=5 border-radius=12 background-color=(message.outgoing ? "#2668d8" : "#ffffff")
+        text message.body font-size=14 line-height=1.45 white-space="pre-wrap" color=(message.outgoing ? "#ffffff" : "#17283f")
+        text message.meta font-size=10 color=(message.outgoing ? "#dce8ff" : "#53637b")

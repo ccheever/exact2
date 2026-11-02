@@ -1,0 +1,1376 @@
+// `bun exact.mjs verify` is one call a builder can stop on: a clean run in a few
+// lines, a failing test that fails it, a check finding or a compiler warning said once, reported but not failing
+// it, each test's end screen checked under its name, and one relaunch on a test's store.
+// `bun test ./scripts/verify.test.mjs` (the last test builds and drives a new app in Chrome: about a minute).
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve, toNamespacedPath } from 'node:path';
+import { applyPattern, createApp } from '../game/new.mjs';
+import { findings } from '../host/apple/feel/analyze.mjs';
+import { chromium } from './agent-launch.mjs';
+import { ago, appServer, draftFields, fixedType, groups, judgeRelaunch, judgeReload, movedClock, persistedStates, pinnedLaunch, recordedServerAddress, refusalsOf, relaunchFacts, relaunchStore, reloadLine, reloadNote, report, reusable, savedChanges, screenTexts, serverUrl, shotName, storedTexts, warningsOfBuild } from './verify.mjs';
+import { semanticsSummary } from './verify-semantics.mjs';
+
+const SIZES = [[390, 844], [1280, 900]];
+/** A port nothing holds now, put in a rest-pattern app in place of 8787, which another run on this machine may hold. */
+function onPort(dir) {
+  const probe = Bun.serve({ port: 0, fetch: () => new Response('') }), port = probe.port;
+  probe.stop(true);
+  for (const file of ['app.ts', 'app.test.contract']) writeFileSync(resolve(dir, file), readFileSync(resolve(dir, file), 'utf8').replaceAll('8787', String(port)));
+  return port;
+}
+const runs = (lines, screen) => SIZES.flatMap((size) => ['light', 'dark'].map((scheme) => ({ ...(screen ? { screen } : {}), size, scheme, asked: scheme, lines: lines(size, scheme), hidden: 0 })));
+const shots = SIZES.flatMap(([w, h]) => ['light', 'dark'].map((scheme) => `/app/.exact/verify/web-${w}x${h}-${scheme}.png`));
+
+test('contract verify beside the run: a line, the receipt; a failure\'s own lines, not the routine ones', () => {
+  const receipt = ['verify receipt — reproduce: contract verify app.contract --walks 20', '  scripts: 2 tests delivered (2 whole; 0 in part: none; 0 skipped: none), 1 explored, 20 walks',
+    '  suggestions: 3 observed candidates; 2 printed; 1 dropped', '    dropped set "q is one of 6 values": `q`: the value is not bounded', '  properties: 0 held, 0 false, 0 counted only, 0 not exercised'];
+  const routine = ['undeliverable parser step kinds: drag, reload', 'WHOLE /app/app.test.contract: adds; kept: /x.events', 'NOTE /app/app.test.contract: adds: with the oracle\'s data, after step 0: Text("n", "1") does not hold',
+    'OUTSIDE walk 1 from "boot": # unsupported: roster entry `toLowerCase`', 'runner: 1.0s; 22 search scripts; 0 findings; 0 shrink candidates', 'properties: 0 held, 0 false, 0 counted only, 0 not exercised; 0 violations, 0 counted-only line steps'];
+  const suggestions = ['Observed over 23 scripts and 400 steps and code-consistent, not proved; keep the ones the app means:', '', 'always "n is a whole number"', '  expect state n whole', '', 'after "add" "add writes only n"', '  only writes n', ''];
+  const clean = semanticsSummary({ exit: 0, output: [...routine, ...suggestions, ...receipt].join('\n'), errors: '' }, '.exact/verify/properties.txt');
+  assert.deepEqual(clean, ['contract verify: done; 2 suggested properties (observed, not proved: keep the ones the app means); every line: .exact/verify/properties.txt',
+    ...receipt.filter((l) => !l.includes('dropped set'))]);
+  const false_ = ['property "n stays small": false', '  after tap "add" at step 3: n = 7'];
+  const failed = semanticsSummary({ exit: 1, output: [...routine, ...false_, ...suggestions, ...receipt].join('\n'), errors: 'cargo: a warning\n' }, 'p.txt');
+  assert.deepEqual(failed.slice(0, 4), ['contract verify: failed (exit 1); 2 suggested properties (observed, not proved: keep the ones the app means); every line: p.txt', ...false_, 'cargo: a warning']);
+  assert.equal(failed.at(-1), receipt.at(-1));
+});
+
+test('the report: clean in four lines; a failed test fails it; a finding is said once, where it was', () => {
+  const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, ms: 4000, cwd: '/app' });
+  assert.deepEqual(clean.lines, [
+    'tests: 2 passed, 0 failed',
+    'check first screen · 390x844, 1280x900 · light, dark: no findings',
+    'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
+    'open it: bun exact.mjs web (serves what verify checked)',
+    'verify: clean in 4.0 s',
+  ]);
+  assert.equal(clean.exit, 0);
+  // `--shots <dir>`: the line says where they were copied too.
+  assert.equal(report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots, copied: '/app/shots', ms: 4000, cwd: '/app' }).lines[2],
+    'screenshots (.exact/verify, copied to shots): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png');
+
+  // The clipped text is at every width and scheme, its box moved by the width; the contrast only in light.
+  const clipped = ([w]) => `  clipped  Text "Total"#9 [16,96 ${w - 330}×18]: its text is 40 px wider than its box, which clips it`;
+  const contrast = '  contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1';
+  const failing = report({
+    host: 'web', built: { ms: 900, warnings: [] }, ms: 6500, cwd: '/app', shots,
+    tested: { passed: 1, failed: 1, results: [{ name: 'adds', failures: ['line 4: text of "left" is "1 items left", expected "1 item left"\n  more'] }, { name: 'loads', failures: [] }] },
+    checks: runs((size, scheme) => [clipped(size), ...(scheme === 'light' ? [contrast] : [])]),
+  });
+  assert.deepEqual(failing.lines.slice(0, 6), [
+    'built web (0.9 s)',
+    'tests: 1 passed, 1 failed',
+    '  FAIL "adds": line 4: text of "left" is "1 items left", expected "1 item left"',
+    'check first screen · 390x844, 1280x900 · light, dark: 2 findings',
+    clipped(SIZES[0]),
+    '  (light only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1',
+  ]);
+  assert.equal(failing.lines.at(-1), 'verify: 3 problems (1 failed test, 2 findings) in 6.5 s');
+  assert.ok(!failing.lines.some((l) => l.startsWith('open it')), 'a run whose test failed does not point at the app');
+  assert.equal(failing.exit, 1);
+
+  // Findings alone are counted, never fail it; a launch that could not drive does.
+  const found = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(([w]) => (w === 1280 ? [contrast] : [])), shots, ms: 5000, cwd: '/app' });
+  assert.equal(found.lines[2], '  (1280x900 only) contrast Text "Due"#12 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1');
+  assert.equal(found.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 5.0 s');
+  assert.equal(found.exit, 0);
+  const stuck = report({ host: 'web', built: null, tested: { none: true }, checks: [{ size: null, label: '390x844', error: 'the page never drew\nstack' }], shots: [], ms: 9000 });
+  assert.deepEqual(stuck.lines, ['tests: none (no *.test.contract)', 'check 390x844: could not drive: the page never drew', 'verify: 1 problem (1 failure to compile or drive) in 9.0 s']);
+  assert.equal(stuck.exit, 1);
+});
+
+// Each test's end screen is in the one report, its findings under the test's name and said once
+// with the first screen's; the relaunch is a line of its own, and what it lost a finding.
+test('the journeys: a test end\'s finding under its name, deduplicated across screens; the relaunch line', () => {
+  const clipped = ([w]) => `  clipped  Text "Total"#9 [16,96 ${w - 330}×18]: its text is 40 px wider than its box, which clips it`;
+  const contrast = (y) => `  contrast summary [16,${y} 300×20]: 2.1:1 (#999999 on #ffffff), needs 4.5:1`;
+  const ends = ['web-t1-adds-a-card.png', 'web-t2-studies-the-deck.png'].map((f) => `/app/.exact/verify/${f}`);
+  const relaunched = { test: 'adds a card', ms: 400, shows: ['Everyday French'], problems: [], said: 'the first screen shows what it stored: "Everyday French"' };
+  const clean = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, ms: 9000, cwd: '/app', relaunched,
+    checks: [...runs(() => []), ...runs(() => [], 'adds a card'), ...runs(() => [], 'studies the deck'), ...runs(() => [], 'relaunch')], shots: [...shots, ...ends, '/app/.exact/verify/web-relaunch.png'] });
+  assert.deepEqual(clean.lines, [
+    'tests: 2 passed, 0 failed',
+    'check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings',
+    'relaunch on "adds a card"\'s store (0.4 s of real time): the first screen shows what it stored: "Everyday French"',
+    'screenshots (.exact/verify): web-390x844-light.png web-390x844-dark.png web-1280x900-light.png web-1280x900-dark.png',
+    '  test ends: web-t1-adds-a-card.png web-t2-studies-the-deck.png; relaunch: web-relaunch.png',
+    'open it: bun exact.mjs web (serves what verify checked)',
+    'verify: clean in 9.0 s',
+  ]);
+  assert.equal(clean.exit, 0);
+
+  // The summary's contrast only on the second test's end, in dark; the clipped total on the first screen and both ends.
+  const found = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, ms: 9000, cwd: '/app', shots: [], relaunched: { ...relaunched, problems: ['  lost     its first screen and resources are a fresh launch\'s, …'] },
+    checks: [...runs((size) => [clipped(size)]), ...runs((size) => [clipped(size)], 'adds a card'), ...runs((size, scheme) => [clipped(size), ...(scheme === 'dark' ? [contrast(size[0] === 390 ? 210 : 140)] : [])], 'studies the deck'), ...runs(() => [], 'relaunch')] });
+  assert.deepEqual(found.lines.slice(1, 4), [
+    'check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: 2 findings',
+    `  (first screen, "adds a card", "studies the deck" only) ${clipped(SIZES[0]).trim()}`,
+    `  ("studies the deck", dark only) ${contrast(210).trim()}`,
+  ]);
+  assert.deepEqual(found.lines.slice(4, 6), ['relaunch on "adds a card"\'s store (0.4 s of real time): 1 problem', '  lost     its first screen and resources are a fresh launch\'s, …']);
+  assert.equal(found.lines.at(-1), 'verify: 3 problems (3 findings; the tests passed) in 9.0 s');
+  assert.equal(found.exit, 0);
+
+  // A test end or the relaunch that could not be driven fails it, as a launch does.
+  const stuck = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, ms: 9000, shots: [], relaunched: { test: 'adds a card', error: 'the page never drew\nstack' },
+    checks: [...runs(() => []), { size: null, label: '"adds a card" end', error: 'resize: no page' }] });
+  assert.deepEqual(stuck.lines.slice(1), ['check "adds a card" end: could not drive: resize: no page', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'relaunch: could not drive: the page never drew', 'verify: 2 problems (2 failures to compile or drive) in 9.0 s']);
+  assert.equal(stuck.exit, 1);
+  assert.equal(shotName('web', 1, "the header's button likes it, then unlikes it"), 'web-t2-the-header-s-button-likes-it.png');
+});
+
+test('the relaunch: the store of a passing test that wrote the most; what came back, or that it was lost', () => {
+  const fresh = { texts: new Set(['Decks', 'No decks yet.']), resources: { decks: [] }, slots: { draft: '' }, ops: 1 };
+  const end = (resources, ops, reload = false) => ({ keep: true, resources, ops, reload });
+  const results = [
+    { name: 'reads', failures: [], store: 's0', end: end({ decks: [{ id: '1', name: 'Seeded deck with a long name' }] }, 1) },
+    { name: 'adds', failures: [], store: 's1', end: end({ decks: [{ id: '1', name: 'French' }] }, 3) },
+    { name: 'adds two', failures: ['line 9: …'], store: 's2', end: end({ decks: [{ id: '1' }, { id: '2' }] }, 5) },
+  ];
+  assert.equal(relaunchStore(results, fresh).name, 'adds'); // it wrote; the longer resources only read; the third failed
+  assert.equal(relaunchStore(results.slice(0, 1), fresh).name, 'reads');
+  assert.equal(relaunchStore([results[2]], fresh), null);
+
+  const after = (texts, resources = { decks: [] }, slots = { draft: '' }) => ({ texts: new Set(texts), resources, slots });
+  const back = judgeRelaunch(results[1], fresh, after(['Decks', 'French', '1 card']), { busy: [], failed: {} });
+  assert.deepEqual([back.shows, back.problems, back.said], [['French', '1 card'], [], 'the first screen shows what it stored: "French", "1 card"']);
+  const lost = judgeRelaunch(results[1], fresh, after(['Decks', 'No decks yet.']), {});
+  assert.equal(lost.problems.length, 1);
+  assert.match(lost.problems[0], /^ {2}lost {5}.*what it stored did not come back$/);
+  // A test that wrote nothing has nothing to lose; one whose resources came back off this screen lost nothing either.
+  assert.deepEqual(judgeRelaunch(results[0], fresh, after(['Decks', 'No decks yet.']), {}), { shows: [], problems: [], said: 'the first screen is a fresh launch\'s; that test wrote no storage' });
+  assert.deepEqual(judgeRelaunch(results[1], fresh, after(['Decks', 'No decks yet.'], { decks: [{ id: '1' }] }), {}).problems, []);
+  const slow = judgeRelaunch(results[1], fresh, after(['Decks']), { busy: ['decks'], failed: { cards: 'a refused shape' } });
+  assert.deepEqual(slow.problems.map((p) => p.trim().split(/\s+/)[0]), ['loading', 'failed']);
+});
+
+// A test that pinned its date left data a month-filtered screen shows only under that date, so the
+// relaunch is made under the test's launch facts and compared with a fresh launch under them; only a test whose facts
+// are not the driver's own asks for that second fresh launch.
+test('the relaunch keeps a test\'s pinned date, zone, locale and seed', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const test = (launch) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch } });
+  assert.equal(pinnedLaunch(test(defaults), defaults), false);
+  assert.equal(pinnedLaunch(test({ ...defaults, epoch: Date.parse('2026-10-12T12:00:00Z') }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, timeZone: 'Pacific/Auckland' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, locale: 'fr-FR' }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, seed: 7 }), defaults), true);
+  assert.equal(pinnedLaunch(test({ ...defaults, media: {} }), defaults), false);
+  assert.equal(pinnedLaunch(test({ ...defaults, media: { 'prefers-color-scheme': 'light' } }), defaults), false);
+  const dark = { ...defaults, media: { 'prefers-color-scheme': 'dark', 'prefers-reduced-motion': 'reduce' } };
+  assert.equal(pinnedLaunch(test(dark), defaults), true);
+  assert.deepEqual(relaunchFacts(test(dark)).media, dark.media);
+
+  assert.equal(pinnedLaunch({ name: 'saves', end: { keep: true } }, defaults), false); // a test run without launch facts
+
+  // The relaunch under October is compared with a fresh launch under October: the month's title is October's in both, so
+  // the entry's coming back, or its loss, is all that differs.
+  const october = (month) => ({ texts: new Set(['October 2026', ...month]), resources: { month: { title: 'October 2026', count: month.length } }, slots: {}, ops: 1 });
+  const saved = { ...test(defaults), end: { ...test(defaults).end, resources: october(['A fresh start.']).resources } };
+  assert.deepEqual(judgeRelaunch(saved, october([]), october(['A fresh start.'])).problems, []);
+  assert.equal(judgeRelaunch(saved, october([]), october([])).problems.length, 1);
+});
+
+// A `reload` relaunches at the virtual time the test had reached, and so does verify's relaunch; a test
+// that only moved the clock pinned nothing, but its first screen may say another day, so the comparison is made at that day.
+test('the relaunch starts at the date the test reached, which moves the comparison with it and pins nothing', () => {
+  const defaults = { epoch: Date.parse('2026-01-01T00:00:00Z'), timeZone: 'UTC', locale: 'en-US', seed: 1 };
+  const reached = defaults.epoch + 86_400_000;
+  const test = (end) => ({ name: 'saves', failures: [], store: 's', end: { keep: true, resources: {}, ops: 3, launch: defaults, ...end } });
+  assert.deepEqual(relaunchFacts(test({ reached })), { ...defaults, epoch: reached });
+  assert.deepEqual(relaunchFacts(test({})), defaults); // a test run without a reached date relaunches as it launched
+  assert.equal(movedClock(test({ reached })), true);
+  assert.equal(movedClock(test({ reached: defaults.epoch })), false);
+  assert.equal(movedClock(test({})), false);
+  assert.equal(pinnedLaunch(test({ reached }), defaults), false);
+});
+
+test('the compiler\'s warnings: a group before the tests, by rule as findings are, counted as findings', () => {
+  const warning = (n) => `app.contract:${n}:23 warning [lower-colour-one-scheme] \`#336699\` on \`color\` stays the same in dark mode`;
+  const one = report({ host: 'web', built: null, compiler: [warning(25)], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
+  assert.deepEqual(one.lines, ['compiler: 1 warning', `  ${warning(25)}`, 'tests: 2 passed, 0 failed', 'check first screen · 390x844, 1280x900 · light, dark: no findings', 'open it: bun exact.mjs web (serves what verify checked)', 'verify: 1 problem (1 finding; the tests passed) in 4.0 s']);
+  assert.equal(one.exit, 0);
+  const many = report({ host: 'ios', built: { ms: 1200, said: ['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], warnings: [] },
+    compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000 });
+  assert.deepEqual(many.lines.slice(1, 5), ['compiler: 8 warnings', '  lower-colour-one-scheme ×8', `    ${warning(1)}`, '    also app.contract:2:23; app.contract:3:23; app.contract:4:23; app.contract:5:23 and 3 more']);
+  // Given one, the report names it, and `full` is every warning, one a line, for verify to write there.
+  const listed = report({ host: 'ios', built: null, compiler: Array.from({ length: 8 }, (_, i) => warning(i + 1)), tested: { none: true }, checks: [], shots: [], ms: 9000, listed: '.exact/verify/ios-findings.txt' });
+  assert.equal(listed.lines.at(-2), 'every finding, one a line: .exact/verify/ios-findings.txt');
+  assert.deepEqual(listed.full.slice(1), Array.from({ length: 8 }, (_, i) => `  ${warning(i + 1)}`));
+  assert.equal(many.lines.at(-1), 'verify: 8 problems (8 findings; the tests passed) in 9.0 s');
+  assert.equal(many.lines.at(-2), 'open it: bun exact.mjs ios --run (launches what verify checked)');
+  assert.equal(many.exit, 0);
+});
+
+// `tamber-unreachable` names where the platform's own look stands: said, never counted (2026-10-30).
+test('a compiler warning that is information is said apart and not counted', () => {
+  const note = 'app.contract:32:62 warning [tamber-unreachable] accent-color on macOS switches: NSSwitch draws the system accent (the first at line 34)';
+  const r = report({ host: 'web', built: null, compiler: [note], tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 });
+  assert.deepEqual(r.lines.slice(0, 2), ['compiler: 1 note, not counted (the platform\'s own look stands there)', `  ${note}`]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 4.0 s');
+  assert.equal(r.problems, 0);
+});
+
+// The compiler's text form says the SF Symbols only the web draws blank in one line (the euxy port's 21 hid its header
+// warning); verify reads the build's JSON, so its count is every warning (22, not 2), each in the text form's line.
+test('the compiler\'s warnings are read from the build\'s JSON, every one, in the text form\'s lines', () => {
+  const cwd = '/work/app';
+  const entry = (line, id, message, file = `${cwd}/app.contract`) => ({ id, severity: 'warning', message, file, line, col: 5, end_col: 9, related: [] });
+  const symbol = (i) => entry(10 + i, 'lower-symbol-platform', i === 0
+    ? 'symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token'
+    : `symbol \`sf/${i}\` is blank on web too: write \`symbol:add\`, the role, which draws on every host`);
+  const entries = [
+    entry(9, 'lower-header-unplaced', 'this `button` in this route\'s `header` is not shown on iOS'),
+    entry(3, 'lower-symbol-alias', 'write `symbol:add`'),
+    ...Array.from({ length: 20 }, (_, i) => symbol(i)),
+    { ...entry(2, 'type-arity', '`f` takes 1 argument(s), given 2'), severity: 'error' },
+  ];
+  const said = warningsOfBuild(`${JSON.stringify(entries)}\n`, cwd);
+  assert.equal(said.length, 22);
+  assert.equal(said[0], 'app.contract:9:5 warning [lower-header-unplaced] this `button` in this route\'s `header` is not shown on iOS');
+  assert.equal(said[2], 'app.contract:10:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token');
+  assert.equal(said.filter((w) => / warning \[lower-symbol-platform\] /.test(w)).length, 20);
+  // The report counts them all, in the build's order.
+  const r = report({ host: 'ios', built: null, compiler: said, tested: { none: true }, checks: [], shots: [], ms: 1000 });
+  assert.equal(r.lines[0], 'compiler: 22 warnings');
+  // Many findings are said by kind in the closing line; a compiler warning is no kind verify.accept takes.
+  assert.equal(r.lines.at(-1), 'verify: 22 problems (22 findings: 20 lower-symbol-platform, 1 lower-header-unplaced, 1 lower-symbol-alias; the tests passed) in 1.0 s');
+  assert.ok(!r.lines.some((l) => l.startsWith('most findings are')));
+  // A file elsewhere, or none, is kept as given; a build with no JSON (Cargo failing to build the compiler, a text
+  // build) still yields the warning lines in it.
+  assert.deepEqual(warningsOfBuild(JSON.stringify([entry(1, 'x', 'm', '/elsewhere/a.contract'), entry(2, 'y', 'n', null)]), cwd), ['/elsewhere/a.contract:1:5 warning [x] m', '2:5 warning [y] n']);
+  assert.deepEqual(warningsOfBuild(`error: could not compile\n${cwd}/app.contract:9:5 warning [lower-header-unplaced] text form\n`, cwd), ['app.contract:9:5 warning [lower-header-unplaced] text form']);
+});
+
+// A screen survives a reload. Each test's end screen is reloaded where it stands and its texts compared;
+// a flashcards study screen reloaded into "0 / 0", a focus timer's settings into 25 and 5 over the saved 30 and 10.
+// The first is a note (a session in progress lives in memory), the second a finding (a saved value came back different).
+test('a reload: the texts a screen shows, what it forgives, and the note that names the route', () => {
+  const node = (depth, props, extra = {}) => ({ id: 1, type: 'Text', depth, props, ...extra });
+  const nodes = [
+    node(0, { testId: 'app' }, { type: 'View' }),
+    node(1, { text: 'Recall' }),
+    node(1, { text: 'covered' }, { inactive: true }), // a screen under another is not shown
+    node(1, { text: 'Saved!', accessibilityRole: 'status' }), // a live region says its message once
+    node(2, { text: 'inside the region' }, { type: 'View' }),
+    node(1, { testId: 'focus-minutes', value: '30' }, { type: 'TextInput' }),
+    node(1, { testId: 'lock', accessibilityLabel: 'Locked', checked: true }, { type: 'Control' }),
+    node(1, { text: '  ' }),
+  ];
+  assert.deepEqual(screenTexts(nodes), ['Recall', '30', 'Locked: on']);
+  assert.deepEqual(screenTexts(nodes, new Set(['focus-minutes'])), ['Recall', 'Locked: on']); // a field left out by its id
+  assert.deepEqual(screenTexts(undefined), []);
+
+  // A field the test typed into is a draft, left out of the comparison, unless the app kept what it showed and the reloaded
+  // field shows something it did not keep: focus-timer's settings came back as 25 over the saved 30, the water tracker's
+  // refused 0 as the stored 2000, a saved bill as an empty field, a name the app never stored.
+  const field = (testId, value) => node(1, { testId, value }, { type: 'TextInput' });
+  const state = { slots: { focusMinutes: 30, draft: '', tab: 'home', today: 0 }, resources: { goal: { ml: 2000 }, items: [{ title: 'Milk', price: 100.5 }] } };
+  assert.deepEqual([...storedTexts(state)].sort(), ['', '0', '100.5', '2000', '30', 'Milk', 'home'].sort());
+  // What the app kept is what both its states hold: the settings form's draft slot says 30 before and the default 25 after.
+  const states = { before: { ...state, slots: { ...state.slots, focusDraft: '30' } }, after: { ...state, slots: { ...state.slots, focusDraft: '25' } } };
+  const was = [field('focus-minutes', '30'), field('goal', '0'), field('bill', '100.50'), field('name', 'x')];
+  const now = [field('focus-minutes', '25'), field('goal', '2000'), field('bill', ''), field('name', '')];
+  const touched = ['focus-minutes', 'goal', 'bill', 'name'];
+  assert.deepEqual([...draftFields(was, now, touched, states)].sort(), ['goal', 'name']); // the stored 30 and 100.5 came back as 25 and nothing
+  assert.deepEqual([...draftFields(was, now, ['goal', 'name'], states)].sort(), ['goal', 'name']);
+  assert.deepEqual([...draftFields(was, now, [], states)], []); // a field the test never typed into is the app's to show
+  assert.deepEqual([...draftFields(was, [], ['focus-minutes'], states)], []); // gone after: the stored text it showed is compared as lost
+  const shown = (url, ...texts) => ({ url, texts });
+  // Nothing differs; a running timer's clock face and the texts around it are masked; the date a test reached is pinned, so a date is the same.
+  assert.equal(judgeReload(shown('/', 'Focus', '24:49', 'Last studied Oct 12, 2026'), shown('/', 'Focus', '25:00', 'Last studied Oct 12, 2026')), null);
+  assert.equal(judgeReload(shown('/', 'Elapsed 01:02:03.5'), shown('/', 'Elapsed 00:00:00.0')), null);
+  // A message that went (a toast, a validation error, an open dialog's words): texts taken away, none put in their place.
+  assert.equal(judgeReload(shown('/new', 'New deck', 'Give your deck a name.'), shown('/new', 'New deck')), null);
+  assert.equal(judgeReload(shown('/', 'Milk', 'Deleted', 'Undo'), shown('/', 'Milk')), null);
+  // A route that reloads into another state: flashcards' study screen, focus-timer's settings, a draft that was kept in memory.
+  const study = judgeReload(shown('/deck/1/study', 'Session complete', '0 / 1', 'Keep practicing.'), shown('/deck/1/study', 'Session complete', '0 / 0', 'Every card remembered.'));
+  assert.deepEqual(study, { route: '/deck/1/study', lost: ['0 / 1', 'Keep practicing.'], gained: ['0 / 0', 'Every card remembered.'] });
+  assert.equal(reloadNote(study, 'early finish'), '  note     /deck/1/study reloads into another state: "0 / 1", "Keep practicing." → "0 / 0", "Every card remembered." ("early finish")');
+  assert.deepEqual(judgeReload(shown('/settings', 'Focus', '30', '10'), shown('/settings', 'Focus', '25', '5')).lost, ['30', '10']);
+  const draft = judgeReload(shown('/', 'Squat', '5 × 135', 'Add set', 'Finish workout'), shown('/', 'Start workout'));
+  assert.deepEqual([draft.lost.length, draft.gained], [4, ['Start workout']]);
+  // More than a message gone with nothing back is a list that is empty now; a text that only appeared is a state too; so is a URL that moved.
+  assert.deepEqual(judgeReload(shown('/', 'a', 'b', 'c', 'd'), shown('/')).lost, ['a', 'b', 'c', 'd']);
+  assert.match(reloadNote(judgeReload(shown('/', 'a', 'b', 'c', 'd', 'e'), shown('/')), 'x'), /^ {2}note {5}\/ reloads into another state: loses "a", "b", "c", … \(2 more\) /);
+  assert.match(reloadNote(judgeReload(shown('/', 'Home'), shown('/', 'Home', 'Welcome back')), 'x'), /: gains "Welcome back" /);
+  assert.equal(judgeReload(shown('/settings', 'Home', 'x'), shown('/', 'Home', 'y')).now, '/');
+  assert.equal(judgeReload(shown('/', 'Home'), shown('/other', 'Home')), null); // the same words on another URL are nothing to say
+});
+
+// A reload that changes the screen is a note; it is a finding only when a saved value came back different.
+test('a reload: the persisted states, and the evidence that something saved was lost', () => {
+  assert.deepEqual(persistedStates('/no/such/app'), []);
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-persist-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  state goal = 2000 persist\n  state last-seen = "" persist // kept\n  state draft = ""\n  state label = "persist"\n  state note = "x" // persist\n  state tab = "home"  persist  \n  view\n    text "x"\n');
+    assert.deepEqual(persistedStates(dir), ['goal', 'last-seen', 'tab']);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+
+  const node = (testId, value, extra = {}) => ({ id: 1, type: 'TextInput', depth: 1, props: { testId, value }, ...extra });
+  const held = { slots: { persona: 'Grace', goal: 2000, saved: ['a', 'b'], round: 3 }, resources: { questions: [{ q: 'Capital of France?' }] } };
+  const states = (before, after) => ({ before: { ...held, slots: { ...held.slots, ...before } }, after: { ...held, slots: { ...held.slots, ...after } } });
+  const same = savedChanges({ persisted: ['persona', 'goal', 'saved'], states: states({}, { round: 0 }), nodes: { before: [], after: [] }, touched: [] });
+  // A game in progress (round 3, a question on the screen) came back as round 0: memory, not a saved value.
+  assert.deepEqual(same, []);
+  // A persisted state that came back different: the saved persona overwritten, a list shortened.
+  assert.deepEqual(savedChanges({ persisted: ['persona', 'goal', 'saved', 'gone'], states: states({}, { persona: 'Ada', saved: ['a'] }), nodes: { before: [], after: [] }, touched: [] }),
+    [{ kind: 'state', name: 'persona', was: 'Grace', now: 'Ada' }, { kind: 'state', name: 'saved', was: ['a', 'b'], now: ['a'] }]);
+  // A state that is not persisted is not judged, whatever it did.
+  assert.deepEqual(savedChanges({ persisted: ['goal'], states: states({}, { persona: 'Ada', round: 0 }), nodes: { before: [], after: [] }, touched: [] }), []);
+  // A field the test typed into that showed a kept value (the app holds 2000 both times) and shows another now: focus-timer's
+  // settings. A draft (a value the app never held) and a field the test never touched are not saved values.
+  const fields = savedChanges({ persisted: [], states: states({}, {}), touched: ['goal', 'draft'],
+    nodes: { before: [node('goal', '2000'), node('draft', 'half-typed'), node('name', '2000')], after: [node('goal', '25'), node('draft', ''), node('name', '25')] } });
+  assert.deepEqual(fields, [{ kind: 'field', id: 'goal', was: '2000', now: '25' }]);
+  // A field that is gone after the reload is another screen, which the note says; it is not a saved value changed.
+  assert.deepEqual(savedChanges({ persisted: [], states: states({}, {}), touched: ['goal'], nodes: { before: [node('goal', '2000')], after: [] } }), []);
+
+  const finding = { route: '/settings', lost: ['2000'], gained: ['25'], saved: [...fields, { kind: 'state', name: 'persona', was: 'Grace', now: 'Ada' }] };
+  assert.equal(reloadLine(finding, 'goal is saved'), '  reload   /settings a saved value came back different: the field "goal" showed "2000", which the app holds, and shows "25"; the saved state `persona` was "Grace" and is "Ada"; a reload must bring back what was saved ("goal is saved")');
+  assert.match(reloadLine({ ...finding, now: '/' }, 'x'), /^ {2}reload {3}\/settings, landing on \/, a saved value came back different: /);
+  assert.match(reloadLine({ route: '/', lost: [], gained: [], saved: [{ kind: 'state', name: 'saved', was: ['a', 'b'], now: undefined }] }, 'x'), /the saved state `saved` was "\[\\"a\\",\\"b\\"\]" and is "none"/);
+});
+
+test('the report: each test end reloaded; a saved value lost is a finding once a route and change, any other change a note', () => {
+  const finding = { route: '/settings', lost: ['30'], gained: ['25'], saved: [{ kind: 'field', id: 'focus-minutes', was: '30', now: '25' }] };
+  const note = { route: '/deck/1/study', lost: ['0 / 1'], gained: ['0 / 0'] };
+  const base = { host: 'web', built: null, tested: { passed: 3, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000 };
+  const same = report({ ...base, tested: { passed: 2, failed: 0, results: [] },
+    reloads: [{ test: 'a', ran: true, finding: null, note: null }, { test: 'b', ran: true, finding: null }, { test: 'drafts', ran: false }] });
+  assert.deepEqual(same.lines.slice(1, 3), ['check first screen · 390x844, 1280x900 · light, dark: no findings', 'reload 2 test ends: the same screen after each']);
+  assert.equal(same.lines.at(-1), 'verify: clean in 4.0 s');
+  // Two tests ending on one route with one saved value lost name it once, the first test; the finding counts, and fails nothing.
+  const found = report({ ...base, reloads: [{ test: 'sets the goal', ran: true, finding }, { test: 'sets it twice', ran: true, finding }, { test: 'adds', ran: true, finding: null, note: null }] });
+  assert.deepEqual(found.lines.slice(2, 4), ['reload 3 test ends: 1 finding', reloadLine(finding, 'sets the goal')]);
+  assert.equal(found.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 4.0 s');
+  assert.equal(found.exit, 0);
+  // A screen that reloaded into another state is a note under its own heading, with the advice once; it counts for nothing.
+  const noted = report({ ...base, reloads: [{ test: 'finishes early', ran: true, finding: null, note }, { test: 'finishes twice', ran: true, finding: null, note }, { test: 'adds', ran: true, finding: null, note: null }] });
+  assert.deepEqual(noted.lines.slice(2, 6), [
+    'reload 3 test ends: no findings',
+    'reload note: 1 screen reloads into another state (not counted)',
+    reloadNote(note, 'finishes early'),
+    '  a saved value must survive a reload; a game or a draft in progress may not',
+  ]);
+  assert.equal(noted.lines.at(-1), 'verify: clean in 4.0 s');
+  assert.equal(noted.problems, 0);
+  // Both: the finding counts, the note does not.
+  const both = report({ ...base, reloads: [{ test: 'plays', ran: true, finding: null, note }, { test: 'sets the goal', ran: true, finding }] });
+  assert.deepEqual(both.lines.slice(2, 7), ['reload 2 test ends: 1 finding', reloadLine(finding, 'sets the goal'), 'reload note: 1 screen reloads into another state (not counted)', reloadNote(note, 'plays'), '  a saved value must survive a reload; a game or a draft in progress may not']);
+  assert.equal(both.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 4.0 s');
+  // Notes past the shown ones are counted, not listed.
+  const many = report({ ...base, reloads: Array.from({ length: 8 }, (_, i) => ({ test: `t${i}`, ran: true, finding: null, note: { route: `/r${i}`, lost: ['a'], gained: ['b'] } })) });
+  assert.ok(many.lines.includes('reload note: 8 screens reload into another state (not counted)') && many.lines.includes('  … and 2 more (verify --json lists them all)'), many.lines.join('\n'));
+  assert.equal(many.problems, 0);
+  const stuck = report({ ...base, tested: { passed: 1, failed: 0, results: [] },
+    reloads: [{ test: 'saves', ran: true, error: 'reload: the app\'s storage did not finish before the restart: x\nmore' }] });
+  assert.deepEqual(stuck.lines.slice(2, 4), ['reload 1 test end: 1 finding', '  reload   "saves": could not reload the end screen: reload: the app\'s storage did not finish before the restart: x']);
+  // The iOS report has no reload: a native host's cold launch is `/`.
+  assert.ok(!report({ ...base, host: 'ios', reloads: [{ test: 'a', ran: false }] }).lines.some((l) => l.startsWith('reload')));
+});
+
+// What the host refused while the app ran is in the journal (and, on iOS, the host's stderr); verify shows it first.
+test('run-time refusals: found in the journal and the host\'s lines, shown first, counted as findings', () => {
+  const swipe = 'swipeContent on #243 is refused: "delete-1" names no one descendant of it; a row needs one full-size descendant and uniquely named descendant press controls with accessible names';
+  assert.deepEqual(refusalsOf({
+    lines: ['t=0 boot: 15 nodes, epoch 1', `t=12 ${swipe}`, 't=40 saveFile: refused: no app file to copy', 't=41 saveFile: refused: no app file to copy', 't=50 modal dismissal refused: closedby is none', 't=60 back refused: the Back control is disabled',
+      // A fetch a test's `fail fetch` refused, as the JS target and the runner journal it, is the test's design; a
+      // driver fault that stopped presence is not a fetch, and is still said.
+      't=70 refused reply details; wall 0 ms: fetch failed (driver fault): http://127.0.0.1:8787/planets/5',
+      't=71 fulfil 4 (details) [network: fetch failed (driver fault): http://127.0.0.1:8787/planets/5] refused: Refused("network")',
+      't=72 presence room: join: refused by a driver fault'],
+    host: [`app: exact: ${swipe}`, 'console.error: Failed to load resource: net::ERR_CONNECTION_REFUSED', 'app: exact: showModal confirm refused: no dialog or popover has that id'],
+  }), [swipe, 'saveFile: refused: no app file to copy', 'presence room: join: refused by a driver fault', 'showModal confirm refused: no dialog or popover has that id']);
+  assert.deepEqual(refusalsOf({}), []);
+  const refused = [{ line: swipe, where: ['first screen', 'test "adds"', 'relaunch'] }, { line: 'saveFile: refused: no app file to copy', where: ['test "saves"'] }];
+  const r = report({ host: 'ios', built: { ms: 900, said: [], warnings: [] }, tested: { passed: 1, failed: 0, results: [] }, checks: runs(() => []), shots: [], ms: 4000, refused });
+  assert.deepEqual(r.lines.slice(0, 3), [
+    'refused at run time: 2 (the host\'s journal, \'logs\'; each is a call or a wiring the app got wrong)',
+    `  ${swipe} (first screen, test "adds" and 1 more)`,
+    '  saveFile: refused: no app file to copy (test "saves")',
+  ]);
+  assert.equal(r.lines[3], 'built ios (0.9 s)');
+  assert.equal(r.lines.at(-1), 'verify: 2 problems (2 findings; the tests passed) in 4.0 s');
+  assert.equal(r.exit, 0);
+});
+
+test('check\'s text splits by scheme, counting what its own cap left out', () => {
+  const text = ['check web · light: 13 findings', ...Array.from({ length: 12 }, (_, i) => `  target   button#${i} [0,0 20×20]: small`), '  … and 1 more (--json lists them all)', 'check web · dark: no findings (text fits)'].join('\n');
+  const [light, dark] = groups(text);
+  assert.equal(light.lines.length, 12);
+  assert.equal(light.hidden, 1);
+  assert.deepEqual([dark.lines, dark.hidden], [[], 0]);
+  // Advice is kept apart, never a finding: a check with only advice is clean.
+  const [wide] = groups('check web · light: no findings (text fits)\n  advice   tabs: a bottom tab bar 1280 px wide');
+  assert.deepEqual([wide.lines, wide.advice], [[], ['  advice   tabs: a bottom tab bar 1280 px wide']]);
+  const r = report({ host: 'web', built: { ms: 1000, said: [], warnings: [] }, compiler: [], tested: { passed: 1, failed: 0, results: [] },
+    checks: [{ size: [1280, 900], scheme: 'light', lines: [], hidden: 0, advice: wide.advice }], shots: [], ms: 2000 });
+  assert.equal(r.lines.at(-1), 'verify: clean in 2.0 s');
+  assert.ok(r.lines.includes('  advice   tabs: a bottom tab bar 1280 px wide'));
+});
+
+// The server an app calls, found where the rest pattern and the builders put it.
+// An entry that does not read DB (itself, or in a module it imports) is refused in one line naming it.
+test('the app\'s server: its entry, the URL app.ts calls, and why it cannot be run on an empty database', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-'));
+  const put = (files) => { rmSync(dir, { recursive: true, force: true }); for (const [path, text] of Object.entries(files)) { mkdirSync(resolve(dir, path, '..'), { recursive: true }); writeFileSync(resolve(dir, path), text); } };
+  const reads = "const db = new Database(process.env.DB ?? 'data.db');\n";
+  try {
+    put({ 'app.ts': "const API = 'http://127.0.0.1:6810'; // a phone reaches http://192.168.1.2:6810\n", 'server/index.ts': reads });
+    assert.deepEqual(appServer(dir), { entry: 'server/index.ts', args: [], database: true, url: 'http://127.0.0.1:6810', port: 6810, why: null, refusal: null, settings: {} });
+    put({ 'app.ts': "export const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': reads, 'app.json': JSON.stringify({ commands: { server: ['bun', '--watch', 'srv/main.ts'] } }) });
+    assert.equal(appServer(dir).entry, 'srv/main.ts');
+    put({ 'app.ts': "import type { Answer } from './app.contract.d.ts';\nimport { API } from './api';\n", 'api.ts': "export const API = 'http://localhost:3000/v1/';\n", 'server/server.ts': 'const DB = Bun.env.DB;\n' });
+    assert.deepEqual([serverUrl(dir), appServer(dir).port, appServer(dir).refusal], ['http://localhost:3000/v1', 3000, null]);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "new Database('data.db');\n" });
+    assert.match(appServer(dir).refusal, /^server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*"commands": \{ "server": \["bun", "server\/index\.ts"\] \}$/);
+    assert.equal(appServer(dir).why, null);
+    // The entry app.json names is the one it looked at, and says so.
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': reads, 'srv/main.ts': 'Bun.serve({});\n', 'app.json': JSON.stringify({ commands: { server: ['bun', 'srv/main.ts'] } }) });
+    assert.match(appServer(dir).refusal, /^srv\/main\.ts \(app\.json's commands\.server\) does not read /);
+    put({ 'app.ts': "const API = 'https://api.example.com';\n", 'server.ts': reads });
+    assert.match(appServer(dir).why, /^server\.ts is left alone: app\.ts calls no local URL/);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n" });
+    assert.equal(appServer(dir), null);
+    // A setting app.ts reads, as the build inlines it: the environment's, else .env.local's, else .env's,
+    // else the default; a value that is no local URL leaves the server alone, though the default it overrides is one.
+    const setting = { 'app.ts': "export const API = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\nexport const grants = `net.fetch ${API}`;\n", 'app.json': JSON.stringify({ env: ['API_BASE_URL'], server: { database: false } }), 'server.ts': 'Bun.serve({});\n' };
+    put(setting);
+    assert.equal(serverUrl(dir, {}), 'http://127.0.0.1:8080');
+    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n' });
+    assert.deepEqual([appServer(dir, {}).url, appServer(dir, {}).refusal], ['http://127.0.0.1:8787', null]);
+    put({ ...setting, '.env': 'API_BASE_URL=http://127.0.0.1:8787\n', '.env.local': 'API_BASE_URL=http://localhost:9000\n' });
+    assert.equal(serverUrl(dir, {}), 'http://localhost:9000');
+    assert.equal(serverUrl(dir, { API_BASE_URL: 'http://127.0.0.1:7000' }), 'http://127.0.0.1:7000');
+    assert.equal(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).url, null);
+    assert.match(appServer(dir, { API_BASE_URL: 'https://api.example.com' }).why, /^server\.ts is left alone: app\.ts calls no local URL/);
+    // The spellings of reading DB, and a root shim that only imports the backend that reads it (book-club, polls, event-rsvp).
+    for (const spelling of ['Bun.env.DB', 'process.env["DB"]', "process.env['DB'] ?? 'x.db'", 'env.DB', 'process.env?.DB', "const { DB } = process.env;", "const { DB: path = 'x.db', PORT } = Bun.env;", 'start(process.env.DB)']) {
+      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${spelling}\n` });
+      assert.equal(appServer(dir).refusal, null, spelling);
+    }
+    for (const reader of ["process.env.DB_PATH", 'const DB = "data.db"', '// the DB is data.db']) {
+      put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': `${reader}\n` });
+      assert.match(appServer(dir).refusal, /^server\.ts does not read/, reader);
+    }
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "import './server/index.ts';\n", 'server/index.ts': "import { serve } from './polls';\nserve();\n", 'server/polls.ts': reads });
+    assert.equal(appServer(dir).refusal, null);
+    put({ 'app.ts': "const API = 'http://127.0.0.1:8787';\n", 'server.ts': "export * from './a';\n", 'a.ts': "import('./b');\n", 'b.ts': "import './a';\nconst x = require('./c');\n", 'c.js': 'new Database("data.db");\n' });
+    assert.match(appServer(dir).refusal, /^server\.ts does not read/); // the cycle ends
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A real child records its arguments and environment. The port lock, HTTP readiness and process listing are stubbed,
+// in a separate process so Bun's module mock cannot replace the lock for other tests.
+function stubServerRun(body) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-command-'));
+  const script = `
+    import assert from 'node:assert/strict';
+    import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+    import { resolve } from 'node:path';
+    import { spawnSync } from 'node:child_process';
+    import { mock, spyOn } from 'bun:test';
+    const dir = ${JSON.stringify(dir)}, scripts = ${JSON.stringify(import.meta.dir)};
+    const argv = ['--world', 'transcript', '--label', 'two words', '--reset-on-identify'];
+    const manifest = { name: 'Server test', app: { id: 'dev.exact.server-test', name: 'Server test' }, commands: { server: ['bun', 'server.ts', ...argv] }, server: { database: false } };
+    const save = () => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+    save();
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\\n  view\\n    text "Test"\\n');
+    writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";');
+    const ready = resolve(dir, 'ready.json');
+    const serving = ${JSON.stringify("import { writeFileSync } from 'node:fs';\nwriteFileSync('ready.json', JSON.stringify({ argv: process.argv.slice(2), db: process.env['D' + 'B'] ?? null, port: process.env.PORT }));\nsetInterval(() => {}, 1000);\n")};
+    writeFileSync(resolve(dir, 'server.ts'), serving);
+    const record = () => JSON.parse(readFileSync(ready, 'utf8'));
+    let taken = 0, given = 0;
+    mock.module(resolve(scripts, 'port-lock.mjs'), () => ({ holderOf: async () => null, takePort: async (port) => {
+      assert.equal(port, 4790); taken++; return () => { given++; };
+    } }));
+    spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      if (!existsSync(ready)) throw new Error('not ready');
+      return new Response('ready');
+    });
+    const children = [], spawn = Bun.spawn;
+    spyOn(Bun, 'spawn').mockImplementation((...args) => { const child = spawn(...args); children.push(child); return child; });
+    const processes = await import('node:child_process'), spawnSyncReal = processes.spawnSync;
+    mock.module('node:child_process', () => ({ ...processes, spawnSync: (command, args, options) => command === 'ps'
+      ? { stdout: children.some((child) => child.pid === Number(args.at(-1))) ? 'bun server.ts' : '' }
+      : spawnSyncReal(command, args, options) }));
+    const { appServer, startServer, withAppServer, driveServer } = await import(resolve(scripts, 'verify.mjs'));
+    process.env.DB = resolve(dir, 'inherited.db');
+    try { ${body} }
+    finally { for (const child of children) { if (child.exitCode == null) child.kill('SIGKILL'); await child.exited; } }
+  `;
+  try {
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(r.status, 0, r.stdout + r.stderr + (r.error ?? ''));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('server command arguments reach the child in order, with DB and PORT for a database server', () => {
+  stubServerRun(`
+    delete manifest.server; save();
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync as write } from 'node:fs'; write(process.env.DB, 'scratch');\\n" + serving);
+    const server = appServer(dir);
+    assert.equal(server.refusal, null);
+    const running = await startServer(dir, server, 'test');
+    const db = resolve(dir, '.exact/test/db.sqlite');
+    assert.deepEqual(record(), { argv, db, port: '4790' });
+    assert.equal(readFileSync(db, 'utf8'), 'scratch');
+    assert.equal(readFileSync(resolve(dir, '.exact/test/owner'), 'utf8').trim(), String(process.pid));
+    await running.stop();
+    assert.notEqual(await children[0].exited, 0);
+    assert.equal(existsSync(resolve(dir, '.exact/test')), false);
+    assert.deepEqual([taken, given], [1, 1]);
+  `);
+}, 30_000);
+
+// A server that imports app.ts (the site pattern's) reads its settings as the build has them, though
+// Bun's own .env loading under NODE_ENV=test skips .env.local, so it listens where discovery looks.
+test('the settings app.ts reads reach the server as the build has them', () => {
+  stubServerRun(`
+    manifest.env = ['API_BASE_URL']; save();
+    delete process.env.API_BASE_URL;
+    process.env.NODE_ENV = 'test';
+    writeFileSync(resolve(dir, 'app.ts'), "export const origin = import.meta.env.API_BASE_URL ?? 'http://127.0.0.1:8080';\\n");
+    writeFileSync(resolve(dir, '.env'), 'API_BASE_URL=http://127.0.0.1:8787\\n');
+    writeFileSync(resolve(dir, '.env.local'), 'API_BASE_URL=http://127.0.0.1:4790\\n');
+    // As site's server.ts does: its address is app.ts's, read through Bun's import.meta.env.
+    writeFileSync(resolve(dir, 'server.ts'), "import { writeFileSync } from 'node:fs';\\nimport { origin } from './app.ts';\\nwriteFileSync('ready.json', JSON.stringify({ api: origin, port: process.env.PORT }));\\nsetInterval(() => {}, 1000);\\n");
+    // Discovery read under one environment; the server is given what it read, whatever this process inherited.
+    const server = appServer(dir, { ...process.env });
+    process.env.API_BASE_URL = 'http://127.0.0.1:8080';
+    assert.equal(server.url, 'http://127.0.0.1:4790');
+    const running = await startServer(dir, server, 'test');
+    assert.deepEqual(record(), { api: 'http://127.0.0.1:4790', port: '4790' });
+    await running.stop();
+  `);
+}, 30_000);
+
+test('database: false omits inherited DB, preserves database files, and keeps refusal and cleanup behavior', () => {
+  stubServerRun(`
+    const server = appServer(dir);
+    assert.equal(server.refusal, null);
+    const runDir = resolve(dir, '.exact/test');
+    mkdirSync(runDir, { recursive: true });
+    const files = ['db.sqlite', 'db.sqlite-wal', 'db.sqlite-shm', 'db.sqlite-journal'];
+    for (const file of files) writeFileSync(resolve(runDir, file), 'untouched');
+    await assert.rejects(withAppServer(dir, async () => {
+      assert.deepEqual(record(), { argv, db: null, port: '4790' });
+      throw new Error('test failed');
+    }, { verb: 'test', optional: true }), /test failed/);
+    for (const file of files) assert.equal(readFileSync(resolve(runDir, file), 'utf8'), 'untouched');
+    assert.equal(existsSync(resolve(runDir, 'owner')), false);
+    assert.notEqual(await children[0].exited, 0);
+    assert.deepEqual([taken, given], [1, 1]);
+    assert.equal(await withAppServer(dir, () => assert.fail('an answering server must be refused'), { verb: 'test' }), 1);
+    assert.equal(children.length, 1);
+    assert.deepEqual([taken, given], [2, 2]);
+    rmSync(ready);
+    rmSync(runDir, { recursive: true });
+    const running = await startServer(dir, server, 'test');
+    assert.deepEqual(record(), { argv, db: null, port: '4790' });
+    assert.deepEqual(readdirSync(runDir), ['owner']);
+    await running.stop();
+    assert.equal(existsSync(runDir), false);
+    delete manifest.server; save();
+    assert.match(appServer(dir).refusal, /does not read its database's path from DB/);
+    assert.equal(await withAppServer(dir, () => assert.fail('a database server without DB must be refused'), { optional: true }), 1);
+    assert.equal(children.length, 2);
+  `);
+}, 30_000);
+
+test('agent --test starts and stops the app server on web, ios and macos, and reuses its parent server', () => {
+  stubServerRun(`
+    const { main } = await import(resolve(scripts, 'agent.mjs'));
+    const args = ['--app', dir, '--test', resolve(dir, 'app.test.contract')];
+    for (const host of ['web', 'ios', 'macos']) {
+      const code = await main([host, ...args], { runTests: async (options) => {
+        assert.equal(options.host, host);
+        assert.equal(options.file, args[3]);
+        assert.deepEqual(record(), { argv, db: null, port: '4790' });
+        assert.equal(children.at(-1).exitCode, null);
+        return { results: [], passed: 1, failed: 0 };
+      } });
+      assert.equal(code, 0);
+      assert.notEqual(await children.at(-1).exited, 0);
+      assert.equal(existsSync(resolve(dir, '.exact/test')), false);
+      rmSync(ready);
+    }
+    const result = await withAppServer(dir, async () => {
+      const source = 'const { main } = await import(' + JSON.stringify(resolve(scripts, 'agent.mjs')) + ');' +
+        'process.exit(await main(' + JSON.stringify(['web', ...args]) + ', { runTests: async () => ({ results: [], passed: 1, failed: 0 }) }));';
+      const child = spawnSync(process.execPath, ['-e', source], { encoding: 'utf8', timeout: 10_000 });
+      assert.equal(child.status, 0, child.stdout + child.stderr);
+      assert.equal(children.at(-1).exitCode, null, 'the parent server still runs');
+      return 0;
+    }, { verb: 'test', optional: true });
+    assert.equal(result, 0);
+    assert.notEqual(await children.at(-1).exited, 0);
+    assert.deepEqual([taken, given], [4, 4]);
+    rmSync(ready);
+    rmSync(resolve(dir, 'server.ts'));
+    assert.equal(await main(['web', ...args], { runTests: async () => ({ results: [], passed: 0, failed: 1 }) }), 1);
+    assert.equal(children.length, 4, 'an app with no server still runs its tests');
+  `);
+}, 30_000);
+
+test('an agent drive passes server arguments without DB or a scratch database', () => {
+  stubServerRun(`
+    const lease = resolve(dir, '.exact/agent-server');
+    mkdirSync(lease, { recursive: true });
+    const old = resolve(lease, 'db.sqlite');
+    writeFileSync(old, 'untouched');
+    const running = await driveServer(dir, 'one', () => {}, { fresh: true });
+    assert.deepEqual(record(), { argv, db: null, port: '4790' });
+    assert.equal(existsSync(resolve(dir, '.exact/agent/one')), false);
+    await running.stop();
+    assert.notEqual(await children[0].exited, 0);
+    assert.equal(readFileSync(old, 'utf8'), 'untouched');
+    assert.deepEqual(readdirSync(lease), ['db.sqlite']);
+  `);
+});
+
+test('recorded server addresses preserve accepted default ports and paths, refusing credentials and queries', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-server-address-'));
+  try {
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ server: { database: false } }));
+    writeFileSync(resolve(dir, 'server.ts'), 'Bun.serve({});\n');
+    for (const [url, port] of [
+      ['http://127.0.0.1:80', 80], ['http://127.0.0.1:080', 80], ['https://localhost:443', 443],
+      ['https://[::1]:0443/api', 443], ['http://localhost:80/health', 80], ['http://127.0.0.1:8080/api/v1/', 8080],
+    ]) {
+      writeFileSync(resolve(dir, 'app.ts'), `export const API = ${JSON.stringify(url)};\n`);
+      const accepted = appServer(dir, {});
+      assert.equal(accepted.url, url.replace(/\/$/, ''));
+      assert.equal(accepted.port, port);
+      assert.deepEqual(recordedServerAddress(accepted.url), { url: accepted.url, port });
+    }
+    for (const url of [null, {}, 'file:///tmp/server', 'ftp://localhost:80', 'http://user:pw@localhost:80',
+      'http://@localhost:80', 'http://localhost:80/?', 'http://localhost:80/?q=x', 'http://localhost:80/#',
+      'http://localhost:80/#x', 'http://:80', 'http://localhost:65536']) assert.equal(recordedServerAddress(url), null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('fixture drives isolate checkouts, refuse foreign servers and clean overlapping ports', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-fixture-checkouts-')), running = [], fixturePids = new Map();
+  const { backendOriginSelection } = await import('../js/bake/src/typescript.mjs');
+  const env = { ...process.env }; delete env.PORT; delete env.EXACT_BACKEND_ORIGIN;
+  const script = `import { driveServer, appServer } from ${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))};
+let running;
+try {
+  running = await driveServer(process.argv[1], 'fixture', () => {});
+  console.log(JSON.stringify({ origin: appServer(process.argv[1]).url }));
+  for await (const line of console) break;
+} catch (e) { console.log(JSON.stringify({ error: e.message })); }
+finally { await running?.stop(); }
+process.exit(0);`;
+  const drive = async (dir, extra = {}) => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir], { env: { ...env, ...extra }, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+    running.push(child);
+    const reader = child.stdout.values()[Symbol.asyncIterator](), first = await reader.next();
+    const result = JSON.parse(new TextDecoder().decode(first.value));
+    if (result.origin) for (const file of readdirSync(resolve(dir, '.exact/agent-server')).filter(f => /^server-\d+$/.test(f))) {
+      fixturePids.set(Number(file.slice(7)), realpathSync(dir));
+    }
+    return { ...result, child, stop: async () => { child.stdin.write('\n'); await child.stdin.flush(); await child.exited; } };
+  };
+  const fixtures = [], ports = new Set();
+  try {
+    for (let i = 0; fixtures.length < 2 && i < 100; i++) {
+      const dir = resolve(parent, `checkout-${i}`);
+      mkdirSync(resolve(dir, 'fixture'), { recursive: true });
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ commands: { server: ['bun', 'fixture/server.ts'] }, server: { database: false } }));
+      writeFileSync(resolve(dir, 'app.ts'), 'export const origin = "http://127.0.0.1:4790";\n');
+      const selected = backendOriginSelection(dir, {}), port = Number(new URL(selected.origin).port);
+      assert.equal(backendOriginSelection(dir, {}).origin, selected.origin);
+      if (ports.has(port)) continue;
+      let probe; try { probe = Bun.serve({ hostname: '127.0.0.1', port, fetch: () => new Response('') }); } catch { continue; }
+      probe.stop(true); ports.add(port);
+      writeFileSync(resolve(dir, 'fixture/server.ts'), `Bun.serve({hostname:'127.0.0.1', port:Number(process.env.PORT), fetch:()=>Response.json({world:${JSON.stringify(dir)}})});\n`);
+      fixtures.push(dir);
+    }
+    assert.equal(fixtures.length, 2, 'two unused checkout ports');
+    const [a, b] = await Promise.all(fixtures.map(dir => drive(dir)));
+    assert.notEqual(a.origin, b.origin);
+    assert.deepEqual(await Promise.all([a, b].map(x => fetch(x.origin).then(r => r.json()))), fixtures.map(world => ({ world })));
+    const conflict = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+    assert.match(conflict.error, /fixture does not belong.*--backend.*PORT=/);
+    await conflict.child.exited;
+    // A matching command and cwd are insufficient without the launch record.
+    const lease = resolve(fixtures[0], '.exact/agent-server');
+    const record = readdirSync(lease).find(f => /^server-\d+$/.test(f)), path = resolve(lease, record), held = readFileSync(path, 'utf8');
+    await b.stop();
+    const foreignLease = resolve(fixtures[1], '.exact/agent-server');
+    mkdirSync(foreignLease, { recursive: true });
+    const copied = resolve(foreignLease, record);
+    for (const text of [held, JSON.stringify({ ...JSON.parse(held), directory: realpathSync(fixtures[1]), origin: a.origin }), 'null']) {
+      writeFileSync(copied, text);
+      try {
+        const refused = await drive(fixtures[1], { EXACT_BACKEND_ORIGIN: a.origin });
+        assert.match(refused.error, /fixture does not belong/);
+        await refused.child.exited;
+        assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'refusal cleanup leaves the foreign server running');
+        assert.equal(readFileSync(copied, 'utf8'), text, 'an unowned live process record is left alone');
+      } finally { rmSync(copied, { force: true }); }
+    }
+    rmSync(path);
+    try {
+      const unknown = await drive(fixtures[0]);
+      assert.match(unknown.error, /fixture does not belong/);
+      await unknown.child.exited;
+      assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0]);
+    } finally { writeFileSync(path, held); }
+    const parallel = await drive(fixtures[0], { EXACT_BACKEND_ORIGIN: b.origin });
+    assert.equal(parallel.origin, b.origin);
+    assert.equal((await fetch(parallel.origin).then(r => r.json())).world, fixtures[0]);
+    const shared = await drive(fixtures[0]);
+    assert.equal(shared.origin, a.origin);
+    await a.stop();
+    assert.equal((await fetch(shared.origin).then(r => r.json())).world, fixtures[0]);
+    await shared.stop();
+    assert.equal((await fetch(a.origin).then(r => r.json())).world, fixtures[0], 'the other port keeps this checkout leased');
+    await parallel.stop();
+    for (const origin of [a.origin, parallel.origin]) {
+      assert.equal(await fetch(origin, { signal: AbortSignal.timeout(1000) }).then(() => true, () => false), false, 'the last drive stops every owned port');
+    }
+    assert.equal(existsSync(lease), false, 'both server records are removed');
+  } finally {
+    for (const child of running) { if (child.exitCode == null) child.kill('SIGTERM'); await child.exited; }
+    for (const [pid, dir] of fixturePids) {
+      const cwd = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).stdout?.match(/^n(.+)$/m)?.[1];
+      if (cwd === dir) try { process.kill(pid, 'SIGTERM'); } catch {}
+    }
+    rmSync(parent, { recursive: true, force: true });
+  }
+}, 30000);
+
+// The rest pattern, verified as a builder would with a data.db of their own: verify runs its server on an empty
+// database and leaves theirs as it was; with their dev server up it refuses in one line and leaves that one running.
+test.skipIf(!!chromium().unavailable)('verify on a server app: its own server on an empty database, the builder\'s data untouched, a dev server refused', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-verify-server-'));
+  try {
+    const dir = resolve(parent, 'shared-list');
+    createApp(dir);
+    applyPattern(dir, 'rest');
+    const port = onPort(dir); // a port of its own: other runs on this machine may hold 8787
+    const { Database } = await import('bun:sqlite');
+    const theirs = new Database(resolve(dir, 'data.db'));
+    theirs.run('CREATE TABLE items (id INTEGER PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL, by TEXT NOT NULL, locked INTEGER NOT NULL DEFAULT 0)');
+    theirs.run("INSERT INTO items (title, notes, by) VALUES ('Theirs', '', 'Ada')");
+    theirs.close();
+    const before = readFileSync(resolve(dir, 'data.db'));
+    const verify = () => { const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'verify'], { cwd: dir, encoding: 'utf8', timeout: 240_000 }); return { ...r, lines: r.stdout.trim().split('\n') }; };
+    const clean = verify();
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    assert.equal(clean.lines[0], `server: bun server.ts at http://127.0.0.1:${port}, on an empty database (.exact/verify/db.sqlite, removed after)`, clean.stdout);
+    assert.ok(clean.lines.includes('tests: 1 passed, 0 failed'), clean.stdout);
+    // The rest pattern's test ends on an empty list as Grace: the relaunch holds its persona, not new rows.
+    assert.match(clean.stdout, /^relaunch on .*: its state holds what the test left/m);
+    assert.doesNotMatch(clean.stdout, /^ +lost /m);
+    assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'the builder\'s data.db is as it was');
+    assert.deepEqual(['data.db-wal', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []);
+    // `test` runs the same server on the same terms (not the builder's to start, nor `api-test`'s to know),
+    // and an older app's api-test, whose test.mjs runs `test` under `withAppServer`, still passes on the one server it started.
+    const plain = (verb = 'test') => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, 'web'], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const tested = plain();
+    assert.equal(tested.status, 0, tested.stdout + tested.stderr);
+    assert.match(tested.stderr, new RegExp(`^test: bun server\\.ts at http://127\\.0\\.0\\.1:${port}, on an empty database \\(\\.exact/test/db\\.sqlite, removed after\\)$`, 'm'));
+    assert.match(tested.stdout, /^1 passed, 0 failed$/m);
+    assert.ok(readFileSync(resolve(dir, 'data.db')).equals(before), 'test leaves the builder\'s data.db as it was');
+    writeFileSync(resolve(dir, 'test.mjs'), "const { withAppServer } = await import(`${process.env.EXACT2}/scripts/verify.mjs`);\nprocess.exit(await withAppServer(import.meta.dir, () =>\n  Bun.spawn(['bun', 'exact.mjs', 'test', ...process.argv.slice(2)], { cwd: import.meta.dir, stdio: ['inherit', 'inherit', 'inherit'] }).exited));\n");
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')), commands: { 'api-test': ['bun', 'test.mjs'] } }, null, 2));
+    const old = plain('api-test');
+    assert.equal(old.status, 0, old.stdout + old.stderr);
+    assert.match(old.stdout, /^1 passed, 0 failed$/m);
+    assert.deepEqual(['data.db-wal', '.exact/test/db.sqlite', '.exact/api-test/db.sqlite', '.exact/api-test/owner'].filter((f) => existsSync(resolve(dir, f))), []);
+    // Their dev server (started here, so this test may stop it) holds the port: one line naming it, and it runs on.
+    const dev = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'the dev server answers'); await Bun.sleep(100); }
+      const refused = verify();
+      assert.equal(refused.status, 1, refused.stdout + refused.stderr);
+      assert.deepEqual([refused.stdout, refused.stderr.trim().split('\n').length], ['', 1], refused.stdout + refused.stderr); // one line, on stderr
+      assert.match(refused.stderr, new RegExp(`^verify: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\), and the tests would write into that server's database: stop it \\(kill ${dev.pid}\\) and run this again, which starts server\\.ts itself on an empty one$`, 'm'));
+      assert.equal(dev.exitCode, null, 'the dev server runs on');
+      const held = plain();
+      assert.equal(held.status, 1, held.stdout + held.stderr);
+      assert.match(held.stderr, new RegExp(`^test: http://127\\.0\\.0\\.1:${port} already answers \\(pid ${dev.pid}: .*server\\.ts\\)`, 'm'));
+      assert.equal(dev.exitCode, null, 'the dev server runs on');
+    } finally { dev.kill(); await dev.exited; }
+    // A server.ts that hardcodes its database stops both before anything builds or runs: one line on
+    // stderr naming the entry and the fix, a non-zero exit, no output, and no server started.
+    const server = readFileSync(resolve(dir, 'server.ts'), 'utf8');
+    writeFileSync(resolve(dir, 'server.ts'), server.replace("process.env.DB ?? 'data.db'", "'data.db'"));
+    const line = /^(test|verify): server\.ts does not read its database's path from DB, so it cannot be run on an empty one: write new Database\(process\.env\.DB \?\? 'data\.db'\) in it .*app\.json: "commands": \{ "server": \["bun", "server\/index\.ts"\] \}\n$/;
+    for (const r of [plain(), verify()]) {
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.deepEqual([r.stdout, line.test(r.stderr)], ['', true], r.stdout + r.stderr);
+    }
+    assert.deepEqual(['.exact/test/db.sqlite', '.exact/verify/db.sqlite'].filter((f) => existsSync(resolve(dir, f))), []); // nothing started
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000);
+
+// `agent` starts the app's server for a drive when nothing answers where app.ts calls it, on a database of
+// its own, and the last of several overlapping drives stops it; a server the builder runs is used and left running.
+test('agent\'s server: started on a database of its own, shared by overlapping drives, stopped by the last, the builder\'s left alone', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-drive-server-'));
+  const probe = Bun.serve({ port: 0, fetch: () => new Response('') }), port = probe.port;
+  probe.stop(true);
+  const url = `http://127.0.0.1:${port}`, up = () => fetch(`${url}/health`).then((r) => r.ok, () => false);
+  const serving = "import { Database } from 'bun:sqlite';\nconst db = new Database(process.env.DB!);\nBun.serve({ hostname: '127.0.0.1', port: Number(process.env.PORT ?? " + port + "), routes: { '/health': () => new Response('ok') } });\n";
+  // One drive, as agent.mjs makes it: its own process, ending when its stdin does.
+  const script = `const { driveServer } = await import(${JSON.stringify(resolve(import.meta.dir, 'verify.mjs'))});
+    let served;
+    try { served = await driveServer(process.argv[1], process.argv[2] === '-' ? undefined : process.argv[2], undefined, { fresh: process.argv[3] === 'fresh' }); }
+    catch (e) { console.log(e.message); process.exit(0); }
+    console.log('up');
+    for await (const line of console) break;
+    await served?.stop();
+    console.log('stopped');`;
+  const drive = (storage, fresh = '') => {
+    const child = Bun.spawn([process.execPath, '-e', script, dir, storage, fresh], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }), lines = child.stdout.values()[Symbol.asyncIterator]();
+    const next = async () => new TextDecoder().decode((await lines.next()).value).trim();
+    return { child, next, said: () => new Response(child.stderr).text(), end: async () => { child.stdin.write('\n'); await child.stdin.flush(); return next(); } };
+  };
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(resolve(dir, 'app.ts'), `export const API = '${url}';\n`);
+    // Without a server entry there is nothing to start; one that does not read DB is refused, as test refuses it.
+    const { driveServer } = await import('./verify.mjs');
+    assert.equal(await driveServer(dir, 's'), null);
+    writeFileSync(resolve(dir, 'server.ts'), "Bun.serve({ port: 1 });\n");
+    await assert.rejects(driveServer(dir, 's'), /^Error: agent: server\.ts does not read its database's path from DB/);
+    writeFileSync(resolve(dir, 'server.ts'), serving);
+    assert.deepEqual([await up(), existsSync(resolve(dir, '.exact/agent-server'))], [false, false]);
+
+    // Two drives that overlap: the first starts it on its storage's database, the second uses it and says whose it is.
+    const a = drive('one');
+    assert.equal(await a.next(), 'up');
+    const b = drive('two');
+    assert.equal(await b.next(), 'up');
+    assert.equal(await up(), true);
+    assert.equal(await a.end(), 'stopped');
+    await Bun.sleep(300);
+    assert.equal(await up(), true, 'the server runs on for the drive still using it');
+    assert.equal(await b.end(), 'stopped');
+    await Bun.sleep(100);
+    assert.equal(await up(), false, 'the last drive out stops it');
+    assert.equal(await a.said(), `agent: started server.ts at ${url} for this drive (database .exact/agent/one/db.sqlite, kept for --storage one); stopped after\n`);
+    assert.equal(await b.said(), `agent: server.ts at ${url} is another drive's, on its database (.exact/agent/one/db.sqlite); this drive uses it\n`);
+    assert.deepEqual(['.exact/agent/one/db.sqlite', '.exact/agent-server'].map((f) => existsSync(resolve(dir, f))), [true, false]);
+
+    // A store asked empty (a compare, --reset-storage): refused while another drive uses the server, which runs on for
+    // it; alone, its database is emptied before the server starts.
+    const kept = drive('two');
+    assert.equal(await kept.next(), 'up');
+    const early = drive('one', 'fresh');
+    assert.match(await early.next(), /^agent: --storage one is to start empty, but another drive \(pid \d+\) is using http:\/\/127\.0\.0\.1:\d+, the app server, on its database: let it end, or name another store$/);
+    assert.equal(await up(), true);
+    assert.equal(await kept.end(), 'stopped');
+    await Bun.sleep(100);
+    writeFileSync(resolve(dir, '.exact/agent/one/db.sqlite-journal'), 'left');
+    const fresh = drive('one', 'fresh');
+    assert.equal(await fresh.next(), 'up');
+    assert.equal(existsSync(resolve(dir, '.exact/agent/one/db.sqlite-journal')), false);
+    assert.equal(await fresh.end(), 'stopped');
+    await Bun.sleep(100);
+    assert.equal(await up(), false);
+
+    // Two that start together: one starts it, the other waits and uses it.
+    const [d, e] = [drive('four'), drive('five')];
+    assert.deepEqual([await d.next(), await e.next(), await up()], ['up', 'up', true]);
+    assert.equal(await d.end(), 'stopped');
+    assert.equal(await e.end(), 'stopped');
+    await Bun.sleep(100);
+    const said = [await d.said(), await e.said()];
+    assert.deepEqual([await up(), said.filter((l) => l.includes('started server.ts')).length, said.filter((l) => l.includes('is another drive\'s')).length], [false, 1, 1], said.join());
+
+    // Without a storage name: an empty database, gone after.
+    const c = drive('-');
+    assert.equal(await c.next(), 'up');
+    assert.equal(existsSync(resolve(dir, '.exact/agent-server/db.sqlite')), true);
+    assert.equal(await c.end(), 'stopped');
+    assert.match(await c.said(), /^agent: started server\.ts at \S+ for this drive \(an empty database\); stopped after\n$/);
+    assert.deepEqual([await up(), existsSync(resolve(dir, '.exact/agent-server'))], [false, false]);
+
+    // The builder's own server answers: used, said nothing of, and still running after.
+    const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, env: { ...process.env, DB: resolve(dir, 'theirs.db') }, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await up()); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
+      const d = drive('three');
+      assert.equal(await d.next(), 'up');
+      assert.equal(await d.end(), 'stopped');
+      assert.equal(await d.said(), '');
+      assert.deepEqual([await up(), theirs.exitCode], [true, null]);
+      // Asked empty, a drive is refused rather than writing into theirs.
+      assert.match(await drive('three', 'fresh').next(), /but something already answers at /);
+      assert.deepEqual([await up(), theirs.exitCode], [true, null]);
+    } finally { theirs.kill(); await theirs.exited; }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
+
+// The same on a real drive, in Chrome: the rest pattern's server started where no one runs it, the data one drive wrote
+// there for the next on the same --storage, and nothing left running.
+test.skipIf(!!chromium().unavailable)('agent on a server app: its server for the drive, on the storage\'s own database', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-agent-server-'));
+  try {
+    const dir = resolve(parent, 'shared-list');
+    createApp(dir);
+    applyPattern(dir, 'rest');
+    const port = onPort(dir), url = `http://127.0.0.1:${port}`;
+    const agent = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'agent', 'web', ...args], { cwd: dir, encoding: 'utf8', timeout: 240_000 });
+    const started = (storage) => new RegExp(`^agent: started server\\.ts at ${url} for this drive \\(database \\.exact/agent/${storage}/db\\.sqlite, kept for --storage ${storage}\\); stopped after$`, 'm');
+    const added = agent('--storage', 's1', 'clock data', 'tap add-item', 'clock settle', 'type add-title Milk', 'tap add-save', 'clock data', 'state lib.items.0.title');
+    assert.equal(added.status, 0, added.stdout + added.stderr);
+    assert.match(added.stderr, started('s1'));
+    assert.match(added.stdout, /^"Milk"$/m);
+    assert.equal(await fetch(`${url}/health`).then((r) => r.ok, () => false), false, 'stopped after');
+    assert.ok(existsSync(resolve(dir, '.exact/agent/s1/db.sqlite')) && !existsSync(resolve(dir, '.exact/agent-server')));
+    // The next drive on the name sees it; another name, and none, do not.
+    const again = agent('--storage', 's1', 'clock data', 'state lib.items.0.title');
+    assert.match(again.stdout, /^"Milk"$/m, again.stdout + again.stderr);
+    for (const flags of [['--storage', 's2'], []]) {
+      const other = agent(...flags, 'clock data', 'state lib.items');
+      assert.match(other.stdout, /^\[\]$/m, other.stdout + other.stderr);
+    }
+    // A server the builder runs is used, and runs on.
+    const theirs = Bun.spawn([process.execPath, 'server.ts'], { cwd: dir, stdout: 'ignore', stderr: 'ignore' });
+    try {
+      for (let i = 0; !(await fetch(`${url}/health`).then((r) => r.ok, () => false)); i++) { assert.ok(i < 100, 'their server answers'); await Bun.sleep(100); }
+      const used = agent('--storage', 's3', 'clock data', 'state lib.items');
+      assert.equal(used.status, 0, used.stdout + used.stderr);
+      assert.doesNotMatch(used.stderr, /^agent: /m);
+      assert.equal(theirs.exitCode, null, 'their server runs on');
+    } finally { theirs.kill(); await theirs.exited; rmSync(resolve(dir, 'data.db'), { force: true }); }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000);
+
+// A new app, built and driven as a builder would: clean; a failing test fails it; a finding does not; a
+// compiler warning reaches the builder from `test web`'s build and from verify, and a clean app says none.
+test.skipIf(!!chromium().unavailable)('verify on a new app: clean, a failing test, a check finding, a compiler warning, --json', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-verify-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    const exact = (verb, ...args) => {
+      const r = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), verb, ...args], { cwd: dir, encoding: 'utf8', timeout: 180_000 });
+      return { ...r, lines: r.stdout.trim().split('\n') };
+    };
+    // `contract verify`'s summary and receipt come after verify's own report and before its verdict, the last line.
+    const verify = (...args) => {
+      const r = exact('verify', ...args), at = r.lines.findIndex((l) => l.startsWith('contract verify: '));
+      return at >= 0 && !args.includes('--json') ? { ...r, lines: [...r.lines.slice(0, at), r.lines.at(-1)], semantics: r.lines.slice(at, -1).join('\n') } : r;
+    };
+    const warned = (text) => text.split('\n').filter((l) => / warning \[/.test(l));
+    // The build `test web` runs first says its count, and here names nothing; its drive's stdout is the tests'.
+    const quiet = exact('test', 'web');
+    assert.equal(quiet.status, 0, quiet.stdout + quiet.stderr);
+    assert.match(quiet.stderr, /app\.css \d+ B, 0 warnings$/m);
+    assert.deepEqual([warned(quiet.stderr), warned(quiet.stdout)], [[], []]);
+    const clean = verify('--shots', 'out/shots');
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr);
+    assert.ok(clean.lines.length <= 9, clean.stdout);
+    assert.ok(clean.lines.includes("largest text size (root font size 53 px at 390x844, iOS's body at its largest), 5 screens: nothing spills"), clean.stdout); // 4, and 1 the tests pass through
+    assert.ok(!clean.lines.some((l) => l.startsWith('compiler:')), clean.stdout);
+    assert.ok(clean.lines.includes('tests: 2 passed, 0 failed'), clean.stdout);
+    assert.ok(clean.lines.includes('check first screen, 2 test ends, relaunch · 390x844, 1280x900 · light, dark: no findings'), clean.stdout);
+    // The starter keeps nothing: the relaunch on the second test's store opens as a fresh launch does, and says so.
+    assert.match(clean.stdout, /^relaunch on "the header's button likes it"'s store \(\d+\.\d s of real time\): the first screen is a fresh launch's; that test wrote no storage$/m);
+    assert.match(clean.lines.at(-1), /^verify: clean in \d+\.\d s$/);
+    assert.equal(clean.lines.at(-2), 'open it: bun exact.mjs web (serves what verify checked)'); // how a person opens it, with no dev server of the builder's own
+    assert.match(clean.semantics, /^verify receipt — reproduce: contract verify .*app\.contract /m, clean.stdout);
+    for (const [w, h] of SIZES) for (const scheme of ['light', 'dark']) assert.ok(existsSync(resolve(dir, `.exact/verify/web-${w}x${h}-${scheme}.png`)), `${w}x${h} ${scheme}`);
+    for (const f of ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png', 'web-relaunch.png']) assert.ok(existsSync(resolve(dir, '.exact/verify', f)), f);
+    // `--shots out/shots` made the directory and copied every one, under the names verify keeps.
+    const kept = readdirSync(resolve(dir, '.exact/verify')).filter((f) => f.endsWith('.png')).sort();
+    assert.equal(kept.length, 7);
+    assert.deepEqual(readdirSync(resolve(dir, 'out/shots')).sort(), kept);
+    assert.ok(readFileSync(resolve(dir, 'out/shots/web-relaunch.png')).equals(readFileSync(resolve(dir, '.exact/verify/web-relaunch.png'))));
+    assert.match(clean.stdout, /^screenshots \(\.exact\/verify, copied to out\/shots\): /m);
+    const bare = verify('--shots');
+    assert.deepEqual([bare.status, bare.stdout, bare.stderr], [2, '', 'verify: --shots takes a directory: the screenshots are copied there, under the names in .exact/verify/\n']);
+
+    const tests = resolve(dir, 'app.test.contract'), authored = readFileSync(tests, 'utf8');
+    writeFileSync(tests, authored.replace('expect state liked == true', 'expect state liked == false'));
+    const failing = verify();
+    assert.equal(failing.status, 1, failing.stdout + failing.stderr);
+    assert.ok(failing.lines.includes('tests: 1 passed, 1 failed'), failing.stdout);
+    assert.match(failing.stdout, /^ {2}FAIL "the header's button likes it": line \d+: /m);
+    assert.match(failing.lines.at(-1), /^verify: 1 problem \(1 failed test\) in /);
+
+    writeFileSync(tests, authored);
+    const view = resolve(dir, 'app.contract'), source = readFileSync(view, 'utf8');
+    const at = source.match(/^( *)text greeting\.text testId="greeting"$/m);
+    assert.ok(at, 'the starter shows its greeting');
+    writeFileSync(view, source.replace(at[0], `${at[0]}\n${at[1]}text "Faint" color="#dddddd"`));
+    const line = source.slice(0, source.indexOf(at[0])).split('\n').length + 1, column = at[1].length + 'text "Faint" '.length + 1; // the attribute's name
+    const warning = new RegExp(`^app\\.contract:${line}:${column} warning \\[lower-colour-one-scheme\\] \`#dddddd\` on \`color\` stays the same in dark mode`);
+    // The hex colour: `test web`'s build names the compiler's warning, as `contract build` does, and counts it.
+    const tested = exact('test', 'web');
+    assert.equal(tested.status, 0, tested.stdout + tested.stderr);
+    assert.match(tested.stderr, /app\.css \d+ B, 1 warning$/m);
+    assert.equal(warned(tested.stderr).length, 1, tested.stderr);
+    assert.match(warned(tested.stderr)[0], warning);
+    assert.deepEqual(warned(tested.stdout), []);
+    const found = verify();
+    assert.equal(found.status, 0, found.stdout + found.stderr);
+    assert.equal(found.lines[0], 'compiler: 1 warning', found.stdout);
+    assert.match(found.lines[1].trim(), warning);
+    assert.match(found.stdout, /^ {2}\(light only\) contrast Text "Faint"#\d+ \[.*\]: 1\.\d:1 \(#dddddd on #ffffff(?:, [^)]*)?\), needs 4\.5:1/m);
+    assert.match(found.lines.at(-1), /^verify: 2 problems \(2 findings; the tests passed\) in /);
+
+    // A test's own `screenshot` step joins --shots, named by the test.
+    writeFileSync(tests, authored.replace('  expect state liked == true', '  expect state liked == true\n  screenshot "own/after-like.png"'));
+    const own = verify('--shots', 'out/shots');
+    assert.equal(own.status, 0, own.stdout + own.stderr);
+    assert.ok(existsSync(resolve(dir, 'out/shots/web-t2-after-like.png')) && existsSync(resolve(dir, 'own/after-like.png')));
+    assert.match(own.stdout, /; its own: web-t2-after-like\.png$/m);
+    writeFileSync(tests, authored);
+
+    const json = verify('--json');
+    assert.equal(json.status, 0, json.stderr);
+    const r = JSON.parse(json.stdout);
+    assert.deepEqual([r.host, r.built, r.tests.passed, r.tests.failed, r.problems, r.exit, r.screenshots.length, r.compiler.length], ['web', null, 2, 0, 2, 0, 7, 1]);
+    // Each screen at each width and scheme: the first screen, the two test ends (in their own sessions), the relaunch.
+    const onScreen = (screen) => r.checks.filter((c) => c.screen === screen).map((c) => `${c.size.join('x')} ${c.scheme} ${c.findings.map((f) => f.kind).join(',')}`);
+    for (const screen of ['first screen', 'the greeting loads', "the header's button likes it", 'relaunch']) assert.deepEqual(onScreen(screen), ['390x844 light contrast', '390x844 dark ', '1280x900 light contrast', '1280x900 dark '], screen);
+    assert.deepEqual([r.relaunch.test, r.relaunch.problems, r.tests.results.map((t) => t.shot.split('/').at(-1))], ["the header's button likes it", [], ['web-t1-the-greeting-loads.png', 'web-t2-the-header-s-button-likes-it.png']]);
+    assert.deepEqual(r.reloads.map((x) => [x.ran, x.finding]), [[true, null], [true, null]]); // each end screen reloaded: the same
+
+    // A call the host refuses is the report's first line, and a count kept only in memory is lost by a
+    // reload: the page's URL and storage hold nothing of it. The starter's greeting source goes with its view.
+    const appId = readFileSync(resolve(dir, 'app.ts'), 'utf8').match(/appId = '([^']+)'/)[1];
+    writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = '${appId}';\nexport const grants = '';\nconst sources: Sources = {};\nexport const answer: Answer = (name, args, store, storage, native) => (sources as any)[name](args, store, storage, native);\n`);
+    writeFileSync(view, 'component App\n  state which = "nope"\n  state count = 0\n  action poke\n    showPicker(which)\n    count = count + 1\n  view\n    column padding=16\n      button press=poke testId="poke"\n        text "Poke"\n      text `Pokes: ${count}` testId="count"\n');
+    writeFileSync(tests, 'test "poking counts, and asks for a picker nobody has"\n  tap "poke"\n  tap "poke"\n  clock settle\n  expect text "count" == "Pokes: 2"\n');
+    const poked = verify();
+    assert.equal(poked.status, 0, poked.stdout + poked.stderr);
+    assert.equal(poked.lines[0], "refused at run time: 1 (the host's journal, 'logs'; each is a call or a wiring the app got wrong)");
+    assert.match(poked.lines[1], /^ {2}picker: refused: no file input with id "nope" \(test "poking counts, and asks for/);
+    // The count lived in memory by design, so its reload is a note, shown and not counted.
+    assert.match(poked.stdout, /^reload 1 test end: no findings\nreload note: 1 screen reloads into another state \(not counted\)\n {2}note {5}\/ reloads into another state: "Pokes: 2" → "Pokes: 0" \("poking counts[^\n]*\n {2}a saved value must survive a reload; a game or a draft in progress may not\n/m);
+    assert.match(poked.lines.at(-1), /^verify: 1 problem \(1 finding; the tests passed\) in /);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 300_000); // A new app's offline Cargo resolution and its first web build, then four runs.
+
+// The euxy port (friction item 12): a faithful port's palette and keys are its design. app.json `verify.accept` names a
+// finding by its kind and its node's testId (or its control's, for a label; `*` a prefix), and verify says those apart.
+test('accepted findings: matched by kind and testId, said once as accepted, never counted; an entry that took nothing is named', async () => {
+  const { accepts } = await import('./agent-check.mjs');
+  const nodes = new Map([[234, { id: 234, props: { testId: 'mute-0' } }], [236, { id: 236, props: {} }], [300, { id: 300, props: { testId: 'pattern' } }]]);
+  const entries = [{ finding: 'contrast', node: 'mute-*', why: "the original's dim letters" }, { finding: 'target', node: 'pattern', why: 'the reference trigger' }];
+  assert.equal(accepts(entries, { kind: 'contrast', id: 236, of: 234 }, nodes), entries[0], "a label, by its control's testId");
+  assert.equal(accepts(entries, { kind: 'target', id: 234 }, nodes), undefined, 'another kind on that node is still a finding');
+  assert.equal(accepts(entries, { kind: 'target', id: 300 }, nodes), entries[1]);
+  assert.equal(accepts(entries, { kind: 'target', id: 236 }, nodes), undefined, 'a node with no testId is never accepted');
+  // A bare `*` (or a `*` inside) would accept a kind on every node: it matches nothing, and the manifest refuses it.
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(accepts([{ finding: 'contrast', node, why: 'x' }], { kind: 'contrast', id: 236, of: 234 }, nodes), undefined, node);
+  const { validate } = await import('./app.mjs'), schema = JSON.parse(readFileSync(resolve(import.meta.dir, 'app.schema.json'), 'utf8'));
+  const problems = (node) => validate({ accept: [{ finding: 'contrast', node, why: 'x' }] }, schema.properties.verify, 'verify', schema);
+  assert.deepEqual([problems('mute-*'), problems('mute-0')], [[], []]);
+  for (const node of ['*', 'mute*0', 'mute-**']) assert.equal(problems(node).length, 1, node);
+  const line = (x) => `  contrast mute-0's label "M" [${x},127 13×18]: 1.8:1 (#b4b4ba on #f6f4f4), needs 4.5:1; accepted: the original's dim letters`;
+  const checks = runs(() => []).map((r) => ({ ...r, accepted: [{ line: line(r.size[0] - 73), accept: entries[0] }] }));
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks, shots: [], accept: [...entries, { finding: 'clipped', node: 'gone', why: 'x' }], ms: 1000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'check first screen · 390x844, 1280x900 · light, dark: no findings',
+    'accepted (app.json verify.accept, not counted): 1 finding',
+    line(317),
+    '  accepts nothing: target pattern (no such finding in this run)',
+    '  accepts nothing: clipped gone (no such finding in this run)',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: clean in 1.0 s');
+});
+
+test('a finding on a view only one scheme shows is accepted by the testId that scheme\'s tree gives it', async () => {
+  const { settle } = await import('./agent-check.mjs');
+  const finding = { kind: 'contrast', id: 7, text: 'Night', box: [0, 0, 40, 18], detail: { got: 1.2, need: 4.5, fg: '#222222', bg: '#000000' } };
+  const runs = [{ scheme: 'light', target: 44, findings: [] }, { scheme: 'dark', target: 44, findings: [finding] }];
+  const trees = [new Map(), new Map([[7, { id: 7, type: 'Text', props: { testId: 'night-badge', text: 'Night' } }]])];
+  const r = settle(runs, trees, [{ finding: 'contrast', node: 'night-badge', why: 'the dark badge' }], 'ios');
+  assert.deepEqual(r.check.map((run) => [run.findings.length, run.accepted.length]), [[0, 0], [0, 1]]);
+  assert.equal(r.check[1].accepted[0].node, 'night-badge');
+  assert.match(r.text, /check ios · dark \(1 accepted\): no findings/);
+});
+
+// Each screen again at the largest text size; what spills is said once, where, with a remedy that keeps the
+// text's size, counted in the last line without failing the run.
+test('the largest text size: its findings once each with the screens they were on and a remedy, counted, never failing; a screen it could not read is named', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 4, x: 16, y: 300, w: 0, h: 120, text: 'Party size', squeezed: true },
+    { id: 5, x: 220, y: 300, w: 240, h: 64, control: 'press', sized: 'author', outX: 58 },
+    { id: 6, x: 16, y: 500, w: 200, h: 20, text: 'Fine' },
+    { id: 7, x: 16, y: 600, w: 100, h: 20, text: 'Total due', over: [40, 0] },
+  ] };
+  const nodes = new Map([[4, { id: 4, type: 'Text', props: { text: 'Party size' } }], [5, { id: 5, type: 'View', props: { testId: 'rsvp-maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => f.kind), ['squeezed', 'clipped', 'overflow']);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  const wrap = 'wrap the row: flex-wrap="wrap" with a flex-basis in rem on its items (docs/recipes/responsive-columns.md)';
+  assert.equal(lines[0], `  squeezed Text "Party size"#4 [16,300 0×120]: its box is squeezed to no width, so none of its text shows; let it keep its words (no min-width: 0 or px width beside it), or ${wrap}`);
+  assert.match(lines[1], /: its text is 40 pt wider than its box, and spills; give it room \(no px width on its box\), or wrap the row: .*; not `hyphens="auto"`, which breaks words a UILabel wraps whole$/);
+  assert.match(largeRemedy({ ...found[1], text: 'Flashcards' }), /; a word longer than any line breaks between syllables with `hyphens="auto"`, as a UILabel breaks it$/);
+  assert.equal(lines[2], `  overflow rsvp-maybe [220,300 240×64]: runs 58 pt past the 402-wide viewport's side, and nothing scrolls it; ${wrap}`);
+  for (const l of lines) assert.doesNotMatch(l, /shrink|smaller|font-size/, 'a remedy never asks for a smaller text');
+  const large = [
+    { screen: 'first screen', size: [402, 874], rootFontSize: 53, lines },
+    { screen: 'reply', size: [402, 874], rootFontSize: 53, lines: [lines[2]] },
+    { screen: 'relaunch', error: 'check did not answer\nstack' },
+  ];
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.deepEqual(r.lines.slice(1, 6), [
+    'largest text size (accessibility-extra-extra-extra-large, body 53 pt), 2 screens: 3 findings (the app\'s own layout: give the text room; a smaller or fixed font is the tell)',
+    `  (first screen only) ${lines[0].trim()}`,
+    `  (first screen only) ${lines[1].trim()}`,
+    lines[2],
+    '  could not read relaunch: check did not answer',
+  ]);
+  assert.equal(r.lines.at(-1), 'verify: 3 problems (3 at the largest text size; the tests passed) in 2.0 s');
+  assert.equal(r.exit, 0);
+  const both = report({ host: 'ios', built: null, compiler: ['a warning'], tested: { passed: 1, failed: 0, results: [] }, checks: [], large, shots: [], ms: 2000 });
+  assert.equal(both.lines.at(-1), 'verify: 4 problems (1 finding, 3 at the largest text size; the tests passed) in 2.0 s');
+  const web = report({ host: 'web', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], large: [{ screen: 'first screen', size: [390, 844], rootFontSize: 53, lines: [] }], shots: [], ms: 2000 });
+  assert.equal(web.lines[1], 'largest text size (root font size 53 px at 390x844, iOS\'s body at its largest), 1 screen: nothing spills');
+});
+
+// An event-RSVP app at the largest text size: a centred caption wider than its column runs past both of its sides and
+// 1.7 pt into the next column's caption, which read "GoingMaybe" while verify said nothing spills. Two texts set flush on
+// purpose only touch, and texts whose boxes overlap where their lines are drawn apart (`ink`) do not run together.
+test('the largest text size: a text past its column, and two texts that run into each other', async () => {
+  const { judge, line } = await import('./agent-check.mjs');
+  const { largeRemedy } = await import('./verify.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 22.33, y: 314, w: 110, h: 52, text: 'Going', spill: { by: 11, dx: 9.67 } },
+    { id: 16, x: 130.67, y: 314, w: 125.33, h: 52, text: 'Maybe' },
+    { id: 20, x: 16, y: 500, w: 10, h: 20, text: '$' },
+    { id: 21, x: 26, y: 500, w: 20, h: 20, text: '12' },
+    { id: 22, x: 16, y: 600, w: 300, h: 20, text: 'Title', ink: { x: 16, y: 600, w: 40, h: 20 } },
+    { id: 23, x: 50, y: 600, w: 266, h: 20, text: 'Value', ink: { x: 280, y: 600, w: 36, h: 20 } },
+  ] };
+  const nodes = new Map([[11, { id: 11, type: 'View', props: {} }], [13, { id: 13, type: 'Text', props: { text: 'Going' } }], [16, { id: 16, type: 'Text', props: { text: 'Maybe' } }]]);
+  const found = judge(obs, null, { host: 'ios' });
+  assert.deepEqual(found.map((f) => [f.kind, f.id]), [['overflow', 13], ['overlap', 13]]);
+  const lines = found.map((f) => line({ ...f, hint: largeRemedy(f) }, nodes));
+  assert.match(lines[0], /^ {2}overflow Text "Going"#13 \[22,314 110×52\]: runs 10 pt past View#11's side, and nothing there scrolls or clips it; wrap the row/);
+  assert.match(lines[1], /^ {2}overlap {2}Text "Going"#13 \[22,314 110×52\]: overlaps Text "Maybe"#16 by 1\.7×52; wrap the row/);
+});
+
+// An expense tracker at the largest text size: a month's name, clamped to two lines and centred between two
+// buttons, ran 57 pt past its box and under the next-month button while verify said nothing spills. A clamp answers the
+// lines past it, not a line wider than the box, and a control is judged against where a text is drawn.
+test('the largest text size: a clamped word wider than its box, drawn under the button beside it', async () => {
+  const { judge } = await import('./agent-check.mjs');
+  const obs = { viewport: { w: 402, h: 874 }, target: 44, items: [
+    { id: 13, x: 32, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 15, x: 133, y: 208, w: 136, h: 127, text: 'January 2026', clamp: true, over: [56.62, 0], ink: { x: 133, y: 208, w: 192.62, h: 127 } },
+    { id: 16, x: 277, y: 233, w: 93, h: 77, control: 'NativeButtonIOS', sized: 'platform' },
+    { id: 20, x: 32, y: 400, w: 200, h: 40, text: 'Two lines and more', clamp: true, over: [0, 40] },
+    { id: 21, x: 32, y: 500, w: 200, h: 20, text: 'One line, cut with an ellipsis', clamp: true, ellipsis: true, over: [90, 0] },
+  ] };
+  assert.deepEqual(judge(obs, null, { host: 'ios' }).map((f) => [f.kind, f.id, f.detail.need ?? f.detail.by]), [['clipped', 15, [57, 0]], ['overlap', 16, [49, 77]]]);
+});
+
+// A label a list's row cuts is given the row's room and its row grows taller, as UIKit's cells do at the accessibility sizes
+// (a grouped list's standard cell already hyphenates); never the flex-wrap the row does not take, the line-clamp that reads as a
+// tell, nor `hyphens` on whole headings; an iOS test end at a window the phone shows scaled
+// measures no contrast or target.
+test('the largest text size in a list row; a scaled iOS test end', async () => {
+  const { largeRemedy, scaledEnd } = await import('./verify.mjs');
+  const cut = { kind: 'clipped', detail: { cut: [9, 0], by: 3 } }, over = { kind: 'clipped', detail: { need: [4, 0] } };
+  for (const f of [cut, over]) {
+    assert.match(largeRemedy(f, { inRow: true }), /^give the text more of the row \(no px width beside it\) and let the row grow taller/);
+    assert.doesNotMatch(largeRemedy(f, { inRow: true }), /flex-wrap|line-clamp="|hyphens/);
+  }
+  assert.match(largeRemedy({ kind: 'clipped', detail: { need: [0, 12] } }, { inRow: true }), /^let the row grow taller with its text/);
+  assert.match(largeRemedy(cut), /flex-wrap/);
+  assert.match(largeRemedy({ kind: 'clipped', detail: { edge: 'bottom' } }, { inRow: true }), /let the page scroll/);
+  const lines = ['  contrast day-2025-12-30\'s label "2025-12-30" [15,549 34×7]: 1:1 (#000000 on #000000), needs 4.5:1; use a role', '  target   add [300,20 16×16]: …', '  overlap  a [1,1 10×10]: …'];
+  const end = () => [{ screen: 'wide', size: [402, 292.36], scheme: 'light', lines: [...lines], findings: [{ kind: 'contrast' }, { kind: 'target' }, { kind: 'overlap' }], advice: [] }];
+  const [scaled] = scaledEnd(end(), [1100, 800]);
+  assert.deepEqual(scaled.lines, [lines[2]]);
+  assert.deepEqual(scaled.findings, [{ kind: 'overlap' }]);
+  assert.deepEqual(scaled.advice, ["  advice   the test's 1100x800 window is shown scaled to fit the phone (402x292): contrast and target sizes are not measured there (verify web measures them at that size)"]);
+  assert.deepEqual(scaledEnd(end(), undefined)[0].lines, lines, 'the phone\'s own size');
+  assert.deepEqual(scaledEnd(end(), [402, 292.36])[0].lines, lines, 'a size the phone shows unscaled');
+});
+
+
+// The web's tour of the screens the tests pass through says only what the screens verify visits did not: another run's
+// row ids hold another date, and a line is the same with its digits aside.
+test('the tour at the largest text size: only what the visited screens did not say', async () => {
+  const { tourNews } = await import('./verify.mjs');
+  const visited = [{ screen: 'first screen', lines: ['  clipped  note-1792335600000-0\'s label "Coastal weekend" [32,474 129×62]: its text is 86 px wider than its box'] }];
+  const toured = [{ screen: 'line 36 of "study"', lines: [
+    '  clipped  note-1792339200000-0\'s label "Coastal weekend" [32,480 129×62]: its text is 86 px wider than its box',
+    '  clipped  again\'s label "Again" [48,839 133×66]: again cuts 17 px of its width',
+  ] }];
+  assert.deepEqual(tourNews(visited, toured), [{ screen: 'line 36 of "study"', lines: [toured[0].lines[1]] }]);
+});
+
+// A font size the app's Contract fixes is a finding, named where it is written, with the rem it would be;
+// app.json's `verify.accept` takes one by its node's testId, and a test file is no screen.
+test("fixed type: each fixed font size in the app's Contract, counted; an accepted one listed apart", async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      text "Total" font-size=28\n      text "12:00" font-size=72 testId="clock"\n      text "Fine" font-size="1.75rem"\n');
+    writeFileSync(resolve(dir, 'app.test.contract'), 'test "t"\n  expect text "clock" == "12:00"\n');
+    const accept = [{ finding: 'fixed-type', node: 'clock', why: 'a wall clock' }];
+    const fixed = await fixedType(dir, 'ios', accept);
+    assert.deepEqual(fixed.lines, ['  fixed    app.contract:4 text font-size=28: stays 28 pt as Dynamic Type grows; a role (`font="-exact-title1"`) or a `rem` size ("1.75rem") scales']);
+    assert.equal(fixed.accepted.length, 1);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept, shots: [], ms: 1000 });
+    assert.deepEqual(r.lines.slice(1, 3), ["fixed type: 1 font size the reader's text size does not move", fixed.lines[0]]);
+    assert.ok(r.lines.includes('accepted (app.json verify.accept, not counted): 1 finding'), r.lines.join('\n'));
+    assert.ok(!r.lines.some((l) => l.includes('accepts nothing')), r.lines.join('\n'));
+    assert.equal(r.lines.at(-1), 'verify: 1 problem (1 finding; the tests passed) in 1.0 s');
+    assert.equal(r.exit, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A symbol sized in points beside text, and a word broken inside, are named beside the fixed sizes.
+test('fixed type: a symbol sized in points and a word broken inside are findings too', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'verify-fixed-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column\n      row\n        image "symbol:delete" width=28\n        text "Bananas"\n      text "October 2026" overflow-wrap="anywhere"\n');
+    const fixed = await fixedType(dir, 'ios', []);
+    assert.deepEqual(fixed.lines, [
+      '  fixed    app.contract:5 image width=28: a symbol sized in points stays small as Dynamic Type grows: leave it unsized (it follows its text), or size it with a text style (`font="-exact-title1"`) or a font-size in rem ("1.75rem")',
+      '  breaks   app.contract:7 text overflow-wrap="anywhere": breaks inside words (Octo/ber); wrap between words (the default) or give the row room',
+    ]);
+    const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], fixed, accept: [], shots: [], ms: 1000 });
+    assert.equal(r.lines[1], "fixed type: 2 findings: a size the reader's text size does not move, or a word broken inside");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a relaunch names the requests the server holds, as no finding', () => {
+  const test = { name: 't', end: { ops: 1, resources: {}, slots: {} } };
+  const shown = { texts: new Set(['Feed']), resources: {}, slots: {} };
+  const r = judgeRelaunch(test, shown, shown, { busy: [], failed: {}, heldBy: ['changes'] });
+  assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.notes, ['  held     changes: the server holds it (exactHeld); no clock waited on it']);
+  assert.equal(judgeRelaunch(test, shown, shown, {}).notes, undefined);
+});
+
+// Many findings are said by kind in the closing line, which is the line a builder copies; a check kind that
+// is most of them names verify.accept, which takes those the app's design means.
+test('many findings: the closing line names their kinds, and a check kind that dominates names verify.accept', () => {
+  const tap = (n) => `  tap-target Button "Row ${n}"#${n} [0,${n * 40} 30×30]: 30×30 pt, needs 44×44`;
+  const lines = [...Array.from({ length: 11 }, (_, i) => tap(i + 1)), '  contrast Text "Due"#90 [16,78 60×18]: 1.3:1 (#dddddd on #ffffff), needs 4.5:1'];
+  const r = report({ host: 'web', built: null, tested: { passed: 2, failed: 0, results: [] }, checks: runs(() => lines), shots: [], ms: 4000 });
+  assert.equal(r.lines.at(-1), 'verify: 12 problems (12 findings: 11 tap-target, 1 contrast; the tests passed) in 4.0 s');
+  assert.equal(r.lines.at(-2), 'most findings are tap-target (11): fix them, or, where the design means them, app.json\'s verify.accept takes each by its kind and testId (docs/recipes/tests.md)');
+});
+
+test('scrolling: like UIKit in one line; each tell or bad the app can fix a counted finding with UIKit\'s value; Exact\'s own one uncounted line; unchecked blanks a note; on a busy machine physics only; no list, nothing', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const feel = (over = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactGroupedLists.GroupedCollectionView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, tapToStop: { travelPt: 0, verdict: { stop: 'ok' } },
+    blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } }, ...over });
+  const run = (scrolled) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app', scrolled });
+  const out = '/app/.exact/verify/ios-feel';
+  const clean = run({ ms: 21000, out, result: feel() });
+  assert.equal(clean.lines[1], 'scrolling: like UIKit (hitches 0 ms/s, longest frame 16.7 ms, main thread p95 4.1 ms, τ 502 ms, 0/2 lifts dropped a frame; 21.0 s of real touches on the first screen\'s list, GroupedCollectionView)');
+  assert.equal(clean.problems, 0);
+
+  const bad = feel({ momentum: { ...feel().momentum, liftDrops: 1, verdict: { ...feel().momentum.verdict, lift: 'bad' } },
+    blank: { share: 0.5, samples: 40, blankSamples: 20, maxPt: 100, verdict: { blank: 'bad' } } });
+  // A lift that drops a frame is the host's work at a fling's release: Exact's, said once and not counted.
+  const found = run({ ms: 21000, out, result: bad });
+  assert.equal(found.problems, 0);
+  assert.match(found.lines[1], /^scrolling: nothing for the app to fix \(hitches 0 ms\/s/);
+  assert.equal(found.lines[2], '  Exact\'s own (not yours to fix; nothing in your app changes them): flings that drop a frame at the lift 1/2 (bad; UIKit 0); report with .exact/verify/ios-feel/feel.json');
+  assert.match(found.lines[3], /^ {2}note, not counted .*scrolling blank samples 0\.5 \(bad; UIKit 0\)/);
+  assert.deepEqual(findings(bad).map((f) => [f.metric, f.owner]), [['flings that drop a frame at the lift', 'exact'], ['blank samples', 'either']]);
+
+  // With the blank check behind it a blank band is a counted finding; a hitch says whose time it was.
+  const live = feel({ smooth: { ...feel().smooth, hitchRatio: 40, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 66.7, mainMs: 60, late: 50, cause: 'tick', via: { timers: 50 },
+      where: { 'app JS (main waits on exact.owner)': 48, 'Exact host · UIKit': 6 } }] },
+  blank: { share: 0.2, samples: 40, blankSamples: 8, maxPt: 120, verified: true, verdict: { blank: 'bad' } } });
+  const said = run({ ms: 21000, out, result: live });
+  assert.equal(said.problems, 2);
+  assert.match(said.lines[2], /^ {2}scrolling hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS \(main waits on exact\.owner\) took 48 ms and Exact host took 6 ms \(1 of 1 on a timer's tick\): the app's data module runs on the frame's critical path/);
+  assert.match(said.lines[3], /^ {2}scrolling blank samples 0\.2 \(bad; UIKit 0\): .*rows drawn late/);
+  assert.equal(said.lines[4], '  the numbers: .exact/verify/ios-feel/feel.txt');
+  assert.deepEqual(findings(live).map((f) => f.owner), ['app', 'either']);
+
+  // A hitch whose time the sampler puts in Exact's host is Exact's; on a busy machine it is not judged at all.
+  const host = feel({ smooth: { ...feel().smooth, hitchRatio: 30, verdict: { ...feel().smooth.verdict, hitch: 'bad' },
+    hitchAt: [{ gesture: 'fling-6000', ms: 50, mainMs: 40, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 30, 'app JS (main waits on exact.owner)': 4 } }] },
+  momentum: { ...feel().momentum, tauMs: 600, verdict: { ...feel().momentum.verdict, tau: 'tell' } } });
+  const hosted = run({ ms: 21000, out, result: host, load: { avg: 4, cores: 18 } });
+  assert.equal(hosted.problems, 0);
+  assert.match(hosted.lines[2], /^ {2}Exact's own .*: hitch ratio 30 ms\/s \(bad; UIKit 0 ms\/s\); deceleration τ 600 ms \(tell; UIKit 502 ms\); report with/);
+  const busy = run({ ms: 21000, out, result: live, load: { avg: 40.2, cores: 18 } });
+  assert.equal(busy.problems, 1);
+  assert.match(busy.lines[1], /^scrolling: 1 finding against UIKit/);
+  assert.equal(busy.lines[2], '  the machine is busy (load 40.2 on 18 cores): timing not judged; physics only');
+  assert.match(busy.lines[3], /^ {2}scrolling blank samples 0\.2/);
+  assert.deepEqual(findings(live, null, { timing: false }).map((f) => f.metric), ['blank samples']);
+
+  assert.deepEqual(run({ ms: 9000, out, result: { app: 'a', verdict: 'no-scrollable-list' } }).lines.filter((l) => l.startsWith('scrolling')), []);
+  const failed = run({ ms: 3000, error: 'the recorder wrote nothing in 20 s\nstack' });
+  assert.equal(failed.lines[1], 'scrolling: could not measure: the recorder wrote nothing in 20 s');
+  assert.equal(failed.problems, 0);
+});
+
+test('scrolling: measured once per build; a measurement is reused while its key holds, said with when, unless it could not judge timing and the machine now can', () => {
+  const idle = { avg: 4, cores: 18 }, busy = { avg: 40, cores: 18 };
+  assert.equal(reusable({ key: 'k', load: idle }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', busy), true);
+  assert.equal(reusable({ key: 'k', load: busy }, 'k', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, 'other', idle), false);
+  assert.equal(reusable({ key: 'k', load: idle }, null, idle), false); // no key: the build cannot be told
+  assert.equal(reusable(undefined, 'k', idle), false);
+  const now = Date.UTC(2026, 9, 27, 12);
+  assert.deepEqual([20_000, 4 * 60_000, 3 * 3600_000].map((ms) => ago(now - ms, now)), ['under a minute ago', '4 min ago', '3 h ago']);
+  const result = { app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' },
+    smooth: { hitchRatio: 0, longestFrameMs: 16.7, mainP95Ms: 4.1, hitchAt: [], verdict: { hitch: 'ok', stall: 'ok', main: 'ok' } },
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: { ratio: 'ok', lag: 'ok', glide: 'ok' } },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, rubberBand: { ratio: 0.48, settleS: 0.55, verdict: { ratio: 'ok', settle: 'ok' } },
+    scrollToTop: { reached: true, startS: 0.02, durationS: 0.92, verdict: { reached: 'ok' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } } };
+  const r = report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 18000, out: '/app/.exact/verify/ios-feel', result, reused: Date.now() - 4 * 60_000 } });
+  assert.match(r.lines[1], /^scrolling: like UIKit \(.*; 18\.0 s of real touches on the first screen's list, ScrollView, measured 4 min ago on this build \(--rescroll measures again\)\)$/);
+});
+
+test('scrolling: the scrub and a carousel join the summary; their hitches and the carousel\'s drags each say whose they are', () => {
+  const ok = { ratio: 'ok', lag: 'ok', glide: 'ok' };
+  const smooth = (hitchRatio = 0, hitchAt = []) => ({ hitchRatio, longestFrameMs: hitchAt.length ? 50 : 16.7, mainP95Ms: 4.1, hitchAt,
+    verdict: { hitch: hitchRatio >= 10 ? 'bad' : 'ok', stall: hitchAt.length ? 'tell' : 'ok', main: 'ok' } });
+  const drag = (verdict = 'ok') => ({ ratio: 0.95, carouselPt: verdict === 'ok' ? 0 : 40, listPt: 0, verdict });
+  const feel = ({ scrub = smooth(), along = 'ok' } = {}) => ({ app: 'a', verdict: 'probed', list: { cls: 'ExactKit.ScrollView' }, smooth: smooth(),
+    tracking: { ratio: 1, lagFrames: 0, glidePt: 0, verdict: ok },
+    momentum: { tauMs: 502, handoff: 1.02, jumps: 0, lifts: 2, liftDrops: 0, liftMainMs: 9, verdict: { lift: 'ok', tau: 'ok', handoff: 'ok', jumps: 'ok' } },
+    edgeBounce: { verdict: { settle: 'n/a' } }, blank: { share: 0, samples: 40, blankSamples: 0, maxPt: 0, verdict: { blank: 'ok' } },
+    scrub: { took: true, crossed: 0.9, smooth: scrub, verdict: { hitch: scrub.verdict.hitch, stall: scrub.verdict.stall, blank: 'n/a' } },
+    horizontal: { smooth: smooth(), tracking: null, momentum: { tauMs: 500, handoff: 1, verdict: { tau: 'ok', handoff: 'ok' } },
+      edgeBounce: { settleS: 0.6, verdict: { settle: 'ok' } }, across: drag(), along: drag(along), verdict: { across: 'ok', along } } });
+  const run = (result) => report({ host: 'ios', built: null, tested: { passed: 1, failed: 0, results: [] }, checks: [], shots: [], ms: 9000, cwd: '/app',
+    scrolled: { ms: 30000, out: '/app/.exact/verify/ios-feel', result } });
+  assert.match(run(feel()).lines[1], /^scrolling: like UIKit \(hitches 0 ms\/s, .*, 0\/2 lifts dropped a frame, scrubbing 0 ms\/s, a carousel 0 ms\/s;/);
+  // Rows built as the indicator crosses the list are Exact's host's time: Exact's own, not counted.
+  const host = run(feel({ scrub: smooth(80, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'Exact host · UIKit': 40 } }]) }));
+  assert.equal(host.problems, 0);
+  assert.match(host.lines[2], /^ {2}Exact's own .*: scrub: hitch ratio 80 ms\/s \(bad; UIKit 0 ms\/s\); scrub: longest frame 50 ms \(tell; UIKit 16\.7 ms\); report with/);
+  // The app's own JS on the scrub's frames is the app's finding.
+  const js = run(feel({ scrub: smooth(40, [{ gesture: 'scrub', ms: 50, mainMs: 45, late: 33, cause: 'scroll', via: {}, where: { 'app JS (main waits on exact.owner)': 40 } }]) }));
+  assert.equal(js.problems, 2);
+  assert.match(js.lines[2], /^ {2}scrolling scrub: hitch ratio 40 ms\/s \(bad; UIKit 0 ms\/s\): of the late frames' main thread, app JS/);
+  // A drag down the list that moved the carousel is UIKit's arbitration, which Exact owns.
+  const along = findings(feel({ along: 'bad' }));
+  assert.deepEqual(along.map((f) => [f.metric, f.value, f.owner]), [['carousel: a mostly-vertical drag', '0.95, 40', 'exact']]);
+});

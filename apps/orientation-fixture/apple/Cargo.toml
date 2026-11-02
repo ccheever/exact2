@@ -1,0 +1,24 @@
+[package]
+name = "orientation-fixture-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Orientation Fixture on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "orientation_fixture_apple"
+crate-type = ["staticlib", "rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+orientation-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+orientation-fixture-data = { path = "../data" }

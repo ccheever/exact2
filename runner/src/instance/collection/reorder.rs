@@ -1,0 +1,446 @@
+//! One descriptor, absolute O(W) targets, existing interaction pin lifetime.
+use super::*;
+use exact_kernel::{Kernel, NodeKey};
+
+#[derive(Debug)]
+pub(super) struct Preview {
+    pub(super) binding: ReorderBinding,
+    pub(super) token: ReorderToken,
+    pub(super) source: String,
+    pub(super) before: Option<String>,
+    pub(super) height: f64,
+    pub(super) terminal: bool,
+    /// A dispatched drop whose move has not yet selected its data anchor.
+    pub(super) dropped: bool,
+    pub(super) pin_owned: bool,
+    pub(super) handle: ViewId,
+    pub(super) certified: Option<ReorderGeometry>,
+    /// The session's target is another list (`Outgoing`): the
+    /// source row keeps its slot and the rows after it close the gap.
+    pub(super) outgoing: bool,
+    /// Dropped, and the move has not shown yet: the offsets
+    /// stay and the pin is kept, but the action is spent.
+    pub(super) holding: bool,
+    /// A key or a custom action placed the gap: the drop
+    /// needs no measured sample.
+    pub(super) stepped: bool,
+    /// Its list shares a `reorderGroup`.
+    pub(super) grouped: bool,
+}
+impl Collection {
+    pub(crate) fn reorder_geometry(&self, list: NodeKey) -> Option<ReorderGeometry> {
+        let g = self.geometry.as_ref()?;
+        Some(ReorderGeometry {
+            list,
+            revision: self.revision,
+            scroll_sequence: g.scroll_sequence,
+            scroll_top: g.offset,
+            port_width: g.port_cross,
+            port_height: g.port_main,
+            row_width: g.cross,
+            total_extent: self.index.total_height(),
+        })
+    }
+    pub(crate) fn reorder_binding(
+        &self,
+        kernel: &Kernel,
+        handle: NodeKey,
+    ) -> Option<ReorderBinding> {
+        if !self.string_keys {
+            return None;
+        }
+        let id = kernel.node_by_key(handle)?.id;
+        let source = self.pin(Some(id))?;
+        let row = self
+            .mounted
+            .iter()
+            .find(|r| self.index.key(r.position) == Some(source.as_str()))?;
+        self.keys[row.position].as_str()?;
+        if !self.index.is_measured(&source) || self.index.height(row.position)? <= 0.0 {
+            return None;
+        }
+        Some(ReorderBinding {
+            handle,
+            list: kernel.node(self.view)?.key,
+            wrapper: kernel.node(row.wrapper)?.key,
+            root: kernel
+                .node(first_root(&row.row.roots).expect("a row has a root"))?
+                .key,
+            row_epoch: row.epoch,
+        })
+    }
+    pub(crate) fn preview_binding(&self) -> Option<ReorderBinding> {
+        self.preview.as_ref().map(|p| p.binding)
+    }
+    pub(crate) fn preview_token(&self) -> Option<ReorderToken> {
+        self.preview.as_ref().map(|p| p.token)
+    }
+    pub(crate) fn preview_active(&self, token: ReorderToken) -> bool {
+        self.preview
+            .as_ref()
+            .is_some_and(|p| p.token == token && !p.terminal && !p.holding && p.pin_owned)
+    }
+
+    pub(crate) fn begin_preview(
+        &mut self,
+        u: &mut Update<'_>,
+        binding: ReorderBinding,
+        token: ReorderToken,
+        handle: ViewId,
+    ) -> Result<bool, InstanceError> {
+        if self.preview.is_some()
+            || self.geometry.as_ref().is_none_or(|g| {
+                g.interaction_view != Some(handle)
+                    || g.port_cross <= 0.0
+                    || g.port_main <= 0.0
+                    || g.cross <= 0.0
+            })
+        {
+            return Ok(false);
+        }
+        let Some(source) = self.pin(Some(handle)) else {
+            return Ok(false);
+        };
+        let position = self.index.position(&source).unwrap();
+        let before = self.index.key(position + 1).map(str::to_owned);
+        let certified = None;
+        self.preview = Some(Preview {
+            binding,
+            token,
+            source,
+            before,
+            height: self.index.height(position).unwrap(),
+            terminal: false,
+            dropped: false,
+            pin_owned: true,
+            handle,
+            certified,
+            outgoing: false,
+            holding: false,
+            stepped: false,
+            grouped: false,
+        });
+        self.emit_preview(u)?;
+        Ok(true)
+    }
+    pub(crate) fn move_preview(
+        &mut self,
+        u: &mut Update<'_>,
+        geometry: ReorderGeometry,
+        y: f64,
+    ) -> Result<bool, InstanceError> {
+        let p = self.preview.as_mut().unwrap();
+        // A live unproved final sample preserves presentation, but cannot leave
+        // an older destination eligible for terminal action.
+        p.certified = None;
+        p.stepped = false;
+        let source = self.index.position(&p.source).unwrap();
+        let Some(gap) = self
+            .index
+            .certified_gap_excluding(y, source)
+            .map_err(index_error)?
+        else {
+            return Ok(false);
+        };
+        let top = self.index.prefix(gap).unwrap();
+        if top < geometry.scroll_top || top > geometry.scroll_top + geometry.port_height {
+            return Ok(false);
+        }
+        if gap < self.keys.len() && self.keys[gap].as_str().is_none() {
+            return Ok(false);
+        }
+        let before = self.index.key(gap).map(str::to_owned);
+        let p = self.preview.as_mut().unwrap();
+        p.before = before;
+        p.certified = Some(geometry);
+        self.emit_preview(u)?;
+        Ok(true)
+    }
+    pub(crate) fn preview_drop(
+        &mut self,
+        u: &mut Update<'_>,
+        g: &ReorderGeometry,
+    ) -> Result<Option<(String, Option<String>)>, InstanceError> {
+        let Some(p) = &self.preview else {
+            return Ok(None);
+        };
+        if p.terminal || p.holding || !(p.stepped || p.certified.as_ref() == Some(g)) {
+            return Ok(None);
+        }
+        let Some(source) = self.index.position(&p.source) else {
+            return Ok(None);
+        };
+        let before = match &p.before {
+            Some(key) => {
+                let Some(i) = self.index.position(key) else {
+                    return Ok(None);
+                };
+                Some(self.keys[i].as_str().unwrap().to_owned())
+            }
+            None => None,
+        };
+        let item = self.keys[source].as_str().unwrap().to_owned();
+        self.preview.as_mut().unwrap().dropped = true;
+        self.end_preview(u)?;
+        Ok(Some((item, before)))
+    }
+    // Terminal does not release the pin. Own dispatch may rebuild the row index;
+    // source-key pin resolution still occurs before old mounted rows are taken.
+    // A hold is ended only by its own endings (`end_hold`).
+    pub(crate) fn end_preview(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        if let Some(p) = &mut self.preview {
+            if p.holding {
+                return self.emit_preview(u);
+            }
+            p.terminal = true;
+            p.certified = None;
+        }
+        self.emit_preview(u)
+    }
+    pub(crate) fn finish_preview(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        token: ReorderToken,
+    ) -> Result<bool, InstanceError> {
+        let Some(p) = &self.preview else {
+            return Ok(false);
+        };
+        if p.token != token || !p.terminal {
+            return Ok(false);
+        }
+        let release = p.pin_owned
+            && self
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.interaction_view == Some(p.handle));
+        self.preview = None;
+        if release {
+            self.release_pins(u, frames, [false, true])?;
+        }
+        Ok(true)
+    }
+    /// A source row whose height changes ends the preview. A remeasure of
+    /// the translated row a few float32 ulps off (76 as 75.99998, measured
+    /// through its transform mid-drag) is not a change: layout
+    /// moves in 1/64 (Chrome, WebKit) or 1/60 (Firefox) pixels.
+    pub(super) fn check_preview_height(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        const HEIGHT_NOISE: f64 = 0.01;
+        if self.preview.as_ref().is_some_and(|p| {
+            !p.terminal
+                && !p.holding
+                && !self
+                    .index
+                    .position(&p.source)
+                    .and_then(|i| self.index.height(i))
+                    .is_some_and(|h| (h - p.height).abs() <= HEIGHT_NOISE)
+        }) {
+            self.end_preview(u)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn preview_frame(
+        &self,
+        kernel: &Kernel,
+        token: ReorderToken,
+    ) -> Option<ReorderFrame> {
+        let p = self.preview.as_ref()?;
+        if p.token != token {
+            return None;
+        }
+        Some(ReorderFrame {
+            terminal: p.terminal,
+            wrappers: self.reorder_wrappers(kernel),
+            ..ReorderFrame::default()
+        })
+    }
+    /// The mounted wrappers and the offsets the preview gives them.
+    pub(crate) fn reorder_wrappers(&self, kernel: &Kernel) -> Vec<ReorderWrapper> {
+        let offsets = self.offsets();
+        self.mounted
+            .iter()
+            .filter_map(|r| {
+                Some(ReorderWrapper {
+                    wrapper: kernel.node(r.wrapper)?.key,
+                    root: kernel
+                        .node(first_root(&r.row.roots).expect("a row has a root"))?
+                        .key,
+                    top: self.index.prefix(r.position)?,
+                    offset: offsets.as_ref().map_or(0.0, |o| o.at(r.position)),
+                })
+            })
+            .collect()
+    }
+    /// The source's own preview: today's within one list, or `Outgoing`
+    /// when the target is another; else a target's `Incoming`.
+    fn offsets(&self) -> Option<Offsets> {
+        if let Some(p) = self.preview.as_ref().filter(|p| !p.terminal) {
+            let source = self.index.position(&p.source)?;
+            if p.outgoing {
+                // The row keeps its slot (hidden); the rows after it close
+                // the gap: as if it went before the end, its own offset 0.
+                return Some(Offsets {
+                    source,
+                    before: self.index.len(),
+                    height: p.height,
+                    source_offset: 0.0,
+                });
+            }
+            let before = match &p.before {
+                Some(key) => self.index.position(key)?,
+                None => self.index.len(),
+            };
+            return Some(Offsets {
+                source,
+                before,
+                height: p.height,
+                source_offset: self.index.prefix(before)?
+                    - if before > source { p.height } else { 0.0 }
+                    - self.index.prefix(source)?,
+            });
+        }
+        self.incoming_offsets()
+    }
+    pub(super) fn emit_preview(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        if self.preview.is_none()
+            && self.incoming.is_none()
+            && self.hidden.is_none()
+            && !self.mounted.iter().any(|r| r.preview_hidden)
+        {
+            return Ok(());
+        }
+        let offsets = self.offsets();
+        let hidden = self.hidden.as_deref().and_then(|k| self.index.position(k));
+        // Offsets that change with the rows' own move in one commit apply at
+        // once: the layout moved by what the offset gave.
+        let transition = if self.instant {
+            "none"
+        } else {
+            "translate -exact-spring(300,30,1)"
+        };
+        for i in 0..self.mounted.len() {
+            let position = self.mounted[i].position;
+            let offset = offsets.as_ref().map_or(0.0, |o| o.at(position));
+            let row = &mut self.mounted[i];
+            if row.preview_target != Some(offset) {
+                views::style(
+                    u,
+                    row.wrapper,
+                    &[
+                        (
+                            "translate",
+                            Value::str(&format!("0px {}px", exact_num::Shortest(offset))),
+                        ),
+                        ("transition", Value::str(transition)),
+                    ],
+                )?;
+                row.preview_target = Some(offset);
+            }
+            let hide = hidden == Some(position);
+            if row.preview_hidden != hide {
+                let shown = if hide { "hidden" } else { "visible" };
+                views::style(u, row.wrapper, &[("visibility", Value::str(shown))])?;
+                row.preview_hidden = hide;
+            }
+        }
+        Ok(())
+    }
+    pub(super) fn lose_preview_pin(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        if let Some(p) = &mut self.preview {
+            p.pin_owned = false;
+        }
+        self.end_preview(u)
+    }
+}
+
+// Resolve keyed boundaries/prefixes once, then emit O(W) arithmetic targets.
+pub(super) struct Offsets {
+    pub(super) source: usize,
+    pub(super) before: usize,
+    pub(super) height: f64,
+    pub(super) source_offset: f64,
+}
+impl Offsets {
+    pub(super) fn at(&self, row: usize) -> f64 {
+        if row == self.source {
+            self.source_offset
+        } else if self.before <= row && row < self.source {
+            self.height
+        } else if self.source < row && row < self.before {
+            -self.height
+        } else {
+            0.0
+        }
+    }
+}
+
+pub(super) struct DropAnchor {
+    source: String,
+    before: Option<String>,
+    anchor: index::Anchor,
+}
+
+impl Collection {
+    pub(crate) fn cancel_drop_anchor(&mut self, token: ReorderToken) {
+        if let Some(p) = self
+            .preview
+            .as_mut()
+            .filter(|p| p.token == token && !p.holding)
+        {
+            p.dropped = false;
+        }
+    }
+
+    /// A same-slot drop can finish without changing the collection's data.
+    pub(crate) fn settle_drop_anchor(&mut self, refused: bool) {
+        if let Some(p) = self.preview.as_mut().filter(|p| p.dropped) {
+            let at = self.index.position(&p.source);
+            if refused || at.is_none_or(|i| self.index.key(i + 1) == p.before.as_deref()) {
+                p.dropped = false;
+            }
+        }
+    }
+
+    pub(super) fn drop_anchor(&self) -> Result<Option<DropAnchor>, InstanceError> {
+        let Some(p) = self.preview.as_ref().filter(|p| p.dropped) else {
+            return Ok(None);
+        };
+        let Some(g) = &self.geometry else {
+            return Ok(None);
+        };
+        Ok(Some(DropAnchor {
+            source: p.source.clone(),
+            before: p.before.clone(),
+            anchor: self
+                .index
+                .capture_anchor_excluding(
+                    self.anchor_offset(g.offset, g.port_main),
+                    g.port_main,
+                    self.follows(),
+                    Some(&p.source),
+                )
+                .map_err(index_error)?,
+        }))
+    }
+
+    pub(super) fn committed_anchor(
+        &mut self,
+        ordinary: Option<index::Anchor>,
+        drop: Option<DropAnchor>,
+    ) -> Option<index::Anchor> {
+        let Some(drop) = drop else {
+            return ordinary;
+        };
+        let at = self.index.position(&drop.source);
+        if at.is_some_and(|i| self.index.key(i + 1) != drop.before.as_deref()) {
+            return ordinary;
+        }
+        self.settle_drop_anchor(false);
+        if self.index.moved_since(&drop.anchor, &drop.source) {
+            Some(drop.anchor)
+        } else {
+            // An update that does not move a surviving source keeps the ordinary anchor.
+            ordinary
+        }
+    }
+}

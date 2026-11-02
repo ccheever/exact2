@@ -1,0 +1,308 @@
+// The update store's Swift face: the C entries of `exact.h`'s update
+// section, per process —
+// open at launch, the selection's assets for the resolver, first pixel, the
+// check on the library's own thread, the staged plan's bytes for an
+// activation. No networking here: the library fetches over its own
+// transport (the executor's `NSURLSession`) and reports through `done`;
+// this hops to the main thread and hands `ExactApp` the line.
+import ExactKit
+import CExact
+import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+enum Updates {
+    static var completed: ((String) -> Void)?
+    private static let api = exact_delivery_api()
+    static var linked: Bool { api != nil }
+    /// What the store selected for this launch: the entry (nil for entry
+    /// zero), its seq, and its plan and assets paths (empty for entry zero).
+    struct Selection {
+        let token: UInt64
+        let entry: String
+        let seq: UInt64
+        let plan: Data
+        let assets: [String]
+    }
+
+    private static func read(_ len: UInt32) -> Data {
+        guard len > 0, let api, let bytes = api.pointee.output() else { return Data() }
+        return Data(bytes: bytes, count: Int(len))
+    }
+
+    private static func write(_ text: String) -> Int {
+        let data = Data(text.utf8)
+        guard !data.isEmpty, let p = api!.pointee.input(data.count) else { _ = api!.pointee.input(0); return 0 }
+        data.withUnsafeBytes { src in if let base = src.baseAddress { p.update(from: base.assumingMemoryBound(to: UInt8.self), count: data.count) } }
+        return data.count
+    }
+
+    /// Open the store under the platform's Application Support directory
+    /// (the app's container on iOS, `~/Library/Application Support` on
+    /// macOS) — the library puts it at `exact/<app id>/update` — with
+    /// `assets` as what the binary embeds by name. A refusal is one stderr
+    /// line, and the app runs on the embedded facts.
+    static func open(assets: URL) -> Bool {
+        let base = WidgetContainer.updateBase?.path ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSTemporaryDirectory()
+        guard let payload = try? JSONSerialization.data(withJSONObject: ["base": base, "assets": assets.path]) else { return false }
+        let n = write(String(decoding: payload, as: UTF8.self))
+        let len = api!.pointee.open(n)
+        if len == 0 { return true }
+        FileHandle.standardError.write(Data("exact update: \(String(decoding: read(len), as: UTF8.self))\n".utf8))
+        return false
+    }
+
+    private static func selection(_ len: UInt32) -> Selection? {
+        let obj = (try? JSONSerialization.jsonObject(with: read(len)) as? [String: Any]) ?? [:]
+        guard let token = (obj["token"] as? NSNumber)?.uint64Value, token != 0,
+              let entry = obj["entry"] as? String else { return nil }
+        let plan = read(api!.pointee.plan(token))
+        return Selection(token: token, entry: entry, seq: (obj["seq"] as? NSNumber)?.uint64Value ?? 0,
+                         plan: plan, assets: obj["assets"] as? [String] ?? [])
+    }
+
+    static func selection() -> Selection? { selection(api!.pointee.select()) }
+    static func prepare() -> Selection? { selection(api!.pointee.prepare()) }
+    static func commit(_ selection: Selection) -> Bool {
+        let len = api!.pointee.commit(selection.token)
+        if len != 0 { fputs("exact update: \(String(decoding: read(len), as: UTF8.self))\n", stderr) }
+        return len == 0
+    }
+    static func discard(_ selection: Selection) { api!.pointee.discard(selection.token) }
+    static func refuse(_ token: UInt64, reason: String) {
+        _ = api!.pointee.refuse(token, write(reason))
+    }
+    static func asset(_ selection: Selection, name: String) -> Result<Data?, NSError> {
+        let data = read(api!.pointee.asset(selection.token, write(name)))
+        switch data.first {
+        case 0: return .success(nil)
+        case 1: return .success(Data(data.dropFirst()))
+        default: return .failure(NSError(domain: "ExactAsset", code: 1, userInfo: [NSLocalizedDescriptionKey: String(decoding: data.dropFirst(), as: UTF8.self)]))
+        }
+    }
+
+    /// Initial launch marks precede preparation; live marks follow acceptance.
+    static func started(_ token: UInt64) { api!.pointee.started(token) }
+    /// Only the generation which drew can bless the running selection.
+    static func bootSucceeded(_ token: UInt64) { api!.pointee.boot_succeeded(token) }
+
+    /// Start the check on the library's thread; `ExactApp.updateChecked`
+    /// gets the line on the main thread. False when a check already runs or
+    /// no store is open.
+    static func check() -> Bool { api!.pointee.check(done, nil) == 0 }
+
+    private static let done: ExactUpdateDoneFn = { _, line, len in
+        let text = line.map { String(decoding: Data(bytes: $0, count: len), as: UTF8.self) } ?? ""
+        DispatchQueue.main.async { Updates.completed?(text) }
+    }
+
+}
+
+/// The app-owned updating composition. Core ExactKit owns preparation and
+/// presentation; this target alone owns its store, checks and boot marks.
+public final class ExactUpdates: ExactAppLifecycle {
+    private weak var app: ExactApp?
+    private let storeOpen: Bool
+    private var firstPixelSeen = false
+    private var preparationRetry: DispatchWorkItem?
+    /// `deploy.activate` is `immediate` (build.mjs writes it into Info.plist).
+    private let immediate = Bundle.main.object(forInfoDictionaryKey: "ExactUpdateActivate") as? String == "immediate"
+    private lazy var checks = ForegroundUpdateChecks(
+        interval: Bundle.main.object(forInfoDictionaryKey: "ExactUpdateCheckInterval") as? TimeInterval,
+        immediate: immediate, check: { [weak self] in self?.check(quietly: true) },
+        activate: { [weak self] in self?.activate() })
+    private var observers: [NSObjectProtocol] = []
+    public private(set) var status: String?
+
+    @discardableResult
+    public static func install(on app: ExactApp) -> ExactUpdates {
+        precondition(Updates.linked, "the updating composition requires an update-capable app archive")
+        precondition(app.sessions.isEmpty && app.lifecycle == nil, "install the app composition before its first session")
+        let owner = ExactUpdates(app: app)
+        app.lifecycle = owner
+        return owner
+    }
+
+    private init(app: ExactApp) {
+        self.app = app
+        storeOpen = Updates.open(assets: app.assetRoot)
+        if storeOpen, let selected = Updates.selection() {
+            do { app.installInitial(try generation(selected, app: app)) }
+            catch { Updates.refuse(selected.token, reason: error.localizedDescription) }
+        }
+        Updates.completed = { [weak self] line in
+            guard let self else { return }
+            // Repeated automatic checks report each outcome once.
+            if !self.immediate || (line != self.status && line != "current") { FileHandle.standardError.write(Data("exact update: \(line)\n".utf8)) }
+            self.status = line
+            self.app?.refreshDelivery()
+            self.checks.completed(line)
+        }
+    }
+
+    /// Discovery runs under every activation policy, only while active.
+    private func watchForeground() {
+        let center = NotificationCenter.default
+        for name in ["NSApplicationDidBecomeActiveNotification", "UIApplicationDidBecomeActiveNotification"] {
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.checks.foreground(true) })
+        }
+        for name in ["NSApplicationDidResignActiveNotification", "UIApplicationWillResignActiveNotification"] {
+            observers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in self?.checks.foreground(false) })
+        }
+        #if os(macOS)
+        checks.foreground(NSApplication.shared.isActive)
+        #else
+        checks.foreground(UIApplication.shared.applicationState == .active)
+        #endif
+    }
+
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+    }
+
+    private func generation(_ selection: Updates.Selection, app: ExactApp) throws -> ExactGeneration {
+        let assets = AssetResolver(root: app.assetRoot, names: selection.assets, generation: "delivery:\(selection.entry):\(selection.seq)") { name in
+            try Updates.asset(selection, name: name).get()
+        }
+        var module: ExactModule?
+        func refused(_ message: String) -> NSError {
+            NSError(domain: "ExactModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        let rustNames = selection.assets.filter { $0.hasPrefix("rust/") }
+        // A TypeScript app's module is its receipt and Hermes bytecode; the
+        // data source admits it only with this binary's app identity and grants.
+        let typescriptNames = selection.assets.filter { $0.hasPrefix("typescript/") }
+        if !rustNames.isEmpty && !typescriptNames.isEmpty { throw refused("a generation carries one module pair, not two") }
+        if !typescriptNames.isEmpty {
+            guard typescriptNames.sorted() == ["typescript/app.hbc", "typescript/app.module.json"],
+                  let receipt = try Updates.asset(selection, name: "typescript/app.module.json").get(), receipt.count <= 1 << 20,
+                  let bytes = try Updates.asset(selection, name: "typescript/app.hbc").get(), bytes.count <= 32 << 20
+            else { throw refused("incomplete or invalid signed TypeScript module pair") }
+            module = ExactModule(receipt: receipt, bytecode: bytes)
+        }
+        if !rustNames.isEmpty {
+            guard rustNames.contains("rust/app.module.json"),
+                  let receipt = try Updates.asset(selection, name: "rust/app.module.json").get(), receipt.count <= 1 << 20,
+                  let json = try JSONSerialization.jsonObject(with: receipt) as? [String: Any],
+                  let row = json["module"] as? [String: Any], let file = row["file"] as? String,
+                  ["app.module.wasm", "app.module.dylib", "app.module.so", "app.module.dll", "app.module.bin"].contains(file),
+                  rustNames.sorted() == ["rust/app.module.json", "rust/" + file].sorted(),
+                  let bytes = try Updates.asset(selection, name: "rust/" + file).get(), bytes.count <= 32 << 20
+            else { throw refused("incomplete or invalid signed Rust module pair") }
+            guard app.rustPolicy.mode != "off" else { throw refused("Rust replacement is disabled in this binary") }
+            module = ExactModule(receipt: receipt, bytecode: bytes)
+        }
+        return ExactGeneration(plan: selection.plan, assets: assets, token: selection.token, module: module)
+    }
+
+    public func generationStarted(_ app: ExactApp, token: UInt64) { if storeOpen { Updates.started(token) } }
+    public func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String) {
+        if storeOpen { Updates.refuse(token, reason: reason) }
+    }
+    public func firstPixel(_ app: ExactApp, token: UInt64) {
+        guard storeOpen else { return }
+        Updates.bootSucceeded(token)
+        guard !firstPixelSeen else { return }
+        firstPixelSeen = true
+        if ExactEnv.agentMode, ExactEnv.environment["EXACT_UPDATE_ORIGIN"] == nil { return }
+        watchForeground()
+    }
+
+    public func check() { check(quietly: false) }
+
+    private func check(quietly: Bool) {
+        guard storeOpen else { return }
+        if !Updates.check() && !quietly { FileHandle.standardError.write(Data("exact update: a check is already running\n".utf8)) }
+    }
+
+    @discardableResult
+    public func activate() -> Bool {
+        preparationRetry?.cancel()
+        preparationRetry = nil
+        guard storeOpen, let app, let selected = Updates.prepare() else { return false }
+        let accepted: Bool
+        do { accepted = app.applyGeneration(try generation(selected, app: app), label: "update", commit: { Updates.commit(selected) }) }
+        catch { status = error.localizedDescription; Updates.discard(selected); return false }
+        if !accepted { Updates.discard(selected) }
+        if !accepted && app.generationPending {
+            status = "Preparing Rust update; the current app remains active"
+            let retry = DispatchWorkItem { [weak self] in self?.activate() }
+            preparationRetry = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: retry)
+        }
+        return accepted
+    }
+
+    public func handleCommand(_ name: String, app: ExactApp) -> Bool {
+        switch name {
+        case "deliveryCheck": check(); return true
+        case "deliveryActivate": DispatchQueue.main.async { [weak self] in self?.activate() }; return true
+        default: return false
+        }
+    }
+}
+
+/// Discovery cadence is independent of whether a staged generation may activate.
+final class ForegroundUpdateChecks {
+    static let defaultInterval: TimeInterval = 15 * 60
+    let interval: TimeInterval
+    private let immediate: Bool
+    private let check: () -> Void
+    private let activate: () -> Void
+    private let now: () -> TimeInterval
+    private let schedule: (TimeInterval, @escaping () -> Void) -> (() -> Void)
+    private var cancel: (() -> Void)?
+    private var active = false
+    private var staged = false
+    private var lastForegroundCheck: TimeInterval?
+
+    init(interval: TimeInterval?, immediate: Bool, check: @escaping () -> Void,
+         activate: @escaping () -> Void, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         schedule: @escaping (TimeInterval, @escaping () -> Void) -> (() -> Void) = { interval, tick in
+             let timer = Timer(timeInterval: interval, repeats: true) { _ in tick() }
+             RunLoop.main.add(timer, forMode: .common)
+             return { timer.invalidate() }
+         }) {
+        self.interval = interval.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? Self.defaultInterval
+        self.immediate = immediate
+        self.check = check
+        self.activate = activate
+        self.now = now
+        self.schedule = schedule
+    }
+
+    func foreground(_ active: Bool) {
+        guard active != self.active else { return }
+        self.active = active
+        cancel?()
+        cancel = nil
+        guard active else { return }
+        let time = now()
+        if lastForegroundCheck.map({ time - $0 >= 60 }) ?? true {
+            lastForegroundCheck = time
+            check()
+        }
+        activateStaged()
+        cancel = schedule(interval) { [weak self] in
+            guard let self, self.active else { return }
+            self.check()
+        }
+    }
+
+    func completed(_ line: String) {
+        if line.hasPrefix("staged") { staged = true }
+        activateStaged()
+    }
+
+    private func activateStaged() {
+        if immediate && active && staged {
+            staged = false
+            activate()
+        }
+    }
+
+    deinit { cancel?() }
+}

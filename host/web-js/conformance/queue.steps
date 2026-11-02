@@ -1,0 +1,12 @@
+tap pair
+tap slow-twice
+tap slow-twice
+clock settle
+tap clear
+clock settle
+tap slow-twice
+clock +1000
+clock settle
+tap mixed
+clock settle
+clock settle

@@ -1,0 +1,252 @@
+import type { Answer, Sources, Storage, Database, Result } from './app.contract.d.ts';
+import { pedometer } from '@exact/pedometer';
+import { altimeter } from '@exact/altimeter';
+
+type Library = Result<'library'>;
+type Note = Library['notes'][number];
+type Saved = Result<'saveNote'>;
+type Status = Result<'backupNotes'>;
+type Store = Parameters<Answer>[2];
+
+export const appId = 'com.exact.fieldnotes';
+export const grants = 'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nfs.read app:/tmp/shared\nsecret.keep fieldnotes.revision\ndevice.motion walkPurpose';
+const backupPath = 'app:/data/backups/fieldnotes.json';
+// One app-owned revision survives source/language replacement with the Store.
+function nextRevision(store:Store):number {
+  const raw=store.get('fieldnotes.revision');
+  const previous=raw&&/^[0-9]+$/.test(raw)?Number(raw):0;
+  const next=Number.isSafeInteger(previous)&&previous<Number.MAX_SAFE_INTEGER?previous+1:1;
+  store.set('fieldnotes.revision',String(next));return next;
+}
+// Serialize whole app operations, not just individual database statements.
+// A save and the resource refresh it triggers never contend for the same file.
+let tail: Promise<unknown> = Promise.resolve();
+function serial<T>(work: () => Promise<T>): Promise<T> {
+  const result = tail.then(work); tail = result.catch(() => {}); return result;
+}
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+async function database(storage: Storage): Promise<Database> {
+  const db = await storage.sqlite.open('app:/data/fieldnotes.db');
+  try {
+    // On web, even a no-op execute exports the complete database. Check each
+    // opened file instead of caching readiness across replacement or deletion.
+    const schema = await db.query("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='notes'");
+    if (!schema.rows.length) await db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)');
+    return db;
+  } catch (error) { await db.close(); throw error; }
+}
+async function withDatabase<T>(storage: Storage, work: (db: Database) => Promise<T>): Promise<T> {
+  const db = await database(storage);
+  try { return await work(db); } finally { await db.close(); }
+}
+function excerpt(body:string):string {
+  for(let end=100;;end*=2) {
+    const text=body.slice(0,end).replace(/\s+/g,' ');
+    // Do not split an astral character at the UTF-16 preview boundary.
+    if(text.length>=100||end>=body.length)return text.slice(0,100).replace(/[\uD800-\uDBFF]$/,'')||'An empty page.';
+  }
+}
+// The declared 1,000-note limit keeps these short rows below the storage cap.
+// SQLite TEXT substr stops at NUL; compare byte lengths so a short normalized
+// prefix falls back to the full row for NULs as well as long whitespace runs.
+async function previews(db: Database): Promise<Note[]> {
+  const result=await db.query('SELECT id, title, substr(body,1,200), pinned, length(CAST(body AS BLOB)) > length(CAST(substr(body,1,200) AS BLOB)) FROM notes ORDER BY id DESC');
+  const found=new Map<string,Note>(), missing:bigint[]=[];
+  for(const row of result.rows) {
+    const id=String(row[0]),prefix=String(row[2]);
+    found.set(id,{id,title:String(row[1]),pinned:row[3]===1n,excerpt:excerpt(prefix)});
+    if(row[4]===1n&&prefix.replace(/\s+/g,' ').length<100)missing.push(row[0] as bigint);
+  }
+  for(let start=0;start<missing.length;start+=32) {
+    const ids=missing.slice(start,start+32);
+    const full=await db.query(`SELECT id, title, body, pinned FROM notes WHERE id IN (${ids.map(()=>'?').join(',')})`,ids);
+    const seen=new Set<string>();
+    for(const row of full.rows) {
+      const id=String(row[0]);seen.add(id);
+      // Use one version of all fields if another window edited this row.
+      found.set(id,{id,title:String(row[1]),pinned:row[3]===1n,excerpt:excerpt(String(row[2]))});
+    }
+    for(const id of ids)if(!seen.has(String(id)))found.delete(String(id));
+  }
+  // Map replacement preserves the original descending immutable-ID order.
+  return [...found.values()].sort((a,b)=>Number(b.pinned)-Number(a.pinned));
+}
+// Full bodies stay within one small storage reply and leave the library as previews.
+// Scan by immutable ID so another window pinning a note cannot duplicate it.
+async function notes(db: Database, query: string): Promise<{notes:Note[];total:number}> {
+  if(!query) {const found=await previews(db);return {notes:found,total:found.length};}
+  const needle=query.toLowerCase(), found:Note[]=[];
+  let cursor=9223372036854775807n, total=0;
+  for (;;) {
+    const result=await db.query('SELECT id, title, body, pinned FROM notes WHERE id <= ? ORDER BY id DESC LIMIT 32',[cursor]);
+    for(const row of result.rows) {
+      const title=String(row[1]),body=String(row[2]);total++;
+      if((title+'\n'+body).toLowerCase().includes(needle)) {
+        found.push({id:String(row[0]),title,pinned:row[3]===1n,excerpt:excerpt(body)});
+      }
+    }
+    if(result.rows.length<32)break;
+    cursor=(result.rows[result.rows.length-1][0] as bigint)-1n;
+  }
+  // Stable sort keeps descending IDs within each pin group, without Number rounding.
+  found.sort((a,b)=>Number(b.pinned)-Number(a.pinned));
+  return {notes:found,total};
+}
+async function openNote(noteId:string,version:number,storage:Storage):Promise<Result<'openNote'>> {
+  const empty={version,title:'',body:'',pinned:false,message:'',ready:true};
+  if(!noteId)return empty;
+  try {
+    return await withDatabase(storage,async db=>{
+      const result=await db.query('SELECT title, body, pinned FROM notes WHERE id=?',[id(noteId)]);
+      if(!result.rows.length)throw new Error('This note was deleted. Choose another note or start a new one.');
+      const row=result.rows[0];
+      return {version,title:String(row[0]),body:String(row[1]),pinned:row[2]===1n,message:'',ready:true};
+    });
+  } catch(error) {return {...empty,message:message(error),ready:false};}
+}
+function id(value: string): bigint {
+  if (!/^[1-9][0-9]*$/.test(value)) throw new Error('That note is not available.');
+  const n = BigInt(value); if(n > 9223372036854775807n) throw new Error('Invalid note ID.'); return n;
+}
+function validate(title: string, body: string): void {
+  if (title.length > 160) throw new Error('Keep titles under 160 characters.');
+  if (body.length > 20000) throw new Error('Keep each note under 20,000 characters.');
+}
+// Standard UTF-8 on every executor
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
+function encode(text: string): Uint8Array { return encoder.encode(text); }
+function decode(bytes: ArrayBuffer): string { return decoder.decode(bytes); }
+type BackupNote = {id:string;title:string;body:string;pinned:boolean};
+function parseBackup(text: string): BackupNote[] {
+  if(text.length>4*1024*1024)throw new Error('Backups must be smaller than 4 MB.');
+  const value: unknown = JSON.parse(text);
+  if(!value || typeof value!=='object' || !('version' in value) || value.version!==1 || !('notes' in value) || !Array.isArray(value.notes) || value.notes.length>1000)throw new Error('This is not a Fieldnotes backup.');
+  const seen=new Set<string>();
+  return value.notes.map((n:unknown)=>{
+    if(!n || typeof n!=='object' || !('id' in n) || typeof n.id!=='string' || !('title' in n) || typeof n.title!=='string' || !('body' in n) || typeof n.body!=='string' || !('pinned' in n) || typeof n.pinned!=='boolean')throw new Error('The backup contains an invalid note.');
+    id(n.id);validate(n.title,n.body);
+    if(seen.has(n.id))throw new Error('The backup contains duplicate note IDs.');seen.add(n.id);
+    return {id:n.id,title:n.title,body:n.body,pinned:n.pinned};
+  });
+}
+async function library(query: string, storage: Storage): Promise<Library> {
+  try {
+    const result = await withDatabase(storage,db=>notes(db,query));
+    return {...result,message:'',ready:true};
+  } catch (error) {
+    // A refusal's code says why (docs/reference.md): no storage yet at bake.
+    const code=error && typeof error==='object' && 'code' in error ? error.code : undefined;
+    return {notes:[],total:0,message:code==='bake'||code==='unsupported' ? 'Opening your notebook…' : 'Could not open your notebook: '+message(error),ready:false};
+  }
+}
+async function saveNote(noteId:string,title:string,body:string,pinned:boolean,version:number,storage:Storage,store:Store): Promise<Saved> {
+  try {
+    validate(title,body);if(!title.trim()&&!body.trim())throw new Error('Write something before saving.');
+    const savedId=await withDatabase(storage,async db=>{
+      if(noteId){
+        const result=await db.execute('UPDATE notes SET title=?,body=?,pinned=? WHERE id=?',[title.trim()||'Untitled note',body,pinned?1n:0n,id(noteId)]);
+        if(result.changes!==1)throw new Error('This note was deleted. Start a new note to keep this draft.');
+        return noteId;
+      }
+      const count=await db.query('SELECT count(*) FROM notes');
+      if((count.rows[0][0] as bigint)>=1000n)throw new Error('This notebook holds up to 1,000 notes. Back up and remove some before adding more.');
+      const result=await db.execute('INSERT INTO notes (title,body,pinned) VALUES (?,?,?)',[title.trim()||'Untitled note',body,pinned?1n:0n]);
+      return String(result.lastInsertRowid);
+    });
+    return {id:savedId,version,title,body,pinned,revision:nextRevision(store),message:'Saved on this device.',failed:false};
+  } catch(error) {return {id:noteId,version,title,body,pinned,revision:nextRevision(store),message:message(error),failed:true};}
+}
+async function service(source:string,args:unknown[],storage:Storage,store:Store): Promise<Status> {
+  try {
+    let text='',notice='';
+    if(source==='backupNotes') {
+      let count=0;
+      text=await withDatabase(storage,async db=>{
+        const parts:string[]=[];
+        const prefix='{\n  "version": 1,\n  "notes": [\n', suffix='\n  ]\n}';
+        let length=prefix.length+suffix.length;
+        // One SQLite statement preserves a snapshot across other windows' writes.
+        // A valid 4 Mi UTF-16 backup has at most 12 MiB of quoted UTF-8 text.
+        const result=await db.query('WITH sized AS (SELECT id, title, body, pinned, SUM(length(CAST(json_quote(title) AS BLOB)) + length(CAST(json_quote(body) AS BLOB))) OVER () AS backup_bytes FROM notes) SELECT id, CASE WHEN backup_bytes <= 12582912 THEN title END, CASE WHEN backup_bytes <= 12582912 THEN body END, pinned FROM sized ORDER BY pinned DESC, id DESC');
+        for(const row of result.rows){
+          if(row[1]===null||row[2]===null)throw new Error('This backup exceeds 4 MB. Split or remove large notes before backing up.');
+          // These fields are scalars: emit their final six-space indentation
+          // directly, instead of scanning every body again to indent its lines.
+          const note=JSON.stringify({id:String(row[0]),title:String(row[1]),body:String(row[2]),pinned:row[3]===1n},null,6);
+          const part='    '+note.slice(0,-1)+'    }';
+          length+=part.length+(count?2:0);
+          if(length>4*1024*1024)throw new Error('This backup exceeds 4 MB. Split or remove large notes before backing up.');
+          parts.push(part);count++;
+        }
+        return count?prefix+parts.join(',\n')+suffix:JSON.stringify({version:1,notes:[]},null,2);
+      });
+      await storage.fs.mkdir('app:/data/backups');
+      await storage.fs.atomicWriteFile(backupPath,encode(text));
+      notice=`Backup saved with ${count} notes.`;
+    } else if(source==='readBackup') {
+      text=decode(await storage.fs.readFile(backupPath));parseBackup(text);notice='Your saved backup is ready to copy.';
+    } else if(source==='restoreNotes') {
+      text=String(args[0]);if(!text.trim())text=decode(await storage.fs.readFile(backupPath));
+      const restored=parseBackup(text);
+      await withDatabase(storage, db=>db.transaction([{sql:'DELETE FROM notes'},...restored.map(n=>({sql:'INSERT INTO notes (id,title,body,pinned) VALUES (?,?,?,?)',params:[id(n.id),n.title,n.body,n.pinned?1n:0n]}))]));
+      notice=`Restored ${restored.length} notes.`;
+    } else if(source==='importNotes') {
+      // A backup file the person picked, copied into app:/tmp/picked/.
+      const path=String(args[0]);if(!path.startsWith('app:/tmp/picked/'))throw new Error('Choose a backup file to import.');
+      text=decode(await storage.fs.readFile(path));
+      const restored=parseBackup(text);
+      await withDatabase(storage, db=>db.transaction([{sql:'DELETE FROM notes'},...restored.map(n=>({sql:'INSERT INTO notes (id,title,body,pinned) VALUES (?,?,?,?)',params:[id(n.id),n.title,n.body,n.pinned?1n:0n]}))]));
+      notice=`Imported ${restored.length} ${restored.length===1?'note':'notes'} from the file.`;
+    } else if(source==='deleteNote') {
+      await withDatabase(storage,db=>db.execute('DELETE FROM notes WHERE id=?',[id(String(args[0]))]));notice='Note deleted.';
+    } else throw new Error('Unknown notebook action.');
+    return {revision:nextRevision(store),message:notice,failed:false,backupText:text};
+  } catch(error) {return {revision:nextRevision(store),message:message(error),failed:true,backupText:''};}
+}
+// A walk's figures: the steps since it began and the
+// height climbed, read only while it lasts. A figure the platform refuses
+// (no permission, no sensor) is left out, not shown as 0; so is the climb
+// where the altimeter's status says there is none.
+async function walk(start: number, climbs: boolean): Promise<Result<'walk'>> {
+  const out = { steps: 0, since: 0, counted: false, climb: 0, climbed: false, distance: -1 };
+  if (!(start > 0)) return out;
+  const [count, climb] = await Promise.allSettled([pedometer({ start }), climbs ? altimeter({ interval: 2000 }) : Promise.reject(new Error('no altimeter'))]);
+  if (count.status === 'fulfilled') {
+    Object.assign(out, { steps: count.value.steps, since: count.value.since, counted: true });
+    if (count.value.apple?.distance != null) out.distance = count.value.apple.distance;
+  }
+  if (climb.status === 'fulfilled') Object.assign(out, { climb: climb.value.relativeAltitude, climbed: true });
+  return out;
+}
+// The text of the files shared to Fieldnotes, each copied
+// into app:/tmp/shared/ under a name that keeps its extension; a picture or
+// another file it cannot read as text is left to its name in the list.
+const textFile = /\.(txt|text|md|markdown|csv|json)$/;
+async function sharedText(paths: string, storage: Storage): Promise<Result<'sharedText'>> {
+  const texts: string[] = [];
+  try {
+    for (const path of paths.split('\n').filter(p => textFile.test(p))) {
+      if (!path.startsWith('app:/tmp/shared/')) throw new Error('A shared file is outside the share.');
+      texts.push(decode(await storage.fs.readFile(path)).trim());
+    }
+    return { text: texts.filter(Boolean).join('\n\n'), message: '' };
+  } catch (error) { return { text: texts.join('\n\n'), message: 'Could not read a shared file: ' + message(error) }; }
+}
+const sources: Sources = {
+  walk: ([start, , climbs]) => walk(start, climbs),
+  sharedText: ([paths], _store, storage) => sharedText(paths, storage),
+  library: ([query], _store, storage) => serial(() => library(query, storage)),
+  // Native reads own their continuation; browser executors already hold a
+  // whole storage-backed turn through close. Do not await another app call.
+  openNote: ([noteId, version], _store, storage) => openNote(noteId, version, storage),
+  saveNote: (args, store, storage) => serial(() => saveNote(...args, storage, store)),
+  backupNotes: (args, store, storage) => serial(() => service('backupNotes', args, storage, store)),
+  readBackup: (args, store, storage) => serial(() => service('readBackup', args, storage, store)),
+  restoreNotes: (args, store, storage) => serial(() => service('restoreNotes', args, storage, store)),
+  importNotes: (args, store, storage) => serial(() => service('importNotes', args, storage, store)),
+  deleteNote: (args, store, storage) => serial(() => service('deleteNote', args, storage, store)),
+};
+export const answer: Answer = (source,args,store,storage) => sources[source](args,store,storage);

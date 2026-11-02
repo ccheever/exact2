@@ -1,0 +1,19 @@
+[package]
+name = "exact-js-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-js-value = { path = "../value" }
+exact-plan = { path = "../../plan" }
+exact-runner = { path = "../../runner" }
+sha2 = "0.10"
+
+[dev-dependencies]
+caltrain-data = { path = "../../apps/caltrain/data" }
+contract = { path = "../../contract/cli" }
+# The agent's stream the realms are held to.
+exact-data = { path = "../../data" }
+serde_json = "1.0"

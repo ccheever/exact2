@@ -1,0 +1,10 @@
+// The surface pairs (SurfacePairsMacTests): a card on a plain page and a card
+// on a grouped page, each a role pair a host draws apart. Compiled by
+// build.mjs --test.
+component SurfacePairs
+  view
+    column width="100%" height="100%"
+      column testId="plain" height=200 background-color="-exact-background"
+        column testId="plain-card" margin=16 height=80 background-color="-exact-secondary-background"
+      column testId="grouped" height=200 background-color="-exact-grouped-background"
+        column testId="grouped-card" margin=16 height=80 background-color="-exact-secondary-grouped-background"

@@ -1,0 +1,19 @@
+# Contract analysis: effect signatures (`writes`), handler arity, component
+# uses, derive cycles, and the v1 shape restrictions.
+[package]
+name = "contract-analyze"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Contract analysis: handler arity, component uses, timer and then actions"
+publish = false
+
+[lib]
+name = "contract_analyze"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+contract-syntax = { path = "../syntax" }
+contract-types = { path = "../types" }

@@ -1,0 +1,23 @@
+{
+  "kind": "interface",
+  "name": "@exact/browser",
+  "version": "1.0.0",
+  "grants": [],
+  "shapes": {
+    "ClearedSiteData": {
+      "partition": "string",
+      "types": "string[]"
+    }
+  },
+  "names": [
+    {
+      "send": "clearSiteData",
+      "request": true,
+      "options": {
+        "partition": "string",
+        "types": "string[]"
+      },
+      "answers": "ClearedSiteData"
+    }
+  ]
+}

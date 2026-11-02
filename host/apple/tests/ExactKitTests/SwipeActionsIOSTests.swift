@@ -1,0 +1,305 @@
+#if os(iOS)
+import UIKit
+import XCTest
+@testable import ExactKit
+
+/// A native swipe row costs no table and no scroll view at rest:
+/// batches leave its content in the owner, clipped, where the authored scroll
+/// would hold it at its start; a touch landing on it projects the content into
+/// a clear UIKit cell that follows the row's height, and the projection goes
+/// again once nothing is swiping. A refused row gets its scroll: then the
+/// scroll is the swipe, as on the web. UIKit, so a simulator runs it:
+///   bun host/apple/build.mjs --test --ios
+final class SwipeActionsIOSTests: XCTestCase {
+    private var window: UIWindow!
+    private let white: BatchValue = [255, 255, 255, 255]
+
+    private func create(_ id: UInt32, _ kind: String, props: [String: String] = [:], style: NodeStyle = [:]) -> BatchOp {
+        var op = BatchOp(op: .create, nodeID: id)
+        op.kind = kind; op.props = props; op.style = style
+        if kind == "button" { op.handlers = ["press"] }
+        return op
+    }
+    private func frame(_ id: UInt32, _ x: Double, _ w: Double, _ h: Double) -> BatchOp {
+        var op = BatchOp(op: .frame, nodeID: id)
+        op.x = x; op.w = w; op.h = h
+        return op
+    }
+    private func children(_ id: UInt32, _ ids: [UInt32]) -> BatchOp {
+        var op = BatchOp(op: .children, nodeID: id); op.ids = ids
+        return op
+    }
+    /// The row's geometry at `height`: owner 1 scrolls a 390-wide row 2
+    /// holding the 300-wide body 3 and the 90-wide Delete 4.
+    private func geometry(_ height: Double) -> [BatchOp] {
+        var content = BatchOp(op: .content, nodeID: 1)
+        content.w = 390; content.h = height
+        return [frame(1, 0, 300, height), frame(2, 0, 390, height), frame(3, 0, 300, height), frame(4, 300, 90, height), content]
+    }
+    private func apply(_ p: Presenter, _ ops: [BatchOp]) {
+        p.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+    }
+    private func fixture() -> Presenter {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        var roots = BatchOp(op: .roots); roots.ids = [1]
+        apply(p, [
+            create(1, "view", props: ["swipeContent": "body", "swipeTrailing": "delete"], style: ["overflow_x": "scroll", "overflow_y": "hidden"]),
+            create(2, "view"),
+            create(3, "view", props: ["id": "body"], style: ["background_color": white, "border_radius_top_left": 24, "border_radius_top_right": 24]),
+            create(4, "button", props: ["id": "delete", "accessibilityLabel": "Delete"]),
+            children(1, [2]), children(2, [3, 4]), roots,
+        ] + geometry(80))
+        return p
+    }
+    private func turn() { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05)) }
+
+    func testARowAtRestHasNoTableAndATouchProjectsIt() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        let body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
+        XCTAssertNil(owner.scroll, "no scroll view at rest")
+        XCTAssertTrue(owner.scrollDormant); XCTAssertTrue(owner.clipsToBounds, "clipped as the scroll would clip")
+        XCTAssertTrue(owner.gestureRecognizers?.isEmpty ?? true)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no cell before a touch")
+        XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
+        XCTAssertTrue(row.superview === owner)
+        apply(p, geometry(80))
+        XCTAssertTrue(row.superview === owner, "a batch projects nothing")
+        XCTAssertNil(owner.scroll)
+
+        p.swipeActions.touch(owner)
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        XCTAssertTrue(body.isDescendant(of: cell.contentView))
+        XCTAssertTrue(delete.isHidden)
+        XCTAssertNil(owner.scroll, "the cell swipes, not a scroll")
+        XCTAssertEqual(cell.backgroundConfiguration?.backgroundColor, .clear, "the row paints itself")
+        body.layer.displayIfNeeded()
+        XCTAssertEqual(body.layer.backgroundColor?.alpha, 1)
+        XCTAssertEqual(body.layer.cornerRadius, 24, "and keeps its corners")
+        XCTAssertTrue(p.swipeActions.ownsAction(4))
+
+        // No touch reached the table, so nothing can be swiping: it goes.
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner))
+        XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
+        XCTAssertTrue(row.superview === owner)
+        XCTAssertFalse(row.isHidden); XCTAssertFalse(delete.isHidden)
+        XCTAssertEqual(body.convert(CGPoint.zero, to: owner), .zero)
+        XCTAssertTrue(p.swipeActions.ownsAction(4), "an unprojected row's controls are still its actions")
+    }
+
+    /// A row projected inside an animation UIKit has open: the table made
+    /// for it and the content moved into its cell take their place at once,
+    /// as views made or put in a new parent do (`NodeView.moveOrPlace`).
+    func testARowProjectedInsideAnAnimationTakesItsPlace() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1])
+        var open = false
+        UIView.animate(withDuration: 0.5) {
+            open = UIView.inheritedAnimationDuration > 0
+            p.swipeActions.touch(owner)
+        }
+        XCTAssertTrue(open, "UIKit had an animation open")
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        let table = try XCTUnwrap(owner.subviews.first { $0 is UITableView })
+        XCTAssertEqual(table.layer.animationKeys() ?? [], [], "the table where it goes at once")
+        let content = try XCTUnwrap(cell.contentView.subviews.first)
+        XCTAssertEqual(content.layer.animationKeys() ?? [], [], "the content in its cell at once")
+    }
+
+    /// The projection restores what the host had said of a control, not
+    /// CSS's `display: none` (review B1): shown again, it is visible.
+    func testAProjectionRestoresTheHostsWordNotDisplay() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), delete = try XCTUnwrap(p.views[4])
+        delete.applyStyle(["display": "none"])
+        XCTAssertTrue(delete.isHidden)
+        p.swipeActions.touch(owner)
+        XCTAssertNotNil(p.swipeActions.cell(of: owner), "projected")
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner), "released")
+        delete.applyStyle([:])
+        XCTAssertFalse(delete.isHidden, "displayed again, nothing the host said hides it")
+    }
+
+    func testARefusedRowSwipesByItsScroll() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        // The trailing control loses its name: the native swipe is refused.
+        var rename = BatchOp(op: .props, nodeID: 4); rename.clear = ["id"]
+        apply(p, [rename])
+        let scroll = try XCTUnwrap(owner.scroll, "the web's swipe: the scroll itself")
+        XCTAssertTrue(row.superview === scroll)
+        XCTAssertEqual(scroll.contentSize.width, 390)
+        XCTAssertFalse(p.swipeActions.ownsAction(4))
+        // The refusal names the rule the row broke (splitter rough 10).
+        XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
+    }
+
+    /// A name resolves within its row: a `for` that
+    /// repeats `id="body"` and `id="delete"`, as `delete=`'s expansion does,
+    /// gives every row its own swipe, not a refusal.
+    func testRowsThatRepeatTheirNamesEachSwipe() throws {
+        let p = fixture()
+        var roots = BatchOp(op: .roots); roots.ids = [1, 5]
+        var content = BatchOp(op: .content, nodeID: 5)
+        content.w = 390; content.h = 80
+        apply(p, [
+            create(5, "view", props: ["swipeContent": "body", "swipeTrailing": "delete"], style: ["overflow_x": "scroll", "overflow_y": "hidden"]),
+            create(6, "view"),
+            create(7, "view", props: ["id": "body"]),
+            create(8, "button", props: ["id": "delete", "accessibilityLabel": "Delete"]),
+            children(5, [6]), children(6, [7, 8]), roots,
+            frame(5, 0, 300, 80), frame(6, 0, 390, 80), frame(7, 0, 300, 80), frame(8, 300, 90, 80), content,
+        ])
+        for owner in [try XCTUnwrap(p.views[1]), try XCTUnwrap(p.views[5])] {
+            XCTAssertNil(p.swipeActions.refusal(of: owner), p.swipeActions.refusal(of: owner) ?? "")
+        }
+        XCTAssertTrue(p.swipeActions.ownsAction(4)); XCTAssertTrue(p.swipeActions.ownsAction(8))
+    }
+
+    /// Actions that say `appearance="none"` keep their paint
+    /// (PaintedSwipesIOS.swift): no cell, the row's own scroll, its actions
+    /// VoiceOver's custom actions on the content and hidden from it; its
+    /// own drag leaves it open (another painted row's closes it).
+    func testAPaintedRowSwipesByItsScrollWithTheSwipesBehaviours() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
+        var paint = BatchOp(op: .style, nodeID: 4)
+        paint.style = ["appearance": "none", "written": ["appearance"]]
+        apply(p, [paint])
+        XCTAssertFalse(p.swipeActions.ownsAction(4), "no native action")
+        p.swipeActions.touch(owner)
+        XCTAssertNil(p.swipeActions.cell(of: owner), "no cell: the row paints its actions")
+        let scroll = try XCTUnwrap(owner.scroll, "the row's own scroll")
+        XCTAssertEqual(scroll.contentSize.width, 390)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let action = try XCTUnwrap(body.accessibilityCustomActions?.first)
+        XCTAssertEqual(action.name, "Delete")
+        _ = action.actionHandler?(action)
+        XCTAssertEqual(pressed, [4], "VoiceOver's custom action presses it")
+        XCTAssertTrue(delete.accessibilityElementsHidden, "the painted control, behind the content, is not read twice")
+
+        // Open, then a drag begins on it.
+        scroll.contentOffset.x = 90
+        p.swipeActions.painted.began(try XCTUnwrap(p.views[1]))
+        XCTAssertEqual(scroll.contentOffset.x, 90, "its own drag leaves it open")
+        // A native row opening closes it (one row of either kind open).
+        p.swipeActions.painted.closeAll()
+        XCTAssertEqual(scroll.contentOffset.x, 0, accuracy: 0.5, "closed")
+
+        // No longer a swipe action: what the row installed goes, and its
+        // old VoiceOver action, still held, presses nothing.
+        var unswipe = BatchOp(op: .props, nodeID: 1)
+        unswipe.clear = ["swipeTrailing"]
+        apply(p, [unswipe])
+        XCTAssertNil(body.accessibilityCustomActions, "no action left on the content")
+        XCTAssertFalse(delete.accessibilityElementsHidden, "the button is VoiceOver's again")
+        pressed = []
+        XCTAssertEqual(action.actionHandler?(action), false)
+        XCTAssertEqual(pressed, [], "the stale action presses nothing")
+    }
+
+    /// Both action edges follow the row's layout direction.
+    func testAPaintedFullSwipeFollowsTheRowsLayoutDirection() throws {
+        for leading in [false, true] {
+            for rtl in [false, true] {
+                let p = fixture()
+                defer { p.reset(); window.isHidden = true }
+                let owner = try XCTUnwrap(p.views[1])
+                var paint = BatchOp(op: .style, nodeID: 4)
+                paint.style = ["appearance": "none", "written": ["appearance"]]
+                var side = BatchOp(op: .props, nodeID: 1)
+                side.props = [leading ? "swipeLeading" : "swipeTrailing": "delete"]
+                side.clear = [leading ? "swipeTrailing" : "swipeLeading"]
+                let left = leading != rtl
+                apply(p, [paint, side] + (left ? [frame(3, 90, 300, 80), frame(4, 0, 90, 80)] : []))
+                owner.semanticContentAttribute = rtl ? .forceRightToLeft : .forceLeftToRight
+                XCTAssertNil(owner.scroll, "no scroll view until a touch lands on the row")
+                p.swipeActions.touch(owner)
+                let scroll = try XCTUnwrap(owner.scroll)
+                var pressed: [UInt32] = []
+                p.onPress = { pressed.append($0) }
+                // Rubber-banded 60 points past the action edge.
+                scroll.contentOffset.x = left ? -60 : 150
+                var target = scroll.contentOffset
+                p.swipeActions.painted.willEnd(owner, scroll, target: &target)
+                XCTAssertEqual(pressed, [4], "leading=\(leading), rtl=\(rtl)")
+                XCTAssertEqual(target.x, left ? 90 : 0, "the row closes after its full swipe")
+            }
+        }
+    }
+
+    /// The agent's tap on an action no swipe revealed (an authored test's
+    /// `tap delete-…`, splitter rough 12) presses its control as UIKit's
+    /// action would, and leaves the row at rest again; a disabled control's
+    /// action is not offered, and a node no row owns is not an action.
+    func testAnUnrevealedActionIsPerformedAsAssistiveTechnologyPerformsIt() throws {
+        let p = fixture()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let owner = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(p.swipeActions.perform(4), true)
+        XCTAssertEqual(pressed, [4])
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner), "released again")
+        XCTAssertNil(p.swipeActions.perform(3), "the content is not an action")
+        // Projected by a touch, it is performed without projecting again.
+        p.swipeActions.touch(owner)
+        XCTAssertEqual(p.swipeActions.perform(4), true)
+        XCTAssertEqual(pressed, [4, 4])
+        turn()
+        var disable = BatchOp(op: .props, nodeID: 4); disable.props = ["disabled": "true"]
+        apply(p, [disable])
+        XCTAssertEqual(p.swipeActions.perform(4), false, "a disabled control offers no action")
+        XCTAssertEqual(pressed, [4, 4])
+    }
+
+    /// A content half a point short of its row (a hairline border on the
+    /// scroll) is refused with both sizes (splitter rough 10).
+    func testARefusalNamesTheSizesItCompared() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1])
+        XCTAssertNil(p.swipeActions.refusal(of: owner))
+        apply(p, [frame(3, 0, 300, 79.5)])
+        let refusal = try XCTUnwrap(p.swipeActions.refusal(of: owner))
+        XCTAssertTrue(refusal.contains("swipeContent \"body\" is 300x79.5, not the row's 300x80 border box"), refusal)
+        XCTAssertNotNil(owner.scroll, "and the row swipes by its scroll")
+    }
+
+    func testAProjectedCellFollowsTheRowsHeight() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), body = try XCTUnwrap(p.views[3])
+        p.swipeActions.touch(owner)
+        XCTAssertEqual(p.swipeActions.cell(of: owner)?.frame.height, 80)
+        apply(p, geometry(120))
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        XCTAssertEqual(cell.frame.height, 120, "the cell grows with the row")
+        XCTAssertEqual(body.bounds.height, 120)
+        XCTAssertTrue(body.isDescendant(of: cell.contentView))
+        apply(p, geometry(64))
+        XCTAssertEqual(p.swipeActions.cell(of: owner)?.frame.height, 64, "and shrinks with it")
+    }
+
+    /// A projected row mounted again with no batch's `prepare` first (as
+    /// VoiceOver starting mounts every row) carries its content into its
+    /// cell, not its table, so a tap makes no layer cycle.
+    func testAProjectedRowMountedAgainKeepsItsTableOutOfItsCell() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        p.swipeActions.touch(owner)
+        let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
+        p.swipeActions.sync()
+        let table = try XCTUnwrap(owner.subviews.first { $0 is UITableView })
+        XCTAssertTrue(table.superview === owner, "the table stays in the row")
+        XCTAssertTrue(row.superview === cell.contentView, "the content is the cell's")
+        turn()
+        XCTAssertTrue(row.superview === owner, "and goes home once released")
+    }
+}
+#endif

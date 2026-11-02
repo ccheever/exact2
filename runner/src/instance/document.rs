@@ -1,0 +1,495 @@
+//! The instance tree as a document's nodes, with no kernel.
+//!
+//! A render whose runner mirrors no kernel (a detached one, whose updates
+//! build no style or prop ops, [`Update::discard`]) writes its document from
+//! here. Each node's rows and props are folded from the values its bindings
+//! last took, as the ops a kernel would have applied leave them: a prop by
+//! its declared kind, a style row through the kernel's own `set_dynamic`, a
+//! value a row refuses (or `none`) unset. Its children are the tree's, in the
+//! order the tree gives its kernel. What a kernel would have refused — a row
+//! outside its domain, a child its parent can't hold, a tree too deep — is
+//! refused here too, and so is what the fold doesn't cover (a virtualized
+//! list, a relative length): the render then renders again with a kernel.
+
+use super::collection::views::ListChild;
+use super::*;
+use exact_kernel::id::IdMap;
+use exact_kernel::{NodeFacts, PropList, SortedMap, StyleId};
+use exact_plan::EventKind;
+use std::rc::Rc;
+
+/// One node of a document written without a kernel.
+#[derive(Debug)]
+pub struct DocNode {
+    /// Its view, as the kernel would have named it.
+    pub id: ViewId,
+    /// Its type.
+    pub node_type: NodeType,
+    /// Its parent, `None` for a root.
+    pub parent: Option<ViewId>,
+    /// Its children, in order.
+    pub children: Vec<ViewId>,
+    /// Its rows. Nodes whose style bindings read nothing share one, so a
+    /// projection can compute a style's CSS once for all of them.
+    pub style: Rc<StyleProps>,
+    /// Its props.
+    pub props: PropList,
+    /// Whether it is a root.
+    pub is_root: bool,
+    /// The plan node it realizes; `None` for a virtualized list's spacer or
+    /// row wrapper, which the list makes.
+    pub site: Option<NodesId>,
+}
+
+/// A document's nodes, from the runner's instance tree ([`Tree::document`]).
+#[derive(Debug, Default)]
+pub struct DocTree {
+    nodes: Vec<DocNode>,
+    index: IdMap<ViewId, u32>,
+    roots: Vec<ViewId>,
+    /// The nodes each `id` prop names, in tree order.
+    ids: std::collections::HashMap<String, Vec<ViewId>>,
+    /// Its styles' wide colours, kept from the table's sweep.
+    kept: exact_kernel::style::wide::Keep,
+}
+
+/// Why a tree has no kernel-free document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DocTreeError {
+    /// The fold doesn't cover this; a kernel render does.
+    Unsupported(&'static str),
+    /// A kernel would have refused the tree: a kernel render reports it.
+    Refused(String),
+}
+
+impl std::fmt::Display for DocTreeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DocTreeError::Unsupported(what) => write!(f, "not written without a kernel: {what}"),
+            DocTreeError::Refused(why) => write!(f, "a kernel would refuse the tree: {why}"),
+        }
+    }
+}
+
+impl DocTree {
+    /// The roots, in order.
+    pub fn roots(&self) -> &[ViewId] {
+        &self.roots
+    }
+
+    /// Every node, parents before their children.
+    pub fn nodes(&self) -> &[DocNode] {
+        &self.nodes
+    }
+
+    /// Every node, mutably, for the props the runner adds after the fold.
+    pub(crate) fn nodes_mut(&mut self) -> &mut [DocNode] {
+        &mut self.nodes
+    }
+
+    /// The node `id`.
+    pub fn node(&self, id: ViewId) -> Option<&DocNode> {
+        self.index.get(&id).map(|i| &self.nodes[*i as usize])
+    }
+
+    /// The facts a projection reads of node `id`.
+    pub fn facts(&self, id: ViewId) -> Option<NodeFacts<'_>> {
+        let node = self.node(id)?;
+        let inline_run = node.node_type == NodeType::Text
+            && node
+                .parent
+                .and_then(|p| self.node(p))
+                .is_some_and(|p| p.node_type == NodeType::Text);
+        Some(NodeFacts {
+            id: node.id,
+            node_type: node.node_type,
+            style: &node.style,
+            props: &node.props,
+            is_root: node.is_root,
+            inline_run,
+            symbol_color: self.symbol_color(node),
+        })
+    }
+
+    /// [`exact_kernel::NodeRef::symbol_color_said`] over this tree: the
+    /// nearest node that sets `color` decides, said when its author wrote
+    /// it, and where its author wrote none a start of the neutral sheet's
+    /// that sets `color` (`says`'s) stops the walk: a route header's, a
+    /// neutral alert's and its children's but its buttons'. (A field's start
+    /// sets it too, and a field holds no image.)
+    fn symbol_color(&self, node: &DocNode) -> bool {
+        use exact_kernel::style::metrics::{column, Column};
+        use exact_kernel::PropId;
+        let symbol = node.node_type == NodeType::Image
+            && node
+                .props
+                .str(PropId::ImageSource)
+                .is_some_and(|s| s.starts_with("symbol:"));
+        let parent = |n: &DocNode| n.parent.and_then(|p| self.node(p));
+        if !symbol || parent(node).is_some_and(|p| p.node_type == NodeType::Control) {
+            return false;
+        }
+        let neutral = column() == Column::Neutral;
+        let alert = |n: &DocNode| {
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("dialog")
+                && n.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        };
+        let button = |n: &DocNode| {
+            n.node_type == NodeType::Pressable && n.props.str(PropId::Href).is_none()
+                || exact_kernel::control::ControlKind::of(n.node_type, &n.props)
+                    == Some(exact_kernel::control::ControlKind::Button)
+        };
+        let starts = |n: &DocNode| {
+            let up = parent(n);
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("header")
+                && up.is_some_and(|p| p.props.get(PropId::NavigationKey).is_some())
+                || alert(n)
+                || up.is_some_and(&alert) && !button(n)
+        };
+        let mut at = Some(node);
+        while let Some(n) = at {
+            if n.style.written.has(StyleId::TextColor) {
+                return true;
+            }
+            if n.style.mask.has(StyleId::TextColor) || starts(n) {
+                return false;
+            }
+            at = parent(n);
+        }
+        false
+    }
+
+    /// The active head, as [`crate::Runner::head`] reads a kernel's tree.
+    pub fn head(&self) -> crate::Head {
+        crate::head::head_of(self.roots.clone(), |id| {
+            self.node(id)
+                .map(|n| (n.node_type, &n.props, n.children.clone()))
+        })
+    }
+
+    /// Every node's listener declarations, as [`crate::Runner::handlers`]
+    /// reads them for a kernel's live views.
+    pub fn handlers(&self, plan: &Plan) -> SortedMap<ViewId, Vec<EventKind>> {
+        self.nodes
+            .iter()
+            .filter_map(|n| Some((n.id, plan.node(n.site?).handlers)))
+            .filter(|(_, handlers)| handlers.len > 0)
+            .map(|(id, handlers)| (id, handlers.iter().map(|h| plan.handler(h).event).collect()))
+            .collect()
+    }
+
+    /// The node an SVG reference `#id` from `from` names, by the kernel's
+    /// rule (`Kernel::resolve_id`): the one node with that `id`, or of
+    /// several the nearest to `from`.
+    pub fn resolve_id(&self, from: ViewId, id: &str) -> Option<ViewId> {
+        match self.ids.get(id)?.as_slice() {
+            [] => None,
+            [one] => Some(*one),
+            several => exact_kernel::svg::refs::nearest(
+                several,
+                self.node(from)?.id,
+                |node| self.node(node).and_then(|n| n.parent),
+                |parent, child| {
+                    self.node(parent)
+                        .and_then(|p| p.children.iter().position(|c| *c == child))
+                        .unwrap_or(usize::MAX)
+                },
+            ),
+        }
+    }
+}
+
+impl Tree {
+    /// The document's nodes, from the values the tree's bindings last took.
+    pub(crate) fn document(
+        &self,
+        plan: &Plan,
+        sites: &SiteIndex,
+        fonts: Rc<RefCell<bridge::RuntimeFonts>>,
+    ) -> Result<DocTree, DocTreeError> {
+        let mut build = Build {
+            plan,
+            sites,
+            fonts,
+            doc: DocTree::default(),
+            shared: vec![None; plan.nodes.len()],
+        };
+        build.doc.roots = roots_of(&self.children);
+        // What the fold parses is kept from the sweep until its keep is made.
+        let _batch = exact_kernel::style::wide::Batch::open();
+        build.children(&self.children, None, 0)?;
+        // Its styles' wide colours, kept while the tree lives: it is no
+        // kernel's.
+        let nodes = &build.doc.nodes;
+        build.doc.kept = exact_kernel::style::wide::Keep::of(|m| {
+            for node in nodes {
+                exact_kernel::style::wide::Colors::colors(&*node.style, m);
+            }
+        });
+        Ok(build.doc)
+    }
+}
+
+struct Build<'p> {
+    plan: &'p Plan,
+    sites: &'p SiteIndex,
+    fonts: Rc<RefCell<bridge::RuntimeFonts>>,
+    doc: DocTree,
+    /// Each plan node's rows when every style binding it has reads nothing:
+    /// one allocation for all its instances.
+    shared: Vec<Option<Rc<StyleProps>>>,
+}
+
+impl Build<'_> {
+    fn children(
+        &mut self,
+        children: &[Child],
+        parent: Option<(ViewId, NodeType)>,
+        depth: u32,
+    ) -> Result<(), DocTreeError> {
+        for child in children {
+            match child {
+                Child::Node(n) => self.node(n, parent, depth)?,
+                Child::Region(r) => match &r.active {
+                    Active::Arm { roots, .. } => self.children(roots, parent, depth)?,
+                    Active::Rows { rows } => {
+                        for row in rows {
+                            self.children(&row.roots, parent, depth)?;
+                        }
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+
+    fn node(
+        &mut self,
+        n: &NodeInst,
+        parent: Option<(ViewId, NodeType)>,
+        depth: u32,
+    ) -> Result<(), DocTreeError> {
+        let wire = self.plan.node(n.node).node_type;
+        let node_type = NodeType::from_wire(wire)
+            .ok_or_else(|| DocTreeError::Refused(format!("unknown node type {wire}")))?;
+        // What the kernel's `SetChildren` checks (`txn::validate`).
+        if let Some((parent_view, parent_type)) = parent {
+            let refuse = |why: &str| {
+                Err(DocTreeError::Refused(format!(
+                    "view {parent_view} ({parent_type:?}) and child {} ({node_type:?}): {why}",
+                    n.view
+                )))
+            };
+            if !parent_type.can_hold_children() {
+                return refuse("a leaf holds no children");
+            }
+            if parent_type == NodeType::Text && !node_type.in_text() {
+                return refuse("a paragraph holds only inline runs and images");
+            }
+            if parent_type.is_svg_container() != node_type.is_svg_element() {
+                return refuse("an svg holds SVG elements, and they live only there");
+            }
+        }
+        if depth > exact_kernel::MAX_DEPTH {
+            return Err(DocTreeError::Refused(format!(
+                "view {} is deeper than {}",
+                n.view,
+                exact_kernel::MAX_DEPTH
+            )));
+        }
+        let (style, props) = self.fold(n)?;
+        let list = match n.collection() {
+            Some(list) => Some(
+                list.document_children(self.plan)
+                    .map_err(|e| DocTreeError::Refused(format!("{e:?}")))?,
+            ),
+            None => None,
+        };
+        let children = match &list {
+            Some(list) => list
+                .iter()
+                .map(|child| match child {
+                    ListChild::Spacer(view, _) | ListChild::Row(view, ..) => *view,
+                })
+                .collect(),
+            None => roots_of(&n.children),
+        };
+        self.push(DocNode {
+            id: n.view,
+            node_type,
+            parent: parent.map(|(view, _)| view),
+            children,
+            style,
+            props,
+            is_root: parent.is_none(),
+            site: Some(n.node),
+        });
+        let here = Some((n.view, node_type));
+        let Some(list) = list else {
+            return self.children(&n.children, here, depth + 1);
+        };
+        // A virtualized list: its spacers and its mounted rows' wrappers,
+        // which the list makes, around each row's root.
+        if depth + 1 > exact_kernel::MAX_DEPTH {
+            return Err(DocTreeError::Refused(format!(
+                "view {} is deeper than {}",
+                n.view,
+                exact_kernel::MAX_DEPTH
+            )));
+        }
+        for child in list {
+            let (view, style, props, roots) = match child {
+                ListChild::Spacer(view, style) => {
+                    let mut props = PropList::new();
+                    props.set(
+                        exact_kernel::PropId::AccessibilityElementsHidden,
+                        exact_kernel::PropValue::Bool(true),
+                    );
+                    (view, style, props, None)
+                }
+                ListChild::Row(view, style, props, roots) => (view, style, props, Some(roots)),
+            };
+            self.push(DocNode {
+                id: view,
+                node_type: NodeType::View,
+                parent: Some(n.view),
+                children: roots.map(roots_of).unwrap_or_default(),
+                style: Rc::new(style),
+                props,
+                is_root: false,
+                site: None,
+            });
+            if let Some(roots) = roots {
+                self.children(roots, Some((view, NodeType::View)), depth + 2)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, node: DocNode) {
+        if let Some(id) = node.props.str(exact_kernel::PropId::Id) {
+            self.doc
+                .ids
+                .entry(id.to_string())
+                .or_default()
+                .push(node.id);
+        }
+        self.doc.index.insert(node.id, self.doc.nodes.len() as u32);
+        self.doc.nodes.push(node);
+    }
+
+    /// The node's rows and props, as the kernel holds them after the ops its
+    /// bindings' values made (`NodeInst::emit_bindings`).
+    fn fold(&mut self, n: &NodeInst) -> Result<(Rc<StyleProps>, PropList), DocTreeError> {
+        let plan = self.plan;
+        let row = plan.node(n.node);
+        let deps = &self.sites.deps;
+        let constant = row.bindings.iter().all(|b| {
+            plan.binding(b).kind != BindingKind::Style || deps.bindings[b.0 as usize].is_constant()
+        });
+        let shared = constant
+            .then(|| self.shared[n.node.0 as usize].clone())
+            .flatten();
+        let mut props = PropList::new();
+        let mut patch = StyleProps::default();
+        for (i, b) in row.bindings.iter().enumerate() {
+            let binding = plan.binding(b);
+            let Some(value) = n.emitted(plan, self.sites, i) else {
+                continue;
+            };
+            let value = &value;
+            match binding.kind {
+                BindingKind::Prop => match bridge::prop_value(binding.id, value) {
+                    Ok((prop, value)) => {
+                        let value = bridge::icon_source(plan, prop, value);
+                        props.set(
+                            prop,
+                            bridge::atom_face_paint(plan, prop, value, &mut Vec::new()),
+                        );
+                    }
+                    // Cleared, with a journal line on a kernel's commit.
+                    Err(
+                        bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop),
+                    ) => {
+                        props.remove(prop);
+                    }
+                    Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
+                },
+                BindingKind::Style if shared.is_some() => {}
+                // `none` clears the row: unset in a fold from the default. An
+                // authored CSS-wide clear keeps its declaration's intent, as a
+                // kernel's `ClearStyle` does (`NodeInst::emit_bindings`).
+                BindingKind::Style if matches!(value, Value::Option(None)) => {}
+                BindingKind::Style if bridge::unsets(binding.id, value) => {
+                    if let (true, Some(style)) =
+                        (binding.written, StyleId::from_bit(binding.id as u32))
+                    {
+                        patch.written.set(style);
+                    }
+                }
+                BindingKind::Style => {
+                    let (family_value, family_id) =
+                        bridge::family_binding(plan, Some(&*self.fonts), &binding, value);
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            &mut patch,
+                            &binding,
+                            id,
+                            plan.stacks.len() + self.fonts.borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(&mut patch, &binding, family_value, plan)
+                    };
+                    match styled {
+                        Ok(StyleId::Animation) => {
+                            self.sites.keyframes.resolve(&mut patch.animation);
+                        }
+                        Ok(StyleId::ExitAnimation) => {
+                            self.sites.keyframes.resolve(&mut patch.rare.exit_animation);
+                        }
+                        Ok(_) => {}
+                        // A value its row refuses is unset, its declaration's
+                        // intent kept, as on a kernel (`ClearStyle`).
+                        Err(
+                            bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
+                        ) => {
+                            if let (true, Some(style)) =
+                                (binding.written, StyleId::from_bit(binding.id as u32))
+                            {
+                                patch.written.set(style);
+                            }
+                        }
+                        Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
+                    }
+                }
+            }
+        }
+        if let Some(style) = shared {
+            return Ok((style, props));
+        }
+        if !patch.relative.is_empty() {
+            // The kernel resolves `rem` and `em` against inherited font
+            // sizes; the fold doesn't.
+            return Err(DocTreeError::Unsupported("a relative length (rem, em)"));
+        }
+        if !plan.axes.is_empty() || !plan.theme.is_empty() && patch.mask.has(StyleId::ColorScheme) {
+            // A token's slice is the tuple around the node and a mode
+            // boundary's implied rows, which the instance tree keeps;
+            // the fold doesn't.
+            return Err(DocTreeError::Unsupported(
+                "a design's modes or a themed scheme boundary",
+            ));
+        }
+        patch
+            .validate_domain()
+            .map_err(|e| DocTreeError::Refused(format!("view {}: {e:?}", n.view)))?;
+        let style = Rc::new(patch);
+        if constant {
+            self.shared[n.node.0 as usize] = Some(Rc::clone(&style));
+        }
+        Ok((style, props))
+    }
+}

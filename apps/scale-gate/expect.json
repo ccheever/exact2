@@ -1,0 +1,7 @@
+{
+ "background": "#ffffff",
+ "boxes": [
+  { "testId": "cards-card", "child": "cards-inner", "padding": 20, "radius": "radius.md", "fill": "#0000ff" },
+  { "testId": "notes-note", "child": "notes-inner", "padding": 20, "radius": "radius.lg", "fill": "#ff0000" }
+ ]
+}

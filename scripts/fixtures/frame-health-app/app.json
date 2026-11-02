@@ -1,0 +1,31 @@
+{
+  "$schema": "../../app.schema.json",
+  "name": "Frame Health",
+  "app": {
+    "id": "com.exact.framehealth",
+    "name": "Frame Health"
+  },
+  "frame_health": {
+    "mode": "core"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "27.0",
+      "deviceFamily": [
+        "iphone"
+      ]
+    }
+  },
+  "deploy": {
+    "store": {
+      "ios": "0"
+    }
+  },
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ]
+}

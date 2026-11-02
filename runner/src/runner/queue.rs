@@ -1,0 +1,459 @@
+//! Sends that wait their turn: a `queue` mutation has one
+//! request in flight; a later send waits, with the arguments it was made
+//! with, and is asked in a `next` commit of its own once the mutation is
+//! free — its reply landed or let go, and that reply's `then` run.
+//!
+//! The waiting sends and the stalls are in the commit's checkpoint, so a
+//! refused action queues nothing and a refused `next` puts its head back.
+//! `next_due` is not: like `then_due` it is cleared before its commit, and
+//! armed only by the scan ([`Runner::arm_next`]) after a commit concludes.
+
+use super::modules::CallOrigin;
+use super::*;
+use std::collections::VecDeque;
+use std::rc::Rc;
+
+/// At most this many sends wait per mutation; the send in
+/// flight does not count. One more refuses its action: dropping a write
+/// silently is the bug a queue removes.
+pub const QUEUE_BOUND: usize = 64;
+
+/// A send that waits: the source it names and its send-time arguments.
+#[derive(Clone)]
+pub(super) struct Waiting {
+    source: String,
+    args: Vec<Value>,
+    /// The origin of the commit that sent it, which its `next` runs under.
+    origin: CallOrigin,
+    /// The invocation that commit was part of; 0 for none.
+    id: u64,
+}
+
+/// The state a refused `next` saw. A standing commit that changes a slot,
+/// a resource or a derive value from it clears the stall; one that
+/// changes none of them leaves the send waiting, so a permanently failing
+/// ask is not retried every frame.
+pub(super) struct Basis {
+    slots: Vec<Value>,
+    derives: Vec<Option<Value>>,
+    resources: Vec<Option<crate::held::Held>>,
+}
+
+/// Every mutation's waiting sends, when its head is due, and its stall.
+#[derive(Default)]
+pub(super) struct Queues {
+    waiting: Vec<VecDeque<Waiting>>,
+    /// When each mutation's head is asked, as a one-shot timer: infinite
+    /// while nothing is due. Reported by `timer_due_ms` as `then_due` is.
+    pub(super) next_due: Vec<f64>,
+    stalled: Vec<Option<Rc<Basis>>>,
+    /// The last advance stopped on a `next`'s refusal: a frame's armed
+    /// frame tasks fire anyway.
+    pub(super) stopped_on_next: bool,
+}
+
+/// What a commit's checkpoint keeps of the queues.
+pub(super) struct Saved {
+    waiting: Vec<VecDeque<Waiting>>,
+    stalled: Vec<Option<Rc<Basis>>>,
+}
+
+/// How a `next` commit was refused: by its own ask (the source erred, or
+/// its answer missed the shape), which can never succeed, or by anything
+/// else, which may once the state changes.
+pub(super) enum NextRefusal {
+    Ask,
+    Other,
+}
+
+impl Queues {
+    pub(super) fn new(mutations: usize) -> Queues {
+        Queues {
+            waiting: vec![VecDeque::new(); mutations],
+            next_due: vec![f64::INFINITY; mutations],
+            stalled: vec![None; mutations],
+            stopped_on_next: false,
+        }
+    }
+
+    pub(super) fn save(&self) -> Saved {
+        Saved {
+            waiting: self.waiting.clone(),
+            stalled: self.stalled.clone(),
+        }
+    }
+
+    pub(super) fn restore(&mut self, s: Saved) {
+        self.waiting = s.waiting;
+        self.stalled = s.stalled;
+    }
+
+    /// Whether a send of `m` waits.
+    pub(super) fn waits(&self, m: usize) -> bool {
+        self.waiting.get(m).is_some_and(|w| !w.is_empty())
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Whether `m` is free: no request of it in flight, neither its
+    /// `then` nor its `next` armed, and not stalled. Checked from state,
+    /// never from the kind of commit.
+    fn idle(&self, m: usize) -> bool {
+        !self.pending.iter().any(|p| p.target == Target::Mutation(m))
+            && !self.then_due[m].is_finite()
+            && !self.queues.next_due[m].is_finite()
+            && self.queues.stalled[m].is_none()
+    }
+
+    /// Whether a send of queue mutation `m` made now is asked now:
+    /// `m` is free and no send waits before it.
+    pub(super) fn asks_now(&self, m: usize) -> bool {
+        self.idle(m) && !self.queues.waits(m)
+    }
+
+    /// A send of `m` that joins its queue: nothing is asked and nothing
+    /// read again until its turn. The 65th waiter refuses its action.
+    pub(super) fn wait_turn(
+        &mut self,
+        m: usize,
+        source: &str,
+        args: &[Value],
+    ) -> Result<(), RunnerError> {
+        if self.queues.waiting[m].len() >= QUEUE_BOUND {
+            return Err(RunnerError::QueueFull {
+                mutation: self.plan.str(self.plan.mutations[m].name).to_string(),
+            });
+        }
+        let (origin, id) = (self.call_origin(), self.invocation_id());
+        self.queues.waiting[m].push_back(Waiting {
+            source: source.to_string(),
+            args: args.to_vec(),
+            origin,
+            id,
+        });
+        self.pending_mut[m] = true;
+        Ok(())
+    }
+
+    /// The scan, after every commit concludes, whether it stood or
+    /// was refused: a stalled
+    /// mutation whose basis a standing commit changed is let go, and a
+    /// free mutation with a send waiting is due now.
+    pub(super) fn arm_next(&mut self, stood: bool) {
+        for m in 0..self.queues.waiting.len() {
+            if stood
+                && self.queues.stalled[m]
+                    .as_ref()
+                    .is_some_and(|b| self.changed_from(b))
+            {
+                self.queues.stalled[m] = None;
+            }
+            // A head made before the source could answer waits for it, as
+            // an unqueued send does (`unsent`); `data_ready` scans again.
+            let ready = self.data.ready()
+                || self.queues.waiting[m]
+                    .front()
+                    .is_some_and(|w| exact_plan::runner_owned_source(&w.source));
+            if self.queues.waits(m) && self.idle(m) && ready {
+                self.queues.next_due[m] = self.armed_at();
+            }
+        }
+    }
+
+    /// Whether a slot, resource or derive value differs from `basis`.
+    fn changed_from(&self, basis: &Basis) -> bool {
+        use crate::compare::equivalent;
+        let held = |a: &Option<crate::held::Held>, b: &Option<crate::held::Held>| match (a, b) {
+            (Some(a), Some(b)) => crate::held::Held::equivalent(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        let derive = |a: &Option<Value>, b: &Option<Value>| match (a, b) {
+            (Some(a), Some(b)) => equivalent(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        !(basis.slots.len() == self.slots.len()
+            && basis
+                .slots
+                .iter()
+                .zip(&self.slots)
+                .all(|(a, b)| equivalent(a, b))
+            && basis
+                .derives
+                .iter()
+                .zip(&self.derives)
+                .all(|(a, b)| derive(a, b))
+            && basis
+                .resources
+                .iter()
+                .zip(&self.resource_values)
+                .all(|(a, b)| held(a, b)))
+    }
+
+    /// The earliest due `next` by `now_ms`, by index on ties.
+    pub(super) fn due_next(&self, now_ms: f64) -> Option<(usize, f64)> {
+        self.queues
+            .next_due
+            .iter()
+            .enumerate()
+            .filter(|(_, at)| **at <= now_ms)
+            .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
+            .map(|(m, at)| (m, *at))
+    }
+
+    /// A `next` commit: `m`'s head, popped and asked as an action's
+    /// send is. Its own ask's refusal drops the head (it can never be
+    /// asked) and the successor is due; any other refusal keeps the head
+    /// and stalls `m` until a standing commit changes the state.
+    pub(super) fn run_next(&mut self, m: usize) -> Result<CommitReceipt, RunnerError> {
+        self.queues.next_due[m] = f64::INFINITY;
+        let name = self.plan.str(self.plan.mutations[m].name).to_string();
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let (origin, id) = self.queues.waiting[m]
+            .front()
+            .map_or((CallOrigin::App, 0), |w| (w.origin, w.id));
+        let next = self.as_invocation(origin, id, |r| r.next_inner(m, &name));
+        let (result, refusal) = match next {
+            Ok(receipt) => (Ok(receipt), None),
+            Err((e, why)) => (Err(e), Some(why)),
+        };
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        // The commit that tells the view `pending` ended is the host's to
+        // apply, its refusal the host's to hear, as a failed reply's is.
+        let mut ended = None;
+        if let Err(e) = &result {
+            if self.poisoned {
+                self.log_outcome(&format!("{name} next"), &result, was_poisoned);
+            } else if let Some(NextRefusal::Ask) = refusal {
+                let was = self.pending_mut[m];
+                self.queues.waiting[m].pop_front();
+                let shown = self.end_write(m, None);
+                self.sync_pending_flags();
+                self.log(format!("{name} queued send refused: {e:?}"));
+                // Nothing waits behind it and nothing is in flight: the
+                // view hears `pending` end, as after a failed reply; and
+                // the resources its write showed in drop it.
+                if (was && !self.pending_mut[m]) || shown {
+                    ended = Some(self.commit_again(Vec::new(), "a refused queued send"));
+                }
+            } else {
+                self.queues.stalled[m] = Some(Rc::new(Basis {
+                    slots: self.slots.clone(),
+                    derives: self.derives.clone(),
+                    resources: self.resource_values.clone(),
+                }));
+                self.log(format!("{name} next refused ({e:?}); waits for a change"));
+            }
+        }
+        self.arm_next(result.is_ok());
+        ended.unwrap_or(result)
+    }
+
+    fn next_inner(
+        &mut self,
+        m: usize,
+        name: &str,
+    ) -> Result<CommitReceipt, (RunnerError, NextRefusal)> {
+        let other = |e| (e, NextRefusal::Other);
+        if self.poisoned {
+            return Err(other(RunnerError::Poisoned));
+        }
+        let Some(head) = self.queues.waiting[m].pop_front() else {
+            return self.update().map_err(other);
+        };
+        let waiting = self.queues.waiting[m].len();
+        self.log(format!("{name} next ({waiting} waiting)"));
+        // Inside next's checkpoint: a refused settlement restores the old failure.
+        self.failed_mut[m] = None;
+        let later = match self.ask_send(m, &head.source, &head.args) {
+            Ok(Asked::Now(slot, value)) => {
+                self.slots[slot] = value;
+                self.landed.push(m);
+                None
+            }
+            Ok(Asked::Later(request)) => Some(request),
+            Ok(Asked::Failed) => None,
+            Err(e) => return Err((e, NextRefusal::Ask)),
+        };
+        self.sync_pending_flags();
+        if later.is_some() {
+            self.pending_mut[m] = true;
+        }
+        // Answered at once, it has landed: what it changes is asked, as an
+        // action's or a reply's landing asks it. In flight, its write shows
+        // through the overlay.
+        if self.landed.contains(&m) {
+            for r in self.declared_refreshes(m) {
+                self.force_refresh(r);
+            }
+        }
+        if let Err(e) = self
+            .router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| {
+                // As in an action's commit: the request goes out after the
+                // step, and a gate reads it pending.
+                self.pending_mut[m] |= later.is_some();
+                self.gate_step()
+            })
+        {
+            if let Some(request) = &later {
+                self.discard_request(request);
+            }
+            return Err(other(e));
+        }
+        if let Some(request) = later {
+            self.enqueue(Target::Mutation(m), head.source, head.args, request, false);
+        }
+        self.update().map_err(other)
+    }
+
+    /// Whether a send of invocation `id` waits its turn.
+    pub(super) fn queued_of(&self, id: u64) -> bool {
+        id != 0 && (self.queues.waiting.iter()).any(|w| w.iter().any(|s| s.id == id))
+    }
+
+    /// Drop the waiting sends of invocation `id`, one journal line per
+    /// mutation.
+    pub(super) fn drop_queued_of(&mut self, id: u64) {
+        if id == 0 {
+            return;
+        }
+        for m in 0..self.queues.waiting.len() {
+            let before = self.queues.waiting[m].len();
+            self.queues.waiting[m].retain(|s| s.id != id);
+            let n = before - self.queues.waiting[m].len();
+            if n > 0 {
+                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+                self.log(super::lines::forgot_waiting(n, &name));
+            }
+        }
+        self.sync_pending_flags();
+    }
+
+    /// Drop every waiting send — poison, or a reload that does not carry
+    /// them. They were never asked: no ticket, no source call, one
+    /// journal line per mutation.
+    pub(super) fn forget_waiting(&mut self) {
+        for m in 0..self.queues.waiting.len() {
+            let n = std::mem::take(&mut self.queues.waiting[m]).len();
+            self.queues.next_due[m] = f64::INFINITY;
+            self.queues.stalled[m] = None;
+            if n > 0 {
+                let name = self.plan.str(self.plan.mutations[m].name).to_string();
+                self.log(super::lines::forgot_waiting(n, &name));
+            }
+        }
+    }
+
+    /// Each mutation with sends waiting, and how many (the agent's
+    /// `state.queued`).
+    pub fn queued(&self) -> Vec<(String, usize)> {
+        self.queues
+            .waiting
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| !w.is_empty())
+            .map(|(m, w)| {
+                (
+                    self.plan.str(self.plan.mutations[m].name).to_string(),
+                    w.len(),
+                )
+            })
+            .collect()
+    }
+}
+
+/// What asking a send gave: an answer now for the mutation's slot, or a
+/// request for the host.
+// (most sends that reach the host are requests: boxing one would cost each an allocation)
+#[allow(clippy::large_enum_variant)]
+pub(super) enum Asked {
+    Now(usize, Value),
+    Later(Request),
+    Failed,
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Ask the source for one send of `m`: an answer now must
+    /// conform to the mutation's shape.
+    pub(super) fn ask_send(
+        &mut self,
+        m: usize,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Asked, RunnerError> {
+        let ty = self.plan.mutations[m].ty;
+        let name = |plan: &Plan| plan.str(plan.mutations[m].name).to_string();
+        self.snapshot_sockets();
+        self.store.set_clock_ms(self.now_ms);
+        self.mutation_requests += 1;
+        let answer = if Self::activity_send(source) {
+            self.activity_request(source, args)
+        } else if self.plan.module_named(source).is_some() {
+            // A native module's send: the runner's substitute.
+            self.module_send(m, source, args)
+        } else {
+            let answer = self
+                .data
+                .answer_for(Target::Mutation(m), &mut self.store, source, args);
+            self.refuse_locked(answer)
+        };
+        // What its source staged on sockets goes out only with an answer
+        // now that conforms; what the turns after its
+        // source sent goes whatever it answers.
+        self.stage_answer(Target::Mutation(m));
+        let staged = self.store.take_sockets();
+        // A mutation's console lines, including a refusal, reach the agent's
+        // logs whether the answer comes now or the send waited its turn.
+        self.hear_aborted();
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
+        if let Err(DataError::Failed(code, why, reason)) = &answer {
+            self.failed_mut[m] = Some(crate::failure::Failure {
+                code: *code,
+                message: why.clone(),
+                reason: reason.clone(),
+            });
+            self.alert(super::lines::send_failed_now(&name(&self.plan), why));
+            self.end_write(m, None);
+            return Ok(Asked::Failed);
+        }
+        let answer = answer.map_err(|error| RunnerError::Data {
+            resource: name(&self.plan),
+            error,
+        })?;
+        match answer {
+            Answer::Now(v) => {
+                if !self.conforms(&v, ty) {
+                    return Err(self.shape(name(&self.plan), &v, ty));
+                }
+                if let Err(why) = self.stage_sockets(m, staged) {
+                    self.alert(super::lines::send_failed_now(&name(&self.plan), &why));
+                    self.end_write(m, None);
+                    return Ok(Asked::Failed);
+                }
+                let slot = self.mutation_slot(m)?;
+                self.land_write(m, None, &v);
+                Ok(Asked::Now(slot, Value::some(v)))
+            }
+            Answer::Later(_) if !staged.is_empty() => {
+                let why = "a socket mutation must answer synchronously";
+                self.alert(super::lines::send_failed_now(&name(&self.plan), why));
+                self.end_write(m, None);
+                Ok(Asked::Failed)
+            }
+            Answer::Later(request) => Ok(Asked::Later(request)),
+        }
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Mutation source requests issued this incarnation, excluding continuations and reads.
+    /// Monotonic across a refused commit: the source was actually asked.
+    pub fn mutation_requests(&self) -> u64 {
+        self.mutation_requests
+    }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "auth-fixture",
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@exact/attestation": "file:../../packages/attestation",
+    "@exact/passkeys": "file:../../packages/passkeys",
+    "@exact/sign-in": "file:../../packages/sign-in"
+  }
+}

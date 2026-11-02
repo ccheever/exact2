@@ -1,0 +1,2140 @@
+# Reject fixtures: one per diagnostic id. Format: `id` line, then the source
+# until the next `---` line. The test asserts the compiler rejects each with
+# exactly that id; each rule has a reject fixture.
+== contract-no-imports
+use theme from "@exact/facet-contract"
+component A
+  view
+    text "a"
+---
+== type-unknown-name
+component A
+  view
+    text missing
+---
+== type-unknown-field
+shape S
+  a: string
+component A
+  resource s = s() as shape S
+  view
+    text s.b
+---
+== type-arity
+component A
+  view
+    text formatTime(1, 2)
+---
+== type-argument
+component A
+  view
+    text formatTime("no", 0, "short")
+---
+== type-format-style
+component A
+  state kind = "medium"
+  view
+    text formatDate(0, 0, kind)
+---
+== type-literal-digits
+component A
+  view
+    text (1.5).toFixed(101)
+---
+== type-list-item
+component A
+  state xs = [1, "two"]
+  view
+    text "a"
+---
+== type-operand
+component A
+  derive x = 1 + "a"
+  view
+    text "a"
+---
+== type-branches
+component A
+  state on = true
+  view
+    text on ? "a" : 1
+---
+== type-cannot-infer
+component A
+  state x = none
+  view
+    text "a"
+---
+== type-assign
+component A
+  state n = 1
+  action bad
+    n = "one"
+  view
+    text "a"
+---
+== type-unknown-function
+shape Router
+  label: string
+component App
+  resource value = loadRouter() as shape Router
+  derive invalid = open(value, "/")
+  view
+    text "home"
+---
+== type-each-list
+component A
+  state n = 1
+  view
+    for x in n key=x
+      text "a"
+---
+== type-match-subject
+component A
+  state n = 1
+  view
+    match n
+      case some(x)
+        text "a"
+      case none
+        text "b"
+---
+== syntax-expression-depth
+component A
+  derive d = (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  view
+    text "a"
+---
+== syntax-unquoted-length
+component A
+  view
+    column width=10px
+      text "a"
+---
+== syntax-missing-prop
+component A
+  view
+    B()
+component B
+  props
+    label: string
+  view
+    text label
+---
+== type-prop
+component A
+  view
+    B(label=1)
+component B
+  props
+    label: string
+  view
+    text label
+---
+== type-duplicate-name
+component A
+  provide
+    x = "provided"
+  view
+    B(x="prop")
+component B
+  props
+    x: string
+  inject
+    x: string
+  view
+    text x
+---
+== type-provide
+component A
+  provide
+    accent = 1
+  view
+    Label()
+component Label
+  inject
+    accent: string
+  view
+    text accent
+---
+== syntax-writes-clause
+# An action's effects are inferred from its body.
+# Two spaces before `writes` keep the clause-removing rewrite off this one.
+component A
+  state n = 1
+  action bump  writes n
+    n = 2
+  view
+    text "a"
+---
+== analyze-unknown-action
+component A
+  state n = 1
+  view
+    button press=n
+      text "a"
+---
+== analyze-handler-arity
+component A
+  state n = 1
+  action set(v: number)
+    n = v
+  view
+    button press=set
+      text "a"
+---
+== type-child-resource
+# A child may own state, derives, and actions — never a
+# resource, mutation, or task: a row must not open N requests.
+shape S
+  id: string
+component A
+  view
+    Row()
+component Row
+  resource s = s() as shape S
+  view
+    text s.id
+---
+== type-persist-child
+# `persist` is the root's: a child's state lives as long as
+# each of its instances.
+component A
+  view
+    Row()
+component Row
+  state open = false persist
+  view
+    text "r"
+---
+== type-persist-type
+# A list of records is app data: it belongs in a source.
+shape Item
+  id: string
+component A
+  state items = [Item(id="a")] persist
+  view
+    text "a"
+---
+== syntax-persist-derive
+component A
+  state x = 1
+  derive d = x persist
+  view
+    text "a"
+---
+== type-derive-cycle
+component A
+  derive a = b + 1
+  derive b = a + 1
+  view
+    text "a"
+---
+== analyze-root-props
+component A
+  props
+    x: number
+  view
+    text "a"
+---
+== lower-unknown-tag
+component A
+  view
+    widget "a"
+---
+== lower-unknown-attr
+component A
+  view
+    text "a" resizeMode="cover"
+---
+== lower-attr-tag
+component A
+  view
+    image src="picture.png"
+---
+== lower-one-root
+component A
+  view
+    text "a"
+    text "b"
+---
+== lower-timer-literal
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t mount
+    every(n, tick)
+  view
+    text "a"
+---
+== lower-timer-interval
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t mount
+    every(0, tick)
+  view
+    text "a"
+---
+== lower-timer-interval
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t mount
+    after(0, tick)
+  view
+    text "a"
+---
+== contract-task-body
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t mount
+    later(60, tick)
+  view
+    text "a"
+---
+== syntax-task-start
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-gate
+component A
+  state toast = ""
+  action tick
+    toast = ""
+  task t when toast
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-key
+shape P
+  x: number
+component A
+  state p = P(x=1)
+  action tick
+    p = P(x=2)
+  task t key=p
+    after(60, tick)
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t when performanceNow() < 1000
+    every(60, tick)
+  view
+    text "a"
+---
+== type-now-renamed
+# `now()` reads as `Date.now()`; the clock is `performanceNow()`.
+component A
+  state at = 0
+  action stamp
+    at = now() + 7 * 86400000
+  view
+    text "a"
+---
+== lower-leaf-children
+component A
+  state q = ""
+  action set(v)
+    q = v
+  view
+    input value=q change=set
+      text "inside an input"
+---
+== lower-leaf-children
+# An image in text is its paragraph's own child.
+component A
+  view
+    text
+      text
+        image "app:/a.png"
+---
+== lower-css-shorthand
+# `top` aligns to the line box, which is not built.
+component A
+  view
+    text
+      image "app:/a.png" vertical-align="top"
+---
+== lower-native-attr
+# A known row a module's box never uses is refused, not bound
+# to nothing while the module waits for the prop.
+component A
+  view
+    ghostty-terminal testId="term" width=320 height=200 appearance="dark"
+---
+== lower-attr-value
+component A
+  view
+    column width=true
+      text "a"
+---
+== lower-attr-type
+component A
+  view
+    text 1
+---
+== lower-root-region
+component A
+  state on = true
+  view
+    if on
+      text "a"
+    else
+      text "b"
+---
+== lower-scroll-unbounded
+component A
+  view
+    column
+      scroll
+        text "a"
+---
+== lower-zero-size
+component A
+  state n = 0
+  action go
+    n = 1
+  view
+    column
+      button press=go testId="go"
+---
+== analyze-action-arity
+component A
+  state n = ""
+  action pick(id: string)
+    n = id
+  provide
+    press = pick
+  view
+    Row()
+component Row
+  inject
+    press: action
+  view
+    button press=press testId="r"
+      text "r"
+---
+== type-condition
+component A
+  state n = 0
+  action go
+    if n
+      n = 1
+  view
+    text `${n}`
+---
+== contract-style-literal
+style Card
+  padding=16 gap=n
+component A
+  view
+    text "a"
+---
+== lower-unknown-class
+component A
+  view
+    column class=Card
+      text "a"
+---
+== lower-style-attr
+style Card
+  padding=16 testId="card"
+component A
+  view
+    column class=Card
+      text "a"
+---
+== lower-style-duplicate
+style Card
+  padding=16
+style Card
+  padding=8
+component A
+  view
+    column class=Card
+      text "a"
+---
+== type-class-name
+component A
+  view
+    column class="Card"
+      text "a"
+---
+== type-class-name
+style Card
+  padding=16
+component A
+  state on = true
+  view
+    column class=(on ? Card : "Card")
+      text "a"
+---
+== lower-unknown-class
+style Card
+  padding=16
+component A
+  state on = true
+  view
+    column class=(on ? Card : Chip)
+      text "a"
+---
+== contract-use-unresolved
+use Row from "./row.contract"
+component A
+  view
+    text "a"
+---
+== syntax-missing-provide
+component App
+  view
+    column
+      Label(text="a")
+component Label
+  props
+    text: string
+  inject
+    accent: string
+  view
+    text text color=accent
+---
+== syntax-provide-in-view
+# `provide` is a component section.
+component App
+  view
+    column
+      provide accent = "#fff"
+        Label()
+component Label
+  inject
+    accent: string
+  view
+    text accent
+---
+== syntax-no-slot
+component App
+  view
+    column
+      Plain()
+        text "under"
+component Plain
+  view
+    text "plain"
+---
+== syntax-children-without-slot
+component App
+  view
+    column
+      children
+---
+== type-fn-return
+fn f(n: number): string = n + 1
+component A
+  view
+    text f(1)
+---
+== type-fn-recursive
+fn f(n: number): number = f(n)
+component A
+  view
+    text `${f(1)}`
+---
+== syntax-expected-step
+test "t"
+  jump "a"
+component A
+  view
+    text "a"
+---
+== syntax-empty-block
+component A
+  view
+    if true
+    text "always"
+---
+== type-unknown
+component A
+  props
+    callback: actionfoo
+  view
+    text "a"
+---
+== type-unknown
+component A
+  props
+    callback: actionable
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  props
+    a: string
+  props
+    b: string
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  inject
+    a: string
+  inject
+    b: string
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  view
+    text "first"
+  view
+    text "second"
+---
+== syntax-duplicate-declaration
+component A
+  slot
+  slot
+  view
+    children
+---
+== syntax-contract-block
+# Assertions belong in `test` blocks beside the app.
+component A
+  contract
+    has text "first"
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  view
+    text "first"
+component A
+  view
+    text "second"
+---
+== syntax-duplicate-declaration
+shape Pair
+  left: string
+  left: number
+component A
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+fn same(value: number, value: number): number = value
+component A
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  action same(value: number, value: number)
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  task ticker mount
+    every(1000, tick)
+    every(2000, tick)
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  state choice = some("a")
+  action choose
+    match choice
+      case some(value)
+        choice = some(value)
+      case some(other)
+        choice = some(other)
+      case none
+        choice = none
+  view
+    text "a"
+---
+== syntax-duplicate-declaration
+component A
+  state choice = some("a")
+  view
+    column
+      match choice
+        case some(value)
+          text value
+        case none
+          text "none"
+        case none
+          text "still none"
+---
+== type-handler-payload
+component A
+  state value = 0
+  action changed(next: number)
+    value = next
+  view
+    input change=changed
+---
+== type-handler-payload
+component A
+  state value = 0
+  action keyed(next: number)
+    value = next
+  view
+    input key=keyed
+---
+== type-handler-payload
+component A
+  state value = 0
+  action messaged(next: number)
+    value = next
+  view
+    iframe "/guest" message=messaged
+---
+== type-handler-payload
+component A
+  state value = ""
+  action hovered(next: string)
+    value = next
+  view
+    column hover=hovered
+      text "a"
+---
+== lower-attr-value
+component A
+  view
+    column aria-level=1.5
+      text "heading"
+---
+== lower-attr-value
+component A
+  view
+    column aria-level=9223372036854775808
+      text "heading"
+---
+== type-shape-recursive
+shape Link
+  next: option<Link>
+component A
+  view
+    text "a"
+---
+== type-shape-recursive
+shape Left
+  right: Right[]
+shape Right
+  left: option<Left>
+component A
+  view
+    text "a"
+---
+== type-source-signature
+# One source, one signature — `same` takes a string here and a
+# number there, so the plan's `sources` table cannot say what it takes.
+shape S
+  a: string
+component A
+  resource one = same("x") as shape S
+  resource two = same(1) as shape S
+  view
+    text one.a
+---
+== bake-viewport-field
+# The runner cannot fill an unknown viewport field.
+shape Viewport
+  depth: number
+component A
+  resource viewport = exactViewport() as shape Viewport
+  view
+    text `${viewport.depth}`
+---
+---
+== bake-page-field
+# The runner cannot fill an unknown page field.
+shape Page
+  focused: bool
+component A
+  resource page = exactPage() as shape Page
+  view
+    text (page.focused ? "yes" : "no")
+---
+---
+== lower-scheme-color
+# A colour branches on the system's scheme; `light-dark()` does it.
+shape M
+  prefersColorScheme: string
+component A
+  resource m = exactViewport() as shape M
+  view
+    text "a" color=(m.prefersColorScheme == "dark" ? "#ffffff" : "#000000")
+---
+== route-duplicate
+routes nav
+  home "/"
+  home "/other"
+component App
+  view
+    text "home"
+---
+== route-shadowed
+routes nav
+  home "/"
+  person "/people/:person"
+  newPerson "/people/new"
+component App
+  view
+    text "home"
+---
+== route-parent-param
+routes nav
+  home "/"
+    post "/post/:post"
+      edit "/edit"
+component App
+  view
+    text "home"
+---
+== route-pattern
+routes nav
+  home "/"
+  wildcard "/posts/*"
+component App
+  view
+    text "home"
+---
+== route-no-match
+routes nav
+  home "/"
+  notfound
+component App
+  action visit
+    nav = open(nav, "/missing")
+  view
+    text "home"
+---
+== route-root
+routes nav
+  tab search "/search"
+component App
+  view
+    text "search"
+---
+== route-unknown
+routes nav
+  home "/"
+component App
+  action visit
+    nav = push(nav, path("missing"))
+  view
+    text "home"
+---
+== route-template
+routes nav
+  home "/"
+    post "/post/:post"
+component App
+  action visit(id: string)
+    nav = push(nav, `/post/${id}`)
+  view
+    text "home"
+---
+== type-haptic
+component App
+  state big = false
+  action buzz
+    haptic(big ? "heavy" : "impact-light")
+  view
+    button press=buzz
+      text "Buzz"
+---
+== analyze-routes-not-root
+routes nav
+  home "/"
+shape Shared
+  label: string
+---
+== type-shape-reserved
+routes nav
+  home "/"
+shape Entry
+  url: string
+component App
+  view
+    text "home"
+
+---
+== lower-navigate-root
+component A
+  state location = ""
+  action follow(url: string)
+    location = url
+  view
+    main navigationKey="home" navigationBack="back"
+      column navigate=follow navigationKey="home"
+        text "Home"
+---
+== lower-route-place
+# A route behind a wrapper is found by no host.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      column align-items="center"
+        for e in stack(nav) key=e.id
+          column navigationKey=`${e.id}`
+            text e.url
+---
+== lower-route-scroll
+# A route's navigationScroll names an id nothing in the route carries.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
+          scroll id="feed" height=400
+            text e.url
+---
+== syntax-continuation-indent
+# An element's attributes continue only on lines deeper
+# than the element's; at its own depth `width=` is neither a child nor a
+# continuation.
+component A
+  view
+    column gap=8
+      text "a"
+    width=40
+---
+== analyze-action-arity
+# `Row` invokes `pick` with one argument, the id, but
+# `App` binds it to `choose`, which takes two — both sides are named.
+shape Item
+  id: string
+component App
+  state chosen = ""
+  action choose(id: string, why: string)
+    chosen = id
+  resource items = items() as shape Item[]
+  view
+    column
+      for item in items key=item.id
+        Row(item=item, pick=choose)
+component Row
+  props
+    item: Item
+    pick: action
+  view
+    button press=pick(item.id)
+      text item.id
+
+---
+== syntax-named-argument
+component App
+  view
+    canvas surface=world(seed: 7)
+---
+== lower-route-field
+# A route's policy is a word it knows.
+routes nav
+  tab home "/" render=static
+component A
+  view
+    text "a"
+---
+== type-placeholder-reads
+# A placeholder's arguments are values, answered once at build.
+shape S
+  a: string
+component A
+  state id = "x"
+  resource s = s(id) as shape S else blank(id)
+  view
+    text s.a
+---
+== type-unknown-command
+# An action body's call names a host command; any other name is a no-op on every host.
+component A
+  action go
+    beep("x")
+  view
+    button press=go
+      text "a"
+---
+== type-unknown-command
+# An action of another component is out of this one's scope: a call reaches
+# its own component's actions, its action props and its injects.
+component App
+  state n = 1
+  action begin
+    n = 2
+  view
+    Child()
+component Child
+  state m = 0
+  action go
+    begin()
+  view
+    button press=go
+      text "a"
+---
+== type-call-arity
+# A call passes every parameter the action takes.
+component A
+  state n = 1
+  action set(x: number, y: number)
+    n = x + y
+  action go
+    set(1)
+  view
+    button press=go
+      text "a"
+---
+== type-call-value
+# A call is a statement: it gives no value.
+component A
+  state n = 1
+  action begin
+    n = 2
+  action go
+    let x = begin()
+    n = 3
+  view
+    button press=go
+      text "a"
+---
+== type-call-action-arg
+# A call passes values, never an action.
+component A
+  state n = 1
+  action begin
+    n = 2
+  action run(what)
+    n = 3
+  action go
+    run(begin)
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-cycle
+# No action calls itself, directly or through others.
+component A
+  state n = 1
+  action go
+    n = 2
+    go()
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-target
+# A called action prop names an action where it is bound.
+component App
+  state n = 1
+  view
+    Child(cb=n + 1)
+component Child
+  props
+    cb: action
+  state m = 0
+  action go
+    cb()
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# `share` takes the Web Share API's names, named.
+component A
+  action go
+    share("https://example.com")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An unknown name.
+component A
+  action go
+    share(link="https://example.com")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A duplicate.
+component A
+  action go
+    share(url="https://a.example", url="https://b.example")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# Neither text, url nor files.
+component A
+  action go
+    share(title="Journal")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# Each a string.
+component A
+  action go
+    share(text=3)
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# `files=` is a list of strings.
+component A
+  action go
+    share(files="app:/data/a.png")
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# A literal file is an `app:/` path or an element's `#id`.
+component A
+  action go
+    share(files=["/tmp/a.png"])
+  view
+    button press=go
+      text "a"
+---
+== type-share-argument
+# An empty list shares nothing.
+component A
+  action go
+    share(files=[])
+  view
+    button press=go
+      text "a"
+---
+== lower-share-picture
+# A picture of an element no view carries.
+component A
+  action go
+    share(files=["#card"])
+  view
+    button press=go
+      text "a"
+---
+== type-file-picker-argument
+# `showSaveFilePicker` takes (id, suggestedName).
+component A
+  action go
+    showSaveFilePicker("out")
+  view
+    button press=go
+      text "a"
+---
+== type-permission-argument
+# `requestPermission` takes (id, path, mode), mode "read" or "readwrite".
+component A
+  action go
+    requestPermission("asked", "doc:/1/notes.md", "write")
+  view
+    button press=go
+      text "a"
+---
+== type-save-file-argument
+# `saveFile` takes (id, from, suggestedName), three strings.
+component A
+  action go
+    saveFile("out", "app:/data/a.json")
+  view
+    button press=go
+      text "a"
+---
+== type-save-file-argument
+# A file to copy or the text to save, not both.
+component A
+  action go
+    saveFile("out", "app:/data/a.json", text="a", suggestedName="a.md")
+  view
+    button press=go
+      text "a"
+---
+== lower-animation-name
+component A
+  view
+    text "a" animation="pulse 1s infinite"
+---
+== lower-exit-endless
+keyframes leave
+  to opacity=0
+component A
+  view
+    text "a" -exact-exit-animation="leave 1s infinite"
+---
+== lower-timeline-row
+# A timeline drives paint rows only in v1.
+keyframes ring
+  to r=40
+component A
+  view
+    box animation="ring 1s linear both" animation-timeline="--pull" animation-range="0px 100px"
+---
+== lower-timeline-endless
+# A timeline spans an animation's whole length, so it must end.
+keyframes fade
+  to opacity=0
+component A
+  view
+    box animation="fade 1s infinite" animation-timeline="--pull" animation-range="0px 100px"
+---
+== lower-keyframe-property
+keyframes grow
+  from width=10
+component A
+  view
+    text "a"
+---
+== syntax-keyframe-selector
+keyframes grow
+  halfway opacity=1
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
+    button -exact-press-scale=0
+      text "a"
+---
+== lower-keyframe-property
+keyframes give
+  to -exact-press-scale=0.97
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
+    button -exact-press-opacity=1.2
+      text "a"
+---
+== lower-keyframe-property
+keyframes wash
+  to -exact-press-background-color="#eee"
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
+    view transform-origin="10px left"
+      text "a"
+---
+== type-arrow-position
+# An arrow is only the callback of `map` or `filter`.
+component A
+  view
+    text round(x => 1).toString()
+---
+== type-arrow-parameters
+component A
+  resource xs = xs() as shape number[]
+  view
+    text xs.map((a, a) => a).join(",")
+---
+== syntax-method-call
+# A method Contract does not have: `reduce` is computed in the data source.
+component A
+  resource xs = xs() as shape number[]
+  view
+    text xs.reduce(x => x * 2).toString()
+---
+== syntax-method-form
+# A roster function is called on its value, `s.trim()`.
+component A
+  state s = " a "
+  view
+    text trim(s)
+---
+== syntax-method-form
+# A list's length is `xs.length`.
+component A
+  state xs = [1]
+  view
+    text toString(length(xs))
+---
+== syntax-method-shadowed
+# A method call is the built-in, which a `fn` of its name would capture.
+fn trim(s: string): string = "x"
+component A
+  state s = " a "
+  view
+    text s.trim()
+---
+== syntax-list-type
+# A list type is `T[]`.
+shape S
+  xs: list<number>
+component A
+  view
+    text "a"
+---
+== syntax-map-view
+# The JSX habit: children repeat with `for`.
+component A
+  resource xs = xs() as shape string[]
+  view
+    column
+      map(xs, x => text x)
+---
+== syntax-map-view
+# The JSX habit as a method call: children repeat with `for`.
+component A
+  resource xs = xs() as shape number[]
+  view
+    column
+      xs.map(x => text x)
+---
+== syntax-view-keyword
+# A view chooses with `if`, not `when`.
+component A
+  state n = 0
+  view
+    when n > 0
+      text "a"
+---
+== syntax-view-keyword
+# A view repeats with `for`, not `each`.
+component A
+  state xs = ["a"]
+  view
+    each x in xs key=x
+      text x
+---
+== syntax-else-keyword
+# `else when` is not a construct: `else if` here.
+component A
+  state n = 0
+  action a
+    if n > 0
+      n = 1
+    else when n < 0
+      n = 2
+  view
+    text "a" press=a
+---
+== syntax-callback-view
+component A
+  resource xs = xs() as shape string[]
+  view
+    text xs.map(x => text x).join("")
+---
+== type-callback-view
+component A
+  resource xs = xs() as shape string[]
+  view
+    text xs.map(x => Row(label=x)).join("")
+---
+== type-refused-idiom
+# `reduce`, `find`, `sort`, `slice`, `toFixed`…: refused, with what to do instead.
+component A
+  resource xs = xs() as shape number[]
+  view
+    text reduce(xs, (a, x) => a + x, 0).toString()
+---
+== type-geometry-outside-action
+# A derive that read layout would feed layout back into the tree it lays out.
+component A
+  derive h = frame("box").height
+  view
+    column id="box"
+      text h.toString()
+---
+== type-geometry-outside-action
+component A
+  view
+    column id="box"
+      text measure("box").height.toString()
+---
+== type-geometry-outside-action
+# A `fn` can be called from a view, so its body is outside an action.
+fn roomOf(id: string): number = frame(id).height
+component A
+  view
+    text roomOf("x").toString()
+---
+== type-geometry-outside-action
+# `elementFromPoint` reads `frame`'s boxes, so only an action may.
+component A
+  derive under = elementFromPoint(10, 10)
+  view
+    column id="box"
+      text match under { case some(id) => id, case none => "" }
+---
+== type-geometry-outside-action
+component A
+  derive hits = elementsFromPoint(10, 10)
+  view
+    text hits.length.toString()
+---
+== type-geometry-outside-action
+component A
+  derive hits = querySelectorAll("[data-paint~=\"accent\"]")
+  view
+    text hits.length.toString()
+---
+== type-data-selector
+component A
+  state count = 0
+  action read
+    count = querySelectorAll("button").length
+  view
+    button press=read
+      text count.toString()
+---
+== type-measure-literal-id
+# The runner answers `measure` before the action runs, so its id is a literal.
+component A
+  state target = "box"
+  state h = 0
+  action size
+    h = measure(target).height
+  view
+    button press=size
+      text h.toString()
+---
+== type-record-missing
+# A record names every field; none is defaulted.
+shape Fields
+  title: string
+  pinned: bool
+component A
+  derive f = Fields(title="a")
+  view
+    text f.title
+---
+== type-record-unknown-field
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", body="b")
+  view
+    text f.title
+---
+== type-record-duplicate
+shape Fields
+  title: string
+component A
+  derive f = Fields(title="a", title="b")
+  view
+    text f.title
+---
+== type-record-base
+# A copy's one positional argument is the record it copies, of its shape.
+shape Fields
+  title: string
+component A
+  state name = "a"
+  derive f = Fields(name, title="b")
+  view
+    text f.title
+---
+== type-fn-shape-name
+# `Fields(…)` builds the shape, so no `fn` takes its name.
+shape Fields
+  title: string
+fn Fields(title: string): string = title
+component A
+  view
+    text "a"
+---
+== type-let-shadow
+# A `let` never shadows a name in scope.
+component A
+  state n = 0
+  action go
+    let n = 1
+  view
+    text "a"
+---
+== type-let-duplicate
+component A
+  state n = 0
+  action go
+    let a = 1
+    let a = 2
+    n = a
+  view
+    text "a"
+---
+== type-let-reassign
+component A
+  state n = 0
+  action go
+    let a = 1
+    a = 2
+  view
+    text "a"
+---
+== type-let-before-declaration
+component A
+  state n = 0
+  action go
+    n = a
+    let a = 1
+  view
+    text "a"
+---
+== lower-reorder-collection
+component A
+  state moved = ""
+  resource rows = rows() as shape string[]
+  action drop(item: string, before: option<string>)
+    moved = item
+  view
+    list id="cities" reorderdrop=drop height=300
+      for city in rows key=city
+        row
+          box reorderFor="cities" width=24 height=24
+          text city
+---
+== type-set-selection-range
+component A
+  state at = 0
+  action jump(k: string)
+    setSelectionRange("editor", "4")
+  view
+    textarea id="editor" value="text" key=jump
+---
+== type-sound-undeclared
+# A literal source names a declared sound.
+component A
+  action go
+    playSound("assets/kick.wav")
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal gain outside 0–1, as a literal `volume` is.
+component A
+  action go
+    playSound(src, gain=1.5)
+  state src = "assets/kick.wav"
+  view
+    button "go" press=go
+---
+== type-play-sound
+# An option `playSound` does not take.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, rate=2)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal playback rate outside 0.25–4.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, playbackRate=5)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit's pan without its rate: the fields are read by position.
+shape Hit
+  src: string
+  at: number
+  gain: number
+  group: string
+  pan: number
+fn noHits(): Hit[] = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit without `at`: `playSounds` reads a hit's fields by position.
+shape Hit
+  src: string
+  gain: number
+  group: string
+fn noHits(): Hit[] = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit whose gain is a string.
+shape Hit
+  src: string
+  at: number
+  gain: string
+  group: string
+fn noHits(): Hit[] = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# `stopSounds` takes only `group=`.
+component A
+  action go
+    stopSounds("hat")
+  view
+    button "go" press=go
+---
+== lower-media-session
+component A
+  state seek = 0
+  action skip
+    seek = seek + 30
+  view
+    audio "assets/a.mp3" seekforward=skip
+---
+== contract-sequence-body
+# A sequence holds one `play(...)`, not a task's schedule.
+component A
+  state on = false
+  action go
+    on = true
+  sequence s when on
+    every(100, go)
+  view
+    text "a"
+---
+== syntax-task-start
+# A sequence starts at `mount` or while a condition holds.
+component A
+  sequence s
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# `play` needs `bpm=`.
+component A
+  state on = false
+  sequence s when on
+    play([])
+  view
+    text "a"
+---
+== type-sequence-play
+# A literal tempo of 0 is no tempo.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=0)
+  view
+    text "a"
+---
+== type-sequence-play
+# An option `play` does not take.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, swing=0.5)
+  view
+    text "a"
+---
+== type-sequence-play
+# A track is read by position: `loops` cannot be left out.
+shape Track
+  beats: number
+  offset: number
+  output: string
+fn noTracks(): Track[] = []
+component A
+  state on = false
+  state ts = noTracks()
+  sequence s when on
+    play(ts, bpm=120)
+  view
+    text "a"
+---
+== type-sequence-play
+# A step carries `playbackRate` and `pan` both or neither.
+shape Step
+  beat: number
+  src: string
+  gain: number
+  group: string
+  note: number
+  velocity: number
+  channel: number
+  duration: number
+  haptic: string
+  playbackRate: number
+fn noSteps(): Step[] = []
+component A
+  state on = false
+  state steps = noSteps()
+  sequence s when on
+    play([], bpm=120, from=-4, countIn=steps)
+  view
+    text "a"
+---
+== analyze-sequence-clock
+# `play`'s arguments are read at commits, not as the clock moves.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=60 + performanceNow())
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+# A sequence's gate is a task's: it reads no clock.
+component A
+  sequence s when performanceNow() > 1000
+    play([], bpm=120)
+  view
+    text "a"
+---
+== type-send-midi
+# A literal message is held to MIDI 1.0: no running status.
+component A
+  action go
+    sendMIDI("out", [144, 60, 100, 62, 100])
+  view
+    button "go" press=go
+---
+== type-request-midi-access
+# `requestMIDIAccess()` takes no arguments.
+component A
+  action go
+    requestMIDIAccess(true)
+  view
+    button "go" press=go
+---
+== analyze-unknown-action
+# `ended=` names an action.
+component A
+  state on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== analyze-handler-arity
+# `ended=` runs as a timer does: with no arguments.
+component A
+  state on = false
+  action finished(n: number)
+    on = false
+  sequence s when on
+    play([], bpm=120, ended=finished)
+  view
+    text "a"
+---
+== type-child-resource
+# Only the root has a clock, so only the root declares a sequence.
+component A
+  view
+    B()
+component B
+  state on = false
+  sequence s when on
+    play([], bpm=120)
+  view
+    text "b"
+---
+== bake-transport-field
+# `exactTransport` answers its own fields only.
+shape T
+  state: string
+  beat: number
+component A
+  resource t = exactTransport() as shape T
+  view
+    text t.state
+---
+== bake-midi-field
+# A MIDI port answers its id, name, manufacturer and state only.
+shape Port
+  id: string
+  channel: number
+shape M
+  state: string
+  outputs: Port[]
+component A
+  resource m = exactMIDI() as shape M
+  view
+    text m.state
+---
+== syntax-expected-statement
+# Another action is called with its parentheses: `play()`.
+component A
+  state on = false
+  action play
+    on = true
+  action toggle
+    play
+  view
+    button "t" press=toggle
+---
+== type-prop-hides-fn
+# In B the call `pick(…)` under `text` is the fn to the checker and the bound action once inlined;
+# a handler `press=pick(…)` alone would be the action both ways.
+fn pick(xs: string[], i: number): string = match xs.at(i) { case some(s) => s, case none => "" }
+component A
+  state chosen = ""
+  action go(s: string)
+    chosen = s
+  view
+    B(pick=go)
+component B
+  props
+    pick: action
+  view
+    button "b" press=pick("b")
+    text pick(["a"], 0)
+---
+== type-prop-hides-fn
+# A value prop can redirect the call head to another fn during inlining.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  view
+    Seg(pick=other)
+component Seg
+  props
+    pick: number
+  view
+    text `${pick(1)}`
+---
+== type-prop-hides-fn
+# Injected values undergo the same call-head substitution as props.
+fn pick(n: number): number = n + 1
+fn other(n: number): number = n + 100
+component App
+  state other = 7
+  provide
+    pick = other
+  view
+    Seg()
+component Seg
+  inject
+    pick: number
+  view
+    text `${pick(1)}`
+---
+== type-handler-action
+# B's handler names A's action: B takes it as an `action` prop.
+component A
+  state v = ""
+  action go(s: string)
+    v = s
+  view
+    B()
+component B
+  view
+    button "go" press=go("x")
+---
+== lower-iframe-partition-sandbox
+# A partitioned guest is a top-level page, which WebKit
+# cannot sandbox; the host would have to fail open.
+component A
+  view
+    iframe "https://example.com" partition="persist:work" sandbox="allow-scripts"
+---
+== lower-iframe-partition-message
+# A partitioned guest has no message bridge.
+component A
+  action got(data: string)
+    let x = data
+  view
+    iframe "https://example.com" partition="persist:work" message=got
+---
+== lower-iframe-partition-message
+component A
+  action send
+    postMessage("hi", "tab")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "send" press=send
+---
+== lower-iframe-partition-src
+# A bundled or `app:/` page is the app's own; a
+# partitioned frame never reaches the `exact-app` scheme.
+component A
+  view
+    iframe "/deck/index.html" partition="persist:work"
+---
+== lower-frame-command
+# A literal id that names no iframe.
+component A
+  action back
+    traverseHistory("tab", -1)
+  view
+    iframe "https://example.com" id="page" partition="work"
+    button "back" press=back
+---
+== lower-frame-capture-path
+# A capture writes under the app's own roots.
+component A
+  action snap
+    captureScreenshot("tab", "/tmp/shot.png")
+  view
+    column
+      iframe "https://example.com" id="tab"
+      button "snap" press=snap
+---
+== type-frame-command
+component A
+  action back
+    traverseHistory("tab", "back")
+  view
+    iframe "https://example.com" id="tab" partition="work"
+    button "back" press=back
+---
+== lower-attr-value
+component A
+  view
+    iframe "https://example.com" partition="work" apple.inactiveSchedulingPolicy="sometimes"
+---
+
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=bogus)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame + 1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=0)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, wait=idle)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=idle, max=1, max=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=frame, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, wait=update, max=1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=-1)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1.5)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=4294967296)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=count)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, tolerance=2)
+  view
+    text "timer"
+---
+== lower-timer-wait
+component App
+  state count = 0
+  action tick
+    count = count + 1
+  task t mount
+    after(1, tick, tolerance=1, wait=frame)
+  view
+    text "timer"
+---
+== lower-table-content
+component App
+  view
+    table
+      td
+        text "a"
+---
+== lower-dl-content
+component App
+  view
+    column
+      dd
+        text "a"

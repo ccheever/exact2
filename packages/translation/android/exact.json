@@ -1,0 +1,23 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/translation@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {
+    "AndroidTranslatorAvailability": {
+      "downloadedModels": "string[]"
+    }
+  },
+  "options": {
+    "createTranslator": {
+      "requireWifi": "bool",
+      "requireCharging": "bool"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [],
+  "artifacts": []
+}

@@ -1,0 +1,21 @@
+// Accept fixture: `-exact-exit-animation` and `-exact-layout-transition`. A
+// removed row leaves with the keyframes it names; the rows after it slide up
+// into its place instead of jumping.
+keyframes leave
+  to opacity=0 scale=0.96 animation-timing-function="ease-in"
+
+style Row
+  -exact-layout-transition="320ms cubic-bezier(.32,.72,0,1)"
+  -exact-exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
+
+component Presence
+  state shown = true
+  action toggle
+    shown = not shown
+  view
+    column testId="root"
+      button press=toggle aria-label="Toggle" testId="toggle"
+        text "Toggle"
+      if shown
+        text "First" testId="first" class=Row
+      text "Second" testId="second" class=Row

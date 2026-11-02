@@ -1,0 +1,39 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/pedometer@^1.0",
+  "platform": "apple",
+  "targets": [
+    "ios",
+    "macos"
+  ],
+  "shapes": {
+    "ApplePedometer": {
+      "distance": "option<number>",
+      "floorsAscended": "option<number>",
+      "floorsDescended": "option<number>",
+      "currentPace": "option<number>",
+      "currentCadence": "option<number>",
+      "averageActivePace": "option<number>"
+    },
+    "ApplePedometerStatus": {
+      "authorizationStatus": "enum<notDetermined|restricted|denied|authorized>",
+      "isDistanceAvailable": "bool",
+      "isFloorCountingAvailable": "bool",
+      "isPaceAvailable": "bool",
+      "isCadenceAvailable": "bool"
+    }
+  },
+  "options": {},
+  "names": [],
+  "views": [],
+  "hatches": [
+    "pedometer"
+  ],
+  "sources": {
+    "swift": [
+      "Pedometer.swift"
+    ]
+  },
+  "artifacts": [],
+  "class": "PedometerModule"
+}

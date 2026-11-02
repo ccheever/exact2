@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "XHeavy Expo",
+    "slug": "xheavy-expo",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "requireFullScreen": true,
+      "bundleIdentifier": "dev.exact.xheavy.expo",
+      "infoPlist": {
+        "CFBundleDisplayName": "XHeavy Expo",
+        "CADisableMinimumFrameDurationOnPhone": true,
+        "UISupportedInterfaceOrientations~ipad": [
+          "UIInterfaceOrientationPortrait",
+          "UIInterfaceOrientationPortraitUpsideDown",
+          "UIInterfaceOrientationLandscapeLeft",
+          "UIInterfaceOrientationLandscapeRight"
+        ]
+      }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ],
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./data/fonts/AbrilFatface-Regular.ttf",
+            "./data/fonts/BebasNeue-Regular.ttf",
+            "./data/fonts/CrimsonText-Italic.ttf",
+            "./data/fonts/CrimsonText-Regular.ttf",
+            "./data/fonts/DMSerifDisplay-Regular.ttf",
+            "./data/fonts/Inter-Regular.ttf",
+            "./data/fonts/Lobster-Regular.ttf",
+            "./data/fonts/Pacifico-Regular.ttf",
+            "./data/fonts/PermanentMarker-Regular.ttf",
+            "./data/fonts/SpaceMono-Bold.ttf",
+            "./data/fonts/SpaceMono-Regular.ttf",
+            "./data/fonts/SpecialElite-Regular.ttf"
+          ]
+        }
+      ]
+    ]
+  }
+}

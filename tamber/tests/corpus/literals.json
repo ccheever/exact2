@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "digest": "1019b33d90324a38",
+  "name": "literals",
+  "tuples": 1,
+  "axes": [],
+  "dials": [],
+  "tokens": [
+    {"name": "hex3", "kind": "color", "role": null, "values": ["#ff00aaff"], "entries": null, "dials": [], "fallback": ["#ff00aaff", "#ff00aaff"]},
+    {"name": "hex8", "kind": "color", "role": null, "values": ["#11223380"], "entries": null, "dials": [], "fallback": ["#11223380", "#11223380"]},
+    {"name": "named", "kind": "color", "role": null, "values": ["#663399ff"], "entries": null, "dials": [], "fallback": ["#663399ff", "#663399ff"]},
+    {"name": "clear", "kind": "color", "role": null, "values": ["#00000000"], "entries": null, "dials": [], "fallback": ["#00000000", "#00000000"]},
+    {"name": "rgb.legacy", "kind": "color", "role": null, "values": ["#0a141eff"], "entries": null, "dials": [], "fallback": ["#0a141eff", "#0a141eff"]},
+    {"name": "rgb.modern", "kind": "color", "role": null, "values": ["#0a141e80"], "entries": null, "dials": [], "fallback": ["#0a141e80", "#0a141e80"]},
+    {"name": "hsl", "kind": "color", "role": null, "values": ["#336699ff"], "entries": null, "dials": [], "fallback": ["#336699ff", "#336699ff"]},
+    {"name": "hwb", "kind": "color", "role": null, "values": ["#1a73ccff"], "entries": null, "dials": [], "fallback": ["#1a73ccff", "#1a73ccff"]},
+    {"name": "oklch", "kind": "color", "role": null, "values": ["oklch(0.7 0.1 200)"], "entries": null, "dials": [], "fallback": ["#40b1b7ff", "#40b1b7ff"]},
+    {"name": "lab", "kind": "color", "role": null, "values": ["lab(50 20 -30 / 0.5)"], "entries": null, "dials": [], "fallback": ["#856caa80", "#856caa80"]},
+    {"name": "p3", "kind": "color", "role": null, "values": ["color(display-p3 1 0 0)"], "entries": null, "dials": [], "fallback": ["#ff0000ff", "#ff0000ff"]},
+    {"name": "pair.legacy", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, #000000ff)"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#000000ff"]},
+    {"name": "pair.modern", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, oklch(0.3 0.05 250))"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#192f46ff"]},
+    {"name": "pair.nested", "kind": "color", "role": null, "values": ["light-dark(#111111ff, #444444ff)"], "entries": null, "dials": [], "fallback": ["#111111ff", "#444444ff"]},
+    {"name": "platform", "kind": "color", "role": null, "values": ["-exact-platform-color(ios systemTealColor, light-dark(#30b0c7ff, #40c8e0ff))"], "entries": null, "dials": [], "fallback": ["#30b0c7ff", "#40c8e0ff"]},
+    {"name": "platform.web", "kind": "color", "role": null, "values": ["-exact-platform-color(web AccentColor, ios systemBlueColor, #0088ffff)"], "entries": null, "dials": [], "fallback": ["#0088ffff", "#0088ffff"]},
+    {"name": "platform.asset", "kind": "color", "role": null, "values": ["-exact-platform-color(ios named:Brand Red, macos systemRedColor, #c8102eff)"], "entries": null, "dials": [], "fallback": ["#c8102eff", "#c8102eff"]},
+    {"name": "platform.both", "kind": "color", "role": null, "values": ["-exact-platform-color(ios systemTealColor, macos systemTealColor, light-dark(#ffffffff, #000000ff))"], "entries": null, "dials": [], "fallback": ["#ffffffff", "#000000ff"]}
+  ],
+  "exports": null
+}

@@ -1,0 +1,37 @@
+# The Caltrain app on Linux: one executable with the runner, the kernel, the
+# data crate, the baked plan (written by build.rs, never committed), and the
+# host's painter.
+[package]
+name = "caltrain-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Caltrain on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "caltrain-linux"
+path = "src/main.rs"
+test = false
+bench = false
+
+# The pages as documents: the web build's render entry.
+[[bin]]
+name = "caltrain-render"
+path = "src/bin/caltrain-render.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+caltrain-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+exact-render = { path = "../../../host/render" }
+
+exact-linux-update = { path = "../../../host/linux-update" }
+
+[build-dependencies]
+caltrain-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

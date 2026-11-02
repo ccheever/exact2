@@ -1,0 +1,1497 @@
+//! Commits: an action, a timer's action, a request's reply — each one
+//! transaction that settles, updates the tree and applies one batch, or
+//! refuses and leaves the kernel as it was.
+
+use super::*;
+
+/// A string argument or write past [`crate::vm::MAX_STRING`] bytes.
+fn too_long(value: &Value) -> bool {
+    value
+        .as_str()
+        .is_some_and(|s| s.len() > crate::vm::MAX_STRING)
+}
+
+/// Everything a refused commit leaves as it was (a commit is atomic): state, the
+/// store, the request book-keeping, and the flags a settlement pass sets on
+/// its way — a deferred resource's staleness, store provenance, and the
+/// refreshes an action asked for.
+pub(super) struct Checkpoint {
+    store: crate::store::StoreCheckpoint,
+    /// How many let-go requests with effects were collected before it.
+    letting: usize,
+    slots: Vec<Value>,
+    resources: Option<Vec<Option<ResourceState>>>,
+    stale: Vec<bool>,
+    store_readers: Vec<bool>,
+    watching: Vec<Vec<String>>,
+    failed_args: Vec<Option<Vec<Value>>>,
+    uploads: super::uploads::Uploads,
+    failed_why: Vec<Option<crate::failure::Failure>>,
+    failed_mut: Vec<Option<crate::failure::Failure>>,
+    refresh_next: Vec<usize>,
+    writes: super::writes::Writes,
+    unsent: Vec<Unsent>,
+    reconciling: Vec<usize>,
+    pending: Vec<PendingReq>,
+    queues: super::queue::Saved,
+    timers: Vec<super::Timer>,
+    published: Option<Box<Published>>,
+    commands: usize,
+    /// Socket batches of earlier commits, not yet taken:
+    /// a refusal takes back the batches staged after them.
+    sockets: usize,
+    /// The root font size, and the window's app tuple (`setMode`).
+    root_font: (super::root_font::RootFont, f32, u32),
+    /// Kept answers refused before this commit (`kept::refuse`).
+    refused: usize,
+    resource_inspection: Vec<crate::perf::ResourceWork>,
+    /// Who each request and `then` is from.
+    origins: super::modules::OriginsSaved,
+    /// The arguments refused a child's resource.
+    refused_args: super::modules::Refused,
+}
+
+/// What a settlement publishes that a refusal after it — the gate step
+/// — must put back; taken only for a plan with a gated task
+/// or a sequence, whose gate steps are the one refusal that
+/// follows a settlement that stood.
+pub(super) struct Published {
+    settled: Option<super::settlement::Settled>,
+    derives: Vec<Option<Value>>,
+    derive_store_dependent: Vec<bool>,
+    resource_values: Vec<Option<crate::held::Held>>,
+    resources: Vec<Option<ResourceState>>,
+    awaiting: Vec<bool>,
+    requests: usize,
+}
+
+impl<D: DataSource> Runner<D> {
+    /// The presenter's on-demand geometry for shaped inline runs.
+    pub fn set_inline_geometry(
+        &mut self,
+        read: Option<std::rc::Rc<dyn crate::geometry::InlineGeometry>>,
+    ) {
+        self.scrolled.inline = read;
+    }
+
+    /// Before a commit. `resources`: the commit edits the settled caches
+    /// before settling (a reply does).
+    pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
+        self.start_commit();
+        self.derives_evaluated = 0;
+        self.copied_at_checkpoint = self.store.copied_bytes();
+        let store = self.store.checkpoint();
+        // What the presence backend moved since the last commit shows in
+        // this one; a refused commit puts it back.
+        self.adopt_presence();
+        Checkpoint {
+            store,
+            slots: self.slots.clone(),
+            resources: resources.then(|| self.resources.clone()),
+            stale: self.stale.clone(),
+            store_readers: self.store_readers.clone(),
+            watching: self.watching.clone(),
+            failed_args: self.failed_args.clone(),
+            uploads: self.uploads.clone(),
+            failed_why: self.failed_why.clone(),
+            failed_mut: self.failed_mut.clone(),
+            refresh_next: self.refresh_next.clone(),
+            writes: self.writes.clone(),
+            unsent: self.unsent.clone(),
+            reconciling: self.reconciling.clone(),
+            pending: self.pending.clone(),
+            queues: self.queues.save(),
+            timers: self.timers.clone(),
+            published: (self.plan.timers.iter().any(|t| t.gated || t.keyed)
+                || !self.plan.sequences.is_empty())
+            .then(|| {
+                Box::new(Published {
+                    settled: self.settled.clone(),
+                    derives: self.derives.clone(),
+                    derive_store_dependent: self.derive_store_dependent.clone(),
+                    resource_values: self.resource_values.clone(),
+                    resources: self.resources.clone(),
+                    awaiting: self.awaiting.clone(),
+                    requests: self.requests.len(),
+                })
+            }),
+            commands: self.commands.len(),
+            sockets: self.sockets.len(),
+            root_font: (
+                self.root_font,
+                self.kernel.root_font_size(),
+                self.ids.theme.window,
+            ),
+            refused: self.keeping.refused.len(),
+            resource_inspection: self.ids.work.resources.clone(),
+            origins: self.origins_saved(),
+            refused_args: self.refused_saved(),
+            letting: self.letting_len(),
+        }
+    }
+
+    /// After a commit: journal the store's writes if it stood; otherwise
+    /// put everything back — only the store, when this very commit poisoned
+    /// the runner (its tree matches nothing to go back to).
+    pub(super) fn conclude<T>(
+        &mut self,
+        c: Checkpoint,
+        result: &Result<T, RunnerError>,
+        was_poisoned: bool,
+    ) {
+        let refused = result.is_err();
+        self.conclude_router(refused);
+        match result {
+            Ok(_) => {
+                self.module_work.standing = None;
+                self.module_work.reply_reader = None;
+                self.persist_slots();
+                self.journal_refused();
+                self.log_store_writes(c.store.writes);
+                self.transport_stood();
+                self.samples_stood();
+                self.invocations_let_go();
+            }
+            Err(e) if self.poisoned && !was_poisoned => {
+                self.samples_refused();
+                self.restore_store_refused(c.store);
+                self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
+            }
+            Err(e) => {
+                self.samples_refused();
+                self.refuse_batches(c.sockets, &crate::failure::Failure::of(e).message);
+                // What the refused commit asked is let go with it.
+                self.forgot = true;
+                let kept = self.restore_store_refused(c.store);
+                self.slots = c.slots;
+                if let Some(resources) = c.resources {
+                    self.resources = resources;
+                }
+                self.stale = c.stale;
+                self.store_readers = c.store_readers;
+                // A spent reply's turn read the store: its failure stands, and so does the read.
+                if let Some(i) = self.module_work.reply_reader.take() {
+                    self.store_readers[i] = true;
+                }
+                self.watching = c.watching;
+                self.failed_args = c.failed_args;
+                self.uploads = c.uploads;
+                self.ids.work.resources = c.resource_inspection;
+                self.failed_why = c.failed_why;
+                self.failed_mut = c.failed_mut;
+                self.refresh_next = c.refresh_next;
+                if kept {
+                    self.ask_failed_readers(None);
+                }
+                // Ids stay unique: a rolled-back send's id is never reused.
+                let seq = self.writes.seq;
+                self.writes = c.writes;
+                self.writes.seq = seq;
+                self.overlays.iter_mut().for_each(|o| *o = None);
+                self.unsent = c.unsent;
+                self.reconciling = c.reconciling;
+                // A send its source refused when it was sent stays ended.
+                for (m, id) in std::mem::take(&mut self.refused_unsent) {
+                    self.unsent.retain(|u| u.0 != m);
+                    self.writes.records.retain(|r| Some(r.id) != id);
+                    // And what it showed in is still read again.
+                    self.reconcile_after(m);
+                }
+                self.pending = c.pending;
+                self.letting_restored(c.letting);
+                self.origins_restore(c.origins);
+                self.refused_restore(c.refused_args);
+                self.queues.restore(c.queues);
+                self.timers = c.timers;
+                if let Some(p) = c.published {
+                    self.settled = p.settled;
+                    self.derives = p.derives;
+                    self.derive_store_dependent = p.derive_store_dependent;
+                    self.resource_values = p.resource_values;
+                    self.resources = p.resources;
+                    self.awaiting = p.awaiting;
+                    // A resource request the settlement handed out goes
+                    // with it: never taken, its continuation is let go.
+                    let dropped: Vec<RequestOut> = self.requests.drain(p.requests..).collect();
+                    for r in &dropped {
+                        self.discard_request(&r.request);
+                    }
+                }
+                self.sync_pending_flags();
+                self.commands.truncate(c.commands);
+                // A refusal the restore undid is not said.
+                self.keeping.refused.truncate(c.refused);
+                self.root_font = c.root_font.0;
+                let _ = self.kernel.set_root_font_size(c.root_font.1);
+                self.ids.theme.window = c.root_font.2;
+            }
+        }
+        self.refused_unsent.clear();
+        // What a refused commit's gate step read is let go.
+        self.transport.pending = None;
+        self.hear_forgotten();
+        // Every commit ends so: what the source set aside is kept or let go.
+        self.keep_sent(refused);
+        self.sample();
+    }
+
+    /// After any restore, or a request let go outside a commit: the source
+    /// hears what is really in flight (a re-ask's wait is not, `overrun.rs`).
+    pub(super) fn hear_forgotten(&mut self) {
+        if std::mem::take(&mut self.forgot) {
+            let in_flight: Vec<InFlight<'_>> = self
+                .pending
+                .iter()
+                .filter(|p| p.reask_at.is_none())
+                .map(|p| InFlight {
+                    target: p.target,
+                    source: &p.source,
+                    args: &p.args,
+                    continuation: p.continuation,
+                })
+                .collect();
+            self.data.forgotten(&self.store, &in_flight);
+        }
+    }
+
+    /// Run an action by name with `args` — what a test or an agent does.
+    pub fn act(&mut self, name: &str, args: Vec<Value>) -> Result<CommitReceipt, RunnerError> {
+        let what = format!("act {name}");
+        let was_poisoned = self.poisoned;
+        let result = match self
+            .plan
+            .actions
+            .iter()
+            .position(|a| self.plan.str(a.name) == name)
+            .map(|i| ActionsId(i as u32))
+        {
+            Some(id) => self.run_action(id, args, &[]),
+            None => Err(RunnerError::NoHandler {
+                view: 0,
+                event: "action",
+            }),
+        };
+        self.log_outcome(&what, &result, was_poisoned);
+        result
+    }
+
+    /// Run an action: its body, its sends, its writes, settlement, the
+    /// update — one commit. What it kept in the store is journaled once the
+    /// commit stands and rolled back with everything else when it does not:
+    /// nothing reaches the host from a refused action.
+    pub(super) fn run_action(
+        &mut self,
+        action: ActionsId,
+        args: Vec<Value>,
+        frames: &[Frame],
+    ) -> Result<CommitReceipt, RunnerError> {
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
+        let result = self.run_action_inner(action, args, frames);
+        self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
+        self.arm_next(result.is_ok());
+        result
+    }
+
+    /// Arm the `then` action of each mutation answered in the commit just
+    /// made, if it stood. It runs as its own commit when the host next
+    /// advances the clock, which it does at once for a due time already
+    /// past (`timer_due_ms`): the answer's commit is never extended by
+    /// what it causes, and a refused `then` leaves the answer standing.
+    pub(super) fn arm_then(&mut self, stood: bool) {
+        for m in std::mem::take(&mut self.landed) {
+            if stood && self.plan.mutations[m].then.is_some() {
+                self.then_due[m] = self.armed_at();
+                self.note_then(m);
+            }
+        }
+    }
+
+    /// Journal the store's writes from index `since`: the names, never the
+    /// values.
+    pub(super) fn log_store_writes(&mut self, since: usize) {
+        let writes = self.store.writes();
+        let lines: Vec<String> = writes[since.min(writes.len())..]
+            .iter()
+            .map(|w| super::lines::store_write(&w.name, w.value.is_some()))
+            .collect();
+        for line in lines {
+            self.log(line);
+        }
+    }
+
+    pub(super) fn run_action_inner(
+        &mut self,
+        action: ActionsId,
+        args: Vec<Value>,
+        frames: &[Frame],
+    ) -> Result<CommitReceipt, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let row = self.plan.action(action).clone();
+        let expected = row.params.len as usize;
+        if args.len() != expected {
+            return Err(RunnerError::Arity {
+                action: self.plan.str(row.name).to_string(),
+                expected,
+                actual: args.len(),
+            });
+        }
+        for (i, p) in row.params.iter().enumerate() {
+            let param = self.plan.param(p);
+            // A hidden parameter (`@capture:…`, a child's captured prop; `@`
+            // begins no authored name) is the compiler's argument, not the
+            // host's: it has its type, but its numbers need not be finite
+            // nor its strings short, as a prop read in place needs neither.
+            if self.plan.str(param.name).starts_with('@') {
+                if !args[i].typed(&self.plan, param.ty) {
+                    return Err(RunnerError::ArgumentType {
+                        action: self.plan.str(row.name).to_string(),
+                        param: self.plan.str(param.name).to_string(),
+                    });
+                }
+                continue;
+            }
+            if !args[i].conforms(&self.plan, param.ty) {
+                if args[i].typed(&self.plan, param.ty) {
+                    return Err(RunnerError::NonFiniteValue {
+                        name: self.plan.str(param.name).to_string(),
+                    });
+                }
+                return Err(RunnerError::ArgumentType {
+                    action: self.plan.str(row.name).to_string(),
+                    param: self.plan.str(param.name).to_string(),
+                });
+            }
+            if too_long(&args[i]) {
+                return Err(RunnerError::StringTooLong {
+                    name: self.plan.str(param.name).to_string(),
+                });
+            }
+        }
+        let allowed: Vec<u32> = row
+            .writes
+            .iter()
+            .map(|w| self.plan.write(w).slot.0)
+            .collect();
+        // Geometry: every `measure` in the body is
+        // answered now, with the kernel's engine tree to lay out; `frame`
+        // reads through the borrowed kernel while the body runs.
+        let measured;
+        let geometry = match self.links.geometry {
+            Some(links) => {
+                measured = links.ahead(
+                    &self.plan,
+                    self.plan.code(row.body),
+                    &mut self.kernel,
+                    &self.scrolled,
+                );
+                Some(crate::geometry::GeometryEnv::new(
+                    &self.kernel,
+                    &self.scrolled,
+                    links,
+                    &measured,
+                ))
+            }
+            None => None,
+        };
+        let outcome = {
+            // The frames in force at the view the event hit:
+            // a row action reads and writes its row through them.
+            let mut env = self.env(&args, frames);
+            env.geometry = geometry.as_ref();
+            vm::eval(self.plan.code(row.body), &env, &allowed)?
+        };
+        // Sends: each asks the source now. An answer lands in
+        // the mutation's slot inside this commit; a request goes to the host
+        // once the commit stands. A queue mutation's send is asked only when
+        // the mutation is free and it is the commit's first; else it waits
+        // its turn.
+        let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
+        let mut answered: Vec<(u32, Value)> = Vec::new();
+        let mut asked: Vec<usize> = Vec::new();
+        let mut landed_now: Vec<usize> = Vec::new();
+        let mut failed_now = Vec::new();
+        // Non-queue mutations whose send replaces one in flight without a
+        // request of its own: an answer at once, or one waiting for the source.
+        let mut replaced: Vec<usize> = Vec::new();
+        // A send before the source can answer — a TypeScript module a native
+        // host loads after first pixel — waits for it, pending,
+        // as a resource's ask does and as the web's send to a module still
+        // loading does: `data_ready` sends it, so a document opened at launch
+        // is not refused and lost. A queue's waits in its
+        // queue instead, every send in order, its head asked once the source
+        // is ready.
+        let mut unsent: Vec<Unsent> = Vec::new();
+        for (m, source, sargs) in &outcome.sends {
+            let m = *m as usize;
+            self.accept_write(m, source, sargs);
+            let queue = self.plan.mutations[m].queue;
+            let early = !self.data.ready() && !exact_plan::runner_owned_source(source);
+            if early && !queue {
+                unsent.retain(|u| u.0 != m);
+                unsent.push((m, source.clone(), sargs.clone(), self.sent_by()));
+                // It replaces a send still in flight (newest wins).
+                replaced.push(m);
+                continue;
+            }
+            if queue && (early || asked.contains(&m) || !self.asks_now(m)) {
+                if let Err(e) = self.wait_turn(m, source, sargs) {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
+                continue;
+            }
+            asked.push(m);
+            match self.ask_send(m, source, sargs) {
+                Ok(super::queue::Asked::Now(slot, v)) => {
+                    answered.push((slot as u32, v));
+                    self.landed.push(m);
+                    landed_now.push(m);
+                    // It replaces an earlier send of this action still to go
+                    // out (newest wins): that request never goes.
+                    if !queue {
+                        let earlier: Vec<_> = later
+                            .iter()
+                            .filter(|l| l.0 == m)
+                            .map(|l| l.3.clone())
+                            .collect();
+                        for request in &earlier {
+                            self.discard_request(request);
+                        }
+                        later.retain(|l| l.0 != m);
+                    }
+                }
+                Ok(super::queue::Asked::Later(request)) => {
+                    later.push((m, source.clone(), sargs.clone(), request))
+                }
+                Ok(super::queue::Asked::Failed) => {
+                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
+                    later = rest;
+                    self.discard_later(&older);
+                    self.pending_mut[m] = false;
+                    failed_now.push(m);
+                }
+                Err(e) => {
+                    self.discard_later(&later);
+                    return Err(e);
+                }
+            }
+        }
+        // Commit the writes, then everything downstream. If settlement refuses
+        // (a data source or shape refusal), the writes and commands roll back
+        // and the kernel is exactly as it was.
+        for (slot, value) in outcome
+            .writes
+            .iter()
+            .map(|(s, v)| (s, v))
+            .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
+        {
+            let row = &self.plan.slots[*slot as usize];
+            let refusal = if !self.conforms(value, row.ty) {
+                Some(RunnerError::slot_type(
+                    &self.plan,
+                    value,
+                    row.ty,
+                    self.plan.str(row.name),
+                ))
+            } else if too_long(value) {
+                Some(RunnerError::StringTooLong {
+                    name: self.plan.str(row.name).to_string(),
+                })
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
+                self.discard_later(&later);
+                return Err(refusal);
+            }
+        }
+        // Row writes land in their rows now, remembered for a rollback.
+        let mut row_undo: Vec<(RowSlots, u32, Option<Value>)> = Vec::new();
+        for (slot, value, rows) in outcome.row_writes {
+            let old = rows.borrow_mut().insert(slot, value);
+            row_undo.push((rows, slot, old));
+        }
+        let first_command = self.commands.len();
+        for (slot, value) in answered {
+            self.slots[slot as usize] = value;
+        }
+        let written: Vec<u32> = outcome.writes.iter().map(|(s, _)| *s).collect();
+        for (slot, value) in outcome.writes {
+            self.slots[slot as usize] = value;
+        }
+        for (name, args) in outcome.commands {
+            self.commands.push(Command {
+                name,
+                args,
+                source: self.input_source,
+            });
+        }
+        // An assignment to a mutation's slot tentatively makes it not
+        // pending. The pending map is changed only after settlement stands:
+        // a refused assignment did not change what reply the view wants.
+        // A queue's assignment forgets nothing: every reply still lands.
+        let assigned: Vec<usize> = (0..self.plan.mutations.len())
+            .filter(|m| {
+                written.contains(&self.plan.mutations[*m].slot.0) && !self.plan.mutations[*m].queue
+            })
+            .collect();
+        for m in 0..self.plan.mutations.len() {
+            if written.contains(&self.plan.mutations[m].slot.0) {
+                self.failed_mut[m] = None;
+            }
+        }
+        for m in asked.iter().chain(assigned.iter()) {
+            if !failed_now.contains(m) {
+                self.failed_mut[*m] = None;
+            }
+        }
+        for m in &assigned {
+            self.pending_mut[*m] = false;
+            self.end_pending(*m, None);
+        }
+        // A send answered at once replaces one in flight: not pending.
+        for m in &landed_now {
+            if !self.plan.mutations[*m].queue {
+                self.pending_mut[*m] = false;
+            }
+        }
+        for (m, _, _, _) in &later {
+            if !assigned.contains(m) {
+                self.pending_mut[*m] = true;
+            }
+        }
+        // A send that goes now replaces one still waiting for the source
+        // (newest wins)
+        for m in asked.iter().filter(|m| !self.plan.mutations[**m].queue) {
+            self.unsent.retain(|u| u.0 != *m);
+        }
+        // Waiting from here, so the settlement sees them pending; a refusal
+        // puts the waiting sends back as they were (the checkpoint).
+        for (m, source, args, by) in &unsent {
+            self.unsent.retain(|u| u.0 != *m);
+            if !assigned.contains(m) {
+                self.unsent.push((*m, source.clone(), args.clone(), *by));
+                self.pending_mut[*m] = true;
+            }
+        }
+        // What the action refreshes, added to what is already waiting.
+        // A mutation answered at once has landed:
+        // what it changes is asked, as a reply's landing asks it
+        // (`fulfill`). A send still in flight asks nothing: its write shows
+        // through the overlay.
+        for r in outcome.refreshes.iter() {
+            self.force_refresh(*r as usize);
+        }
+        for m in &landed_now {
+            for r in self.declared_refreshes(*m) {
+                self.force_refresh(r);
+            }
+        }
+        // What this commit replaces in flight leaves `pending` before the
+        // settlement, whose flags follow the tickets: a derive or gate reads
+        // it as no longer pending, as above. The checkpoint puts it back.
+        let replacing: Vec<usize> = (assigned.iter().chain(&landed_now).chain(&replaced))
+            .chain(&failed_now)
+            .copied()
+            .filter(|m| !self.plan.mutations[*m].queue)
+            .collect();
+        let mut let_go = Vec::new();
+        for m in replacing {
+            if let Some(pos) = (self.pending.iter()).position(|p| p.target == Target::Mutation(m)) {
+                let p = self.pending.remove(pos);
+                let_go.push((p.ticket, m));
+                self.note_retired(&p);
+                self.let_go_request(p);
+            }
+        }
+        // A refusal from here is put back by the checkpoint (run_action);
+        // row slots live in the tree, so they are undone here. The gate
+        // step joins this path: before `enqueue` and
+        // `into_view`, which a refusal there must not leave applied.
+        if let Err(e) = self
+            .router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| {
+                // Settlement's flags follow the tickets, and this commit's
+                // requests are handed out after the step: a gate reads them
+                // pending, as the settled derives did.
+                for (m, _, _, _) in &later {
+                    self.pending_mut[*m] |= !assigned.contains(m);
+                }
+                self.gate_step()
+            })
+        {
+            self.discard_later(&later);
+            for (rows, slot, old) in row_undo.into_iter().rev() {
+                match old {
+                    Some(v) => rows.borrow_mut().insert(slot, v),
+                    None => rows.borrow_mut().remove(&slot),
+                };
+            }
+            return Err(e);
+        }
+        for (ticket, m) in let_go {
+            self.forgot = true;
+            self.log(super::lines::forgot(
+                ticket,
+                &self.target_name(Target::Mutation(m)),
+            ));
+        }
+        for (rows, slot, _) in &row_undo {
+            self.row_writes.record(frames, rows, *slot);
+        }
+        for m in 0..self.plan.mutations.len() {
+            if written.contains(&self.plan.mutations[m].slot.0) {
+                self.failed_mut[m] = None;
+            }
+        }
+        for m in asked.iter().chain(assigned.iter()) {
+            if !failed_now.contains(m) {
+                self.failed_mut[*m] = None;
+            }
+        }
+        for m in &assigned {
+            self.forget(Target::Mutation(*m));
+        }
+        // A send answered at once, or waiting for the source, replaces one
+        // still in flight (newest wins): the older reply is not wanted.
+        for m in landed_now.into_iter().chain(replaced).chain(failed_now) {
+            if !self.plan.mutations[m].queue {
+                self.forget_ticket(Target::Mutation(m));
+            }
+        }
+        self.sync_pending_flags();
+        for (m, source, args, request) in later {
+            self.enqueue(Target::Mutation(m), source, args, request, false);
+            if assigned.contains(&m) {
+                self.forget(Target::Mutation(m));
+            }
+        }
+        for (m, ..) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
+            self.log(super::lines::unsent(
+                self.plan.str(self.plan.mutations[*m].name),
+            ));
+        }
+        self.take_set_modes(first_command);
+        // A module's sends that answer nothing: the
+        // runner's, run once the commit stands.
+        let effects = self.take_module_effects(first_command);
+        self.refuse_in_wake(first_command);
+        self.skip_in_call(first_command);
+        // The scheme and root size a development host holds: kept as asked, not applied.
+        self.take_held(first_command);
+        // `setRootFontSize` is the runner's too: the size lands in this
+        // commit's layout, and the command stays for a host that mirrors it;
+        // a refused one is journaled as refused, never as a command.
+        let mut i = first_command;
+        while i < self.commands.len() {
+            if self.commands[i].name == "setRootFontSize" {
+                let args = self.commands[i].args.clone();
+                if !self.app_root_font_size(&args) {
+                    self.commands.remove(i);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        // A world hears whose commit posted to it (`world_origin.rs`).
+        super::world_origin::mark_world_posts(
+            self.call_origin(),
+            &mut self.commands[first_command..],
+        );
+        let commands: Vec<String> = self.commands[first_command..]
+            .iter()
+            .map(|c| {
+                let mut s = format!("command {}(", c.name);
+                for (i, a) in c.args.iter().enumerate() {
+                    if i > 0 {
+                        s.push_str(", ");
+                    }
+                    crate::agent::untyped_json(a, &mut s);
+                }
+                s.push(')');
+                s
+            })
+            .collect();
+        // `scrollIntoView` of a list's row is the runner's own:
+        // it runs in this commit, after the update, and never
+        // reaches a host. An element's (its id and three options, not the
+        // row form's seven arguments) is the host's, as `focus` is.
+        let stated: Vec<Command> = self.commands.drain(first_command..).collect();
+        for command in stated {
+            if command.name != "scrollIntoView" || command.args.len() != 7 {
+                self.commands.push(command);
+                continue;
+            }
+            match crate::instance::collection::IntoView::from_command(&command.args) {
+                Ok(request) => self.into_view.push(request),
+                Err(why) => self.log(format!("scrollIntoView refused: {why}")),
+            }
+        }
+        let result = self.update();
+        // Commands are journaled only once the update committed: a failure
+        // there poisons the runner and clears them.
+        if result.is_ok() {
+            for line in commands {
+                self.log(line);
+            }
+            self.apply_sounds(first_command);
+            self.run_module_effects(effects);
+        }
+        result
+    }
+
+    /// Whether `value` conforms to `ty`, checking only the list items not
+    /// already found conforming ([`crate::conform::Conformed`]).
+    pub(super) fn conforms(&self, value: &Value, ty: exact_plan::TypesId) -> bool {
+        self.conformed.borrow_mut().conforms(&self.plan, value, ty)
+    }
+
+    /// The refusal of `value`, which did not conform to `ty`.
+    pub(super) fn shape(
+        &self,
+        resource: String,
+        value: &Value,
+        ty: exact_plan::TypesId,
+    ) -> RunnerError {
+        let why = crate::conform::mismatch(&self.plan, value, ty);
+        RunnerError::Shape { resource, why }
+    }
+
+    pub(super) fn poison(&mut self) {
+        self.poisoned = true;
+        self.notes.clear();
+        self.commands.clear();
+        self.requests.clear();
+        self.drop_background();
+        self.forgot |= !self.pending.is_empty();
+        self.pending.clear();
+        self.unsent.clear();
+        self.forget_waiting();
+        self.sync_pending_flags();
+    }
+
+    /// Recheck the plan relation at the write boundary instead of trusting
+    /// that a decoded plan is the only possible caller.
+    pub(super) fn mutation_slot(&self, mutation: usize) -> Result<usize, RunnerError> {
+        let mutation = MutationsId(mutation as u32);
+        self.plan
+            .validate_mutation_slot(mutation)
+            .map_err(RunnerError::Plan)?;
+        Ok(self.plan.mutation(mutation).slot.0 as usize)
+    }
+
+    pub(super) fn target_name(&self, t: Target) -> String {
+        match t {
+            Target::Resource(i) => self.plan.str(self.plan.resources[i].name).to_string(),
+            Target::Mutation(m) => self.plan.str(self.plan.mutations[m].name).to_string(),
+        }
+    }
+
+    /// Drop the request in flight for `target`, if any: its reply, when it
+    /// comes, is dropped too (a `POST` already sent is not unsent).
+    pub(super) fn forget(&mut self, target: Target) {
+        self.forget_ticket(target);
+        if let Target::Mutation(m) = target {
+            self.unsent.retain(|u| u.0 != m);
+        }
+        self.sync_pending_flags();
+    }
+
+    /// Let go of `target`'s request in flight, keeping a send that waits
+    /// for the source; `false` keeps a child.
+    pub(super) fn forget_ticket(&mut self, target: Target) -> bool {
+        if self.holds_child(target) {
+            return false;
+        }
+        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
+            let p = self.pending.remove(pos);
+            self.note_retired(&p);
+            let t = p.ticket;
+            self.note_let_go(t, target);
+            self.let_go_request(p);
+            self.forgot = true;
+            self.log(super::lines::forgot(t, &self.target_name(target)));
+        }
+        true
+    }
+
+    /// The resources mutation `m` declares it refreshes.
+    pub(super) fn declared_refreshes(&self, m: usize) -> Vec<usize> {
+        let range = self.plan.mutations[m].refreshes;
+        self.plan.mutation_refreshes[range.start as usize..(range.start + range.len) as usize]
+            .iter()
+            .map(|row| row.resource.0 as usize)
+            .collect()
+    }
+
+    /// Ask resource `r` again, forced, at the next settlement that can.
+    pub(super) fn force_refresh(&mut self, r: usize) {
+        if !self.refresh_next.contains(&r) {
+            self.refresh_next.push(r);
+        }
+    }
+
+    /// Hand `request` to the host under a fresh ticket, replacing any
+    /// request in flight for the same target — unless only the arguments
+    /// moved and the request is the one already in flight: then that
+    /// ticket is kept, to be parsed
+    /// with the newer arguments, and nothing is sent.
+    pub(super) fn enqueue(
+        &mut self,
+        target: Target,
+        source: String,
+        args: Vec<Value>,
+        request: Request,
+        forced: bool,
+    ) {
+        let keepable = matches!(target, Target::Resource(_))
+            && request.continuation.is_none()
+            && request.storage.is_none()
+            && request.surface.is_none();
+        if keepable && !forced {
+            if let Some(p) = self.pending.iter_mut().find(|p| {
+                p.target == target
+                    && !p.refused
+                    && p.refusal.is_none()
+                    && p.args != args
+                    // Who asked it is stamped as it goes out,
+                    // so it is no part of the same request.
+                    && (p.keepable.as_ref())
+                        .is_some_and(|k| request == Request { reach: request.reach, ..k.clone() })
+            }) {
+                p.args = args;
+                // (new arguments: a new streak after a turn over its budget)
+                p.reasks = 0;
+                if let Target::Resource(i) = target {
+                    p.inspection_generation =
+                        self.ids.work.resources.get(i).map_or(0, |w| w.request);
+                }
+                let (ticket, upload) = (p.ticket, p.upload);
+                // An upload kept for newer arguments is asked at them too.
+                if upload {
+                    let args = p.args.clone();
+                    self.upload_sent(target, &args, ticket);
+                }
+                // The newer arguments' causes join the request's.
+                self.note_kept(target, ticket);
+                // A source that parks calls hears the kept ticket's newer
+                // arguments and drops the call parked under the old ones.
+                self.forgot = true;
+                self.log(super::lines::kept(ticket, &self.target_name(target)));
+                return;
+            }
+        }
+        if self.holds_child(target) {
+            return self.discard_request(&request);
+        }
+        // A re-ask after a turn over its budget carries its streak on.
+        let reasks = self.overrun_reasks(target, &args, forced);
+        if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
+            let p = self.pending.remove(pos);
+            self.note_retired(&p);
+            let t = p.ticket;
+            self.note_let_go(t, target);
+            self.let_go_request(p);
+            self.forgot = true;
+            self.log(super::lines::forgot(t, &self.target_name(target)));
+        }
+        let ticket = self.next_ticket;
+        self.next_ticket += 1;
+        let name = self.target_name(target);
+        let mut request = request;
+        self.number_data_call(&mut request);
+        request.reach = self.reach_of(self.origin_for(Some(target)));
+        self.log(super::lines::enqueued(ticket, &name, &request));
+        let refusal = self.ask_refusal(target, &args, &request);
+        self.note_asked(target, ticket);
+        self.note_handles(ticket, &source, &request.body);
+        self.note_send(ticket, &request.body);
+        self.presence_noted(ticket, &request);
+        self.pending.push(PendingReq {
+            inspection_generation: match target {
+                Target::Resource(i) => self.inspected_request(i),
+                Target::Mutation(_) => 0,
+            },
+            refusal: refusal.map(|why| (why, false)),
+            refused: false,
+            ticket,
+            target,
+            source,
+            args,
+            continuation: request.continuation,
+            fetch: request.fetch,
+            keepable: keepable.then(|| request.clone()),
+            stream: sockets::stream_count(&request),
+            upload: request.stream && request.upload_progress,
+            sent: false,
+            grant: request
+                .stream
+                .then(|| crate::grants::admitting_request(self.data.grants(), &request))
+                .flatten()
+                .map(str::to_string),
+            ask_again: false,
+            module_again: None,
+            effects: request.has_effects(),
+            origin: self.writes.tick(),
+            write: match target {
+                Target::Mutation(m) => self.asked_write(m),
+                Target::Resource(_) => None,
+            },
+            held: request.is_held(),
+            long_poll: request.stream && request.long_poll.is_some(),
+            replied: false,
+            reask_at: None,
+            reasks,
+        });
+        self.note_child(ticket, &request);
+        if request.stream && request.upload_progress {
+            let args = self
+                .pending
+                .last()
+                .map(|p| p.args.clone())
+                .unwrap_or_default();
+            self.upload_sent(target, &args, ticket);
+        }
+        self.requests
+            .extend(refusal.is_none().then_some(RequestOut {
+                ticket,
+                target: name,
+                request,
+                forced,
+            }));
+        // An abort heard before this request was enqueued (in the same
+        // commit, or a worker's turn that landed late) names it now.
+        self.match_aborts();
+        self.sync_pending_flags();
+    }
+
+    pub(super) fn sync_pending_flags(&mut self) {
+        self.pending_res = vec![false; self.plan.resources.len()];
+        self.pending_mut = vec![false; self.plan.mutations.len()];
+        // A stream is pending until its first message.
+        for p in self.pending.iter().filter(|p| p.in_flight()) {
+            match p.target {
+                Target::Resource(i) => self.pending_res[i] = true,
+                Target::Mutation(m) => self.pending_mut[m] = true,
+            }
+        }
+        // A queue's waiting send is pending too.
+        for m in 0..self.pending_mut.len() {
+            self.pending_mut[m] |= self.queues.waits(m);
+        }
+        // A placeholder shown until the source can answer is pending too,
+        // and so is a send waiting for it.
+        for (i, awaiting) in self.awaiting.iter().enumerate() {
+            self.pending_res[i] |= *awaiting;
+        }
+        for (m, ..) in &self.unsent {
+            self.pending_mut[*m] = true;
+        }
+    }
+
+    /// The requests the host is to run since the last take.
+    /// The module's background round goes out here when it has one,
+    /// and its journal lines come in.
+    pub fn take_requests(&mut self) -> Vec<RequestOut> {
+        self.take_data_logs();
+        self.arm_background();
+        let mut requests = std::mem::take(&mut self.requests);
+        // A request the app aborted before it was handed out is never sent:
+        // the next pump answers it aborted.
+        requests.retain(|r| !self.module_aborts.contains(&r.ticket));
+        self.hold_data_timers(requests)
+    }
+
+    /// The work behind continuation `token`: a host asks
+    /// on this thread, after the commit that handed the request out, so a
+    /// worker's snapshot is the store as committed then.
+    pub fn dispatch_work(&mut self, token: u64) -> Dispatch {
+        // A module request the runner holds for the agent.
+        if let Some(dispatch) = self.module_dispatch(token) {
+            return dispatch;
+        }
+        self.store.set_clock_ms(self.now_ms);
+        self.data.dispatch(token, &self.store)
+    }
+
+    /// Where this app's long native calls go: the source's own slot, or,
+    /// for a source with none (a Rust source), the runner's. The host
+    /// installs the app module in it.
+    pub fn native_slot(&self) -> crate::Native {
+        self.data.native().unwrap_or_else(|| self.native.clone())
+    }
+
+    /// The work behind a long native call ([`Request::is_native`]): hand its
+    /// body to the source's native handler with the reply, on the host's
+    /// worker, which returns at once — the module's own thread answers.
+    pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        // A module request whose reply carries handles: watched as it leaves
+        // the implementation.
+        if let Some(dispatch) = self.handled_work(&request.body) {
+            return dispatch;
+        }
+        // A store's presence call: the host's backend, on the store's own
+        // path, never a module's.
+        if let Some(dispatch) = self.presence_call(&request.body) {
+            return dispatch;
+        }
+        // A module's name called from data code: the runner's admission, then
+        // the module.
+        if let Some(dispatch) = self.module_call(&request.body) {
+            return dispatch;
+        }
+        let handler = self.native_slot().handler();
+        let body = request.body.clone();
+        Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
+            Some(handler) => handler(body, reply),
+            None => reply.send(crate::Outcome::Failed {
+                kind: crate::FailureKind::Unsupported,
+                message: "no native module here takes long calls".into(),
+            }),
+        })))
+    }
+
+    /// Work the source held at dispatch and the last commit releases, in
+    /// order, then the waits an answer's timer released (`data_timers.rs`);
+    /// a host asks after every commit and advance.
+    pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
+        let mut out = self.data.release(&self.store);
+        out.extend(self.module_release());
+        // A wait whose answer's timer came due (`data_timers.rs`).
+        out.extend(self.take_woken());
+        out
+    }
+
+    /// A request a refused transaction dropped before it was handed out:
+    /// its continuation token is never dispatched, so the source forgets it.
+    pub(super) fn discard_request(&mut self, request: &Request) {
+        if let Some(token) = request.continuation {
+            self.data.discard(token);
+        } else {
+            // A plain request has no token: the source hears what is still
+            // in flight (`forgotten`) and drops the call it parked for it.
+            self.forgot = true;
+        }
+    }
+
+    /// The `Later` sends an action collected before a refusal dropped them.
+    pub(super) fn discard_later(&mut self, later: &[(usize, String, Vec<Value>, Request)]) {
+        for (_, _, _, request) in later {
+            self.discard_request(request);
+        }
+    }
+
+    /// A long poll's reply, an event or not: from its first
+    /// it is held, and each raises `heldReplies` for `clock held`.
+    fn long_poll_replied(&mut self, pos: usize) {
+        let p = &mut self.pending[pos];
+        p.replied = true;
+        let target = p.target;
+        self.count_held_reply(target);
+        self.sync_pending_flags();
+    }
+
+    fn count_held_reply(&mut self, target: Target) {
+        let name = self.target_name(target);
+        match self.held_replies.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, count)) => *count += 1,
+            None => self.held_replies.push((name, 1)),
+        }
+    }
+
+    /// Whether resource `i` has a stream open that has delivered: it is not
+    /// pending, but a newer answer must still let its ticket go.
+    pub(super) fn streaming(&self, i: usize) -> bool {
+        self.pending
+            .iter()
+            .any(|p| p.target == Target::Resource(i) && !p.in_flight())
+    }
+
+    /// Whether request `ticket` is still wanted. A host asks after each
+    /// commit and lets go of the work for any it holds that isn't:
+    /// a superseded or forgotten reply would only be dropped here.
+    pub fn holds(&self, ticket: u64) -> bool {
+        self.is_background(ticket)
+            || self.is_tool(ticket)
+            || self.is_module_work(ticket)
+            || self.pending.iter().any(|p| p.ticket == ticket)
+    }
+
+    /// The host brought back the outcome of request `ticket`: the source
+    /// parses it, the resource takes its value or the mutation's slot its
+    /// `some`, and everything downstream settles as after an action — one
+    /// commit. A ticket no longer held (forgotten) is dropped with a
+    /// journal line and no commit.
+    pub fn fulfill(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.fulfill_measured(ticket, outcome, None)
+    }
+
+    /// Fulfill with elapsed wall milliseconds measured by the executor, never
+    /// by the seekable agent clock. Missing measurements stay unnamed.
+    pub fn fulfill_measured(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+        elapsed_ms: Option<u64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        // A let-go request's reply: it has ended, and an abort names it no more.
+        self.retired_fetches.retain(|r| r.1 != ticket);
+        let answering = std::mem::replace(&mut self.churn.answering, true);
+        let out = self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms));
+        self.churn.answering = answering;
+        out
+    }
+
+    fn fulfill_now(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+        elapsed_ms: Option<u64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if self.is_background(ticket) {
+            // Its own path: no commit, no `then`, no update.
+            self.background_landed(outcome);
+            return Ok(None);
+        }
+        if self.is_tool(ticket) {
+            // A handler's request: its turn resumes, no commit.
+            self.tool_landed(ticket, outcome);
+            return Ok(None);
+        }
+        if self.is_module_work(ticket) {
+            // Module work's: its turn, then a commit of its own.
+            return self.module_work_landed(ticket, outcome);
+        }
+        let mut summary = outcome.summary();
+        if let Some(ms) = elapsed_ms {
+            exact_num::push_text!(&mut summary, "; wall {} ms", ms);
+        }
+        let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
+            self.log(super::lines::dropped(ticket, &summary));
+            // A module's reply carrying handles that is not delivered
+            // disposes of them.
+            self.dispose_dropped();
+            return Ok(None);
+        };
+        let handles = self.landed_handles(ticket);
+        self.landed_send(ticket);
+        if let (Some(_), Outcome::Message(m)) = (self.pending[pos].stream, &outcome) {
+            // A long poll's reply that is no event: it holds.
+            if self.pending[pos].long_poll && m.event == crate::LONG_POLL_REPLY {
+                self.long_poll_replied(pos);
+                return Ok(None);
+            }
+            // A listener's word on its address alone.
+            if self.listen_event(pos, m) {
+                return Ok(None);
+            }
+            // An upload's start: noted; no mapper sees it.
+            if self.pending[pos].upload && m.upload_started() {
+                self.pending[pos].sent = true;
+                return Ok(None);
+            }
+            return self.message(pos, outcome, &summary);
+        }
+        // A re-ask's wait was never sent (`overrun.rs`): only its invocation's end fails it.
+        if self.pending[pos].reask_at.is_some() {
+            return self.reask_answered(ticket, outcome, &summary);
+        }
+        self.overrun.replied = false;
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(true);
+        let p = self.pending.remove(pos);
+        self.sync_pending_flags();
+        if p.held || p.long_poll {
+            self.count_held_reply(p.target);
+        }
+        let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
+        let target = p.target;
+        // An answer lands as a commit of its request's origin,
+        // with every cause the request has.
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
+        self.conclude(checkpoint, &result, was_poisoned);
+        // Its `then` is armed under the same origin, invocation and causes.
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
+        self.arm_next(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        if let (Some(handles), Err(_)) = (handles, &result) {
+            self.dispose(handles, "its commit was refused");
+        }
+        if let Err(e) = &result {
+            // A one-shot reply is spent whatever refused its commit: the host
+            // delivers it once, so left in flight by the rollback it would be
+            // pending forever (a mutation's write shown, a resource's
+            // `pending(…)`, a clock waiting on it), whether the source failed
+            // to take it, a refusal's shaped failure trapped, or a value it
+            // took trapped in a derive. The failure is in the journal (above);
+            // what the host needs now is the commit that takes the target out
+            // of `pending`. Admission refusal alone cannot restart a source
+            // whose earlier turns may have written.
+            if self.holds(ticket) {
+                // Its own turn over its budget: asked again (`overrun.rs`).
+                if self.hold_overrun_reply(ticket, target, e) {
+                    return Ok(None);
+                }
+                return self.release_failed(ticket, target, crate::failure::Failure::of(e));
+            }
+        }
+        result.map(Some)
+    }
+
+    /// One message of the open stream at `pos`: parsed
+    /// like a single reply and committed as its own settlement, with the
+    /// ticket kept open. A message the source cannot take ends the stream,
+    /// as a failed reply ends a request.
+    fn message(
+        &mut self,
+        pos: usize,
+        outcome: Outcome,
+        summary: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let was_poisoned = self.poisoned;
+        // An upload's bytes sent: it has reached the network, which a
+        // refused commit of this message does not undo.
+        let upload = self.pending[pos].upload;
+        self.pending[pos].sent |= upload;
+        let checkpoint = self.checkpoint(true);
+        if self.pending[pos].long_poll {
+            self.long_poll_replied(pos);
+        }
+        let p = &mut self.pending[pos];
+        if let (Some(count), Outcome::Message(m)) = (p.stream.as_mut(), &outcome) {
+            count.messages += 1;
+            count.coalesced += u64::from(m.coalesced);
+            sockets::socket_message(count, m);
+        }
+        let p = p.clone();
+        self.note_child_outcome(p.ticket, &outcome);
+        self.sync_pending_flags();
+        let (ticket, target, name) = (p.ticket, p.target, self.target_name(p.target));
+        let what = super::lines::fulfilling(ticket, &name, summary);
+        let before = self.sockets.len();
+        crate::stream_timing::entered(ticket);
+        // A frame lands as a commit of its stream's origin,
+        // with every cause its request has,
+        // as a one-shot's reply does: a stream a tool asked answers as the
+        // tool's, frame after frame.
+        let (origin, id) = (self.ticket_origin(ticket), self.ticket_id(ticket));
+        let causes = self.ticket_causes(ticket);
+        let result = self.as_invocation_caused(origin, id, causes, |r| r.fulfill_inner(p, outcome));
+        // What the mapper staged answering this frame:
+        // addressed for the commit, or left staged by a frame that failed.
+        // The commit's answers may have sent too;
+        // their batches are not the mapper's.
+        let left = !self.store.take_sockets().is_empty();
+        let mapper = |b: &crate::SocketSend| matches!(b.origin, crate::SocketOrigin::Mapper(_));
+        let replied = left || self.sockets[before..].iter().any(mapper);
+        self.conclude(checkpoint, &result, was_poisoned);
+        crate::stream_timing::committed(result.is_ok());
+        self.as_invocation_caused(origin, id, causes, |r| r.arm_then(result.is_ok()));
+        self.arm_next(result.is_ok());
+        self.log_outcome(&what, &result, was_poisoned);
+        // Or by one whose answer reopened the stream, which sends none.
+        if replied && (result.is_err() || left) {
+            let why = (result.as_ref().err())
+                .map_or("its answer reopened the stream".into(), |e| {
+                    crate::failure::Failure::of(e).message
+                });
+            self.log(sockets::refused(&crate::SocketOrigin::Mapper(name), &why));
+        }
+        if let (Err(e), true) = (&result, self.holds(ticket)) {
+            return self.release_failed(ticket, target, crate::failure::Failure::of(e));
+        }
+        result.map(Some)
+    }
+
+    pub(super) fn fulfill_inner(
+        &mut self,
+        p: PendingReq,
+        outcome: Outcome,
+    ) -> Result<CommitReceipt, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let name = self.target_name(p.target);
+        let message = p.stream.is_some() && matches!(outcome, Outcome::Message(_));
+        let failed_end = matches!(outcome, Outcome::Failed { .. });
+        let ty = match p.target {
+            Target::Resource(i) => self.plan.resources[i].ty,
+            Target::Mutation(m) => self.plan.mutations[m].ty,
+        };
+        self.store.take_topics();
+        self.snapshot_sockets();
+        // A live module source's answer may name when it goes stale,
+        // whether Contract or data code reads it.
+        let live = (self.plan.module_named(&p.source))
+            .filter(|row| row.live && !row.send)
+            .map(|row| self.key(row))
+            .or_else(|| (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body)));
+        let outcome = match (live, outcome) {
+            (Some(key), Outcome::Response(mut response)) => {
+                response.body = self.take_stale(&key, std::mem::take(&mut response.body));
+                Outcome::Response(response)
+            }
+            (_, outcome) => outcome,
+        };
+        self.store.set_clock_ms(self.now_ms);
+        let (reads_before, revision_before) = (self.store.reads(), self.store.revision());
+        let parsed = if Self::activity_send(&p.source) {
+            Self::activity_reply(&self.plan, ty, outcome)
+        } else if self.plan.module_named(&p.source).is_some() {
+            self.module_parse(p.target, ty, &p.source, outcome)
+        } else {
+            let parsed =
+                self.data
+                    .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+            self.refuse_locked(parsed)
+        };
+        // What the turn of a reply to a request with effects wrote stands,
+        // whatever the commit then does: it keeps what the server did, as a
+        // browser's continuation keeps it outside every commit.
+        if p.effects {
+            self.module_work.standing = Some(self.store.checkpoint());
+        }
+        if self.store.revision() != revision_before {
+            self.ask_failed_readers(Some(p.target));
+        }
+        // Only a socket's mapper answering a frame stages for this commit;
+        // a turn of an answer sends whatever it answered.
+        if !message {
+            self.store.take_sockets();
+        }
+        self.stage_answer(p.target);
+        self.hear_aborted();
+        for line in self.data.take_logs() {
+            self.log(line);
+        }
+        // What this reply's turn watched joins the resource's topics whatever
+        // the reply says: a turn that yields another request (a long native
+        // call) watched them as much as the one that answers.
+        if let Target::Resource(i) = p.target {
+            // A read in a later turn (after an `await`) makes a store reader
+            // as one in the first does.
+            if self.store.reads() > reads_before {
+                self.store_readers[i] = true;
+                self.module_work.reply_reader = Some(i);
+            }
+            // A module's source that data code read: the answer is asked
+            // again when that source's answer changes.
+            let module = (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body));
+            for topic in self.store.take_topics().into_iter().chain(module) {
+                if !self.watching[i].contains(&topic) {
+                    self.watching[i].push(topic);
+                }
+            }
+        }
+        self.overrun.replied = matches!(parsed, Err(DataError::Overrun(_)));
+        let value = match parsed.map_err(|error| RunnerError::Data {
+            resource: name.clone(),
+            error,
+        })? {
+            Answer::Now(value) => value,
+            Answer::Later(request) if message && !request.stream => {
+                // A message commits as its own settlement; a request that is
+                // not a stream would replace the stream's ticket with one
+                // answer.
+                return Err(RunnerError::Data {
+                    resource: name,
+                    error: DataError::Unavailable(
+                        "a stream's message answers now, or reopens the stream".into(),
+                    ),
+                });
+            }
+            Answer::Later(request) => {
+                // One more round: the target keeps its value, a new ticket goes
+                // out for the same arguments, and this commit changes only the pending set. The
+                // round carries an ask made before a watched topic changed on to its last;
+                // a continuation, the rest of this reply's answer (a worker's later
+                // turn too), keeps the request's obligation to finish.
+                self.log(super::lines::one_more(&name));
+                let (ticket, effects) = (self.next_ticket, p.admitted_effects());
+                self.enqueue(p.target, p.source, p.args, request, false);
+                // `enqueue` may keep a ticket or a running child, and push none.
+                if let Some(next) = self.pending.last_mut().filter(|n| n.ticket >= ticket) {
+                    next.ask_again |= p.ask_again;
+                    next.module_again = next.module_again.or(p.module_again);
+                    next.origin = p.origin;
+                    next.inspection_generation = p.inspection_generation;
+                    next.write = p.write;
+                    next.reasks = p.reasks;
+                    next.effects |= next.continuation.is_some() && effects;
+                }
+                return self.update();
+            }
+        };
+        if !self.conforms(&value, ty) {
+            return Err(self.shape(name, &value, ty));
+        }
+        // Its replies go out once this frame's commit stands.
+        if message {
+            if let Err(why) = self.stage_replies(&p) {
+                let error = DataError::Unavailable(why);
+                return Err(RunnerError::Data {
+                    resource: name,
+                    error,
+                });
+            }
+        }
+        match p.target {
+            Target::Resource(i) => {
+                let shown = self.resources[i].take();
+                self.revalidated(i, shown.as_ref(), &value);
+                self.stale[i] = false;
+                self.failed_args[i] = None;
+                self.keep_answer(i, &p.args, &value);
+                // An upload's end is the answer it stands on at its arguments;
+                // one that never reached the network is an ordinary answer.
+                if p.upload && !message {
+                    let end = super::UploadEnd::Answered(value.clone());
+                    self.upload_over(p.ticket, p.sent || !failed_end, end);
+                }
+                if p.ask_again {
+                    self.log(super::lines::asked_again(p.ticket, &name));
+                    self.force_refresh(i);
+                }
+                self.resources[i] = Some(ResourceState {
+                    inspection_generation: p.inspection_generation,
+                    args: p.args,
+                    value: crate::held::Held::new(value),
+                    store_revision: self.store.revision(),
+                    placeholder: false,
+                    kept_seed: false,
+                    answered_for: None,
+                    origin: p.origin,
+                });
+                self.inspected_success(i, p.inspection_generation);
+            }
+            Target::Mutation(m) => {
+                self.failed_mut[m] = None;
+                let slot = self.mutation_slot(m)?;
+                self.land_write(m, p.write, &value);
+                self.slots[slot] = Value::some(value);
+                self.landed.push(m);
+                // The reply landed: what the mutation changed is asked again
+                // in this commit; its write shows until
+                // that answer lands.
+                for r in self.declared_refreshes(m) {
+                    self.force_refresh(r);
+                }
+            }
+        }
+        self.router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| self.gate_step())?;
+        self.update()
+    }
+}

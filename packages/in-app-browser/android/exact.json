@@ -1,0 +1,37 @@
+{
+  "kind": "implementation",
+  "implements": "@exact/in-app-browser@^1.0",
+  "platform": "android",
+  "targets": [
+    "android"
+  ],
+  "shapes": {},
+  "options": {
+    "openBrowser": {
+      "showTitle": "bool",
+      "urlBarHidingEnabled": "bool",
+      "shareState": "enum<default|on|off>",
+      "colorScheme": "enum<system|light|dark>",
+      "initialActivityHeightPx": "number",
+      "closeButtonPosition": "enum<start|end>"
+    }
+  },
+  "names": [],
+  "views": [],
+  "hatches": [
+    "customTabsBuilder"
+  ],
+  "sources": {
+    "kotlin": [
+      "."
+    ]
+  },
+  "maven": [
+    "androidx.browser:browser:1.8.0"
+  ],
+  "artifacts": [],
+  "class": "exact.inappbrowser.InAppBrowserModule",
+  "queries": [
+    "android.support.customtabs.action.CustomTabsService"
+  ]
+}

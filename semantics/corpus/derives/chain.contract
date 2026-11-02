@@ -1,0 +1,37 @@
+// Derives over derives: a chain settles in dependency order, whatever
+// order the declarations are written in.
+component App
+  state n = 2
+  derive d4 = d3 + 1
+  derive d1 = n * 10
+  derive d3 = d2 * 2
+  derive d2 = d1 + n
+  derive label = `${d1}/${d2}/${d3}/${d4}`
+  derive isBig = d4 > 100
+  derive word = isBig ? "big" : "small"
+  action inc
+    n = n + 1
+  action set(v: number)
+    n = v
+  view
+    column
+      text label testId="label"
+      text word testId="word"
+      button "inc" press=inc testId="inc"
+      button "set" press=set(5) testId="set5"
+
+test "chain"
+  expect state d1 == 20
+  expect state d2 == 22
+  expect state d3 == 44
+  expect state d4 == 45
+  expect text "label" == "20/22/44/45"
+  expect text "word" == "small"
+
+test "propagates"
+  tap "set5"
+  expect text "label" == "50/55/110/111"
+  expect state isBig == true
+  expect text "word" == "big"
+  tap "inc"
+  expect state d4 == 133

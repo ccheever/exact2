@@ -1,0 +1,4202 @@
+[
+ {
+  "id": 177,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-10-26",
+  "minutes": 21,
+  "summary": "An interview about tools and home.",
+  "played": false
+ },
+ {
+  "id": 365,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Notes on small towns",
+  "date": "2026-10-26",
+  "minutes": 63,
+  "summary": "A field recording about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 363,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How old radios",
+  "date": "2026-10-25",
+  "minutes": 42,
+  "summary": "A conversation about food and repair.",
+  "played": false
+ },
+ {
+  "id": 237,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Against glaciers",
+  "date": "2026-10-24",
+  "minutes": 72,
+  "summary": "An interview about food and distance.",
+  "played": false
+ },
+ {
+  "id": 356,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How old radios",
+  "date": "2026-10-24",
+  "minutes": 14,
+  "summary": "A conversation about cities and failure.",
+  "played": true
+ },
+ {
+  "id": 43,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Inside night trains",
+  "date": "2026-10-23",
+  "minutes": 64,
+  "summary": "A field recording about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 98,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for jazz standards",
+  "date": "2026-10-23",
+  "minutes": 43,
+  "summary": "A deep dive about memory and patience.",
+  "played": false
+ },
+ {
+  "id": 293,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of tides",
+  "date": "2026-10-23",
+  "minutes": 43,
+  "summary": "A field recording about tools and home.",
+  "played": true
+ },
+ {
+  "id": 321,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for tides",
+  "date": "2026-10-19",
+  "minutes": 90,
+  "summary": "A conversation about memory and home.",
+  "played": false
+ },
+ {
+  "id": 135,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "A history of bridges",
+  "date": "2026-10-17",
+  "minutes": 71,
+  "summary": "A deep dive about maps and patience.",
+  "played": true
+ },
+ {
+  "id": 167,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-10-17",
+  "minutes": 48,
+  "summary": "A deep dive about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 169,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-10-16",
+  "minutes": 63,
+  "summary": "A deep dive about memory and home.",
+  "played": false
+ },
+ {
+  "id": 218,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Against cartography",
+  "date": "2026-10-16",
+  "minutes": 80,
+  "summary": "A conversation about tools and home.",
+  "played": true
+ },
+ {
+  "id": 90,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-10-13",
+  "minutes": 91,
+  "summary": "A deep dive about tools and failure.",
+  "played": true
+ },
+ {
+  "id": 133,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Against sourdough",
+  "date": "2026-10-11",
+  "minutes": 23,
+  "summary": "A deep dive about food and patience.",
+  "played": false
+ },
+ {
+  "id": 320,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Inside night trains",
+  "date": "2026-10-11",
+  "minutes": 64,
+  "summary": "A deep dive about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 340,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2026-10-11",
+  "minutes": 58,
+  "summary": "An interview about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 46,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2026-10-10",
+  "minutes": 32,
+  "summary": "A deep dive about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 55,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Notes on old radios",
+  "date": "2026-10-10",
+  "minutes": 14,
+  "summary": "A conversation about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 291,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2026-10-10",
+  "minutes": 20,
+  "summary": "A deep dive about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 359,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-10-09",
+  "minutes": 14,
+  "summary": "An interview about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 86,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "When sourdough",
+  "date": "2026-10-08",
+  "minutes": 95,
+  "summary": "A deep dive about food and luck.",
+  "played": false
+ },
+ {
+  "id": 71,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "When night trains",
+  "date": "2026-10-06",
+  "minutes": 18,
+  "summary": "An interview about cities and home.",
+  "played": false
+ },
+ {
+  "id": 354,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2026-10-06",
+  "minutes": 88,
+  "summary": "A conversation about weather and distance.",
+  "played": true
+ },
+ {
+  "id": 389,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-10-05",
+  "minutes": 55,
+  "summary": "A deep dive about maps and home.",
+  "played": false
+ },
+ {
+  "id": 80,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside lighthouses",
+  "date": "2026-10-04",
+  "minutes": 86,
+  "summary": "A deep dive about tools and failure.",
+  "played": true
+ },
+ {
+  "id": 285,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-10-04",
+  "minutes": 24,
+  "summary": "An interview about tools and patience.",
+  "played": false
+ },
+ {
+  "id": 161,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-10-02",
+  "minutes": 61,
+  "summary": "A conversation about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 345,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-10-02",
+  "minutes": 24,
+  "summary": "An interview about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 23,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How bridges",
+  "date": "2026-10-01",
+  "minutes": 37,
+  "summary": "An interview about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 289,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "When cartography",
+  "date": "2026-10-01",
+  "minutes": 83,
+  "summary": "A field recording about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 404,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Notes on tides",
+  "date": "2026-10-01",
+  "minutes": 66,
+  "summary": "A field recording about craft and patience.",
+  "played": false
+ },
+ {
+  "id": 398,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2026-09-28",
+  "minutes": 32,
+  "summary": "An interview about tools and repair.",
+  "played": true
+ },
+ {
+  "id": 262,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2026-09-27",
+  "minutes": 89,
+  "summary": "A field recording about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 155,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for tides",
+  "date": "2026-09-26",
+  "minutes": 56,
+  "summary": "A conversation about memory and home.",
+  "played": false
+ },
+ {
+  "id": 342,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "When jazz standards",
+  "date": "2026-09-24",
+  "minutes": 87,
+  "summary": "A conversation about cities and distance.",
+  "played": false
+ },
+ {
+  "id": 13,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2026-09-23",
+  "minutes": 92,
+  "summary": "A deep dive about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 214,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Notes on typefaces",
+  "date": "2026-09-23",
+  "minutes": 85,
+  "summary": "An interview about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 246,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-09-22",
+  "minutes": 18,
+  "summary": "A conversation about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 240,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2026-09-17",
+  "minutes": 29,
+  "summary": "A deep dive about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 325,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When cartography",
+  "date": "2026-09-15",
+  "minutes": 74,
+  "summary": "A field recording about food and repair.",
+  "played": false
+ },
+ {
+  "id": 216,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Notes on cartography",
+  "date": "2026-09-13",
+  "minutes": 79,
+  "summary": "A deep dive about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 239,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2026-09-10",
+  "minutes": 68,
+  "summary": "A conversation about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 244,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Notes on jazz standards",
+  "date": "2026-09-09",
+  "minutes": 17,
+  "summary": "A conversation about memory and failure.",
+  "played": true
+ },
+ {
+  "id": 171,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-09-08",
+  "minutes": 62,
+  "summary": "A conversation about food and failure.",
+  "played": false
+ },
+ {
+  "id": 37,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How night trains",
+  "date": "2026-09-07",
+  "minutes": 64,
+  "summary": "A field recording about food and failure.",
+  "played": true
+ },
+ {
+  "id": 348,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2026-09-06",
+  "minutes": 32,
+  "summary": "A deep dive about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 108,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "When sourdough",
+  "date": "2026-09-05",
+  "minutes": 32,
+  "summary": "A field recording about food and failure.",
+  "played": false
+ },
+ {
+  "id": 125,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "How glaciers",
+  "date": "2026-09-05",
+  "minutes": 23,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 172,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How jazz standards",
+  "date": "2026-09-05",
+  "minutes": 33,
+  "summary": "A field recording about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 20,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2026-08-31",
+  "minutes": 42,
+  "summary": "A field recording about tools and patience.",
+  "played": true
+ },
+ {
+  "id": 415,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "When old radios",
+  "date": "2026-08-31",
+  "minutes": 52,
+  "summary": "A deep dive about craft and repair.",
+  "played": false
+ },
+ {
+  "id": 395,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2026-08-30",
+  "minutes": 71,
+  "summary": "A conversation about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 288,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2026-08-29",
+  "minutes": 62,
+  "summary": "An interview about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 78,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "When jazz standards",
+  "date": "2026-08-27",
+  "minutes": 75,
+  "summary": "An interview about food and home.",
+  "played": true
+ },
+ {
+  "id": 163,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How small towns",
+  "date": "2026-08-25",
+  "minutes": 89,
+  "summary": "A field recording about memory and home.",
+  "played": false
+ },
+ {
+  "id": 323,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-08-25",
+  "minutes": 73,
+  "summary": "A conversation about tools and luck.",
+  "played": false
+ },
+ {
+  "id": 212,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why small towns",
+  "date": "2026-08-23",
+  "minutes": 61,
+  "summary": "An interview about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 322,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "A history of old radios",
+  "date": "2026-08-21",
+  "minutes": 16,
+  "summary": "An interview about weather and distance.",
+  "played": true
+ },
+ {
+  "id": 397,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for jazz standards",
+  "date": "2026-08-21",
+  "minutes": 55,
+  "summary": "An interview about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 384,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for cartography",
+  "date": "2026-08-20",
+  "minutes": 46,
+  "summary": "A field recording about cities and luck.",
+  "played": true
+ },
+ {
+  "id": 70,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When tides",
+  "date": "2026-08-19",
+  "minutes": 86,
+  "summary": "A deep dive about food and luck.",
+  "played": true
+ },
+ {
+  "id": 242,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2026-08-18",
+  "minutes": 14,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 116,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on cartography",
+  "date": "2026-08-17",
+  "minutes": 39,
+  "summary": "A deep dive about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 180,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2026-08-17",
+  "minutes": 57,
+  "summary": "A deep dive about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 199,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How lighthouses",
+  "date": "2026-08-17",
+  "minutes": 83,
+  "summary": "An interview about cities and luck.",
+  "played": true
+ },
+ {
+  "id": 319,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2026-08-17",
+  "minutes": 92,
+  "summary": "An interview about food and failure.",
+  "played": false
+ },
+ {
+  "id": 22,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for typefaces",
+  "date": "2026-08-11",
+  "minutes": 60,
+  "summary": "An interview about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 258,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2026-08-11",
+  "minutes": 65,
+  "summary": "A deep dive about tools and home.",
+  "played": false
+ },
+ {
+  "id": 268,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of lighthouses",
+  "date": "2026-08-11",
+  "minutes": 13,
+  "summary": "A deep dive about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 148,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "A history of glaciers",
+  "date": "2026-08-10",
+  "minutes": 17,
+  "summary": "A deep dive about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 19,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Notes on old radios",
+  "date": "2026-08-09",
+  "minutes": 94,
+  "summary": "A conversation about tools and luck.",
+  "played": false
+ },
+ {
+  "id": 159,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When old radios",
+  "date": "2026-08-06",
+  "minutes": 19,
+  "summary": "A conversation about memory and failure.",
+  "played": true
+ },
+ {
+  "id": 299,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How night trains",
+  "date": "2026-08-06",
+  "minutes": 71,
+  "summary": "A field recording about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 11,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2026-08-05",
+  "minutes": 22,
+  "summary": "An interview about food and failure.",
+  "played": false
+ },
+ {
+  "id": 74,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Against night trains",
+  "date": "2026-08-05",
+  "minutes": 30,
+  "summary": "An interview about maps and home.",
+  "played": true
+ },
+ {
+  "id": 226,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Inside sourdough",
+  "date": "2026-08-05",
+  "minutes": 91,
+  "summary": "An interview about maps and distance.",
+  "played": true
+ },
+ {
+  "id": 59,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How jazz standards",
+  "date": "2026-08-04",
+  "minutes": 56,
+  "summary": "A deep dive about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 417,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of jazz standards",
+  "date": "2026-08-04",
+  "minutes": 45,
+  "summary": "A conversation about weather and repair.",
+  "played": true
+ },
+ {
+  "id": 12,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for lighthouses",
+  "date": "2026-08-03",
+  "minutes": 20,
+  "summary": "A field recording about weather and luck.",
+  "played": true
+ },
+ {
+  "id": 111,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Against glaciers",
+  "date": "2026-08-03",
+  "minutes": 91,
+  "summary": "An interview about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 146,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "When tides",
+  "date": "2026-08-03",
+  "minutes": 82,
+  "summary": "A conversation about food and failure.",
+  "played": false
+ },
+ {
+  "id": 256,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Inside typefaces",
+  "date": "2026-08-03",
+  "minutes": 64,
+  "summary": "A conversation about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 353,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2026-08-02",
+  "minutes": 15,
+  "summary": "A conversation about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 390,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on small towns",
+  "date": "2026-08-02",
+  "minutes": 55,
+  "summary": "A conversation about weather and repair.",
+  "played": false
+ },
+ {
+  "id": 156,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why lighthouses",
+  "date": "2026-07-31",
+  "minutes": 43,
+  "summary": "A conversation about food and home.",
+  "played": false
+ },
+ {
+  "id": 222,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-07-31",
+  "minutes": 39,
+  "summary": "A deep dive about memory and luck.",
+  "played": false
+ },
+ {
+  "id": 181,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Notes on night trains",
+  "date": "2026-07-30",
+  "minutes": 76,
+  "summary": "An interview about memory and home.",
+  "played": true
+ },
+ {
+  "id": 418,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2026-07-30",
+  "minutes": 92,
+  "summary": "A field recording about food and home.",
+  "played": false
+ },
+ {
+  "id": 131,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-07-28",
+  "minutes": 49,
+  "summary": "A deep dive about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 241,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "A history of bridges",
+  "date": "2026-07-28",
+  "minutes": 26,
+  "summary": "An interview about cities and home.",
+  "played": true
+ },
+ {
+  "id": 33,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How tides",
+  "date": "2026-07-27",
+  "minutes": 81,
+  "summary": "A deep dive about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 314,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "The case for glaciers",
+  "date": "2026-07-26",
+  "minutes": 33,
+  "summary": "A deep dive about food and distance.",
+  "played": false
+ },
+ {
+  "id": 56,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-07-25",
+  "minutes": 55,
+  "summary": "A field recording about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 127,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Inside typefaces",
+  "date": "2026-07-25",
+  "minutes": 70,
+  "summary": "An interview about cities and repair.",
+  "played": true
+ },
+ {
+  "id": 349,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2026-07-25",
+  "minutes": 46,
+  "summary": "A field recording about memory and patience.",
+  "played": true
+ },
+ {
+  "id": 184,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2026-07-24",
+  "minutes": 36,
+  "summary": "A deep dive about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 201,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2026-07-20",
+  "minutes": 14,
+  "summary": "A deep dive about food and patience.",
+  "played": true
+ },
+ {
+  "id": 401,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2026-07-19",
+  "minutes": 48,
+  "summary": "A field recording about memory and luck.",
+  "played": true
+ },
+ {
+  "id": 122,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-07-18",
+  "minutes": 72,
+  "summary": "A conversation about craft and repair.",
+  "played": true
+ },
+ {
+  "id": 151,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-07-18",
+  "minutes": 14,
+  "summary": "A conversation about maps and home.",
+  "played": false
+ },
+ {
+  "id": 60,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Notes on tides",
+  "date": "2026-07-17",
+  "minutes": 34,
+  "summary": "An interview about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 253,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Inside sourdough",
+  "date": "2026-07-17",
+  "minutes": 53,
+  "summary": "A deep dive about food and repair.",
+  "played": true
+ },
+ {
+  "id": 154,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why tides",
+  "date": "2026-07-15",
+  "minutes": 78,
+  "summary": "A field recording about craft and home.",
+  "played": false
+ },
+ {
+  "id": 355,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How sourdough",
+  "date": "2026-07-14",
+  "minutes": 48,
+  "summary": "A deep dive about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 137,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-07-12",
+  "minutes": 95,
+  "summary": "A deep dive about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 352,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on jazz standards",
+  "date": "2026-07-09",
+  "minutes": 54,
+  "summary": "A field recording about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 233,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "How small towns",
+  "date": "2026-07-08",
+  "minutes": 65,
+  "summary": "A deep dive about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 377,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2026-07-08",
+  "minutes": 43,
+  "summary": "A deep dive about maps and home.",
+  "played": false
+ },
+ {
+  "id": 4,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "The case for glaciers",
+  "date": "2026-07-07",
+  "minutes": 69,
+  "summary": "A field recording about maps and home.",
+  "played": true
+ },
+ {
+  "id": 91,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2026-07-07",
+  "minutes": 61,
+  "summary": "A conversation about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 164,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2026-07-07",
+  "minutes": 56,
+  "summary": "An interview about memory and luck.",
+  "played": true
+ },
+ {
+  "id": 232,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Inside night trains",
+  "date": "2026-07-06",
+  "minutes": 85,
+  "summary": "A deep dive about cities and distance.",
+  "played": false
+ },
+ {
+  "id": 276,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Against tides",
+  "date": "2026-07-06",
+  "minutes": 36,
+  "summary": "A field recording about maps and repair.",
+  "played": true
+ },
+ {
+  "id": 10,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "When glaciers",
+  "date": "2026-07-05",
+  "minutes": 83,
+  "summary": "A field recording about food and repair.",
+  "played": false
+ },
+ {
+  "id": 144,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why bridges",
+  "date": "2026-07-05",
+  "minutes": 73,
+  "summary": "A field recording about food and patience.",
+  "played": true
+ },
+ {
+  "id": 309,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of jazz standards",
+  "date": "2026-07-05",
+  "minutes": 58,
+  "summary": "A conversation about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 329,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on night trains",
+  "date": "2026-07-05",
+  "minutes": 53,
+  "summary": "A conversation about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 360,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2026-07-04",
+  "minutes": 22,
+  "summary": "A conversation about weather and failure.",
+  "played": true
+ },
+ {
+  "id": 339,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "How tides",
+  "date": "2026-07-03",
+  "minutes": 80,
+  "summary": "An interview about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 30,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-07-02",
+  "minutes": 34,
+  "summary": "A field recording about maps and repair.",
+  "played": false
+ },
+ {
+  "id": 72,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of bridges",
+  "date": "2026-06-29",
+  "minutes": 67,
+  "summary": "A deep dive about cities and home.",
+  "played": true
+ },
+ {
+  "id": 107,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2026-06-28",
+  "minutes": 94,
+  "summary": "A conversation about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 145,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "A history of sourdough",
+  "date": "2026-06-28",
+  "minutes": 75,
+  "summary": "A deep dive about food and patience.",
+  "played": false
+ },
+ {
+  "id": 402,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "When small towns",
+  "date": "2026-06-28",
+  "minutes": 29,
+  "summary": "A deep dive about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 31,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of tides",
+  "date": "2026-06-27",
+  "minutes": 80,
+  "summary": "An interview about food and patience.",
+  "played": false
+ },
+ {
+  "id": 327,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of sourdough",
+  "date": "2026-06-27",
+  "minutes": 23,
+  "summary": "A field recording about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 304,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2026-06-25",
+  "minutes": 25,
+  "summary": "A conversation about memory and luck.",
+  "played": true
+ },
+ {
+  "id": 16,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How typefaces",
+  "date": "2026-06-22",
+  "minutes": 21,
+  "summary": "A conversation about craft and distance.",
+  "played": true
+ },
+ {
+  "id": 284,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2026-06-22",
+  "minutes": 89,
+  "summary": "A conversation about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 324,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2026-06-22",
+  "minutes": 45,
+  "summary": "A field recording about food and failure.",
+  "played": false
+ },
+ {
+  "id": 265,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2026-06-21",
+  "minutes": 86,
+  "summary": "A field recording about maps and home.",
+  "played": false
+ },
+ {
+  "id": 76,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-06-20",
+  "minutes": 30,
+  "summary": "A field recording about weather and distance.",
+  "played": false
+ },
+ {
+  "id": 34,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How night trains",
+  "date": "2026-06-17",
+  "minutes": 26,
+  "summary": "A deep dive about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 147,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Notes on jazz standards",
+  "date": "2026-06-17",
+  "minutes": 44,
+  "summary": "A conversation about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 92,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-06-16",
+  "minutes": 28,
+  "summary": "A field recording about maps and repair.",
+  "played": true
+ },
+ {
+  "id": 1,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-06-15",
+  "minutes": 36,
+  "summary": "A deep dive about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 375,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "A history of lighthouses",
+  "date": "2026-06-15",
+  "minutes": 13,
+  "summary": "An interview about tools and repair.",
+  "played": true
+ },
+ {
+  "id": 383,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Against night trains",
+  "date": "2026-06-15",
+  "minutes": 28,
+  "summary": "A conversation about food and luck.",
+  "played": true
+ },
+ {
+  "id": 257,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When jazz standards",
+  "date": "2026-06-14",
+  "minutes": 39,
+  "summary": "A field recording about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 330,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2026-06-14",
+  "minutes": 27,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 126,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Inside old radios",
+  "date": "2026-06-12",
+  "minutes": 52,
+  "summary": "A conversation about tools and home.",
+  "played": false
+ },
+ {
+  "id": 413,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-06-11",
+  "minutes": 39,
+  "summary": "A deep dive about food and luck.",
+  "played": false
+ },
+ {
+  "id": 7,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of night trains",
+  "date": "2026-06-10",
+  "minutes": 22,
+  "summary": "A deep dive about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 73,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Against typefaces",
+  "date": "2026-06-10",
+  "minutes": 92,
+  "summary": "A deep dive about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 69,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "When night trains",
+  "date": "2026-06-09",
+  "minutes": 75,
+  "summary": "A field recording about food and luck.",
+  "played": false
+ },
+ {
+  "id": 175,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of small towns",
+  "date": "2026-06-09",
+  "minutes": 21,
+  "summary": "A conversation about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 408,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "How beekeeping",
+  "date": "2026-06-08",
+  "minutes": 27,
+  "summary": "A field recording about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 48,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-06-07",
+  "minutes": 42,
+  "summary": "An interview about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 128,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside beekeeping",
+  "date": "2026-06-04",
+  "minutes": 79,
+  "summary": "A deep dive about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 113,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Against cartography",
+  "date": "2026-05-31",
+  "minutes": 64,
+  "summary": "A deep dive about memory and home.",
+  "played": false
+ },
+ {
+  "id": 277,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of night trains",
+  "date": "2026-05-31",
+  "minutes": 22,
+  "summary": "A field recording about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 286,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Inside jazz standards",
+  "date": "2026-05-30",
+  "minutes": 19,
+  "summary": "A deep dive about memory and home.",
+  "played": false
+ },
+ {
+  "id": 235,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-05-27",
+  "minutes": 36,
+  "summary": "A field recording about food and distance.",
+  "played": false
+ },
+ {
+  "id": 238,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-05-27",
+  "minutes": 33,
+  "summary": "A field recording about tools and home.",
+  "played": true
+ },
+ {
+  "id": 208,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Inside night trains",
+  "date": "2026-05-26",
+  "minutes": 29,
+  "summary": "A conversation about weather and distance.",
+  "played": false
+ },
+ {
+  "id": 136,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-05-25",
+  "minutes": 82,
+  "summary": "A deep dive about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 334,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-05-24",
+  "minutes": 30,
+  "summary": "An interview about food and failure.",
+  "played": true
+ },
+ {
+  "id": 350,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-05-24",
+  "minutes": 22,
+  "summary": "A field recording about tools and luck.",
+  "played": false
+ },
+ {
+  "id": 82,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-05-23",
+  "minutes": 16,
+  "summary": "An interview about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 189,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-05-19",
+  "minutes": 38,
+  "summary": "A field recording about craft and failure.",
+  "played": true
+ },
+ {
+  "id": 8,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "A history of glaciers",
+  "date": "2026-05-18",
+  "minutes": 49,
+  "summary": "An interview about food and luck.",
+  "played": false
+ },
+ {
+  "id": 225,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2026-05-17",
+  "minutes": 32,
+  "summary": "A deep dive about food and repair.",
+  "played": false
+ },
+ {
+  "id": 335,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Against sourdough",
+  "date": "2026-05-17",
+  "minutes": 52,
+  "summary": "An interview about food and distance.",
+  "played": false
+ },
+ {
+  "id": 337,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "How bridges",
+  "date": "2026-05-17",
+  "minutes": 71,
+  "summary": "A conversation about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 36,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "When glaciers",
+  "date": "2026-05-14",
+  "minutes": 41,
+  "summary": "A conversation about food and distance.",
+  "played": false
+ },
+ {
+  "id": 338,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against sourdough",
+  "date": "2026-05-13",
+  "minutes": 82,
+  "summary": "An interview about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 105,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for glaciers",
+  "date": "2026-05-12",
+  "minutes": 86,
+  "summary": "A conversation about weather and repair.",
+  "played": true
+ },
+ {
+  "id": 114,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "A history of sourdough",
+  "date": "2026-05-11",
+  "minutes": 17,
+  "summary": "A deep dive about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 32,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-05-10",
+  "minutes": 24,
+  "summary": "An interview about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 149,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-05-08",
+  "minutes": 45,
+  "summary": "A field recording about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 200,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of cartography",
+  "date": "2026-05-07",
+  "minutes": 55,
+  "summary": "A field recording about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 58,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2026-05-06",
+  "minutes": 60,
+  "summary": "A conversation about maps and luck.",
+  "played": true
+ },
+ {
+  "id": 87,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on old radios",
+  "date": "2026-05-06",
+  "minutes": 45,
+  "summary": "A field recording about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 45,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "How glaciers",
+  "date": "2026-05-05",
+  "minutes": 51,
+  "summary": "An interview about weather and repair.",
+  "played": false
+ },
+ {
+  "id": 231,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Against bridges",
+  "date": "2026-05-04",
+  "minutes": 27,
+  "summary": "An interview about tools and home.",
+  "played": true
+ },
+ {
+  "id": 254,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How old radios",
+  "date": "2026-05-03",
+  "minutes": 83,
+  "summary": "A deep dive about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 139,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2026-05-02",
+  "minutes": 90,
+  "summary": "A deep dive about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 173,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "How bridges",
+  "date": "2026-05-01",
+  "minutes": 66,
+  "summary": "A deep dive about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 183,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-05-01",
+  "minutes": 21,
+  "summary": "A conversation about memory and failure.",
+  "played": true
+ },
+ {
+  "id": 282,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When lighthouses",
+  "date": "2026-05-01",
+  "minutes": 29,
+  "summary": "A field recording about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 364,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-05-01",
+  "minutes": 93,
+  "summary": "A field recording about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 66,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of night trains",
+  "date": "2026-04-30",
+  "minutes": 26,
+  "summary": "An interview about food and failure.",
+  "played": false
+ },
+ {
+  "id": 115,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-04-28",
+  "minutes": 94,
+  "summary": "A conversation about tools and home.",
+  "played": false
+ },
+ {
+  "id": 129,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How sourdough",
+  "date": "2026-04-25",
+  "minutes": 49,
+  "summary": "A field recording about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 150,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Against typefaces",
+  "date": "2026-04-25",
+  "minutes": 31,
+  "summary": "A conversation about tools and home.",
+  "played": true
+ },
+ {
+  "id": 311,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2026-04-25",
+  "minutes": 36,
+  "summary": "A deep dive about food and failure.",
+  "played": false
+ },
+ {
+  "id": 331,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-04-25",
+  "minutes": 95,
+  "summary": "A deep dive about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 3,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2026-04-23",
+  "minutes": 56,
+  "summary": "A deep dive about food and patience.",
+  "played": false
+ },
+ {
+  "id": 380,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2026-04-23",
+  "minutes": 36,
+  "summary": "A conversation about food and patience.",
+  "played": false
+ },
+ {
+  "id": 399,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2026-04-22",
+  "minutes": 75,
+  "summary": "An interview about weather and home.",
+  "played": false
+ },
+ {
+  "id": 152,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "The case for cartography",
+  "date": "2026-04-21",
+  "minutes": 39,
+  "summary": "A field recording about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 266,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Against typefaces",
+  "date": "2026-04-21",
+  "minutes": 13,
+  "summary": "A field recording about memory and patience.",
+  "played": false
+ },
+ {
+  "id": 294,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "The case for glaciers",
+  "date": "2026-04-20",
+  "minutes": 21,
+  "summary": "A conversation about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 191,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for cartography",
+  "date": "2026-04-19",
+  "minutes": 35,
+  "summary": "An interview about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 190,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How night trains",
+  "date": "2026-04-18",
+  "minutes": 93,
+  "summary": "A field recording about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 312,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2026-04-18",
+  "minutes": 51,
+  "summary": "An interview about memory and repair.",
+  "played": true
+ },
+ {
+  "id": 328,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on old radios",
+  "date": "2026-04-17",
+  "minutes": 55,
+  "summary": "A deep dive about maps and repair.",
+  "played": false
+ },
+ {
+  "id": 261,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-04-16",
+  "minutes": 88,
+  "summary": "An interview about food and home.",
+  "played": false
+ },
+ {
+  "id": 35,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Notes on beekeeping",
+  "date": "2026-04-15",
+  "minutes": 77,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 44,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How tides",
+  "date": "2026-04-15",
+  "minutes": 75,
+  "summary": "A conversation about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 326,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When typefaces",
+  "date": "2026-04-15",
+  "minutes": 20,
+  "summary": "A deep dive about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 15,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-04-14",
+  "minutes": 76,
+  "summary": "An interview about memory and luck.",
+  "played": true
+ },
+ {
+  "id": 100,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Inside old radios",
+  "date": "2026-04-10",
+  "minutes": 87,
+  "summary": "A deep dive about maps and home.",
+  "played": false
+ },
+ {
+  "id": 243,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2026-04-10",
+  "minutes": 76,
+  "summary": "A conversation about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 247,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Inside tides",
+  "date": "2026-04-10",
+  "minutes": 20,
+  "summary": "A field recording about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 279,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "How beekeeping",
+  "date": "2026-04-10",
+  "minutes": 49,
+  "summary": "A field recording about cities and home.",
+  "played": false
+ },
+ {
+  "id": 25,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2026-04-08",
+  "minutes": 86,
+  "summary": "An interview about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 117,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2026-04-06",
+  "minutes": 90,
+  "summary": "A field recording about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 124,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Notes on small towns",
+  "date": "2026-04-06",
+  "minutes": 79,
+  "summary": "A field recording about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 103,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2026-04-05",
+  "minutes": 72,
+  "summary": "A deep dive about food and repair.",
+  "played": false
+ },
+ {
+  "id": 193,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why cartography",
+  "date": "2026-04-05",
+  "minutes": 79,
+  "summary": "An interview about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 386,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How lighthouses",
+  "date": "2026-04-05",
+  "minutes": 80,
+  "summary": "A deep dive about food and distance.",
+  "played": false
+ },
+ {
+  "id": 366,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "When old radios",
+  "date": "2026-04-04",
+  "minutes": 93,
+  "summary": "A deep dive about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 371,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of tides",
+  "date": "2026-04-04",
+  "minutes": 86,
+  "summary": "A conversation about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 228,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside jazz standards",
+  "date": "2026-04-03",
+  "minutes": 43,
+  "summary": "A conversation about cities and home.",
+  "played": false
+ },
+ {
+  "id": 186,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How typefaces",
+  "date": "2026-04-02",
+  "minutes": 25,
+  "summary": "A field recording about tools and luck.",
+  "played": false
+ },
+ {
+  "id": 270,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2026-04-02",
+  "minutes": 79,
+  "summary": "A conversation about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 385,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "When jazz standards",
+  "date": "2026-03-31",
+  "minutes": 91,
+  "summary": "A field recording about tools and home.",
+  "played": true
+ },
+ {
+  "id": 27,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Inside old radios",
+  "date": "2026-03-29",
+  "minutes": 16,
+  "summary": "A deep dive about craft and failure.",
+  "played": true
+ },
+ {
+  "id": 14,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-03-25",
+  "minutes": 23,
+  "summary": "A conversation about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 119,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-03-25",
+  "minutes": 90,
+  "summary": "An interview about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 205,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Why tides",
+  "date": "2026-03-25",
+  "minutes": 37,
+  "summary": "A deep dive about food and failure.",
+  "played": false
+ },
+ {
+  "id": 301,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "The case for cartography",
+  "date": "2026-03-25",
+  "minutes": 88,
+  "summary": "A field recording about weather and repair.",
+  "played": false
+ },
+ {
+  "id": 29,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-03-21",
+  "minutes": 77,
+  "summary": "A conversation about cities and repair.",
+  "played": true
+ },
+ {
+  "id": 153,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside cartography",
+  "date": "2026-03-21",
+  "minutes": 65,
+  "summary": "A deep dive about food and home.",
+  "played": true
+ },
+ {
+  "id": 245,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Notes on typefaces",
+  "date": "2026-03-19",
+  "minutes": 40,
+  "summary": "An interview about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 406,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-03-19",
+  "minutes": 15,
+  "summary": "A field recording about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 5,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2026-03-18",
+  "minutes": 68,
+  "summary": "A deep dive about tools and patience.",
+  "played": false
+ },
+ {
+  "id": 203,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "When small towns",
+  "date": "2026-03-18",
+  "minutes": 85,
+  "summary": "A field recording about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 195,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Why bridges",
+  "date": "2026-03-17",
+  "minutes": 84,
+  "summary": "A field recording about food and repair.",
+  "played": false
+ },
+ {
+  "id": 6,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2026-03-16",
+  "minutes": 80,
+  "summary": "A field recording about weather and home.",
+  "played": false
+ },
+ {
+  "id": 95,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "When glaciers",
+  "date": "2026-03-16",
+  "minutes": 48,
+  "summary": "A conversation about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 236,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How night trains",
+  "date": "2026-03-16",
+  "minutes": 67,
+  "summary": "A conversation about craft and patience.",
+  "played": false
+ },
+ {
+  "id": 104,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Against sourdough",
+  "date": "2026-03-12",
+  "minutes": 73,
+  "summary": "A deep dive about cities and home.",
+  "played": false
+ },
+ {
+  "id": 211,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How old radios",
+  "date": "2026-03-12",
+  "minutes": 83,
+  "summary": "A deep dive about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 21,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-03-10",
+  "minutes": 26,
+  "summary": "An interview about memory and patience.",
+  "played": false
+ },
+ {
+  "id": 47,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How lighthouses",
+  "date": "2026-03-10",
+  "minutes": 28,
+  "summary": "A conversation about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 65,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for glaciers",
+  "date": "2026-03-10",
+  "minutes": 53,
+  "summary": "A conversation about maps and home.",
+  "played": false
+ },
+ {
+  "id": 388,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "When typefaces",
+  "date": "2026-03-10",
+  "minutes": 53,
+  "summary": "A conversation about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 121,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2026-03-08",
+  "minutes": 53,
+  "summary": "A deep dive about memory and home.",
+  "played": false
+ },
+ {
+  "id": 227,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-03-08",
+  "minutes": 89,
+  "summary": "A field recording about food and distance.",
+  "played": false
+ },
+ {
+  "id": 26,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Against small towns",
+  "date": "2026-03-07",
+  "minutes": 28,
+  "summary": "A field recording about food and luck.",
+  "played": true
+ },
+ {
+  "id": 157,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Notes on tides",
+  "date": "2026-03-07",
+  "minutes": 13,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 387,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Against tides",
+  "date": "2026-03-07",
+  "minutes": 94,
+  "summary": "A conversation about food and luck.",
+  "played": false
+ },
+ {
+  "id": 278,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-03-06",
+  "minutes": 52,
+  "summary": "An interview about tools and home.",
+  "played": true
+ },
+ {
+  "id": 94,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Against bridges",
+  "date": "2026-03-04",
+  "minutes": 42,
+  "summary": "A conversation about memory and patience.",
+  "played": false
+ },
+ {
+  "id": 411,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on jazz standards",
+  "date": "2026-03-04",
+  "minutes": 55,
+  "summary": "An interview about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 41,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2026-03-01",
+  "minutes": 23,
+  "summary": "A deep dive about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 93,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "A history of jazz standards",
+  "date": "2026-03-01",
+  "minutes": 47,
+  "summary": "A field recording about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 204,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2026-03-01",
+  "minutes": 74,
+  "summary": "A field recording about cities and home.",
+  "played": true
+ },
+ {
+  "id": 302,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Inside beekeeping",
+  "date": "2026-02-28",
+  "minutes": 74,
+  "summary": "A deep dive about food and distance.",
+  "played": false
+ },
+ {
+  "id": 305,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of jazz standards",
+  "date": "2026-02-28",
+  "minutes": 41,
+  "summary": "An interview about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 264,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2026-02-25",
+  "minutes": 41,
+  "summary": "A conversation about food and repair.",
+  "played": false
+ },
+ {
+  "id": 347,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "How lighthouses",
+  "date": "2026-02-25",
+  "minutes": 41,
+  "summary": "An interview about food and distance.",
+  "played": false
+ },
+ {
+  "id": 259,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How glaciers",
+  "date": "2026-02-24",
+  "minutes": 20,
+  "summary": "An interview about memory and patience.",
+  "played": false
+ },
+ {
+  "id": 297,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Against typefaces",
+  "date": "2026-02-24",
+  "minutes": 90,
+  "summary": "A conversation about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 269,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2026-02-23",
+  "minutes": 67,
+  "summary": "An interview about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 143,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How beekeeping",
+  "date": "2026-02-22",
+  "minutes": 13,
+  "summary": "An interview about maps and failure.",
+  "played": true
+ },
+ {
+  "id": 51,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-02-21",
+  "minutes": 71,
+  "summary": "A field recording about maps and home.",
+  "played": false
+ },
+ {
+  "id": 409,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "A history of bridges",
+  "date": "2026-02-21",
+  "minutes": 91,
+  "summary": "A deep dive about craft and failure.",
+  "played": true
+ },
+ {
+  "id": 79,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Against lighthouses",
+  "date": "2026-02-20",
+  "minutes": 78,
+  "summary": "A field recording about food and luck.",
+  "played": false
+ },
+ {
+  "id": 101,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2026-02-20",
+  "minutes": 55,
+  "summary": "A conversation about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 230,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2026-02-20",
+  "minutes": 59,
+  "summary": "A deep dive about craft and luck.",
+  "played": true
+ },
+ {
+  "id": 18,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "How glaciers",
+  "date": "2026-02-19",
+  "minutes": 93,
+  "summary": "A field recording about weather and distance.",
+  "played": false
+ },
+ {
+  "id": 400,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Why lighthouses",
+  "date": "2026-02-18",
+  "minutes": 29,
+  "summary": "An interview about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 391,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2026-02-15",
+  "minutes": 59,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 252,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2026-02-13",
+  "minutes": 60,
+  "summary": "A deep dive about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 224,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2026-02-12",
+  "minutes": 68,
+  "summary": "A field recording about craft and failure.",
+  "played": true
+ },
+ {
+  "id": 68,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Against cartography",
+  "date": "2026-02-09",
+  "minutes": 61,
+  "summary": "A conversation about food and patience.",
+  "played": false
+ },
+ {
+  "id": 272,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2026-02-08",
+  "minutes": 32,
+  "summary": "A field recording about memory and patience.",
+  "played": true
+ },
+ {
+  "id": 271,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How typefaces",
+  "date": "2026-02-07",
+  "minutes": 63,
+  "summary": "An interview about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 40,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why lighthouses",
+  "date": "2026-02-06",
+  "minutes": 55,
+  "summary": "A deep dive about weather and distance.",
+  "played": false
+ },
+ {
+  "id": 298,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2026-02-05",
+  "minutes": 31,
+  "summary": "A deep dive about food and failure.",
+  "played": false
+ },
+ {
+  "id": 39,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2026-02-04",
+  "minutes": 66,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 75,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2026-02-03",
+  "minutes": 38,
+  "summary": "An interview about food and luck.",
+  "played": false
+ },
+ {
+  "id": 61,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How jazz standards",
+  "date": "2026-02-02",
+  "minutes": 39,
+  "summary": "A field recording about weather and home.",
+  "played": false
+ },
+ {
+  "id": 207,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Against tides",
+  "date": "2026-02-02",
+  "minutes": 13,
+  "summary": "A deep dive about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 174,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "A history of beekeeping",
+  "date": "2026-02-01",
+  "minutes": 45,
+  "summary": "A deep dive about maps and patience.",
+  "played": true
+ },
+ {
+  "id": 219,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2026-01-31",
+  "minutes": 21,
+  "summary": "A field recording about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 358,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on night trains",
+  "date": "2026-01-31",
+  "minutes": 36,
+  "summary": "An interview about memory and home.",
+  "played": false
+ },
+ {
+  "id": 351,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2026-01-30",
+  "minutes": 62,
+  "summary": "A conversation about food and distance.",
+  "played": false
+ },
+ {
+  "id": 315,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of small towns",
+  "date": "2026-01-29",
+  "minutes": 64,
+  "summary": "A conversation about weather and failure.",
+  "played": true
+ },
+ {
+  "id": 344,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When sourdough",
+  "date": "2026-01-29",
+  "minutes": 68,
+  "summary": "A deep dive about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 361,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside typefaces",
+  "date": "2026-01-27",
+  "minutes": 64,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 210,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2026-01-26",
+  "minutes": 34,
+  "summary": "A deep dive about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 378,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2026-01-24",
+  "minutes": 95,
+  "summary": "An interview about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 110,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "When night trains",
+  "date": "2026-01-23",
+  "minutes": 65,
+  "summary": "A deep dive about weather and home.",
+  "played": false
+ },
+ {
+  "id": 250,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How glaciers",
+  "date": "2026-01-23",
+  "minutes": 55,
+  "summary": "A conversation about maps and repair.",
+  "played": true
+ },
+ {
+  "id": 112,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How typefaces",
+  "date": "2026-01-21",
+  "minutes": 52,
+  "summary": "An interview about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 332,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How tides",
+  "date": "2026-01-18",
+  "minutes": 55,
+  "summary": "A deep dive about cities and distance.",
+  "played": true
+ },
+ {
+  "id": 140,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How old radios",
+  "date": "2026-01-17",
+  "minutes": 29,
+  "summary": "An interview about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 132,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "A history of jazz standards",
+  "date": "2026-01-16",
+  "minutes": 41,
+  "summary": "An interview about tools and patience.",
+  "played": false
+ },
+ {
+  "id": 202,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Notes on night trains",
+  "date": "2026-01-16",
+  "minutes": 87,
+  "summary": "A field recording about maps and home.",
+  "played": true
+ },
+ {
+  "id": 255,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "A history of typefaces",
+  "date": "2026-01-16",
+  "minutes": 59,
+  "summary": "A conversation about maps and failure.",
+  "played": false
+ },
+ {
+  "id": 67,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "How lighthouses",
+  "date": "2026-01-15",
+  "minutes": 55,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 97,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2026-01-15",
+  "minutes": 59,
+  "summary": "A deep dive about cities and home.",
+  "played": true
+ },
+ {
+  "id": 178,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Inside beekeeping",
+  "date": "2026-01-15",
+  "minutes": 24,
+  "summary": "A field recording about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 318,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "The case for beekeeping",
+  "date": "2026-01-15",
+  "minutes": 86,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 64,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2026-01-12",
+  "minutes": 47,
+  "summary": "A conversation about food and patience.",
+  "played": true
+ },
+ {
+  "id": 53,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "How small towns",
+  "date": "2026-01-11",
+  "minutes": 71,
+  "summary": "A deep dive about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 89,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against typefaces",
+  "date": "2026-01-11",
+  "minutes": 12,
+  "summary": "A field recording about cities and luck.",
+  "played": true
+ },
+ {
+  "id": 215,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "When cartography",
+  "date": "2026-01-11",
+  "minutes": 79,
+  "summary": "An interview about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 341,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2026-01-11",
+  "minutes": 12,
+  "summary": "An interview about memory and repair.",
+  "played": true
+ },
+ {
+  "id": 138,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Notes on lighthouses",
+  "date": "2026-01-10",
+  "minutes": 93,
+  "summary": "A deep dive about tools and distance.",
+  "played": true
+ },
+ {
+  "id": 194,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Against old radios",
+  "date": "2026-01-08",
+  "minutes": 13,
+  "summary": "An interview about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 120,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against small towns",
+  "date": "2026-01-06",
+  "minutes": 12,
+  "summary": "An interview about cities and patience.",
+  "played": false
+ },
+ {
+  "id": 313,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "The case for jazz standards",
+  "date": "2026-01-04",
+  "minutes": 61,
+  "summary": "A deep dive about maps and luck.",
+  "played": true
+ },
+ {
+  "id": 292,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Against bridges",
+  "date": "2026-01-03",
+  "minutes": 74,
+  "summary": "An interview about craft and home.",
+  "played": true
+ },
+ {
+  "id": 274,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why tides",
+  "date": "2026-01-02",
+  "minutes": 51,
+  "summary": "An interview about cities and luck.",
+  "played": false
+ },
+ {
+  "id": 392,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Against glaciers",
+  "date": "2026-01-02",
+  "minutes": 38,
+  "summary": "A conversation about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 168,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2025-12-31",
+  "minutes": 82,
+  "summary": "An interview about craft and patience.",
+  "played": false
+ },
+ {
+  "id": 188,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "When old radios",
+  "date": "2025-12-31",
+  "minutes": 79,
+  "summary": "A deep dive about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 394,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "How beekeeping",
+  "date": "2025-12-31",
+  "minutes": 80,
+  "summary": "A conversation about cities and luck.",
+  "played": true
+ },
+ {
+  "id": 382,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2025-12-29",
+  "minutes": 81,
+  "summary": "A field recording about food and patience.",
+  "played": false
+ },
+ {
+  "id": 84,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2025-12-28",
+  "minutes": 77,
+  "summary": "An interview about memory and home.",
+  "played": true
+ },
+ {
+  "id": 52,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for cartography",
+  "date": "2025-12-27",
+  "minutes": 80,
+  "summary": "An interview about food and repair.",
+  "played": false
+ },
+ {
+  "id": 295,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "A history of night trains",
+  "date": "2025-12-27",
+  "minutes": 73,
+  "summary": "An interview about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 333,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How jazz standards",
+  "date": "2025-12-26",
+  "minutes": 12,
+  "summary": "A conversation about weather and home.",
+  "played": true
+ },
+ {
+  "id": 2,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "The case for bridges",
+  "date": "2025-12-25",
+  "minutes": 90,
+  "summary": "A conversation about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 310,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2025-12-25",
+  "minutes": 12,
+  "summary": "A field recording about memory and luck.",
+  "played": false
+ },
+ {
+  "id": 130,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Inside jazz standards",
+  "date": "2025-12-24",
+  "minutes": 27,
+  "summary": "A deep dive about food and home.",
+  "played": false
+ },
+ {
+  "id": 134,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Against bridges",
+  "date": "2025-12-24",
+  "minutes": 66,
+  "summary": "A field recording about food and repair.",
+  "played": false
+ },
+ {
+  "id": 162,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2025-12-22",
+  "minutes": 26,
+  "summary": "A deep dive about craft and home.",
+  "played": true
+ },
+ {
+  "id": 281,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How jazz standards",
+  "date": "2025-12-21",
+  "minutes": 34,
+  "summary": "An interview about food and failure.",
+  "played": true
+ },
+ {
+  "id": 176,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of glaciers",
+  "date": "2025-12-20",
+  "minutes": 40,
+  "summary": "A conversation about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 419,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Against sourdough",
+  "date": "2025-12-20",
+  "minutes": 33,
+  "summary": "A field recording about food and patience.",
+  "played": false
+ },
+ {
+  "id": 63,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2025-12-18",
+  "minutes": 39,
+  "summary": "A conversation about food and failure.",
+  "played": false
+ },
+ {
+  "id": 99,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why small towns",
+  "date": "2025-12-18",
+  "minutes": 59,
+  "summary": "An interview about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 316,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2025-12-18",
+  "minutes": 27,
+  "summary": "A deep dive about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 346,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why beekeeping",
+  "date": "2025-12-18",
+  "minutes": 69,
+  "summary": "An interview about memory and luck.",
+  "played": false
+ },
+ {
+  "id": 217,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2025-12-17",
+  "minutes": 68,
+  "summary": "A conversation about cities and repair.",
+  "played": true
+ },
+ {
+  "id": 263,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2025-12-17",
+  "minutes": 34,
+  "summary": "A conversation about memory and failure.",
+  "played": false
+ },
+ {
+  "id": 403,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2025-12-17",
+  "minutes": 14,
+  "summary": "An interview about craft and repair.",
+  "played": false
+ },
+ {
+  "id": 229,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "The case for beekeeping",
+  "date": "2025-12-14",
+  "minutes": 13,
+  "summary": "An interview about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 158,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Inside lighthouses",
+  "date": "2025-12-13",
+  "minutes": 91,
+  "summary": "A field recording about craft and patience.",
+  "played": true
+ },
+ {
+  "id": 77,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "A history of small towns",
+  "date": "2025-12-12",
+  "minutes": 60,
+  "summary": "An interview about craft and repair.",
+  "played": false
+ },
+ {
+  "id": 28,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2025-12-07",
+  "minutes": 29,
+  "summary": "A deep dive about tools and repair.",
+  "played": true
+ },
+ {
+  "id": 362,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of sourdough",
+  "date": "2025-12-07",
+  "minutes": 74,
+  "summary": "A field recording about food and distance.",
+  "played": false
+ },
+ {
+  "id": 248,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside tides",
+  "date": "2025-12-06",
+  "minutes": 94,
+  "summary": "An interview about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 96,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "When old radios",
+  "date": "2025-12-03",
+  "minutes": 35,
+  "summary": "A conversation about tools and luck.",
+  "played": false
+ },
+ {
+  "id": 412,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "A history of cartography",
+  "date": "2025-12-03",
+  "minutes": 82,
+  "summary": "A deep dive about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 209,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How tides",
+  "date": "2025-12-02",
+  "minutes": 21,
+  "summary": "A conversation about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 410,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "When sourdough",
+  "date": "2025-11-30",
+  "minutes": 20,
+  "summary": "A deep dive about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 357,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "How tides",
+  "date": "2025-11-29",
+  "minutes": 88,
+  "summary": "A conversation about food and repair.",
+  "played": false
+ },
+ {
+  "id": 420,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for old radios",
+  "date": "2025-11-27",
+  "minutes": 95,
+  "summary": "A deep dive about food and patience.",
+  "played": false
+ },
+ {
+  "id": 379,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2025-11-26",
+  "minutes": 20,
+  "summary": "A deep dive about food and patience.",
+  "played": false
+ },
+ {
+  "id": 405,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "When glaciers",
+  "date": "2025-11-26",
+  "minutes": 78,
+  "summary": "An interview about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 54,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2025-11-25",
+  "minutes": 94,
+  "summary": "An interview about craft and home.",
+  "played": false
+ },
+ {
+  "id": 280,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "A history of lighthouses",
+  "date": "2025-11-22",
+  "minutes": 85,
+  "summary": "A conversation about weather and repair.",
+  "played": true
+ },
+ {
+  "id": 166,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2025-11-19",
+  "minutes": 58,
+  "summary": "A conversation about memory and failure.",
+  "played": true
+ },
+ {
+  "id": 251,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Notes on sourdough",
+  "date": "2025-11-19",
+  "minutes": 77,
+  "summary": "A field recording about maps and luck.",
+  "played": true
+ },
+ {
+  "id": 182,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Notes on typefaces",
+  "date": "2025-11-18",
+  "minutes": 43,
+  "summary": "A conversation about craft and failure.",
+  "played": false
+ },
+ {
+  "id": 290,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How bridges",
+  "date": "2025-11-17",
+  "minutes": 30,
+  "summary": "A field recording about tools and patience.",
+  "played": false
+ },
+ {
+  "id": 38,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Why glaciers",
+  "date": "2025-11-16",
+  "minutes": 48,
+  "summary": "An interview about maps and distance.",
+  "played": true
+ },
+ {
+  "id": 317,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "When lighthouses",
+  "date": "2025-11-16",
+  "minutes": 22,
+  "summary": "A field recording about weather and patience.",
+  "played": false
+ },
+ {
+  "id": 296,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Against glaciers",
+  "date": "2025-11-14",
+  "minutes": 51,
+  "summary": "An interview about food and repair.",
+  "played": true
+ },
+ {
+  "id": 234,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Why sourdough",
+  "date": "2025-11-13",
+  "minutes": 12,
+  "summary": "A conversation about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 308,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Why lighthouses",
+  "date": "2025-11-13",
+  "minutes": 31,
+  "summary": "An interview about memory and luck.",
+  "played": false
+ },
+ {
+  "id": 109,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2025-11-11",
+  "minutes": 70,
+  "summary": "A conversation about food and repair.",
+  "played": false
+ },
+ {
+  "id": 185,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "When beekeeping",
+  "date": "2025-11-11",
+  "minutes": 26,
+  "summary": "A deep dive about maps and patience.",
+  "played": false
+ },
+ {
+  "id": 102,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2025-11-07",
+  "minutes": 94,
+  "summary": "An interview about craft and repair.",
+  "played": true
+ },
+ {
+  "id": 170,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Notes on old radios",
+  "date": "2025-11-04",
+  "minutes": 70,
+  "summary": "A deep dive about memory and repair.",
+  "played": true
+ },
+ {
+  "id": 165,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside small towns",
+  "date": "2025-11-03",
+  "minutes": 79,
+  "summary": "A field recording about weather and luck.",
+  "played": false
+ },
+ {
+  "id": 220,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Inside glaciers",
+  "date": "2025-11-02",
+  "minutes": 42,
+  "summary": "A field recording about food and repair.",
+  "played": false
+ },
+ {
+  "id": 106,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "A history of bridges",
+  "date": "2025-11-01",
+  "minutes": 54,
+  "summary": "An interview about food and failure.",
+  "played": true
+ },
+ {
+  "id": 187,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Inside beekeeping",
+  "date": "2025-11-01",
+  "minutes": 85,
+  "summary": "A conversation about craft and repair.",
+  "played": false
+ },
+ {
+  "id": 368,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Why cartography",
+  "date": "2025-11-01",
+  "minutes": 38,
+  "summary": "A deep dive about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 42,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "Inside beekeeping",
+  "date": "2025-10-31",
+  "minutes": 72,
+  "summary": "A field recording about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 123,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "How bridges",
+  "date": "2025-10-31",
+  "minutes": 84,
+  "summary": "An interview about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 206,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "When glaciers",
+  "date": "2025-10-31",
+  "minutes": 93,
+  "summary": "A conversation about weather and home.",
+  "played": true
+ },
+ {
+  "id": 393,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2025-10-31",
+  "minutes": 93,
+  "summary": "A deep dive about tools and failure.",
+  "played": false
+ },
+ {
+  "id": 336,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "The case for tides",
+  "date": "2025-10-30",
+  "minutes": 57,
+  "summary": "A field recording about craft and distance.",
+  "played": false
+ },
+ {
+  "id": 198,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "A history of sourdough",
+  "date": "2025-10-28",
+  "minutes": 31,
+  "summary": "A field recording about cities and distance.",
+  "played": true
+ },
+ {
+  "id": 141,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "The case for beekeeping",
+  "date": "2025-10-27",
+  "minutes": 33,
+  "summary": "An interview about cities and home.",
+  "played": true
+ },
+ {
+  "id": 370,
+  "show": "Market Hall",
+  "number": 0,
+  "title": "When tides",
+  "date": "2025-10-24",
+  "minutes": 12,
+  "summary": "A field recording about weather and home.",
+  "played": true
+ },
+ {
+  "id": 396,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for small towns",
+  "date": "2025-10-23",
+  "minutes": 87,
+  "summary": "A deep dive about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 83,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "The case for typefaces",
+  "date": "2025-10-22",
+  "minutes": 28,
+  "summary": "A deep dive about weather and repair.",
+  "played": true
+ },
+ {
+  "id": 85,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2025-10-22",
+  "minutes": 61,
+  "summary": "A field recording about cities and failure.",
+  "played": true
+ },
+ {
+  "id": 192,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2025-10-22",
+  "minutes": 79,
+  "summary": "A field recording about maps and luck.",
+  "played": true
+ },
+ {
+  "id": 160,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "The case for night trains",
+  "date": "2025-10-21",
+  "minutes": 40,
+  "summary": "A deep dive about cities and repair.",
+  "played": false
+ },
+ {
+  "id": 260,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Inside bridges",
+  "date": "2025-10-21",
+  "minutes": 62,
+  "summary": "An interview about food and distance.",
+  "played": false
+ },
+ {
+  "id": 283,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2025-10-20",
+  "minutes": 50,
+  "summary": "An interview about memory and home.",
+  "played": false
+ },
+ {
+  "id": 369,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for lighthouses",
+  "date": "2025-10-19",
+  "minutes": 43,
+  "summary": "A conversation about tools and repair.",
+  "played": false
+ },
+ {
+  "id": 414,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "When night trains",
+  "date": "2025-10-17",
+  "minutes": 46,
+  "summary": "An interview about cities and patience.",
+  "played": true
+ },
+ {
+  "id": 142,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "The case for jazz standards",
+  "date": "2025-10-12",
+  "minutes": 82,
+  "summary": "An interview about tools and patience.",
+  "played": false
+ },
+ {
+  "id": 287,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "How small towns",
+  "date": "2025-10-12",
+  "minutes": 50,
+  "summary": "A deep dive about tools and patience.",
+  "played": true
+ },
+ {
+  "id": 24,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "When jazz standards",
+  "date": "2025-10-11",
+  "minutes": 70,
+  "summary": "A deep dive about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 57,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Notes on glaciers",
+  "date": "2025-10-11",
+  "minutes": 58,
+  "summary": "An interview about weather and failure.",
+  "played": false
+ },
+ {
+  "id": 300,
+  "show": "Small Engines",
+  "number": 0,
+  "title": "Against bridges",
+  "date": "2025-10-11",
+  "minutes": 31,
+  "summary": "An interview about craft and repair.",
+  "played": false
+ },
+ {
+  "id": 372,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "How beekeeping",
+  "date": "2025-10-11",
+  "minutes": 70,
+  "summary": "A conversation about weather and repair.",
+  "played": false
+ },
+ {
+  "id": 407,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "How tides",
+  "date": "2025-10-10",
+  "minutes": 37,
+  "summary": "A deep dive about cities and luck.",
+  "played": true
+ },
+ {
+  "id": 275,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2025-10-08",
+  "minutes": 12,
+  "summary": "A deep dive about food and repair.",
+  "played": false
+ },
+ {
+  "id": 416,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Inside sourdough",
+  "date": "2025-10-08",
+  "minutes": 39,
+  "summary": "An interview about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 221,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Why small towns",
+  "date": "2025-10-07",
+  "minutes": 88,
+  "summary": "A conversation about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 179,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "A history of glaciers",
+  "date": "2025-10-06",
+  "minutes": 35,
+  "summary": "An interview about maps and repair.",
+  "played": false
+ },
+ {
+  "id": 249,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "Why typefaces",
+  "date": "2025-10-05",
+  "minutes": 52,
+  "summary": "A conversation about maps and distance.",
+  "played": false
+ },
+ {
+  "id": 343,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "When tides",
+  "date": "2025-10-05",
+  "minutes": 25,
+  "summary": "A conversation about weather and failure.",
+  "played": true
+ },
+ {
+  "id": 367,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "Against tides",
+  "date": "2025-10-05",
+  "minutes": 90,
+  "summary": "A field recording about weather and repair.",
+  "played": false
+ },
+ {
+  "id": 50,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2025-10-04",
+  "minutes": 57,
+  "summary": "A conversation about weather and repair.",
+  "played": true
+ },
+ {
+  "id": 197,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "The case for tides",
+  "date": "2025-10-04",
+  "minutes": 33,
+  "summary": "A deep dive about maps and patience.",
+  "played": true
+ },
+ {
+  "id": 196,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Why jazz standards",
+  "date": "2025-10-02",
+  "minutes": 62,
+  "summary": "A field recording about maps and home.",
+  "played": false
+ },
+ {
+  "id": 81,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "Against glaciers",
+  "date": "2025-09-30",
+  "minutes": 43,
+  "summary": "A deep dive about food and failure.",
+  "played": true
+ },
+ {
+  "id": 118,
+  "show": "Night Kitchen",
+  "number": 0,
+  "title": "When small towns",
+  "date": "2025-09-30",
+  "minutes": 13,
+  "summary": "A deep dive about memory and distance.",
+  "played": false
+ },
+ {
+  "id": 9,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "When bridges",
+  "date": "2025-09-29",
+  "minutes": 48,
+  "summary": "An interview about maps and home.",
+  "played": false
+ },
+ {
+  "id": 88,
+  "show": "Signal & Noise",
+  "number": 0,
+  "title": "How cartography",
+  "date": "2025-09-29",
+  "minutes": 70,
+  "summary": "A deep dive about maps and patience.",
+  "played": true
+ },
+ {
+  "id": 223,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "Why cartography",
+  "date": "2025-09-29",
+  "minutes": 67,
+  "summary": "An interview about food and luck.",
+  "played": false
+ },
+ {
+  "id": 306,
+  "show": "Common Ground",
+  "number": 0,
+  "title": "Notes on small towns",
+  "date": "2025-09-28",
+  "minutes": 54,
+  "summary": "A deep dive about cities and distance.",
+  "played": false
+ },
+ {
+  "id": 374,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Against beekeeping",
+  "date": "2025-09-28",
+  "minutes": 22,
+  "summary": "A field recording about memory and repair.",
+  "played": false
+ },
+ {
+  "id": 267,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "Why old radios",
+  "date": "2025-09-27",
+  "minutes": 57,
+  "summary": "A field recording about maps and home.",
+  "played": true
+ },
+ {
+  "id": 273,
+  "show": "Orbit Report",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2025-09-27",
+  "minutes": 88,
+  "summary": "An interview about cities and home.",
+  "played": false
+ },
+ {
+  "id": 62,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Notes on cartography",
+  "date": "2025-09-26",
+  "minutes": 12,
+  "summary": "A deep dive about food and repair.",
+  "played": true
+ },
+ {
+  "id": 17,
+  "show": "The Long Field",
+  "number": 0,
+  "title": "Why night trains",
+  "date": "2025-09-25",
+  "minutes": 44,
+  "summary": "An interview about weather and home.",
+  "played": false
+ },
+ {
+  "id": 376,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "A history of glaciers",
+  "date": "2025-09-24",
+  "minutes": 64,
+  "summary": "A field recording about tools and distance.",
+  "played": false
+ },
+ {
+  "id": 307,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Inside jazz standards",
+  "date": "2025-09-23",
+  "minutes": 38,
+  "summary": "An interview about craft and patience.",
+  "played": false
+ },
+ {
+  "id": 373,
+  "show": "Deep Water",
+  "number": 0,
+  "title": "Notes on bridges",
+  "date": "2025-09-23",
+  "minutes": 12,
+  "summary": "A deep dive about craft and luck.",
+  "played": false
+ },
+ {
+  "id": 213,
+  "show": "The Repair Shop",
+  "number": 0,
+  "title": "Against cartography",
+  "date": "2025-09-22",
+  "minutes": 37,
+  "summary": "A field recording about maps and luck.",
+  "played": false
+ },
+ {
+  "id": 49,
+  "show": "Quiet Hours",
+  "number": 0,
+  "title": "Notes on typefaces",
+  "date": "2025-09-21",
+  "minutes": 94,
+  "summary": "A deep dive about cities and failure.",
+  "played": false
+ },
+ {
+  "id": 303,
+  "show": "Paper Trails",
+  "number": 0,
+  "title": "The case for sourdough",
+  "date": "2025-09-21",
+  "minutes": 25,
+  "summary": "A conversation about tools and luck.",
+  "played": true
+ },
+ {
+  "id": 381,
+  "show": "Weekend Atlas",
+  "number": 0,
+  "title": "The case for tides",
+  "date": "2025-09-21",
+  "minutes": 56,
+  "summary": "A deep dive about cities and luck.",
+  "played": false
+ }
+]
