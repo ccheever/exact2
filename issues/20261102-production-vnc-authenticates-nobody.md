@@ -1,6 +1,6 @@
 # A production Linux build serves the screen over VNC with no authentication
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Linux display (`host/linux/src/display.rs`, `host/linux/src/vnc.rs`, `host/linux/src/app.rs`)
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,7 @@
 **Fix.** Drop `EXACT_VNC` in a production bake, with the other development switches. A development listen should bind a loopback address unless the variable names a different one, and should check the password it claims to ask for.
 
 **Acceptance.** A production binary with `EXACT_VNC=1` opens no port. A development binary with `EXACT_VNC=1` is reachable only from the same machine, and a wrong password is disconnected.
+
+**Resolution.** Production removes VNC configuration. Development defaults to loopback and requires a one-to-eight-byte password, checked with the RFB challenge-response protocol for 3.3, 3.7 and 3.8.
+
+**Verification after the fix.** The Linux host suite passed 1713 tests, including production environment filtering, a known DES vector and real-socket handshakes accepting correct responses and rejecting wrong passwords. Linux display hardware was not used.

@@ -1,6 +1,6 @@
 # Render can select a content encoding the client explicitly refuses
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** Render HTTP serving, Response compression
 **Author:** Codex
@@ -62,3 +62,7 @@ lowercase `br;q=0,gzip` exclusion but omit these cases.
 The reproduction proves parser selection; it does not run a compressor,
 HTTP exchange, or browser. No matching issue was found in either issue
 corpus, including closed tickets.
+
+**Resolution.** Explicit br/gzip quality values override wildcard admission regardless of order. Quality parsing accepts only finite values above zero and at most one, with case-insensitive parameter names.
+
+**Verification after the fix.** All 227 render library tests passed, including explicit zero-quality refusals beside wildcards in both orders.

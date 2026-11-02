@@ -1,6 +1,6 @@
 # A sunset-only deploy is treated as already current
 
-**Status:** Open
+**Status:** Closed
 **Systems:** `scripts/deploy.mjs` (`publishStream`, `changesAgainst`)
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -17,3 +17,7 @@
 **Acceptance.** Adding, editing and removing the sunset card each publish a new sequence whose envelope carries the new card, with the plan and assets unchanged. A second deploy with the same sunset returns `current`.
 
 **Independent verification (Codex).** At commit `5b94c216a6fee8fca42026f5cb2e9a80063da03a`, `/tmp/exact-review-trust-js-repro.mjs` called exported `publishStream` with a valid signed sequence-7 head, an in-memory origin, unchanged payload cards, and a newly configured sunset. It returned `action: "current"` and performed zero writes. This exercises real signature verification and publishing logic, without baking an app or running the full deploy CLI. Relevant locations: `scripts/deploy.mjs:716-738`, `1125-1128`, `1138-1139`. No matching sunset issue was found in either older issue corpus.
+
+**Resolution.** Deployment compares the effective advisory card as part of stream changes. Adding, editing or clearing it advances the signed sequence even when payloads are identical.
+
+**Verification after the fix.** The exact new publishStream regression passed 18 assertions: add/edit/remove advanced sequences 8/9/10, signatures verified, and repeating each card performed no writes. This focused run extracted the test without the unrelated full-deploy build fixtures.

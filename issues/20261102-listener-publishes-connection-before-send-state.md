@@ -1,6 +1,6 @@
 # A listener can drop the first reply to a new connection
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** exact-listen, native listener executor
 **Author:** Codex
@@ -26,3 +26,7 @@ and the client received `welcome\n`. No product code was changed.
 **Fix.** Install the connection's send state before exposing its event, then
 remove that state if the sink refuses the connection. Add a synchronized test
 that replies while the connection callback is still returning.
+
+**Resolution.** The outgoing connection map is installed before publishing the connection callback; a refused callback removes the provisional entry.
+
+**Verification after the fix.** The real-socket regression sends a reply before the connection callback returns and receives its bytes. All 19 listener tests passed.

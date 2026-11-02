@@ -1,6 +1,6 @@
 # An Android intent replaces a production app's plan
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Android activity (`host/android/canvas/src/main/java/dev/exact/canvas/ExactActivity.kt`, `host/android/app/src/main/AndroidManifest.xml`), host boot (`host/linux/src/app.rs`, `host/linux/src/android.rs`, `host/linux/src/fetch.rs`)
 **Severity:** P0
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,7 @@
 **Fix.** On a production bake, ignore `EXACT_PLAN`, `EXACT_DEV_PLAN` and the other development switches, as `EXACT_AGENT` is ignored. Stop copying arbitrary `x_*` extras into the environment; name the switches a benchmark build is allowed to set. A plan that did not come from the embedded bytes or a signed update must not boot.
 
 **Acceptance.** A production APK cold-started with `x_plan` or `x_dev_plan` presents the baked plan and does not fetch or open the extra. A development build can still point `EXACT_PLAN` at a local file from a shell the developer controls.
+
+**Resolution.** Production launches discard unsigned plan and development-server overrides before configuration reads them. Android imports a fixed set of development extras only when the baked APK metadata enables development; exported intents cannot set arbitrary Exact environment variables.
+
+**Verification after the fix.** The isolated production/development environment regression passed in the Linux host suite. Android canvas sources compiled against the installed SDK. No Android device was available.

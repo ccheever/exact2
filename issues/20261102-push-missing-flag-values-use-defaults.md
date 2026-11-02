@@ -1,6 +1,6 @@
 # Push accepts missing flag values and can select the default origin
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** Publisher CLI (`scripts/push.mjs`)
 **Author:** Codex
@@ -18,3 +18,7 @@ The same parser accepts missing `--channel` and `--keys` values. It also consume
 **Acceptance.** Incomplete and malformed flag combinations fail before any build or origin operation; valid origin, channel, key directory, and sequence arguments retain their behavior.
 
 The existing `20261102-push-channel-can-be-named-blobs.md` concerns accepted channel names, not missing arguments or unintended fallback selection. No matching ticket was found in this checkout or the older Exact issue directories.
+
+**Resolution.** Every valued push option requires a nonempty value. Sequence floors must be safe nonnegative decimal integers; extra positional arguments are refused.
+
+**Verification after the fix.** The push argument regressions passed missing values, flag-shaped values, invalid sequences and extra arguments in the 21-test publisher batch.

@@ -1,6 +1,6 @@
 # `exact push` accepts a channel named `blobs`
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Push and deploy (`scripts/push.mjs`, `scripts/deploy.mjs`, `scripts/origin.mjs`)
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,7 @@
 **Fix.** Call deploy's channel check from push before opening the origin. Refuse `blobs` and `root`.
 
 **Acceptance.** `--channel blobs` and a manifest channel of `blobs` fail before any write. `--channel prod` still publishes.
+
+**Resolution.** Push and deploy share channel validation, rejecting reserved names case-insensitively and refusing dot path components.
+
+**Verification after the fix.** Push argument regressions passed for reserved channel variants and valid channels in the 21-test publisher batch.

@@ -1,6 +1,6 @@
 # Listener path checks accept directories other group members can replace
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** exact-listen, local socket security
 **Author:** Codex
@@ -26,3 +26,7 @@ directory's group and traversable ancestors.
 **Fix.** Include group write permission in the ancestor restriction, preserving
 the intended sticky-directory exception. Cover a `0770` ancestor as well as a
 world-writable ancestor in the path tests.
+
+**Resolution.** Socket-directory preparation rejects ancestors writable by the group or others unless they have the sticky bit.
+
+**Verification after the fix.** All 19 listener tests passed, including the real-socket ignored suite and 0770/0777 ancestor cases with and without the sticky bit.

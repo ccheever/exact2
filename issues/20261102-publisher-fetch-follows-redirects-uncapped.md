@@ -1,6 +1,6 @@
 # The publisher follows redirects and buffers the whole body
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Origin publisher (`scripts/origin.mjs`)
 **Severity:** P1
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,7 @@
 **Fix.** Use `redirect: 'error'` on every publisher fetch. Cap a head GET at 64 KiB and a blob GET at 64 MiB before allocating, and set a timeout. Keep `inspectHead` as a second check.
 
 **Acceptance.** A 307 on a head GET and on an AppDrop PUT fails the publish and does not request the `Location`. A body over the cap fails without holding the rest. A direct 200 of a normal head still publishes.
+
+**Resolution.** All publisher HTTP operations reject redirects, use a 30-second deadline covering headers and body, and read responses within explicit byte caps. Signed AppDrop writes cannot be replayed by a redirect.
+
+**Verification after the fix.** Real local HTTP fixtures verified that redirected reads, listing and signed writes never reached the redirect destination; an oversized streamed head was refused and a direct response succeeded. The focused publisher/push/Android manifest batch passed 21 tests.

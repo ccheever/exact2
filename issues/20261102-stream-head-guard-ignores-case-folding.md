@@ -1,6 +1,6 @@
 # A case-variant `put` replaces a stream head or its lock
 
-**Status:** Open
+**Status:** Closed
 **Systems:** filesystem tool (`filesystem/src/main.rs`, `filesystem/src/directory_windows.rs`), directory origin (`scripts/origin.mjs`)
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -21,3 +21,7 @@ The bytes at `exact.json` are the new buffer. The call is `put`, not `putHead`, 
 **Fix.** Compare the guarded segments case-insensitively, and reject a final segment that folds to `exact.json` or `.lock` anywhere the tool would replace an existing file. Do the same for the directory origin before it calls the tool. A case-sensitive volume should refuse the folded name as well, so a publisher cannot plant a twin that a later copy onto APFS collapses.
 
 **Acceptance.** `put` of `Exact.json`, `EXACT.JSON`, `.Lock` and `.LOCK` under `.exact/<channel>/<id>/` is refused with the existing head/lock error. `putHead` under the held lock still publishes. A blob put at `.exact/blobs/<sha256>` is unchanged.
+
+**Resolution.** The native filesystem helper and directory-origin adapter reject case-insensitive aliases of guarded stream heads and lock names.
+
+**Verification after the fix.** All 10 filesystem tests passed, including .EXACT, Exact.json, .LOCK and ordinary blob writes. Adapter regressions also verified refusal before invoking the helper.

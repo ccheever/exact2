@@ -1,6 +1,6 @@
 # A large backdrop blur allocates an uncapped mirrored pad
 
-**Status:** Open
+**Status:** Closed
 **Systems:** SVG raster blur (`host/svg-raster/src/lib.rs`, `host/svg-raster/src/filter.rs`), Linux GPU backdrop (`host/linux/src/gpu/backdrop.rs`), text shadow (`host/linux/src/paint/text_shadow.rs`)
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,7 @@
 **Fix.** Cap or downsample sigma the way the ink path does before building the pad, and refuse a pad whose byte length does not fit in `usize` without wrapping.
 
 **Acceptance.** A blur of `10000px` on a screen-sized box completes with a bounded allocation. A non-finite radius paints the unblurred backdrop. A radius of a few pixels still matches the current mirror test.
+
+**Resolution.** Large blur radii downsample before convolution, with bounded padding and checked image dimensions. Non-finite radii leave the image unchanged.
+
+**Verification after the fix.** All seven raster tests passed, including uniform images blurred with radius 10000 and f32::MAX, invalid radii, dimension overflow and the existing edge-spread case.

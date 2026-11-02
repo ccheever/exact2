@@ -1,6 +1,6 @@
 # A Current head leaves no signed witness, so a lost record rolls the floor back
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Update store (`update/src/store.rs`)
 **Severity:** P1
 **Author:** Grok, from a review of this checkout
@@ -17,3 +17,7 @@
 **Acceptance.** The reproduction still rejects sequence 5 after the record is removed. A head that differs from entry zero still writes a full entry, and the existing rollback tests keep their results.
 
 **Independent verification (Codex).** At commit `5b94c216a6fee8fca42026f5cb2e9a80063da03a`, `/tmp/exact-review-trust-rust-repro.rs` ran against the existing `exact-update` rlib with real Ed25519 signatures. It accepted Current sequence 6 with zero stored witnesses, rejected sequence 5, wrote a boot mark, truncated the record, reopened, and then staged sequence 5. This simulates the damaged-record outcome used in `update/tests/it/durability.rs`; it does not induce a physical power loss. Relevant locations: `update/src/store.rs:800-803`, `818-828`, `1230-1245`. Closed issues `20260904-baked-seq-always-zero.md` and `20260924-update-concurrent-store-rollback.md` do not cover recovery of a Current-only floor.
+
+**Resolution.** Current heads persist an authenticated envelope before advancing the record. Recovery includes these witnesses, and a witness can acquire payloads later without losing its signed floor.
+
+**Verification after the fix.** All 54 update integration tests passed. Signed Current heads survive removed and truncated records, reject an older signed head, and materialize after a new binary changes its embedded payload.

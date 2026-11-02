@@ -1,6 +1,6 @@
 # `exact push` drops new assets and republishes deleted ones
 
-**Status:** Open
+**Status:** Closed
 **Systems:** `scripts/push.mjs`
 **Severity:** P2
 **Author:** Grok, from a review of this checkout
@@ -17,3 +17,7 @@
 **Acceptance.** The reproduction publishes `assets/new.png` and omits `assets/deleted.png`. A shader that exists only on the head is still carried. A push with no asset change still reports already current.
 
 **Independent verification (Codex).** At commit `5b94c216a6fee8fca42026f5cb2e9a80063da03a`, `/tmp/exact-review-trust-js-repro.mjs` extracted and executed the actual `carriedAssets` function (`scripts/push.mjs:161-169`, following the repository's push-test approach). With only `assets/new.png` on disk and only `assets/deleted.png` on the prior head, the outgoing roster contained the deleted file alone, fetched from the origin. This proves roster construction; it does not run the complete push CLI or a native UI. Closed issues `20260904-entry-zero-mistakes-an-asset-removal.md` and `20260904-dev-loop-asset-deletion-is-a.md` concern client/dev consumption, not this publisher inventory.
+
+**Resolution.** Push builds the app-owned asset roster from the current assets and deck directories. New files enter, deleted files leave, and retained head-only artifacts remain digest-verified.
+
+**Verification after the fix.** A real temporary app tree regression passed additions, deletions and retained shader artifacts in the focused publisher batch.
