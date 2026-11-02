@@ -1,4 +1,4 @@
-surfaces: data-module test harness
+surfaces: data-module test harness, web
 agent: Codex (GPT-6)
 task: Cancel a send requested before its background job is created.
 
@@ -17,3 +17,4 @@ The app's data-module test harness makes the failure reproducible without a live
 ### Checkpoints
 
 - Editing app data code: smooth. The held send-job regression passed, including cancellation before the job identifier arrives.
+- Web build and drive: the demo conversation opened and Back returned to the inbox. The screen checker reported seven swipe-row overflows and three contrast failures. No message was sent.

@@ -1,4 +1,4 @@
-surfaces: data-module test harness
+surfaces: data-module test harness, web
 agent: Codex (GPT-6)
 task: Preserve a stop request until a background job returns its identifier.
 
@@ -17,3 +17,4 @@ The app's data-module test harness makes the failure reproducible without a live
 ### Checkpoints
 
 - Editing app data code: smooth. The held job-creation regression passed; stopping during creation prevents the returned job from continuing.
+- Web build and drive: the inbox and New screen opened. The named Cancel tap resolved outside the viewport; platform Back returned to the inbox. The initial screen check found no issues.

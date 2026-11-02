@@ -1,4 +1,4 @@
-surfaces: data-module test harness
+surfaces: data-module test harness, web
 agent: Codex (GPT-6)
 task: Reject invalid DFUse sector sizes.
 
@@ -17,3 +17,4 @@ The app's data-module test harness makes the failure reproducible without a live
 ### Checkpoints
 
 - Editing app data code: smooth. DFUse parsing regressions passed, including zero and oversized sectors. No USB device was flashed.
+- Web build and drive: the firmware and monitor tabs opened. The initial screen check found no issues. No device was connected.

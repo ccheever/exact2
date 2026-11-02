@@ -1,4 +1,4 @@
-surfaces: data-module test harness
+surfaces: data-module test harness, web
 agent: Codex (GPT-6)
 task: Give concurrent photo saves independent temporary files.
 
@@ -18,3 +18,4 @@ The app's data-module test harness makes the failure reproducible without a live
 ### Checkpoints
 
 - Editing app data code: smooth. Concurrent save and cleanup regressions passed. No PhotoKit operation or device save was performed.
+- Web build and drive: rotating and resetting the bundled image worked. Both light and dark preference tests passed. The local print backend was absent; the initial screen check found no issues.
