@@ -33,7 +33,8 @@ component AppearanceLibrary
       SettingsSrHeading(title="Colors & themes", level=2)
       // The section hides its title, so the jump centres its group (settingsLayout.tsx SettingsSection).
       column width="100%" gap="0.75rem" id="appearance-scroll-target"
-        text "Color scheme" font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text padding-left="1rem" padding-right="1rem" role="heading" aria-level=3 id="paint-AppearanceLibrary-1" data-paint="text" data-pick="text"
+        // min-h-7 items-center: the heading's line sits 2pt inside a 28pt row.
+        text "Color scheme" font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text padding-top="0.125rem" padding-bottom="0.125rem" padding-left="1rem" padding-right="1rem" role="heading" aria-level=3 id="paint-AppearanceLibrary-1" data-paint="text" data-pick="text"
         row width="100%" gap="0.75rem" role="group" aria-label="Appearance mode"
           // The picked tile's ring-2 ring-inset ring-ring: its 1pt accent border and a 1pt inset shadow.
           for tile in tiles key=tile.id
@@ -46,12 +47,15 @@ component AppearanceLibrary
               text tile.label font-size="0.75rem" font-weight=500 line-height="1rem" text-align="center" color=(tile.selected ? pal.text : pal.muted) id=`paint-AppearanceLibrary-4-${tile.id}` data-paint=`${(tile.selected ? "text" : "mutedForeground")}` data-pick=((tile.selected ? "text" : "mutedForeground") != "" ? (tile.selected ? "text" : "mutedForeground") : "")
         row width="100%" min-height="2rem" padding-top="1.25rem" padding-left="1rem" padding-right="1rem" gap="0.75rem" align-items="center" justify-content="space-between" flex-wrap="wrap" box-sizing="border-box"
           text "Themes" font-size="1rem" font-weight=600 line-height="1.5rem" color=pal.text role="heading" aria-level=3 id="paint-AppearanceLibrary-5" data-paint="text" data-pick="text"
+          // Button size xs, outline: px 7, the icon's -mx-0.5, the icon in --contrast-muted-foreground.
           row gap="0.5rem" align-items="center"
-            button press=dialog("create", "") data-focus-stop=(busy ? "" : "enabled page") class=SettingsGhost height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Create theme" testId="create-theme" id="create-theme" data-paint="input canvas" data-pick="canvas"
-              CorePaintIcon(ownId="paint-icon-AppearanceLibrary-1", paint="text", name="paintbrush", size=14, color=pal.text)
+            button press=dialog("create", "") data-focus-stop=(busy ? "" : "enabled page") class=SettingsGhost height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Create theme" testId="create-theme" id="create-theme" data-paint="input canvas" data-pick="canvas"
+              box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
+                CorePaintIcon(ownId="paint-icon-AppearanceLibrary-1", paint="mutedForeground", name="paintbrush", size=14, color=pal.muted)
               text "Create theme" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id="paint-AppearanceLibrary-7" data-paint="text" data-pick="text"
-            button id="add-theme" press=addTheme data-focus-stop=(busy ? "" : "enabled page") class=SettingsGhost height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Add theme" testId="add-theme" data-paint="input canvas" data-pick="canvas"
-              CorePaintIcon(ownId="paint-icon-AppearanceLibrary-2", paint="text", name="plus", size=14, color=pal.text)
+            button id="add-theme" press=addTheme data-focus-stop=(busy ? "" : "enabled page") class=SettingsGhost height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" disabled=busy aria-label="Add theme" testId="add-theme" data-paint="input canvas" data-pick="canvas"
+              box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
+                CorePaintIcon(ownId="paint-icon-AppearanceLibrary-2", paint="mutedForeground", name="plus", size=14, color=pal.muted)
               text "Add theme" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id="paint-AppearanceLibrary-9" data-paint="text" data-pick="text"
         // grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)).
         box width="100%" display="grid" gap="0.5rem" grid-template-columns="repeat(auto-fit, minmax(256px, 1fr))"
