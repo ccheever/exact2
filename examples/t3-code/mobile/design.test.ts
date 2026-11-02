@@ -58,6 +58,11 @@ describe('iOS sidebar runtime palette', () => {
   });
 });
 
+test('thread attachments expose the pinned subtle-strong backing role', () => {
+  expect(mobileThreadColors('light').subtleStrong).toBe('#fafafa');
+  expect(mobileThreadColors('dark').subtleStrong).toBe('#111111');
+});
+
 describe('iOS HTML render theme', () => {
   test('keeps raw default text and status colors apart from adjusted UI text and fills', () => {
     const light = mobileHtmlRenderTheme('light');

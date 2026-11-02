@@ -189,6 +189,7 @@ shape ThreadColors
   border: string
   borderSubtle: string
   subtle: string
+  subtleStrong: string
   userBubble: string
   userForeground: string
   primary: string

@@ -183,7 +183,7 @@ component ThreadAttachment
   view
     button appearance="none" press=openMedia(media.id) padding=0 text-align="left" aria-label=media.name
       if media.kind == "image" and media.url.length > 0
-        image media.url width="100%" aspect-ratio=1.3 object-fit="cover" border-radius=(user ? 14 : 18) aria-label=media.name
+        image media.url width="100%" aspect-ratio=1.3 object-fit="cover" margin-top=(user ? 0 : 5.25) border-radius=(user ? 14 : 18) background-color=(user ? "transparent" : colors.subtleStrong) aria-label=media.name
       else
         row align-items="center" gap=7 padding=7 border-radius=14 background-color=colors.subtle
           t3-symbol symbol-name=(media.kind == "video" ? "play.rectangle" : media.kind == "image" ? "photo" : "doc") symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18
