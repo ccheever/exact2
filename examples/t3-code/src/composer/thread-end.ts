@@ -117,7 +117,7 @@ const syncSeen = new Map<T3Client, string>();
  */
 export function syncStatus(client: T3Client): string {
   const phase = !client.threadId || client.connection !== 'connected' || !client.shell.threads.some(thread => thread.id === client.threadId) ? ''
-    : !client.thread ? 'loading' : client.ready ? '' : 'syncing';
+    : !client.thread ? 'loading' : client.ready && !client.shellResuming && !client.threadResuming ? '' : 'syncing';
   const key = phase ? `${client.environmentId}:${client.threadId}:${phase}` : '';
   const shown = !!key && syncSeen.get(client) === key;
   syncSeen.set(client, key);

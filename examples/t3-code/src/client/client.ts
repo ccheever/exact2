@@ -143,6 +143,10 @@ export class T3Client {
   get sessionCheck(): SessionCheck { return this.sessionRejected ? 'rejected' : this.scopesKnown ? 'granted' : this.sessionFailed ? 'failed' : 'pending'; }
   shellLive = false;
   threadLive = false;
+  /** A live shell or thread stream resuming after the window's return, until the server's completion marker: the
+   *  window stays ready, and the thread says it is syncing as the reference's resubscription does. */
+  shellResuming = false;
+  threadResuming = false;
   configLive = false;
   historyLoading = false;
   diffOpen = false;
@@ -460,6 +464,7 @@ export class T3Client {
     this.synchronizedGeneration = -1;
     this.shellLive = false; this.threadLive = false;
     delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear(); this.streamResumeDue.clear();
+    this.shellResuming = false; this.threadResuming = false;
     // The grants come in on their own (`session-state`, adoptSession): the config and the shell do not wait on them.
     await this.call(native, { op: 'readSession' }, generation);
     const config = await this.request(native, 'server.getConfig', {}, generation);
@@ -520,13 +525,13 @@ export class T3Client {
     else {
       // The window's return resubscribes streams that never failed: the shell and thread they delivered stay live, so
       // the window stays ready (an open command menu, Send) while they resume from their cursors, as the reference's
-      // state keeps its snapshot through a foreground resubscription.
+      // state keeps its snapshot through a foreground resubscription; until the marker the thread says it is syncing.
       if (due.has('shell')) {
         const marker = this.config.shellResumeCompletionMarker === true, steady = resumed.has('shell') && this.shellLive;
         const shellSub = await this.call(native, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: {
           afterSequence: this.shell.sequence, ...(marker ? { requestCompletionMarker: true } : {}),
         } }, generation);
-        this.subscriptions.shell = str(shellSub.id); this.shellLive = steady || !marker;
+        this.subscriptions.shell = str(shellSub.id); this.shellLive = steady || !marker; this.shellResuming = steady && marker;
       }
       if (due.has('thread') && this.threadId) await this.openThread(native, this.threadId, this.thread !== null, resumed.has('thread'));
     }
@@ -578,7 +583,7 @@ export class T3Client {
     if (id === this.absentThreadId && !this.shell.threads.some(thread => thread.id === id)) return;
     const epoch = ++this.threadEpoch, generation = this.generation;
     const live = steady && resume && this.threadLive && str(obj(this.thread?.projection.thread).id) === id;
-    this.threadLive = live; this.threadSubscription = '';
+    this.threadLive = live; this.threadResuming = false; this.threadSubscription = '';
     delete this.subscriptions.thread;
     if (!resume || str(obj(this.thread?.projection.thread).id) !== id) {
       const snapshot = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/bounded`, generation);
@@ -595,7 +600,7 @@ export class T3Client {
     if (epoch !== this.threadEpoch || id !== this.threadId) return;
     this.subscriptions.thread = str(subscription.id);
     this.threadSubscription = id;
-    this.threadLive = live || !marker;
+    this.threadLive = live || !marker; this.threadResuming = live && marker;
   }
 
   private async drain(native: Native): Promise<void> {
@@ -647,8 +652,8 @@ export class T3Client {
         if (item._transportError || item._streamEnded) {
           const detail = obj(item._transportError);
           this.error = this.streamError = str(detail.message, 'The live stream ended. Reconnect to continue.');
-          if (key === 'thread') this.threadLive = false;
-          if (key === 'shell') this.shellLive = false;
+          if (key === 'thread') { this.threadLive = false; this.threadResuming = false; }
+          if (key === 'shell') { this.shellLive = false; this.shellResuming = false; }
           if (key === 'config') this.configLive = false;
           continue;
         }
@@ -658,7 +663,7 @@ export class T3Client {
             configEventSideEffects(this, item); // protocol-config.ts: the keybindings reload toast
             if (!this.threadId && !this.providerId) this.chooseDefaults();
           } else if (key === 'shell') {
-            if (item.kind === 'synchronized') this.shellLive = true;
+            if (item.kind === 'synchronized') { this.shellLive = true; this.shellResuming = false; }
             else { this.shell = applyShell(this.shell, item); this.shellLoaded = true; }
             if ((item.kind === 'thread.removed' && item.threadId === this.threadId)
               || (item.kind === 'thread.updated' && item.location === 'archive' && obj(item.thread).id === this.threadId)) {
@@ -674,7 +679,7 @@ export class T3Client {
             const itemThread = str(obj(item.projection).thread && obj(obj(item.projection).thread).id)
               || str(obj(item.event).threadId);
             if (itemThread && itemThread !== this.threadId) continue;
-            if (item.kind === 'synchronized') this.threadLive = true;
+            if (item.kind === 'synchronized') { this.threadLive = true; this.threadResuming = false; }
             else {
               this.thread = applyThread(this.thread, item, threadPullRequestKeysEqual);
               this.updateSelectionFromThread();

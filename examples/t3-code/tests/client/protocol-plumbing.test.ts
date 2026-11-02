@@ -8,6 +8,8 @@ import { toasts } from '../../src/shell/toast';
 import { T3Client } from '../../src/client/client';
 import { compatibilityProblem, canSelfUpdate } from '../../src/client/protocol-outdated';
 import { obj, type Obj } from '../../src/client/domain';
+import { opened } from '../support/client-fixture';
+import { syncStatus } from '../../src/composer/thread-end';
 
 describe('typed server errors (7bc161f)', () => {
   test('reason and detail travel from the bridge into ClientError', async () => {
@@ -178,6 +180,24 @@ describe('same-session stream retries (c5a929e)', () => {
     wire.emit('shell', { _retryDue: true });
     await client.refresh(wire, files);
     expect([readyAtSubscribe, client.ready]).toEqual([[true, true], false]);
+  });
+  // An open thread too: it stays live while it resumes, and says it is syncing once a second read still finds it
+  // resuming (resolveThreadSyncPhase's 400 ms hold), until the server's completion marker.
+  test('an open thread resumes on the window\'s return without leaving the ready state', async () => {
+    const { client, native, disk } = await opened();
+    expect([client.ready, client.threadSubscription]).toEqual([true, 't1']);
+    native.autoMarkers = false;
+    native.emit('shell', { _retryDue: true, _foreground: true }); native.emit('thread', { _retryDue: true, _foreground: true });
+    await client.refresh(native, disk.files);
+    expect([client.ready, client.threadSubscription, client.shellResuming, client.threadResuming]).toEqual([true, 't1', true, true]);
+    expect([syncStatus(client), syncStatus(client)]).toEqual(['', 'Syncing messages...']);
+    native.emit('shell', { kind: 'synchronized' }); native.emit('thread', { kind: 'synchronized' });
+    await client.refresh(native, disk.files);
+    expect([client.ready, client.shellResuming, client.threadResuming, syncStatus(client)]).toEqual([true, false, false, '']);
+    // A failed thread stream's retry is not steady.
+    native.emit('thread', { _retryDue: true });
+    await client.refresh(native, disk.files);
+    expect([client.ready, client.threadResuming]).toEqual([false, false]);
   });
   test('an authorization failure is not retried and does not resynchronize', async () => {
     const wire = new Wire(), client = new T3Client(), files = disk();
