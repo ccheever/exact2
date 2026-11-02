@@ -43,10 +43,29 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         // Its editor still holds it here; a turn later it is the field's alone.
         RunLoop.main.perform(inModes: [.common]) { [weak self] in self?.syncFieldSide() }
-        showFieldFocus(false)
-        presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
-        presenter?.blur(id)
+        leavingFocus {
+            showFieldFocus(false)
+            presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
+            presenter?.blur(id)
+        }
     }
+    /// Runs `body`, the end of a node's editing, with the node counted
+    /// as unfocused. AppKit posts the end before it detaches a field's
+    /// editor (`currentEditor()` still returns it) and before a textarea
+    /// resigns first responder, and the app's `change` and `blur` handlers
+    /// run in `body`. A restyle there draws no ring (`restyleFieldFocus`),
+    /// and a value written there goes to the field, because AppKit does
+    /// not read the leaving editor's text back (`editingEditor`).
+    func leavingFocus(_ body: () -> Void) {
+        let me = ObjectIdentifier(self)
+        let outermost = Self.leaving.insert(me).inserted
+        defer { if outermost { Self.leaving.remove(me) } }
+        body()
+    }
+    nonisolated(unsafe) private static var leaving: Set<ObjectIdentifier> = []
+    private var isLeavingFocus: Bool { Self.leaving.contains(ObjectIdentifier(self)) }
+    /// The editor editing this node's field: none once its editing is ending (`leavingFocus`).
+    var editingEditor: NSTextView? { isLeavingFocus ? nil : field?.currentEditor() as? NSTextView }
     /// A write to a field that AppKit applies by ending the field editor's
     /// editing and beginning it again
     /// (`-[NSTextField setPlaceholderAttributedString:]` does, so the editor
@@ -197,6 +216,7 @@ extension NodeView {
     /// Exact's ring again as the style changes, for a focused editor
     /// whose `outline` may have.
     func restyleFieldFocus() {
+        guard !isLeavingFocus else { return }
         if field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea) { showFieldFocus(true) }
     }
 }
