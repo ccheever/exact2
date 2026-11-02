@@ -145,8 +145,12 @@ pub struct Config {
     /// Painted Mac carrier only: use the decoded plan before fonts and layout,
     /// and request the first screen's pictures at layout.
     #[cfg(target_os = "macos")]
-    pub painted_boot: Option<Box<dyn Fn(&exact_plan::Plan)>>,
+    pub painted_boot: Option<PaintedBoot>,
 }
+
+/// What the painted Mac carrier does with the decoded plan (`painted_boot`).
+#[cfg(target_os = "macos")]
+pub type PaintedBoot = Box<dyn Fn(&exact_plan::Plan)>;
 
 impl Config {
     /// None means an authored value needs the runner; Some(None) is the platform background.
