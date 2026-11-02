@@ -14,9 +14,24 @@ const run = (cmd, args, opts = {}) => {
   return r;
 };
 
-/** Exact's runtime declares elapsed-event timing, its own preferences, emoji
- * keyboard selection, and metadata for its container and user-opened files.
- * https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api */
+/** Exact's declarations for the app executable, `ExactCore.framework` and the
+ * widget extension, with the iOS calls each reason covers (Swift modules under
+ * host/apple/Sources; Rust std's file metadata is stat, fstat and lstat).
+ * https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+ * - FileTimestamp C617.1, files in the app or app group container: ExactKit's
+ *   RasterSpool (its spool), ShareReceive (the share inbox), PlanURL and
+ *   IOS/DevMenuIOS (a development plan); update/src/store/disk.rs (updates).
+ * - FileTimestamp 3B52.1, files the person picked or opened:
+ *   host/apple/src/picker.rs, runner/src/runner/picker/shared.rs,
+ *   data/src/documents/kept.rs.
+ * - SystemBootTime 35F9.1, time elapsed within the app: ExactCore's Text and
+ *   HeadlessSession; ExactKit's Session, Collection, RegionTextSource and
+ *   PlanURL; ExactUpdates' Updates; ExactDrag's TransformDragHold;
+ *   ExactSnapshot's LiveDriver.
+ * - UserDefaults CA92.1, the app's own defaults: ExactKit's BuildInfo,
+ *   ShortcutItems, Wakes and IOS/DevMenuIOS.
+ * - ActiveKeyboards 54BD.1, the emoji keyboard a text area with `emojiPicker`
+ *   opens: ExactKit's IOS/TextAreaIOS. */
 const runtimePrivacy = {
   NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
   NSPrivacyAccessedAPITypes: [
@@ -24,8 +39,9 @@ const runtimePrivacy = {
     ['ActiveKeyboards', ['54BD.1']],
   ].map(([category, reasons]) => ({ NSPrivacyAccessedAPIType: `NSPrivacyAccessedAPICategory${category}`, NSPrivacyAccessedAPITypeReasons: reasons })),
 };
-// MIDI uses elapsed event times and timer deadlines; iOS web automation
-// measures click intervals without exposing raw system uptime.
+// SystemBootTime 35F9.1: ExactMIDI's time for an event CoreMIDI left unstamped
+// (midiarm/MIDIArm.swift, mach_absolute_time) and ExactWeb's click intervals
+// for web automation (webarm/FrameAutomation.swift, systemUptime).
 const timingPrivacy = {
   NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
   NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }],
