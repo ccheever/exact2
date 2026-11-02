@@ -2831,10 +2831,14 @@ that popover, which stays open, as HTML nests them. The agent opens it with `tap
 the finger's travel, and the action runs if the node is at or past 64 points when the
 finger lifts. A finger reaches it only with `touch-action="pan-y"`, which leaves vertical
 drags to the list. A `transition` on `translate` springs the node back after the lift;
-without one it jumps back. The node's first child with `swipeIndicator=true`, such as a
-reply arrow, goes from its own `opacity` and `scale` to 1 as the swipe reaches 64 points.
-The iOS host plays a selection haptic as the swipe crosses 64 points, so the action plays
-none. `apps/messages`' bubble is a whole example.
+without one it jumps back. The node's first child with `swipeIndicator=true` goes from its
+own `opacity` and `scale` to 1 as the swipe reaches 64 points, and back by its own
+`transition` after the lift. Give the node `position="relative"`, so an absolute indicator
+is placed against the node and not against the row around it. `symbol:reply` is a speech
+bubble (SF Symbols' `bubble.left`); Messages' left-turning arrow, `arrowshape.turn.up.left`,
+has no named symbol, so an app declares it as an icon token. The iOS host plays a selection
+haptic as the swipe crosses 64 points, so the action plays none. `apps/messages`' bubble
+is a whole example.
 
 ```contract
 component Thread
