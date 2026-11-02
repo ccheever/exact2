@@ -16,6 +16,9 @@ final class MarkdownHost: MarkdownCapability {
     func expand(_ source: String, base: Run, color: [Double]?, linkColor: [Double]?, atomColor: [Double]?, boldText: Bool, atoms: MarkdownAtoms) -> [Run] {
         MarkupRuns.expand(source, base: base, color: color, linkColor: linkColor, atomColor: atomColor, boldText: boldText, atoms: atoms)
     }
+    func editorRuns(_ source: String, base: Run, atoms: MarkdownAtoms, width: CGFloat?, font: (Run) -> PlatformFont) -> [Run] {
+        MarkupRuns.editor(source, base: base, atoms: atoms, width: width, font: font)
+    }
     func editor() -> MarkdownEditing { MarkupEditor() }
     func plain(_ source: String, range: NSRange?, atoms: String, faces: String, spoken: Bool) -> String? {
         MarkupCommands.plain(source, atoms: AtomHandle.of(MarkdownAtoms(kinds: atoms, faces: faces)), range: range, spoken: spoken)
