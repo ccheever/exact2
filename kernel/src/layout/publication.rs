@@ -392,34 +392,38 @@ mod tests {
             );
         }
     }
-    /// A move inside one cell of a table visits the path to it, not every
-    /// row's cells: a row or group descends whole only when displaced.
-    #[test]
-    fn a_move_inside_one_table_cell_visits_only_its_path() {
+    /// A table of `rows` rows of two cells, each holding a 20 by 10 box; the
+    /// first box holds 9, 4 by 4 and relatively positioned. Laid out once.
+    /// 1 root, 2 table, 3 tbody, 9; rows 10 000 + r, cells 20 000 + 2r + c,
+    /// boxes 40 000 + 2r + c (disjoint up to 5 000 rows).
+    fn big_table(rows: u32) -> (Kernel, Offer) {
         let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
-        let offer = Offer::definite(400.0, 2000.0);
+        let offer = Offer::definite(400.0, 20.0 * rows as f32 + 100.0);
         let mut ops = Vec::new();
         let view = |id| Op::CreateView {
             id,
             node_type: NodeType::View,
         };
-        let rows: Vec<u32> = (0..20).map(|r| 100 + r).collect();
-        for id in [1, 2, 3, 999] {
+        let ids: Vec<u32> = (0..rows).map(|r| 10_000 + r).collect();
+        for id in [1, 2, 3, 9] {
             ops.push(view(id));
         }
         ops.extend([
             prop(2, PropId::SemanticTag, "table"),
             prop(3, PropId::SemanticTag, "tbody"),
-            style(999, StyleId::Width, "4px"),
-            style(999, StyleId::Height, "4px"),
-            style(999, StyleId::PositionType, "relative"),
+            style(9, StyleId::Width, "4px"),
+            style(9, StyleId::Height, "4px"),
+            style(9, StyleId::PositionType, "relative"),
         ]);
-        for &row in &rows {
+        for &row in &ids {
             ops.push(view(row));
             ops.push(prop(row, PropId::SemanticTag, "tr"));
             let mut cells = Vec::new();
             for c in 0..2 {
-                let (cell, inner) = (200 + (row - 100) * 2 + c, 400 + (row - 100) * 2 + c);
+                let (cell, inner) = (
+                    20_000 + (row - 10_000) * 2 + c,
+                    40_000 + (row - 10_000) * 2 + c,
+                );
                 ops.extend([
                     view(cell),
                     prop(cell, PropId::SemanticTag, "td"),
@@ -429,7 +433,7 @@ mod tests {
                 ]);
                 ops.push(Op::SetChildren {
                     id: inner,
-                    children: if inner == 400 { vec![999] } else { Vec::new() },
+                    children: if inner == 40_000 { vec![9] } else { Vec::new() },
                 });
                 ops.push(Op::SetChildren {
                     id: cell,
@@ -445,7 +449,7 @@ mod tests {
         ops.extend([
             Op::SetChildren {
                 id: 3,
-                children: rows,
+                children: ids,
             },
             Op::SetChildren {
                 id: 2,
@@ -459,15 +463,89 @@ mod tests {
         ]);
         k.apply(0, 1, &ops).unwrap();
         k.compute_layout(1, offer).unwrap();
-        k.apply(0, 2, &[style(999, StyleId::Left, "3px")]).unwrap();
+        // Every node is its own, and the rows and group are the table's flat parts.
+        assert_eq!(
+            k.node(1).unwrap().arena.iter_live().count(),
+            4 + 5 * rows as usize
+        );
+        for id in [3, 10_000, 9_999 + rows] {
+            let slot = k.node(id).unwrap().slot;
+            assert!(k.tree().tables.flat(slot), "{id} is a flat part");
+        }
+        (k, offer)
+    }
+
+    /// A move inside one cell of a table visits the path to it, not every
+    /// row's cells: a row or group descends whole only when displaced.
+    #[test]
+    fn a_move_inside_one_table_cell_visits_only_its_path() {
+        let (mut k, offer) = big_table(20);
+        k.apply(0, 2, &[style(9, StyleId::Left, "3px")]).unwrap();
         k.compute_layout(1, offer).unwrap();
         assert!(
             k.tree().publication_visits <= 8,
-            "visits {}, the path being 1, 2, 3, 100, 200, 400, 999",
+            "visits {}, the path being 1, 2, 3, 10 000, 20 000, 40 000, 9",
             k.tree().publication_visits
         );
         equal_fresh(&k, offer);
     }
+
+    /// A layout with nothing changed publishes nothing, however large the
+    /// table; and one that places every part of its grid again, with no
+    /// origin changed (a cell's box restyled to where it already was),
+    /// publishes the path to that box alone: Taffy patch 69 reports an
+    /// unchanged grid origin as no change.
+    #[test]
+    fn a_large_table_laid_out_again_unchanged_publishes_nothing() {
+        let (mut k, offer) = big_table(500);
+        for _ in 0..3 {
+            let receipt = k.compute_layout(1, offer).unwrap();
+            assert_eq!(k.tree().publication_visits, 0);
+            assert!(receipt.changed.is_empty() && receipt.updated.is_empty());
+        }
+        let row = k.node(10_499).unwrap().slot;
+        let before = k.tree().displacements.get(&row).copied();
+        k.apply(0, 2, &[style(9, StyleId::Left, "0px")]).unwrap();
+        let receipt = k.compute_layout(1, offer).unwrap();
+        assert!(receipt.changed.is_empty(), "{:?}", receipt.changed);
+        assert!(
+            k.tree().publication_visits <= 8,
+            "visits {}",
+            k.tree().publication_visits
+        );
+        assert_eq!(k.tree().displacements.get(&row).copied(), before);
+        equal_fresh(&k, offer);
+    }
+
+    /// Publication's cost on a 500-row table: an unchanged relayout (what a
+    /// host's scroll frame asks of the kernel) and a restyle inside one cell.
+    /// Run with `--release --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement"]
+    fn table_publication_cost() {
+        let (mut k, offer) = big_table(500);
+        let runs = 200;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            k.compute_layout(1, offer).unwrap();
+        }
+        let unchanged = start.elapsed() / runs;
+        let start = std::time::Instant::now();
+        let mut visits = 0;
+        for i in 0..runs {
+            let left = format!("{}px", i % 7);
+            k.apply(0, 2 + i as u64, &[style(9, StyleId::Left, &left)])
+                .unwrap();
+            k.compute_layout(1, offer).unwrap();
+            visits += k.tree().publication_visits;
+        }
+        let restyle = start.elapsed() / runs;
+        eprintln!(
+            "TABLE500 unchanged relayout {unchanged:?}; one-cell restyle + layout {restyle:?}, {} visits each",
+            visits / runs as usize
+        );
+    }
+
     #[test]
     fn paint_and_prop_edits_skip_publication_but_geometry_edits_still_publish() {
         let calls = Rc::new(Cell::new(0));
