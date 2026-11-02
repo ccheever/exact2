@@ -1,0 +1,41 @@
+// The window shell's badged and editor icons, over the generated shell-icons.contract and editor-icons.contract.
+use ShellIcon from "./shell-icons.contract"
+use EditorBrandIcon, EditorCursorMark, EditorVscodeMark, EditorZedMark, EditorFinderMark from "./editor-icons.contract"
+
+// ProviderUpdateToastIcon: the provider glyph with a 12px popover-coloured
+// disc at its bottom-right carrying a 10px success download arrow.
+component ShellBadgedIcon
+  props
+    size: number
+    badge: string
+    badgeColor: string
+    plate: string
+  slot
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" flex-shrink=0
+      children
+      box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color=plate display="flex" flex-direction="row" align-items="center" justify-content="center"
+        svg width="0.625rem" height="0.625rem" viewBox="0 0 24 24" color=badgeColor fill="none" stroke="currentColor" stroke-width=2.5 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+          path d=(badge == "download" ? "M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5" : "M20 6 9 17l-5-5")
+
+// OpenInPicker's editor glyph: Cursor's filled brand mark (Icons.tsx
+// CursorIcon, fill #26251E / #EDECEC), Finder's folder, and the outline
+// cube for editors whose brand mark is not carried here.
+component ShellEditorIcon
+  props
+    editor: string
+    size: number
+  view
+    if editor == "cursor"
+      EditorCursorMark(size=size)
+    if editor == "vscode"
+      EditorVscodeMark(size=size)
+    if editor == "zed"
+      EditorZedMark(size=size)
+    if editor == "file-manager"
+      EditorFinderMark(size=size)
+    // The other 17 editors' marks (editor-icons.contract); an unknown editor keeps the outline cube.
+    if ["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"].includes(editor)
+      EditorBrandIcon(editor=editor, size=size)
+    if editor != "cursor" and editor != "vscode" and editor != "zed" and editor != "file-manager" and not ["trae", "kiro", "vscode-insiders", "vscodium", "antigravity", "idea", "aqua", "clion", "datagrip", "dataspell", "goland", "phpstorm", "pycharm", "rider", "rubymine", "rustrover", "webstorm"].includes(editor)
+      ShellIcon(name="cursor", size=size, color="light-dark(#18181b, #f5f5f5)")

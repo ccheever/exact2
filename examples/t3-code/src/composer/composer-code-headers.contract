@@ -1,0 +1,22 @@
+use ComposerRichView from "./composer-rich.contract"
+
+component ComposerCodeHeaders
+  inject
+    composerLanguage: action
+  props
+    source: ComposerRichView
+    owner: string
+    value: string
+  action pick(start: number, end: number, language: string)
+    composerLanguage(start, end, language)
+  view
+    if source.owner == owner and source.value == value and source.mode == "rich" and source.headers.length > 0
+      row width="100%" flex-wrap="wrap" gap="0.5rem" align-items="center" aria-label="Code block controls" testId="composer-code-controls"
+        for header in source.headers key=header.start
+          row gap="0.375rem" align-items="center" max-width="100%"
+            text "Code block" font-size="0.75rem"
+            select value=header.language change=pick(header.start, header.end) aria-label="Code block language" testId=`composer-code-language-${header.start}` max-width="10rem" font-size="0.75rem" id=`field-composer-code-language-${header.start}` data-editable="yes"
+              if source.languages.filter((language) => language.id == header.language).length == 0
+                option header.label value=header.language
+              for language in source.languages key=language.id
+                option language.label value=language.id

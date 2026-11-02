@@ -1,0 +1,342 @@
+import { contractComponent } from '../support/contract-action-fixture';
+// The details card's pull request rows, the Pull request (P)
+// surface, sent attachment previews and the persisted Files preferences, against
+// the reference's rules (ThreadDetailsPrRows / ThreadDetailsPrRow, useOpenPrLink,
+// rightPanelStore openPullRequest / openAttachment, AttachmentFilePreview,
+// FilePreviewPanel's localStorage keys). Native paths run against a recording fake.
+import { afterEach, describe, expect, test } from 'bun:test';
+import type { T3Client } from '../../src/client/client';
+import type { Native } from '../../src/client/protocol';
+import { panelState, surfaceLocal, panelView, availability } from '../../src/panel/panel-surfaces';
+import { openPullRequestIn } from '../../src/panel/pr-attachment-surfaces';
+import { syncRightPanels } from '../../src/panel/saved-panel';
+import { filesLocal } from '../../src/panel/files-surface';
+import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerOfUrl, prSurfaceId, threadPrTarget, forgetRowDetail, sidebarPrBadge } from '../../src/panel/pr-surface';
+import { previewKind, findAttachment } from '../../src/panel/attachment-surface';
+import { filePreviewDelimiter as previewDelimiter } from '../../src/panel/file-preview-kind';
+import { adoptFilesPrefs, filesPrefs } from '../../src/panel/files-prefs';
+import { surfaces } from '../../src/shell/shell';
+import { diagramPreviewAction, diagramPreviewView, noteMermaidFrame } from '../../src/timeline/timeline-mermaid';
+import { decodeClientPrefs } from '../../src/settings/settings-core';
+import { lastSave, memoryAppFiles, serveAssets, type AssetAnswer } from '../support/asset-server';
+
+let server: ReturnType<typeof serveAssets> | null = null;
+afterEach(() => { server?.restore(); server = null; });
+/** The asset server answers every read with `text` (a `() => …` answers afresh each time). */
+const serveText = (text: string | (() => string | Error)) => (server = serveAssets(() => { const body = typeof text === 'function' ? text() : text; return body instanceof Error ? body : { body }; }));
+
+type Call = { method: string; payload: Record<string, unknown> };
+const URL72 = 'https://github.com/ccheever/exact2/pull/72';
+const link = (number: number, extra: Record<string, unknown> = {}) => ({ host: 'github.com', repository: 'ccheever/exact2', number, url: `https://github.com/ccheever/exact2/pull/${number}`,
+  source: 'manual', linkedAt: `2026-10-0${number % 9}T10:00:00.000Z`, snapshot: null, watch: null, ...extra });
+const github = { provider: 'github', canonicalKey: 'github.com/ccheever/exact2', displayName: 'ccheever/exact2', owner: 'ccheever', name: 'exact2', locator: { remoteUrl: 'git@github.com:ccheever/exact2.git' } };
+function fakeClient(over: Record<string, unknown> = {}) {
+  const calls: Call[] = [];
+  const replies: Record<string, (payload: Record<string, unknown>) => unknown> = {};
+  const request = async (method: string, payload: Record<string, unknown>) => { calls.push({ method, payload }); const reply = replies[method]; if (!reply) throw new Error(`no reply for ${method}`); return reply(payload); };
+  const client = {
+    scopes: ['filesystem:read'],
+    environmentId: 'env', threadId: 't1', projectId: 'p1', ready: true, revision: 0, generation: 1, diffOpen: false, diffText: '', diffError: '', diffLoading: false, origin: 'http://127.0.0.1:14861',
+    get draftKey() { return `env:${this.threadId || `new:${this.projectId}`}`; },
+    config: { environment: { capabilities: { pullRequests: true, threadPullRequests: true, pullRequestChecks: true } } },
+    local: { clientSettings: { ...decodeClientPrefs({}), wordWrap: true } },
+    projection: { visibleTurnItems: [{ item: { type: 'user_message', attachments: [
+      { type: 'file', id: 'att-md', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 64 },
+      { type: 'file', id: 'att-csv', name: 'table.csv', mimeType: 'text/csv', sizeBytes: 12 },
+      { type: 'file', id: 'att-bin', name: 'blob.bin', mimeType: 'application/octet-stream', sizeBytes: 2048 },
+      { type: 'image', id: 'img-1', name: 'shot.png', mimeType: 'image/png', sizeBytes: 9 },
+    ] } }] },
+    shell: { projects: [{ id: 'p1', title: 'p5-demo', workspaceRoot: '/repo' }, { id: 'p2', title: 'Single checkout two', workspaceRoot: '/w', repositoryIdentity: github }],
+      threads: [{ id: 't1', projectId: 'p1', branch: 'main', pullRequests: [link(72)] as unknown[] }] },
+    rpc: async (_native: unknown, method: string, payload: Record<string, unknown>) => request(method, payload),
+    restAccess: () => ({
+      request: async (method: string, payload: Record<string, unknown>) => request(method, payload),
+      call: async (call: Record<string, unknown>) => { calls.push({ method: String(call.op), payload: call }); const reply = replies[String(call.op)]; return reply ? reply(call) : {}; },
+    }),
+    ...over,
+  } as unknown as T3Client;
+  return { client, calls, replies };
+}
+const native = { available: true } as unknown as Native;
+
+describe('details card pull request rows (ThreadDetailsPrRows)', () => {
+  test('a link with no snapshot is "#72" behind the muted pull request glyph, opening beside the thread', async () => {
+    const { client } = fakeClient();
+    const view = await prRowsView(client, native, { status: { refName: 'main' }, threadId: 't1', now: 1, projectId: 'p1' });
+    expect(view.show).toBe(true);
+    expect(view.rows[0]).toMatchObject({ label: '#72', icon: 'git-pull-request-arrow', tinted: false, tooltip: 'Pull request #72', aria: URL72, split: false });
+    // useOpenChangeRequestLink: the project whose repository is the link's own reads it.
+    expect(JSON.parse(view.rows[0]!.target)).toEqual({ projectId: 'p2', host: 'github.com', repository: 'ccheever/exact2', number: 72, url: URL72 });
+    expect(view.moreLabel).toBe('');
+  });
+  test('a snapshot names the pull request and tints its glyph; other links fold behind "Show N more"', async () => {
+    const { client } = fakeClient();
+    const thread = (client.shell.threads as Record<string, unknown>[])[0]!;
+    thread.pullRequests = [link(72, { snapshot: { title: 'Fix the panel', state: 'open', isDraft: true, updatedAt: '2026-10-04T00:00:00.000Z' } }),
+      link(73, { snapshot: { title: 'Merged one', state: 'merged', isDraft: false, updatedAt: '2026-10-03T00:00:00.000Z' } })];
+    const view = await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1' });
+    expect(view.rows[0]).toMatchObject({ label: '#72: Fix the panel', state: 'draft', tinted: true, icon: 'git-pull-request-arrow', tooltip: 'PR #72 - Draft: Fix the panel' });
+    expect(view.rest).toEqual([]);
+    expect(view).toMatchObject({ moreLabel: 'Show 1 more', expanded: false });
+    await surfaceLocal(client, native, 'linked-pr-more', '', '');
+    const open = await prRowsView(client, native, { status: null, threadId: 't1', now: 1, projectId: 'p1' });
+    expect(open.rest.map(row => [row.label, row.state, row.icon])).toEqual([['#73: Merged one', 'merged', 'git-merge']]);
+    expect(open).toMatchObject({ moreLabel: 'Show less', expanded: true });
+  });
+  test('without links the branch\'s own pull request shows, only while the status reports that branch', async () => {
+    const { client } = fakeClient();
+    (client.shell.threads as Record<string, unknown>[])[0]!.pullRequests = [];
+    const pr = { number: 9, title: 'Branch work', url: 'https://gitlab.com/a/b/-/merge_requests/9', state: 'open' };
+    const view = await prRowsView(client, native, { status: { refName: 'main', pr, sourceControlProvider: { kind: 'gitlab' } }, threadId: 't1', now: 1, projectId: 'p1' });
+    expect(view.rows[0]).toMatchObject({ label: '#9: Branch work', tooltip: 'MR #9 - Open: Branch work', target: '' });
+    expect((await prRowsView(client, native, { status: { refName: 'other', pr }, threadId: 't1', now: 1, projectId: 'p1' })).show).toBe(false);
+  });
+  test('with the host\'s detail the row splits: state glyph, the checks, and Ready on a draft', async () => {
+    const { client, replies, calls } = fakeClient();
+    (client.shell.projects as Record<string, unknown>[])[0]!.repositoryIdentity = github;
+    replies['pullRequests.detail'] = () => ({ number: 72, title: 'Fix the panel', state: 'open', isDraft: true, mergeability: 'mergeable',
+      capabilities: { actions: ['ready', 'merge'], mergeMethods: ['merge'] }, viewerPermissions: { actions: ['ready', 'merge'] }, mergeCapabilities: { merge: true }, checks: [] });
+    replies['pullRequests.checks'] = () => ({ checks: [{ name: 'ci', status: 'pending' }, { name: 'lint', status: 'success' }] });
+    const view = await prRowsView(client, native, { status: null, threadId: 't1', now: 1000, projectId: 'p1' });
+    expect(view.rows[0]).toMatchObject({ split: true, state: 'draft', icon: 'git-pull-request-draft', checks: '', action: 'ready', actionLabel: 'Ready' });
+    expect(calls.find(call => call.method === 'pullRequests.detail')!.payload).toEqual({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72, allowStale: false });
+    // A second read inside ten minutes reuses the answer.
+    await prRowsView(client, native, { status: null, threadId: 't1', now: 2000, projectId: 'p1' });
+    expect(calls.filter(call => call.method === 'pullRequests.detail').length).toBe(1);
+    forgetRowDetail(client);
+  });
+  test('resolveThreadPanelPullRequestAction and the checks rollup', () => {
+    const base = { state: 'open', capabilities: { actions: ['merge', 'ready'], mergeMethods: ['squash'] }, viewerPermissions: { actions: ['merge', 'ready'] }, mergeCapabilities: { squash: true } };
+    expect(rowAction({ ...base, mergeability: 'conflicting' })).toBe('resolve');
+    expect(rowAction({ ...base, isDraft: true })).toBe('ready');
+    expect(rowAction({ ...base, checks: [{ status: 'failure' }] })).toBe('fix');
+    expect(rowAction({ ...base, checks: [{ status: 'pending' }] })).toBe('');
+    expect(rowAction({ ...base, checks: [{ status: 'success' }] })).toBe('merge');
+    expect(rowAction({ ...base, state: 'merged' })).toBe('');
+    expect(checksRollup([])).toBe('');
+    expect(checksRollup([{ status: 'success' }, { status: 'pending' }])).toBe('pending');
+    expect(checksRollup([{ status: 'skipped' }])).toBe('');
+    expect(statusTooltip({ number: 4, url: '', title: 'T', state: 'closed', isDraft: false, provider: providerOfUrl('https://bitbucket.org/a/b/pull-requests/4') })).toBe('PR #4 - Closed: T');
+  });
+  test('a link no project here can read stays an ordinary link', () => {
+    const { client } = fakeClient();
+    expect(prTarget(client, 'https://example.com/not/a/pr')).toBeNull();
+    const unread = fakeClient({ config: { environment: { capabilities: { threadPullRequests: true } } } }).client;
+    expect(prTarget(unread, URL72)).toBeNull();
+  });
+});
+
+describe('the sidebar pull request badge (resolveThreadPullRequestBadge)', () => {
+  test('one link, several unrelated links, a stack, and tombstones', () => {
+    expect(sidebarPrBadge({ pullRequests: [link(72)] })).toEqual({ badge: '72', stacked: false, badgeIcon: 'git-pull-request-arrow', badgeState: '' });
+    expect(sidebarPrBadge({ pullRequests: [link(72, { snapshot: { state: 'merged', title: 'x' } })] })).toEqual({ badge: '72', stacked: false, badgeIcon: 'git-merge', badgeState: 'merged' });
+    expect(sidebarPrBadge({ pullRequests: [link(72), link(73)] })).toEqual({ badge: '+2', stacked: false, badgeIcon: 'git-pull-request-arrow', badgeState: 'open' });
+    const layer = (number: number, head: string, base: string) => link(number, { snapshot: { state: 'open', isDraft: false, headBranch: head, baseBranch: base, title: 't' } });
+    expect(sidebarPrBadge({ pullRequests: [layer(1, 'a', 'main'), layer(2, 'b', 'a')] })).toEqual({ badge: '2', stacked: true, badgeIcon: 'layers', badgeState: 'open' });
+    expect(sidebarPrBadge({ pullRequests: [link(72, { source: 'stack-dismissed' })] }).badge).toBe('');
+    expect(sidebarPrBadge({ pullRequests: [link(1, { snapshot: { state: 'closed' } }), link(2, { snapshot: { state: 'merged' } })] }).badgeState).toBe('closed');
+  });
+});
+
+describe('the Pull request (P) surface', () => {
+  test('the chooser enables it with a panel target and opens "#72" as a tab keyed by its reference', async () => {
+    const { client, replies } = fakeClient();
+    expect(availability(client).pullRequest).toBe(true);
+    expect(surfaces(client).find(row => row.id === 'pull-request')).toMatchObject({ available: true, shortcut: 'P' });
+    const target = threadPrTarget(client)!;
+    expect(target).toEqual({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72, url: URL72 });
+    await surfaceLocal(client, native, 'open', '', 'pull-request');
+    const state = panelState(client);
+    expect(state.active).toBe(prSurfaceId(target));
+    expect(state.active).toBe('pull-request:p1:github.com:ccheever%2Fexact2:72');
+    replies['projects.listEntries'] = () => ({ entries: [] });
+    const view = await panelView(client, null, 1);
+    expect(view.tabs[0]).toMatchObject({ kind: 'pull-request', title: '#72', icon: 'git-pull-request-arrow', tone: '' });
+    expect(view.pr).toEqual({ selected: JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72 }), number: 72, label: '#72', surface: state.active, tab: 'summary' });
+    // The details row opens the same kind of surface through the link's project; the tab is its peer.
+    await surfaceLocal(client, native, 'linked-pr-open', '', URL72);
+    expect(state.surfaces.map(entry => entry.id)).toEqual(['pull-request:p1:github.com:ccheever%2Fexact2:72', 'pull-request:p2:github.com:ccheever%2Fexact2:72']);
+    await surfaceLocal(client, native, 'close', state.active, '');
+    expect(state.surfaces.length).toBe(1);
+  });
+  // rightPanelStore setPullRequestDetailTab: the tab a surface was left on comes back with it.
+  test('a pull request surface keeps its detail tab, which reopening keeps and a fallback does not touch', async () => {
+    const { client, replies } = fakeClient();
+    replies['projects.listEntries'] = () => ({ entries: [] });
+    await surfaceLocal(client, native, 'open', '', 'pull-request');
+    const state = panelState(client), id = state.active, revision = state.userRevision;
+    await surfaceLocal(client, native, 'pr-tab', id, 'code');
+    // An automatic update upstream: not the person's panel choice, but the panels' save writes it at once.
+    expect([(await panelView(client, null, 1)).pr.tab, state.userRevision]).toEqual(['code', revision]);
+    const owner = { local: {} as object };
+    expect(syncRightPanels(owner, new Map([['saved', state]]))).toBe(true);
+    expect(JSON.stringify(owner.local)).toContain('"detailTab":"code"');
+    await surfaceLocal(client, native, 'pr-tab', id, 'nonsense');
+    await surfaceLocal(client, native, 'open', '', 'pull-request');
+    expect((await panelView(client, null, 1)).pr).toMatchObject({ surface: id, tab: 'code' });
+  });
+  // "Ask about this guide stop" (pages-pr-detail.ts guide-ask) opens the surface on its Guide tab: the window's
+  // prSurfaceTab task then shows that tab rather than putting the Summary back.
+  test('a surface opened on a tab keeps it; opened again without one, it keeps the tab it was left on', async () => {
+    const { client, replies } = fakeClient();
+    replies['projects.listEntries'] = () => ({ entries: [] });
+    const target = threadPrTarget(client)!;
+    openPullRequestIn(panelState(client), target, 'guide');
+    expect((await panelView(client, null, 1)).pr.tab).toBe('guide');
+    openPullRequestIn(panelState(client), target);
+    expect((await panelView(client, null, 1)).pr.tab).toBe('guide');
+  });
+  test('the window saves a tab chosen on a thread\'s surface and shows the saved one when that surface shows', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const sent: unknown[][] = [];
+    const scope = (utilityPage: string) => ({ utilityPage, shell: { panel: { kind: 'pull-request', pr: { surface: 'pull-request:s1', tab: 'timeline' } } }, command: (...args: unknown[]) => sent.push(args) });
+    const state = { prTab: 'summary' };
+    root.call('prSetTab', state, scope(''), ['code']);
+    root.call('prSetTab', state, scope('pull-requests'), ['guide']);
+    expect([state.prTab, sent]).toEqual(['guide', [['shelllocal:surface-pr-tab', 'pull-request:s1', 'code', 0]]]);
+    root.call('prSurfaceTabShown', state, scope(''), []);
+    expect(state.prTab).toBe('timeline');
+  });
+  test('a pull request tab wears its linked snapshot\'s lifecycle', async () => {
+    const { client } = fakeClient();
+    (client.shell.threads as Record<string, unknown>[])[0]!.pullRequests = [link(72, { snapshot: { title: 'T', state: 'merged', isDraft: false, syncedAt: '2026-10-04T00:00:00.000Z' } })];
+    await surfaceLocal(client, native, 'open', '', 'P');
+    const view = await panelView(client, null, 1);
+    expect(view.tabs[0]).toMatchObject({ title: '#72', icon: 'git-merge', tone: 'merged' });
+  });
+  test('without the environment\'s pull request reads the row stays unavailable with the reference hint', () => {
+    const { client } = fakeClient({ config: { environment: { capabilities: { threadPullRequests: true } } } });
+    expect(surfaces(client).find(row => row.id === 'pull-request')).toMatchObject({ available: false, reason: 'No pull request on this branch yet.' });
+  });
+});
+
+describe('sent attachment preview (AttachmentFilePreview)', () => {
+  test('filePreviewKind and the delimiter follow the MIME type, then the name', () => {
+    expect(previewKind({ name: 'notes.md', mimeType: 'text/markdown' })).toBe('markdown');
+    expect(previewKind({ name: 'a.ts', mimeType: 'application/octet-stream' })).toBe('text');
+    expect(previewKind({ name: 'Makefile' })).toBe('text');
+    expect(previewKind({ name: 'shot.PNG' })).toBe('image');
+    expect(previewKind({ name: 'blob.bin', mimeType: 'application/octet-stream' })).toBe('unsupported');
+    expect(previewDelimiter({ name: 'x.tsv' })).toBe('\t');
+    expect(previewDelimiter({ name: 'x.csv', mimeType: 'application/json' })).toBeNull();
+  });
+  test('a chip opens its own tab, replacing the standalone explorer; the text renders as Markdown first', async () => {
+    const { client, replies, calls } = fakeClient();
+    const state = panelState(client);
+    state.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }];
+    replies['assets.createUrl'] = payload => ({ relativeUrl: `/api/assets/${(payload.resource as { disposition: string }).disposition}/sig`, expiresAt: 0 });
+    const assets = serveText('# Notes\n\n- one\n'), files = memoryAppFiles();
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', 'owner');
+    expect(state.surfaces.map(entry => entry.id)).toEqual(['attachment:att-md']);
+    let view = await panelView(client, native, 1000);
+    expect(view.tabs[0]).toMatchObject({ kind: 'attachment', title: 'notes.md', fileToken: 'markdown' });
+    expect(view.attachment).toMatchObject({ name: 'notes.md', size: '1 KB', preview: 'markdown', canRender: true, rendered: true, renderLabel: 'Show markdown source', renderIcon: 'code',
+      showWrap: false, canCopy: true, copyLabel: 'Copy contents', canSave: true });
+    // The chat renderer's source (app.contract filesMarkdown), kind "attachment" (no folder).
+    expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: '# Notes\n\n- one\n' }]);
+    // The preview reads the first megabyte of the inline asset (FILE_TEXT_PREVIEW_MAX_BYTES).
+    expect(assets.calls[0]).toEqual({ url: 'http://127.0.0.1:14861/api/assets/inline/sig', range: 'bytes=0-1048576' });
+    await surfaceLocal(client, native, 'linked-att-render', 'att-md', '');
+    view = await panelView(client, native, 1000);
+    expect(view.attachment).toMatchObject({ preview: 'code', renderLabel: 'Show rendered markdown', renderIcon: 'eye', showWrap: true, wrap: true, markdownSource: [] });
+    expect(view.attachment.lines.map(line => line.number)).toEqual(['1', '2', '3', '4']);
+    await surfaceLocal(client, native, 'linked-att-copy', 'att-md', '');
+    expect(calls.find(call => call.method === 'copyText')!.payload.text).toBe('# Notes\n\n- one\n');
+    view = await panelView(client, native, 5000);
+    expect(view.attachment).toMatchObject({ copied: true, copyLabel: 'Copied' });
+    view = await panelView(client, native, 7100);
+    expect(view.attachment.copied).toBe(false);
+    // Save file fetches the attachment asset whole and asks the window's Save panel for it.
+    await surfaceLocal(client, native, 'linked-att-save', 'att-md', '');
+    expect(assets.calls.at(-1)).toEqual({ url: 'http://127.0.0.1:14861/api/assets/attachment/sig', range: null });
+    expect(lastSave(client, files)).toMatchObject({ name: 'notes.md', nonce: 1, text: '# Notes\n\n- one\n' });
+  });
+  test("a sent SVG's chip opens its file beside the thread, as a file chip does (SvgFileChip's onOpen)", async () => {
+    const { client, replies } = fakeClient();
+    ((client.projection.visibleTurnItems as { item: { attachments: unknown[] } }[])[0]!.item.attachments).push({ type: 'file', id: 'att-svg', name: 'badge.svg', mimeType: 'image/svg+xml', sizeBytes: 120 });
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    const { chatLocal } = await import('../../src/timeline/timeline-presentation');
+    await chatLocal(client, native, 'image-open', 'att-svg', 'owner');
+    expect(panelState(client).surfaces.map(entry => entry.id)).toEqual(['attachment:att-svg']);
+  });
+  // AttachmentFilePreview's rendered Markdown is ChatMarkdown (cwd undefined), as Files' is.
+  test('a rendered attachment is the chat renderer: code colours, Mermaid diagrams and their expand', async () => {
+    const { client, replies } = fakeClient();
+    const flow = 'graph TD\n  Attachment --> Preview', text = `# Notes\n\n\`\`\`ts\nconst x = 1;\n\`\`\`\n\n\`\`\`mermaid\n${flow}\n\`\`\`\n`;
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    serveText(text);
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
+    let view = await panelView(client, native, 1);
+    expect(view.attachment.markdownSource).toEqual([{ id: 'attachment:att-md', kind: 'attachment', title: '', body: text }]);
+    expect(view.attachment.code.map(block => block.code)).toContain('const x = 1;');
+    expect(view.attachment.md.chips).toEqual([]);
+    expect(view.attachment.diagrams.map(diagram => [diagram.code, diagram.dark.diagram])).toEqual([[flow, 'loading']]);
+    noteMermaidFrame(JSON.stringify({ status: 'rendered', width: 120, height: 80, theme: 'dark', source: flow, view: 'file' }));
+    view = await panelView(client, native, 1);
+    expect(view.attachment.diagrams[0]).toMatchObject({ code: flow, dark: { diagram: 'rendered', width: 120 } });
+    diagramPreviewAction(client, 'diagram-open', flow);
+    expect(diagramPreviewView(client).diagramPreview.map(diagram => diagram.code)).toEqual([flow]);
+  });
+  test('a CSV renders as a table in the viewer page; a file with no preview offers Save; an unknown id fails plainly', async () => {
+    const { client, replies } = fakeClient();
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    serveText('a,b\n1,2\n');
+    await surfaceLocal(client, native, 'linked-attachment', 'att-csv', '');
+    let view = await panelView(client, native, 1);
+    // DelimitedTablePreview: the large-text viewer over the text read, every row and a count line (the page's).
+    expect(view.attachment).toMatchObject({ preview: 'viewer', renderLabel: 'Show source', renderIcon: 'code', canCopy: true });
+    expect(JSON.parse(view.attachment.viewer.config)).toMatchObject({ view: 'text', text: 'a,b\n1,2\n', delimiter: ',', src: '', sizeBytes: -1 });
+    await surfaceLocal(client, native, 'linked-attachment', 'att-bin', '');
+    view = await panelView(client, native, 1);
+    expect(view.attachment).toMatchObject({ preview: 'none', canCopy: false, canSave: true, noPreview: 'Save it to open in an app that supports bin files.' });
+    expect(findAttachment(client, 'img-1')).toBeNull(); // images open the expanded image dialog
+    await expect(surfaceLocal(client, native, 'linked-attachment', 'gone', '')).rejects.toThrow('That attachment is no longer available.');
+  });
+  test('a read failure shows the message and Try again reads afresh', async () => {
+    const { client, replies } = fakeClient();
+    replies['assets.createUrl'] = () => ({ relativeUrl: '/api/assets/x', expiresAt: 0 });
+    // Latin-1 bytes are no UTF-8 text (decodeFilePreviewText); then a 206 of a longer file is a truncated preview.
+    let reply: () => AssetAnswer = () => ({ body: new Uint8Array([0x63, 0x61, 0x66, 0xe9]) });
+    server = serveAssets(() => reply());
+    await surfaceLocal(client, native, 'linked-attachment', 'att-md', '');
+    let view = await panelView(client, native, 1);
+    expect(view.attachment).toMatchObject({ preview: 'error', error: 'This file is not UTF-8 text. Open it in another app to view its contents.', canCopy: false });
+    reply = () => ({ status: 206, body: 'ok', headers: { 'Content-Range': 'bytes 0-1048576/4194304' } });
+    await surfaceLocal(client, native, 'linked-att-retry', 'att-md', '');
+    view = await panelView(client, native, 1);
+    expect(view.attachment).toMatchObject({ preview: 'markdown', copyLabel: 'Copy preview', truncatedNote: 'Preview limited to the first 1 MB of a 64 byte file. Save the file to read it in full.' });
+  });
+});
+
+describe('a preview\'s wrap button changes only that preview (48a292364a)', () => {
+  test('one file unwraps; another file, and an attachment, still follow Settings', async () => {
+    const { client } = fakeClient();
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    const { filesState } = await import('../../src/panel/files-surface');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', false]]);
+    expect((client.local as { clientSettings: { wordWrap: boolean } }).clientSettings.wordWrap).toBe(true);
+    await filesLocal(client, native, 'wrap', 'src/a.ts', '');
+    expect([...filesState(client).wraps]).toEqual([['src/a.ts', true]]);
+  });
+});
+
+describe('Files preferences persist (FilePreviewPanel localStorage keys)', () => {
+  test('defaults: explorer open, Markdown as source, tables rendered; toggles land in the saved record', async () => {
+    const { client } = fakeClient();
+    expect(filesPrefs(client)).toEqual({ explorer: true, renderMarkdown: false, renderTable: true });
+    await filesLocal(client, native, 'explorer', '', '');
+    await filesLocal(client, native, 'render', 'README.md', '');
+    await filesLocal(client, native, 'render', 'data.csv', '');
+    await filesLocal(client, native, 'wrap', 'README.md', '');
+    const saved = JSON.parse(JSON.stringify({ version: 1, ...(client.local as object) }));
+    expect(saved.files).toEqual({ explorer: false, renderMarkdown: true, renderTable: false });
+    // A preview's wrap button is its own (48a292364a): Settings' word wrap stays on.
+    expect(saved.clientSettings.wordWrap).toBe(true);
+    const next = {};
+    adoptFilesPrefs(next, saved);
+    expect(next).toEqual({ files: { explorer: false, renderMarkdown: true, renderTable: false } });
+    const fresh = {};
+    adoptFilesPrefs(fresh, { files: { explorer: 'yes' } });
+    expect(fresh).toEqual({ files: { explorer: true, renderMarkdown: false, renderTable: true } });
+  });
+});

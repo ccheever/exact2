@@ -1,0 +1,99 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "T3 Code (Exact)",
+  "short_name": "T3 Code (Exact)",
+  "id": "com.exact.t3code.macos",
+  "start_url": "/",
+  "protocol_handlers": [
+    { "protocol": "t3code", "url": "/open?u=%s", "distribution_only": true },
+    { "protocol": "https", "url": "/open?u=%s", "distribution_only": true },
+    { "protocol": "http", "url": "/open?u=%s", "distribution_only": true }
+  ],
+  "display": "standalone",
+  "display_override": ["window-controls-overlay"],
+  "open_url": { "schemes": ["vscode", "vscode-insiders", "cursor", "vscodium", "zed", "jetbrains"] },
+  "theme_color": "#fafafa",
+  "background_color": "#fafafa",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.exact.t3code.macos",
+    "name": "T3 Code (Exact)"
+  },
+  "modules": [
+    "t3-ssh-password"
+  ],
+  "commands": {
+    "terminal": ["bun", "terminal-host/build.mjs"],
+    "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"],
+    "runtime": ["bun", "tools/stage-runtime/stage-runtime.mjs"]
+  },
+  "hatches": [
+    "t3-composer",
+    "t3-prompt-preview",
+    "t3-anchor",
+    "t3-snapshot-tile",
+    "t3-media",
+    "t3-launcher",
+    "t3-browser-page"
+  ],
+  "rust": {
+    "placement": "worker"
+  },
+  "host": {
+    "macos": {
+      "minimumOS": "14.0",
+      "oneTimeCodeAutofill": "marked",
+      "appTransportSecurity": {
+        "allowsArbitraryLoads": true
+      },
+      "window": {
+        "width": 1280,
+        "height": 840,
+        "minWidth": 840,
+        "minHeight": 620,
+        "keepRunning": true
+      },
+      "resources": [{ "from": "server-runtime", "to": "Resources/t3-runtime" }]
+    }
+  },
+  "deploy": {
+    "store": {
+      "macos": "0",
+      "web": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  },
+  "data": [
+    "snapshot-id",
+    "anchor",
+    "snapshot-owner",
+    "owner",
+    "frame",
+    "media-kind",
+    "media-name",
+    "device-id",
+    "device-host",
+    "device-origin",
+    "device-ticket",
+    "device-ask",
+    "device-view",
+    "device-ax",
+    "surface-launcher-keys",
+    "paint",
+    "pick",
+    "dialog-focus",
+    "focus-stop",
+    "dialog-return",
+    "editable",
+    "browser-frame",
+    "browser-environment",
+    "browser-profile"
+  ]
+}

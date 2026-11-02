@@ -1,0 +1,268 @@
+// Keyboard dispatch for the reference commands that have a counterpart here
+// (keyboard-dispatch.ts). Each is a zero-size button whose aria-keyshortcuts
+// the host binds, so a chord, its menu item and an agent press run one action.
+// None is a Tab stop (`tabindex=-1`): a 1pt button is one on the web and so on
+// every host, and Tab from a dialog's last control reached them (the reference
+// binds its chords on the window, with no element to focus). The box is hidden
+// from assistive technology too: the reference's chords add no element to the
+// accessibility tree, and the menu items are how VoiceOver reaches them. The
+// chords, menu items and presses depend on neither.
+shape KeyDispatch
+  id: string
+  command: string
+  chord: string
+  kind: string
+  target: string
+  extra: string
+  label: string
+
+component ShortcutDispatch
+  inject
+    pickerAnnounce: action
+    modelPickTaken: bool
+    workspaceMove: action // workspace.focusNext / focusPrevious (shell-members.contract)
+  props
+    items: KeyDispatch[]
+    selectThread: action
+    newThread: action
+    chatNew: action
+    deviceSetting: action
+    toggleDiff: action
+    details: action // threadPanel.toggle: the header's "Toggle thread details panel" (detailsAct("toggle"))
+    openDiff: action
+    closeDiff: action
+    panel: action // ⌘W closes the active surface tab (panelUi("tab-close", id))
+    prClose: action
+    stop: action
+    openOptions: action
+    selectProvider: action
+    selectModel: action
+    back: action
+    copyThread: action
+    palette: action
+    run: action
+    command: action
+    settings: action
+    copy: action
+    confirm: action
+  // ModelPickerContent onWindowKeyDown: a tab or model picked by its shortcut is announced, as the focus stays in the
+  // search field (composer-controls-commands.ts announcePickerShortcut), through the root's pickerAnnounce, which
+  // waits for no other command. A model is announced only when the pick is taken (handleModelSelect returned a slug).
+  action providerByKey(target: string)
+    selectProvider(target)
+    pickerAnnounce("cclocal:picker-provider-key", target, "")
+  action modelByKey(target: string, provider: string)
+    selectModel(target, provider, false)
+    if modelPickTaken and target != ""
+      pickerAnnounce("cclocal:picker-model-key", target, provider)
+  // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
+  // gives it back to the terminal: app.contract confirmUi).
+  action closeTerminal(target: string, extra: string, label: string)
+    confirm("ui:confirm", extra, target, label, "This stops the running process and clears its history.", true)
+    focus("app-confirm-cancel")
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" aria-hidden=true testId="keyboard-dispatch"
+      for item in items key=item.id
+        if item.kind == "thread"
+          ShortcutButton(item=item, press=selectThread(item.target))
+        if item.kind == "chat-new"
+          ShortcutEventButton(item=item, press=chatNew)
+        if item.kind == "new-thread"
+          ShortcutButton(item=item, press=newThread)
+        if item.kind == "appearance"
+          ShortcutButton(item=item, press=deviceSetting("appearanceMode", item.target))
+        if item.kind == "diff"
+          ShortcutButton(item=item, press=toggleDiff)
+        if item.kind == "details"
+          ShortcutButton(item=item, press=details("toggle", "", ""))
+        if item.kind == "diff-open"
+          ShortcutButton(item=item, press=openDiff)
+        if item.kind == "close-diff"
+          ShortcutButton(item=item, press=closeDiff)
+        if item.kind == "close-surface"
+          ShortcutButton(item=item, press=panel("tab-close", item.target))
+        if item.kind == "panel-reopen"
+          ShortcutButton(item=item, press=panel("reopen", ""))
+        if item.kind == "panel-new"
+          ShortcutButton(item=item, press=panel("new", ""))
+        if item.kind == "panel-close" // ⇧⌘J closes a shown Browser panel
+          ShortcutButton(item=item, press=panel("close", ""))
+        if item.kind == "pr-close"
+          ShortcutButton(item=item, press=prClose)
+        if item.kind == "stop"
+          ShortcutButton(item=item, press=stop)
+        if item.kind == "options"
+          ShortcutButton(item=item, press=openOptions(item.target))
+        if item.kind == "provider"
+          ShortcutButton(item=item, press=providerByKey(item.target))
+        if item.kind == "model"
+          ShortcutButton(item=item, press=modelByKey(item.target, item.extra))
+        if item.kind == "back"
+          ShortcutButton(item=item, press=back)
+        if item.kind == "copy-thread"
+          ShortcutButton(item=item, press=copyThread("copy-thread", ""))
+        if item.kind == "palette"
+          ShortcutButton(item=item, press=palette(item.target, item.extra))
+        if item.kind == "palette-run"
+          ShortcutButton(item=item, press=run(item.target, item.extra, ""))
+        if item.kind == "new-thread-in"
+          ShortcutButton(item=item, press=run("new-thread", item.target, ""))
+        if item.kind == "flow"
+          ShortcutButton(item=item, press=run("flow", item.target, item.extra))
+        if item.kind == "terminal-close"
+          ShortcutButton(item=item, press=closeTerminal(item.target, item.extra, item.label))
+        // While a terminal close confirm is open its chord runs nothing ("ui:refuse" is no
+        // window op), and holding the chord keeps it from the window's Close (keyboard-dispatch.ts refuseTerminalClose).
+        if item.kind == "refuse"
+          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))
+        if item.kind == "command"
+          ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
+        if item.kind == "settings"
+          ShortcutButton(item=item, press=settings)
+        if item.kind == "pr-copy"
+          ShortcutButton(item=item, press=copy(item.target, item.extra))
+        // A command whose argument is its value (composer.cycleHost → environment-run-on).
+        if item.kind == "command-value"
+          ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // F6 and ⇧F6 (AppSidebarLayout's capture listener): an aria-keyshortcuts button hears its chord before the focused
+        // element, so the key leaves a field or a list as it does a control.
+        if item.kind == "workspace-focus"
+          ShortcutButton(item=item, press=workspaceMove(item.target == "next" ? 1 : -1, ""))
+        // ⌥↑ (thread.editQueuedMessage, kind "composer-key") is no menu chord: the composer takes it only with the caret
+        // at the very start (app.contract composerKeyEvent), so elsewhere the key moves the caret.
+
+// The commands the reference's bubble-phase window listeners take (74541bab17: CommandPalette.tsx's palette, theme and
+// usage commands, Sidebar.tsx's traversal and jumps, AppSidebarLayout.tsx's navigation, _chat.tsx's new-thread and preview
+// commands, OpenInPickerShortcut.ts). The device tab's rename field stops its keydown's propagation, which keeps a key
+// from these and from no capture-phase listener (app.contract renameHoldsKeys).
+fn renameHeldCommand(command: string): bool = ["commandPalette.toggle", "filePicker.toggle", "projectSearch.toggle", "appearance.cycle", "theme.select", "themeEditor.toggle", "usage.open", "thread.previous", "thread.next", "navigation.back", "navigation.forward", "chat.new", "chat.newLocal", "chat.newWithoutProject", "editor.openFavorite"].includes(command) or command.startsWith("thread.jump.") or command.startsWith("preview.")
+// A held chord that is a text field's own editing chord drops out, so the field edits with it; any other stays a disabled
+// menu item, which takes the key and runs nothing.
+fn editingChord(chord: string): bool = ["meta+z", "meta+shift+z", "meta+x", "meta+c", "meta+v", "meta+a"].includes(chord.toLowerCase())
+// The menu bar shows a command whose chord stands in for one of the host's own items (Edit's Undo, Redo, Cut, Copy,
+// Paste and Select All, and the app menu's Settings…), so Edit › Undo is thread.undo where the reference's renderer
+// takes ⌘Z first; every other command is a shortcut with no item (`-exact-menu="none"`), as the reference's bar lists
+// none of them. A host item whose chord a hidden command takes keeps its place without the chord; rightPanel.close declares none, so File › Close Window keeps ⌘W (app-window.contract
+// modifierDown hears it).
+fn chordStandsIn(chord: string): bool = editingChord(chord) or chord.toLowerCase() == "meta+,"
+
+component ShortcutButton
+  inject
+    releaseUndoClaim: action
+    renameHoldsKeys: bool
+  props
+    item: KeyDispatch
+    press: action
+  derive held = renameHoldsKeys and renameHeldCommand(item.command)
+  // ThreadUndoShortcut releases the undo notice's claim on any other key, a chord this button takes included.
+  action pressed
+    if item.command != "thread.undo"
+      releaseUndoClaim()
+    press()
+  view
+    if chordStandsIn(item.chord)
+      button press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+    else
+      button -exact-menu="none" press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+
+// ShortcutButton for an action that reads the press's event (chat.new: ⇧-click creates at once; a chord's press has none).
+component ShortcutEventButton
+  inject
+    releaseUndoClaim: action
+    renameHoldsKeys: bool
+  props
+    item: KeyDispatch
+    press: action
+  derive held = renameHoldsKeys and renameHeldCommand(item.command)
+  action pressed(e: MouseEvent)
+    releaseUndoClaim()
+    press(e)
+  view
+    if chordStandsIn(item.chord)
+      button press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+    else
+      button -exact-menu="none" press=pressed disabled=(held and not editingChord(item.chord)) aria-keyshortcuts=(item.command == "rightPanel.close" or (held and editingChord(item.chord)) ? "" : item.chord) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text item.label font-size=1
+
+// View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the
+// window's own reload, `reload()`, in every build. The host files the two buttons at the top of View, before its own
+// items (`-exact-menu="view"`, LLP 1021 §5.3), and enables them while the window is key with no sheet, as AppKit
+// validates an item that acts on the key window. The reference renderer sees a key before Electron's menu, so a
+// keybinding the person gave ⌘R or ⇧⌘R (`items`, the dispatch buttons) keeps the chord and the item shows none.
+// While the panel shows a Browser page (`page`, its frame), ⌘R asks the data module first: a page holding the focus
+// reloads instead of the window (browser-navigation.ts browserKey), as the reference's guest takes ⌘R. ⌘L, which the
+// reference's guest forwards as Preview: Focus URL, is a hidden key equivalent while a page shows (`-exact-menu="none"`,
+// LLP 1021 §5.3.1): a key the page leaves unhandled reaches only the menus, so this item hears it there, and a page
+// holding the focus gives it to the address bar. Hidden from assistive technology: the menu item is how they are reached.
+component ViewReload
+  props
+    items: KeyDispatch[]
+    page: string
+    local: action
+  derive taken = items.map((item) => item.chord.toLowerCase())
+  action reloadWindow
+    reload()
+  action reloadKey
+    if page != ""
+      local("surface-browser-frame-key", page, "chord=meta+r")
+    else
+      reload()
+  action focusUrlKey
+    local("surface-browser-frame-key", page, "chord=meta+l")
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="view-reload-commands"
+      button -exact-menu="view" press=reloadKey aria-keyshortcuts=(taken.includes("meta+r") ? "" : "Meta+R") tabindex=-1 aria-hidden=true aria-label="Reload" testId="view-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Reload" font-size=1
+      button -exact-menu="view" press=reloadWindow aria-keyshortcuts=(taken.includes("meta+shift+r") ? "" : "Meta+Shift+R") tabindex=-1 aria-hidden=true aria-label="Force Reload" testId="view-force-reload" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Force Reload" font-size=1
+      if page != ""
+        button -exact-menu="none" press=focusUrlKey aria-keyshortcuts=(taken.includes("meta+l") ? "" : "Meta+L") tabindex=-1 aria-hidden=true aria-label="Focus URL" testId="view-focus-url" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+          text "Focus URL" font-size=1
+
+// View › Actual Size, Zoom In and Zoom Out (DesktopApplicationMenu.ts zoomClick, DesktopWindow.ts zoomWindow): half a
+// Chromium zoom level a step (1.2^0.5, 109.5%), from 25% to 500%, applied as the root font size (app.contract
+// rootFontApply), where the host's own View zoom takes Safari's levels. An app command with ⌘0, ⌘= or ⌘- takes the host
+// item's place (LLP 1021 §5.3.1); ⇧⌘=, the reference's hidden Zoom In, is a shortcut with no item. A keybinding the person
+// gave one of these chords keeps it, as ViewReload's do. Over a shown Browser page (`page`) the data module decides, as
+// for ⌘R: a page holding the focus takes a chord bound to a preview zoom command.
+fn zoomFactor(step: number): number = match [0.254766, 0.279082, 0.305719, 0.334898, 0.366862, 0.401878, 0.440235, 0.482253, 0.528282, 0.578704, 0.633938, 0.694444, 0.760726, 0.833333, 0.912871, 1, 1.095445, 1.2, 1.314534, 1.44, 1.577441, 1.728, 1.892929, 2.0736, 2.271515, 2.48832, 2.725818, 2.985984, 3.270982, 3.583181, 3.925178, 4.299817, 4.710213].at(step + 15) { case some(factor) => factor, case none => 1 }
+component ViewZoom
+  props
+    items: KeyDispatch[]
+    step: number
+    zoom: action
+    page: string
+    local: action
+  derive taken = items.map((item) => item.chord.toLowerCase())
+  action zoomKey(chord: string, to: number)
+    if page != ""
+      local("surface-browser-frame-key", page, `chord=${chord}&step=${to}`)
+    else
+      zoom(to)
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="view-zoom-commands"
+      button press=zoomKey("meta+0", 0) aria-keyshortcuts=(taken.includes("meta+0") ? "" : "Meta+0") tabindex=-1 aria-hidden=true aria-label="Actual Size" testId="view-actual-size" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Actual Size" font-size=1
+      button press=zoomKey("meta+=", min(17, step + 1)) aria-keyshortcuts=(taken.includes("meta+=") ? "" : "Meta+=") tabindex=-1 aria-hidden=true aria-label="Zoom In" testId="view-zoom-in" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Zoom In" font-size=1
+      button -exact-menu="none" press=zoomKey("meta+shift+=", min(17, step + 1)) aria-keyshortcuts=(taken.includes("meta+shift+=") ? "" : "Meta+Shift+=") tabindex=-1 aria-hidden=true aria-label="Zoom In" testId="view-zoom-in-shift" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Zoom In" font-size=1
+      button press=zoomKey("meta+-", max(-15, step - 1)) aria-keyshortcuts=(taken.includes("meta+-") ? "" : "Meta+-") tabindex=-1 aria-hidden=true aria-label="Zoom Out" testId="view-zoom-out" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Zoom Out" font-size=1
+
+// Check for Updates… (DesktopApplicationMenu.ts: directly under About, and Help's one item). Both are app-wide items
+// (`-exact-menu="about"` and `"help"`, LLP 1021 §5.3.1): enabled with no key window, under a sheet and under a modal
+// dialog, as the reference's always are. The press asks the module for the parentless "Updates unavailable" box
+// (T3Menus.swift `checkForUpdates`).
+component UpdateMenuItems
+  props
+    check: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="update-menu-commands"
+      button -exact-menu="about" press=check tabindex=-1 aria-hidden=true aria-label="Check for Updates…" testId="app-check-updates" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Check for Updates…" font-size=1
+      button -exact-menu="help" press=check tabindex=-1 aria-hidden=true aria-label="Check for Updates…" testId="help-check-updates" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+        text "Check for Updates…" font-size=1

@@ -1,0 +1,190 @@
+// Base UI's modal focus trap (reference ui/dialog.tsx and ui/alert-dialog.tsx): guards before and after
+// the popup's controls wrap to the last and first enabled stop. Candidates are in traversal order;
+// their declared data-focus-stop marks track the same disabled expression as the control.
+//
+// Main's modal `dialog` (`showModal(id)`, `close(id)`; issues/closed/20261009-gui-dialog-action-commands.md)
+// does not draw or key these as the reference does on macOS. There a `dialog` is an AppKit sheet, a window of its
+// own that AppKit centres on the window and dims it under (LLP 1115.002 D7.2, host/apple SheetsMac.swift), and an
+// `alertdialog` in the alert's shape is `NSAlert`, with the system's look and button order (LLP 1115.000 D7.6,
+// AlertsMac.swift); a dialog painted in the page is only the driver's own chrome (`--chrome agent`). Base UI's popup
+// is in the page over a blurred backdrop. In the sheet Tab stops only at fields while Keyboard Navigation is off,
+// where Base UI's trap stops at every button, and a dialog opened by a click gives the focus back to nothing, as a
+// Mac button takes no focus from a click. A `dialog` also opens only from an action, not while state holds it open
+// (`contract vocab dialog`), and several of these open from the data module's state (settings-a-dialogs.contract's
+// confirmations). So the dialogs stay boxes with this trap.
+shape DialogFocusReturn
+  owner: string
+  target: string
+  popup: string
+  invoker: string
+shape DialogFocusFrame
+  owner: string
+  returns: DialogFocusReturn[]
+fn dialogReturn(owner: string, target: string, popup: string, invoker: string): DialogFocusReturn = DialogFocusReturn(owner=owner, target=target, popup=popup, invoker=invoker)
+fn dialogFrame(owner: string, returns: DialogFocusReturn[]): DialogFocusFrame = DialogFocusFrame(owner=owner, returns=returns)
+fn dialogLineage(frames: DialogFocusFrame[], owner: string): DialogFocusReturn[] = match frames.filter(item => item.owner == owner).at(0) { case some(item) => item.returns, case none => [] }
+
+
+component FocusGuard
+  props
+    guardId: string
+    targets: string[]
+    popup: string
+  derive start = guardId.includes("-guard-start")
+  action enter
+    stopPropagation()
+    let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+    let available = targets.filter(id => mounted.includes(id))
+    let target = (start ? available.slice(-1) : available.slice(0, 1)).join("")
+    if querySelectorAll("[data-dialog-focus~=\"open\"]").includes(popup)
+      focus(target == "" ? popup : target)
+  // All-disabled dialogs focus their popup. Both directions retry eligible controls when busy ends.
+  action hold(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
+      focus(target == "" ? popup : target)
+  view
+    box id=guardId tabindex=0 aria-hidden=true focusin=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId
+
+// FocusGuard at the start of Settings' and Usage's large modal (AppRouteModal): Base UI's trap wraps Shift+Tab from the
+// first stop to the popup's last tabbable in tree order, which is the page's last control, after the header's close
+// button. A page control that is a stop carries `data-focus-stop="enabled page"`, so the guard takes the last of them
+// mounted, else the last of `targets` (a page with no controls leaves the close button last). The web's `focus()`
+// scrolls what it focuses into view and the Mac host's does not, so the guard scrolls it too.
+component RouteFocusGuard
+  props
+    guardId: string
+    targets: string[]
+    popup: string
+  action enter
+    stopPropagation()
+    let page = querySelectorAll("[data-focus-stop~=\"page\"]").slice(-1).join("")
+    let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+    let target = page != "" ? page : targets.filter(id => mounted.includes(id)).slice(-1).join("")
+    if querySelectorAll("[data-dialog-focus~=\"open\"]").includes(popup)
+      focus(target == "" ? popup : target)
+      if target != ""
+        scrollIntoView(target, block="nearest")
+  action hold(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let page = querySelectorAll("[data-focus-stop~=\"page\"]").slice(-1).join("")
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = e.shiftKey ? (page != "" ? page : available.slice(-1).join("")) : available.slice(0, 1).join("")
+      focus(target == "" ? popup : target)
+      if target != ""
+        scrollIntoView(target, block="nearest")
+  view
+    box id=guardId tabindex=0 aria-hidden=true focusin=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId
+
+// FocusGuard for a dialog whose stops are all controls, no field or list. FocusGuard's box is a Tab stop in both
+// Keyboard Navigation modes, so with it off (LLP 1115.000 D7.2: Tab moves between fields and lists only) Tab from the
+// focused first button reached the end guard and came back to it while Shift-Tab reached the start guard and jumped to
+// the last button. This guard is a button with no `tabindex`, a Tab stop exactly when the dialog's buttons are: with
+// Keyboard Navigation on Tab and Shift-Tab wrap through every control as Base UI's trap does; off, both pass over the
+// controls as AppKit's Tab passes over a sheet's buttons. The dialog's background is inert while it is open (the
+// window's `inert`), so with it off no stop outside the dialog is left for Tab to reach either.
+component ControlGuard
+  props
+    guardId: string
+    targets: string[]
+    popup: string
+  derive start = guardId.includes("-guard-start")
+  action enter
+    stopPropagation()
+    let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+    let available = targets.filter(id => mounted.includes(id))
+    let target = (start ? available.slice(-1) : available.slice(0, 1)).join("")
+    if querySelectorAll("[data-dialog-focus~=\"open\"]").includes(popup)
+      focus(target == "" ? popup : target)
+  action hold(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
+      focus(target == "" ? popup : target)
+  view
+    button id=guardId appearance="none" aria-hidden=true focusin=enter key=hold position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 pointer-events="none" background-color="#00000000" testId=guardId
+
+// Base UI's Dialog moves the focus into the popup as it opens (FloatingFocusManager's `initialFocus`: the popup's first
+// Tab stop, unless the dialog names another or an element inside took the focus with `autoFocus` as it mounted), whether
+// a pointer or a key opened it, so the first Tab and Shift+Tab already start inside the trap. An `autofocus` takes the
+// focus only when nothing holds it (HTML's rule): a dialog with none opens with nothing focused, where a real Tab reaches
+// no stop at all, and one opened from a key leaves the focus on its opener behind the
+// popup. Each modal dialog carries one DialogOpenFocus naming that element (`dialog-trap.test.ts` lists them): it moves
+// the focus there once, when the popup is first laid out (this box's first `resize` event, ResizeObserver's first entry:
+// the layout that drew the popup, as Base UI focuses from a layout effect). A popup hidden under `display: none` lays it
+// out 0 by 0, which is no opening; it opens again when it shows. An in-page field the reference focuses as it mounts
+// (React's autoFocus, a mount effect) stands beside one too, for the same rule: a double-click or a pointer press leaves
+// the focus where it was, in the prompt say, and `autofocus` then takes none.
+//
+// Such a dialog is `aria-modal` only once the focus has entered it (`dialogSeated`, app-window.contract). The Mac host
+// tells VoiceOver of a modal in the commit that first shows it and lands VoiceOver on the focused element when that is
+// inside, else on the dialog; a `focus()` runs after that commit, so a dialog modal from its first commit sent VoiceOver
+// to its group (AXLayoutChanged named the dialog while the focus was already on its first control, read from another
+// process), and VoiceOver, moving the keyboard focus with its cursor, took the focus off that control. Modal from the
+// commit after the focus entered, it is announced as "<name>, dialog" with VoiceOver on its initial focus, as Base UI's
+// Dialog is in Chrome.
+component DialogOpenFocus
+  props
+    target: string
+  state opened = false
+  action laidOut(width: number, height: number)
+    if width == 0 or height == 0
+      opened = false
+    else if not opened
+      opened = true
+      if target != ""
+        focus(target)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
+
+// A field that opens with its text selected (PullRequestThreadDialog's open effect, `requestAnimationFrame(() => { focus();
+// select(); })`; RightPanelTabs' rename input, `focus(); select()` as it mounts): DialogOpenFocus's first layout, which
+// then selects the field's whole text with `setSelectionRange` (main 48755525c), so the first key typed replaces it.
+// `length` is the text's length as it opened. It stands where a dialog's DialogOpenFocus would (dialog-trap.test.ts).
+component FieldOpenSelect
+  props
+    target: string
+    length: number
+  state opened = false
+  action laidOut(width: number, height: number)
+    if width == 0 or height == 0
+      opened = false
+    else if not opened
+      opened = true
+      focus(target)
+      setSelectionRange(target, 0, length)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
+
+// This observer stands outside the conditional popup. The window snapshots the actual prior focus on
+// opening or first focusin, whichever arrives first, and restores it after the closing layout. Holding
+// the owner here handles a subject reset on close; the window retains ancestry for nested/replaced dialogs.
+component DialogFinalFocus
+  inject
+    dialogOpened: action
+    dialogClosed: action
+  props
+    open: bool
+    owner: string
+  state shown = false
+  state heldOwner = ""
+  action laidOut(width: number, height: number)
+    if width >= 2 and not shown
+      shown = true
+      heldOwner = owner
+      dialogOpened(owner)
+    else if width == 1 and shown
+      shown = false
+      dialogClosed(heldOwner)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 : 1) height=1 opacity=0 pointer-events="none"

@@ -1,0 +1,22 @@
+use MobileLayout from "./app-shapes.contract"
+use ContentGeometry, contentGeometryCounter, contentGeometryCounterValid from "./content-geometry.contract"
+
+members App
+  state layoutJSON = ""
+  resource layout = layoutFacts(layoutJSON) as shape MobileLayout
+  action layoutChanged(value: string)
+    layoutJSON = value
+  state contentGeometryOwner = ""
+  state contentGeometryGeneration = 0
+  state contentGeometrySerial = 0
+  state contentGeometryPacket = ""
+  resource contentGeometry = contentGeometry(`${top(nav).id}:${top(nav).name}`, contentGeometryOwner, contentGeometryGeneration, contentGeometrySerial, contentGeometryPacket) as shape ContentGeometry
+  action contentGeometryEvent(owner: string, packet: string)
+    if owner == `${top(nav).id}:${top(nav).name}` and packet.split("\n").length == 3 and contentGeometryCounterValid(packet, 0) and contentGeometryCounterValid(packet, 1)
+      let generation = contentGeometryCounter(packet, 0)
+      let serial = contentGeometryCounter(packet, 1)
+      if generation > contentGeometryGeneration or (generation == contentGeometryGeneration and serial > contentGeometrySerial)
+        contentGeometryOwner = owner
+        contentGeometryGeneration = generation
+        contentGeometrySerial = serial
+        contentGeometryPacket = packet

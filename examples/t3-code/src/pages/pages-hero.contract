@@ -1,0 +1,378 @@
+// Adapted from T3 Code 74541bab17, the project menu at 2359643cff (MIT); see LICENSE-T3.
+// The empty main view, measured against the served reference
+// at 1280×840: DraftHeroHeadline's sentence and its project menu, and the
+// index landings (NoProjectsHero, DraftStartError and the hosted
+// HostedStaticOnboardingState), from T3 Code (MIT, see LICENSE-T3).
+use Snapshot from "../shared/shapes.contract"
+use pinChordPressed from "../shared/menu-keys.contract"
+use ProjectMark from "../shared/icons-kit.contract"
+use PgIcon from "../shared/pages-icons.contract"
+use dbStep from "../diff/diff.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+use Tip from "../shell/shell-tip.contract"
+use SidebarIcon from "../sidebar/sidebar-icons.contract"
+
+shape HeroProject
+  id: string
+  name: string
+  mark: string
+  ink: string
+  surface: string
+  selected: bool
+  // ProjectPinButton: offered where every checkout's server keeps a pin and this session may change it.
+  canPin: bool
+  pinned: bool
+  pinTitle: string
+shape HeroName
+  id: string
+shape PagesHome
+  landing: string
+  headline: string
+  projectName: string
+  // The name keyed by its text, so a new name mounts a fresh text (a reused one-line text keeps drawing the old string).
+  projectNames: HeroName[]
+  projects: HeroProject[]
+  // The thread pin shortcut as a chord ("Meta+Shift+p"), which pins the menu's highlighted row.
+  pinChord: string
+  noProjectItem: bool
+  scratchLine: bool
+  scratchDraft: bool
+  noProjectsDescription: string
+  scratchStart: bool
+  savedEnvironments: number
+  firstRunPending: bool
+  pullRequests: bool
+  // HostedStaticOnboardingState's second paragraph: the Local environment switched off, or the pairing hint.
+  noEnvironmentDescription: string
+  scratchShortcut: string // chat.newWithoutProject's label, the tip under "or start without a project"
+  // TriageDraftHero: a No project draft holding the triage prompt, its machine's name and server version.
+  triageDraft: bool
+  triageMachine: string
+  triageVersion: string
+
+// useNavigateBack's history over the utility pages (app.contract pageTrail): the pages a
+// page's Back goes back through after `current` opens `name`. A page opened from another keeps the one it left; one
+// opened from a thread, or a thread, starts over.
+fn pageTrailNext(trail: string[], current: string, name: string): string[] = current == "" or name == "" ? [] : (name == current ? trail : trail.concat([current]))
+
+// The draft hero. The heading sits 16pt above the composer stack (pb-4,
+// upstream 44b4965017), so the column ends 4pt above the composer column's
+// 12pt top padding; with a shoulder tab (the stash badge) on the stack it
+// sits on the tab (pb-0), 12pt into that padding.
+component EmptyThread
+  props
+    data: Snapshot
+    home: PagesHome
+    scheme: string
+    shoulder: bool
+    busy: bool
+    // DraftHeroProjectHeading's fit: the window is lg (1024pt or wider) and the one-line heading fits its width.
+    inline: bool
+    // max-w-(--chat-content-max-width) within max-w-5xl: the chat width setting's lane (46rem, 72rem or full), at most 64rem.
+    cap: number
+    command: action
+    addProject: action
+  view
+    column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
+      if data.connected and data.threadId == "" and home.landing == "" and home.triageDraft
+        column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+          TriageHero(home=home, command=command)
+      if data.connected and data.threadId == "" and home.landing == "" and not home.triageDraft
+        // DraftHeroHeadline: the heading is named by its content, project picker included: an aria-label of its own
+        // would hide that button inside it from a screen reader's browse mode.
+        column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+          if home.headline == "build"
+            ProjectHeading(home=home, scheme=scheme, inline=inline, command=command, addProject=addProject)
+          else
+            row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 testId="draft-hero-heading"
+              if home.headline == "work"
+                text "What should we work on?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#18181b, #f5f5f5)"
+              if home.headline == "start"
+                HeroPicker(home=home, scheme=scheme, size=30, command=command, addProject=addProject)
+                text " to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#18181b, #f5f5f5)"
+              if home.headline == "add"
+                text "Add a project to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#18181b, #f5f5f5)"
+          if home.noProjectItem
+            // w-full justify-center: "No project" keeps its whole label.
+            row width="100%" height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center"
+              if home.scratchDraft
+                HeroPicker(home=home, scheme=scheme, size=14, command=command, addProject=addProject)
+              if home.scratchLine
+                ScratchLink(busy=busy, shortcut=home.scratchShortcut, command=command)
+
+// TriageDraftHero, in place of "What should we work on?": the heading and one line under it, the machine the agent
+// works on (with its server version) and "or run npx t3 triage", which copies the command and reads "Copied" for 1.5 s.
+component TriageHero
+  inject
+    triageCopied: number
+    triageCopy: action
+  props
+    home: PagesHome
+    command: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    text "What went wrong?" font-size="1.875rem" font-weight=400 line-height="2.25rem" letter-spacing=-0.75 text-align="center" width="100%" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1 testId="triage-hero-heading"
+    row width="100%" height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center" gap="0.375rem" testId="triage-hero-line"
+      Tip(label="The agent reads T3 Code's logs and source here, and asks before it applies a fix or posts anything.", side="bottom", align="center", offset=4)
+        row min-width=0 tabindex=0 align-items="baseline" testId="triage-hero-machine"
+          text home.triageMachine font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" line-clamp=1
+          if home.triageVersion != ""
+            text `v${home.triageVersion}` margin-left="0.375rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap"
+      text "·" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+      Tip(label="Copy command, for a terminal", side="bottom", align="center", offset=4)
+        button press=triageCopy hover=hover testId="triage-hero-copy" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="baseline" position="relative" cursor="pointer"
+          if triageCopied > 0
+            text "Copied" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+          else
+            text "or run" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+            text "npx t3 triage" margin-left="0.25rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1rem" color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+
+// DraftHeroProjectHeading: "What should we build in <project>?" on one line when the window is lg and that line
+// fits; otherwise "What should we build?" over the project picker at text-base. HeroWidthProbe lays the one-line
+// heading out at its natural width, apart from the heading, so the heading's own layout cannot make the check oscillate.
+component HeroWidthProbe
+  props
+    name: string
+  view
+    box position="absolute" left=0 top=0 height=0 overflow="hidden" opacity=0 pointer-events="none" aria-hidden=true display="flex" flex-direction="row"
+      row hatch="t3-anchor" data-anchor="hero-inline" flex-shrink=0 gap="0.5rem" align-items="baseline"
+        text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+        row flex-shrink=0 align-items="baseline"
+          text name font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 font-weight=500 white-space="nowrap" flex-shrink=0
+          text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+
+component ProjectHeading
+  props
+    home: PagesHome
+    scheme: string
+    inline: bool
+    command: action
+    addProject: action
+  view
+    column width="100%" position="relative" align-items="center" gap="0.5rem" role="heading" aria-level=1 testId="draft-hero-heading"
+      if inline
+        row width="100%" justify-content="center" align-items="baseline" gap="0.5rem"
+          text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0 color="light-dark(#18181b, #f5f5f5)"
+          row min-width=0 max-width="100%" align-items="baseline"
+            HeroPicker(home=home, scheme=scheme, size=30, command=command, addProject=addProject)
+            text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 flex-shrink=0 color="light-dark(#18181b, #f5f5f5)"
+      else
+        text "What should we build?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 text-align="center" max-width="100%" color="light-dark(#18181b, #f5f5f5)"
+        row min-width=0 max-width="100%" justify-content="center"
+          HeroPicker(home=home, scheme=scheme, size=16, command=command, addProject=addProject)
+
+// "or start without a project": an InlineButton (tone muted, text-sm medium), with chat.newWithoutProject's shortcut in a
+// tip below it when one is bound (DraftHeroHeadline's TooltipPopup side="bottom").
+component ScratchLink
+  props
+    busy: bool
+    shortcut: string
+    command: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    if shortcut != ""
+      Tip(label=shortcut, side="bottom", align="center", offset=4)
+        ScratchButton(busy=busy, over=over, hover=hover, command=command)
+    else
+      ScratchButton(busy=busy, over=over, hover=hover, command=command)
+
+component ScratchButton
+  props
+    busy: bool
+    over: bool
+    hover: action
+    command: action
+  view
+    button press=command("pages:hero-scratch", "", "", 0) hover=hover disabled=busy testId="hero-start-without-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" position="relative" title=""
+      text "or start without a project" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
+      if over
+        box position="absolute" left=0 right=0 top="1.0625rem" height=1 background-color="light-dark(#18181b, #f5f5f5)"
+
+// InlineButton tone="picker" as a ComboboxTrigger: the project title, underlined (4pt offset) only on hover and while
+// the popup is open (hover:underline, data-popup-open:underline), and the combobox centred under it, 4pt below
+// (ComboboxPopup align="center", w-72). The search field takes the focus as the popup opens; the project in use is
+// lit, typing lights the first match (autoHighlight), ↓/↑ walk the rows (past either end back to none) and Return
+// picks the lit one. A pick gives the focus back to the trigger. While it is open the rows keep the order they opened
+// in (useOrderWhileOpen), so a row a pin moves stays under the pointer; rows that arrive later join at the end.
+component HeroPicker
+  props
+    home: PagesHome
+    scheme: string
+    // The heading's 30 (text-3xl), the stacked project line's 16 (text-base), the No project line's 14 (text-sm).
+    size: number
+    command: action
+    addProject: action
+  derive small = size < 30
+  derive lineHeight = size == 30 ? 36 : (size == 16 ? 24 : 20)
+  state over = false
+  state open = false
+  state query = ""
+  // The row the keys or the pointer lit since the last edit ("-" for none); "" leaves it to the query.
+  state cursor = ""
+  state held: string[] = []
+  state pinOver = ""
+  derive ordered = open ? held.map((id) => home.projects.filter((project) => project.id == id)).flat().concat(home.projects.filter((project) => not held.includes(project.id))) : home.projects
+  derive needle = query.trim().toLowerCase()
+  derive matches = ordered.filter((project) => needle == "" or project.name.toLowerCase().includes(needle))
+  // "Add project" is an action, not a project: it trails only the unfiltered list.
+  derive rowIds = matches.map((project) => project.id).concat(needle == "" ? ["add-project"] : [])
+  derive current = home.projects.filter((project) => project.selected).map((project) => project.id).join("")
+  derive highlight = cursor != "" ? cursor : (needle == "" ? "-" : rowIds.slice(0, 1).join(""))
+  action hover(value: bool)
+    over = value
+  // Rows that arrive while the menu is open follow the held ones, and join the held order at the next hover or key, before
+  // any pin can move them: from then on they keep their place too (useOrderWhileOpen withArrivedKeys).
+  derive arrived = open ? home.projects.filter((project) => not held.includes(project.id)).map((project) => project.id) : []
+  action toggled(e: ToggleEvent)
+    open = e.newState == "open"
+    held = e.newState == "open" ? home.projects.map((project) => project.id) : []
+    pinOver = ""
+    if e.newState == "open"
+      query = ""
+      cursor = current
+  action search(next: string)
+    query = next
+    cursor = ""
+  // ComboboxSearchInput onKeyDown (isProjectPinShortcut): the thread pin shortcut pins the highlighted project, ahead of
+  // the window's own.
+  action searchKey(k: string, e: KeyboardEvent)
+    held = held.concat(arrived)
+    if pinChordPressed(k, e, home.pinChord) and matches.filter((project) => project.id == highlight and project.canPin).length > 0
+      preventDefault()
+      stopPropagation()
+      command("pageslocal:hero-pin", highlight, "", 0)
+    else if (k == "ArrowDown" or k == "ArrowUp") and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      cursor = dbStep(rowIds, highlight, k == "ArrowDown")
+  action pick
+    if highlight != "-" and rowIds.includes(highlight)
+      pickRow(highlight)
+  action pickRow(id: string)
+    hidePopover("hero-project-menu")
+    focus("empty-choose-project")
+    if id == "add-project"
+      addProject()
+    else if id != current
+      command("pages:hero-project", id, "", 0)
+  action hoverRow(id: string, on: bool)
+    cursor = on ? id : (highlight == id ? "-" : highlight)
+    held = held.concat(arrived)
+  action pinHover(id: string, on: bool)
+    pinOver = on ? id : (pinOver == id ? "" : pinOver)
+    held = held.concat(arrived)
+  view
+    // min-w-0 max-w-full: a long name ends in an ellipsis at the heading's width, on one line (DraftProjectName singleLine).
+    column position="relative" flex-shrink=1 min-width=0 max-width="100%"
+      button id="empty-choose-project" popovertarget="hero-project-menu" hover=hover role="combobox" testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" min-width=0 max-width="100%" position="relative"
+        for name in home.projectNames key=name.id
+          text name.id font-size=size line-height=`${lineHeight}px` letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" max-width="100%"
+        if over or open
+          box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") background-color="light-dark(#18181b, #f5f5f5)"
+      // Centred 4 pt below the project name, above it when the bottom does not fit. Escape closes it (light dismiss).
+      column id="hero-project-menu" toggle=toggled popover="auto" position-area="bottom" position-try-fallbacks="flip-block" aria-modal=true position="absolute" margin-top="0.25rem" testId="hero-project-menu-layer"
+        column width="18rem" max-height="23rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") overflow="hidden" aria-label="Choose project" testId="hero-project-menu"
+          // ComboboxSearchInput: the search glyph inside a 26pt field over a hairline.
+          column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
+            row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
+              box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
+                PgIcon(name="search", size=16, color="light-dark(#71717b8c, #a1a1a18c)")
+              DialogOpenFocus(target="hero-project-search")
+              input id="hero-project-search" value=query input=search key=searchKey submit=pick autofocus=true role="combobox" aria-expanded=true placeholder="Search projects..." aria-label="Search projects" spellcheck="false" autocorrect="off" testId="hero-project-search" flex=1 width=0 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right=0 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#18181b, #f5f5f5)" data-editable="yes"
+                ::placeholder
+                  color="light-dark(#71717b, #a1a1a1)"
+          if rowIds.length == 0
+            text "No matching projects." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #a1a1a1)" testId="hero-project-empty"
+          scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%"
+            column width="100%" padding="0.25rem" box-sizing="border-box" role="listbox"
+              for project in matches key=project.id
+                button id=`hero-project-${project.id}` press=pickRow(project.id) hover=hoverRow(project.id) role="option" aria-selected=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == project.id ? "light-dark(#18181b17, #f5f5f517)" : project.selected ? "light-dark(#18181b0f, #f5f5f50f)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                  ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
+                  // DraftProjectName: up to two lines, broken anywhere.
+                  text project.name flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" line-clamp=2 overflow-wrap="anywhere" min-width=0 text-align="left"
+                  // ProjectPinButton (icon-xs, ghost-muted): a pinned project shows its pin, PinOff under the pointer; an
+                  // unpinned one only on the highlighted row. Out of the tab order: the shortcut is the keyboard's way.
+                  if project.canPin
+                    button press=command("pageslocal:hero-pin", project.id, "", 0) hover=pinHover(project.id) tabindex=-1 aria-hidden=true title=project.pinTitle testId=`hero-project-pin-${project.id}` width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color=(pinOver == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(project.pinned or highlight == project.id ? 1 : 0) display="flex" flex-direction="row" align-items="center" justify-content="center"
+                      SidebarIcon(name=(project.pinned and pinOver == project.id ? "pin-off" : "pin"), size=14, color=(pinOver == project.id ? "light-dark(#18181b, #f3f3f3)" : "light-dark(#71717b, #a1a1a1)"))
+              if needle == ""
+                button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.25rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#18181b17, #f5f5f517)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                  PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #a1a1a1)")
+                  text "Add project" flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" text-align="left"
+
+// The main column's empty routes, drawn over the conversation column: the
+// desktop shell keeps a 52pt titlebar strip (WorkspacePageHeader) above an
+// Empty state centred in the rest.
+component PagesLanding
+  inject
+    rem: number
+  props
+    // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    controlsLeft: number
+    home: PagesHome
+    scheme: string
+    sidebarOpen: bool
+    busy: bool
+    command: action
+    addProject: action
+    openConnections: action
+  view
+    column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #000000)" testId=`landing-${home.landing}`
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.5rem" position="relative" border-bottom-width=(home.landing == "no-environment" or home.landing == "no-thread" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
+        if home.landing == "no-environment"
+          text "T3 Code" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b99, #a1a1a199)"
+        // NoActiveThreadState's desktop header.
+        if home.landing == "no-thread"
+          text "No active thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #a1a1a180)" testId="no-active-thread-header"
+      // Each landing is ui/empty.tsx's Empty (NoProjectsHero, NoActiveThreadState, _chat.index's two): `text-balance`.
+      column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" text-wrap="balance"
+        if home.landing == "no-projects"
+          column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center"
+            text "What should we work on?" font-size="1.875rem" line-height="2.25rem" font-weight=600 text-align="center" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1
+            text home.noProjectsDescription margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)"
+            row margin-top="1.5rem" justify-content="center" gap="0.5rem"
+              LandingButton(scheme=scheme, label="Add project", icon="plus", primary=true, busy=false, press=addProject, testId="landing-add-project")
+              if home.scratchStart
+                LandingButton(scheme=scheme, label="Start without a project", icon="message-square-dashed", primary=false, busy=busy, press=command("pages:hero-scratch", "", "", 0), testId="landing-start-without-project")
+        if home.landing == "no-thread"
+          column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center" testId="no-active-thread"
+            text "Pick a thread to continue" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1
+            text "Select an existing thread or create a new one to get started." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)"
+        if home.landing == "start-error"
+          column width="100%" max-width="28rem" align-items="center"
+            text "Couldn’t start a new thread" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1
+            text "The project is still available. Try opening the draft again." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)"
+            row margin-top="1.25rem" justify-content="center"
+              LandingButton(scheme=scheme, label="Try again", icon="refresh-cw", primary=true, busy=busy, press=command("pages:hero-retry", "", "", 0), testId="landing-try-again")
+        if home.landing == "no-environment"
+          column width="100%" max-width="36rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" border-radius="1.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0b)" background-color="light-dark(#ffffff33, #11111133)" box-shadow="0 1px 3px #0000000d, 0 1px 2px -1px #0000000d" align-items="center" testId="no-environment-card"
+            box width="2.75rem" height="2.75rem" margin-bottom="1.25rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color="light-dark(#fcfcfcb3, #000000b3)" display="flex" align-items="center" justify-content="center"
+              PgIcon(name="link", size=20, color="light-dark(#71717b, #a1a1a1)")
+            text "Connect to a computer running T3 Code" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=1
+            text "This app connects to T3 Code running on your computer or a server. Start the T3 Code desktop app or command-line server on that machine and keep it running." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)"
+            text home.noEnvironmentDescription margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #a1a1a1)" testId="no-environment-description"
+            row margin-top="1.5rem" justify-content="center"
+              LandingButton(scheme=scheme, label="Open Environments", icon="plus", primary=true, busy=false, press=openConnections, testId="landing-open-connections")
+
+// Button size="sm": 28pt, px 9, rounded-lg, a 16pt glyph 6pt from the label.
+component LandingButton
+  props
+    scheme: string
+    label: string
+    icon: string
+    primary: bool
+    busy: bool
+    press: action
+    testId: string
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button press=press hover=hover disabled=busy testId=testId height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff1c)") background-color=(primary ? (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") : (over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff06)")) box-shadow=(primary ? (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") : "0 1px 2px #0000000d") opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+      // Button's [&_svg]:-mx-0.5: the icon overhangs its 6pt gap by 2pt on each side.
+      box margin-left=-2 margin-right=-2 flex-shrink=0
+        PgIcon(name=icon, size=16, color=(primary ? "#ffffff" : "light-dark(#71717b, #a1a1a1)"))
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#18181b, #f5f5f5)")

@@ -1,0 +1,294 @@
+// Settings → Worktrees and Maintenance (T3 Code 7c3b3b3605ef StorageSettings.tsx, WorktreesSettings.tsx and
+// DatabaseStorageNotice.tsx): the Database notice, Worktrees and Artifacts and logs at an environment scope; the
+// project's cleanup mode and, when it is Custom, its own worktree rules at a project scope.
+use SettingsSection from "./settings-kit.contract"
+use SettingsRow from "./settings-kit.contract"
+use SettingsNotice from "./settings-kit.contract"
+use SelectOption from "./settings-kit.contract"
+use SettingsPageSwitch from "./settings-kit.contract"
+use SettingsPageSelect from "./settings-kit.contract"
+use CnFolded from "./settings-b-kit.contract"
+use LucideMinus from "./settings-icons.contract"
+use LucidePlus from "./settings-icons.contract"
+use AdvancedFold from "./settings-advanced.contract"
+use CoreRowView from "./settings-rows.contract"
+use CoreRow from "./settings-core.contract"
+use CorePalette from "./settings-core-shared.contract"
+use ScopedRow from "./settings-source-control.contract"
+use ScopedSettingRow from "./settings-source-control.contract"
+use FontDiffPreview from "../shared/shapes.contract"
+
+shape StorageRuleView
+  mixed: bool
+  key: string
+  label: string
+  description: string
+  enabled: bool
+  days: string
+  retention: bool
+  first: bool
+  decrease: string
+  increase: string
+shape CleanupDetail
+  key: string
+  label: string
+  value: string
+  code: bool
+shape CleanupEntry
+  id: string
+  name: string
+  reason: string
+  failed: bool
+  details: CleanupDetail[]
+  size: string
+  // The fold's first line takes its divider from the header (the reference's [&>*+*]:border-t).
+  first: bool
+shape CleanupReport
+  id: string
+  label: string
+  counts: string
+  entries: CleanupEntry[]
+  omitted: string
+  omittedFirst: bool
+  empty: string
+  emptyFirst: bool
+shape DatabaseNotice
+  environmentId: string
+  title: string
+  command: string
+shape StoragePage
+  available: bool
+  writeScope: string
+  cleanupAvailable: bool
+  cleanupDisabled: bool
+  cleanupDescription: string
+  databaseNotices: DatabaseNotice[]
+  project: bool
+  error: string
+  notice: string
+  mode: string
+  modeLabel: string
+  modeDescription: string
+  scope: string
+  modes: SelectOption[]
+  directory: string
+  directoryMixed: bool
+  directorySupported: bool
+  keepSupported: bool
+  keepValue: string
+  keepDescription: string
+  keepOptions: SelectOption[]
+  worktrees: StorageRuleView[]
+  // Cleanup's rules under its Advanced fold: Delete settled (where every machine supports it) and unchanged worktrees.
+  worktreesAdvanced: StorageRuleView[]
+  artifacts: StorageRuleView[]
+  cleanupSummary: string
+  cleanupReports: CleanupReport[]
+  // Worktrees' Creation rows (settings-core's, Submodules under Advanced) and Branches (BranchNamingSettings), and
+  // Maintenance's closing Diagnostics row (settings-data.ts worktreeRows, diagnosticsRow).
+  creation: CoreRow[]
+  creationAdvanced: CoreRow[]
+  branches: ScopedRow[]
+  diagnostics: CoreRow[]
+  codePreview: FontDiffPreview
+
+// The Worktrees and Maintenance pages, `view` "worktrees" or "maintenance". Worktrees: Creation (the location, Start
+// from remote, Submodules under Advanced), Branches and the worktree Cleanup rules (WorktreesSettings.tsx);
+// Maintenance: the database notices, Artifacts and logs, Cleanup's Delete now and its last run
+// (StorageCleanupSections), then Diagnostics (MaintenanceSettingsPanel). The settings-core rows here write as the core
+// pages' do (`rest:core`), and a link row navigates (`rest:navigate`, settings-members.contract restRaw).
+component StoragePanel
+  inject
+    corePal: CorePalette
+    still: bool
+  props
+    data: StoragePage
+    view: string
+    busy: bool
+    error: string
+    rest: action
+    restInput: action
+  slot
+  state menu = ""
+  action coreChange(row: string, part: string, value: string)
+    let id = `${row}:${part}|${data.writeScope}`
+    rest("core", `id=${encodeURIComponent(id)}&value=${encodeURIComponent(value)}`)
+  action coreSlide(row: string, part: string, value: number)
+    coreChange(row, part, `${value}`)
+  action coreGo(route: string)
+    rest("navigate", route)
+  action coreMenu(section: string, id: string)
+    menu = (id == "" or menu == id) ? "" : id
+  action coreMenuClose
+    menu = ""
+  view
+    column width="100%" gap="2rem" testId="storage-settings"
+      if data.error != ""
+        SettingsNotice(message=data.error, warning=true)
+      if data.notice != ""
+        SettingsNotice(message=data.notice, warning=false)
+      if error != ""
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="storage-error" padding-left="1rem"
+      // DatabaseStorageNotice: one section for every machine that has freed space to reclaim.
+      if view == "maintenance" and data.databaseNotices.length > 0
+        SettingsSection(title="Database", sectionId="storage-database")
+          SettingsRow(title="Reclaim freed database space", description="Old history is cleaned up automatically, but these databases still hold the freed space. Run the command on each machine to return it to disk; it pauses and restarts the background service. Quit the desktop app first if it hosts the environment.", first=true, rowId="storage-database-reclaim")
+          for notice in data.databaseNotices key=notice.environmentId
+            DatabaseRow(notice=notice, busy=busy, rest=rest)
+      if view == "worktrees" and data.creation.length + data.creationAdvanced.length > 0
+        SettingsSection(title="Creation", sectionId="worktree-creation")
+          if data.directorySupported
+            column width="100%" id="storage-worktrees-location" tabindex=-1
+              SettingsRow(title="Worktree location", description="Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.", first=true, rowId="storage-directory-row")
+                for directory in [data.directory] key=`${data.writeScope}:${data.directoryMixed}:${directory}`
+                  StorageDirectory(scope=data.writeScope, mixed=data.directoryMixed, value=directory, busy=busy, rest=rest, restInput=restInput)
+          for row in data.creation key=row.id
+            CoreRowView(reduced=still, row=row, section="worktree-creation", pal=corePal, codePreview=data.codePreview, busy=busy, menu=menu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreGo)
+          children
+          if data.creationAdvanced.length > 0
+            AdvancedFold(foldId="worktree-creation", muted=corePal.muted, text=corePal.text, divider=corePal.divider)
+              for row in data.creationAdvanced key=row.id
+                CoreRowView(reduced=still, row=row, section="worktree-creation", pal=corePal, codePreview=data.codePreview, busy=busy, menu=menu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreGo)
+      if view == "worktrees" and data.branches.length > 0
+        SettingsSection(title="Branches", sectionId="worktree-branches")
+          for item in data.branches key=`${data.scope}:${item.key}:${item.value}`
+            ScopedSettingRow(row=item, scope=data.scope, busy=busy, rest=rest, restInput=restInput)
+      if view == "worktrees" and data.available
+        SettingsSection(title="Cleanup", sectionId="storage-worktrees")
+          if data.project
+            SettingsRow(title="Automatic worktree cleanup", description=data.modeDescription, first=true, rowId="storage-row-mode")
+              SettingsPageSelect(selectId="storage-mode", label="Automatic worktree cleanup", valueLabel=data.modeLabel, empty=false, value="", width=160, disabled=busy, options=data.modes, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=mode&value=`))
+          for rule in data.worktrees key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
+            SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
+              StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
+          if data.worktreesAdvanced.length > 0 or data.keepSupported
+            AdvancedFold(foldId="storage-worktrees", muted="light-dark(#71717b, #a1a1a1)", text="light-dark(#18181b, #f5f5f5)", divider="light-dark(#e3e3e780, #ffffff0a)")
+              for rule in data.worktreesAdvanced key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
+                SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
+                  StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
+              if data.keepSupported
+                SettingsRow(title="Keep worktrees with local changes", description=data.keepDescription, first=(data.worktreesAdvanced.length == 0), rowId="storage-keep-when")
+                  SettingsPageSelect(selectId="storage-worktree-keep-when", label="Keep worktrees with local changes", valueLabel=data.keepValue == "" ? "Mixed" : data.keepOptions.filter((option) => option.value == data.keepValue).map((option) => option.label).join(""), empty=false, value=data.keepValue, width=176, disabled=busy, options=data.keepOptions, choose=restInput("storage", `scope=${encodeURIComponent(data.writeScope)}&key=worktreeKeepWhen&value=`))
+      if view == "maintenance" and data.available and data.artifacts.length > 0
+        SettingsSection(title="Artifacts and logs", sectionId="storage-artifacts")
+          for rule in data.artifacts key=`${data.scope}:${rule.key}:${rule.days}:${rule.enabled}`
+            SettingsRow(title=rule.label, description=rule.description, first=rule.first, rowId=`storage-row-${rule.key}`)
+              StorageControl(scope=data.writeScope, rule=rule, busy=busy, rest=rest, restInput=restInput)
+
+      if view == "maintenance" and data.cleanupAvailable
+        SettingsSection(title="Cleanup", sectionId="storage-cleanup")
+          column width="100%" id="storage-delete-now" tabindex=-1
+            SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
+              button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run" id="storage-cleanup-run" data-focus-stop=(busy or data.cleanupDisabled ? "" : "enabled page")
+                text (busy ? "Deleting…" : "Delete now")
+      if view == "maintenance" and data.cleanupReports.length > 0
+        CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
+      if view == "maintenance" and data.diagnostics.length > 0
+        SettingsSection(title="Diagnostics", sectionId="diagnostics-section")
+          for row in data.diagnostics key=row.id
+            CoreRowView(reduced=still, row=row, section="diagnostics-section", pal=corePal, codePreview=data.codePreview, busy=busy, menu=menu, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreGo)
+
+// FoldedSettingsSection id="storage-cleanup-last-run" (headerPlacement inside): Last run and its summary in the
+// trigger; each machine's results below it.
+component CleanupLastRun
+  props
+    summary: string
+    reports: CleanupReport[]
+  state open = false
+  action toggle
+    open = not open
+  view
+    CnFolded(title="Last run", summary=summary, open=open, sectionId="storage-cleanup-last-run", toggle=toggle, hasSwitch=false, switchOn=false, switchLabel="", flip=toggle, busy=false)
+      for report in reports key=report.id
+        for entry in report.entries key=entry.id
+          CleanupResultRow(entry=entry)
+        if report.omitted != ""
+          text report.omitted font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.omittedFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)"
+        if report.empty != ""
+          text report.empty font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.emptyFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)"
+
+// CleanupResults' row: the folder, then the reason over a Machine / Project / Folder / Thread list, and what it freed.
+component CleanupResultRow
+  props
+    entry: CleanupEntry
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=(entry.first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`storage-cleanup-entry-${entry.id}`
+      column flex=1 min-width=0 gap="0.25rem"
+        text entry.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" overflow-wrap="anywhere" user-select="text" role="heading" aria-level=3
+        column max-width="36rem" gap="0.5rem"
+          text entry.reason font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color=(entry.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#70707acc, #a1a1a1cc)")
+          box display="grid" grid-template-columns="auto minmax(0, 1fr)" column-gap="0.75rem" row-gap="0.25rem" padding-left="0.75rem" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e899, #ffffff0c)"
+            for detail in entry.details key=detail.key
+              text detail.label font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #a1a1a1cc)"
+              if detail.code
+                text detail.value font-size="0.75rem" line-height="1.125rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" overflow-wrap="anywhere" user-select="text" color="light-dark(#18181bcc, #f5f5f5cc)"
+              else
+                text detail.value font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color="light-dark(#18181bcc, #f5f5f5cc)"
+      if entry.size != ""
+        row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+          text entry.size font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+
+// DatabaseStorageNotice's machine row: the command to run there, Copy command and Dismiss (Button size="xs").
+component DatabaseRow
+  props
+    notice: DatabaseNotice
+    busy: bool
+    rest: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`storage-database-${notice.environmentId}`
+      column flex=1 min-width=0 gap="0.25rem"
+        text notice.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+        text notice.command max-width="42rem" text-wrap="balance" font-size="0.75rem" line-height="1.125rem" font-family="Menlo, Consolas, \"Liberation Mono\", monospace" overflow-wrap="anywhere" user-select="text" color="light-dark(#71717b, #a1a1a1)" testId="storage-database-command"
+      row flex-shrink=0 min-width="10rem" gap="0.375rem" align-items="center" justify-content="flex-end" flex-wrap="wrap"
+        button press=rest("storage-copy-database", `environment=${encodeURIComponent(notice.environmentId)}&command=${encodeURIComponent(notice.command)}`) disabled=busy testId="storage-copy-database" display="flex" align-items="center" box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) id="storage-copy-database" data-focus-stop=(busy ? "" : "enabled page")
+          text "Copy command" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+        button press=rest("storage-dismiss-database", `environment=${encodeURIComponent(notice.environmentId)}`) disabled=busy testId="storage-dismiss-database" display="flex" align-items="center" box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1) id="storage-dismiss-database" data-focus-stop=(busy ? "" : "enabled page")
+          text "Dismiss" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)"
+
+// A switch, or RetentionControl: [−][N days][+] when on, "Off" when off. The days field is five characters wide
+// (NumberFieldInput size=5) whatever it holds, so typing does not move the controls.
+component StorageControl
+  inject
+    rem: number
+  props
+    scope: string
+    rule: StorageRuleView
+    busy: bool
+    rest: action
+    restInput: action
+  state draft = rule.days
+  action edit(next: string)
+    draft = next
+  view
+    row align-items="center" gap="0.75rem"
+      if rule.mixed
+        text "Mixed" font-size="0.75rem"
+      if rule.retention and rule.enabled
+        row role="group" align-items="center" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" box-shadow="0 1px 2px #0000000a"
+          button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`storage-decrease-${rule.key}` data-focus-stop=(busy ? "" : "enabled page")
+            LucideMinus(size=16, color="light-dark(#18181b, #f5f5f5)")
+          input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=(59 * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id=`field-storage-days-${rule.key}` data-editable="yes" data-focus-stop=(busy ? "" : "enabled page")
+          text "days" font-size="0.75rem" line-height="1rem" padding-right="0.5rem" color="light-dark(#18181b, #f5f5f5)" aria-hidden=true
+          button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id=`storage-increase-${rule.key}` data-focus-stop=(busy ? "" : "enabled page")
+            LucidePlus(size=16, color="light-dark(#18181b, #f5f5f5)")
+      if rule.retention and not rule.enabled
+        text "Off" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      SettingsPageSwitch(checked=rule.enabled, label=rule.label, disabled=busy, switchId=`storage-toggle-${rule.key}`, toggle=rest("storage", `scope=${encodeURIComponent(scope)}&key=${rule.key}&value=${rule.retention ? (rule.enabled ? "null" : "8") : (rule.enabled ? "false" : "true")}`))
+
+component StorageDirectory
+  props
+    mixed: bool
+    scope: string
+    value: string
+    busy: bool
+    rest: action
+    restInput: action
+  state draft = value
+  action edit(next: string)
+    draft = next
+  view
+    row align-items="center" gap="0.5rem"
+      input value=draft input=edit change=restInput("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) placeholder=(mixed ? "Mixed" : "Default") aria-label="Worktree location" disabled=busy testId="storage-worktrees-directory" width="15rem" height="1.75rem" padding-left="0.5rem" border-radius="0.5rem" font-size="0.875rem" autocorrect="off" id="field-storage-worktrees-directory" data-editable="yes" data-focus-stop=(busy ? "" : "enabled page")
+      if value != "" or mixed
+        button press=rest("storage", `scope=${encodeURIComponent(scope)}&key=worktreesDirectory&value=`) disabled=busy aria-label="Reset worktree location" testId="storage-reset-directory" id="storage-reset-directory" data-focus-stop=(busy ? "" : "enabled page")
+          text "Reset"

@@ -1,0 +1,161 @@
+// The Browser tab's projection (browser-surface.ts `BrowserView`), apart from its
+// views so the panel's shapes (panel-shapes.contract) can carry it without a `use` cycle.
+use ViewerFrameView from "../panel/viewer-frame.contract"
+shape BrowserProfileChoice
+  id: string
+  name: string
+
+// browser-navigation.ts: the empty state's rows and the device toolbar's presets.
+shape BrowserRecent
+  url: string
+  title: string
+  subtitle: string
+  favicon: string
+  fallback: string
+  removeLabel: string
+
+shape BrowserServer
+  key: string
+  title: string
+  description: string
+  url: string
+  favicon: string
+  fallback: string
+
+// browser-frames.ts BrowserFrameView: one tab's partitioned frame and where it shows ("panel", "mini" or "": mounted,
+// hidden); a fixed viewport's CSS size (0 in fill); whether a hidden one keeps drawing, at what size; the dialog it holds;
+// the tab's environment and profile, for the hatch.
+shape BrowserFrameView
+  frameId: string
+  src: string
+  partition: string
+  zoom: number
+  colorScheme: string
+  environment: string
+  profile: string
+  place: string
+  pageWidth: number
+  pageHeight: number
+  held: bool
+  heldWidth: number
+  heldHeight: number
+  promptType: string
+  promptTitle: string
+  promptMessage: string
+  promptDefault: string
+
+// The next command for a frame (browser-frames.ts FrameCommand), run by the root's `frameCommand` task, which
+// acknowledges it by its serial.
+shape BrowserFrameCommand
+  serial: number
+  kind: string
+  id: string
+  url: string
+  delta: number
+  flag: bool
+
+shape BrowserFrames
+  frames: BrowserFrameView[]
+  // Blank frames that name a partition no tab used yet, so it can be cleared (browser-frames.ts namers).
+  namers: BrowserFrameView[]
+  command: BrowserFrameCommand
+  pip: BrowserPip
+
+// A server tab's picture-in-picture window (server-browser-pip.ts `BrowserPipView`): its stream, the picture it floats
+// with until the stream's first, and the request that floats it.
+shape BrowserPip
+  show: bool
+  runtimeId: string
+  streamUrl: string
+  seed: string
+  request: number
+
+shape BrowserPresetChoice
+  id: string
+  label: string
+  detail: string
+
+shape BrowserPanel
+  tabId: string
+  runtimeId: string
+  server: bool
+  streamUrl: string
+  pdfUrl: string
+  pdfViewer: ViewerFrameView
+  environment: string
+  profileId: string
+  profileName: string
+  showProfile: bool
+  url: string
+  loading: bool
+  canGoBack: bool
+  canGoForward: bool
+  refreshDisabled: bool
+  hasWebContents: bool
+  devTools: bool
+  empty: bool
+  failed: bool
+  failHost: string
+  failMessage: string
+  failLabel: string
+  live: bool
+  profiles: BrowserProfileChoice[]
+  // Zoom, appearance, the viewport, the preview's chords, the empty state's lists
+  zoomFactor: number
+  zoomLabel: string
+  zoomSerial: number
+  colorScheme: string
+  // The main window's zoom: a desktop tab's layout divides its own zoom by it (useBrowserLayoutZoomFactor).
+  windowZoom: number
+  viewportMode: string
+  viewportWidth: number
+  viewportHeight: number
+  viewportKey: string
+  viewportSerial: number
+  presetId: string
+  presetLabel: string
+  aspectLocked: bool
+  presets: BrowserPresetChoice[]
+  keys: string
+  // A page's ⌘L for the address bar to take, 0 once taken (browser-navigation.ts browserKey).
+  focusUrlSerial: number
+  recents: BrowserRecent[]
+  servers: BrowserServer[]
+  capture: BrowserCapture
+  // PreviewView's move between this computer and the environment's browser: "desktop", "server" or "" (none)
+  moveTarget: string
+  moveLabel: string
+
+// The chrome row's Annotate, Capture and Float preview, and the separate window
+// (browser-capture.ts `BrowserCaptureView`).
+shape BrowserCapture
+  pickActive: bool
+  pickDisabled: bool
+  pickTip: string
+  captureDisabled: bool
+  recording: bool
+  floating: bool
+  floatDisabled: bool
+  separateWindow: bool
+
+// The floating player's browser source (browser-capture.ts `BrowserMiniView`); its frame is the chat canvas's.
+shape BrowserMini
+  show: bool
+  key: string
+  sourceKey: string
+  tabId: string
+  runtimeId: string
+  server: bool
+  streamUrl: string
+  pdfUrl: string
+  pdfViewer: ViewerFrameView
+  url: string
+  profileId: string
+  environment: string
+  hasWebContents: bool
+  recording: bool
+  separateWindow: bool
+  width: number
+  height: number
+  // The main window's zoom.
+  windowZoom: number

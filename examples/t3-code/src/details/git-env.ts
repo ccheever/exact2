@@ -1,0 +1,163 @@
+import { repositoryGroupingKey } from '../sidebar/project-groups';
+// "Run on", adapted from T3 Code (MIT; see LICENSE-T3):
+// components/BranchToolbarEnvironmentSelector.tsx (the panel Select and its static
+// label; its "Add to another machine" at 74541bab17), ChatView.tsx logicalProjectEnvironments / onEnvironmentChange, and
+// packages/client-runtime/src/state/projectGrouping.ts (deriveLogicalProjectKey).
+// A draft can run on any connected environment that holds the same logical
+// project (its repository identity, or its path on one machine). The focused
+// environment is T3Client's connection and the others are background transports
+// (settings-b-fleet.ts), so choosing another one moves the draft there and
+// refocuses the client on it, as opening one of its threads does.
+import type { T3Client } from '../client/client';
+import { obj, str, type Obj } from '../client/domain';
+import { ClientError, bridgeReply, type Native } from '../client/protocol';
+import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { focusedOnPrimary, isPrimaryEnvironment } from '../connections/local-primary';
+import { machineKind } from '../connections/connections';
+import { environmentIndicator } from './shell-details';
+import { runOnMenuWidth, workspaceLabels } from '../composer/composer-menus';
+import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from '../composer/scratch-machine'; // No project drafts switch machine (c47f4263f9)
+import { pushToast } from '../shell/toast';
+import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, draftSelection, moveDraftSelection, setDraftSelection, withAutoOption,
+  type BalanceSelection } from '../composer/auto-balance';
+import { letGo } from '../client/let-go';
+import { addProjectTargets } from '../shell/add-project-machine'; // "Add to another machine" (useAddProjectTargets)
+import { threadEnvLocked } from '../composer/composer-controls-branch'; // a started thread keeps its machine
+
+const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
+/** deriveLogicalProjectKey for one grouping mode. */
+export function logicalProjectKey(project: Obj, environmentId: string, mode: string): string {
+  const physical = `${environmentId}:${normalize(project.workspaceRoot)}`;
+  if (mode === 'separate') return physical;
+  const identity = obj(project.repositoryIdentity), canonical = repositoryGroupingKey(identity);
+  if (!canonical) return physical;
+  if (mode === 'repository') return canonical;
+  const root = normalize(identity.rootPath), path = normalize(project.workspaceRoot);
+  const relative = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : '';
+  return relative ? `${canonical}::${relative}` : canonical;
+}
+const groupingMode = (client: T3Client, project: Obj, environmentId: string): string =>
+  client.local.groupingOverrides?.[`${environmentId}:${normalize(project.workspaceRoot)}`] || client.local.groupingMode || 'repository';
+
+export type EnvironmentOption = { id: string; label: string; machine: string; primary: boolean; projectId: string; selected: boolean };
+/**
+ * logicalProjectEnvironments: the focused environment first among the primaries, then by label.
+ * `offline` (Auto balance's update banner) keeps a switched-on machine that is not connected now, by its last config and shell.
+ */
+export function environmentOptions(client: T3Client, source: EnvironmentFleet = fleet, offline = false): EnvironmentOption[] {
+  const project = client.shell.projects.find(entry => entry.id === client.projectId);
+  if (!project || !client.environmentId) return [];
+  const key = logicalProjectKey(project, client.environmentId, groupingMode(client, project, client.environmentId));
+  const focused = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: 1, environmentId: client.environmentId,
+    runtimeLabel: str(obj(client.config.environment).label), savedLabel: '', machine: machineKind(client.config) });
+  const options: EnvironmentOption[] = [{ id: client.environmentId, label: focused.envLabel, machine: focused.envKind, primary: focusedOnPrimary(client), projectId: client.projectId, selected: true }];
+  // Upstream c47f4263f9: a No project draft offers every machine with a "No project" folder, created when picked.
+  const scratch = !client.threadId && isScratch(project, scratchRootOf(client.connection === 'connected', client.config))
+    ? new Map(scratchChoices(client, source.entries.values()).map(choice => [choice.environmentId, choice.projectId])) : null;
+  for (const entry of source.entries.values()) {
+    if (entry.environmentId === client.environmentId || (offline ? !Object.keys(entry.config).length
+      : entry.phase !== 'connected' || entry.synchronized !== entry.generation)) continue;
+    const match = scratch ? (scratch.has(entry.environmentId) ? { id: scratch.get(entry.environmentId) } : undefined)
+      : entry.shell.projects.find(candidate => logicalProjectKey(candidate, entry.environmentId, groupingMode(client, candidate, entry.environmentId)) === key);
+    if (!match) continue;
+    const label = environmentIndicator({ isPrimary: isPrimaryEnvironment(entry.environmentId), available: 2, environmentId: entry.environmentId,
+      runtimeLabel: str(obj(entry.config.environment).label), savedLabel: '', machine: machineKind(entry.config) });
+    options.push({ id: entry.environmentId, label: label.envLabel, machine: label.envKind, primary: isPrimaryEnvironment(entry.environmentId), projectId: str(match.id), selected: false });
+  }
+  return options.sort((left, right) => left.primary !== right.primary ? (left.primary ? -1 : 1) : left.label.localeCompare(right.label));
+}
+
+/** The submenu of machines at its measured width: CnMenuItem's 16pt icon and 8pt gap beside each label. */
+export const addMenuWidth = (client: T3Client, add: { label: string }[]) => add.length ? runOnMenuWidth(client.presentation ?? {}, add.map(option => option.label), []) + 10 : 160;
+
+/** The machines the project can be added to, as Run on rows ("Add to another machine"). */
+export function addTargetOptions(client: T3Client, source: EnvironmentFleet = fleet): EnvironmentOption[] {
+  return addProjectTargets(client, source).map(target => ({ id: target.environmentId, label: target.label, machine: target.machine, primary: false, projectId: '', selected: false }));
+}
+
+/**
+ * The environment row: a picker for an unstarted draft with somewhere else to run, else the static label. A project
+ * that can be added to another machine still gets the menu (its "Run on" rows then hold only the current machine).
+ */
+export function environmentView(client: T3Client) {
+  const options = environmentOptions(client);
+  // envLocked: a started thread (messages or a runtime) keeps its machine; the Select needs onEnvironmentChange (a draft).
+  const pick = !client.threadId && options.length > 1;
+  const add = threadEnvLocked(client) ? [] : addTargetOptions(client);
+  return { envPick: pick || add.length > 0, envOptions: pick ? withAutoOption(client, options) : add.length ? options : [], envCount: Math.max(1, options.length), envAdd: add,
+    envAddMenuWidth: addMenuWidth(client, add) };
+}
+
+/**
+ * onEnvironmentChange for a draft: the same draft (text and workspace choices)
+ * moves to the target environment's copy of the project, and the client focuses
+ * that environment. Returns the connection status to adopt.
+ */
+export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet,
+  selection: BalanceSelection = { selection: 'manual', choice: '' }): Promise<{ status: Obj | null; generation: number }> {
+  // A thread's own machine (the only row while the menu is there to add the project elsewhere) changes nothing.
+  if (client.threadId && environmentId === client.environmentId) return { status: null, generation: -1 };
+  if (client.threadId) throw new ClientError('A started thread keeps its environment.');
+  // "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
+  if (environmentId === AUTO_ENVIRONMENT) { chooseAutoEnvironment(client, source); return { status: null, generation: -1 }; }
+  if (environmentId === client.environmentId) { setDraftSelection(client, { selection: 'manual', choice: '' }); return { status: null, generation: -1 }; }
+  const target = environmentOptions(client, source).find(option => option.id === environmentId);
+  const entry = [...source.entries.values()].find(candidate => candidate.environmentId === environmentId);
+  if (!target || !entry) throw new ClientError('That environment is no longer connected.');
+  let projectId = target.projectId;
+  if (!projectId) {
+    const original = client.draftKey;
+    // Upstream 845ddd9354: the machine's "No project" folder is created now; a failure keeps the draft where it is.
+    try { projectId = await openRemoteScratch(client, native, entry); }
+    catch (error) {
+      if (letGo(error)) throw error;
+      pushToast(client, { kind: 'error', title: 'Could not switch machine', description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
+      return { status: null, generation: -1 };
+    }
+    if (client.threadId || client.draftKey !== original) return { status: null, generation: -1 };
+  }
+  const from = client.draftKey, to = `${environmentId}:new:${projectId}`;
+  const text = client.local.drafts[from];
+  if (text) { client.local.drafts[to] = text; delete client.local.drafts[from]; }
+  const contexts = (client.local.composerControls as { contexts?: Record<string, Obj> }).contexts ??= {};
+  if (contexts[from]) { contexts[to] = { ...contexts[from], worktreePath: '' }; delete contexts[from]; }
+  // A picked machine is manual; Auto balance's resolution moves the draft with its auto selection.
+  const previous = draftSelection(client, from);
+  moveDraftSelection(client, from, to, selection);
+  const before = client.local.selections[environmentId];
+  client.local.selections[environmentId] = { projectId, threadId: '' };
+  source.forget(entry.key);
+  await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
+  const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, credential: '' });
+  if (!reply.ok) {
+    // The focus stays where it was, so the draft goes back to it (text, workspace and selection).
+    if (client.draftKey === from) {
+      if (client.local.drafts[to] !== undefined && client.local.drafts[from] === undefined) { client.local.drafts[from] = client.local.drafts[to]!; delete client.local.drafts[to]; }
+      if (contexts[to] && !contexts[from]) { contexts[from] = contexts[to]; delete contexts[to]; }
+      moveDraftSelection(client, to, from, previous);
+      if (before) client.local.selections[environmentId] = before; else delete client.local.selections[environmentId];
+    }
+    throw new ClientError(reply.error!.message);
+  }
+  return { status: obj(reply.value), generation: reply.generation };
+}
+
+/**
+ * MobileRunContextSelector: the strip's workspace control names the machine when
+ * there is a machine to pick (or the only one is remote), and its menu leads with
+ * the "Run on" group. The menu sizes to its longest label, as the reference's does.
+ */
+export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envAdd: [] as EnvironmentOption[], envMenuWidth: 160, envAddMenuWidth: 160, originShown: false, originOn: false };
+export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON {
+  const options = environmentOptions(client), shown = options.find(option => option.selected);
+  const pick = !client.threadId && options.length > 1;
+  // A project on one machine still gets the picker when it can be added to another (BranchToolbar hasMultipleEnvironments).
+  const add = shown ? addTargetOptions(client) : [];
+  if (!shown || !(pick || add.length || !shown.primary)) return NO_RUN_ON;
+  // "Auto balance" leads the group, and names the trigger while the draft is automatic.
+  const balance = autoBalanceState(client), listed = pick ? withAutoOption(client, options, balance) : add.length ? options : [], focused = autoIndicator(client, shown, balance);
+  // The menu's width from its measured labels (composer-menus.ts); the window caps it in the view.
+  return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed, envAdd: add,
+    envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree), 0, add.length > 0),
+    envAddMenuWidth: addMenuWidth(client, add) };
+}

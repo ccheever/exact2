@@ -1,0 +1,46 @@
+shape ContentRect
+  x: number
+  y: number
+  width: number
+  height: number
+shape ContentInsets
+  top: number
+  right: number
+  bottom: number
+  left: number
+shape ContentRegion
+  kind: string
+  x: number
+  y: number
+  width: number
+  height: number
+shape ContentGeometry
+  state: string
+  owner: string
+  generation: number
+  serial: number
+  coordinateSpace: string
+  bounds: ContentRect
+  safeArea: ContentInsets
+  horizontalSizeClass: string
+  verticalSizeClass: string
+  hinge: string
+  verticalBarEdge: string
+  bottomBarInset: option<number>
+  reservedRegions: ContentRegion[]
+
+fn unavailableContentGeometry(): ContentGeometry = ContentGeometry(state="unavailable", owner="", generation=0, serial=0, coordinateSpace="", bounds=ContentRect(x=0, y=0, width=0, height=0), safeArea=ContentInsets(top=0, right=0, bottom=0, left=0), horizontalSizeClass="", verticalSizeClass="", hinge="", verticalBarEdge="", bottomBarInset=none, reservedRegions=[])
+
+fn contentGeometryTrailingReservation(geometry: ContentGeometry): number = geometry.state != "ready" ? 0 : match first(geometry.reservedRegions.filter(region => region.kind == "occlusion" and region.x > geometry.bounds.x + geometry.bounds.width * 0.5)) { case some(region) => max(0, geometry.bounds.x + geometry.bounds.width - region.x), case none => 0 }
+
+fn contentGeometryField(packet: string, index: number): string = match packet.split("\n").at(index) { case some(value) => value, case none => "" }
+fn contentGeometryCounter(packet: string, index: number): number = match parseNumber(contentGeometryField(packet, index)) { case some(value) => value, case none => 0 }
+fn contentGeometryCounterValid(packet: string, index: number): bool = contentGeometryCounter(packet, index) > 0 and contentGeometryCounter(packet, index) <= 9007199254740991 and contentGeometryCounter(packet, index) == floor(contentGeometryCounter(packet, index)) and `${contentGeometryCounter(packet, index)}` == contentGeometryField(packet, index)
+
+component MobileContentGeometry
+  props
+    owner: string
+    event: action
+  view
+    if owner != ""
+      t3-content-geometry owner=owner change=event(owner) position="absolute" inset=0 pointer-events="none" aria-hidden=true testId="content-geometry-observer"

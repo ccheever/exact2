@@ -1,0 +1,106 @@
+// The wizard after a failed pairing, CommandBlock's
+// Copy→Check, and the pull request viewer's not-found state (7bc161f869).
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from '../support/local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
+import { welcomeView, welcomeLocal } from '../../src/pages/pages-welcome';
+import { pullRequestDetail, isPullRequestNotFound, unavailable, gitHubPullRequestBrowserUrl } from '../../src/pull-requests/pages-pr-detail';
+import { ClientError, type Native } from '../../src/client/protocol';
+import type { T3Client } from '../../src/client/client';
+import type { Obj } from '../../src/client/domain';
+import { appPath } from '../support/app-files';
+
+function native(saved: Obj[], copied: string[] = []): Native {
+  return { available: true, watch: () => {}, later: async (request: Obj) => {
+    if (request.op === 'environments') return { ok: true, value: { saved }, generation: 1 };
+    if (request.op === 'copyText') { copied.push(String(request.text)); return { ok: true, value: {}, generation: 1 }; }
+    return { ok: true, value: {}, generation: 1 };
+  } } as unknown as Native;
+}
+const wizardClient = (connection: string) => ({ local: {}, origin: 'http://127.0.0.1:9', environmentId: 'env-x', connection, statusMessage: 'Connecting to 127.0.0.1…', scopes: [],
+  config: { environment: { label: 'Mac' } }, shell: { projects: [], threads: [], sequence: 0 }, threadId: '', projectId: '' }) as unknown as T3Client;
+
+test('a pairing that never connected is not listed as a computer that is still connecting', async () => {
+  const failed = wizardClient('reconnecting');
+  const view = await welcomeView(failed, native([]), { step: 'connect', now: 1 });
+  expect([view.show, view.computers.length, view.ready]).toEqual([true, 0, false]);
+  // Once it has connected it stays listed, connecting or not.
+  const live = wizardClient('connected');
+  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Connected']);
+  (live as unknown as { connection: string }).connection = 'reconnecting';
+  expect((await welcomeView(live, native([]), { step: 'connect', now: 1 })).computers.map(computer => computer.status)).toEqual(['Reconnecting…']);
+});
+
+test('Continue skips selected offline and switched-off computers beside a connected one', async () => {
+  const client = wizardClient('connected');
+  await welcomeView(client, native([]), { step: 'connect', now: 1 });
+  const saved = [
+    { origin: 'http://127.0.0.1:16442', environmentId: 'offline', label: 'Offline Mac', enabled: true },
+    { origin: 'http://127.0.0.1:16443', environmentId: 'off', label: 'Off Mac', enabled: false },
+  ];
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.ready).toBe(true);
+  expect(view.computers.map(computer => computer.status)).toEqual(['Connected', 'Not connected', 'Off']);
+  expect(view.skipped).toBe('Not connected, so setup skips Offline Mac, Off Mac. You can set them up later from Settings.');
+});
+
+// WelcomeWizard ConnectionStep (0ae1091d01): the same rule as Settings, a switched-off computer reads Off.
+test('a switched-off saved computer reads Off, not Not connected', async () => {
+  const client = wizardClient('connected');
+  const saved = [{ origin: 'http://127.0.0.1:9', environmentId: 'env-x', label: 'Mac', enabled: true }, { origin: 'http://10.0.0.7:3773', environmentId: 'env-off', label: 'Studio', enabled: false }];
+  // The wizard opened with nothing saved yet; the computers saved since are listed in it.
+  expect((await welcomeView(client, native([]), { step: 'connect', now: 1 })).show).toBe(true);
+  const view = await welcomeView(client, native(saved), { step: 'connect', now: 1 });
+  expect(view.computers.map(computer => [computer.label, computer.status])).toEqual([['Mac', 'Connected'], ['Studio', 'Off']]);
+});
+
+test('copying the pairing command flips the button to Check without a toast', async () => {
+  const client = wizardClient('connected'), copied: string[] = [];
+  expect((await welcomeView(client, native([], copied), { step: 'connect', now: 1 })).commandCopied).toBe(0);
+  await welcomeLocal(client, native([], copied), 'copy-command', '', 'npx t3 pair');
+  await welcomeLocal(client, native([], copied), 'copy-command', '', 'npx t3 pair');
+  expect(copied).toEqual(['npx t3 pair', 'npx t3 pair']);
+  expect((await welcomeView(client, native([], copied), { step: 'connect', now: 1 })).commandCopied).toBe(2);
+  expect((client as unknown as { toasts?: unknown[] }).toasts ?? []).toEqual([]);
+});
+
+const selection = JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 7 });
+const identity = { provider: 'github', canonicalKey: 'github.com/ccheever/exact2', locator: { remoteUrl: 'git@github.com:ccheever/exact2.git' } };
+function prClient(error: Error): T3Client {
+  return { ready: true, environmentId: 'env', shell: { projects: [{ id: 'p1', repositoryIdentity: identity }] },
+    rpc: async () => { throw error; } } as unknown as T3Client;
+}
+
+test('a pull request link that names an issue reads as not found; other failures keep the default title', async () => {
+  const notFound = new ClientError('Pull request operation detail failed: Could not resolve to a PullRequest with the number of 7.', 'PullRequestOperationError', false, { reason: 'not-found', detail: 'Could not resolve' });
+  expect(isPullRequestNotFound(notFound)).toBe(true);
+  expect(isPullRequestNotFound(new ClientError('x', 'PullRequestsUnavailableError', false, { reason: 'not-found' }))).toBe(false);
+  // The panel shows its ghost first and asks again; the second answer reads.
+  const once = async (client: T3Client) => { await pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); return pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); };
+  const view = await once(prClient(notFound));
+  expect([view.errorTitle, view.error, view.githubUrl, view.numberLabel]).toEqual(['Pull request #7 not found', "It may be an issue rather than a pull request, or this account can't see it.", 'https://github.com/ccheever/exact2/pull/7', '#7']);
+  const other = await once(prClient(new ClientError('Pull request operation detail failed: gh is not signed in.', 'PullRequestOperationError')));
+  expect([other.errorTitle, other.error]).toEqual(['Could not load pull requests', 'Pull request operation detail failed: gh is not signed in.']);
+  expect(unavailable({ projectId: 'p', host: '', repository: 'a/b', number: 3 }, { error: 'x', notFound: false }, undefined).githubUrl).toBe('');
+  expect(gitHubPullRequestBrowserUrl({ provider: 'github', canonicalKey: 'ghe.example.com/a/b', locator: { remoteUrl: 'https://ghe.example.com/a/b.git' } }, 'a/b', 3)).toBe('https://ghe.example.com/a/b/pull/3');
+  expect(gitHubPullRequestBrowserUrl({ provider: 'gitlab' }, 'a/b', 3)).toBe('');
+});
+
+// WelcomeWizard.tsx PairingForm at 2359643cff: start a server first, then pair; a tailnet pairs with --tailscale.
+test('the pairing help says to start T3 Code or npx t3 serve, then npx t3 pair, and --tailscale on pair', async () => {
+  const source = await Bun.file(appPath('pages-welcome.contract')).text();
+  const runs = (testId: string) => {
+    const lines = source.split('\n'), at = lines.findIndex(line => line.includes(`testId="${testId}"`));
+    const indent = lines[at]!.search(/\S/), body: string[] = [];
+    for (const line of lines.slice(at + 1)) {
+      if (line.search(/\S/) <= indent) break;
+      body.push(/^\s*text "([^"]*)"/.exec(line)![1]!);
+    }
+    return body.join('');
+  };
+  expect(runs('welcome-pairing-hint')).toBe('On the computer with your code, start T3 Code or run npx t3 serve, then run:');
+  expect(runs('welcome-pairing-tailnet')).toBe('On a tailnet, run npx t3 pair --tailscale instead.');
+  expect(source).not.toContain('to use your tailnet.');
+});

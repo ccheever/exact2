@@ -1,0 +1,132 @@
+// The window's Browser pages (LLP 1020.002; MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// apps/web/src/browser/ElectronBrowserHost.tsx, BrowserSurfaceSlot.tsx, HostedBrowserWebview.tsx). One partitioned
+// `iframe` per live tab is mounted here for as long as its session lives, so a hidden panel, another surface or another
+// thread keeps the page; the tab the panel shows sits over the stage's page box, which the stage measures
+// (browser-stage.contract `placed`, app-window.contract `browserPlace`), right-anchored as the panel is. A fixed
+// viewport lays the frame out at its CSS size times the tab's zoom and scales it into the box, as HostedBrowserWebview's
+// transform does. The floating player's tab sits at the player's frame in the chat column, the player's chrome drawn
+// over it (browser-capture.contract BrowserMiniPlayer), so floating a tab keeps its page. A hidden tab that is recorded
+// or shown in its separate window stays laid out, transparent, where its page keeps drawing and running as the
+// reference's offscreen guests do; any other hidden tab is not displayed. Every record goes to the data module
+// (browser-frames.ts) as one query string.
+use BrowserFrameView from "./browser-shapes.contract"
+use BrowserFrames from "./browser-shapes.contract"
+use BrowserMini from "./browser-shapes.contract"
+use ChatCanvasMini from "../shell/chat-canvas.contract"
+use BrowserMiniPlayer from "./browser-capture.contract"
+use ServerBrowserPip from "./server-browser.contract"
+
+// ZoomIndicator: in 200 ms, held to 1.5 s, out in 200 ms.
+keyframes bfZoomPill
+  0% opacity=0 translate="0px -4px"
+  12% opacity=1 translate="0px 0px"
+  88% opacity=1 translate="0px 0px"
+  to opacity=0 translate="0px -4px"
+
+// One tab's page. `hatch` hands the recorder, the agent's cursor and the separate window the page's web view
+// (T3BrowserPage.swift), which have no framework counterpart yet (LLP 1020.002 D8, B10). `behind`: hidden but held, so
+// laid out and drawing but transparent: WebKit throttles a web view that is hidden, not one that is see-through, and a
+// native view does not go under the app for a negative z-index. The slot's children draw over the page (the floating player's chrome). A dialog the page holds
+// for the person (browser-automation-run.ts adoptFramePrompt) shows over the page while it shows, as Chromium's
+// tab-modal JavaScript dialog: the title, the message, a prompt's field, Cancel (Escape) and OK.
+component BrowserFrame
+  inject
+    scheme: string // the app's scheme, which a tab set to System follows (app-window.contract)
+  props
+    f: BrowserFrameView
+    left: number
+    top: number
+    width: number
+    height: number
+    shown: bool
+    behind: bool
+    radius: number
+    label: string
+    testId: string
+    local: action
+  slot
+  state promptText = ""
+  state promptEdited = false
+  action record(event: string, e: FrameNavigation)
+    local("surface-browser-frame", f.frameId, `event=${event}&id=${e.navigationId}&type=${e.navigationType}&loading=${e.loading}&back=${e.canGoBack}&forward=${e.canGoForward}&controller=${e.controller}&error=${e.error}&recovering=${e.recovering}&url=${encodeURIComponent(e.url)}&destination=${encodeURIComponent(e.destination)}&title=${encodeURIComponent(e.title)}&icons=${encodeURIComponent(e.icons.join("\n"))}&message=${encodeURIComponent(e.message)}`)
+  action opened(e: FrameNewWindow)
+    local("surface-browser-frame-window", f.frameId, `disposition=${e.disposition}&url=${encodeURIComponent(e.url)}`)
+  action downloaded(e: FrameDownload)
+    local("surface-browser-frame-download", f.frameId, `state=${e.state}&name=${encodeURIComponent(e.suggestedFilename)}&path=${encodeURIComponent(e.path)}&url=${encodeURIComponent(e.url)}`)
+  action prompted(e: FrameUserPrompt)
+    local("surface-browser-frame-prompt", f.frameId, `type=${e.type}&message=${encodeURIComponent(e.message)}&default=${encodeURIComponent(e.defaultValue)}`)
+  action editPrompt(value: string)
+    promptText = value
+    promptEdited = true
+  action answer(accept: bool)
+    local("surface-browser-frame-answer", f.frameId, `accept=${accept}&text=${encodeURIComponent(promptEdited ? promptText : f.promptDefault)}`)
+    promptText = ""
+    promptEdited = false
+  derive fixed = f.pageWidth > 0 and f.pageHeight > 0
+  derive layoutW = fixed ? f.pageWidth * f.zoom : width
+  derive layoutH = fixed ? f.pageHeight * f.zoom : height
+  view
+    // A tab neither shown nor held takes no room either: its box, empty and transparent, would still be hit, and over
+    // the window it would take every press, hover and double-click meant for the page under it.
+    box position="absolute" left=left top=top width=width height=height opacity=(behind ? 0 : 1) pointer-events=(behind ? "none" : "auto") display=(shown or behind ? "block" : "none")
+      box position="absolute" left=0 top=0 right=0 bottom=0 border-radius=radius overflow=(radius > 0 ? "hidden" : "visible")
+        iframe id=f.frameId src=f.src partition=f.partition zoom=f.zoom color-scheme=(f.colorScheme == "dark" ? "dark" : f.colorScheme == "light" ? "light" : scheme == "dark" ? "dark" : "light") hatch="t3-browser-page" data-browser-frame=f.frameId data-browser-environment=f.environment data-browser-profile=f.profile navigate=record("navigate") currententrychange=record("currententrychange") navigatesuccess=record("navigatesuccess") navigateerror=record("navigateerror") newwindow=opened download=downloaded userpromptopened=prompted aria-label=label testId=testId position="absolute" left=0 top=0 width=layoutW height=layoutH scale=(fixed and layoutW > 0 ? width / layoutW : 1) transform-origin="0 0" border-width=0 display=(shown or behind ? "block" : "none")
+      if shown and f.promptType != ""
+        column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" padding-top="1rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" background-color="light-dark(#0000001f, #00000052)" testId="browser-page-dialog-backdrop"
+          column role="alertdialog" aria-label=f.promptTitle width="100%" max-width="26rem" padding="1.25rem" gap="0.75rem" box-sizing="border-box" border-radius="0.75rem" background-color="light-dark(#ffffff, #262626)" box-shadow="0 20px 40px -12px #00000066" testId="browser-page-dialog"
+            text f.promptTitle font-size="0.875rem" font-weight=600 role="heading" aria-level=2
+            if f.promptMessage != ""
+              text f.promptMessage font-size="0.8125rem" white-space="pre-wrap" overflow-wrap="anywhere" max-height="12rem" overflow="auto"
+            if f.promptType == "prompt"
+              input value=(promptEdited ? promptText : f.promptDefault) input=editPrompt autofocus aria-label=f.promptTitle testId="browser-page-dialog-field" font-size="0.8125rem" spellcheck="false" autocorrect="off" id=`field-browser-page-dialog-${f.frameId}` data-editable="yes"
+            row gap="0.5rem" justify-content="flex-end"
+              if f.promptType != "alert"
+                button press=answer(false) aria-keyshortcuts="Escape" testId="browser-page-dialog-cancel"
+                  text "Cancel"
+              button press=answer(true) autofocus=(f.promptType != "prompt") testId="browser-page-dialog-ok"
+                text (f.promptType == "beforeunload" ? "Leave" : "OK")
+      children
+
+// The layer, over the panels and under the window's overlays. `slot*` is the stage's page box in window points,
+// right-anchored (0 wide until a stage measured one); `note` the size a rail drag shows over the page; `zoomSerial` and
+// `zoomLabel` the zoom indicator, drawn here so it stays over the page. `mini` and `miniFrame` are the floating player's
+// tab and frame (chat-canvas.contract, in the chat column at `originX`, `originY`); `gesture` and `outside` its drags and
+// presses.
+component BrowserFrameLayer
+  props
+    frames: BrowserFrames
+    slotRight: number
+    slotTop: number
+    slotWidth: number
+    slotHeight: number
+    note: string
+    zoomSerial: number
+    zoomLabel: string
+    viewportWidth: number
+    covered: bool
+    mini: BrowserMini
+    miniFrame: ChatCanvasMini
+    canvasWidth: number
+    gesture: action
+    outside: action
+    local: action
+  action named(id: string)
+    local("surface-browser-frame-named", id, "")
+  derive slotLeft = viewportWidth - slotRight - slotWidth
+  derive panelShown = slotWidth > 0 and not covered and frames.frames.filter((f) => f.place == "panel").length > 0
+  derive miniShown = mini.show and not mini.server and miniFrame.show and miniFrame.key == mini.key and not covered
+  view
+    for f in frames.frames key=f.frameId
+      BrowserFrame(f=f, left=(f.place == "mini" ? miniFrame.originX + miniFrame.x : slotWidth > 0 ? slotLeft : 0), top=(f.place == "mini" ? miniFrame.originY + miniFrame.top : slotTop), width=(f.place == "mini" ? miniFrame.width : f.place == "" ? f.heldWidth : slotWidth), height=(f.place == "mini" ? miniFrame.height : f.place == "" ? f.heldHeight : slotHeight), shown=(f.place == "mini" ? miniShown : f.place == "panel" and slotWidth > 0 and not covered), behind=(f.place == "" and f.held), radius=(f.place == "mini" ? miniFrame.radius : 0), label="Browser page", testId=(f.place == "panel" ? "browser-page" : f.place == "mini" ? "browser-mini-page" : f.frameId), local=local)
+        if f.place == "mini" and miniShown
+          BrowserMiniPlayer(mini=mini, frame=miniFrame, canvasWidth=canvasWidth, local=local, gesture=gesture, outside=outside, framed=true)
+    // A server tab's picture-in-picture window: the hidden image its stream paints (server-browser.contract).
+    if frames.pip.show
+      ServerBrowserPip(pip=frames.pip, local=local)
+    for n in frames.namers key=n.frameId
+      iframe id=n.frameId src=n.src partition=n.partition load=named(n.frameId) aria-hidden=true tabindex=-1 position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" border-width=0
+    if panelShown and note != ""
+      text note position="absolute" left=(slotLeft + slotWidth / 2) top=(slotTop + 10) translate="-50% 0%" pointer-events="none" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#fffffff2, #171717f2)" box-shadow="0 4px 6px -1px #0000001a" font-size="0.625rem" line-height="0.875rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#18181b, #f5f5f5)" aria-hidden=true testId="browser-drag-size"
+    // ZoomIndicator: the level, at the page's top right, each time it changes (not for the first value).
+    for serial in (panelShown and zoomSerial > 0 ? [zoomSerial] : []) key=serial
+      text zoomLabel position="absolute" top=(slotTop + 12) right=(slotRight + 12) pointer-events="none" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="624.9375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" box-shadow="0 4px 6px -1px #0000001a" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)" opacity=0 animation="bfZoomPill 1.7s ease-out forwards" aria-hidden=true testId="browser-zoom-indicator"

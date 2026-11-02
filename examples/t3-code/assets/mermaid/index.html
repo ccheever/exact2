@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- One Mermaid fence, rendered as T3 Code's MermaidDiagram renders it (render.js). The app frames this page per fence
+     (markdown.contract MermaidBlock) with the fence's source, theme and font in the fragment. -->
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      html, body { margin: 0; background: transparent; overflow: hidden; }
+      /* MermaidDiagram's `flex w-full justify-center` span: pele lays the diagram out for its width. */
+      #host { display: flex; width: 100%; justify-content: center; }
+      /* index.css `.pele`: pele reads its colours through these, here the stock T3 Code palette of each appearance. */
+      .pele {
+        --pele-bg: #fcfcfc; --pele-fg: #18181b; --pele-muted: #71717b; --pele-line: #71717b; --pele-surface: #fafafa;
+        --pele-surface-alt: #f4f4f5; --pele-border: #18181b47; --pele-accent: #1b4ed8; --pele-critical: #fb2c36;
+      }
+      [data-theme="dark"] .pele {
+        --pele-bg: #000000; --pele-fg: #f5f5f5; --pele-muted: #a1a1a1; --pele-line: #a1a1a1; --pele-surface: #ffffff08;
+        --pele-surface-alt: #ffffff0a; --pele-border: #f5f5f547; --pele-accent: #346bf1; --pele-critical: #fb414a;
+      }
+    </style>
+    <script type="module" src="./render.js"></script>
+  </head>
+  <body><div id="host"></div></body>
+</html>

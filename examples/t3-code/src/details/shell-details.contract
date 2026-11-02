@@ -1,0 +1,750 @@
+use ThreadFindView from "../timeline/thread-find.contract"
+// ThreadDetailsPanel / ThreadDetailsCard (MIT reference, see LICENSE-T3:
+// chat/ThreadDetailsCard.tsx, threadDetailsCardLayout.ts, ThreadDetailsSection.tsx,
+// threadDetailsPanelStyles.ts, BranchToolbar panel rows, OpenInPicker,
+// ProjectScriptsControl, GitActionsControl, ThreadRelationshipsControl, ThreadServersPanel,
+// ThreadDetailsUsage, ThreadDetailsItemsMenu; upstream 6d450a4284). One card, two
+// placements: docked inline at the canvas's top right (280pt, 12pt in, open by
+// default per thread) where a 640pt chat lane still fits beside it, else the
+// header's popover (264pt inside its 8pt viewport, 60pt down, 13pt in). The
+// dropdown-glass card has a 22pt radius and no shadow; rows are 32pt, 10pt
+// radius, 13pt medium foreground/80 with a 16pt muted glyph; only Lineage keeps
+// its 11pt heading. A floating player folds the docked card (chat-canvas-view.ts):
+// its rows go compact, then essential, and with no 160pt placement left it is the
+// popover (ThreadDetailsCard, ThreadDetailsPanel's density).
+//
+// Window z scale (1e2ecbd975, e19a48d220: popover variant="panel" sits at --z-sheet,
+// below the floating preview player and every dialog). The reference: docked sheets
+// 46, floating player 47-49, dialogs and other popovers 50 and up. Here: the inline
+// card 20; right-panel sheets 10/11; menus with click-away backdrops 29-31; this
+// popover 35; the floating device player 40; dialogs 40 and up (snooze, confirm,
+// revert, plan save 40; device setup and media previews 45; palette and title menu
+// 60; Git, pull request and checkout dialogs 72-82); toasts 100; table menu 130;
+// tooltips 140. exact2: menus stay under the popover (they close on any outside
+// press, so the two do not show together); the reference puts them over it.
+use ShellDetails from "../shell/shell-shapes.contract"
+use ShellLineage from "../shell/shell-shapes.contract"
+use ShellEditor from "../shell/shell-shapes.contract"
+use ShellIcon from "../shell/shell-icons.contract"
+use LineageBodyRow from "./lineage-workflows.contract"
+use ShellEditorIcon from "../shell/shell-icons-kit.contract"
+use TipBubble from "../shell/shell-tip.contract"
+use TipCard from "../shell/shell-tip.contract"
+use Tip from "../shell/shell-tip.contract"
+use CnMachineIcon from "../settings/settings-b-kit.contract"
+use ProviderMark from "../shared/icons.contract"
+use GitRows from "./git.contract"
+use AddMachineOption from "./git.contract"
+use ScriptRow from "./project-scripts.contract"
+use ThreadAutomationsSection from "./thread-automations.contract"
+use DetailsItemsMenu from "./thread-details-shapes.contract"
+use ThreadServersView from "./thread-details-shapes.contract"
+use ThreadServerRow from "./thread-details-shapes.contract"
+use UsageView from "./thread-details-shapes.contract"
+use UsageRow from "./thread-details-shapes.contract"
+use hoverTipAtFrame from "../shell/hover-layer.contract"
+use KmItem from "../shared/menu-keys.contract"
+use KeyMenu from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
+
+keyframes lineageSpin
+  from rotate=0
+  to rotate=360
+
+// The popover presentation, with its click-away backdrop: drawn in the chat column (app-main.contract ChatColumn),
+// under the floating player, which closes it on its own press; a press beside the column closes it too
+// (app-window.contract outsidePressDown).
+component ThreadDetailsPanel
+  inject
+    threadFind: ThreadFindView
+    renameHoldsKeys: bool
+  props
+    details: ShellDetails
+    // ThreadDetailsCard's density (chat-canvas-view.ts): full, compact or essential.
+    density: string
+    right: number
+    // How far the click-away backdrop reaches below its holder: the terminal drawer under the chat column.
+    below: number
+    maxHeight: number
+    act: action
+    // chatLocal: the card's Git popups take keystrokes without the command gate.
+    local: action
+    // prefers-reduced-motion: the running automation's dot stays still.
+    still: bool
+    // A command is in flight (the window's gate): Lineage's Stop spins on the row it stops.
+    busy: bool
+    stopping: string
+  view
+    box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
+      // A git dialog or the Merge confirmation the card opened stands over it and takes Escape (Base UI closes the
+      // topmost popup); the first declared Escape would otherwise close the card under it. The card's menus are modal
+      // popovers, which take Escape themselves.
+      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(renameHoldsKeys ? "" : (details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape")) testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
+      column position="absolute" top=(threadFind.open ? "6.75rem" : "3.75rem") right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
+        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy, stopping=stopping)
+
+// The inline presentation: an aside pinned 12pt from the canvas's top right, as tall as its content.
+component ThreadDetailsInline
+  inject
+    threadFind: ThreadFindView
+  props
+    details: ShellDetails
+    density: string
+    maxHeight: number
+    act: action
+    // chatLocal: the card's Git popups take keystrokes without the command gate.
+    local: action
+    // prefers-reduced-motion: the running automation's dot stays still.
+    still: bool
+    busy: bool
+    stopping: string
+  view
+    column position="absolute" top=(threadFind.open ? "7rem" : "4rem") right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
+      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, act=act, local=local, still=still, busy=busy, stopping=stopping)
+
+// ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,
+// Servers, Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or
+// just finished (GitActionsControl compact); `essential` also without Open in. The parts only `full` shows report their
+// frames, so the canvas knows the compact height from a full layout (thread-details-card-layout.ts). Each item the
+// user hid (thread-details-items.ts) is left out; a section with nothing to show is left out with its hairline, and
+// with nothing left at all the card offers "Choose what to show". A right-click on the card opens the same menu.
+component DetailsBody
+  inject
+    frameMoved: action
+    rem: number
+  props
+    details: ShellDetails
+    density: string
+    // The docked card (280pt) or the popover (264pt): the Git and Run on menus take its inner width.
+    inline: bool
+    maxHeight: number
+    act: action
+    // chatLocal: the card's Git popups take keystrokes without the command gate.
+    local: action
+    // prefers-reduced-motion: the running automation's dot and Lineage's Stop spinner stay still.
+    still: bool
+    busy: bool
+    stopping: string
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  // A right-click opens the card's items menu (the scroll's contextPopover); the row under the pointer lets go of its fill.
+  action menuOpened
+    hovered = ""
+  // The section flags follow the rows that will render, so no empty section draws a hairline.
+  derive showEnvironment = density == "full" and details.items.environment
+  derive showOpenIn = details.editorShow and density != "essential" and details.items.openIn
+  derive showWorkspace = showEnvironment or showOpenIn or details.items.scripts
+  derive showVcs = details.cwd != "" and ((details.items.branch and details.git.branch.show) or details.items.gitActions or (details.items.changes and details.git.repo))
+  derive showServers = density == "full" and details.items.servers and details.servers.show
+  derive showAutomations = density == "full" and details.items.automations and details.automations.show
+  derive showLineage = density == "full" and details.items.lineage and details.showLineage
+  // ThreadRelationshipsPanel's Side chats section: the open thread's side chats, an item of its own.
+  derive sideChatRows = details.lineage.filter((r) => r.group == "side")
+  derive showSideChats = density == "full" and details.items.sideChats and sideChatRows.length > 0
+  derive showUsage = details.items.usage and details.usage.show
+  derive showContext = details.items.context and details.context.show
+  // RunContextSelector's onContextMenu (panel form): the Workspace row's own menu, Copy full path, while it has a path;
+  // without one the right-click goes on to the card's menu.
+  derive pathMenu = details.workspacePath != "" ? "details-path-menu" : ""
+  view
+    scroll width="100%" min-height=0 max-height=(maxHeight - 2) contextmenu=menuOpened contextPopover="details-items-menu"
+      // The content's full height, scrolled or not: the canvas keeps a floating player below it and folds the rows by it
+      // (ThreadDetailsCard: chat-canvas-view.ts measures the frames named here).
+      column width="100%" position="relative" id="frame-details-content" resize=frameMoved
+        if density == "compact"
+          box position="absolute" left=0 top=0 width=0 height=0 pointer-events="none" aria-hidden=true id="frame-details-density-compact" resize=frameMoved
+        if showWorkspace
+          DetailsSection(title="Workspace", separated=false, heading=false)
+            if density == "full"
+              column width="100%" id="frame-details-full-top" resize=frameMoved
+                if showEnvironment and (details.envModeSelect or details.git.envPick)
+                  box position="relative" width="100%"
+                    button id="details-workspace" popovertarget="details-workspace-menu" contextPopover=pathMenu hover=hover("workspace") aria-label="Run context" testId="details-workspace" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "workspace" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+                      RunContextLabel(details=details, locked=false)
+                      box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                        ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
+                    WorkspaceMenu(details=details, act=act)
+                else if showEnvironment
+                  row width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.5rem" contextPopover=pathMenu aria-label="Run context" testId="details-folder"
+                    RunContextLabel(details=details, locked=true)
+            // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts);
+            // not in the essential rows.
+            if showOpenIn
+              OpenInRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), act=act)
+            // A project with scripts shows its primary script as a split row (project-scripts.contract).
+            if details.items.scripts and details.scripts.length > 0
+              ScriptRow(details=details, menuWidth=((inline ? 262 : 246) * rem / 16), run=act("terminallocal:run-script", "", ""), act=act)
+            else if details.items.scripts
+              // ProjectScriptsControl's openAddDialog: the Add Action dialog over the thread (ProjectDialogs, settings-b-actions.contract).
+              button id="details-add-script" press=act("ui:add-script", "", "") hover=hover("script") aria-label="Add project script" testId="details-add-script" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "script" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                  ShellIcon(name="plus", size=14, color="light-dark(#18181bcc, #f5f5f5cc)")
+                text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+        else if density == "full"
+          // The full layout still names its top part, empty, so the canvas tells it from the compact one.
+          box width=0 height=0 aria-hidden=true id="frame-details-full-top" resize=frameMoved
+        if showVcs
+          column width="100%" id="frame-details-vcs" resize=frameMoved
+            DetailsSection(title="Version Control", separated=(density == "full" and showWorkspace), heading=false)
+              // The branch select, the split Git action (or Initialize Git) and Changes.
+              GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)
+              if details.error != ""
+                text details.error padding-left="0.6875rem" padding-right="0.6875rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="details-vcs-error"
+        // ThreadServersPanel, ThreadAutomationsPanel and ThreadRelationshipsPanel: `full` only.
+        if density == "full"
+          column width="100%" id="frame-details-full-tail" resize=frameMoved
+            if showServers
+              ThreadServersSection(servers=details.servers, separated=(showWorkspace or showVcs), local=local)
+            if showAutomations
+              ThreadAutomationsSection(automations=details.automations, separated=(showWorkspace or showVcs or showServers), still=still, act=act)
+            if showLineage
+              // Lineage scrolls as it expands, so the density leaves it out (ThreadDetailsCard's fitting height): more
+              // rows do not fold away the workspace and Version Control rows.
+              column width="100%" id="frame-details-lineage" resize=frameMoved
+                // A lone "Previous agents" row names itself; the heading returns for status, actions or other rows.
+                DetailsSection(title=details.lineageTitle, separated=(showWorkspace or showVcs or showServers or showAutomations), heading=false)
+                  if details.lineageTitle != "Lineage" or details.canDetach or details.lineage.filter((r) => r.group != "previous" and r.group != "side").length > 0
+                    LineageHeading(details=details, busy=busy, act=act)
+                  scroll width="100%" max-height=(details.lineage.filter((row) => row.kind == "workflow" and row.expanded).length > 0 ? `min(${28 * rem}px, 55dvh)` : "13.5rem") overflow-x="hidden" testId="details-lineage-scroll"
+                    LineageGroups(details=details, busy=busy, stopping=stopping, act=act, still=still)
+            if showSideChats
+              // Side chats scroll as Lineage does, so the density leaves them out too.
+              column width="100%" id="frame-details-side-chats" resize=frameMoved
+                DetailsSection(title=(sideChatRows.filter((r) => r.status == "Running").length > 0 ? `Side chats · ${sideChatRows.filter((r) => r.status == "Running").length} running` : "Side chats"), separated=(showWorkspace or showVcs or showServers or showAutomations or showLineage), heading=true)
+                  scroll width="100%" max-height="13.5rem" overflow-x="hidden" testId="details-side-chats-scroll"
+                    SideChatGroup(details=details, busy=busy, stopping=stopping, act=act, still=still)
+        if showUsage
+          ThreadUsageSection(title="Usage limits", section="usage", usage=details.usage, separated=(showWorkspace or showVcs or showServers or showAutomations or showLineage or showSideChats))
+        if showContext
+          ThreadUsageSection(title="Context window", section="context", usage=details.context, separated=(showWorkspace or showVcs or showServers or showAutomations or showLineage or showSideChats or showUsage))
+        // Shown only when no section above has content, so an emptied card can be refilled.
+        if not (showWorkspace or showVcs or showServers or showAutomations or showLineage or showSideChats or showUsage or showContext)
+          box padding="0.5rem" box-sizing="border-box" width="100%"
+            button popovertarget="details-items-menu" hover=hover("choose") testId="details-choose-items" width="100%" height="1.75rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "choose" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              // SlidersHorizontalIcon (Lucide).
+              svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+                path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
+              text "Choose what to show" flex=1 min-width=0 margin-left="0.125rem" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+      ItemsMenuPopover(menu=details.itemsMenu, local=local)
+      PathMenuPopover(path=details.workspacePath, act=act)
+
+// ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
+// heading row is hidden for Workspace and Version Control (upstream 429c625a85).
+component DetailsSection
+  props
+    title: string
+    separated: bool
+    heading: bool
+  slot
+  view
+    column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-style="solid" border-top-width=(separated ? 1 : 0) border-color="light-dark(#e4e4e7a6, #ffffff10)" role="region" aria-label=title
+      if heading
+        row min-height="2rem" margin-bottom="0.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" align-items="center"
+          text title font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" role="heading" aria-level=3 testId="details-lineage-title"
+      children
+
+// ThreadDetailsItemsMenuItems ("Show in thread details", a checkbox per item, then Reset to default): the card's context
+// menu and the "Choose what to show" row's. On macOS it is a native menu, which closes after a choice (Base UI's
+// checkbox items keep the menu open), headed by the popover's `aria-label`, with `aria-checked` as each item's checkmark.
+// The painted check is an `aria-hidden` glyph, not an icon box, so each row is text alone and the popover stays
+// menu-shaped (LLP 1021 D3); the Mac's menu leaves an `aria-hidden` child out of the item's title.
+component ItemsMenuPopover
+  props
+    menu: DetailsItemsMenu
+    local: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="details-items-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="menu" aria-label="Show in thread details" padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" testId="details-items-menu"
+        for item in menu.items key=item.id
+          button id=`details-items-${item.id}` press=local("surface-details-items", item.id, item.checked ? "false" : "true") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=item.checked testId=`details-items-${item.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text (item.checked ? "✓" : "") aria-hidden=true width="1rem" flex-shrink=0 text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+            text item.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+        hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+        button id="details-items-reset" press=local("surface-details-items-reset", "", "") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitem" disabled=menu.resetDisabled testId="details-items-reset" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color="#00000000" opacity=(menu.resetDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+          text "Reset to default" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// showWorkspaceContextMenu: the Workspace row's one item, which copies the path ("Path copied", shell-commands.ts). The
+// reference's menu has no heading, so the popover has no `aria-label` to head it.
+component PathMenuPopover
+  props
+    path: string
+    act: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="details-path-menu" popover="auto" position-try-fallbacks="none" role="menu" padding="0.25rem" box-sizing="border-box" min-width="10rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" testId="details-path-menu"
+        button id="details-copy-path" press=act("shelllocal:details-copy-path", "", path) popovertarget="details-path-menu" popovertargetaction="hide" role="menuitem" testId="details-copy-path" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          text "Copy full path" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// ThreadServersPanel: "Servers", then a row per server this thread's terminals and agent started. The row opens it in
+// the Browser panel (⌘-press: the system browser), its port and its source kept visible; Stop (destructive, an
+// icon-xs square) shows while the row is hovered or focused, and spins while that server stops.
+component ThreadServersSection
+  props
+    servers: ThreadServersView
+    separated: bool
+    local: action
+  view
+    DetailsSection(title="Servers", separated=separated, heading=true)
+      column width="100%" role="list" aria-label="Servers" testId="details-servers"
+        for server in servers.rows key=server.key
+          ServerRow(server=server, canOpen=servers.canOpen, busy=servers.busy, local=local)
+
+component ServerRow
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    server: ThreadServerRow
+    canOpen: bool
+    busy: bool
+    local: action
+  state hovered = ""
+  state focused = false
+  derive rowId = `details-server-${server.key}`
+  derive stopId = `details-server-stop-${server.key}`
+  derive lit = hovered != "" or focused
+  action tip(id: string, label: string, on: bool)
+    hoverTipAt(hoverTipAtFrame(id, "tooltip", label, [], "left", "center", frame(id), 1.625 * rem, `${id}-tooltip`), "trigger", on)
+  action rowHover(over: bool)
+    hovered = over ? "row" : (hovered == "row" ? "" : hovered)
+    tip(rowId, "Open in the browser panel. ⌘-click for your browser.", over)
+  action stopHover(over: bool)
+    hovered = over ? "stop" : (hovered == "stop" ? "" : hovered)
+    tip(stopId, "Stop server", over)
+  action focusMoved(on: bool)
+    focused = on
+  // Like links: a modified press goes to the system browser.
+  action open(e: MouseEvent)
+    tip(rowId, "", false)
+    local("surface-details-server", server.key, e.metaKey ? "external" : "open")
+  view
+    row position="relative" width="100%" align-items="center" border-radius="0.5rem" role="listitem"
+      button id=rowId press=open hover=rowHover focus=focusMoved(true) blur=focusMoved(false) disabled=(not canOpen) aria-label=`${server.label}, ${server.source}` testId=`details-server-${server.port}` width="100%" min-height="2.5rem" padding-left="0.6875rem" padding-right=(server.stoppable ? "2.1875rem" : "0.6875rem") padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" opacity=(canOpen ? 1 : 0.64) background-color=(hovered != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+        // GlobeIcon (Lucide).
+        svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+          circle cx=12 cy=12 r=10
+          path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
+        column flex=1 min-width=0 gap="0.125rem"
+          text server.label white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181bd9, #f5f5f5d9)"
+          text server.source white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      if server.stoppable
+        box position="absolute" right="0.25rem" top="50%" margin-top="-0.75rem" width="1.5rem" height="1.5rem" opacity=(lit or server.stopping ? 1 : 0) pointer-events=(lit ? "auto" : "none")
+          button id=stopId press=local("surface-details-server", server.key, "stop") hover=stopHover focus=focusMoved(true) blur=focusMoved(false) disabled=busy aria-label=`Stop ${server.label}` testId=`details-server-stop-${server.port}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(busy and not server.stopping ? 0.64 : 1) background-color=(hovered == "stop" and not busy ? "light-dark(#fb2c3614, #fb414a1f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            if server.stopping
+              box display="flex" animation="lineageSpin 1s linear infinite"
+                ShellIcon(name="loader", size=12, color="light-dark(#fb2c36, #fb414a)")
+            else
+              svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fb2c36, #fb414a)" fill="currentColor" stroke="currentColor" stroke-width=2 stroke-linejoin="round" aria-hidden=true
+                rect x=3 y=3 width=18 height=18 rx=2
+
+// ThreadDetailsUsage and ThreadDetailsContext: one grid of label, hairline bar and value rows with no heading; each row
+// opens its details tooltip on its left. A limit is toned at 10% left or less (error) and 20% (warning); the context
+// window at 90% used (error) and 80% (warning), its bar muted, with a tick where it compacts automatically.
+component ThreadUsageSection
+  props
+    title: string
+    section: string
+    usage: UsageView
+    separated: bool
+  view
+    DetailsSection(title=title, separated=separated, heading=false)
+      column width="100%" testId=`details-${section}`
+        for entry in usage.rows key=entry.id
+          UsageLine(entry=entry, labelWidth=usage.labelWidth, valueWidth=usage.valueWidth)
+
+component UsageLine
+  inject
+    rem: number
+    hoverTipAt: action
+  props
+    entry: UsageRow
+    labelWidth: number
+    valueWidth: number
+  state lit = false
+  derive rowId = `details-usage-${entry.id}`
+  action show(on: bool)
+    lit = on
+    hoverTipAt(hoverTipAtFrame(rowId, "tooltip", entry.tip, entry.tipLines, "left", "center", frame(rowId), (entry.tipLines.length + 1) * rem + 0.625 * rem, `${rowId}-tooltip`), "trigger", on)
+  view
+    row id=rowId hover=show focus=show(true) blur=show(false) tabindex=0 aria-label=entry.aria testId=rowId width="100%" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.75rem" align-items="center" border-radius="0.5rem" background-color=(lit ? "light-dark(#00000009, #ffffff14)" : "#00000000")
+      text entry.label width=`${labelWidth}rem` flex-shrink=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      if entry.fill >= 0
+        box position="relative" flex=1 min-width="3rem" height=3 border-radius=2 background-color="light-dark(#71717b4d, #a1a1a133)"
+          if entry.fill > 0
+            box position="absolute" left=0 top=0 bottom=0 width=`max(${entry.fill}%, 6px)` border-radius=2 background-color=(entry.tone == "error" ? "light-dark(#fb2c36, #fb414a)" : entry.tone == "warning" ? "light-dark(#e17100, #fe9a00)" : entry.muted ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)")
+          if entry.tick >= 0
+            box position="absolute" left=`${entry.tick}%` top="-3px" width=1 height=9 translate="-50% 0" background-color="light-dark(#18181b99, #f5f5f599)" aria-hidden=true testId=`${rowId}-tick`
+        text entry.value width=`${valueWidth}rem` flex-shrink=0 text-align="right" white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color=(entry.tone == "error" ? "light-dark(#c10007, #ff6467)" : entry.tone == "warning" ? "light-dark(#e17100, #ffb900e6)" : "light-dark(#18181bcc, #f5f5f5cc)")
+      else
+        text entry.value flex=1 min-width=0 text-align="right" white-space="nowrap" font-size="0.75rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
+
+// ThreadLineageGroup ×3: related threads and active agents expanded, "Previous
+// agents" folded behind a CollapsibleSectionHeader; each list shows 6 rows,
+// then "Show N more" adds 12 at a time.
+component LineageGroups
+  props
+    details: ShellDetails
+    busy: bool
+    stopping: string
+    act: action
+    still: bool // prefers-reduced-motion: Stop's spinner stays still (Spinner is motion-safe)
+  state hovered = ""
+  // The row holding the keyboard focus shows its Stop as a hovered one does (group-focus-within).
+  state focused = ""
+  action focusRow(id: string, on: bool)
+    focused = on ? id : (focused == id ? "" : focused)
+  state relatedShown = 6
+  state activeShown = 6
+  state previousShown = 6
+  state previousOpen = false
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  action more(group: string)
+    relatedShown = group == "related" ? relatedShown + 12 : relatedShown
+    activeShown = group == "active" ? activeShown + 12 : activeShown
+    previousShown = group == "previous" ? previousShown + 12 : previousShown
+  action togglePrevious
+    previousOpen = not previousOpen
+  action stop(op: string, id: string)
+    if not busy
+      act(op, id, "")
+  derive relatedCount = details.lineage.filter((r) => r.group == "related" and (r.kind == "thread" or r.kind == "workflow")).length
+  derive activeCount = details.lineage.filter((r) => r.group == "active" and (r.kind == "thread" or r.kind == "workflow")).length
+  view
+    column width="100%" role="list" aria-label="Related threads"
+      for row in details.lineage key=row.id
+        if row.group == "related" and row.index < relatedShown
+          LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop, still=still)
+    if relatedCount > relatedShown
+      ShowMore(count=min(relatedCount - relatedShown, 12), hovered=(hovered == "more-related"), hover=hover("more-related"), press=more("related"))
+    if activeCount > 0
+      column width="100%" role="list" aria-label="Related threads"
+        for row in details.lineage key=row.id
+          if row.group == "active" and row.index < activeShown
+            LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop, still=still)
+      if activeCount > activeShown
+        ShowMore(count=min(activeCount - activeShown, 12), hovered=(hovered == "more-active"), hover=hover("more-active"), press=more("active"))
+    if details.previousCount > 0
+      // ThreadLineageGroup's header is a details row: the Bot glyph, the label, the failed status, the count while
+      // folded and a chevron that turns -90° when folded.
+      button press=togglePrevious hover=hover("previous") aria-expanded=previousOpen testId="details-previous-agents" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "previous" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+        ShellIcon(name="bot", size=16, color="light-dark(#71717b, #a1a1a1)")
+        text "Previous agents" flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)"
+        if details.previousFailed > 0
+          text `${details.previousFailed} failed` flex-shrink=0 font-size="0.625rem" line-height="0.625rem" color="light-dark(#c10007, #ff6467)"
+        if not previousOpen
+          text `${details.previousCount}` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
+        box display="flex" flex-shrink=0 rotate=(previousOpen ? 0 : -90)
+          ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
+      if previousOpen
+        column width="100%" role="list" aria-label="Related threads"
+          for row in details.lineage key=row.id
+            if row.group == "previous" and row.index < previousShown
+              LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop, still=still)
+        if details.previousCount > previousShown
+          ShowMore(count=min(details.previousCount - previousShown, 12), hovered=(hovered == "more-previous"), hover=hover("more-previous"), press=more("previous"))
+
+// ThreadDetailsSection's heading with Lineage's actions: "More thread actions" (an icon-xs ghost ⋯) opens a menu with
+// Disconnect agent session while the thread has a live provider session (canDetachThreadProviderSession).
+component LineageHeading
+  props
+    details: ShellDetails
+    busy: bool
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    row min-height="2rem" margin-bottom="0.25rem" padding-left="0.625rem" padding-right=(details.canDetach ? "0.25rem" : "0.625rem") box-sizing="border-box" gap="0.25rem" align-items="center"
+      text details.lineageTitle flex=1 min-width=0 font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" role="heading" aria-level=3 testId="details-lineage-title"
+      if details.canDetach
+        box position="relative" flex-shrink=0
+          button id="details-lineage-actions" popovertarget="details-lineage-menu" hover=hover disabled=busy aria-label="More thread actions" testId="details-lineage-actions" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" opacity=(busy ? 0.64 : 1) background-color=(over and not busy ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            ShellIcon(name="ellipsis", size=14, color="light-dark(#71717b, #a1a1a1)")
+          column id="details-lineage-menu" popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block" position="absolute" margin-top="0.25rem" role="menu" padding="0.25rem" box-sizing="border-box" min-width="15rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" testId="details-lineage-menu"
+            button id="details-detach-session" press=act("shell:detach-session", "", "") popovertarget="details-lineage-menu" popovertargetaction="hide" role="menuitem" testId="details-detach-session" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              ShellIcon(name="unplug", size=14, color="light-dark(#18181b, #f5f5f5)")
+              text "Disconnect agent session" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// The Side chats section's one ThreadLineageGroup (no label, expanded): 6 rows, then "Show N more" adds 12 at a time.
+component SideChatGroup
+  props
+    details: ShellDetails
+    busy: bool
+    stopping: string
+    act: action
+    still: bool
+  state hovered = ""
+  state focused = ""
+  state shown = 6
+  action focusRow(id: string, on: bool)
+    focused = on ? id : (focused == id ? "" : focused)
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  action more
+    shown = shown + 12
+  action stop(op: string, id: string)
+    if not busy
+      act(op, id, "")
+  derive count = details.lineage.filter((r) => r.group == "side").length
+  view
+    column width="100%" role="list" aria-label="Side chats" testId="details-side-chats"
+      for row in details.lineage key=row.id
+        if row.group == "side" and row.index < shown
+          LineageRow(row=row, details=details, hovered=hovered, hover=hover, focused=focused, focusRow=focusRow, act=act, busy=busy, stopping=stopping, stop=stop, still=still)
+    if count > shown
+      ShowMore(count=min(count - shown, 12), hovered=(hovered == "more-side"), hover=hover("more-side"), press=more)
+
+component ShowMore
+  props
+    count: number
+    hovered: bool
+    hover: action
+    press: action
+  view
+    button press=press hover=hover width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      ShellIcon(name="plus", size=16, color=(hovered ? "light-dark(#18181bcc, #f5f5f5cc)" : "light-dark(#71717b, #a1a1a1)"))
+      text `Show ${count} more` font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(hovered ? "light-dark(#18181bcc, #f5f5f5cc)" : "light-dark(#71717b, #a1a1a1)")
+
+// One related thread: the relationship glyph (a subagent's provider mark) with
+// its status badge, the title, then one trailing item: an agent's compact
+// elapsed time, else the status (the hover arrow marks a thread that is not an
+// agent). A running T3-owned subagent trades that item for Stop while the row is
+// hovered or focused. The merge-back target is a split row whose second half
+// merges this fork's latest finished run back into it.
+component LineageRow
+  props
+    row: ShellLineage
+    details: ShellDetails
+    hovered: string
+    hover: action
+    focused: string
+    focusRow: action
+    act: action
+    busy: bool
+    stopping: string
+    stop: action
+    still: bool
+  derive stopHovered = hovered == `stop-${row.id}`
+  derive stopShown = row.canStop and (hovered == row.id or stopHovered or focused == row.id)
+  view
+    if row.kind != "thread" and row.kind != "workflow"
+      LineageBodyRow(row=row, act=act)
+    else
+      row position="relative" height="2rem" align-items="center" border-radius="0.5rem" role="listitem" background-color=(hovered == row.id or hovered == `merge-${row.id}` ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
+        // openSideChatTab: a side chat's row opens its tab beside this thread instead of the thread.
+        button press=act(row.group == "side" ? "shelllocal:surface-side-chat-open" : "select-thread", row.id, "") hover=hover(row.id) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=row.missing aria-label=`${row.title} ${row.status}` testId=`details-lineage-${row.id}` flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right=(row.kind == "workflow" ? "0.625rem" : row.mergeTarget ? "0.625rem" : "0.6875rem") box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" border-top-right-radius=(row.mergeTarget ? "0px" : "0.5rem") border-bottom-right-radius=(row.mergeTarget ? "0px" : "0.5rem") background-color=(row.mergeTarget and hovered == row.id ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+          box width="1rem" height="1rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+            if row.driver != ""
+              ProviderMark(driver=row.driver, size=16, color="light-dark(#71717b, #a1a1a1)")
+            else
+              ShellIcon(name=row.icon, size=16, color="light-dark(#71717b, #a1a1a1)")
+            box position="absolute" right="-0.25rem" bottom="-0.25rem" width="0.5rem" height="0.5rem" box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=2 border-color="light-dark(#ffffff, #111111)" background-color=row.dot
+          text row.title flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#18181bd9, #f5f5f5d9)"
+          if not row.agent
+            box opacity=(hovered == row.id ? 1 : 0) display="flex" flex-shrink=0
+              ShellIcon(name="arrow-right", size=12, color="light-dark(#71717b, #a1a1a1)")
+          if row.elapsed != ""
+            text row.elapsed flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`details-lineage-elapsed-${row.id}`
+          else if not row.mergeTarget
+            text row.status flex-shrink=0 opacity=(stopShown ? 0 : 1) font-size="0.6875rem" line-height="1rem" color=(row.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #a1a1a1)")
+        if row.mergeTarget
+          box width=1 height="1rem" flex-shrink=0 background-color=(hovered == row.id or hovered == `merge-${row.id}` ? "light-dark(#e4e4e7a6, #ffffff10)" : "#00000000")
+          box position="relative" flex-shrink=0 hover=hover(`merge-${row.id}`)
+            button press=act("shell:merge-back", details.mergeSourceId, `${details.mergeTargetId}|${details.mergeRunId}`) disabled=(details.mergeRunId == "") aria-label=details.mergeLabel testId=`details-merge-${row.id}` width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" border-top-left-radius=0 border-bottom-left-radius=0 opacity=(details.mergeRunId == "" ? 0.64 : 1) background-color=(hovered == `merge-${row.id}` and details.mergeRunId != "" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              ShellIcon(name="git-merge", size=12, color="light-dark(#18181bcc, #f5f5f5cc)")
+            TipBubble(label=details.mergeHint, side="top", align="end", offset=36, inset=0, shown=(hovered == `merge-${row.id}`))
+          text row.status flex-shrink=0 padding-left="0.25rem" padding-right="0.6875rem" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+        // Stop (ThreadDetailsControl part "icon", tone destructive): a 24pt square button 4pt in from the row's end,
+        // its tooltip to the left; while a command runs it is disabled, and the row it stops spins.
+        if row.kind == "workflow"
+          box width=1 height="1rem" flex-shrink=0 background-color=(hovered == row.id ? "light-dark(#e4e4e7a6, #ffffff10)" : "#00000000")
+          button press=act("ui:workflow-toggle", row.workflowId, "") aria-expanded=row.expanded aria-label=`${row.expanded ? "Collapse" : "Expand"} ${row.title}` testId=`details-workflow-toggle-${row.workflowId}` title="" focus=focusRow(row.id, true) blur=focusRow(row.id, false) width="2rem" height="2rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+            box rotate=(row.expanded ? 0 : 180) display="flex"
+              ShellIcon(name="chevron-down", size=12, color="light-dark(#71717b, #a1a1a1)")
+        if row.canStop
+          box position="absolute" right=(row.kind == "workflow" ? "2.25rem" : "0.25rem") top="0.25rem" width="1.5rem" height="1.5rem" opacity=(stopShown ? 1 : 0) pointer-events=(stopShown ? "auto" : "none") hover=hover(`stop-${row.id}`)
+            button press=stop(row.stopOp, row.stopTarget) focus=focusRow(row.id, true) blur=focusRow(row.id, false) disabled=busy aria-label=`Stop ${row.kind == "workflow" ? "workflow" : "subagent"} ${row.title}` testId=`details-lineage-stop-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.25rem" opacity=(busy ? 0.64 : 1) background-color=(stopHovered and not busy ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              if busy and stopping == row.stopTarget
+                box display="flex" animation=(still ? "none" : "lineageSpin 1s linear infinite")
+                  ShellIcon(name="loader", size=12, color="light-dark(#fb2c36, #fb414a)")
+              else
+                svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#fb2c36, #fb414a)" fill="currentColor" stroke="currentColor" stroke-width=1.75 stroke-linejoin="round" aria-hidden=true
+                  rect x=3 y=3 width=18 height=18 rx=2
+            row position="absolute" right="1.75rem" top=0 height="1.5rem" align-items="center" pointer-events="none" z-index=140
+              TipCard(label=(row.kind == "workflow" ? "Stop entire workflow" : "Stop subagent"), shown=stopHovered)
+
+// The workspace select's popup (SelectPopup alignItemWithTrigger=false, the trigger's width): a
+// "Workspace" group label, then Current checkout (the folder's name), New worktree and the
+// previous worktree; the current value is highlighted.
+// BranchToolbar's panel trigger: the machine leads and the workspace folder trails, so every row label starts on the
+// same edge. The machine glyph is drawn at 18 px in a 16 px box (size-4.5 -mx-px); a locked row's label takes the
+// locked span's muted colour in dark mode.
+component RunContextLabel
+  props
+    details: ShellDetails
+    locked: bool
+  view
+    Tip(label=details.git.runTip, side="top", align="center", offset=20)
+      box margin-left=-1 margin-right=-1 display="flex" flex-shrink=0
+        CnMachineIcon(kind=details.envKind, size=18, color="light-dark(#71717b, #a1a1a1)")
+    text details.envLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(locked ? "light-dark(#18181bcc, #a1a1a1)" : "light-dark(#18181bcc, #f5f5f5cc)") testId="details-environment-label" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+    Tip(label=details.git.workspaceTip, side="top", align="center", offset=20)
+      ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #a1a1a1)")
+
+component WorkspaceMenu
+  props
+    details: ShellDetails
+    act: action
+  action siblingHover(over: bool)
+    if over
+      hidePopover("details-workspace-menu-add-machine-menu")
+  view
+    // BranchToolbarEnvModeSelector's SelectPopup (align start): 4 pt below the trigger's start, flipping near an edge.
+    column id="details-workspace-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="16.5rem" testId="details-workspace-menu"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-label="Run context"
+        if details.git.envPick
+          text "Run on" padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1a1)"
+          for option in details.git.envOptions key=option.id
+            button press=act("environment-run-on", "", option.id) popovertarget="details-workspace-menu" popovertargetaction="hide" hover=siblingHover role="option" aria-selected=option.selected testId=`details-run-on-${option.id}` width="100%" min-height="1.8125rem" padding="0.5rem" box-sizing="border-box" gap="0.375rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              CnMachineIcon(kind=option.machine, size=12, color="light-dark(#71717b, #a1a1a1)")
+              text option.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.3125rem" color="light-dark(#18181b, #fafafa)"
+          if details.git.envAdd.length > 0
+            AddMachineOption(menu="details-workspace-menu", targets=details.git.envAdd, width=details.git.envAddMenuWidth, act=act)
+        text "Workspace" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+        WorkspaceOption(label="Current checkout", icon="folder", selected=(details.envMode == "local"), op="cclocal:env-mode", value="local", disabled=(not details.envModeSelect), act=act)
+        WorkspaceOption(label="New worktree", icon="folder-git-2", selected=(details.envMode == "worktree"), op="cclocal:env-mode", value="worktree", disabled=(not details.envModeSelect), act=act)
+        if details.previousLabel != ""
+          WorkspaceOption(label=details.previousLabel, icon="folder-git", selected=false, op="cclocal:previous-worktree", value="", disabled=(not details.envModeSelect), act=act)
+
+component WorkspaceOption
+  props
+    disabled: bool
+    label: string
+    icon: string
+    selected: bool
+    op: string
+    value: string
+    act: action
+  state over = false
+  action hover(value: bool)
+    over = value
+    // A sibling row takes the pointer: "Add to another machine"'s submenu closes.
+    if value
+      hidePopover("details-workspace-menu-add-machine-menu")
+  view
+    button press=act(op, "", value) disabled=disabled popovertarget="details-workspace-menu" popovertargetaction="hide" hover=hover role="option" aria-selected=selected testId=`details-workspace-${value == "" ? "previous" : value}` width="100%" min-height="1.8125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-width=0 border-radius="0.25rem" background-color=(over or selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      ShellIcon(name=icon, size=12, color="light-dark(#71717b, #a1a1a1)")
+      text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.3125rem" color="light-dark(#18181b, #fafafa)"
+
+// GitQuickActionIcon: a lucide glyph, or GitHub's mark for a pull request on GitHub.
+component ActionIcon
+  props
+    name: string
+  view
+    if name == "github"
+      svg width="1rem" height="1rem" viewBox="0 0 16 16" color="light-dark(#71717b, #a1a1a1)" fill="currentColor" flex-shrink=0 aria-hidden=true
+        path fill-rule="evenodd" clip-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z"
+    else
+      ShellIcon(name=name, size=16, color="light-dark(#71717b, #a1a1a1)")
+
+// OpenInPicker (panel form): the preferred editor's button, a hairline and the chevron that opens the Menu of editors,
+// as the project scripts row (project-scripts.contract).
+component OpenInRow
+  props
+    details: ShellDetails
+    // The row's width, which the menu takes (MenuPopup's w-(--anchor-width)).
+    menuWidth: number
+    act: action
+  state hovered = ""
+  state open = false
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  derive menuItems = details.editors.map((editor) => KmItem(id=`details-editor-${editor.id}`, label=editor.label))
+  // Base UI's MenuTrigger: Enter, Space, ↓ open the menu at its first item, ↑ at its last; with no editor listed the
+  // popup itself takes the focus (KeyMenu's autofocus).
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("details-editors-menu", source="details-choose-editor")
+        let target = kmTriggerTarget(menuItems, k)
+        if target != ""
+          focus(target)
+  action toggled(e: ToggleEvent)
+    open = e.newState == "open"
+  view
+    row height="2rem" align-items="center" border-radius="0.5rem" role="group" aria-label="Open in editor" testId="details-open-in" background-color=(hovered != "" or open ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
+      button id="details-open-editor" press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "") opacity=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "" ? 0.64 : 1)
+        if details.editorId != ""
+          ShellEditorIcon(editor=details.editorId, size=16)
+        else
+          box width="1rem" height="1rem" flex-shrink=0
+        text details.editorLabel flex=1 min-width=0 white-space="nowrap" overflow-x="clip" overflow-y="visible" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
+      box width=1 height="1rem" flex-shrink=0 background-color=(hovered != "" or open ? "light-dark(#e4e4e7a6, #ffffff10)" : "#00000000")
+      box position="relative" flex-shrink=0
+        button id="details-choose-editor" popovertarget="details-editors-menu" key=triggerKey hover=hover("editor-menu") aria-label="Choose editor" aria-haspopup="menu" aria-expanded=open testId="details-choose-editor" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color=(open or hovered == "editor-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #a1a1a1)")
+        OpenInMenu(details=details, items=menuItems, width=menuWidth, act=act, toggled=toggled)
+
+// OpenInPicker's MenuPopup (align="end", anchored at the row, as wide): 4pt under the row, its right edge on the
+// chevron's, which ends the row. A popover, so a press anywhere outside it or Escape closes it, as Base UI's Menu
+// does; it is modal while it shows, so its Escape is not the details popover's backdrop's.
+component OpenInMenu
+  inject
+    dialogMenuEntered: action
+  props
+    details: ShellDetails
+    items: KmItem[]
+    width: number
+    act: action
+    toggled: action
+  view
+    column id="details-editors-menu" data-dialog-return="menu" focusin=dialogMenuEntered("details-editors-menu", "details-choose-editor") toggle=toggled popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width=width testId="details-editors-layer"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
+        if details.editorUnavailable != ""
+          DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
+        if details.editorEmpty
+          DisabledEditorItem(label="No installed editors found", testId="details-editor-none")
+        KeyMenu(menuId="details-editors-keys", items=items, keyed=0, gap="0px", modal=true)
+          for editor in details.editors key=editor.id
+            EditorOption(keysId="details-editors-keys", editor=editor, cwd=details.cwd, shortcut=details.editorShortcut, act=act)
+        if details.editorHint != ""
+          DisabledEditorItem(label=details.editorHint, testId="details-editor-remote-hint")
+
+component EditorOption
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    editor: ShellEditor
+    cwd: string
+    shortcut: string
+    act: action
+  state lit = false
+  action hover(value: bool)
+    if value
+      focus(`details-editor-${editor.id}`)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=`details-editor-${editor.id}` press=act("ui:editor", cwd, editor.id) popovertarget="details-editors-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=`details-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color=(lit ? "light-dark(#18181b14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0
+        ShellEditorIcon(editor=editor.id, size=16)
+      text editor.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+      if editor.selected and shortcut != ""
+        text shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.05em" color="light-dark(#71717b, #a1a1a1)"
+
+// A disabled MenuItem (opacity-64, no hover): OpenInPicker's "No SSH route to …", "No installed
+// editors found" and the one-time "Opens over SSH. Needs your key on …".
+component DisabledEditorItem
+  props
+    label: string
+    testId: string
+  view
+    button disabled=true role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" opacity=0.64 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+      text label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"

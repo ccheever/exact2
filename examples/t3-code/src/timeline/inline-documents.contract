@@ -1,0 +1,125 @@
+// A bundled text/object adapter embeds the server-owned document in an opaque frame.
+use Icon from "../shared/icons.contract"
+shape InlineDocumentPost
+  key: string
+  text: string
+shape InlineDocument
+  key: string
+  kind: string
+  title: string
+  server: string
+  src: string
+  ready: bool
+  error: string
+  height: number
+  posts: InlineDocumentPost[]
+  permission: string
+  permissionSerial: number
+  fullscreen: bool
+  closed: bool
+  shortcut: string
+  shortcutSerial: number
+
+component InlineDocumentFrame
+  inject
+    inlineDocumentViewportWidth: number
+    inlineDocumentViewportHeight: number
+  props
+    document: InlineDocument
+    local: action
+  state presented = false
+  state zoom = 1
+  derive gap = document.fullscreen and document.kind == "html" ? 32 : 0
+  action zoomIn
+    if zoom < 2
+      zoom = zoom + 0.25
+  action zoomOut
+    if zoom > 0.5
+      zoom = zoom - 0.25
+  action resetZoom
+    zoom = 1
+  action contentMeasured(width: number, height: number)
+    local("inline-doc-measure", document.key, `${width}|${height}`)
+  action laidOut(width: number, height: number)
+    if document.fullscreen and not presented
+      presented = true
+      showPopover(`inline-box-${document.key}`)
+    else if not document.fullscreen
+      presented = false
+      zoom = 1
+  action reported(payload: string)
+    local("inline-doc-message", document.key, payload)
+  action loaded
+    local("inline-doc-loaded", document.key, "")
+  view
+    box width="100%" min-width=0 position="relative" height=(document.height) overflow="hidden" testId=`inline-doc-${document.key}`
+      for post in document.posts.slice(0, 1) key=post.key
+        InlineDocumentPostDelivery(post=post, target=`inline-frame-${document.key}`, local=local, documentKey=document.key)
+      if document.shortcut != ""
+        for serial in [document.shortcutSerial] key=serial
+          InlineDocumentShortcutDelivery(name=document.shortcut)
+      box id=`inline-box-${document.key}` popover=(document.fullscreen ? some("manual") : none) position=(document.fullscreen ? "absolute" : "relative") width=(document.fullscreen ? inlineDocumentViewportWidth : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight : document.height) margin=0 padding=0 border-width=0 background-color="light-dark(#fcfcfc, #000000)" resize=laidOut
+        if document.fullscreen and document.kind == "mcp"
+          row width="100%" height=40 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" border-bottom-width=1 border-bottom-style="solid" border-bottom-color="light-dark(#e4e4e7, #ffffff14)" align-items="center" justify-content="space-between" testId="inline-doc-mcp-toolbar"
+            text document.server min-width=0 text-overflow="ellipsis" white-space="nowrap" overflow="hidden" font-size="0.875rem" line-height="1.25rem"
+            button press=local("inline-doc-fullscreen", document.key, "close") aria-keyshortcuts="Escape" aria-label="Exit full screen" title="" testId="inline-doc-exit" width="1.75rem" height="1.75rem" padding=0 border-width=0 background-color="#00000000" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              Icon(name="minimize", size=16, color="-exact-label")
+        if document.closed
+          row gap="0.5rem" align-items="center"
+            text "This app was closed." flex=1 color="-exact-secondary-label"
+            button press=local("inline-doc-retry", document.key, "") testId="inline-doc-reopen"
+              text "Show app"
+        else if document.error != ""
+          column height="100%" width="100%" align-items="center" justify-content="center" gap="0.5rem"
+            text `Unable to load ${document.title}.` color="-exact-secondary-label" font-size="0.875rem"
+            button press=local("inline-doc-retry", document.key, "") testId="inline-doc-retry"
+              text "Retry"
+        else
+          // HtmlRenderDialog: a full-screen page keeps a 16pt gap from the frame's edge (p-4); the page fills what is left.
+          scroll width="100%" height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40) : document.height) padding=(gap / 2) box-sizing="border-box" overflow=(document.fullscreen ? "auto" : "hidden") resize=contentMeasured
+            box width=(document.fullscreen ? (inlineDocumentViewportWidth - gap) * zoom : "100%") height=(document.fullscreen ? (inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40) - gap) * zoom : document.height)
+              if document.src != ""
+                iframe id=`inline-frame-${document.key}` src=document.src sandbox="allow-scripts allow-forms allow-popups allow-downloads" message=reported load=loaded width=(document.fullscreen ? inlineDocumentViewportWidth - gap : "100%") height=(document.fullscreen ? inlineDocumentViewportHeight - (document.kind == "html" ? 48 : 40) - gap : document.height) scale=zoom transform-origin="0 0" border-width=0 aria-label=document.title testId="inline-doc-frame"
+          if not document.fullscreen or document.kind == "html"
+            button press=local("inline-doc-fullscreen", document.key, document.fullscreen ? "close" : "open") aria-keyshortcuts=(document.fullscreen ? "Escape" : "") position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 aria-label=(document.kind == "html" ? (document.fullscreen ? "Close" : "Open full screen") : "Expand document") title="" testId="inline-doc-expand"
+              Icon(name=(document.fullscreen ? "x" : "maximize"), size=14, color="-exact-label")
+
+        if document.fullscreen and document.kind == "html"
+          row position="absolute" left=0 right=0 bottom=0 height=48 justify-content="center" align-items="center" gap="0.5rem" background-color="light-dark(#fcfcfc, #000000)"
+            text document.title max-width="40%" text-overflow="ellipsis" white-space="nowrap" overflow="hidden"
+            button press=zoomOut disabled=(zoom <= 0.5) aria-label="Zoom out" title="" testId="inline-doc-zoom-out"
+              Icon(name="minus", size=14, color="-exact-label")
+            button press=resetZoom aria-label="Reset zoom" testId="inline-doc-zoom-reset"
+              text `${zoom * 100}%` font-variant-numeric="tabular-nums"
+            button press=zoomIn disabled=(zoom >= 2) aria-label="Zoom in" title="" testId="inline-doc-zoom-in"
+              Icon(name="plus", size=14, color="-exact-label")
+
+
+
+component InlineDocumentPostDelivery
+  props
+    post: InlineDocumentPost
+    target: string
+    documentKey: string
+    local: action
+  state sent = false
+  action laidOut(width: number, height: number)
+    if width > 0 and height > 0 and not sent
+      sent = true
+      postMessage(post.text, target)
+      local("inline-doc-ack", documentKey, post.key)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut
+
+component InlineDocumentShortcutDelivery
+  inject
+    inlineDocumentShortcut: action
+  props
+    name: string
+  state sent = false
+  action laidOut(width: number, height: number)
+    if width > 0 and height > 0 and not sent
+      sent = true
+      inlineDocumentShortcut(name)
+  view
+    box width=1 height=1 position="absolute" opacity=0 pointer-events="none" aria-hidden=true resize=laidOut

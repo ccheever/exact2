@@ -1,0 +1,720 @@
+// The Files surface (files-surface.ts), measured on the
+// served reference (MIT, see LICENSE-T3: components/files/FilePreviewPanel.tsx,
+// FileBrowserPanel.tsx, FileBreadcrumbs.tsx, fileSurfaceChrome.tsx and the
+// compact @pierre/trees tree): the explorer alone, or a file's subheader
+// (breadcrumbs, Open in editor, rendered/wrap/explorer toggles), its numbered
+// lines and the explorer beside them. `local` is the window's chatLocal: a
+// `surface-*` op reaches panel-surfaces.ts without the command gate.
+use FilesView from "./panel-shapes.contract"
+use FieldPlaceholder from "../shared/field-placeholder.contract"
+use FilesTreeRow from "./panel-shapes.contract"
+use FilesCrumb from "./panel-shapes.contract"
+use FilesCrumbMenu from "./panel-shapes.contract"
+use FilesCodeLine from "./panel-shapes.contract"
+use ShellIcon from "../shell/shell-icons.contract"
+use ShellEditorIcon from "../shell/shell-icons-kit.contract"
+use TipBubble from "../shell/shell-tip.contract"
+use FileTypeIcon from "../shared/timeline-files.contract"
+use synColor, synSlant, synWeight from "../highlight/syntax-ink.contract"
+use DiffCommentCard, DiffDraftCard from "../diff/diff-comments.contract"
+use diffSel from "../diff/diff-rows.contract"
+use DiagramBlocks, ChatDocument from "../timeline/markdown.contract"
+use FilesMedia from "../media/media-actions.contract"
+use MediaFrame from "../media/media-frame.contract"
+use PreviewImage, ImageActions from "./preview-image.contract"
+use MermaidFileView from "./mermaid-file.contract"
+use FileSurfaceFailure, FileSurfaceAction from "./file-surface-chrome.contract"
+use ViewerFrame from "./viewer-frame.contract"
+use AttachmentBody from "./pr-attachment.contract"
+use PanelIcon from "./panel-icons.contract"
+use SidebarMenuCard, SidebarMenuItem from "../sidebar/sidebar-row.contract"
+use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
+use KmItem from "../shared/menu-keys.contract"
+use KeyMenu from "../shared/menu-keys.contract"
+use kmKeyEnd from "../shared/menu-keys.contract"
+use kmEndKeyed from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
+
+// The surface body under the panel's tab bar; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88) (file icons, chevrons).
+component FilesBody
+  props
+    family: string
+    files: FilesView
+    // app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
+    documents: ChatDocument[]
+    scheme: string
+    sheet: bool
+    // prefers-reduced-motion: a loading folder's spinner stays still.
+    still: bool
+    local: action
+    searchFocus: action
+  view
+    FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
+
+component FilesSurface
+  props
+    family: string
+    files: FilesView
+    documents: ChatDocument[]
+    scheme: string
+    sheet: bool
+    still: bool
+    local: action
+    searchFocus: action
+  derive beside = files.path != "" and files.preview != ""
+  // FileExplorerPane: beside a file the explorer is 160 to 560 wide and leaves the file 256; the width is saved when a
+  // drag ends or a key moves it.
+  state rowWidth = 0
+  state userWidth = -1
+  derive explorerMax = max(160, min(560, rowWidth - 256))
+  derive explorerWidth = max(160, min(explorerMax, userWidth >= 0 ? userWidth : files.explorerWidth))
+  action rowSized(width: number, height: number)
+    rowWidth = width
+  action explorerResize(dx: number, dy: number)
+    userWidth = max(160, min(explorerMax, explorerWidth - dx))
+  action explorerResized(vx: number, vy: number)
+    local("surface-files-explorer-width", "", `${explorerWidth}`)
+  action explorerSet(width: number)
+    let next = max(160, min(explorerMax, width))
+    userWidth = next
+    local("surface-files-explorer-width", "", `${next}`)
+  view
+    column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
+      if files.subheader
+        FileHeader(files=files, sheet=sheet, local=local)
+      if files.truncatedNote != ""
+        text files.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
+      row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch" resize=rowSized
+        if beside
+          column flex=1 min-width=0 min-height=0 overflow="hidden"
+            FilePreview(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local)
+        if files.showExplorer
+          column min-height=0 min-width=0 position="relative" flex-shrink=(beside ? 0 : 1) flex-grow=(beside ? 0 : 1) width=(beside ? `${explorerWidth}px` : "100%") box-sizing="border-box" border-left-width=(beside ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0c)" aria-label="File explorer" testId="files-explorer"
+            if beside
+              ExplorerResizeHandle(width=explorerWidth, max=explorerMax, resize=explorerResize, finish=explorerResized, set=explorerSet)
+            FilesExplorer(files=files, sheet=sheet, still=still, local=local, searchFocus=searchFocus)
+
+// RightPanelResizeHandle over the explorer's left edge (`absolute inset-y-0 -left-1 w-2`, z 20): its 1pt line shows in
+// the border colour on hover and in primary/60 while dragged or focused from the keyboard. ← widens and → narrows the
+// explorer by 16, Home takes the least and End the most.
+component ExplorerResizeHandle
+  props
+    width: number
+    max: number
+    resize: action
+    finish: action
+    set: action
+  state hovered = false
+  state dragging = false
+  state keyFocus = false
+  action hover(over: bool)
+    hovered = over
+  action down(e: PointerEvent)
+    dragging = true
+    keyFocus = false
+  action released(vx: number, vy: number)
+    dragging = false
+    finish(vx, vy)
+  action up(e: PointerEvent)
+    dragging = false
+  action blurred()
+    keyFocus = false
+  action keyed(k: string, e: KeyboardEvent)
+    if not e.altKey and not e.ctrlKey and not e.metaKey and (k == "ArrowLeft" or k == "ArrowRight" or k == "Home" or k == "End")
+      preventDefault()
+      stopPropagation()
+      keyFocus = true
+      set(k == "ArrowLeft" ? width + 16 : k == "ArrowRight" ? width - 16 : k == "Home" ? 160 : max)
+  view
+    box position="absolute" top=0 bottom=0 left="-0.25rem" width="0.5rem" z-index=20 cursor="col-resize" touch-action="none" tabindex=0 pan=resize panrelease=released pointerdown=down pointerup=up hover=hover key=keyed blur=blurred role="separator" aria-orientation="vertical" aria-label="Resize file explorer" aria-valuenow=width aria-valuemin=160 aria-valuemax=max testId="files-explorer-resize"
+      box position="absolute" top=0 bottom=0 left="3.5px" width=1 pointer-events="none" background-color=(dragging or keyFocus ? "light-dark(#1b4ed899, #346bf199)" : hovered ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")
+
+// FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel, 40pt over a hairline in a sheet; 12pt sides, 8pt gaps.
+component FileHeader
+  props
+    files: FilesView
+    sheet: bool
+    local: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  state editorsOpen = false
+  derive editorItems = files.editorUnavailable != "" ? [] : files.editors.map((editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))
+  // Base UI's MenuTrigger: Enter, Space, ↓ open the "Open in" menu at its first item, ↑ at its last.
+  action editorsKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("file-editors-menu", source="file-choose-editor")
+        let target = kmTriggerTarget(editorItems, k)
+        if target != ""
+          focus(target)
+  action editorsToggled(e: ToggleEvent)
+    editorsOpen = e.newState == "open"
+  view
+    row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" background-color=(sheet ? "light-dark(#ffffff, #000000)" : "#00000000") testId="file-subheader"
+      // A clip whose `w-max min-w-full` trail is end-justified (files-crumbs-scroll.ts), faded on its left while it overflows.
+      row hatch="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
+        row hatch="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
+          for crumb in files.crumbs key=crumb.id
+            FilesCrumbView(crumb=crumb, menu=files.crumbMenu, open=(files.crumbMenu.open and files.crumbMenu.root == crumb.id), local=local)
+      if files.absolutePath != "" and files.editorShow
+        row flex-shrink=0 height="1.5rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" role="group" aria-label="Open in editor"
+          box position="relative"
+            button disabled=(files.editorUnavailable != "" or files.editorId == "") press=local("surface-files-open-editor", files.absolutePath, "") hover=hover("editor") aria-label="Open file in preferred editor" testId="file-open-editor" width="1.5rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(hovered == "editor" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              ShellEditorIcon(editor=files.editorId, size=14)
+            TipBubble(label=(files.editorUnavailable != "" ? files.editorUnavailable : files.editorLabel), side="bottom", align="center", offset=28, inset=0, shown=(hovered == "editor"))
+          box width=1 height="1.375rem" background-color="light-dark(#d4d4d8, #ffffff1c)"
+          box position="relative" flex-shrink=0
+            button id="file-choose-editor" popovertarget="file-editors-menu" key=editorsKey hover=hover("editors") aria-label="Choose editor" aria-haspopup="menu" aria-expanded=editorsOpen testId="file-choose-editor" width="1.4375rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(editorsOpen or hovered == "editors" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              ShellIcon(name="chevron-down", size=14, color="light-dark(#18181b, #f5f5f5)")
+            FileEditorsMenu(files=files, items=editorItems, toggled=editorsToggled, local=local)
+      if files.canRender
+        FilesToggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
+      // Word wrap reaches only the text bodies: an image, a video, a rendered document or page has none (showsRawText).
+      if files.rawText
+        FilesToggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", files.path, ""))
+      if files.openInBrowser
+        FilesToggle(id="open-browser", label="Open file in preview browser", icon="earth", pressed=false, hovered=hovered, hover=hover, press=local("surface-files-open-browser", files.path, ""))
+      if files.explorerToggle
+        FilesToggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
+
+// One row of a folder crumb's menu: its Pierre glyph, label and a chevron for a folder; the open file is the checked
+// radio item (MenuRadioItem: `data-checked:bg-foreground/[0.08]`, no indicator; icons `-mx-0.5`).
+component FilesCrumbItem
+  props
+    // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
+    keysId: string
+    label: string
+    icon: string
+    token: string
+    trailing: bool
+    current: bool
+    ignored: bool
+    test: string
+    press: action
+  state lit = false
+  action hover(over: bool)
+    if over
+      focus(test)
+    else if lit
+      focus(keysId)
+  action focused(on: bool)
+    lit = on
+  view
+    button id=test press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=test width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : current ? "light-dark(#0a0a0a14, #fafafa14)" : "#00000000")
+      box margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex"
+        if token != ""
+          FileTypeIcon(token=token, size=16)
+        else
+          if icon == "arrow-left"
+            PanelIcon(name="arrow-left", size=16, color="light-dark(#71717b, #a1a1a1)")
+          else
+            ShellIcon(name=icon, size=16, color="light-dark(#71717b, #a1a1a1)")
+      text label flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.875rem" line-height="1.25rem" color=(ignored ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)")
+      if trailing
+        box margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex"
+          ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #a1a1a1)")
+
+// FileSurfaceAction as a Toggle (ghost sm): 28pt, 10pt radius, the accent fill when pressed.
+component FilesToggle
+  props
+    id: string
+    label: string
+    icon: string
+    pressed: bool
+    hovered: string
+    hover: action
+    press: action
+  view
+    box position="relative" flex-shrink=0
+      button press=press hover=hover(id) aria-label=label testId=`file-toggle-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
+        PanelIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
+      TipBubble(label=label, side="bottom", align="end", offset=32, inset=0, shown=(hovered == id))
+
+// FileBreadcrumbs: 12pt crumbs (2pt sides, 4pt radius), the current one medium foreground. A folder crumb moves the
+// browser to its folder, muted further below the current one; the 16 × 20 chevron after it opens the folder's contents
+// (FolderContentsMenu), a host path's plain 14pt chevron does not.
+component FilesCrumbView
+  inject
+    dialogMenuEntered: action
+  props
+    crumb: FilesCrumb
+    menu: FilesCrumbMenu
+    // This crumb's folder is the one the data module lists.
+    open: bool
+    local: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  state chevronOver = false
+  action chevronHover(value: bool)
+    chevronOver = value
+  // The end of the menu a key on the chevron asked for (Enter, Space or ↓ the first item, ↑ the last; a pointer press
+  // none), read by the menu's rows as they mount once the data module has listed the folder (menu-keys.contract).
+  state menuEnd = ""
+  action crumbKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        menuEnd = kmKeyEnd(k)
+        showPopover(`crumb-menu-${crumb.id}`, source=`crumb-${crumb.id}`)
+  // The popover opens and closes the listing: Base UI's Menu opens on the chevron's press, and any press outside it,
+  // Escape or a file picked closes it.
+  action toggled(e: ToggleEvent)
+    if e.newState == "open"
+      local("surface-files-crumb", crumb.path, "open")
+    else
+      menuEnd = ""
+      local("surface-files-crumb-close", crumb.path, "")
+  // A file opens and closes the menu; a folder or Back lists inside it (FileBreadcrumbs' closeOnClick={false}).
+  action pick(path: string, directory: bool)
+    if not directory
+      hidePopover(`crumb-menu-${crumb.id}`)
+    local(directory ? "surface-files-crumb-dir" : "surface-file", path, "")
+  view
+    box display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center" testId=`crumb-item-${crumb.id}`
+      if crumb.current
+        text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)" aria-current="page"
+      else if crumb.navigable
+        button press=local("surface-files-crumb-go", crumb.path, "") hover=hover aria-label=crumb.label testId=`crumb-go-${crumb.id}` max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          text crumb.label font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(over ? "light-dark(#18181b, #f5f5f5)" : crumb.descendant ? "light-dark(#71717bb3, #a1a1a1b3)" : "light-dark(#71717b, #a1a1a1)")
+      else
+        text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+      if not crumb.last
+        if crumb.menu
+          box position="relative" flex-shrink=0 display="flex" margin-left="0.125rem" margin-right="0.125rem"
+            button id=`crumb-${crumb.id}` popovertarget=`crumb-menu-${crumb.id}` key=crumbKey hover=chevronHover aria-label=`Browse ${crumb.label}` title="" aria-haspopup="menu" aria-expanded=open testId=`crumb-${crumb.id}` width="1rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+              ShellIcon(name="chevron-right", size=14, color=(chevronOver or open ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b99, #a1a1a199)"))
+            // FolderContentsMenu's MenuPopup (align start): 4pt under the chevron, flipping near an edge.
+            column id=`crumb-menu-${crumb.id}` data-dialog-return="menu" focusin=dialogMenuEntered(`crumb-menu-${crumb.id}`, `crumb-${crumb.id}`) toggle=toggled popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" max-width="20rem" testId=`crumb-menu-layer-${crumb.id}`
+              column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=crumb.label testId="crumb-menu"
+                // Mounted once the data module lists this folder, so the rows a key asked for are there to take the focus.
+                if open
+                  KeyMenu(menuId="crumb-menu-keys", items=(menu.back != "" ? [KmItem(id="crumb-back", label=menu.back)] : []).concat(menu.statusRetry ? [KmItem(id="crumb-retry", label=menu.status)] : []).concat(menu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))).concat(menu.retry != "" ? [KmItem(id="crumb-refresh-retry", label=menu.retry)] : []), keyed=kmEndKeyed(menuEnd), gap="0px", modal=true)
+                    if menu.back != ""
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=pick(menu.backPath, true))
+                      box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
+                    // A first listing that failed is a row that lists the folder again (FileBreadcrumbs "Retry loading folder").
+                    if menu.statusRetry
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.status, icon="refresh", token="", trailing=false, current=false, ignored=false, test="crumb-retry", press=pick(menu.dir, true))
+                    else if menu.status != ""
+                      text menu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#18181b, #f5f5f5)"
+                    for entry in menu.entries key=entry.id
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=pick(entry.path, entry.directory))
+                    // A refresh that failed keeps the entries it had, then offers another (FileBreadcrumbs "Refresh failed. Retry").
+                    if menu.retry != ""
+                      box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff14)"
+                      FilesCrumbItem(keysId="crumb-menu-keys", label=menu.retry, icon="refresh", token="", trailing=false, current=false, ignored=false, test="crumb-refresh-retry", press=local("surface-files-crumb-refresh", menu.dir, ""))
+        else
+          box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex" aria-hidden=true
+            ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #a1a1a199)")
+
+// OpenInPicker (compact, in the file's subheader): its MenuPopup (align="end") 4pt under the chevron, its right edge on
+// the chevron's. A popover, so a press anywhere outside it or Escape closes it, as Base UI's Menu does; it is modal
+// while it shows, so its Escape is not the right panel sheet's toggle's.
+component FileEditorsMenu
+  inject
+    dialogMenuEntered: action
+  props
+    files: FilesView
+    items: KmItem[]
+    toggled: action
+    local: action
+  // The "Open in" rows are MenuItems (menu-keys.contract), highlighted by their focus alone; the
+  // pointer entering one focuses it, and leaving the one that holds the focus hands it to the popup.
+  state lit = ""
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
+  action hover(id: string, over: bool)
+    if over
+      focus(`file-editor-${id}`)
+    else if lit == id
+      focus("file-editors-keys")
+  view
+    column id="file-editors-menu" data-dialog-return="menu" focusin=dialogMenuEntered("file-editors-menu", "file-choose-editor") toggle=toggled popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" min-width="10rem" testId="file-editors-layer"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
+        KeyMenu(menuId="file-editors-keys", items=items, keyed=0, gap="0px", modal=true)
+          if files.editorUnavailable != "" or files.editors.length == 0
+            text (files.editorUnavailable != "" ? files.editorUnavailable : "No installed editors found") padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-unavailable"
+          if files.editorHint != "" and files.editorUnavailable == ""
+            text files.editorHint padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-remote-hint"
+          for editor in files.editors key=editor.id
+            button id=`file-editor-${editor.id}` press=local("surface-files-open-editor", files.absolutePath, editor.id) popovertarget="file-editors-menu" popovertargetaction="hide" hover=hover(editor.id) focus=focused(editor.id, true) blur=focused(editor.id, false) role="menuitem" testId=`file-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(lit == editor.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              ShellEditorIcon(editor=editor.id, size=16)
+              text editor.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// The file body: a spinner while it reads, its error, the rendered Markdown or
+// table, or Pierre's numbered lines (13/20 mono on the code background). A click
+// on an editable file opens the editor over the same text (files-surface.ts
+// keeps its starting text fixed for the session); each change is written back.
+component FilePreview
+  props
+    family: string
+    files: FilesView
+    documents: ChatDocument[]
+    scheme: string
+    // In a sheet the attachment body's row is FILE_SURFACE_SUBHEADER_CLASS's 40pt over a hairline, not the inline 28pt.
+    sheet: bool
+    local: action
+  action noCite(blockId: string, runId: string, s: Selection)
+    let ignored = blockId
+  // The picture's failure is the image body's own (PreviewImage).
+  action imageFailed(message: string)
+    let ignored = message
+  // A document's body sends its controls as Files' own (`surface-files-att-*`); the rest go on to the window.
+  action attLocal(op: string, id: string, value: string)
+    if op.startsWith("surface-linked-att-")
+      local(`surface-files-att-${op.slice(19)}`, id, value)
+    else
+      local(op, id, value)
+  // The viewer page's messages ride in the op (files-viewer.ts), and the Full file subheader's controls.
+  state fullHovered = ""
+  action fullHover(id: string, over: bool)
+    fullHovered = over ? id : (fullHovered == id ? "" : fullHovered)
+  action viewerSaid(payload: string)
+    local(`surface-files-viewer:${payload}`, files.absolutePath, "")
+  action viewerPosted(key: string)
+    local(`surface-files-viewer-posted:${key}`, files.absolutePath, "")
+  action viewerPicked(value: string)
+    local(`surface-files-viewer-pick:${value}`, files.absolutePath, "")
+  // diff-review: the open comment draft's text (FilePreviewPanel's annotation draft).
+  state draftText = ""
+  action editDraft(text: string)
+    draftText = text
+  action beginComment(line: number)
+    draftText = ""
+    local("surface-files-comment-begin", files.path, `${line}`)
+  action cancelComment
+    draftText = ""
+    local("surface-files-comment-cancel", files.path, "")
+  action saveComment
+    local("surface-files-comment-save", files.path, draftText)
+    draftText = ""
+  // Escape leaves the editor and keeps the panel (installFileEditorDismissal blurs it); the blur ends the
+  // editing. It had no Escape of its own while the panel toggle took the key.
+  action editorKey(k: string)
+    if k == "Escape"
+      preventDefault()
+      blur()
+  // A press in the file's body mounts the editor in its own action, so the host begins editing it under the press
+  // (focus taken from the composer, the caret under the click, the end below the text), as the reference's
+  // contenteditable takes a click. Once the data module has heard that press (`files.editPress`), its `files.editing`
+  // keeps the editor mounted and the press's mark no longer counts, so a file left while editing does not reopen it.
+  state pressedEdit = ""
+  state pressedSerial = 0
+  derive editing = files.editing or (files.editable and pressedEdit == files.path and files.editPress != `${pressedSerial}`)
+  action beginEdit
+    let serial = pressedSerial + 1
+    pressedSerial = serial
+    if files.editable
+      pressedEdit = files.path
+    local("surface-files-begin-edit", files.path, `${serial}`)
+  action endEdit
+    pressedEdit = ""
+    local("surface-files-end-edit", files.path, "")
+  view
+    if files.preview == "loading"
+      column flex=1 align-items="center" justify-content="center" testId="file-loading"
+        PanelIcon(name="loader", size=24, color="light-dark(#71717b, #a1a1a1)")
+    // A read error names what it tried: the attempted path and, for a workspace file, the workspace folder (FilePreviewPanel).
+    if files.preview == "error"
+      scroll flex=1 min-height=0 width="100%" role="alert" testId="file-error-body"
+        column min-height="100%" width="100%" justify-content="center"
+          column flex-shrink=0 gap="0.75rem" padding="1.5rem" box-sizing="border-box" align-items="center"
+            text files.previewError width="100%" text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-error"
+            if files.errorPath != ""
+              column width="100%" align-items="center" testId="file-error-path"
+                text "Attempted path" text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#71717b, #a1a1a1)"
+                text files.errorPath width="100%" text-align="center" font-family=family font-size="0.75rem" line-height="1.21875rem" overflow-wrap="anywhere" user-select="all" color="light-dark(#18181b, #f5f5f5)"
+            if files.errorCwd != ""
+              text width="100%" text-align="center" font-size="0.75rem" line-height="1.21875rem" overflow-wrap="anywhere" color="light-dark(#71717b, #a1a1a1)" testId="file-error-cwd"
+                text "Workspace folder: "
+                text files.errorCwd font-family=family user-select="all"
+                text ". Check the link's path or locate the file in Files."
+    if files.preview == "markdown"
+      scroll flex=1 min-height=0 width="100%" testId="file-markdown"
+        column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
+          // FileMarkdownPreview: ChatMarkdown with the file's own folder for its links and images (files-surface.ts renderedMarkdown).
+          for document in documents.filter((entry) => entry.id == `file:${files.path}`) key=document.id
+            DiagramBlocks(document=document, local=local, code=files.code, diagrams=files.diagrams, prose="light-dark(#18181bcc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=files.codeCopied, copiedNonce=files.codeCopyNonce, env=files.md, urls=files.mdUrls, source="", cite=noCite, markStart=-1, markEnd=-1)
+    // A PDF (PdfViewer), a rendered CSV or TSV table (DelimitedTablePreview) or a file past 1 MB (WorkspaceLargeTextPreview,
+    // under its "Full file" subheader) in the viewer page.
+    if files.preview == "viewer"
+      column flex=1 min-height=0 width="100%"
+        if files.fullFile.open
+          row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" testId="file-full-subheader"
+            text "Full file" flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+            FileSurfaceAction(id="full-copy", ids="", label=files.fullFile.copyLabel, icon=(files.fullFile.copied ? "check" : "copy"), toggle=false, pressed=false, disabled=false, hovered=fullHovered, hover=fullHover, press=local("surface-files-full-copy", files.absolutePath, ""))
+            FileSurfaceAction(id="full-save", ids="", label=files.fullFile.saveLabel, icon="download", toggle=false, pressed=false, disabled=files.fullFile.saving, hovered=fullHovered, hover=fullHover, press=local("surface-files-full-save", files.absolutePath, ""))
+        // A new frame, with a new page, for each id (files-viewer.ts): a page narrows its connections once, to none
+        // for a table's text, so a file from the server needs another.
+        for frame in [files.viewer] key=frame.id
+          ViewerFrame(frame=frame, scheme=scheme, sheet=sheet, message=viewerSaid, posted=viewerPosted, pick=viewerPicked, label=files.path, testId="file-viewer")
+    if files.preview == "mermaid"
+      MermaidFileView(diagrams=files.diagrams, note=files.mermaidNote, scheme=scheme, local=local, testId="file-mermaid")
+    // An image or video file with its menu, tooltip and failure states (FilesMedia); a signed picture has the size and
+    // zoom bar, and its own "Unable to load image." when it does not load (WorkspaceImagePreview's PreviewImage).
+    if files.preview == "media"
+      if files.media.kind == "image" and files.media.state == "ready"
+        ImageActions(source=files.media.source, tip=files.media.tip, local=local, testId="file-image-actions")
+          for url in [files.media.url] key=url
+            PreviewImage(url=url, name=files.media.name, zoomId="file-image-zoom", expand=local("surface-files-image-open", url, files.media.name), failed=imageFailed, testId="file-image")
+      else
+        FilesMedia(media=files.media, local=local)
+    // WorkspaceAudioPreview: AudioPreview's player centred in 24pt, or "Unable to load audio." with Try again.
+    if files.preview == "audio"
+      column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="file-audio"
+        // One player per file: FilePreviewPanel keys WorkspaceAudioPreview by environment, thread and path.
+        for shown in [files.fileKey] key=shown
+          FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
+    // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
+    if files.preview == "attachment"
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="")
+    // WorkspaceLargeTextPreview: the full file's URL was not signed.
+    if files.preview == "full-error"
+      FileSurfaceFailure(message=files.previewError, canRetry=true, retry=local("surface-files-full-retry", files.absolutePath, ""), testId="file-full-failed")
+    if files.preview == "audio-error"
+      FileSurfaceFailure(message="Unable to load audio.", canRetry=true, retry=local("surface-files-audio-retry", files.absolutePath, ""), testId="file-audio-failed")
+    // A rendered HTML page, as an attachment's (BrowserDocumentFrame, media-frame.contract).
+    if files.preview == "html"
+      box position="relative" flex=1 min-height=0 width="100%" background-color="#ffffff"
+        MediaFrame(src=files.url, name=files.path, testId="file-html")
+    if files.preview == "code"
+      scroll flex=1 min-height=0 width="100%" testId="file-code"
+        // The editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
+        column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=beginEdit role="code" aria-label=files.path testId="file-lines"
+          for line in files.lines key=line.id
+            if line.kind == "line"
+              FilesCodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or editing), local=local, begin=beginComment)
+            if line.kind == "note"
+              DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
+            if line.kind == "draft"
+              // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
+              // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts).
+              DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
+          // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
+          if editing
+            // A change from outside replaces the text: the editor mounts again on it (EditableFileSurface's externalFile).
+            for revision in [files.editorRevision] key=revision
+              textarea id="file-editor" value=(files.editing ? files.editorText : files.text) input=local("surface-files-edit", files.path) key=editorKey blur=endEdit autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false" data-editable="yes"
+
+// FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975). A press on the number starts
+// a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
+// selection's top, as the diff's gutter (DiffCell, diff-line-drag.ts); the release opens the draft on what it ended on
+// (onLineSelectionEnd → beginComment), so a click on a number opens one too (diff-file-comments.ts). The gutter cell holds
+// the pointer and names the line under it by the row's id (`elementFromPoint`); its press, after the gesture's release
+// found the draft open, is a keyboard's or accessibility's (the draft on the line, or the selection holding it), and keeps
+// the press from the preview's begin-edit. The "+" is Pierre's [data-utility-button]: a 20pt square in the modified blue at
+// the number's right edge (the cell less 1ch + 2pt: x 23.5 of a one-digit gutter), its 16pt plus in the surface's colour;
+// while a selection is held it sits on the selection's bottom line only (placeUtilityFromSelection), else on the hovered
+// line. The number is [data-column-number], `user-select: none`: drawn over the cell after the code, it takes no pointer,
+// so a press on it is the cell's and a gutter drag selects no text. A selected line paints its number's cell and its
+// number only (#d5e6ff / #254566, the number #20649e / #72b6ff, which is the diff's; the code row and the comment card
+// under it stay the surface's, and there is no bar).
+component FilesCodeRow
+  inject
+    interacted: action
+  props
+    family: string
+    line: FilesCodeLine
+    gutter: number
+    wrap: bool
+    path: string
+    open: bool
+    local: action
+    begin: action
+  state hovering = false
+  state dragging = false
+  state overId = ""
+  action hover(over: bool)
+    hovering = over
+  action down(plus: bool, e: PointerEvent)
+    if not open and e.buttons == 1
+      dragging = true
+      overId = `fl:${line.line}:${path}`
+      local((plus ? "surface-files-comment-gutter" : e.shiftKey ? "surface-files-comment-drag-shift" : "surface-files-comment-drag"), path, `${line.line}`)
+  // The release lets go of the focus the press gave the gutter cell (a pressable node takes it on macOS), so the draft
+  // that opens takes it (DiffDraftCard's autofocus), as FilePreviewPanel's beginComment blurs and focuses the draft.
+  action move(e: PointerEvent)
+    interacted()
+    // A held pointer's moves carry its button; a hover after an up this node never heard ends the drag.
+    if dragging and e.buttons == 0
+      dragging = false
+      blur()
+      local("surface-files-comment-end", path, "")
+    else if dragging
+      let hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "" }
+      if hit != "" and hit != overId
+        overId = hit
+        local("surface-files-comment-to", path, hit)
+  action up(e: PointerEvent)
+    if dragging
+      dragging = false
+      blur()
+      local("surface-files-comment-end", path, "")
+  action comment
+    if not open
+      blur()
+      begin(line.line)
+  view
+    row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"
+      box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
+      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family=family font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+        for run in line.runs key=run.id
+          text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax) font-weight=synWeight(run.syntax)
+      if not open and (line.pin or not line.pinned or dragging)
+        button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true
+            path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"
+      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family=family font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
+
+// FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
+// below in the inline panel), status lines, then the compact tree (24pt rows,
+// 16pt inset, 18.7pt per level with 1pt guides).
+component FilesExplorer
+  props
+    files: FilesView
+    sheet: bool
+    still: bool
+    local: action
+    searchFocus: action
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  // The row a right press named, for the tree's one context popover (`files-tree-menu`): its `contextmenu` runs first.
+  state menuPath = ""
+  action rowMenu(path: string)
+    menuPath = path
+  // FileSearchField's Escape runs closeSearch (the query and the tree's search) and blurs the field;
+  // inline the panel stays. In a sheet the key then reaches the Base UI dialog, which closes, so the sheet's toggle
+  // leaves Escape to the field while it has the focus (SurfacePanel filesSearchAt) and the field's "sheet" closes it
+  // too (panel-surfaces.ts, app.contract chatLocal). The focus is kept in the window, not sent: a second send on
+  // `localChanged` in one turn forgets the first (the blur's would forget the Escape's).
+  action searchKey(k: string)
+    if k == "Escape"
+      local("surface-files-search-key", sheet ? "sheet" : "", k)
+      preventDefault()
+      blur()
+  view
+    column flex=1 min-height=0 width="100%"
+      FilesTreeMenu(rows=files.treeMenu, path=menuPath, local=local)
+      row height="2.25rem" flex-shrink=0 margin-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="center"
+        box position="relative" flex-shrink=0
+          button press=local("surface-files-refresh", "", "") hover=hover("refresh") aria-label="Refresh workspace files" testId="files-refresh" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "refresh" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+            PanelIcon(name="refresh-cw", size=14, color="light-dark(#71717b, #a1a1aa)")
+          TipBubble(label=(files.loading ? "Refreshing…" : "Refresh files"), side="bottom", align="start", offset=28, inset=0, shown=(hovered == "refresh"))
+        row flex=1 min-width=0 height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center"
+          input value=files.query input=local("surface-files-search", "") key=searchKey focus=searchFocus(true) blur=searchFocus(false) placeholder="Search files" class=FieldPlaceholder aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" id="field-files-search" data-editable="yes"
+        if files.hasDirectories
+          box position="relative" flex-shrink=0
+            button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+              PanelIcon(name=(files.allExpanded ? "chevrons-down-up" : "chevrons-up-down"), size=14, color="light-dark(#71717b, #a1a1aa)")
+            TipBubble(label=(files.allExpanded ? "Collapse all folders" : "Expand all folders"), side="bottom", align="end", offset=28, inset=0, shown=(hovered == "expand"))
+      if files.error != ""
+        button press=local("surface-files-refresh", "", "") padding="1rem" border-width=0 background-color="#00000000" testId="files-error"
+          text `${files.error} Click to retry.` text-align="left" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
+      if files.truncated
+        text "More matches available. Refine your search." padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      // A folder expanding shows its row's spinner, not this line, which would shift the tree; while rows are
+      // shown the line is a screen reader's only (Tailwind's sr-only: 1px, clipped, out of flow).
+      if files.searching or not files.ready
+        if files.loadingQuiet
+          text "Loading files…" role="status" position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
+        else
+          text "Loading files…" role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+      if files.noMatches
+        if files.emptySearch
+          text "No matching files." role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="1rem" padding-bottom="1rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="files-no-matches"
+      else
+        scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
+          column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
+            for row in files.rows key=row.id
+              FilesTreeRowView(row=row, still=still, local=local, menu=rowMenu)
+
+// FileBrowserPanel showEntryContextMenu (FileBrowserPanel.tsx; ElectronMenu.ts showContextMenu) as the tree's one context
+// popover: Open, the server-worded reveal and the "Open with" submenu of detected editors when the environment offers
+// them (LLP 1021 §5.2), then Copy mention and Add to chat. macOS presents it as an NSMenu at the pointer, or at the
+// focused row's centre for the ContextMenu key (exact2 #314); the web and the agent paint it at the row.
+component FilesTreeMenu
+  props
+    rows: SidebarMenuRow[]
+    path: string
+    local: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="files-tree-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="files-tree-menu"
+        for e in rows.filter((e) => e.parent == "") key=e.id
+          if e.separated
+            hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+          if e.sub
+            button popovertarget=`files-tree-menu-sub-${e.id}` aria-haspopup="menu" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+              text "›" aria-hidden=true font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
+          else
+            button press=local("surface-files-row-pick", path, e.id) popovertarget="files-tree-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+      for s in rows.filter((e) => e.sub) key=s.id
+        column id=`files-tree-menu-sub-${s.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`files-tree-menu-sub-${s.id}`
+          for e in rows.filter((c) => c.parent == s.id) key=e.id
+            button press=local("surface-files-row-pick", path, e.id) popovertarget="files-tree-menu" popovertargetaction="hide" role="menuitem" disabled=e.disabled testId=`files-tree-menu-${e.id}` class=SidebarMenuItem opacity=(e.disabled ? 0.64 : 1)
+              text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+
+// renderRowDecoration's spinner (Lucide LoaderCircle at 60% in the muted decoration lane), turning unless reduced motion.
+keyframes filesTreeSpin
+  from rotate=0
+  to rotate=360
+
+component FilesTreeRowView
+  props
+    row: FilesTreeRow
+    still: bool
+    local: action
+    // The tree's context popover owner (FilesExplorer `rowMenu`).
+    menu: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    // FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat): FilesTreeMenu.
+    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=menu(row.path) contextPopover="files-tree-menu" hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#18181b1f, #f5f5f51f)" : over ? "light-dark(#18181b0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
+      for guide in row.guides key=guide.id
+        box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #a1a1a140)"
+      if row.directory
+        ShellIcon(name=(row.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#84848a, #8b8b92)")
+      else
+        FileTypeIcon(token=row.token, size=16)
+      // The tree's 0.75rem scales with the Interface font size.
+      text row.name flex=1 min-width=0 text-align="left" font-size="0.75rem" line-height="24px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#18181b, #f5f5f5)"
+      if row.loading
+        box width=16 height=16 flex-shrink=0 display="flex" opacity=0.6 animation=(still ? "none" : "filesTreeSpin 1s linear infinite") role="status" aria-label="Loading…" testId=`tree-loading-${row.path}`
+          svg width=16 height=16 viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" aria-hidden=true
+            path d="M21 12a9 9 0 1 1-6.219-8.56"
+
+// AudioPreview's player in Files. Its URL changes with the file's revision; a new one that comes while it plays is
+// taken once playback pauses or ends, so the change does not stop it (StandardAudioPreview's loadedSource). A failure
+// of the URL it held drops it for the newest; only a failure of the newest is the file's.
+component FilesAudio
+  props
+    url: string
+    label: string
+    failed: action
+  state playing = false
+  state held = ""
+  derive src = playing and held != "" ? held : url
+  action started
+    if not playing
+      held = url
+    playing = true
+  action stopped
+    playing = false
+  action broke(message: string)
+    playing = false
+    held = ""
+    if src == url
+      failed(message)
+  view
+    video src controls=true preload="metadata" aria-label=label playing=started pause=stopped ended=stopped error=broke width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="file-audio-player"

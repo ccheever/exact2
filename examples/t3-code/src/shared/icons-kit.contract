@@ -1,0 +1,53 @@
+// The project and provider marks with their tiles and badges, over icons.contract's generated ProviderMark.
+use ProviderMark from "./icons.contract"
+use AcpRegistryAgentIcon from "../providers/provider-icons-kit.contract"
+use providerAccentInk from "./accent-ink.contract"
+
+// ProjectMonogram: a name-hashed tint at 14% behind its two-letter mark; settled
+// rows render it in the muted ink instead.
+component ProjectMark
+  props
+    label: string
+    muted: bool
+    ink: string
+    surface: string
+    size: number
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` background-color=(muted ? "light-dark(#71717b19, #a1a1a11a)" : surface) display="flex" align-items="center" justify-content="center" flex-shrink=0
+      text label font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.515625rem" font-weight=700 color=(muted ? "light-dark(#71717bb3, #a1a1a1b3)" : ink)
+
+// ProviderInstanceIcon: the driver glyph with the account badge on a card
+// surface (bg-card, input border, shadow-sm), as the composer shows it.
+component ProviderInstanceMark
+  props
+    driver: string
+    size: number
+    color: string
+    badge: string
+    accent: string
+  view
+    box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" flex-shrink=0
+      ProviderMark(driver=driver, size=size, color=color)
+      if badge != ""
+        box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width=(size <= 16 ? "0.75rem" : "0.875rem") height=(size <= 16 ? "0.75rem" : "0.875rem") padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color=(accent != "" ? accent : "light-dark(#d4d4d8, #ffffff1c)") background-color=(accent != "" ? accent : "light-dark(#ffffff, #111111)") box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          text badge font-size=(size <= 16 ? "0.4375rem" : "0.5rem") font-weight=600 line-height=1 color=(accent != "" ? providerAccentInk(accent) : "light-dark(#71717b, #a1a1a1)")
+
+// The same mark on the sidebar, where bg-card resolves to the sidebar's own
+// white/black and the badge's border matches it. An ACP Registry instance draws
+// its agent's icon (`icon`, acp-icons.ts), as ProviderInstanceIcon does.
+component SidebarProviderMark
+  props
+    driver: string
+    icon: string
+    badge: string
+    accent: string
+  view
+    box width="0.875rem" height="0.875rem" position="relative" flex-shrink=0
+      box opacity=0.6
+        if driver == "acpRegistry"
+          AcpRegistryAgentIcon(icon=icon, size=14, color="light-dark(#71717b, #a1a1a1)")
+        else
+          ProviderMark(driver=driver, size=14, color="light-dark(#71717b, #a1a1a1)")
+      if badge != ""
+        box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color=(accent != "" ? accent : "light-dark(#ffffff, #000000)") background-color=(accent != "" ? accent : "light-dark(#ffffff, #000000)") box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          text badge font-size="0.4375rem" font-weight=600 line-height=1 color=(accent != "" ? providerAccentInk(accent) : "light-dark(#71717b, #a3a3a3)")

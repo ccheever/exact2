@@ -1,0 +1,198 @@
+// A composer image chip's expanded preview, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// composerContextPresentation.tsx ImageContextChip (`expandImage`), ChatComposer.tsx's buildExpandedImagePreview over the
+// draft's images and ExpandedImageDialog (the window dimmed, Previous and Next wrapping around the draft's images, the
+// close button 40pt above the image's top-right corner, the name and position below) with its ZoomableImage. The draft
+// image is a local file the host's `image` does not load (only http(s) and assets), so the snapshot tile hatch paints it
+// (T3SnapShot.swift `preview:`) in a box the size the image takes: its natural size (the module reads it, as `onLoad`
+// does), fitted into 92% of the window less 6rem wide and min(86vh, 100vh − 160pt) high. A size the module could not
+// read keeps that whole box, the picture in its centre at most at its natural size (`fit:`).
+// A press on the popup outside the image and its name closes the preview (the popup's `onClick` when the target is the
+// popup itself): the row that lays them out lets presses through to the backdrop. Its stops are the buttons and the
+// image's region (dialog-trap.contract ControlGuard: with Keyboard Navigation off only the region, which takes keys of
+// its own), and a press on the backdrop leaves the focus where it was, so closing gives it back to the prompt
+// (composer-chip-file.contract says why).
+use ControlGuard from "../shared/dialog-trap.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+use PreviewStep from "../timeline/timeline-attachments.contract"
+
+shape ComposerImagePreview
+  open: bool
+  id: string
+  name: string
+  // "(2/3)" over several draft images, else "".
+  position: string
+  many: bool
+  // The image's natural size in points (its pixels, at most 2048 on the longer side as the tile decodes it); 0 unknown.
+  width: number
+  height: number
+
+// e^x by its [2/2] Padé estimate, within 0.1% for |x| ≤ 1 (x is held there): the wheel's zoom factor (ZoomableImage:
+// Math.exp(-delta × 0.002, or × 0.01 for a pinch)). Contract has no exp.
+fn ciPade(c: number): number = (12 + 6 * c + c * c) / (12 - 6 * c + c * c)
+fn ciExp(x: number): number = ciPade(max(-1, min(1, x)))
+// How far the viewport scrolls along one axis at a zoom: the zoomed image less the box the viewport may take. The host
+// clamps an offset to it without reporting the clamp, so the dialog clamps first and knows where the view is.
+fn ciSpan(base: number, zoom: number, box: number): number = max(0, base * zoom - box)
+
+component ComposerImageDialog
+  inject
+    dialogSeated: string[]
+    dialogEntered: action
+    dialogFallback: action
+    rem: number
+    interacted: action
+  props
+    preview: ComposerImagePreview
+    windowWidth: number
+    windowHeight: number
+    command: action
+  // ZoomableImage's zoom (1 to 8), set at the window size `zoomAt` (a resize fits the image again, as its `resize`
+  // listener's changeZoom(1) does), and the viewport's scroll offsets: `left`/`top` as the dialog last set them,
+  // `seenLeft`/`seenTop` where it last put them or the viewport last reported them (a trackpad scroll moves them).
+  state zoom = 1
+  state zoomAt = ""
+  state left = 0
+  state top = 0
+  state seenLeft = 0
+  state seenTop = 0
+  // The press's point in the viewport (the click zooms around it), whether the primary button made it, and a drag's
+  // start (-1 for none); a drag ends no click.
+  state pressX = 0
+  state pressY = 0
+  state pressing = false
+  state downX = -1
+  state downY = 0
+  state downLeft = 0
+  state downTop = 0
+  state dragged = false
+  // What a click's toggle replaced, for a double click's second click to undo (ZoomableImage ignores a click whose
+  // `detail` is above 1; the host reports no click count, only the `dblclick` after it); `undoZoom` 0 for none.
+  state undoZoom = 0
+  state undoLeft = 0
+  state undoTop = 0
+  derive windowSize = `${windowWidth}x${windowHeight}`
+  derive z = zoomAt == windowSize ? zoom : 1
+  derive maxWidth = windowWidth * 0.92 - 6 * rem
+  derive maxHeight = max(1, min(windowHeight * 0.86, windowHeight - 160))
+  derive fit = preview.width > 0 and preview.height > 0 ? min(1, min(maxWidth / preview.width, maxHeight / preview.height)) : 0
+  derive baseWidth = fit > 0 ? preview.width * fit : maxWidth
+  derive baseHeight = fit > 0 ? preview.height * fit : maxHeight
+  derive viewWidth = min(baseWidth * z, maxWidth)
+  derive viewHeight = min(baseHeight * z, maxHeight)
+  derive dialogTargets = [(preview.many ? "chip-image-previous" : ""), "chip-image-close", "chip-image-viewport", (preview.many ? "chip-image-next" : "")]
+  // ExpandedImageDialog's onKeyDown: a zoomed image pans first (ZoomableImage `pan`; ← and → only when it is wider
+  // than its viewport), then over several images ← and → step as Previous and Next do, whatever the modifiers.
+  action keys(k: string, e: KeyboardEvent)
+    if z > 1 and (k == "ArrowUp" or k == "ArrowDown" or ((k == "ArrowLeft" or k == "ArrowRight") and baseWidth * z > maxWidth))
+      preventDefault()
+      stopPropagation()
+      place(seenLeft + (k == "ArrowLeft" ? -40 : (k == "ArrowRight" ? 40 : 0)), seenTop + (k == "ArrowUp" ? -40 : (k == "ArrowDown" ? 40 : 0)), z)
+    else if preview.many and (k == "ArrowLeft" or k == "ArrowRight")
+      preventDefault()
+      stopPropagation()
+      command(k == "ArrowLeft" ? "editorlocal:chip-image-previous" : "editorlocal:chip-image-next", "", "", 0)
+    else
+      dialogFallback("chip-image-preview", dialogTargets, k, e)
+  // Scrolls the viewport, within its range at zoom `at` (a caller that sets the zoom passes the new one: a called
+  // action reads the state its caller started with). The host applies a `scrollLeft`/`scrollTop` only when it changes,
+  // so a value equal to the last one set (the viewport may have scrolled since) is moved by a hundredth of a point.
+  action place(x: number, y: number, at: number)
+    let nx = max(0, min(x, ciSpan(baseWidth, at, maxWidth)))
+    let ny = max(0, min(y, ciSpan(baseHeight, at, maxHeight)))
+    left = nx == left ? nx + 0.01 : nx
+    top = ny == top ? ny + 0.01 : ny
+    seenLeft = nx
+    seenTop = ny
+  action scrolled(x: number, y: number)
+    seenLeft = x
+    seenTop = y
+  // ZoomableImage changeZoom: clamped to 1–8, keeping the image point under (x, y) in the viewport where it is.
+  // The offsets are read within the current range: after a resize fitted the image, the viewport no longer scrolls.
+  action change(next: number, x: number, y: number)
+    let clamped = min(8, max(1, next))
+    if clamped != z
+      let ax = (min(seenLeft, ciSpan(baseWidth, z, maxWidth)) + x) / z
+      let ay = (min(seenTop, ciSpan(baseHeight, z, maxHeight)) + y) / z
+      zoom = clamped
+      zoomAt = windowSize
+      place(ax * clamped - x, ay * clamped - y, clamped)
+  action down(e: PointerEvent)
+    pressX = e.clientX - frame("chip-image-viewport").x
+    pressY = e.clientY - frame("chip-image-viewport").y
+    dragged = false
+    pressing = e.buttons == 1
+    downX = (e.buttons == 1 and e.pointerType == "mouse" and z > 1) ? e.clientX : -1
+    downY = e.clientY
+    downLeft = seenLeft
+    downTop = seenTop
+  action move(e: PointerEvent)
+    interacted()
+    if downX >= 0 and e.buttons == 1
+      dragged = dragged or (e.clientX - downX) * (e.clientX - downX) + (e.clientY - downY) * (e.clientY - downY) > 16
+      place(downLeft - (e.clientX - downX), downTop - (e.clientY - downY), z)
+  // The viewport's `onClick`, made of the press and its release over the image: the host gives the picture, which holds
+  // the pointer, its `pointerup` and no `press`.
+  action up(e: PointerEvent)
+    let box = frame("chip-image-viewport")
+    if pressing and not dragged and e.clientX >= box.x and e.clientX < box.x + box.width and e.clientY >= box.y and e.clientY < box.y + box.height
+      undoZoom = z
+      undoLeft = seenLeft
+      undoTop = seenTop
+      change(z > 1 ? 1 : 2, pressX, pressY)
+    else if pressing
+      undoZoom = 0
+    downX = -1
+    pressing = false
+    dragged = false
+  // A double click's second click toggled back: put back what the first one set.
+  action doubled
+    if undoZoom > 0
+      zoom = undoZoom
+      zoomAt = windowSize
+      place(undoLeft, undoTop, undoZoom)
+      undoZoom = 0
+  // The viewport's own keys: Enter or Space toggles 2×, + and = zoom in by 1.5, - out, 0 fits.
+  action zoomKey(k: string, e: KeyboardEvent)
+    if not e.ctrlKey and not e.metaKey and not e.altKey
+      if k == "Enter" or k == " "
+        preventDefault()
+        if not e.repeat
+          change(z > 1 ? 1 : 2, viewWidth / 2, viewHeight / 2)
+      else if k == "+" or k == "="
+        preventDefault()
+        change(z * 1.5, viewWidth / 2, viewHeight / 2)
+      else if k == "-"
+        preventDefault()
+        change(z / 1.5, viewWidth / 2, viewHeight / 2)
+      else if k == "0"
+        preventDefault()
+        change(1, viewWidth / 2, viewHeight / 2)
+  action wheeled(e: WheelEvent)
+    if e.deltaY != 0
+      preventDefault()
+      change(z * ciExp(-e.deltaY * (e.deltaMode == 1 ? 16 : (e.deltaMode == 2 ? viewHeight : 1)) * (e.ctrlKey ? 0.01 : 0.002)), e.offsetX, e.offsetY)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-modal=dialogSeated.includes("chip-image-preview") aria-label="Expanded image preview" testId="chip-image-preview" id="chip-image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-image-preview") key=keys
+      ControlGuard(guardId="chip-image-preview-guard-start", targets=dialogTargets, popup="chip-image-preview")
+      DialogOpenFocus(target="chip-image-close")
+      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
+      row width=(windowWidth * 0.92) align-items="center" justify-content="space-between" pointer-events="none"
+        box pointer-events="auto"
+          PreviewStep(label="Previous media", shown=preview.many, flip=true, press=command("editorlocal:chip-image-previous", "", "", 0), elementId="chip-image-previous", testId="chip-image-previous")
+        column min-width=0 align-items="center" pointer-events="auto"
+          box position="relative" width=viewWidth height=viewHeight
+            button id="chip-image-close" press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" testId="chip-image-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+              svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                path d="M18 6 6 18M6 6l12 12"
+            // ZoomableImage's viewport: a Tab stop, the `region` "<name>, zoomable image", holding its image at the fitted
+            // size times the zoom.
+            box id="chip-image-viewport" tabindex=0 role="region" aria-label=`${preview.name}, zoomable image` aria-description="Click to zoom in or return to fit. Scroll to zoom, drag to pan. Use Enter to toggle zoom, plus or minus to zoom, and 0 to fit." key=zoomKey wheel=wheeled width=viewWidth height=viewHeight border-radius="0.5rem" background-color="light-dark(#ffffff, #000000)" box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff0d), 0 25px 50px -12px #00000040" cursor=(z > 1 ? (downX >= 0 ? "grabbing" : "grab") : "zoom-in") testId="chip-image-viewport" data-focus-stop="enabled"
+              // The region is the Tab stop and takes the keys and the wheel; the scroller inside it holds the zoomed image.
+              scroll scroll=scrolled scrollLeft=left scrollTop=top width="100%" height="100%" border-radius="0.5rem" testId="chip-image-scroll"
+                box hatch="t3-snapshot-tile" data-snapshot-id=`${fit > 0 ? "preview" : "fit"}:${preview.id}` dblclick=doubled pointerdown=down pointermove=move pointerup=up tabindex=-1 retainFocus=true width=(baseWidth * z) height=(baseHeight * z) flex-shrink=0 role="img" aria-label=preview.name testId="chip-image-picture"
+            // ZoomableImage's sr-only, polite "N% zoom".
+            text `${round(z * 100)}% zoom` aria-live="polite" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" color="#00000000" testId="chip-image-zoom"
+          text (preview.position != "" ? `${preview.name} ${preview.position}` : preview.name) margin-top="0.5rem" max-width=maxWidth line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
+        box pointer-events="auto"
+          PreviewStep(label="Next media", shown=preview.many, flip=false, press=command("editorlocal:chip-image-next", "", "", 0), elementId="chip-image-next", testId="chip-image-next")
+      ControlGuard(guardId="chip-image-preview-guard-end", targets=dialogTargets, popup="chip-image-preview")

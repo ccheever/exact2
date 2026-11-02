@@ -1,0 +1,450 @@
+// The clone's rows for the data module's half (browser-navigation.ts), each named after the
+// reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): PreviewEmptyState / PreviewRecentUrlCard /
+// PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl (7c3b3b3605ef's registration), PreviewMoreMenu's zoom
+// and appearance, handleToggleDeviceToolbar, BrowserDeviceToolbar, useBrowserViewportResize, ZoomIndicator, the
+// `previewFocus` keybindings and ChatView `togglePreviewPanel` (⇧⌘J). The module and the server are fakes. Ported:
+// PreviewEmptyState.test.tsx (4, under their own names), over the projection the Contract view draws (a group shows
+// when its list is not empty; both empty draw "No preview yet").
+import { describe, expect, it } from 'bun:test';
+import { browserHost, browserLocal, browserView, frameLocal } from '../../src/browser/browser-surface';
+import { browserKey, navigationPrepare, previewKeys, previewToggleRow, showPreview } from '../../src/browser/browser-navigation';
+import { useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
+import { browserHistory } from '../../src/browser/browser-history';
+import { discoveredServersEvent } from '../../src/browser/browser-targets';
+import { previewRuntimeTabId, type PreviewSessionSnapshot, type PreviewViewportSetting } from '../../src/browser/browser-state';
+import { openBrowserIn } from '../../src/browser/browser-surface';
+import type { PanelState } from '../../src/panel/panel-surfaces';
+import type { T3Client } from '../../src/client/client';
+import type { Native } from '../../src/client/protocol';
+import type { Obj } from '../../src/client/domain';
+import { toasts } from '../../src/shell/toast';
+import { appPath, appText } from '../support/app-files';
+import { adoptFrameEvent, frameEntry, frameIdOf, frames, syncFrames } from '../../src/browser/browser-frames';
+
+const ref = { environmentId: 'local', threadId: 'thread-1' };
+const module = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: {} }) } as Native;
+let clock = 0; // the server's answers are newer each time (updatedAt orders them)
+const snap = (viewport?: PreviewViewportSetting, tabId = 'tab-1', nav: PreviewSessionSnapshot['navStatus'] = { _tag: 'Success', url: 'http://localhost:5173/', title: 'Vite' }): PreviewSessionSnapshot => ({
+  threadId: 'thread-1', tabId, navStatus: nav, canGoBack: false, canGoForward: false, updatedAt: new Date(Date.UTC(2026, 9, 9) + ++clock * 1000).toISOString(), ...(viewport ? { viewport } : {}),
+});
+type Call = { method: string; payload: Obj };
+
+/** A client on thread-1 of project p1 with one Browser tab, a fake server (`rpc`) and a fake module (`raw`). */
+function setup(options: { viewport?: PreviewViewportSetting; zoom?: number; resize?: (payload: Obj) => Obj; nav?: PreviewSessionSnapshot['navStatus']; origin?: string } = {}) {
+  const calls: Call[] = [], native: Obj[] = [], requests: Obj[] = [];
+  let serial = 0;
+  const client = {
+    scopes: ['preview:operate'],
+    environmentId: 'local', threadId: 'thread-1', projectId: 'p1', generation: 1, connection: 'connected', ready: true, diffOpen: false, origin: options.origin ?? 'http://127.0.0.1:3773',
+    draftKey: 'local:thread-1', presentation: {} as Obj, config: { environment: { capabilities: {} }, keybindings: [] as Obj[] },
+    shell: { threads: [{ id: 'thread-1', projectId: 'p1' }], projects: [{ id: 'p1', workspaceRoot: '/p', scripts: [{ previewUrl: 'http://localhost:8080/docs' }] }] },
+    local: { clientSettings: {}, deviceSettings: {}, composerControls: false, groupingMode: 'separate' } as Obj,
+    async rpc(_native: Native, method: string, payload: Obj) {
+      calls.push({ method, payload });
+      if (method === 'preview.resize') return options.resize ? options.resize(payload) : snap(payload.viewport as PreviewViewportSetting);
+      return {};
+    },
+    async raw(_native: Native, request: Obj) { native.push(request); return { ok: true, generation: 0, value: {} }; },
+    restAccess: () => ({ call: async (request: Obj) => { requests.push(request); return request.op === 'subscribe' ? { id: `sub-${++serial}` } : {}; } }),
+  } as unknown as T3Client;
+  const host = browserHost(client);
+  host.store.reconcileServerSessions(ref, { sessions: [snap(options.viewport, 'tab-1', options.nav)], serverEpoch: 'epoch-1', revision: 1 });
+  const runtimeId = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
+  // The tab's frame, and the record it sent once its page loaded (browser-frames.ts).
+  syncFrames(client, [{ runtimeId, url: options.nav?._tag === 'Idle' ? '' : 'http://localhost:5173/', environment: 'local', profile: 'default', zoom: options.zoom ?? 1, colorScheme: 'system' }]);
+  if (options.nav?._tag !== 'Idle') adoptFrameEvent(client, frameIdOf(runtimeId), 'event=navigatesuccess&url=http%3A%2F%2Flocalhost%3A5173%2F&title=Vite&loading=false', 0);
+  const state: PanelState = { surfaces: [], active: '', visible: false, userRevision: 0 };
+  const surface = openBrowserIn(state, 'tab-1', 'local:thread-1');
+  return { client, calls, native, requests, state, surface, runtimeId };
+}
+const local = (s: ReturnType<typeof setup>, op: string, value = '') => browserLocal(s.client, module, s.state, op, 'tab-1', value);
+/** The frame's zoom and appearance, which the frame layer draws it at. */
+const frameOf = (s: ReturnType<typeof setup>) => frameEntry(s.client, s.runtimeId)!;
+/** The commands the root's `frameCommand` task runs, in order. */
+const commands = (s: ReturnType<typeof setup>) => frames(s.client).queue.map(({ kind, url, delta, flag }) => ({ kind, url, delta, flag }));
+const resizes = (s: ReturnType<typeof setup>) => s.calls.filter(call => call.method === 'preview.resize').map(call => call.payload.viewport);
+
+describe('PreviewMoreMenu zoom and appearance', () => {
+  it('steps the zoom ladder from the frame\'s own zoom and resets it', async () => {
+    const s = setup({ zoom: 1.25 });
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomFactor: 1.25, zoomLabel: '125%' });
+    await local(s, 'zoom-in');
+    expect(frameOf(s).zoom).toBe(1.5);
+    await local(s, 'zoom-out');
+    expect(frameOf(s).zoom).toBe(1.25);
+    await local(s, 'zoom-reset');
+    expect(frameOf(s).zoom).toBe(1);
+  });
+  it('sets System, Light or Dark and refuses anything else', async () => {
+    const s = setup();
+    await local(s, 'color-scheme', 'dark');
+    await local(s, 'color-scheme', 'sepia');
+    expect(frameOf(s).colorScheme).toBe('dark');
+  });
+});
+
+describe('ZoomIndicator', () => {
+  it('shows on a change of the zoom, not for the first value', () => {
+    const s = setup({ zoom: 1 });
+    expect(browserView(s.client, s.surface, Date.now()).zoomSerial).toBe(0);
+    expect(browserView(s.client, s.surface, Date.now()).zoomSerial).toBe(0);
+    frameOf(s).zoom = 1.5;
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomSerial: 1, zoomLabel: '150%' });
+  });
+});
+
+describe('handleToggleDeviceToolbar and BrowserDeviceToolbar', () => {
+  it('opens at the panel\'s framed area and closes back to fill', async () => {
+    const s = setup();
+    await local(s, 'device-toolbar', '600|700');
+    expect(resizes(s)).toEqual([{ _tag: 'freeform', width: 580, height: 658 }]);
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ viewportMode: 'freeform', viewportWidth: 580, viewportHeight: 658, presetLabel: 'Responsive', viewportSerial: 1 });
+    await local(s, 'device-toolbar', '600|700');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'fill' });
+  });
+  it('chooses a preset, types a size, rotates, locks the ratio and closes', async () => {
+    const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 } });
+    await local(s, 'viewport-preset', 'iphone-12-pro');
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ viewportMode: 'preset', presetId: 'iphone-12-pro', presetLabel: 'iPhone 12 Pro', viewportWidth: 390, viewportHeight: 844 });
+    await local(s, 'viewport-rotate');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'preset', presetId: 'iphone-12-pro', width: 844, height: 390 });
+    await local(s, 'viewport-preset', 'responsive');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: 844, height: 390 });
+    const before = resizes(s).length;
+    await local(s, 'viewport-size', '239|600');
+    await local(s, 'viewport-size', '3840|2161');
+    await local(s, 'viewport-size', '844|390');
+    expect(resizes(s)).toHaveLength(before);
+    await local(s, 'viewport-size', '1024|768');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: 1024, height: 768 });
+    await local(s, 'viewport-rotate', '700|500');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: 500, height: 700 });
+    await local(s, 'viewport-lock');
+    expect(browserView(s.client, s.surface, Date.now()).aspectLocked).toBe(true);
+    await local(s, 'viewport-preset', 'ipad-mini');
+    expect(browserView(s.client, s.surface, Date.now()).aspectLocked).toBe(true);
+    await local(s, 'viewport-close');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'fill' });
+    expect(browserView(s.client, s.surface, Date.now()).aspectLocked).toBe(false);
+  });
+  // BrowserDeviceToolbar.browser.test.tsx: the field typed in keeps its digits; the size asked for is resized at the
+  // locked ratio along that field, then bounded (the floor, the area cap).
+  it.each([
+    { width: 1920, height: 1080, asked: '2560|1440|width', expected: [2560, 1440] },
+    { width: 390, height: 844, asked: '1170|2532|height', expected: [1170, 2532] },
+    { width: 1920, height: 1080, asked: '256|240|width', expected: [427, 240] },
+    { width: 1920, height: 1920, asked: '3840|3840|width', expected: [2880, 2880] },
+  ])('with the ratio locked, a typed $asked asks for $expected', async ({ width, height, asked, expected }) => {
+    const s = setup({ viewport: { _tag: 'freeform', width, height } });
+    await local(s, 'viewport-lock');
+    await local(s, 'viewport-size', asked);
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: expected[0], height: expected[1] });
+  });
+  it('a failed resize toasts and lets the view drop the size it held', async () => {
+    const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 }, resize: () => { throw new Error('resize refused'); } });
+    await local(s, 'viewport-size', '900|700');
+    const view = browserView(s.client, s.surface, Date.now());
+    expect(view).toMatchObject({ viewportWidth: 800, viewportSerial: 1 });
+    expect(toasts(s.client).map(toast => [toast.kind, toast.title, toast.description])).toEqual([['error', 'Unable to resize browser viewport', 'resize refused']]);
+  });
+  it('a drag or key that changes nothing still lets the view drop the size it drew', async () => {
+    const s = setup({ viewport: { _tag: 'freeform', width: 240, height: 600 } });
+    await local(s, 'viewport-drag', 'west|200|0|1220|842'); // already at the 240 floor
+    await local(s, 'viewport-key', 'east|ArrowLeft|false');
+    await local(s, 'viewport-size', '240|600'); // the size it already has
+    await local(s, 'viewport-size', '100|600'); // out of bounds
+    expect(resizes(s)).toEqual([]);
+    expect(browserView(s.client, s.surface, Date.now()).viewportSerial).toBe(4);
+    const fill = setup();
+    await local(fill, 'viewport-size', '800|600'); // the toolbar's view was older than a fill answer
+    expect(resizes(fill)).toEqual([]);
+    expect(browserView(fill.client, fill.surface, Date.now()).viewportSerial).toBe(1);
+  });
+});
+
+// useBrowserLayoutZoomFactor (74541bab17, f3161f3929): a desktop tab's layout divides its zoom by the main window's, so
+// the window's zoom changes neither the viewport a toggle opens at nor what a drag or key asks for.
+describe('useBrowserLayoutZoomFactor', () => {
+  it('lays a desktop tab out at its zoom over the window\'s', async () => {
+    const s = setup({ zoom: 1.5 });
+    (s.client.presentation as Obj).browserWindowZoom = 1.25;
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomFactor: 1.5, zoomLabel: '150%', windowZoom: 1.25 });
+    await local(s, 'device-toolbar', '600|700');
+    expect(resizes(s)).toEqual([{ _tag: 'freeform', width: 483, height: 548 }]);
+    const t = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 }, zoom: 1.5 });
+    (t.client.presentation as Obj).browserWindowZoom = 1.25;
+    await local(t, 'viewport-key', 'east|ArrowRight|false');
+    expect(resizes(t)).toEqual([{ _tag: 'freeform', width: 810, height: 600 }]);
+    expect(browserView(setup().client, setup().surface, Date.now()).windowZoom).toBe(1);
+  });
+});
+
+describe('useBrowserViewportResize', () => {
+  it('commits a rail drag from where the press began, and an arrow key by 10 (50 with Shift)', async () => {
+    const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 } });
+    await local(s, 'viewport-drag', 'east|300|0|1220|842');
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: 1300, height: 600 });
+    const t = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 } });
+    await local(t, 'viewport-key', 'east|ArrowRight|true');
+    await local(t, 'viewport-key', 'south|ArrowLeft|false'); // the bottom rail controls only the height
+    expect(resizes(t)).toEqual([{ _tag: 'freeform', width: 850, height: 600 }]);
+  });
+  it('keeps the locked ratio on a drag', async () => {
+    const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 } });
+    await local(s, 'viewport-lock');
+    await local(s, 'viewport-drag', 'east|200|0|5000|5000'); // centred: the far rail moves too, so 200 pt grow it by 400
+    expect(resizes(s).at(-1)).toEqual({ _tag: 'freeform', width: 1200, height: 900 });
+  });
+});
+
+describe('PreviewEmptyState', () => {
+  it('lists at most eight recent visits and the live local servers, configured ones first', async () => {
+    const s = setup({ nav: { _tag: 'Idle' } });
+    const history = browserHistory(s.client.local);
+    await navigationPrepare(s.client, module, { ...s.state, visible: true });
+    history.registerThreadProject(ref, 'proj'); // a saved mapping
+    for (let i = 9; i >= 0; i--) history.recordVisitForThread(ref, `http://localhost:${3000 + i}/`, Date.now() - i * 120_000);
+    history.setTitleForUrl('proj', 'http://localhost:3000/', 'Home');
+    discoveredServersEvent(s.client, { subscriptionId: 'sub-1', value: { servers: [
+      { host: 'localhost', port: 9000, url: 'http://localhost:9000/', processName: null, pid: null, terminal: null },
+      { host: 'localhost', port: 8080, url: 'http://localhost:8080/', processName: 'vite', pid: 7, terminal: null },
+    ] } });
+    const view = browserView(s.client, s.surface, Date.now());
+    expect(view.empty).toBe(true);
+    expect(view.recents).toHaveLength(8);
+    expect(view.recents[0]).toMatchObject({ url: 'http://localhost:3000/', title: 'Home', subtitle: 'localhost:3000 · just now', removeLabel: 'Remove localhost:3000 from history' });
+    expect(view.recents[1]).toMatchObject({ title: 'localhost:3001', subtitle: '2m ago' });
+    expect(view.servers.map(server => [server.title, server.description])).toEqual([['vite', 'localhost:8080'], ['Listening', 'localhost:9000']]);
+    expect(s.requests[0]).toMatchObject({ op: 'subscribe', method: 'subscribeDiscoveredLocalServers', payload: { configuredUrls: ['http://localhost:8080/docs'] } });
+  });
+  it('lets the stream go once the tab leaves its empty state', async () => {
+    const s = setup({ nav: { _tag: 'Idle' } });
+    await navigationPrepare(s.client, module, { ...s.state, visible: true });
+    adoptFrameEvent(s.client, frameIdOf(s.runtimeId), 'event=navigatesuccess&url=http%3A%2F%2Flocalhost%3A5173%2F&title=Vite&loading=false', 0);
+    await navigationPrepare(s.client, module, { ...s.state, visible: true });
+    expect(s.requests.map(request => request.op)).toEqual(['subscribe', 'unsubscribe']);
+  });
+});
+
+describe('PreviewView handleSubmitUrl and handleOpenServerUrl', () => {
+  it('records a typed address under the thread\'s project, titled by the page the tab settled on', async () => {
+    const s = setup();
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
+    await navigationPrepare(s.client, module, s.state);
+    await local(s, 'navigate', 'localhost:5173');
+    const history = browserHistory(s.client.local);
+    expect(history.state.projectKeyByThreadKey).toEqual({ 'local:thread-1': 'local:/p' }); // the separate grouping's key
+    expect(history.projectHistory('local:/p', 8)).toEqual([expect.objectContaining({ url: 'http://localhost:5173/', title: 'Vite' })]);
+  });
+  it('keeps a visit waiting until the preferences, and so the grouping, are known', async () => {
+    const s = setup();
+    await local(s, 'navigate', 'localhost:5173');
+    const history = browserHistory(s.client.local);
+    expect(history.state.projectKeyByThreadKey).toEqual({});
+    expect(history.state.pendingVisitsByThreadKey['local:thread-1']?.map(visit => visit.url)).toEqual(['http://localhost:5173/']);
+    (s.client as unknown as { preferencesLoaded: boolean }).preferencesLoaded = true;
+    await local(s, 'navigate', 'localhost:5174');
+    expect(history.projectHistory('local:/p', 8).map(entry => [entry.url, entry.title])).toEqual([['http://localhost:5174/', undefined], ['http://localhost:5173/', 'Vite']]);
+  });
+  it('opens a local server at the environment\'s host and keeps the address it was found at', async () => {
+    const s = setup({ origin: 'http://192.168.1.25:3773' });
+    browserHistory(s.client.local).registerThreadProject(ref, 'proj'); // a saved mapping
+    await navigationPrepare(s.client, module, s.state);
+    await local(s, 'open-url', 'http://localhost:5173/app');
+    expect(commands(s)).toEqual([{ kind: 'navigate', url: 'http://192.168.1.25:5173/app', delta: 0, flag: false }]);
+    expect(browserHistory(s.client.local).projectHistory('proj', 8).map(entry => entry.url)).toEqual(['http://localhost:5173/app']);
+    await local(s, 'remove-recent', 'http://localhost:5173/app');
+    expect(browserHistory(s.client.local).projectHistory('proj', 8)).toEqual([]);
+  });
+});
+
+describe('the preview keys and ⇧⌘J', () => {
+  it('answers the previewFocus chords of the resolved keybindings', () => {
+    const s = setup();
+    const focus = { type: 'identifier', name: 'previewFocus' };
+    (s.client.config as Obj).keybindings = [
+      { command: 'preview.refresh', shortcut: { key: 'r', modKey: true }, whenAst: focus },
+      { command: 'preview.focusUrl', shortcut: { key: 'l', modKey: true }, whenAst: focus },
+      { command: 'preview.zoomIn', shortcut: { key: '=', modKey: true }, whenAst: focus },
+      { command: 'preview.zoomIn', shortcut: { key: '+', modKey: true }, whenAst: focus },
+      { command: 'preview.zoomOut', shortcut: { key: '-', modKey: true }, whenAst: focus },
+      { command: 'preview.resetZoom', shortcut: { key: '0', modKey: true }, whenAst: focus },
+      { command: 'preview.toggle', shortcut: { key: 'j', modKey: true, shiftKey: true } },
+    ];
+    expect(previewKeys(s.client).split(' ').sort()).toEqual(['Meta+-=zoom-out', 'Meta+0=reset-zoom', 'Meta+==zoom-in', 'Meta+Plus=zoom-in', 'Meta+l=focus-url', 'Meta+r=refresh']);
+    expect(browserView(s.client, s.surface, Date.now()).keys).toBe(previewKeys(s.client));
+  });
+  it('a View chord over a shown page acts on the page when it holds the focus, else on the window', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId), asked: Obj[] = [];
+    const focus = { type: 'identifier', name: 'previewFocus' };
+    (s.client.config as Obj).keybindings = [{ command: 'preview.zoomIn', shortcut: { key: '=', modKey: true }, whenAst: focus }];
+    let focused = true;
+    useAutomationCalls({ evaluate: async (options: Obj) => { asked.push(options); return { result: focused }; } } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      expect(asked).toEqual([{ id: frameId, expression: 'document.hasFocus()', sandbox: 't3-preview-automation' }]);
+      await browserKey(s.client, `browser-frame-gone,${frameId}`, 'chord=meta%2B%3D&step=3');
+      expect(frameOf(s).zoom).toBe(1.1);
+      focused = false;
+      await browserKey(s.client, frameId, 'chord=meta+r');
+      await browserKey(s.client, frameId, 'chord=meta%2B%3D&step=3');
+      // ⌘- has no preview binding here: the page is not asked.
+      asked.length = 0;
+      await browserKey(s.client, frameId, 'chord=meta%2B-&step=1');
+      expect(asked).toEqual([]);
+    } finally { useAutomationCalls(null); }
+    expect(commands(s)).toEqual([{ kind: 'reload', url: '', delta: 0, flag: false }, { kind: 'window', url: '', delta: 0, flag: true },
+      { kind: 'window', url: '', delta: 3, flag: false }, { kind: 'window', url: '', delta: 1, flag: false }]);
+  });
+  it('⌘L over a shown page asks the address bar for the focus while the page holds it, once, and else does nothing', async () => {
+    const s = setup(), frameId = frameIdOf(s.runtimeId);
+    (s.client.config as Obj).keybindings = [{ command: 'preview.focusUrl', shortcut: { key: 'l', modKey: true }, whenAst: { type: 'identifier', name: 'previewFocus' } }];
+    let focused = false;
+    useAutomationCalls({ evaluate: async () => ({ result: focused }) } as unknown as AutomationCalls);
+    try {
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+      focused = true;
+      await browserKey(s.client, frameId, 'chord=meta+l');
+      const serial = browserView(s.client, s.surface, Date.now()).focusUrlSerial;
+      expect(serial).toBeGreaterThan(0);
+      // The field took the focus (browser-surface.contract BrowserChrome): a later mount of the chrome asks no more.
+      await frameLocal(s.client, module, 'frame-url-focused', s.runtimeId, String(serial));
+      expect(browserView(s.client, s.surface, Date.now()).focusUrlSerial).toBe(0);
+    } finally { useAutomationCalls(null); }
+    // ⌘L moves neither the page nor the window.
+    expect(commands(s)).toEqual([]);
+  });
+  it('closes a shown Browser panel, else shows the thread\'s tab without opening another', async () => {
+    const s = setup();
+    const rows: string[][] = [];
+    const add = (command: string, kind: string, target: string) => rows.push([command, kind, target]);
+    const { panelState } = await import('../../src/panel/panel-surfaces');
+    const shown = panelState(s.client);
+    shown.surfaces = s.state.surfaces; shown.active = s.state.active; shown.visible = true;
+    previewToggleRow(add, s.client);
+    shown.visible = false;
+    previewToggleRow(add, s.client);
+    expect(rows).toEqual([['preview.toggle', 'panel-close', ''], ['preview.toggle', 'command', 'shelllocal:surface-browser-show']]);
+    await showPreview(s.client, module, shown);
+    expect(shown).toMatchObject({ visible: true, active: 'browser:tab-1' });
+    // openBrowser: the thread's active session shows even when the panel has no surface for it.
+    const bare: PanelState = { surfaces: [], active: '', visible: false, userRevision: 0 };
+    await showPreview(s.client, module, bare);
+    expect(bare).toMatchObject({ visible: true, active: 'browser:tab-1' });
+    expect(s.calls.filter(call => call.method === 'preview.open')).toEqual([]);
+  });
+  it('with two tabs, ⇧⌘J twice floats the selected loaded tab, then shows that same tab and session again', async () => {
+    const s = setup();
+    const { panelState, surfaceLocal } = await import('../../src/panel/panel-surfaces');
+    const { floatingTabOf, browserMiniView } = await import('../../src/browser/browser-capture');
+    const { browserMiniSessions } = await import('../../src/browser/browser-surface');
+    const host = browserHost(s.client);
+    // A second, blank tab opened after the first (openPreviewSession's snapshot): it is the thread's newest session.
+    host.store.applyServerSnapshot(ref, snap(undefined, 'tab-2', { _tag: 'Idle' }));
+    const panel = panelState(s.client);
+    openBrowserIn(panel, 'tab-1', 'local:thread-1');
+    openBrowserIn(panel, 'tab-2', 'local:thread-1');
+    expect([panel.active, host.store.read(ref).activeTabId]).toEqual(['browser:tab-2', 'tab-2']);
+    // The person selects the loaded first tab (RightPanelTabs → activateRightPanelSurface).
+    await surfaceLocal(s.client, module, 'activate', 'browser:tab-1', '');
+    expect([panel.active, host.store.read(ref).activeTabId]).toEqual(['browser:tab-1', 'tab-1']);
+    const sessionsBefore = Object.keys(host.store.read(ref).sessions).sort(), nativeBefore = s.native.length;
+    /** The chord: the dispatch row previewToggleRow adds, run along the route it names (panel-close → panelUi("close") →
+     *  shelllocal:surface-hide; the command → shelllocal:surface-browser-show). */
+    const chord = async () => {
+      const rows: string[][] = [];
+      previewToggleRow((command, kind, target) => rows.push([command, kind, target]), s.client);
+      const [[, kind = '', target = ''] = []] = rows;
+      if (kind === 'panel-close') await surfaceLocal(s.client, module, 'hide', '', '');
+      else await surfaceLocal(s.client, module, target.replace(/^shelllocal:surface-/, ''), '', '');
+      return kind;
+    };
+    const mini = () => browserMiniView(s.client, scoped => browserMiniSessions(s.client, scoped), panel.visible ? panel.active.replace(/^browser:/, '') : null);
+    expect(await chord()).toBe('panel-close');
+    expect([panel.visible, floatingTabOf(s.client), mini().show, mini().tabId]).toEqual([false, 'tab-1', true, 'tab-1']);
+    expect(await chord()).toBe('command');
+    expect([panel.visible, panel.active, panel.surfaces.map(surface => surface.id)]).toEqual([true, 'browser:tab-1', ['browser:tab-1', 'browser:tab-2']]);
+    expect(mini().show).toBe(false); // shouldRenderPreviewMiniPlayer: the panel shows the floating tab
+    expect([host.store.read(ref).activeTabId, Object.keys(host.store.read(ref).sessions).sort()]).toEqual(['tab-1', sessionsBefore]);
+    expect(s.calls.filter(call => ['preview.open', 'preview.close'].includes(call.method))).toEqual([]);
+    expect(s.native.slice(nativeBefore).filter(request => request.op === 'browserClose')).toEqual([]);
+    // Closing a tab whose panel selection lands on another selects that one as the thread's session too
+    // (syncActivePreviewSurface): a third tab is closed while the first has the newest server answer, which the store
+    // alone would fall back to.
+    host.store.applyServerSnapshot(ref, snap(undefined, 'tab-3', { _tag: 'Idle' }));
+    openBrowserIn(panel, 'tab-3', 'local:thread-1');
+    host.store.updateServerSnapshot(ref, snap(undefined, 'tab-1'));
+    await surfaceLocal(s.client, module, 'activate', 'browser:tab-3', '');
+    await surfaceLocal(s.client, module, 'close', 'browser:tab-3', '');
+    expect(panel.active).toBe('browser:tab-2');
+    expect(host.store.read(ref).activeTabId).toBe('tab-2');
+  });
+  it('the panel-close row presses panelUi("close"), which hides the panel through shelllocal:surface-hide', async () => {
+    const { value } = await import('../support/contract-action-fixture');
+    const lines = (await Bun.file(appPath('settings-shortcuts.contract')).text()).split('\n');
+    const at0 = lines.findIndex(line => line.includes('if item.kind == "panel-close"'));
+    expect(at0).toBeGreaterThan(0);
+    const row = lines[at0 + 1]!;
+    const pressed: unknown[][] = [];
+    value(row.trim().match(/press=(panel\(.*\))\)$/)![1]!, { panel: (...args: unknown[]) => pressed.push(args) });
+    expect(pressed).toEqual([['close', '']]);
+    const app = (await appText('app.contract')).split('\n');
+    const at = app.findIndex(line => line.startsWith('  action panelUi(what: string, id: string)'));
+    const send = app.slice(at, at + 8).find(line => line.includes('send localChanged = command('))!;
+    const sent: unknown[][] = [];
+    for (const open of [true, false]) {
+      value(send.trim().replace(/^send localChanged = /, ''), { what: 'close', id: '', data: { diffOpen: false }, rightPanel: false, shell: { panel: { open } }, command: (...args: unknown[]) => sent.push(args) });
+    }
+    expect(sent).toEqual([['shelllocal:surface-hide', '', '', 0], ['shelllocal:surface-hide', '', '', 0]]);
+  });
+  it('another active surface, or no Browser tab, keeps ⇧⌘J opening a Browser tab', async () => {
+    const s = setup();
+    const { panelState } = await import('../../src/panel/panel-surfaces');
+    const panel = panelState(s.client);
+    panel.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }, ...s.state.surfaces]; panel.active = 'files'; panel.visible = true;
+    const rows: string[][] = [];
+    previewToggleRow((command, kind, target) => rows.push([command, kind, target]), s.client);
+    expect(rows).toEqual([['preview.toggle', 'command', 'shelllocal:surface-browser-show']]);
+    await showPreview(s.client, module, panel);
+    expect(panel).toMatchObject({ visible: true, active: 'browser:tab-1' });
+    expect(s.calls.filter(call => call.method === 'preview.open')).toEqual([]);
+  });
+});
+
+describe('PreviewEmptyState', () => {
+  /** The thread's recent entries as given, and the live servers; the projection of an idle tab. */
+  function render(recentEntries: Array<{ url: string; lastVisitedAt: number; title?: string }>, ports: number[]) {
+    const s = setup({ nav: { _tag: 'Idle' } });
+    const history = browserHistory(s.client.local);
+    history.registerThreadProject(ref, 'proj');
+    history.state = { ...history.state, byProjectKey: { proj: recentEntries } };
+    discoveredServersEvent(s.client, { subscriptionId: 'sub-1', value: { servers: ports.map(port => ({ host: 'localhost', port, url: `http://localhost:${port}`, processName: 'node', pid: 1, terminal: null })) } });
+    return browserView(s.client, s.surface, Date.now());
+  }
+  const text = (view: ReturnType<typeof render>) => JSON.stringify([view.recents, view.servers]);
+  it('renders a history entry in both groups when its host:port matches a live server', () => {
+    const view = render([{ url: 'https://myapp.test/admin#users', lastVisitedAt: Date.now(), title: 'Admin' }, { url: 'http://localhost:5173/', lastVisitedAt: Date.now(), title: 'Recent Local' }], [5173]);
+    expect(view.recents.length).toBeGreaterThan(0);
+    expect(view.servers.length).toBeGreaterThan(0);
+    expect(text(view)).toContain('myapp.test/admin#users');
+    expect(text(view)).toContain('Admin');
+    expect(text(view)).toContain('Recent Local');
+    expect(text(view)).toContain('node');
+  });
+  it('renders only the recents group when no servers are found', () => {
+    const view = render([{ url: 'https://myapp.test/', lastVisitedAt: 0 }], []);
+    expect(view.recents).toHaveLength(1);
+    expect(view.servers).toEqual([]);
+  });
+  it('keeps the original empty state when both groups are empty', () => {
+    const view = render([], []);
+    expect(view).toMatchObject({ empty: true, recents: [], servers: [] });
+  });
+  it('renders an out-of-range lastVisitedAt entry without throwing', () => {
+    let view: ReturnType<typeof render> | null = null;
+    expect(() => { view = render([{ url: 'https://myapp.test/', lastVisitedAt: 1e20 }], []); }).not.toThrow();
+    expect(text(view!)).toContain('myapp.test');
+    expect(text(view!)).toContain('Remove');
+  });
+});

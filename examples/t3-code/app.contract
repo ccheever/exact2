@@ -1,0 +1,1269 @@
+// The members files (T3Code's `members` lines) load after the files these lines name, so these lines also name what
+// only the members read: the files load in the order the one-file root loaded them.
+use ThreadFindView from "./src/timeline/thread-find.contract"
+use ServerBrowserFrame from "./src/browser/server-browser.contract"
+use clearSiteData, ClearedSiteData from "@exact/browser"
+use notificationStatus, NotificationStatus from "@exact/notifications" // the thread and guide notifications' posts, badge and permission (shell-notify.ts)
+use handleUserPrompt, EmptyResult from "@exact/browser-automation"
+use PromptLinkView from "./src/prompt-links/prompt-links.contract"
+use ThemeUse, ThemeRoleUsage from "./src/appearance/settings-appearance-editor-shapes.contract"
+use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time, Page from "./src/shell/app-shapes.contract" // first: the plan orders shapes by first use
+use HighlightAsk, HighlightCoded, HighlightStored from "./src/highlight/highlight.contract"
+use Snapshot, Viewport, Change, LicenseSettings, SnapshotSettings, Settings, Canvas, CodexReceive from "./src/shared/shapes.contract"
+use PairFields from "./src/connections/pairing-shapes.contract"
+use providerLinkVisit from "./src/shell/app-settings.contract"
+use SshPromptView, SshPromptAnswer from "./src/connections/ssh-prompt.contract" // the SSH password dialog (ssh-auth.ts)
+use TranscriptMarkdown, MarkdownLabels, MarkdownSource from "./src/timeline/markdown.contract"
+use TimelineAttachmentUrls from "./src/timeline/timeline-attachments.contract"
+use PagesHome, pageTrailNext from "./src/pages/pages-hero.contract"
+use UsageView, UsageKey from "./src/usage/pages-usage.contract"
+use PrListView from "./src/pull-requests/pages-prs.contract"
+use PrDetailView from "./src/pull-requests/pages-pr-detail.contract"
+use WelcomeView from "./src/pages/pages-welcome.contract"
+use PaletteView, PaletteResult from "./src/palette/palette.contract"
+use ProviderPage from "./src/providers/providers.contract"
+use ProviderWizard, AcpRegistry from "./src/providers/providers-wizard.contract"
+use ConnectionsPage, SbSshHosts, routeKeyboardSource from "./src/connections/connections.contract"
+use routeKeyboardIdle, routeKeyboardLive, routeKeyboardNext, routeKeyboardCancel, routeKeyboardValue, routeKeyboardComplete from "./src/connections/connections-routes.contract"
+use KeybindingPage, KeybindingDraft from "./src/settings/settings-keybindings.contract"
+use ScheduledPage from "./src/settings/settings-scheduled.contract"
+use KeyDispatch, zoomFactor from "./src/settings/settings-shortcuts.contract"
+use SourceControlPage, IntegrationsPage from "./src/settings/settings-source-control.contract"
+use StoragePage from "./src/settings/settings-storage.contract"
+use ArchivePage from "./src/settings/settings-archive.contract"
+use DiagnosticsPage from "./src/settings/settings-diagnostics.contract"
+use CoreNav, SettingsCore from "./src/settings/settings-core.contract"
+use AboutDelivery from "./src/settings/settings-a-about.contract"
+use ProjectsPage from "./src/settings/settings-projects.contract"
+use SbPicker from "./src/settings/settings-b-icons.contract"
+use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
+use ComposerEditorView from "./src/composer/composer-editor.contract"
+use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerSurrounds from "./src/composer/composer-rich.contract"
+use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
+use ChipPopover, ComposerChipFinish, ComposerChipRequest from "./src/composer/composer-chip-popover.contract"
+use ShellView, ShellDetails from "./src/shell/shell-shapes.contract"
+use T3Window from "./src/shell/app-window.contract" // the window's view; its uses load the view's files here, in this order
+use ChatCanvasView from "./src/shell/chat-canvas.contract"
+use TerminalDrawerView from "./src/terminal/terminal.contract"
+use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./src/shell/hover-layer.contract"
+use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, TransportUpdateStep, TransportSocket, TransportInbox from "./src/transport/transport.contract"
+use ShortcutModifierState, emptyShortcutModifierState, areShortcutModifierStatesEqual, shortcutModifierStateAfterKeyboardEvent, anyShortcutModifier, speedModifiers from "./src/shell/shortcut-modifiers.contract"
+use heldModifiers from "./src/shared/press-modifiers.contract"
+use QuitHoldState, quitHoldIdle, quitKeyDown, quitKeyUp, quitWatchFired, quitTypesLatin from "./src/shell/quit-hold.contract"
+use composerChord, composerChordIn from "./src/composer/composer-keys.contract"
+use layoutFrame, optionsTriggerId from "./src/shell/layout-frames.contract"
+// playNotificationSound's two sounds (threadNotifications.ts): the reference's MP3s as PCM, as `sound` reads them.
+sound "assets/notification-completion.wav"
+sound "assets/notification-input.wav"
+routes promptLinks
+  home "/"
+    visit "/visit/:n" // a visit of the window's history (src/sidebar/sidebar-members.contract visitRecorded)
+  incoming "/open"
+  notification "/notification" // where a clicked notification goes (shell-notify.ts notificationLocation)
+
+component T3Code
+  resource promptLinkPage = promptLinkView(data.revision) as shape PromptLinkView
+  resource promptLinksReady = promptLinksReady(data.revision, transportSeen) as shape bool
+  task incomingPromptLink when top(promptLinks).name == "incoming" and promptLinksReady and not welcome.show and not commandPending
+    after(1, promptLinkReceived)
+  action promptLinkReceived
+    let value = searchParam(top(promptLinks), "u")
+    promptLinks = select(promptLinks, "home")
+    settingsOpen = false
+    utilityPage = ""
+    send fragmentChanged = command("shelllocal:prompt-link-open", "", value, 0)
+  action promptLinkAct(which: string)
+    send fragmentChanged = command("shelllocal:prompt-link-action", which, "", 0)
+  // A notification's click (its `navigate`, warm or at launch) names its thread or review guide, which the shell opens
+  // as ThreadNotificationCoordinator's click navigates there at once (shell-notify.ts `notification-open`).
+  task notificationOpened when top(promptLinks).name == "notification"
+    after(1, notificationOpen)
+  action notificationOpen
+    let target = searchParam(top(promptLinks), "t")
+    promptLinks = select(promptLinks, "home")
+    send localChanged = command("notification-open", target, "", 0)
+  // playNotificationSound: each request the shell view counts (shell-notify.ts notificationSound) plays its sound once.
+  task notifyCompletionSound when shell.notifySound.completion > 0 key=shell.notifySound.completion
+    after(1, playCompletionSound)
+  task notifyInputSound when shell.notifySound.input > 0 key=shell.notifySound.input
+    after(1, playInputSound)
+  action playCompletionSound
+    playSound("assets/notification-completion.wav")
+  action playInputSound
+    playSound("assets/notification-input.wav")
+  state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
+  action setThemeInspecting(value: bool)
+    themeInspecting = value
+  action clearThemeInspecting
+    themeInspecting = false
+  task themeInspectionEnded when themeInspecting and not settingsCore.editor.open
+    after(1, clearThemeInspecting)
+  state elapsed = 0
+  resource wallTime = exactTime() as shape Time
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode, restOwner, restAtEnd, restPulls, transportSeen, composerTyping, layoutFrames, wallTime.formatLocale) as shape Snapshot // full screen drops the traffic lights' inset (presentation.ts); the transcript's viewport (transcript-facts.ts); the connections' news (transport.ts); the typing guard (composer-typing-guard.ts)
+  // receiveCodexAuthCallback: while a ChatGPT sign-in waits on its loopback callback, its slot's answer holds
+  // openAuthSession's receiver on the redirect's port (codex-setup-ops.ts receiveCallback); another URL, or none, lets it
+  // go. Two wait at once, each on its own port (codex-setup-host.ts LOOPBACK_SLOTS).
+  resource codexLoopback = codexReceive(data.codexReceiving) as shape CodexReceive
+  resource codexLoopbackSecond = codexReceive(data.codexReceivingSecond) as shape CodexReceive
+  // The notification permission, read again when the app comes to the front: the shell posts while it is `granted`
+  // (shell-notify.ts). Data code makes the posts, and a package enters the plan only by a name Contract reads, so this
+  // read is also what lets the agent answer data code's calls, which it refuses for a package not in the plan
+  // (LLP 1133.004, "As built").
+  resource notificationPermission = notificationStatus() as shape NotificationStatus
+  state reconnectGraceKey = ""
+  state disconnectDelayKey = ""
+  task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting
+    after(2000, reconnectGraceElapsed)
+  action reconnectGraceElapsed
+    reconnectGraceKey = data.serverUpdate.reconnecting
+  task disconnectDelay when data.serverUpdate.unavailable != "" key=data.serverUpdate.unavailable
+    after(20000, disconnectDelayElapsed)
+  action disconnectDelayElapsed
+    disconnectDelayKey = data.serverUpdate.unavailable
+  members "./src/transport/transport-members.contract"
+  task rootFont key=`${data.look.fontSize}|${zoomStep}` // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
+    after(1, rootFontApply)
+  action rootFontApply // the reference's 16 before the data's first answer (the Mac host's own size is 13 since LLP 1115), times View's zoom
+    setRootFontSize((data.look.fontSize > 0 ? data.look.fontSize : 16) * zoomFactor(zoomStep))
+  // View's zoom (settings-shortcuts.contract ViewZoom): the main window's, not kept across a launch, as the reference's.
+  state zoomStep = 0
+  action zoomTo(step: number)
+    zoomStep = step
+  state codeCopyDone = 0 // #123: the copy whose check has run its time (MarkdownCodeBlock and MarkdownTable 1.2 s, CommandBlock 1.5 s); its button morphs back (MorphCopyCheck)
+  state welcomeCopyDone = 0
+  task codeCopyHold when data.codeCopyNonce > 0 key=data.codeCopyNonce
+    after(1200, codeCopyRelease)
+  action codeCopyRelease
+    codeCopyDone = data.codeCopyNonce
+  task welcomeCopyHold when welcome.commandCopied > 0 key=welcome.commandCopied
+    after(1500, welcomeCopyRelease)
+  action welcomeCopyRelease
+    welcomeCopyDone = welcome.commandCopied
+  derive inlineDocumentViewportWidth = viewport.width
+  derive inlineDocumentViewportHeight = viewport.height
+  members "./src/browser/server-browser-members.contract"
+  provide
+    interacted
+    pickerAnnounce
+    modelPickTaken
+    workspaceEntered // F6's workspace areas (src/shell/shell-members.contract)
+    workspaceMove
+    triageCopied // the triage hero's "Copied" (src/shell/shell-members.contract)
+    triageCopy
+    renameHoldsKeys
+    renameFocused
+    inlineDocumentViewportWidth
+    inlineDocumentViewportHeight
+    inlineDocumentShortcut
+    richPromptPreview
+    promptPreviewText
+    promptPreviewWrite
+    promptPreviewOwner
+    promptPreviewSnapshotOwner
+    promptPreviewSerial
+    composerChipPress
+    composerFieldInputSerial
+    modelOpenTo // the composer's model picker: its shortcuts, its trigger's edges, its Permissions menu and its picks
+    modelMeasure
+    modelOpenTarget
+    modelPermissions
+    modelAnchorX
+    modelAnchorWidth
+    pickerPick
+    richComposer
+    richComposerOwner
+    composerMoved
+    composerBeforeInput
+    composerIntentNotice
+    composerLanguage
+    composerKeyEvent
+    composerKeyReleased
+    composerCopied
+    composerPasteValue
+    composerPasteStart
+    composerPasteEnd
+    composerPasteAsTextUntil
+    composerPasteTaken
+    attachFiles
+    chooseAttachments
+    composerUploads
+    threadFind
+    serverMiniFrame
+    serverFrame
+    serverPipFrame
+    streamPainted
+    streamControl
+    streamMouse
+    streamWheel
+    streamKey
+    streamText
+    streamDialog
+    streamUpload
+    streamMeasured
+    codeCopyDone
+    questionDocuments
+    traceDocuments
+    welcomeCopyDone
+    routeKeyboard
+    routeKeyboardInput
+    citeEnd
+    restScrolled
+    restGesture
+    releaseUndoClaim
+    sidebarRenameClosed
+    composerMenuActive
+    composerMenuHover
+    composerStashActive
+    composerStashHover
+    composerSendHeld
+    frameMoved
+    optionsAnchorX
+    optionsAnchorWidth
+    navigationHistory // the window's Back and Forward (src/sidebar/sidebar-members.contract)
+    historyGo
+    composerScope // the composer's ids' prefix (src/panel/side-chat-members.contract)
+    composerTarget
+    composerTargetData
+    sideChat // a side chat tab's own chat view (src/panel/side-chat-members.contract)
+    sideChatThread
+    sideChatPlace
+    sideChatX
+    sideChatY
+    sideChatWidth
+    sideChatHeight
+    sideMarkdown
+    sideQuestionMarkdown
+    sideTraceMarkdown
+    sideAttachmentUrls
+    sideEditor
+    sideRich
+    sideRichOwner
+    sideText
+    sideCommand
+    sideLocal
+    sideWrite
+    sideSend
+    sideStop
+    sideInteraction
+    sideRemoveSnapshot
+    sideEditorOp
+    sideAttachFiles
+    sideChooseAttachments
+    sideFilesPicked
+    sideModelMeasure
+    sideOpenModels
+    sideModelOpenTo
+    sideOpenOptions
+    sideNow
+    sideComposerFocus
+    sideComposerBlur
+    fieldSide
+    fieldIntentNotice
+    fieldMenuActive
+    sideKeys
+    sidePaneFocus
+    sideComposerFocusWithin
+    sideChipPress
+    composerChords
+    keyModelsChord
+    dispatchCommand
+    openProviderSettings
+    modelsOpen
+    optionsOpen
+    commandPending
+  members "./src/timeline/cite-members.contract"
+  mutation balanceLoaded as shape Change queue refreshes data // auto-balance.ts (issues/closed/20261009-typescript-failure-parity.md, issues/20261009-runner-owned-bidirectional-streams.md): an unresolved Auto draft asks its machines' host resources, at the window's time. Queued: its move to another machine holds `moving` across polls on its own timers, which a newer send would let go.
+  task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
+    after(1, balanceLoadNow)
+  action balanceLoadNow
+    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + performanceNow()}`, 0)
+  state noticeExit = "" // the notice leaving above the composer: none, since a dismissed notice goes at once
+  action noticeDismiss(notice: string, op: string, target: string)
+    if not commandPending
+      commandPending = true
+      send changed = command(op, target, "", 0)
+  state hoverWait = 0 // the hover clock (hover-layer.contract): +10 each 10 ms while a hover card's close delay runs (to hoverEnd), and on a surface change, which ends a tooltip or card whose trigger went with no leave
+  state hoverEnd = 0
+  task hoverTick when hoverWait < hoverEnd key=hoverEnd
+    every(10, hoverTicked)
+  // The model picker counts: its rail's tips have no leave when Escape or a pick closes it under the pointer.
+  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}|${modelsOpen}`
+    after(1, hoverTicked)
+  action hoverTicked
+    hoverWait = hoverWait + 10
+  action hoverHold(end: number)
+    hoverEnd = end
+  state hoverTip = noHoverTip() // Root ownership avoids T3Window captures; surface changes and removed owners dismiss.
+  state hoverOn = ""
+  state hoverOpen = 0
+  state hoverUntil = 0
+  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+  action hoverTipAt(tip: HoverTip, part: string, inside: bool)
+    if inside
+      let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
+      hoverTip = tip
+      hoverOn = part
+      hoverOpen = at
+      hoverHold(at)
+    else if tip.key == hoverTip.key and hoverOn == part
+      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait
+      hoverOn = ""
+      hoverUntil = until
+      hoverHold(until)
+  resource threadFind = threadFind(data.revision, wallTime.epochAtZero + elapsed, data.markdownSkills, findViewport) as shape ThreadFindView
+  mutation threadFindMaintained as shape ThreadFindView refreshes threadFind, data
+  task maintainThreadFind when threadFind.attention
+    every(100, maintainThreadFindTick)
+  action maintainThreadFindTick
+    if not pending(threadFindMaintained)
+      send threadFindMaintained = threadFind(data.revision, wallTime.epochAtZero + performanceNow(), data.markdownSkills, findViewport)
+  state findTries = 0
+  state findPlacing = false
+  state findMiss = 1000000
+  task findRequested when threadFind.open and threadFind.entry != "" key=`${data.serverUrl}|${data.threadId}|${threadFind.navigation}|${threadFind.entry}`
+    after(1, findBegin)
+  action findBegin
+    citeEnd()
+    findTries = 0
+    findMiss = 1000000
+    findPlacing = true
+    scrollIntoView("transcript", threadFind.entry, offset=-96, behavior="instant")
+  task findPlacement when threadFind.open and findPlacing and findTries < 30 key=findTries
+    after(32, findPlace)
+  action findPlace
+    let target = frame("thread-find-active")
+    let row = frame(`row-${threadFind.entry}`)
+    let port = frame("transcript")
+    if target.unavailable or row.unavailable
+      findTries = findTries + 1
+    else
+      let miss = target.y - port.y - 96
+      if (miss > 1 or miss < -1) and (findMiss - miss > 0.5 or miss - findMiss > 0.5)
+        scrollIntoView("transcript", threadFind.entry, offset=target.y - row.y - 96, behavior="instant")
+        findMiss = miss
+        findTries = findTries + 1
+      else
+        findPlacing = false
+  task threadFindFocus when threadFind.open key=threadFind.focus
+    after(1, threadFindFocusField)
+  action threadFindFocusField
+    focus("thread-find-query")
+    selectText("thread-find-query")
+  task diffFindFocus when data.diffFind.open key=data.diffFind.focus
+    after(1, diffFindFocusField)
+  action diffFindFocusField
+    focus("diff-find-query")
+    selectText("diff-find-query")
+  task prFindFocus when prDetail.codeTab.find.open key=prDetail.codeTab.find.focus
+    after(1, prFindFocusField)
+  action prFindFocusField
+    focus("pr-code-find-query")
+    selectText("pr-code-find-query")
+  resource markdown = renderMarkdown(data.messages, data.markdownSkills, threadFind.highlight, threadFind.entry, threadFind.occurrence, data.messages.map((message) => MarkdownLabels(id=message.id, chips=message.md.chips)), data.look.math) as shape TranscriptMarkdown
+  resource questionMarkdown = renderQuestionMarkdown(data.questions) as shape TranscriptMarkdown
+  derive questionDocuments = questionMarkdown.documents
+  // ReasoningTraceContent: an open thought's trace is Markdown, its single newlines kept as UserMessageBody keeps them.
+  resource traceMarkdown = renderFileMarkdown(data.messages.map((message) => message.activities.filter((a) => a.reasoning and a.detailOpen).map((a) => MarkdownSource(id=`trace:${a.id}`, kind="user", title="", body=a.output))).flat(), false) as shape TranscriptMarkdown
+  derive traceDocuments = traceMarkdown.documents
+  resource attachmentUrls = timelineAttachments(data.threadId, wallTime.epochAtZero + elapsed, data.revision, scheme, "") as shape TimelineAttachmentUrls // Signed preview URLs for the thread's sent images (timeline-attachments.ts).
+  // Its read also brings the open documents up to date (a theme change); what it queues for them reaches them with the
+  // next snapshot, so a new post asks for one now instead of at the next minute tick.
+  task inlineDocumentsPosted when attachmentUrls.posted > 0 key=attachmentUrls.posted
+    after(1, deliverInlinePosts)
+  action deliverInlinePosts
+    send inlineDocumentChanged = command("chatlocal:inline-doc-posted", "", "", 0)
+  resource home = pagesHome(data.revision) as shape PagesHome // Lane pages: the empty main view, the utility pages and the sidebar footer route.
+  state utilityPage = ""
+  derive pageCover = utilityPage != "" or home.landing == "no-environment" or home.landing == "no-projects" or home.landing == "start-error" or home.landing == "no-thread"
+  action openPage(name: string)
+    pageTrailNote(name)
+    utilityPage = name
+    sidebarHoverId = "" // a press closes its tooltip (Base UI); the pressed footer button unmounts without a hover-out
+  state pageTrail = [] // Utility-page Escape follows its page trail; opening from a thread starts a new trail, empty means Home.
+  action pageTrailNote(name: string)
+    pageTrail = pageTrailNext(pageTrail, utilityPage, name)
+  action pageBack
+    utilityPage = match pageTrail.at(-1) { case some(page) => page, case none => "" }
+    pageTrail = pageTrail.slice(0, -1)
+    sidebarHoverId = ""
+  state usageMetric = ""
+  state usageDays = 0
+  state usageBreakdown = "model"
+  state usageRefresh = 0
+  resource usage = usagePage(utilityPage == "usage", usageMetric, usageDays, usageBreakdown, usageRefresh, viewport.width, data.sidebarOpen ? sidebarWidth : 0, wallTime.epochAtZero + elapsed, data.revision) as shape UsageView
+  resource usageShortcuts = usageKeys(data.revision) as shape UsageKey[]
+  action usageMetricSet(value: string)
+    usageMetric = value
+    send localChanged = command("pageslocal:usage-metric", "", value, 0)
+  action usageWindowSet(days: number)
+    usageDays = days
+    send localChanged = command("pageslocal:usage-window", "", `${days}`, 0)
+  action usageBreakdownSet(value: string)
+    usageBreakdown = value
+  action usageRefreshNow
+    usageRefresh = usageRefresh + 1
+  members "./src/pull-requests/pull-requests-members.contract"
+  state welcomeStep = "connect"
+  state welcomeLink = ""
+  // "Add a computer" as the person left it; "" is as the Connect step starts it (ConnectionStep's expandPairingInitially).
+  state welcomePairFold = ""
+  derive welcomePairOpen = welcomePairFold == "" ? welcome.pairStartsOpen : welcomePairFold == "open"
+  state welcomePaired = 0
+  resource welcome = welcome(welcomeStep, wallTime.epochAtZero + elapsed, data.revision) as shape WelcomeView
+  action welcomeGo(step: string)
+    welcomeStep = step
+    if step == "connect"
+      welcomePairFold = ""
+  action welcomeSetup
+    welcomeStep = "agents"
+    send localChanged = command("pageslocal:welcome-setup", "", "", 0)
+  action welcomeEditLink(value: string)
+    welcomeLink = value
+  action welcomePair
+    if not commandPending and welcomeLink.trim() != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      pendingModal = "welcome-pair"
+      modalError = ""
+      send changed = command("welcome-pair", "", welcomeLink, 0)
+  action welcomeTogglePair
+    welcomePairFold = welcomePairOpen ? "closed" : "open"
+  // ConnectionStep's onPaired and its `ready` effect: Continue takes the focus once it can.
+  task welcomePairedFocus when welcomePaired > 0 and welcomeStep == "connect" and welcome.ready and not commandPending key=welcomePaired
+    after(1, welcomeFocusContinue)
+  action welcomeFocusContinue
+    focus("welcome-continue")
+  action welcomeFinish
+    if not commandPending
+      commandPending = true
+      send changed = command("pageslocal:welcome-finish", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
+  action welcomeImport(op: string, id: string, value: string) // also the Usage page's pages:usage-* ops
+    if op.startsWith("terminal-page")
+      command(`pageslocal:welcome-${op}`, id, value, 0) // the setup terminal page's messages: the terminals' mutations
+    else if op != "import" and op != "usage-prices-save"
+      send localChanged = command(op.startsWith("usage-") ? `pageslocal:${op}` : `pageslocal:welcome-${op}`, id, value, 0)
+    else if not commandPending
+      commandPending = true
+      send changed = command(op == "import" ? "pageslocal:welcome-import" : "pageslocal:usage-prices-save", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
+  action openConnectionsPage
+    openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
+    settingsRoute = "connections"
+  action tick
+    elapsed = performanceNow()
+  task clock mount
+    every(60000, tick)
+  task resetClock when data.composer.resetSoon key=data.composer.resetKey // a usage-limit reset under a minute away turns its banner on time
+    every(1000, tick)
+  state windowReturns = 0 // the window focused again, the clock read then (useLiveRefresh's `focus` at Date.now(), not at the last minute tick), for the list and the detail
+  task windowBack when page.hasFocus and page.visibilityState == "visible"
+    after(1, windowReturned)
+  action windowReturned
+    elapsed = performanceNow()
+    windowReturns = windowReturns + 1
+    transportSignal("foreground") // returning to the app: probe a live socket, look for a better route, wake a waiting retry
+  // When the reader last pointed, typed or scrolled, to the second: the window listeners of backgroundActivityReporter.ts
+  // (pointermove, keydown, wheel) and useLiveRefresh.ts (those and pointerdown). T3Window's root hears them; a hovering
+  // pointer's move goes only to the innermost node that hears `pointermove`, so each such node calls this too. The data
+  // module gets each new second (activityInteraction); the first after six idle minutes is useLiveRefresh's resume, which
+  // reads the pull request surfaces again (activityResumed, LIVE_REFRESH_IDLE_AFTER_MS).
+  state interactedAt = 0
+  mutation interactionNoted as shape number
+  mutation interactionResumed as shape number refreshes prList, prDetail
+  action interacted
+    let now = performanceNow()
+    if now - interactedAt >= 360000
+      interactedAt = now
+      send interactionResumed = activityResumed(wallTime.epochAtZero + now)
+    else if now - interactedAt >= 1000
+      interactedAt = now
+      send interactionNoted = activityInteraction(wallTime.epochAtZero + now)
+  // While the device tab's rename field has the focus (panel.contract PanelTabNameField), the keys its keydown's
+  // stopPropagation keeps from the reference's bubble-phase window listeners stand aside: those keybinding chords
+  // (settings-shortcuts.contract renameHeldCommand) and the Escape buttons, since an `aria-keyshortcuts` button hears its
+  // chord before any field. The capture-phase listeners (sidebar.toggle, the chat's, the composer's and thread commands,
+  // ThreadUndoShortcut, ReopenClosedViewShortcut) still hear a key there, as in the reference.
+  state renameHoldsKeys = false
+  action renameFocused(on: bool)
+    renameHoldsKeys = on
+  mutation timelineDisclosureChanged as shape Change refreshes data then dispatchTimelineReads
+  mutation timelineReadsRefreshed as shape TimelineReadsResult refreshes data
+  mutation timelineReadsRefreshedNext as shape TimelineReadsResult refreshes data
+  action dispatchTimelineReads
+    if not pending(timelineReadsRefreshed)
+      send timelineReadsRefreshed = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
+    if not pending(timelineReadsRefreshedNext)
+      send timelineReadsRefreshedNext = refreshTimelineReads(wallTime.epochAtZero + performanceNow())
+  state liveNow = 0 // The timeline's "Working for 12s" ticks each second while a run is live.
+  state workspaceNow = 0 // The mounted composer checks its five-minute workspace snapshot TTL.
+  resource workspaceDiscovery = composerWorkspace(data.revision, not settingsOpen and not pageCover and not welcome.show, wallTime.epochAtZero + max(workspaceNow, elapsed)) as shape WorkspaceDiscovery // ChatComposer is mounted on the chat view only
+  mutation workspaceRefreshed as shape WorkspaceRefresh refreshes workspaceDiscovery, data then workspaceRefreshFinished
+  state workspaceRetryKey = ""
+  state workspaceRetryAt = 0
+  state workspaceRetryWake = 0 // ChatComposer: without a pending snapshot, only a change after the cooldown retries.
+  action workspaceRefreshFinished
+    match workspaceRefreshed
+      case some(result)
+        workspaceRetryKey = result.key
+        workspaceRetryAt = result.retry ? performanceNow() + 10000 : 0
+        workspaceRetryWake = result.wake
+      case none
+        workspaceRetryAt = performanceNow() + 10000
+  // A timeline read's mutation refreshes data as it lands, and a refresh replaces an answer in flight, so the tick
+  // leaves a pending data answer alone, as the highlight pump does (highlightStepped): asked again each second, a
+  // launch's slow snapshot answer could never land.
+  action liveTick
+    if not settingsOpen and not pageCover and not welcome.show
+      workspaceNow = performanceNow()
+    if data.timelineReadsNeeded and not pending(data)
+      dispatchTimelineReads()
+    if workspaceDiscovery.needed and not pending(workspaceRefreshed)
+      if workspaceRetryKey != workspaceDiscovery.key or (performanceNow() >= workspaceRetryAt and (workspaceDiscovery.timer or workspaceDiscovery.wake != workspaceRetryWake))
+        send workspaceRefreshed = refreshComposerWorkspace(workspaceDiscovery.key)
+      if workspaceRetryKey == workspaceDiscovery.key and performanceNow() < workspaceRetryAt
+        workspaceRetryWake = workspaceDiscovery.wake
+    if data.running or data.subagentsLive or data.sidebar.ticking or data.sidebar.undoUntil > wallTime.epochAtZero + liveNow or prDetail.links.polling or (sideChatThread != "" and (sideChat.running or sideChat.subagentsLive)) // a side chat tab's run ticks too
+      liveNow = performanceNow()
+  task liveClock mount
+    every(1000, liveTick)
+  // A text a view paints waits for its tokens (highlights.ts): the pump hands the waiting texts to the lexers in the
+  // data crate (highlightCode) and their line records back to the module, one round at a time.
+  mutation highlightAsked as shape HighlightAsk then highlightAskedThen
+  mutation highlightCoded as shape HighlightCoded then highlightCodedThen
+  mutation highlightStored as shape HighlightStored then highlightStoredThen
+  action highlightStep
+    if not pending(highlightAsked) and not pending(highlightCoded) and not pending(highlightStored)
+      send highlightAsked = highlightAsk()
+  action highlightAskedThen
+    match highlightAsked
+      case some(ask)
+        if ask.requests.length > 0
+          send highlightCoded = highlightCode(ask.requests)
+        else
+          // Nothing waits: a view still reporting highlightPending painted its texts before their tokens landed.
+          highlightRefreshViews()
+      case none
+        if not pending(data)
+          refresh data
+  action highlightCodedThen
+    match highlightCoded
+      case some(coded)
+        send highlightStored = highlightStore(coded.results)
+      case none
+        if not pending(data)
+          refresh data
+  action highlightStoredThen
+    match highlightStored
+      case some(stored)
+        if stored.finished
+          highlightRefreshViews()
+      case none
+        if not pending(data)
+          refresh data
+  // A refresh replaces an answer in flight, so the pump leaves one alone; one that lands with a text still without
+  // its tokens reports highlightPending and is asked again. Refreshed every 16 ms, a launch's snapshot answer (seconds)
+  // would never land to clear highlightPending.
+  action highlightRefreshViews
+    if not pending(data) and data.highlightPending
+      refresh data
+    if not pending(shell) and shell.highlightPending
+      refresh shell
+    if not pending(palette) and palette.highlightPending
+      refresh palette
+    if not pending(prDetail) and prDetail.highlightPending
+      refresh prDetail
+    if not pending(settingsCore) and settingsCore.highlightPending
+      refresh settingsCore
+    if not pending(sideChat) and sideChat.highlightPending and sideChatThread != ""
+      refresh sideChat
+  task highlightPump when data.highlightPending or shell.highlightPending or palette.highlightPending or prDetail.highlightPending or settingsCore.highlightPending or (sideChatThread != "" and sideChat.highlightPending)
+    every(16, highlightStep)
+  resource viewport = exactViewport() as shape Viewport
+  derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light") // Palettes use the resolved Appearance scheme; viewport.prefersColorScheme is only the underlying system preference.
+  members "./src/palette/palette-members.contract"
+  members "./src/sidebar/sidebar-members.contract"
+  mutation providerAuthChanged as shape Change queue refreshes data, providerPage, providerWizard
+  mutation providerUpdateRun as shape Change queue refreshes providerPage
+  mutation changed as shape Change refreshes data then commandCompleted
+  mutation prQuickChanged as shape Change queue refreshes data
+  mutation prConfirmChanged as shape Change refreshes data
+  mutation inlineDocumentChanged as shape Change queue refreshes data
+  mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
+  mutation localChanged as shape Change refreshes data
+  mutation pickerAnnounced as shape Change queue refreshes shell // the model picker's shortcut announcements (pickerAnnounce)
+  // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
+  mutation prTabSaved as shape Change queue
+  // A drop on the chat column or a sidebar row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
+  // attachIncoming, row-drop.ts queueRowDrop). Queued: a second drop waits for the first.
+  mutation filesAdded as shape Change queue refreshes data then filesAddedDone
+  mutation prHandoffChanged as shape Change refreshes data // a checkout hand-off's second half, its own send
+  // A new thread opened while the draft's launch is in flight: its own send, so the launch's reply is not let go (draft-launch.ts).
+  mutation draftLeft as shape Change refreshes data
+  mutation terminalTicketChanged as shape Change queue refreshes data // a terminal page's socket ticket (terminal-frames.ts)
+  mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
+  mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
+  mutation frameReported as shape Change queue refreshes data // each Mermaid and math page's report and each sound's start and stop, in turn (chatLocal)
+  mutation terminalChanged as shape Change queue refreshes data then terminalCompleted // the drawer's ops, its pages' messages in turn
+  action terminalCompleted
+    match terminalChanged
+      case some(result)
+        if result.message == "terminal:focus-composer"
+          focus("composer")
+        // F6 or ⇧F6 in a terminal page (terminal-drawer-view.ts terminalCommandAction): "<next|previous>:<area>".
+        if result.message.startsWith("terminal:workspace-focus:")
+          terminalWorkspaceQueue(result.message.slice(25).startsWith("next") ? 1 : -1, result.message.endsWith(":panel") ? "panel" : "terminal")
+      case none
+  // A fragment link's press and the prompt links' sends, each in turn: a prompt link's switch to another machine's Scratch
+  // project waits on its own timers (scratch-machine.ts), and a queued send is never let go.
+  mutation fragmentChanged as shape Change queue refreshes data then fragmentOpened
+  // View source, a transcript chip's or the composer's: it waits on its own timers, so only a newer one may let it go.
+  mutation citationShown as shape Change refreshes data
+  mutation capturePressed as shape Change queue refreshes data // the Browser's Capture: a Record start waits on its own timers (browser-recording.ts waitForPaint)
+  mutation prCheckoutTyped as shape Change refreshes data // the checkout dialog's edits: only the next one lets one go mid-debounce, and it takes `waiting` over (pr-checkout.ts)
+  action fragmentOpened
+    match fragmentChanged
+      case some(result)
+        // A pull request link the system handed over: the Pull Requests page on that pull request.
+        if result.message.startsWith("sidebar:pr-page:")
+          openPage("pull-requests")
+          prSelect(result.message.slice(16))
+        if result.message == "sidebar:new-thread"
+          draftOwner = "__unset__"
+          jumpRequest = jumpRequest + 1
+          utilityPage = ""
+          focus("composer")
+      case none
+  state commandPending = false
+  state lineageStopping = ""
+  state lineageWorkflows: string[] = []
+  state lineagePhasesOpen: string[] = []
+  state lineagePhasesClosed: string[] = []
+  // A row's double-click while its first click's open runs: the rename (its op and row) starts once the open lands,
+  // on the environment it focused, as Sidebar.tsx's onDoubleClick renames after that click navigated.
+  state renameAfterOp = ""
+  state renameAfterId = ""
+  state pendingModal = ""
+  state modalError = ""
+  state connecting = false
+  state projectsOpen = false
+  state providerSelected = ""
+  state providerVisit = 0 // the provider links that changed the Providers page's target
+  state providerLinkTarget = "" // the instance the route names (the last link's), apart from the page's own pick (providerSelected)
+  state providerDialog = ""
+  state providerSerial = 0
+  state wizardAgentEpoch = 0 // moves as Add provider is configured by hand, so its answer forgets an agent added before (providers.ts)
+  state providerCreated = ""
+  state providerTarget = ""
+  state wizardDriver = "codex"
+  state wizardLabel = ""
+  state wizardLabelSet = false
+  state wizardId = ""
+  state wizardIdSet = false
+  state wizardStep = 0
+  state wizardManual = false
+  state acpQuery = ""
+  state providerNow = 0
+  action providerTick
+    if settingsOpen and (settingsRoute == "providers" or ((settingsRoute == "connections" or settingsRoute == "access") and connectionsPage.network.ticking))
+      providerNow = performanceNow()
+    providerDialog = (providerDialog == "chatgpt" and providerWizard.chatgptConnected) or providerPage.environment == "-" ? "" : providerDialog // AddCodexAccountDialog closes once the plan is shared; the page's dialogs close when its environment drops (they unmount with EnvironmentProviderSettings, ProviderSettingsPanel.tsx:551-586, 1377-1385)
+  task providerClock mount
+    every(1000, providerTick)
+  resource providerPage = providerPage(providerSelected, settingsOpen and settingsRoute == "providers", data.revision, wallTime.epochAtZero + max(elapsed, providerNow), settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId) as shape ProviderPage // the scope's environment (providers-scope.ts): its page and its actions name `providerPage.environment`
+  resource providerWizard = providerWizard(providerDialog != "", providerSerial, wizardManual ? "acpRegistry" : wizardDriver, wizardLabelSet, wizardLabel, wizardIdSet, wizardId, data.revision, providerDialog, providerTarget, providerPage.environment, wizardAgentEpoch) as shape ProviderWizard
+  state connectionRemove = ""
+  state connectionMenu = ""
+  resource connectionsPage = connectionsPage(settingsOpen and (settingsRoute == "connections" or settingsRoute == "access"), data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow), transportFleetSeen) as shape ConnectionsPage
+  state routeKeyboard = routeKeyboardIdle()
+  derive routeKeyboardReady = settingsOpen and settingsRoute == "connections" and page.hasFocus and page.visibilityState == "visible" and not connecting and not projectsOpen and not paletteOpen and not welcome.show and providerDialog == "" and restEditor == "" and connectionRemove == ""
+  derive routeKeyboardOwned = routeKeyboardReady and routeKeyboardLive(routeKeyboard, routeKeyboardSource(connectionsPage, routeKeyboard.environmentId, routeKeyboard.rowKey))
+  task routeKeyboardLost when routeKeyboard.phase != "" and (not routeKeyboardOwned or (commandPending and routeKeyboard.phase == "lifted") or (routeKeyboard.phase == "saving" and not commandPending and not pending(changed)))
+    after(1, cancelRouteKeyboard)
+  action cancelRouteKeyboard
+    routeKeyboard = routeKeyboardCancel(routeKeyboard)
+  action routeKeyboardInput(environmentId: string, rowKey: string, routeId: string, k: string, repeat: bool)
+    let next = routeKeyboardNext(routeKeyboard, environmentId, rowKey, routeId, k, repeat, routeKeyboardSource(connectionsPage, environmentId, rowKey), routeKeyboardReady, commandPending)
+    if routeKeyboard.phase == "lifted" and next.phase == "saving" and not commandPending
+      commandPending = true
+      pendingModal = "connection"
+      modalError = ""
+      send changed = command("environment-route-move", next.rowKey, routeKeyboardValue(next), next.serial)
+    routeKeyboard = next
+  resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision, providerPage.environment) as shape AcpRegistry
+  state settingsOpen = false
+  state settingsRoute = "general"
+  state settingsRefresh = 0
+  state keybindingQuery = ""
+  state keybindingOpen = false
+  state keybindingPrevious = ""
+  state keybindingCommand = ""
+  state keybindingKey = ""
+  state keybindingWhen = ""
+  state keybindingRecording = false
+  // The unsaved drafts of the rows not being edited, and the row a keybinding write is for ("" for none).
+  state keybindingDrafts: KeybindingDraft[] = []
+  state keybindingSaving = ""
+  resource bindings = keybindingSettings(settingsEnvironmentId, keybindingQuery, settingsOpen and settingsRoute == "keybindings", keybindingPrevious, keybindingKey, keybindingWhen, keybindingCommand, settingsRefresh, data.revision, keybindingDrafts) as shape KeybindingPage
+  resource scheduled = scheduledSettings(settingsEnvironmentId, settingsProjectId, restEditor, restSubject, settingsOpen and settingsRoute == "scheduled-tasks", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, taskBase, shellClock) as shape ScheduledPage // shellClock: the base-branch picker's next page (ref-loading.ts)
+  state licenseQuery = ""
+  state licenseExpanded = ""
+  state licenseRetry = 0
+  state diagnosticPeriod = "15m"
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp != "" ? confirmOp : (data.composer.resetConfirm != "" or data.revertPending != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm ? "alertdialog" : ""), shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
+  resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
+  resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "browser" or settingsRoute == "devices"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
+  state removalAt = ""
+  task removalFocus when integrations.browserProfiles.removalId != removalAt
+    after(1, removalFlip)
+  action removalFlip
+    if removalAt == ""
+      focus("browser-profile-remove-cancel")
+    else if integrations.browserProfiles.rows.map((row) => row.id).includes(removalAt)
+      focus(`browser-profile-options-${removalAt}`)
+    else
+      focus("browser-profiles-add")
+    removalAt = integrations.browserProfiles.removalId
+  resource storageSettings = storageSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "maintenance" or settingsRoute == "worktrees"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, wallTime.epochAtZero + elapsed) as shape StoragePage
+  resource archives = archivedSettings(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "archived", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape ArchivePage
+  resource licenses = licenseSettings(licenseQuery, licenseExpanded, licenseRetry, settingsOpen and settingsRoute == "open-source-licenses", data.revision) as shape LicenseSettings
+  resource diagnostics = diagnosticsSettings(settingsEnvironmentId, diagnosticPeriod, settingsOpen and settingsRoute == "diagnostics", wallTime.epochAtZero + elapsed, settingsRefresh, data.revision, data.telemetry) as shape DiagnosticsPage // a telemetry sample asks only this page again (data.telemetry); its reads are shared, so one asked again before a reply joins it (diagnostics-view.ts)
+  state settingsFocusTarget = ""
+  resource snapshotSettings = snapshotSettings(settingsOpen and settingsRoute == "snap-shot", settingsRefresh, data.revision, page.hasFocus) as shape SnapshotSettings // SnapShotSettings refreshState on window focus (exact2 #219): back from System Settings, the permissions read again
+  state settingsQuery = ""
+  resource settingsNavigation = settingsNavigation(settingsQuery, settingsCore.kind, settingsResultIndex, data.revision) as shape CoreNav
+  state settingsProjectId = ""
+  state settingsEnvironmentId = ""
+  state settingsMachine = ""
+  state settingsProjectKey = ""
+  state settingsCheckout = ""
+  state settingsMenu = ""
+  state settingsResultIndex = 0
+  state settingsScrollTop = 0 // settings search jump: the reveal offset (settings-a)
+  // A page is its route, scope and restore count, as routes/settings.tsx keys its Outlet on the scope search and
+  // restoreSignal: a new page mounts a new scroller at its top, and the jump's offset belongs to the page it revealed on.
+  state settingsRestores = 0
+  derive settingsPage = `${settingsRoute}|${settingsMachine}|${settingsProjectKey}|${settingsCheckout}|${settingsRestores}`
+  state settingsScrollPage = ""
+  derive settingsPageScrollTop = settingsScrollPage == settingsPage ? settingsScrollTop : 0
+  task settingsPageLeft key=`${settingsOpen}|${settingsPage}`
+    after(1, settingsPageForget)
+  action settingsPageForget
+    settingsScrollPage = settingsOpen and settingsScrollPage == settingsPage ? settingsScrollPage : ""
+  state themeReveal = ""
+  action themeRevealRequest(role: string)
+    themeReveal = role
+  task themeInspectRevealed when themeReveal != "" and settingsCore.editor.open and settingsCore.editor.filter == "" and (settingsCore.editor.advanced or themeReveal == "canvas" or themeReveal == "accent") key=themeReveal
+    after(1, themeRevealed)
+  // ThemeEditorPanel's reveal glides, and jumps under Reduce Motion.
+  action themeRevealed
+    if viewport.prefersReducedMotion
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="instant")
+    else
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="smooth")
+    themeReveal = ""
+  state themeUsage = []
+  task themeUsageRefresh when settingsCore.editor.open key=settingsCore.editor.session
+    every(100, themeUsageRead)
+  action themeUsageRead
+    themeUsage = settingsCore.editor.allRows.map((row) => ThemeRoleUsage(role=row.role, label=row.label, primaryIds=querySelectorAll(`[data-pick~="${row.role}"]`), nodes=querySelectorAll(`[data-paint~="${row.role}"]`).map((id) => ThemeUse(id=id, frame=frame(id))).filter((node) => node.frame.width > 0 and node.frame.height > 0)))
+  state settingsThemeDialog = ""
+  state settingsThemeSubject = ""
+  state settingsThemeRequest = 0
+  resource delivery = exactDelivery() as shape AboutDelivery // the binary's own update facts (settings-a-about)
+  resource settingsCore = settingsCore(settingsMachine, settingsProjectKey, settingsCheckout, settingsProjectId, settingsRoute, settingsFocusTarget, settingsOpen, settingsRefresh, data.revision, settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore
+  resource settings = settings(settingsEnvironmentId, settingsProjectId, data.revision, composerFocused, modal, data.running, data.threadId != "", modelsOpen, composerSelectionCurrent and composerSelectionStart != composerSelectionEnd) as shape Settings // the last: text is selected in the composer, whose ⌘B then bolds it (button-chords.ts)
+  resource projectsSettings = projectsView(settingsProjectKey, settingsCheckout, settingsProjectId, settingsOpen and settingsRoute == "projects", settingsRefresh, data.revision) as shape ProjectsPage
+  state sbQuery = ""
+  state sbLetters = ""
+  state sbLettersEdited = false
+  state sbEmoji = ""
+  state sbThumbs = "" // the image files the icon picker has scrolled into view, one path a line: their previews are fetched
+  state sbSshHost = ""
+  resource sbSshHosts = settingsBSshHosts(connecting, sbSshHost, data.revision) as shape SbSshHosts
+  state sshNow = 0
+  state sshResponding = false
+  state sshReturnToConnect = false
+  resource sshPrompt = sshPrompt(wallTime.epochAtZero + sshNow) as shape SshPromptView
+  mutation sshAnswered as shape SshPromptAnswer refreshes sshPrompt then sshAnswerDone
+  task sshClock mount
+    every(1000, sshTick)
+  action sshTick
+    if sshPrompt.open
+      sshNow = performanceNow()
+    if sshReturnToConnect and not sshPrompt.open and not commandPending
+      sshReturnToConnect = false
+      if connecting
+        focus("ssh-connect")
+  action sshAnswer(kind: string)
+    if not sshResponding and sshPrompt.requestId != ""
+      sshResponding = kind == "submit"
+      send sshAnswered = sshPromptAnswer(sshPrompt.requestId, kind)
+  action sshAnswerDone
+    sshResponding = false
+  resource pairFields = pairingFields(connecting ? origin : "") as shape PairFields // a pasted pairing URL fills Host and Pairing code
+  action sbSet(which: string, value: string)
+    if which == "query"
+      sbQuery = value
+    if which == "letters"
+      sbLetters = value
+      sbLettersEdited = true
+    if which == "emoji"
+      sbEmoji = value
+    if which == "ssh-host"
+      sbSshHost = value
+    if which == "thumb" and not `\n${sbThumbs}\n`.includes(`\n${value}\n`)
+      sbThumbs = sbThumbs == "" ? value : `${sbThumbs}\n${value}`
+  resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision, sbThumbs) as shape SbPicker
+  members "./src/composer/composer-members.contract"
+  // useShortcutModifierState(): the modifiers held, for the sidebar's thread-jump hints; and
+  // useShortcutModifierState(true): the Pull Requests route's, which a key or a focus at a field empties
+  // (shortcut-modifiers.contract). T3Window's
+  // `keycapture` and `keyup` hear every key. Losing the window's focus forgets both, since a key let go while
+  // another app has the focus sends no keyup.
+  state shortcutModifiers = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
+  state speedModifierState = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
+  derive speedModeHeld = speedModifiers(speedModifierState)
+  action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
+    quitHoldKey(down, e)
+    // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
+    // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
+    // key types Z.
+    if down and e.repeat and e.metaKey and not e.altKey and not e.shiftKey and (e.key.toLowerCase() == "w" or (e.code == "KeyW" and e.key.length == 1 and not quitTypesLatin(e.key)))
+      preventDefault()
+    // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
+    // where they would reach the composer's own undo; any other key but a modifier hands the chord back to fields.
+    if down and e.repeat and undoHeldKey != "" and (e.metaKey or e.ctrlKey) and e.key.toLowerCase() == undoHeldKey
+      preventDefault()
+      stopPropagation()
+    else if down and not e.repeat and e.key != "Alt" and e.key != "Control" and e.key != "Meta" and e.key != "Shift"
+      undoHeldKey = ""
+      releaseUndoClaim()
+    let held = shortcutModifierStateAfterKeyboardEvent(shortcutModifiers, down, e)
+    if not areShortcutModifierStatesEqual(held, shortcutModifiers)
+      shortcutModifiers = held
+    // isEditableFocused: the window's field focus (T3Window's focusin), or the composer's own `focus`, which a launch
+    // that seats the focus in the composer fires even when the window's focusin is not heard.
+    let speed = (editable or composerFocused) ? emptyShortcutModifierState() : shortcutModifierStateAfterKeyboardEvent(speedModifierState, down, e)
+    if not areShortcutModifierStatesEqual(speed, speedModifierState)
+      speedModifierState = speed
+  // showThreadUndoNotice's claim: each new notice owns the undo chord even in the composer, until another key or an
+  // edit releases it (modifierKey, write); a collapsed sidebar shows no notice, so the composer keeps its own undo.
+  state undoReleasedUntil = 0
+  state undoHeldKey = ""
+  derive undoClaimed = data.sidebarOpen and data.sidebar.undoUntil > undoReleasedUntil
+  action releaseUndoClaim
+    if data.sidebar.undoUntil > undoReleasedUntil
+      undoReleasedUntil = data.sidebar.undoUntil
+  action modifierEditableFocus
+    if anyShortcutModifier(speedModifierState)
+      speedModifierState = emptyShortcutModifierState()
+  // Also a paste's: a dictation tool's synthetic ⌘V can send no Meta keyup, which would keep the hints up.
+  action modifiersForget
+    shortcutModifiers = emptyShortcutModifierState()
+    speedModifierState = emptyShortcutModifierState()
+  task modifiersBlur when not page.hasFocus and (anyShortcutModifier(shortcutModifiers) or anyShortcutModifier(speedModifierState))
+    after(1, modifiersForget)
+  // The quit shortcut's hold (quit-hold.contract): each key event and each watchdog tick is one step of its
+  // record, applied by `quitApply`. QuitHoldOverlay shows `quitHintMode`; a released hold's hint lingers
+  // HOLD_HINT_LINGER_MS (1.2 s), a double press's goes at once.
+  state quitHold = quitHoldIdle()
+  state quitHintMode = ""
+  state quitHintPressed = "hold"
+  state quitHintLingers = false
+  state quitHintSerial = 0
+  task quitWatchdog when quitHold.watchUntil > 0
+    every(20, quitWatchTick)
+  task quitHintLinger when quitHintLingers key=quitHintSerial
+    after(1200, quitHintHide)
+  action quitHoldKey(down: bool, e: KeyboardEvent)
+    let next = down ? quitKeyDown(quitHold, e, performanceNow(), settingsCore.quitMode) : quitKeyUp(quitHold, e, performanceNow())
+    if next.consumed
+      preventDefault()
+    quitApply(next)
+  action quitWatchTick
+    if quitHold.watchUntil > 0 and performanceNow() >= quitHold.watchUntil
+      quitApply(quitWatchFired(quitHold))
+  action quitHintHide
+    quitHintLingers = false
+    quitHintMode = ""
+  // notify(): the overlay's QUIT_SHORTCUT_CHANNEL listener. concealPendingQuitWindow turns the window transparent until
+  // the keys are let go; Contract has no window opacity, so only the hint goes. `close()` ends the one-window app.
+  action quitApply(next: QuitHoldState)
+    quitHold = next
+    if next.signal == "down"
+      quitHintPressed = next.mode
+      quitHintMode = next.mode
+      quitHintLingers = false
+    else if next.signal == "conceal" or (next.signal == "up" and quitHintPressed == "double-click")
+      quitHintMode = ""
+      quitHintLingers = false
+    else if next.signal == "up"
+      quitHintSerial = quitHintSerial + 1
+      quitHintLingers = true
+    if next.quit
+      close()
+  // useThreadJumpHintVisibility: the hints show THREAD_JUMP_HINT_SHOW_DELAY_MS after a thread.jump.N shortcut's
+  // modifiers are held alone and hide at once when they are not (shouldShowThreadJumpHintsForModifiers; the
+  // sidebar's view lists those modifiers, none while the terminal has the focus or a search is open).
+  // useShortcutModifierState's ⌘ or Control: Send shows the follow-up alternate (queue or steer) while one is held.
+  derive composerSendHeld = shortcutModifiers.metaKey or shortcutModifiers.ctrlKey
+  derive threadJumpsHeld = data.sidebar.jumpModifiers.includes(heldModifiers(shortcutModifiers.metaKey, shortcutModifiers.ctrlKey, shortcutModifiers.altKey, shortcutModifiers.shiftKey))
+  state threadJumpHintsShown = false
+  derive threadJumpHints = threadJumpHintsShown and threadJumpsHeld
+  task threadJumpHintDelay when threadJumpsHeld and not threadJumpHintsShown
+    after(200, threadJumpHintsShow)
+  task threadJumpHintReset when threadJumpHintsShown and not threadJumpsHeld
+    after(1, threadJumpHintsHide)
+  // The sidebar's Working shelf on the window's clock (thread-inbox.ts): a grace's start or a return owed its time
+  // reads it at once, and the soonest grace ends 2 s after it started. Root timers, so they run with the sidebar closed.
+  task workingGraceOwed when data.sidebar.graceOwed > 0 key=data.sidebar.graceOwed
+    after(1, workingGraceClock)
+  task workingGraceEnds when data.sidebar.graceUntil > 0 key=data.sidebar.graceUntil
+    after(2000, workingGraceClock)
+  action workingGraceClock
+    send localChanged = command("sidebarlocal:working-grace", "", `${wallTime.epochAtZero + performanceNow()}`, 0)
+  action threadJumpHintsShow
+    threadJumpHintsShown = true
+  action threadJumpHintsHide
+    threadJumpHintsShown = false
+  // ChatView's thread effect: the composer takes the focus a frame after a thread opens while the terminal is closed.
+  task composerOnThread when data.threadId != "" and not terminalDrawer.open key=data.threadId
+    after(1, composerOnThreadFocus)
+  action composerOnThreadFocus
+    focus("composer")
+  action scrollToEnd
+    jumpRequest = jumpRequest + 1
+    foldHold = false
+  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
+  resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (sidebar-width.ts): no stored width sizes the sidebar once at load
+  derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: sidebar-min-width.ts), leaving 40rem of main content
+  derive narrowDiff = viewport.width <= 980
+  state diffUserWidth = 540
+  derive diffWidth = narrowDiff ? (viewport.width <= 760 ? min(viewport.width * 0.88, 384) : min(448, max(320, viewport.width * 0.42))) : max(360, min(diffUserWidth, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action resizeDiff(dx: number, dy: number)
+    diffUserWidth = max(360, min(diffWidth - dx, min(floor(viewport.width * 0.7), viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - 360)))
+  action finishDiffResize(vx: number, vy: number)
+    diffUserWidth = diffWidth
+  derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
+  members "./src/composer/composer-controls-members.contract"
+  members "./src/settings/settings-members.contract"
+  action editOrigin(value: string) // the window's half fills the credential from a pasted pairing URL
+    origin = value
+    originEdited = true
+  action editCredential // the window's half keeps the typed credential
+    origin = pairFields.host != "" and pairFields.source == origin ? pairFields.host : origin
+  action resizeSidebar(dx: number, dy: number)
+    draggedWidth = min(max(max(208, data.sidebarMinWidth), viewport.width - 640), max(max(208, data.sidebarMinWidth), sidebarWidth + dx))
+  action openProjects
+    projectsOpen = true
+  action selectProject(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-project", id, "", 0)
+      projectsOpen = false
+  action manageProject(id: string, name: string, path: string)
+    projectsOpen = false
+    openSettings() // a project link replaces the whole scope (retainSettingsScope)
+    settingsProjectId = id
+    settingsRoute = "projects"
+  action selectThread(id: string)
+    if not commandPending
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, "", 0)
+      jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action openThread(id: string, how: string) // Sidebar (sidebar-commands.ts): a row press says how it opened ("click", "click:meta" and "click:shift" multi-select, "search" clears it).
+    if not commandPending and id != ""
+      draftOwner = "__unset__"
+      commandPending = true
+      send changed = command("select-thread", id, how, 0)
+      jumpRequest = jumpRequest + 1
+      utilityPage = ""
+  action sidebarLocal(op: string, id: string, value: string)
+    if op == "rename-start" and commandPending
+      renameAfterOp = op
+      renameAfterId = id
+    else
+      send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
+  action sidebarRun(op: string, id: string, value: string)
+    if composerFocused and (op == "menu-choice" or op == "draft-choice")
+      blur()
+    if not commandPending
+      commandPending = true
+      send changed = command(`sidebar:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+    else if op == "rename"
+      renameQueuedId = id
+      renameQueuedTitle = value
+  // A rename committed while another command runs: its field has settled and will not commit again, so the rename
+  // runs once that command answers.
+  state renameQueuedId = ""
+  state renameQueuedTitle = ""
+  task renameQueuedDue when renameQueuedId != "" and not commandPending key=renameQueuedId
+    after(1, renameQueuedRun)
+  action renameQueuedRun
+    let id = renameQueuedId
+    renameQueuedId = ""
+    sidebarRun("rename", id, renameQueuedTitle)
+  // The footer's idle update pill gives way to the update pill under a resting pointer once a server has an update, with
+  // no pointer leave: its "Check for updates" tip goes with it, as a TooltipPopup goes with its trigger.
+  task sidebarUpdateTipGone when sidebarHoverId == "sidebar-update" and (data.updateEverything.available or data.updateEverything.running)
+    after(1, sidebarUpdateTipEnd)
+  action sidebarUpdateTipEnd
+    if sidebarHoverId == "sidebar-update"
+      sidebarHoverId = ""
+  action sidebarHover(id: string, over: bool) // the window's half sets the card's geometry (app-window.contract)
+    if over
+      sidebarHoverId = id
+      if data.sidebar.searching
+        send localChanged = command("sidebarlocal:search-hover", id, "", 0)
+    else if sidebarHoverId == id
+      sidebarHoverId = ""
+  action resetSidebarWidth
+    draggedWidth = 0
+    send localChanged = command("sidebarlocal:width-reset", "", "", 0)
+  // ⇧-click creates at once (the press's own modifiers; a chord's press has none). Where the picker opens
+  // (data.sidebar.newThreadPicks) or there is no current project, the client decides (sidebar-commands.ts).
+  action sidebarNewThread(e: MouseEvent)
+    if commandPending and data.draftLaunching and (not data.sidebar.newThreadPicks or e.shiftKey)
+      draftBeside()
+    else if not commandPending
+      if data.sidebar.newThreadPicks or data.projectId == ""
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)
+      else
+        draftOwner = "__unset__"
+        commandPending = true
+        send changed = command("new-thread", "", "", 0)
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+        utilityPage = ""
+  // The new-thread shortcut while the draft's launch (its worktree setup among it) is in flight: a fresh draft in the
+  // same project, beside the launch (ChatView onSend markPromotedDraftThreadByRef).
+  action draftBeside
+    // The fresh draft may send while the launch's own send is still answering.
+    commandPending = false
+    draftOwner = "__unset__"
+    send draftLeft = command("new-thread", "", "", 0)
+    jumpRequest = jumpRequest + 1
+    focus("composer")
+    utilityPage = ""
+  action newThread
+    if commandPending and data.draftLaunching
+      draftBeside()
+    else if not commandPending
+      if data.projectId != ""
+        draftOwner = "__unset__"
+        commandPending = true
+        send changed = command("new-thread", "", "", 0)
+        jumpRequest = jumpRequest + 1
+        focus("composer")
+        utilityPage = ""
+      else
+        // startNewThreadFromContext with no current project: the default one, else the New thread in… picker
+        // (sidebar-commands.ts).
+        commandPending = true
+        send changed = command("sidebar:new-thread-click", "", "shift", 0)
+  action write(value: string, e: InputEvent)
+    composerIntentInput(value, e)
+    releaseUndoClaim() // a paste from a menu, dictation or a drop edits without a key
+    let inputSerial = composerFieldInputSerial + 1
+    composerFieldInputSerial = inputSerial
+    send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=composerFieldLive, focused=composerFocused, inputSerial=inputSerial), true, "")
+    draft = value
+    draftOwner = `${composerOwner}${data.requestKey}`
+    composerInputType = e.inputType
+    composerComposing = e.isComposing
+    composerSelectionOwner = richComposerOwner
+    composerSelectionValue = value
+    composerSelectionStart = e.selectionStart
+    composerSelectionEnd = e.selectionEnd
+    // Typing the thread draft (not an answer) holds a request that arrives meanwhile (composer-typing-guard.ts).
+    if composerFocused and data.requestMode == ""
+      composerTyping = true
+      typingSerial = typingSerial + 1
+    send localChanged = command("draft", "", value, 0)
+  action send(held: string) // held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
+    submit(held == "" ? "" : `pointer:${held}`)
+  // gesture: what pressed Send, as composer-editor-intent.ts pressGesture reads it: `pointer:<modifiers>`,
+  // `key:<modifiers>` (a send chord in the composer), or "" (a plain press, a key with no chord, a call).
+  action submit(gesture: string)
+    if not commandPending and editor.overLimit and data.requestMode != "question"
+      send localChanged = command("editorlocal:arm-limit", "", "", 0)
+    // Send and Return wait for the draft's uploads; a question's Return goes, and its answer says why it waits.
+    if not commandPending and (not editor.overLimit or data.requestMode == "question") and (data.requestMode == "question" or data.composer.uploadBlock == "")
+      if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0))
+        commandPending = true
+        send changed = command("send", gesture, composerText, 0)
+        composerTyping = false
+        draftOwner = "__unset__"
+        jumpRequest = jumpRequest + 1
+  action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
+    if op == "chip-act" and chip.act == "citation"
+      send citationShown = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // a chip's View source
+    else if op.startsWith("chip-")
+      send chipChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow()) // on the composer the chip serves (side-chat-thread.ts chipScopedOp)
+    else
+      send localChanged = command(`editorlocal:${op}`, id, value, wallTime.epochAtZero + performanceNow())
+  action openModels
+    composerTarget = "" // the window's composer
+    focus(modelsOpen ? "composer" : "model-search")
+    modelsOpen = not modelsOpen
+    popoverSession = popoverSession + 1
+    browseProvider = ""
+    modelQuery = ""
+    optionsOpen = ""
+    modelTarget = PickerTarget(id="", top=0, bottom=0, left=0)
+  action closeModels
+    modelsOpen = false
+    focus(modelTarget.id == "" ? (composerTarget == "" ? "composer" : "side-chat-composer") : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
+  action searchModels(value: string)
+    modelQuery = value
+  action selectProvider(id: string)
+    browseProvider = id
+    modelQuery = ""
+    focus("model-search")
+  // Whether selectModel takes a pick now: a scheduled task's or a source control row's at once, any other only while no
+  // command is in flight (its last branch drops it then).
+  derive modelPickTaken = modelTarget.id.startsWith("task-model:") or modelTarget.id.startsWith("source-control-writer-model:") or modelTarget.id.startsWith("review-guide-model:") or not commandPending
+  action selectModel(id: string, provider: string, additive: bool)
+    if id != "" and modelTarget.id.startsWith("task-model:")
+      taskModelPick = `${provider}:${id}`
+      modelsOpen = false
+      focus("setting-task-model")
+    else if id != "" and (modelTarget.id.startsWith("source-control-writer-model:") or modelTarget.id.startsWith("review-guide-model:"))
+      modelsOpen = false
+      focus(modelTarget.id.startsWith("review-guide-model:") ? "setting-review-guide-model" : "setting-source-control-writer-model")
+      restRaw("rest:scoped", modelTarget.id.slice(modelTarget.id.indexOf(":|") + 2, modelTarget.id.length), `key=${modelTarget.id.startsWith("review-guide-model:") ? "reviewGuideModelSelection" : "sourceControlWriterModelSelection"}&value=${encodeURIComponent(`${provider}:${id}`)}`)
+    else if not commandPending and id != ""
+      commandPending = true
+      pendingModal = modelTarget.id == "" ? "" : "settings" // a General row's pick is that setting's write, never the thread's model
+      send changed = command(modelTarget.id == "" ? (composerTarget == "" ? "model" : `scope:${composerTarget}|model`) : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
+      // The composer's picker stays open through a pick, and its focus goes to the new model's levels
+      // (composer-controls-members.contract modelEffortFocused); the model already chosen draws no new levels, so
+      // its checked level takes the focus now.
+      modelsOpen = modelTarget.id == ""
+      let samePick = modelTarget.id == "" and not additive and id == composerTargetData.modelId and provider == composerTargetData.providerId and composerTargetData.composer.effortFocusLevel >= 0
+      focus(samePick ? `model-effort-row-${composerTargetData.composer.effortFocusLevel}` : modelTarget.id == "" ? "model-search" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`)
+  // ModelPickerContent announces the tab or model its shortcut picked (composer-controls-commands.ts
+  // announcePickerShortcut), and its announce blocks nothing: the announcement waits for no command in flight and
+  // refreshes only the shell, whose live regions speak it, so a quick second press is announced too and a pick right
+  // after is not refused. Each send runs in turn (`queue`). settings-shortcuts.contract calls it after a tab, and after
+  // a model only when selectModel took it (modelPickTaken), as handleModelSelect's slug gates the announcement.
+  action pickerAnnounce(op: string, id: string, value: string)
+    send pickerAnnounced = command(op, id, value, 0)
+  state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
+  action pickModel(row: string, context: string)
+    openModels()
+    modelTarget = PickerTarget(id=`${row}:|${context}`, top=frame(`setting-${row}`).y, bottom=frame(`setting-${row}`).y + frame(`setting-${row}`).height, left=frame(`setting-${row}`).x)
+  action prConfirmDisarm(ref: string, serial: string)
+    send prConfirmChanged = command("chatlocal:pr-ui-disarm", ref, serial, 0)
+  derive inlineDocumentKeysBlocked = sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0 or data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != "").length > 0
+  action inlineDocumentShortcut(name: string)
+    // A guest can forge keys while its background is inert; retain the current modal context.
+    if not inlineDocumentKeysBlocked
+      if name == "sidebar.toggle"
+        // The sidebar owns its button chord, so keyboardDispatch has no row for it.
+        if not modal and not paletteOpen and not settingsOpen
+          command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+      else
+        let candidates = shortcuts.filter((item) => item.command == name)
+        match candidates.at(0)
+          case some(item)
+            if item.command == "commandPalette.toggle" or item.command == "filePicker.toggle" or item.command == "projectSearch.toggle" or item.command == "chat.find"
+              paletteShow(item.target, item.extra)
+            else if item.command == "rightPanel.toggle" or item.command == "rightPanel.toggleMaximized" or item.command == "preview.toggle"
+              if item.kind == "diff"
+                panelUi("toggle", "")
+              else if item.kind == "command"
+                command(item.target, item.extra, "", 0)
+              else if item.kind == "panel-close"
+                panelUi("close", "")
+            else if item.command == "threadPanel.toggle"
+              detailsAct("toggle", "", "")
+            else if item.command == "terminal.toggle"
+              command(item.target, item.extra, "", 0)
+            else if item.command == "thread.previous" or item.command == "thread.next" or item.command.startsWith("thread.jump.")
+              selectThread(item.target)
+            else if item.command.startsWith("modelPicker.jump.") and item.kind == "model"
+              selectModel(item.target, item.extra, false)
+            else if item.command == "navigation.back" or item.command == "navigation.forward"
+              if item.kind == "thread"
+                selectThread(item.target)
+              else if item.kind == "back"
+                closeModal()
+              else if item.kind == "palette-run"
+                paletteRun(item.target, item.extra, "")
+              else if item.kind == "new-thread-in"
+                paletteRun("new-thread", item.target, "")
+          case none
+  action chatLocal(op: string, id: string, value: string)
+    // A disclosure toggled with the transcript at its end keeps the end in view while the rows re-measure (the list goes
+    // on following it); anywhere else the toggled row holds its place (MessagesTimeline's disclosurePinsEnd).
+    if (op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir") and not (restAtEnd and restOwner == composerOwner)
+      foldHold = true
+    if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-session-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
+      rightPanelAt = ""
+    if op.startsWith("inline-doc-")
+      send inlineDocumentChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "surface-pr-quick"
+      send prQuickChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op.startsWith("surface-files-comment-")
+      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "pr-code-drag" or op == "pr-code-begin"
+      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab's gutter drags and "+", in turn
+    else if op == "diagram-frame" or op == "math-frame" or op == "audio-playing"
+      send frameReported = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "link-open" and value.startsWith("#")
+      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened
+    else if op == "chip-citation"
+      send citationShown = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "surface-browser-capture"
+      send capturePressed = command(`chatlocal:${op}`, id, value, 0)
+    else if op == "git-pr-text"
+      send prCheckoutTyped = command(`chatlocal:${op}`, id, value, 0)
+    else
+      send localChanged = command(`chatlocal:${op}`, id, op == "table-menu" ? `${frame(`table-copy-${id}`).x}|${frame(`table-copy-${id}`).y}|${frame(`table-copy-${id}`).width}|${frame(`table-copy-${id}`).height}|${viewport.width}|${viewport.height}|${value}` : value, 0) // a table popup's trigger frame
+  state foldHold = false
+  action releaseFold
+    if foldHold
+      foldHold = false
+  action answerRevert(choice: string)
+    if choice != "cancel"
+      draftOwner = "__unset__"
+    send localChanged = command("chatlocal:revert-answer", "", choice, 0)
+  action earlier
+    if not commandPending
+      if data.hasMore and not data.historyLoading
+        commandPending = true
+        send changed = command("chatlocal:history", "", "", 0)
+  members "./src/shell/shell-members.contract"
+  members "./src/panel/side-chat-members.contract"
+  state citeWaitAsked = 0
+  state citeWaitDone = 0
+  state citeDismissals = 0
+  task citeWait when citeWaitAsked > citeWaitDone key=citeWaitAsked
+    after(500, citeWaitOver)
+  action citeWaitOver
+    citeWaitDone = citeWaitAsked
+  action citeWaitAsk(seq: number)
+    citeWaitAsked = seq
+  task citeBlur when not page.hasFocus
+    after(1, citeDismissed)
+  task citeContext key=`${viewport.width}x${viewport.height}|${data.threadId}|${pageCover}|${settingsOpen}|${modal}`
+    after(1, citeDismissed)
+  action citeDismissed
+    citeDismissals = citeDismissals + 1
+  // Cite back after a scroll: the transcript's scrollend (the offset still for 100 ms) and 50 ms more make the reference's
+  // 150 ms after the last scroll (observeSelectionActions' SELECTION_SCROLL_SETTLE_MS).
+  state citeSettleAsked = 0
+  state citeSettleDone = 0
+  task citeSettle when citeSettleAsked > citeSettleDone key=citeSettleAsked
+    after(50, citeSettleOver)
+  action citeSettleOver
+    citeSettleDone = citeSettleAsked
+  action citeSettleAsk(seq: number)
+    citeSettleAsked = seq
+  view
+    T3Window(promptLinkPage=promptLinkPage, promptLinkAct=promptLinkAct, data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, lineageStopping=lineageStopping, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, chipFocusChanged=chipFocusChanged, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prClose, openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, keybindingDrafts=keybindingDrafts, keybindingRest=keybindingRest, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, paletteRestore=paletteRestore, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, releaseUndoClaim=releaseUndoClaim, composerFocused=composerFocused, modifierKey=modifierKey, quitHintMode=quitHintMode, zoomStep=zoomStep, zoomTo=zoomTo, modifierEditableFocus=modifierEditableFocus, modifiersPasted=modifiersForget, speedModeHeld=speedModeHeld, threadJumpHints=threadJumpHints, citeSettleDone=citeSettleDone, citeSettleAsk=citeSettleAsk, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)

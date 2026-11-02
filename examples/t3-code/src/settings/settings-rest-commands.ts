@@ -1,0 +1,275 @@
+import { hostCredentialsCommand } from './source-control-credentials';
+// Mutations for these settings routes: Projects,
+// Integrations, Keybindings, Source control, Storage, Archive, Scheduled
+// tasks, Diagnostics and licenses. Every write re-reads the server's current
+// state first and refuses a stale scope rather than broadening it.
+import { toggleRemovalPick } from '../appearance/settings-a-collections';
+import type { T3Client } from '../client/client';
+import { ClientError, type Files, type Native } from '../client/protocol';
+import { applyShell, arr, effectiveWorktreeRules, initialShell, obj, str, type Json, type Obj } from '../client/domain';
+import { shortcutInput, whenExpression, validShortcut, validWhen } from './keybinding-settings';
+import { rowId } from './keybinding-view';
+import { scheduledTaskCommand } from './scheduled-tasks-commands';
+import { scopedPatch } from './source-control-view';
+import { archiveCommand } from './settings-a-archive';
+import { deviceToolsCommand } from '../device/settings-a-integrations';
+import { devicePlatformsCommand } from '../device/device-support';
+import { telemetryCommand, telemetryLocal } from './settings-a-telemetry';
+import { openLogsFolder } from './diagnostics-view';
+import { browserProfilesLocal } from '../browser/browser-profiles-settings';
+import { deviceHostsCommand } from '../device/settings-a-hosts';
+import { easAccountCheck, easHostsCommand } from '../device/settings-eas-hosts';
+import { deviceScopedCommand } from '../device/settings-integrations-scope';
+import { planProjectOverridesClear, persistScopedSettingsPatch, scopedPlanNotice } from './scoped-settings-plan';
+import { postScopedNotice, scopeEnvironments, scopedWriter } from './settings-scope-sources';
+import { PROJECT_SCOPED, applyCoreSetting, applyDeviceSetting } from './settings-core'; // "Open links in"; the storage panel's core rows
+import { copyThreadReference } from '../sidebar/thread-reference'; // ⇧⌘C copies the PR link or the thread's chip
+import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
+import { defaultProjectIcon } from './projects-view';
+import { isScratch } from '../composer/scratch-machine';
+import { scopedStorageCommand } from './storage-scope';
+import { databaseCommand } from './storage-maintenance';
+import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
+
+/** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
+export function params(value: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of value.split('&')) {
+    if (!part) continue;
+    const at = part.indexOf('=');
+    const key = decodeURIComponent(at < 0 ? part : part.slice(0, at));
+    out[key] = at < 0 ? '' : decodeURIComponent(part.slice(at + 1));
+  }
+  return out;
+}
+
+/** `<environment>:fleet:<background environment>:<project>`: a background environment's project as the settings scope names it. */
+export function fleetScope(scope: string): { environmentId: string; projectId: string } | null {
+  const at = scope.indexOf(':fleet:');
+  const ref = at < 0 ? null : parseFleetThreadId(scope.slice(at + 1));
+  return ref ? { environmentId: ref.environmentId, projectId: ref.threadId } : null;
+}
+export function splitScope(scope: string): { environmentId: string; projectId: string } {
+  const parts = scope.split(':');
+  if (parts.length !== 2) throw new ClientError('That environment or project is no longer selected.');
+  return { environmentId: parts[0], projectId: parts[1] };
+}
+
+type Access = ReturnType<T3Client['restAccess']>;
+
+async function currentScope(client: T3Client, access: Access, scope: string) {
+  const { environmentId, projectId } = splitScope(scope);
+  if (environmentId && environmentId !== client.environmentId) throw new ClientError('That environment is no longer selected.');
+  const shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
+  if (projectId && !shell.projects.some(project => project.id === projectId)) throw new ClientError('That project is no longer available.');
+  return { environmentId, projectId, shell };
+}
+
+const worktreeKeys = ['worktreeKeepWhen', 'worktreeSettledAfterDays', 'worktreeOnDelete', 'worktreeAfterDays', 'worktreeOnMerge', 'worktreeUnchanged'];
+const retentionKeys = ['worktreeSettledAfterDays', 'worktreeAfterDays', 'browserArtifactsAfterDays', 'logsAfterDays'];
+
+/** resolveWorktreeCleanup from packages/shared/projectSettings.ts. */
+export function resolveWorktreeCleanup(settings: Obj, projectId: string): Obj {
+  return effectiveWorktreeRules(settings, projectId ? obj(obj(settings.projectSettingsOverrides)[projectId]) : {});
+}
+
+/** StorageSettings.tsx writes, through planScopedSettingsPatch / planScopedSettingsClear. */
+export function storagePatch(settings: Obj, projectId: string, key: string, raw: string): Obj {
+  let value: Json;
+  if (key === 'mode') {
+    if (!projectId) throw new ClientError('Choose a project to change its worktree cleanup.');
+    if (!['inherit', 'off', 'custom'].includes(raw)) throw new ClientError('Unsupported worktree cleanup mode.');
+    const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
+    if (raw === 'inherit') delete current.worktreeCleanup;
+    else current.worktreeCleanup = raw === 'off' ? { mode: 'off' } : { mode: 'custom', rules: resolveWorktreeCleanup(settings, projectId) };
+    return { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } };
+  }
+  if (key === 'worktreesDirectory') {
+    if (projectId) throw new ClientError('Worktree location belongs to the environment.');
+    return { worktreesDirectory: raw.trim() };
+  }
+  if (key === 'worktreeKeepWhen') {
+    if (!['any-local-files', 'uncommitted-changes', 'tracked-changes'].includes(raw)) throw new ClientError('Choose which local changes keep a worktree.');
+    value = raw;
+  } else if (retentionKeys.includes(key)) {
+    if (raw === 'null') value = null;
+    else {
+      const days = Number(raw);
+      if (!/^\s*\d+(\.\d+)?\s*$/.test(raw) || !Number.isFinite(days)) throw new ClientError('Enter a number of days.');
+      value = Math.min(3650, Math.max(key === 'worktreeSettledAfterDays' ? 0 : 1, Math.round(days)));
+    }
+  } else if (['worktreeOnDelete', 'worktreeOnMerge', 'worktreeUnchanged'].includes(key)) {
+    if (raw !== 'true' && raw !== 'false') throw new ClientError('Choose On or Off.');
+    value = raw === 'true';
+  } else throw new ClientError('Unsupported storage rule.');
+  if (projectId) {
+    if (!worktreeKeys.includes(key)) throw new ClientError('Artifact and log retention belongs to the environment.');
+    const current = { ...obj(obj(settings.projectSettingsOverrides)[projectId]) };
+    if (obj(current.worktreeCleanup).mode !== 'custom') throw new ClientError('Choose Custom before changing project cleanup rules.');
+    current.worktreeCleanup = { mode: 'custom', rules: { ...resolveWorktreeCleanup(settings, projectId), [key]: value } };
+    return { projectSettingsOverrides: { [projectId]: current } };
+  }
+  const patch: Obj = { storageCleanup: { [key]: value } };
+  // An environment that already stores a worktreeCleanup policy keeps it in
+  // step with the worktree rules (planScopedSettingsPatch, environment scope).
+  if (settings.worktreeCleanup != null && worktreeKeys.includes(key)) patch.worktreeCleanup = { mode: 'custom', rules: { ...resolveWorktreeCleanup(settings, ''), [key]: value } };
+  return patch;
+}
+
+export async function restCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
+  // A settings-core row the storage panel draws (Worktrees' Creation): the same write as the core pages' (`settings-core`
+  // command), across the row's scope.
+  if (op === 'core') { const input = params(value); return applyCoreSetting(client, native, str(input.id), str(input.value)); }
+  if ((op === 'storage' || op === 'storage-run') && params(value).scope !== undefined) return scopedStorageCommand(client, native, op, params(value), storagePatch);
+  if (op.startsWith('storage-') && op !== 'storage-run') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
+  if (op.startsWith('archive-')) return archiveCommand(client, native, storage, op, scope, value);
+  if (op === 'browser-link-target') { if (!applyDeviceSetting(client.local, 'browserLinkTarget', value)) throw new ClientError('Unsupported setting.'); await client.savePreferences(storage); return ''; } // "Open links in"
+  if (op === 'device-tools') return deviceToolsCommand(client, native, params(value));
+  if (op === 'device-platforms') return devicePlatformsCommand(client, native); // 5318d054a5: Simulator support Refresh
+  if (op === 'diag-open-logs') return openLogsFolder(client, native);
+  if (op === 'host-credentials') {
+    if (splitScope(scope).projectId) throw new ClientError('Source control host settings belong to the environment.');
+    const input = params(value), owner = environmentClient(client, input.environment || client.environmentId, native);
+    return hostCredentialsCommand(owner, native, input, () => { viewState(client).rescan++; });
+  }
+  if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
+  if (op === 'scoped-overrides') {
+    const input = params(value);
+    if (!PROJECT_SCOPED.has(input.key)) throw new ClientError('That setting has no project overrides.');
+    const environments = scopeEnvironments(client), entries = arr(JSON.parse(input.entries)).map(entry => ({ environmentId: str(entry.environmentId), projectId: str(entry.projectId) }));
+    const plan = planProjectOverridesClear(environments, entries, [input.key]);
+    const result = await persistScopedSettingsPatch(plan, scopedWriter(client, native, environments), () => {});
+    postScopedNotice(client, scopedPlanNotice(plan, result));
+    return '';
+  }
+  if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
+  if (op.startsWith('eas-')) return easHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-eas-hosts.ts
+  // A background environment's project (Settings › Projects over every environment): its writes go through that
+  // environment under its own project id (projects-fleet.ts).
+  const focused = client, background = fleetScope(scope);
+  if (background) { client = environmentClient(client, background.environmentId, native); scope = `${background.environmentId}:${background.projectId}`; }
+  const access = client.restAccess(native);
+  const input = params(value);
+  if (op === 'storage') {
+    const { projectId } = await currentScope(client, access, scope);
+    const config = await access.request('server.getConfig');
+    const capabilities = obj(obj(config.environment).capabilities);
+    if (str(input.key) === 'worktreesDirectory' ? capabilities.worktreesDirectory !== true : capabilities.storageCleanup !== true || (projectId && capabilities.projectWorktreeCleanup !== true)) throw new ClientError('Update the selected environment to configure storage cleanup.');
+    const settings = obj(config.settings);
+    const updated = await access.request('server.updateSettings', { patch: storagePatch(settings, projectId, str(input.key), str(input.value)) }, true);
+    client.config = { ...client.config, settings: updated };
+    return '';
+  }
+  if (op === 'keybinding') {
+    const { environmentId } = splitScope(scope);
+    if (environmentId && environmentId !== client.environmentId) throw new ClientError('That environment is no longer selected.');
+    const config = await access.request('server.getConfig');
+    const result = await access.request(input.action === 'remove' ? 'server.removeKeybinding' : 'server.upsertKeybinding', keybindingPayload(arr(config.keybindings), input), true);
+    client.config = { ...client.config, keybindings: result.keybindings ?? client.config.keybindings };
+    return '';
+  }
+  if (op === 'task') return scheduledTaskCommand(client, native, scope, input); // scheduled-tasks-commands.ts: the live list, any environment
+  // Integrations device switches across the settings scope (settings-integrations-scope.ts).
+  if (op === 'device' && input.scope !== undefined) return deviceScopedCommand(client, native, input.scope, str(input.key), str(input.value));
+  if (op === 'scoped' || op === 'device') {
+    // ProjectDefaultsSettings / SourceControlWritingSettings / BranchNamingSettings / DeviceIntegrationControls writes.
+    const { projectId } = await currentScope(client, access, scope);
+    const config = await access.request('server.getConfig');
+    if (projectId && obj(obj(config.environment).capabilities).projectSettingsOverrides !== true) throw new ClientError('Connect the selected checkouts, or update their environments, to save a project override.');
+    const settings = obj(config.settings);
+    if (op === 'device') {
+      if (projectId && input.key === 'enableAgentDeviceAccess') {
+        const updated = await access.request('server.updateSettings', { patch: scopedPatch(settings, projectId, 'enableAgentDeviceAccess', input.value) }, true);
+        client.config = { ...client.config, settings: updated }; return '';
+      }
+      if (projectId) throw new ClientError('This setting is environment-wide and cannot be overridden by a project.');
+      const enabled = input.value === 'true';
+      const payload = input.key === 'enableDeviceSupport' ? { enabled, ...(enabled ? { onboardingCompleted: true } : { agentAccessEnabled: false }) } : { agentAccessEnabled: enabled };
+      if (input.key === 'enableAgentDeviceAccess' && settings.enableDeviceSupport !== true) throw new ClientError('Enable the device hub before changing agent device access.');
+      await access.request('device.configure', payload, true);
+      client.config = { ...client.config, settings: obj((await access.request('server.getConfig')).settings) };
+      return '';
+    }
+    let patch: Obj;
+    try { patch = scopedPatch(settings, projectId, str(input.key), str(input.value), arr(config.providers)); }
+    catch (error) { throw new ClientError(error instanceof Error ? error.message : 'Could not save this setting.'); }
+    const updated = await access.request('server.updateSettings', { patch }, true);
+    client.config = { ...client.config, settings: updated };
+    return '';
+  }
+  if (op === 'project-icon') {
+    // ProjectSettingsPanel setProjectIcon(defaultProjectIcon), fanned out to the group on every environment, each
+    // member through its own: no icon, or the Scratch project's own.
+    const { projectId } = await currentScope(client, access, scope);
+    const group = projectId ? groupOfMember(focused, background ? fleetThreadId(background.environmentId, projectId) : projectId) : undefined;
+    if (!projectId || !group) throw new ClientError('Choose a project to change its icon.');
+    for (const [environmentId, ids] of byEnvironment(focused, group.members.map(member => str(member.id)))) {
+      const home = environmentClient(focused, environmentId, native), homeAccess = home.restAccess(native);
+      const shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
+      const scratchRoot = str(home.config.scratchWorkspaceRoot).trim();
+      for (const id of ids) {
+        const project = shell.projects.find(candidate => candidate.id === id);
+        if (!project) throw new ClientError('Project group membership changed. Reopen its settings.');
+        const [commandId] = await homeAccess.ids(1);
+        await homeAccess.write(storage, { method: 'projects.mutate', description: 'Reset project icon', threadId: '', text: '', uncertain: false,
+          payload: { type: 'project.update', commandId, projectId: id, ...defaultProjectIcon(isScratch(project, scratchRoot)) } });
+      }
+      home.shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
+    }
+    return '';
+  }
+  if (op === 'keybinding-open') {
+    // useOpenInPreferredEditor: the server opens its own keybindings.json in the
+    // first available editor of contracts' EDITORS order.
+    const { environmentId } = splitScope(scope);
+    if (environmentId && environmentId !== client.environmentId) throw new ClientError('That environment is no longer selected.');
+    const config = await access.request('server.getConfig');
+    const path = str(config.keybindingsConfigPath);
+    if (!path) throw new ClientError('The keybindings file was not opened.');
+    const available = (Array.isArray(config.availableEditors) ? config.availableEditors : []).filter((editor): editor is string => typeof editor === 'string');
+    const editor = editorOrder.find(id => available.includes(id));
+    if (!editor) throw new ClientError(`No available editor can open ${path} in environment ${environmentId}.`);
+    await access.request('shell.openInEditor', { cwd: path, editor }, true);
+    return '';
+  }
+  throw new ClientError(`Unknown settings action: ${op}`);
+}
+
+const editorOrder = ['cursor', 'trae', 'kiro', 'vscode', 'vscode-insiders', 'vscodium', 'zed', 'antigravity', 'idea', 'aqua', 'clion', 'datagrip', 'dataspell', 'goland', 'phpstorm', 'pycharm', 'rider', 'rubymine', 'rustrover', 'webstorm', 'file-manager'];
+
+/** KeybindingsSettingsPanel save/remove/reset: one binding, replaced by its exact target. */
+export function keybindingPayload(bindings: Obj[], input: Record<string, string>): Obj {
+  const target = (binding: Obj) => ({ command: str(binding.command), key: shortcutInput(obj(binding.shortcut)), when: whenExpression(binding.whenAst) });
+  const previous = input.previous ? bindings.map(target).find(row => rowId(row.command, row.key, row.when) === input.previous) : undefined;
+  if ((input.action === 'remove' || input.previous) && !previous) throw new ClientError('That keybinding is no longer available.');
+  const replace = previous ? { command: previous.command, key: previous.key, ...(previous.when ? { when: previous.when } : {}) } : undefined;
+  if (input.action === 'remove') return replace!;
+  const key = str(input.key).trim(), command = str(input.command).trim(), when = str(input.when).trim();
+  if (!command) throw new ClientError('Choose a command.');
+  if (!key || key.length > 64 || when.length > 256) throw new ClientError('Enter a shortcut (up to 64 characters) and a condition (up to 256 characters).');
+  if (!validShortcut(key)) throw new ClientError('Enter one key with supported shortcut modifiers.');
+  if (!validWhen(when)) throw new ClientError('Use variables with !, &&, ||, and parentheses.');
+  return { command, key, ...(when ? { when } : {}), ...(replace ? { replace } : {}) };
+}
+
+/** Per-client view toggles that are not settings: discovery rescans (an account's reveal is RedactedText's own state). */
+export const restView = new WeakMap<T3Client, { rescan: number }>();
+export function viewState(client: T3Client) {
+  let state = restView.get(client);
+  if (!state) { state = { rescan: 0 }; restView.set(client, state); }
+  return state;
+}
+
+export async function restLocal(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
+  void native; void storage; void scope; void value;
+  if (op === 'storage-dismiss-database' || op === 'storage-copy-database') { const input = params(value); return databaseCommand(client, native, storage, op, str(input.environment), str(input.command)); }
+  if (op === 'rescan') { viewState(client).rescan++; return ''; }
+  if (op.startsWith('diag-')) return telemetryLocal(client, op, value); // settings-a-telemetry.ts
+  // The collection removal dialog's checkboxes: device-local, never gated on a pending write.
+  if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
+  // thread.copyReference: the PR link, else the thread's chip, with the reference's toasts (thread-reference.ts).
+  if (op === 'copy-thread') return copyThreadReference(client, native);
+  if (op.startsWith('browser-')) return browserProfilesLocal(client, native, storage, op, value); // Browser profiles and the browser defaults
+  if (op === 'eas-check') return easAccountCheck(client, native, params(value)); // the EAS host editor's account check
+  throw new ClientError(`Unknown settings action: ${op}`);
+}

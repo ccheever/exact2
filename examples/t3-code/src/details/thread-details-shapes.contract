@@ -1,0 +1,60 @@
+// The thread details card's choosable items, Servers and Usage, as shellDetails gives them (thread-details-items.ts,
+// thread-servers.ts, thread-details-usage.ts).
+
+// resolveThreadDetailsVisibility: each item on or off.
+shape DetailsItems
+  environment: bool
+  openIn: bool
+  scripts: bool
+  branch: bool
+  gitActions: bool
+  changes: bool
+  servers: bool
+  automations: bool
+  lineage: bool
+  sideChats: bool
+  usage: bool
+  context: bool
+
+shape DetailsItemRow
+  id: string
+  label: string
+  checked: bool
+
+// ThreadDetailsItemsMenuItems: a checkbox per item, then Reset to default.
+shape DetailsItemsMenu
+  items: DetailsItemRow[]
+  resetDisabled: bool
+
+shape ThreadServerRow
+  key: string
+  port: number
+  label: string
+  source: string
+  stoppable: bool
+  stopping: bool
+
+shape ThreadServersView
+  show: bool
+  canOpen: bool
+  busy: bool
+  rows: ThreadServerRow[]
+
+// `left` is -1 for a row with no percentage; `tone` is "", "warning" or "error".
+shape UsageRow
+  id: string
+  label: string
+  fill: number // the bar's fill, 0 to 100; -1: no bar
+  tick: number // a marker on the bar (where context compacts), 0 to 100; -1: none
+  value: string
+  tone: string
+  muted: bool
+  aria: string
+  tip: string
+  tipLines: string[]
+
+shape UsageView
+  show: bool
+  rows: UsageRow[]
+  labelWidth: number
+  valueWidth: number

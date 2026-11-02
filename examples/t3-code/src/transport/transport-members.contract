@@ -1,0 +1,84 @@
+// T3Code's server connections: the session and update slots, the inbox and the tick (LLP 1091.002).
+use TransportTable, TransportSlot, TransportUpdateSlot, TransportConnect, TransportSocket, TransportUpdateStep, TransportInbox from "./transport.contract"
+members T3Code
+  // The server connections (src/transport/transport.ts). Each session slot (0: the focused environment, 1 to 8: the
+  // background ones) has an answer for the attempts no other answer runs (the ladder's) and its better-route checks,
+  // and a socket resource for the URL the tick publishes; each update slot (an outdated host's self-update) has a step and a bare
+  // socket. transportInbox resolves the replies whenever any of them, or the tick, has news. An answer sends its own
+  // requests (LLP 1016.000 D7, amended 2026-10-18). The tick is a mutation: every 250 ms while a backoff, a stream retry, a
+  // debounced activity report or an update is near, every second while connected (deadlines and Pings), and once to
+  // publish a changed table (below).
+  state transportTable = TransportTable(deliver=0, rev=0, soon=false, live=false, s0=TransportSlot(key="", attempt=0, check=0, url=""), s1=TransportSlot(key="", attempt=0, check=0, url=""), s2=TransportSlot(key="", attempt=0, check=0, url=""), s3=TransportSlot(key="", attempt=0, check=0, url=""), s4=TransportSlot(key="", attempt=0, check=0, url=""), s5=TransportSlot(key="", attempt=0, check=0, url=""), s6=TransportSlot(key="", attempt=0, check=0, url=""), s7=TransportSlot(key="", attempt=0, check=0, url=""), s8=TransportSlot(key="", attempt=0, check=0, url=""), u0=TransportUpdateSlot(key="", step=0), u1=TransportUpdateSlot(key="", step=0), u2=TransportUpdateSlot(key="", step=0), u3=TransportUpdateSlot(key="", step=0))
+  resource transportConnect0 = transportConnect(0, transportTable.s0.key, transportTable.s0.attempt, transportTable.s0.check) as shape TransportConnect
+  resource transportSocket0 = transportSocket(0, transportTable.s0.url) as shape TransportSocket
+  resource transportConnect1 = transportConnect(1, transportTable.s1.key, transportTable.s1.attempt, transportTable.s1.check) as shape TransportConnect
+  resource transportSocket1 = transportSocket(1, transportTable.s1.url) as shape TransportSocket
+  resource transportConnect2 = transportConnect(2, transportTable.s2.key, transportTable.s2.attempt, transportTable.s2.check) as shape TransportConnect
+  resource transportSocket2 = transportSocket(2, transportTable.s2.url) as shape TransportSocket
+  resource transportConnect3 = transportConnect(3, transportTable.s3.key, transportTable.s3.attempt, transportTable.s3.check) as shape TransportConnect
+  resource transportSocket3 = transportSocket(3, transportTable.s3.url) as shape TransportSocket
+  resource transportConnect4 = transportConnect(4, transportTable.s4.key, transportTable.s4.attempt, transportTable.s4.check) as shape TransportConnect
+  resource transportSocket4 = transportSocket(4, transportTable.s4.url) as shape TransportSocket
+  resource transportConnect5 = transportConnect(5, transportTable.s5.key, transportTable.s5.attempt, transportTable.s5.check) as shape TransportConnect
+  resource transportSocket5 = transportSocket(5, transportTable.s5.url) as shape TransportSocket
+  resource transportConnect6 = transportConnect(6, transportTable.s6.key, transportTable.s6.attempt, transportTable.s6.check) as shape TransportConnect
+  resource transportSocket6 = transportSocket(6, transportTable.s6.url) as shape TransportSocket
+  resource transportConnect7 = transportConnect(7, transportTable.s7.key, transportTable.s7.attempt, transportTable.s7.check) as shape TransportConnect
+  resource transportSocket7 = transportSocket(7, transportTable.s7.url) as shape TransportSocket
+  resource transportConnect8 = transportConnect(8, transportTable.s8.key, transportTable.s8.attempt, transportTable.s8.check) as shape TransportConnect
+  resource transportSocket8 = transportSocket(8, transportTable.s8.url) as shape TransportSocket
+  resource transportUpdateStep0 = transportUpdateStep(0, transportTable.u0.key, transportTable.u0.step) as shape TransportUpdateStep
+  resource transportUpdateSocket0 = transportUpdateSocket(0, transportUpdateStep0.step == transportTable.u0.step ? transportUpdateStep0.url : "") as shape TransportSocket
+  resource transportUpdateStep1 = transportUpdateStep(1, transportTable.u1.key, transportTable.u1.step) as shape TransportUpdateStep
+  resource transportUpdateSocket1 = transportUpdateSocket(1, transportUpdateStep1.step == transportTable.u1.step ? transportUpdateStep1.url : "") as shape TransportSocket
+  resource transportUpdateStep2 = transportUpdateStep(2, transportTable.u2.key, transportTable.u2.step) as shape TransportUpdateStep
+  resource transportUpdateSocket2 = transportUpdateSocket(2, transportUpdateStep2.step == transportTable.u2.step ? transportUpdateStep2.url : "") as shape TransportSocket
+  resource transportUpdateStep3 = transportUpdateStep(3, transportTable.u3.key, transportTable.u3.step) as shape TransportUpdateStep
+  resource transportUpdateSocket3 = transportUpdateSocket(3, transportUpdateStep3.step == transportTable.u3.step ? transportUpdateStep3.url : "") as shape TransportSocket
+  resource transportInbox = transportDeliver(transportSocket0.seq + transportConnect0.seq + transportSocket1.seq + transportConnect1.seq + transportSocket2.seq + transportConnect2.seq + transportSocket3.seq + transportConnect3.seq + transportSocket4.seq + transportConnect4.seq + transportSocket5.seq + transportConnect5.seq + transportSocket6.seq + transportConnect6.seq + transportSocket7.seq + transportConnect7.seq + transportSocket8.seq + transportConnect8.seq + transportUpdateSocket0.seq + transportUpdateStep0.seq + transportUpdateSocket1.seq + transportUpdateStep1.seq + transportUpdateSocket2.seq + transportUpdateStep2.seq + transportUpdateSocket3.seq + transportUpdateStep3.seq + transportTable.deliver) as shape TransportInbox
+  mutation transportPumped as shape TransportTable queue then transportPumpDone
+  action transportPump
+    if not pending(transportPumped)
+      send transportPumped = transportPump(wallTime.epochAtZero + performanceNow(), "")
+  action transportSignal(reason: string)
+    send transportPumped = transportPump(wallTime.epochAtZero + performanceNow(), reason)
+  action transportPumpDone
+    match transportPumped
+      case some(table)
+        transportTable = table
+      case none
+        transportTable = transportTable
+  // Each answer that may wait on a server reply, pending or not. The tick publishes the table once whenever one starts
+  // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
+  // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
+  // its URL).
+  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(codexLoopback)}${pending(codexLoopbackSecond)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(chipChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalTicketChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(frameReported)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(citationShown)}${pending(capturePressed)}${pending(prCheckoutTyped)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(separateFontsSaved)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  task transportAnswered key=transportAnswering
+    after(1, transportPump)
+  task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
+    after(1, transportPump)
+  task transportSoon when transportTable.soon
+    every(250, transportPump)
+  task transportLive when transportTable.live
+    every(1000, transportPump)
+  // The reachability signals (wakeups.ts): offline questions a live socket, back online wakes a waiting retry; the first
+  // reading is the baseline, not a change. Returning to the app is windowReturned's.
+  state transportOnline = true
+  task transportNetwork key=page.onLine
+    after(1, transportNetworkChanged)
+  action transportNetworkChanged
+    if page.onLine != transportOnline
+      transportOnline = page.onLine
+      transportSignal(page.onLine ? "online" : "offline")
+  // The snapshot is asked again for the connections' news once its read in flight lands, as a watched topic would (exact2
+  // #183): replacing it for each frame, a launch's slow snapshot answer would never land. Settings › Connections likewise.
+  state transportSeen = 0
+  task transportNews when transportInbox.news != transportSeen and not pending(data) key=transportInbox.news
+    after(1, transportNewsSeen)
+  action transportNewsSeen
+    transportSeen = transportInbox.news
+  state transportFleetSeen = 0
+  task transportFleetNews when transportInbox.fleet != transportFleetSeen and not pending(connectionsPage) key=transportInbox.fleet
+    after(1, transportFleetNewsSeen)
+  action transportFleetNewsSeen
+    transportFleetSeen = transportInbox.fleet

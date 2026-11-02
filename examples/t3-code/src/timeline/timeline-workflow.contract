@@ -1,0 +1,67 @@
+use ThreadFindView, FindParts from "./thread-find.contract"
+use ChatDocument, EnvBlocks from "./markdown.contract"
+use Message from "../shared/shapes.contract"
+use TimelineIcon from "./timeline-icons-kit.contract"
+use SubagentRow from "./timeline-work.contract"
+
+// WorkflowOpeningBlock (T3 Code 74541bab17, MIT; see LICENSE-T3): a workflow coordinator's thread opens with
+// "Workflow started", the workflow's name, what it does and how its agents stand, then each phase's agents (drawn as
+// the timeline's subagent rows, each opening its thread), then the script, folded like a long message
+// (max-h-44 under a 1.75rem fade) until "Show full script". timeline-workflow-opening.ts builds the row:
+// `title`, `detail` (the description), `actionLabel` (the agents line), `activities` and `body` (the script).
+component WorkflowOpening
+  inject
+    threadFind: ThreadFindView
+  props
+    message: Message
+    documents: ChatDocument[]
+    command: action
+    local: action
+    now: number
+    ink: string
+  state expanded = false
+  state hovered = false
+  action toggle
+    expanded = not expanded
+  action hover(over: bool)
+    hovered = over
+  derive folded = message.collapsible and not (expanded or (threadFind.open and threadFind.query.trim() != ""))
+  view
+    column width="100%" min-width=0 padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" gap="0.75rem" role="region" aria-label=`Workflow started: ${message.title}` testId=`workflow-opening-${message.id}`
+      row width="100%" min-width=0 align-items="flex-start" gap="0.5rem"
+        box margin-top="0.125rem" flex-shrink=0 aria-hidden=true
+          TimelineIcon(name="workflow", size=14, color="light-dark(#71717b, #a1a1a1)")
+        column flex=1 min-width=0 gap="0.125rem"
+          text "Workflow started" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+          text role="heading" aria-level=3 min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" testId=`workflow-title-${message.id}`
+            for line in message.findLines.filter((entry) => entry.id == "title") key=line.id
+              FindParts(parts=line.parts)
+          if message.detail != ""
+            text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+              for line in message.findLines.filter((entry) => entry.id == "detail") key=line.id
+                FindParts(parts=line.parts)
+        if message.actionLabel != ""
+          text message.actionLabel aria-live="polite" flex-shrink=0 font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" testId=`workflow-agents-${message.id}`
+      if message.activities.length > 0
+        column width="100%" min-width=0
+          for agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.result}\t${agent.body}`
+            if agent.tone == "phase"
+              // A phase's heading: its title and settled/total (text-2xs, px-2 pb-0.5).
+              row margin-top=(agent.detail == "first" ? "0px" : "0.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.125rem" box-sizing="border-box" gap="0.5rem" align-items="baseline" role="heading" aria-level=4 aria-label=`${agent.label} phase`
+                text min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
+                  for line in message.findLines.filter((entry) => entry.id == agent.id) key=line.id
+                    FindParts(parts=line.parts)
+                text agent.result flex-shrink=0 font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)"
+            else if agent.tone == "gap"
+              box height="0.75rem"
+            else
+              SubagentRow(agent=agent, command=command, now=now)
+      column width="100%" min-width=0
+        column width="100%" max-height=(folded ? "11rem" : "62500rem") overflow=(folded ? "hidden" : "visible") mask-image=(folded ? "linear-gradient(to bottom, #000000 0%, #000000 84%, #00000000 100%)" : "none")
+          for document in documents.filter((doc) => doc.id == message.id) key=document.id
+            EnvBlocks(document=document, local=local, code=message.code, prose=ink, fit=false, env=message.md)
+        if message.collapsible
+          // Button size="xs" variant="ghost-muted", -ms-1.
+          row margin-left="-0.25rem"
+            button press=toggle hover=hover aria-expanded=expanded testId=`workflow-script-${message.id}` height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#18181b0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              text (expanded ? "Show less" : "Show full script") font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")

@@ -1,0 +1,134 @@
+// SidebarUpdatePill and SidebarUpdateCapsule, T3 Code 96fc7b9551 (MIT; LICENSE-T3). The pill is
+// DesktopUpdateStatusIcon's "everything" state: CircleArrowUp in a round button on the sidebar control
+// surface. The capsule's trailing icon is the same state; this build has no desktop update feed, so the
+// checking, available, downloading and downloaded states never occur.
+use UpdateEverythingView from "../shared/shapes.contract"
+use UpdateDialogView from "./sidebar-shapes.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+component UpdateEverything
+  inject
+    rem: number
+  props
+    v: UpdateEverythingView
+    run: action
+  state hovered = false
+  action hover(on: bool)
+    hovered = on
+  view
+    column margin-left="auto" flex=(v.running ? "1" : "none") min-width=0 position="relative"
+      if v.running
+        row height="2rem" border-radius="9999px" background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") border-width=(v.tone == "default" ? 0 : 1) border-style="solid" border-color=(v.tone == "failed" ? "#fb2c3666" : "#f0b10066") align-items="center" role="status" testId="update-everything-capsule"
+          button press=run("ue:details", "", "") hover=hover aria-label=v.label testId="update-everything-details" flex=1 min-width=0 height="100%" padding-left="0.75rem" padding-right="0.25rem" border-width=0 background-color="#00000000" cursor="pointer" display="flex" align-items="center" gap="0.25rem"
+            text v.label flex=1 min-width=0 overflow="hidden" text-overflow="ellipsis" white-space="nowrap" font-size="0.75rem" color=(v.tone == "failed" ? "#fb2c36" : "light-dark(#18181b, #f1f3f7)")
+            if v.elapsed != ""
+              text v.elapsed font-size="0.75rem" font-variant-numeric="tabular-nums" color="#ca8a04"
+          if v.action != ""
+            button press=run((v.action == "retry" ? "ue:retry" : "ue:dismiss"), "", "") testId="update-everything-action" flex-shrink=0 height="100%" padding-left="0.375rem" padding-right="0.75rem" border-width=0 background-color="#00000000" cursor="pointer"
+              text (v.action == "retry" ? "Retry" : "Dismiss") font-size="0.75rem" text-decoration-line="underline" color="light-dark(#18181b, #f1f3f7)"
+          else
+            box width="2rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+              CircleArrowUp()
+        if v.details
+          column position="absolute" bottom="2.5rem" left=0 width="18rem" max-width=`calc(100vw - ${2 * rem}px)` padding="0.75rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 10px 15px -3px #0000001a" z-index=50 role="group" aria-label="Update progress" testId="update-everything-progress"
+            for m in v.machines key=m.id
+              column gap="0.125rem"
+                row gap="0.75rem" align-items="center"
+                  text m.label flex=1 min-width=0 text-overflow="ellipsis" font-size="0.75rem" color="light-dark(#18181b, #f1f3f7)"
+                  text (m.status + (m.elapsed != "" ? " " + m.elapsed : "")) font-size="0.75rem" font-variant-numeric="tabular-nums" color=(m.failed ? "#fb2c36" : "light-dark(#71717b, #a3a3a3)")
+                if m.failure != ""
+                  text m.failure font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
+            if v.action != ""
+              button press=run("ue:dismiss", "", "") testId="update-everything-dismiss" margin-left="auto" border-width=0 background-color="#00000000" cursor="pointer"
+                text "Dismiss" font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
+      else
+        button press=run("ue:open", "", "") hover=hover title=v.summary aria-label=v.summary testId="update-everything" width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
+          CircleArrowUp()
+
+// Lucide CircleArrowUp at size-4 in the sidebar foreground.
+component CircleArrowUp
+  view
+    svg width="1rem" height="1rem" viewBox="0 0 24 24" fill="none" color="light-dark(#18181b, #f1f3f7)" flex-shrink=0 aria-hidden=true
+      circle cx=12 cy=12 r=10 stroke="currentColor" stroke-width=1.75
+      path d="m16 12-4-4-4 4M12 16V8" stroke="currentColor" stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
+
+// UpdateEverythingDialog (T3 Code 6d450a4284, MIT; LICENSE-T3): "Update N machines?", "T3 Code <version> · N provider
+// updates", then a table with one row per machine (Machine, T3 Code, Providers, and the threads its restart
+// interrupts), the skipped machines behind a disclosure, and the running-thread warning beside Cancel and Update.
+// AlertDialogPopup sm:max-w-xl; Cancel takes the focus as it opens and Escape is Cancel.
+component UpdateEverythingDialog
+  inject
+    dialogSeated: string[]
+    dialogEntered: action
+    dialogFallback: action
+  props
+    d: UpdateDialogView
+    busy: bool
+    run: action
+  derive muted = "light-dark(#71717b, #a1a1a1)"
+  derive ink = "light-dark(#18181b, #f5f5f5)"
+  derive line = "light-dark(#e4e4e7, #ffffff14)"
+  derive dialogTargets = ["update-everything-confirm-cancel", "update-everything-confirm-confirm"]
+  // Tab wraps from Update to the first stop (the skipped disclosure, else Cancel), Shift+Tab from that stop to Update.
+  action fromConfirm(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      focus(d.skippedRows.length > 0 ? "update-everything-skipped" : "update-everything-confirm-cancel")
+  action fromFirst(first: bool, k: string, e: KeyboardEvent)
+    if first and k == "Tab" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      focus("update-everything-confirm-confirm")
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #000000a3)" backdrop-filter="blur(4px)" testId="update-everything-overlay"
+      column width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #000000)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=dialogSeated.includes("update-everything-confirm") aria-label=d.title testId="update-everything-confirm" id="update-everything-confirm" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("update-everything-confirm") key=dialogFallback("update-everything-confirm", dialogTargets)
+        DialogOpenFocus(target="update-everything-confirm-cancel")
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box" flex-shrink=0
+          text d.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color=ink role="heading" aria-level=2
+          row flex-wrap="wrap" align-items="baseline"
+            if d.version != ""
+              text "T3 Code " font-size="0.875rem" line-height="1.25rem" color=muted white-space="pre"
+              text d.version font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.75rem" line-height="1.25rem" color=muted
+            if d.version != "" and d.providers != ""
+              text " · " font-size="0.875rem" line-height="1.25rem" color=muted white-space="pre"
+            if d.providers != ""
+              text d.providers font-size="0.875rem" line-height="1.25rem" color=muted
+        scroll flex-shrink=1 min-height=0
+          column gap="0.75rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1rem" box-sizing="border-box"
+            // Machine names truncate first; the columns line up across rows as one grid.
+            box display="grid" grid-template-columns="minmax(64px, max-content) max-content 1fr max-content" testId="update-everything-table"
+              for heading in ["Machine", "T3 Code", "Providers", ""] key=heading
+                text heading padding-right=(heading == "" ? "0px" : "1rem") padding-bottom="0.375rem" border-bottom-style="solid" border-bottom-width=1 border-color=line font-size="0.75rem" line-height="1rem" color=muted
+              for r in d.rows key=r.id
+                box max-width="9rem" min-width=0 padding-right="1rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=(r.id == d.rows.slice(-1).map((x) => x.id).join("") ? 0 : 1) border-color="light-dark(#e4e4e780, #ffffff0a)"
+                  text r.label font-size="0.875rem" line-height="1.25rem" color=ink line-clamp=1 text-overflow="ellipsis"
+                column padding-right="1rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-style="solid" border-bottom-width=(r.id == d.rows.slice(-1).map((x) => x.id).join("") ? 0 : 1) border-color="light-dark(#e4e4e780, #ffffff0a)"
+                  if r.app != ""
+                    text r.app font-size="0.875rem" line-height="1.25rem" color=ink
+                  if r.skipped
+                    text "Skipped" font-size="0.875rem" line-height="1.25rem" color=muted
+                  if r.restartsLast
+                    text "restarts last" font-size="0.75rem" line-height="1rem" color=muted
+                box padding-right="1rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-style="solid" border-bottom-width=(r.id == d.rows.slice(-1).map((x) => x.id).join("") ? 0 : 1) border-color="light-dark(#e4e4e780, #ffffff0a)"
+                  text r.providers font-size="0.875rem" line-height="1.25rem" color=ink
+                box padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-style="solid" border-bottom-width=(r.id == d.rows.slice(-1).map((x) => x.id).join("") ? 0 : 1) border-color="light-dark(#e4e4e780, #ffffff0a)"
+                  text r.running font-size="0.875rem" line-height="1.25rem" color="#fe9a00" white-space="nowrap" text-align="right"
+            if d.skippedRows.length > 0
+              column
+                button id="update-everything-skipped" press=run("ue:skipped", "", "") key=fromFirst(true) aria-expanded=d.skippedOpen testId="update-everything-skipped" display="flex" flex-direction="row" align-items="center" gap="0.25rem" padding=0 border-width=0 background-color="#00000000" cursor="pointer" align-self="flex-start"
+                  svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" color=muted rotate=(d.skippedOpen ? "90deg" : "0deg") aria-hidden=true
+                    path d="m9 18 6-6-6-6"
+                  text `${d.skippedRows.length} skipped` font-size="0.75rem" line-height="1rem" color=muted
+                if d.skippedOpen
+                  box display="grid" grid-template-columns="minmax(0px, max-content) 1fr" column-gap="0.75rem" row-gap="0.125rem" padding-top="0.375rem" padding-left="1.125rem" testId="update-everything-skipped-list"
+                    for m in d.skippedRows key=m.id
+                      text m.label max-width="8rem" min-width=0 line-clamp=1 text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=muted
+                      text m.reason overflow-wrap="anywhere" font-size="0.75rem" line-height="1rem" color=muted
+        row gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" flex-shrink=0 border-top-style="solid" border-top-width=1 border-color=line background-color="light-dark(#fafafab8, #ffffff06)"
+          if d.warning != ""
+            text d.warning margin-right="auto" font-size="0.875rem" line-height="1.25rem" color=muted testId="update-everything-warning"
+          button id="update-everything-confirm-cancel" press=run("ue:cancel", "", "") key=fromFirst(d.skippedRows.length == 0) disabled=busy aria-keyshortcuts="Escape" testId="update-everything-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" data-focus-stop=(busy ? "" : "enabled")
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=ink
+          button id="update-everything-confirm-confirm" press=run("ue:confirm", "", "") key=fromConfirm disabled=busy testId="update-everything-update" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) data-focus-stop=(busy ? "" : "enabled")
+            text "Update" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+

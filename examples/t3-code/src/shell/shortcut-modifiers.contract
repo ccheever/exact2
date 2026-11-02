@@ -1,0 +1,21 @@
+// The modifiers the window holds, ported with its names from T3 Code 9c161462c9 (MIT, see LICENSE-T3)
+// apps/web/src/shortcutModifierState.ts: ShortcutModifierState, areShortcutModifierStatesEqual and
+// shortcutModifierStateAfterKeyboardEvent. useShortcutModifierState's capture-phase window keydown and keyup
+// listeners are the window's `keycapture` and `keyup` (app-window.contract), its window `blur` is
+// `exactPage().hasFocus` turning false (app.contract). With `ignoreEditable` a key at a field empties the state and
+// a focus at one shows none (T3Window `prSpeedMode`); a field is an `input` or `textarea` with an `id`, marked
+// `data-editable`.
+shape ShortcutModifierState
+  metaKey: bool
+  ctrlKey: bool
+  altKey: bool
+  shiftKey: bool
+
+fn emptyShortcutModifierState(): ShortcutModifierState = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
+fn areShortcutModifierStatesEqual(left: ShortcutModifierState, right: ShortcutModifierState): bool = left.metaKey == right.metaKey and left.ctrlKey == right.ctrlKey and left.altKey == right.altKey and left.shiftKey == right.shiftKey
+// A modifier's own key sets or clears its flag. Flags on other keys may only clear one: a dictation tool's synthetic ⌘V
+// can leave later key events reporting metaKey=true until the reader physically taps ⌘.
+fn shortcutModifierStateAfterKeyboardEvent(current: ShortcutModifierState, down: bool, e: KeyboardEvent): ShortcutModifierState = (e.key == "Meta" or e.key == "OS" or e.key == "Command") ? ShortcutModifierState(metaKey=down, ctrlKey=current.ctrlKey, altKey=current.altKey, shiftKey=current.shiftKey) : (e.key == "Control" ? ShortcutModifierState(metaKey=current.metaKey, ctrlKey=down, altKey=current.altKey, shiftKey=current.shiftKey) : ((e.key == "Alt" or e.key == "Option") ? ShortcutModifierState(metaKey=current.metaKey, ctrlKey=current.ctrlKey, altKey=down, shiftKey=current.shiftKey) : (e.key == "Shift" ? ShortcutModifierState(metaKey=current.metaKey, ctrlKey=current.ctrlKey, altKey=current.altKey, shiftKey=down) : ShortcutModifierState(metaKey=current.metaKey and e.metaKey, ctrlKey=current.ctrlKey and e.ctrlKey, altKey=current.altKey and e.altKey, shiftKey=current.shiftKey and e.shiftKey))))
+fn anyShortcutModifier(state: ShortcutModifierState): bool = state.metaKey or state.ctrlKey or state.altKey or state.shiftKey
+// The Pull Requests route's speedMode: Shift alone (routes/_chat.pull-requests.tsx).
+fn speedModifiers(state: ShortcutModifierState): bool = state.shiftKey and not state.metaKey and not state.ctrlKey and not state.altKey

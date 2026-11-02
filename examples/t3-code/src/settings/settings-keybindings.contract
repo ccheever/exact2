@@ -1,0 +1,434 @@
+// Settings → Keybindings (reference KeybindingsSettings.tsx, T3 9c161462c9): a toolbar (search, Add keybinding,
+// keybindings.json), then one titled section per command area with a settings row per binding: its When clause and
+// shortcut pills; the shortcut becomes a capture field, a dirty row offers Save, a hover menu offers Reset/Remove, and
+// a new-binding row sits above the sections. Without a connection that can write settings, a line says why and the
+// list is inert. The When builder is a popover whose controls replace the draft with expressions keybinding-view.ts
+// precomputed.
+use SelectOption from "./settings-kit.contract"
+use FieldPlaceholder from "../shared/field-placeholder.contract"
+use SettingsNotice from "./settings-kit.contract"
+use SettingsSelect from "./settings-kit.contract"
+use SkPopup from "./settings-kit.contract"
+use SkMenuItem from "./settings-kit.contract"
+use SettingsPageSelect from "./settings-kit.contract"
+use KeyRecorder from "./key-recorder.contract"
+use LucideSearch from "./settings-icons.contract"
+use LucidePlus from "./settings-icons.contract"
+use LucideMinus from "./settings-icons.contract"
+use LucideFileBraces from "./settings-icons.contract"
+use LucideChevronDown from "./settings-icons.contract"
+use LucideTriangleAlert from "./settings-icons.contract"
+use LucideX from "./settings-icons.contract"
+use Tip from "../shell/shell-tip.contract"
+use LucideEllipsis from "./settings-icons.contract"
+use LucideCircleX from "./settings-icons.contract"
+use KmItem from "../shared/menu-keys.contract"
+use kmTriggerKey from "../shared/menu-keys.contract"
+use kmTriggerTarget from "../shared/menu-keys.contract"
+use DialogOpenFocus from "../shared/dialog-trap.contract"
+
+shape KeyPill
+  id: string
+  text: string
+shape KeybindingRowView
+  id: string
+  command: string
+  label: string
+  key: string
+  condition: string
+  whenLabel: string
+  source: string
+  pills: KeyPill[]
+  aria: string
+  defaultKey: string
+  defaultWhen: string
+  canReset: bool
+  canRemove: bool
+  conflict: string
+  first: bool
+  // The search target `keybinding-<command>` on the first row of each command, '' on the rest.
+  anchor: string
+shape WhenLine
+  id: string
+  depth: number
+  kind: string
+  label: string
+  negated: bool
+  operator: string
+  removeLabel: string
+  negate: string
+  remove: string
+  useAnd: string
+  useOr: string
+  addCondition: string
+  addGroup: string
+  options: SelectOption[]
+  operators: SelectOption[]
+shape WhenEditorView
+  error: string
+  unknown: string
+  // The draft's last valid expression, which closing the builder restores over an unparsed one.
+  fallback: string
+  lines: WhenLine[]
+  addRootCondition: string
+  addRootGroup: string
+shape KeybindingGroup
+  id: string
+  title: string
+  rows: KeybindingRowView[]
+// A row's unsaved draft while another row is edited: the reference keeps one editor per row, so saving one binding
+// leaves the others' edits in place. `row` is the row's id, or "new" for the New keybinding row.
+shape KeybindingDraft
+  row: string
+  command: string
+  key: string
+  when: string
+// A held draft as keybinding-settings.ts reads it: its conflict, whether its When parses, its command's label.
+shape KeybindingHeld
+  row: string
+  conflict: string
+  valid: bool
+  commandLabel: string
+shape KeybindingPage
+  available: bool
+  writable: bool
+  // KeybindingsSettingsPanel's read-only line ("" while the connection can write settings).
+  notice: string
+  error: string
+  path: string
+  rows: KeybindingRowView[]
+  // Every row's id, whatever the search shows: a held draft whose row is gone is dropped (app.contract).
+  ids: string[]
+  groups: KeybindingGroup[]
+  commands: SelectOption[]
+  draftConflict: string
+  draftValid: bool
+  draftCommandLabel: string
+  draftKeyLabel: string
+  held: KeybindingHeld[]
+  whenView: WhenEditorView
+
+style KbMuted
+  font-size="0.75rem" line-height="0.75rem" color="light-dark(#71717bb3, #828282b3)"
+style KbIcon
+  cursor="pointer"
+  display="flex" align-items="center" justify-content="center" box-sizing="border-box" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" flex-shrink=0
+style KbCompact
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" flex-shrink=0
+style KbCapture
+  box-sizing="border-box" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)" font-family="monospace" font-size="0.8125rem" color="light-dark(#18181b, #f5f5f5)"
+// Button variant="outline" at its default size (h-8 on a wide window), the toolbar's.
+style KbToolbar
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.5rem" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
+style KbCard
+  display="flex" flex-direction="column" width="100%" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0c)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+style KbSectionTitle
+  font-size="1rem" font-weight=600 line-height="1.5rem" color="light-dark(#18181b, #f5f5f5)"
+style KbPrimary
+  cursor="pointer"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
+
+component KeybindingsPanel
+  props
+    data: KeybindingPage
+    query: string
+    adding: bool
+    draftRow: string
+    draftCommand: string
+    draftKey: string
+    draftWhen: string
+    // The other rows' unsaved drafts (app.contract keybindingDrafts).
+    drafts: KeybindingDraft[]
+    recording: bool
+    busy: bool
+    error: string
+    search: action
+    searchKey: action
+    searchFocus: action // the search field has the focus, so its Escape is its own
+    searchBlur: action
+    add: action
+    cancelAdd: action
+    chooseCommand: action
+    edit: action
+    setKey: action
+    setWhen: action
+    record: action
+    capture: action
+    // A capture field took or lost the focus (CaptureField).
+    held: action
+    // A keybinding write (save, reset, remove) for a row id, or "new": app.contract keybindingRest.
+    save: action
+    openFile: action
+  // The New keybinding row: the edited draft while it is the one being edited, else its held draft.
+  derive newActive = draftRow == "new"
+  derive newHeld = drafts.filter((d) => d.row == "new")
+  derive newInfo = data.held.filter((h) => h.row == "new")
+  derive newCommand = newActive ? draftCommand : newHeld.map((d) => d.command).join("")
+  derive newKey = newActive ? draftKey : newHeld.map((d) => d.key).join("")
+  derive newWhen = newActive ? draftWhen : newHeld.map((d) => d.when).join("")
+  derive newConflict = newActive ? data.draftConflict : newInfo.map((h) => h.conflict).join("")
+  derive newValid = newActive ? data.draftValid : newInfo.filter((h) => not h.valid).length == 0
+  derive newLabel = newActive or newInfo.length == 0 ? data.draftCommandLabel : newInfo.map((h) => h.commandLabel).join("")
+  view
+    column width="100%" gap="2rem" testId="keybindings-settings"
+      // The page toolbar: the "Keybindings" section's card holds the filter, Add keybinding and keybindings.json.
+      column width="100%" gap="0.625rem" id="keybindings" tabindex=-1
+        row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" box-sizing="border-box" id="keybindings-scroll-target"
+          text "Keybindings" class=KbSectionTitle role="heading" aria-level=2
+        column class=KbCard
+          row flex-wrap="wrap" align-items="center" gap="0.5rem" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem"
+            row flex=1 min-width=0 height="2rem" align-items="center" gap="0.5rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#fcfcfc, #ffffff09)"
+              LucideSearch(size=14, color="light-dark(#71717b, #a1a1a1)")
+              input value=query input=search key=searchKey focus=searchFocus blur=searchBlur placeholder="Search keybindings" class=FieldPlaceholder aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.75rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" data-editable="yes" data-focus-stop="enabled page"
+            button press=add disabled=(busy or adding or not data.writable) class=KbToolbar id="add-keybinding" testId="add-keybinding" opacity=(busy or adding or not data.writable ? 0.64 : 1) data-focus-stop=(busy or adding or not data.writable ? "" : "enabled page")
+              LucidePlus(size=16, color="light-dark(#18181b, #f5f5f5)")
+              text "Add keybinding" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+            Tip(label="Open keybindings.json", side="top", align="center", offset=36)
+              button press=openFile disabled=(busy or data.path == "") class=KbToolbar width="2rem" padding=0 aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1) title="" id="open-keybindings-file" data-focus-stop=(busy or data.path == "" ? "" : "enabled page")
+                LucideFileBraces(size=16, color="light-dark(#18181b, #f5f5f5)")
+      if error != ""
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="keybinding-error" padding-left="1rem"
+      if data.error != ""
+        column class=KbCard
+          SettingsNotice(message=data.error, warning=true)
+      if data.notice != ""
+        text data.notice font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" testId="keybindings-read-only"
+      column width="100%" gap="2rem" inert=(data.available and not data.writable) testId="keybindings-groups"
+        if adding
+          column class=KbCard
+            row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-radius="0.6875rem" background-color="light-dark(#f4f4f526, #ffffff05)" testId="new-keybinding-row"
+              column flex=1 min-width=0 gap="0.25rem"
+                text "New keybinding" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3
+                row height="1.5rem" align-items="center" gap="0.375rem"
+                  text "When" class=KbMuted
+                  WhenButton(label=newLabel, expression=newWhen, rowId="new", command=newCommand, key=newKey, edit=edit)
+              row flex-shrink=0 align-items="center" gap="0.5rem" flex-wrap="wrap" justify-content="flex-end"
+                SettingsPageSelect(selectId="new-keybinding-command", label="Command", valueLabel=(newCommand == "" ? "Command" : newLabel), empty=(newCommand == ""), value=newCommand, width=224, disabled=busy, options=data.commands, choose=chooseCommand)
+                if newConflict != ""
+                  Warning(label=newConflict, detail=`${newConflict} The most recent matching binding wins when both conditions can apply.`)
+                CaptureField(rowId="new", label=newLabel, value=newKey, original="", recording=(recording and newActive), setKey=setKey, record=record("new", newCommand, newKey, newWhen), capture=capture, held=held)
+                button press=save("new", `action=save&command=${encodeURIComponent(newCommand)}&key=${encodeURIComponent(newKey)}&when=${encodeURIComponent(newWhen)}`) disabled=(busy or newCommand == "" or newKey == "" or not newValid) class=KbPrimary testId="save-new-keybinding" opacity=(busy or newCommand == "" or newKey == "" or not newValid ? 0.64 : 1) id="save-new-keybinding" data-focus-stop=(busy or newCommand == "" or newKey == "" or not newValid ? "" : "enabled page")
+                  text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+                button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding" title="" id="cancel-new-keybinding" data-focus-stop=(busy ? "" : "enabled page")
+                  LucideX(size=14, color="light-dark(#71717b, #a1a1a1)")
+        // KeybindingsGroups: one SettingsSection per command area.
+        for group in data.groups key=group.id
+          column width="100%" gap="0.625rem" testId=`keybindings-${group.id}`
+            row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" box-sizing="border-box"
+              text group.title class=KbSectionTitle role="heading" aria-level=2
+            column class=KbCard
+              for binding in group.rows key=binding.id
+                KeybindingRow(row=binding, editing=(draftRow == binding.id), draftKey=draftKey, draftWhen=draftWhen, kept=drafts.filter((d) => d.row == binding.id), keptInfo=data.held.filter((h) => h.row == binding.id), recording=(recording and draftRow == binding.id), conflict=(draftRow == binding.id ? data.draftConflict : binding.conflict), valid=data.draftValid, busy=busy, edit=edit, setKey=setKey, record=record, capture=capture, held=held, save=save)
+        if data.available and data.groups.length == 0
+          column class=KbCard
+            text "No keybindings match your search." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)" text-align="center" padding-top="3rem" padding-bottom="3rem" width="100%" testId="keybindings-empty"
+      WhenEditor(view=data.whenView, expression=draftWhen, setWhen=setWhen)
+
+component KeybindingRow
+  props
+    row: KeybindingRowView
+    editing: bool
+    draftKey: string
+    draftWhen: string
+    // This row's held draft (none, or one) while another row is edited, and how keybinding-settings.ts reads it.
+    kept: KeybindingDraft[]
+    keptInfo: KeybindingHeld[]
+    recording: bool
+    conflict: string
+    valid: bool
+    busy: bool
+    edit: action
+    setKey: action
+    record: action
+    capture: action
+    held: action
+    save: action
+  state hovered = false
+  action hover(over: bool)
+    hovered = over
+  derive shownKey = editing ? draftKey : (kept.length > 0 ? kept.map((d) => d.key).join("") : row.key)
+  derive shownWhen = editing ? draftWhen : (kept.length > 0 ? kept.map((d) => d.when).join("") : row.condition)
+  derive shownConflict = editing or keptInfo.length == 0 ? conflict : keptInfo.map((h) => h.conflict).join("")
+  derive shownValid = editing ? valid : keptInfo.filter((h) => not h.valid).length == 0
+  derive dirty = (editing or kept.length > 0) and (shownKey != row.key or shownWhen != row.condition)
+  derive menuItems = [KmItem(id=(row.canReset and not busy ? `reset-keybinding-${row.id}` : ""), label="Reset to default"), KmItem(id=(row.canRemove and not busy ? `remove-keybinding-${row.id}` : ""), label="Remove")].filter((item) => item.id != "")
+  action triggerKey(k: string, e: KeyboardEvent)
+    if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and kmTriggerKey(k)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover(`keybinding-menu-${row.id}`, source=`keybinding-actions-${row.id}`)
+        let target = kmTriggerTarget(menuItems, k)
+        if target != ""
+          focus(target)
+  view
+    // SettingsGroup's divider between a section's rows. The first row of a command is its search target (tabindex -1: the jump's).
+    row hover=hover id=(row.anchor != "" ? row.anchor : `keybinding-row-${row.id}`) tabindex=-1 width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff0a)" testId=`keybinding-row-${row.id}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.5rem"
+          text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=3 aria-description=row.command
+          if row.source != "Default"
+            text row.source font-size="0.6875rem" font-weight=500 line-height="1rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color="light-dark(#18181b, #f5f5f5)" testId=`keybinding-source-${row.id}`
+        row height="1.5rem" align-items="center" gap="0.375rem"
+          text "When" class=KbMuted
+          WhenButton(label=row.label, expression=shownWhen, rowId=row.id, command=row.command, key=shownKey, edit=edit)
+      row flex-shrink=0 align-items="center" justify-content="flex-end" gap="0.375rem" flex-wrap="wrap"
+        if shownConflict != ""
+          Warning(label=shownConflict, detail=`${shownConflict} The most recent matching binding wins when both conditions can apply.`)
+        if row.canReset or row.canRemove
+          box position="relative" flex-shrink=0
+            button popovertarget=`keybinding-menu-${row.id}` id=`keybinding-actions-${row.id}` key=triggerKey disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0) title="" data-focus-stop=(busy ? "" : "enabled page")
+              LucideEllipsis(size=14, color="light-dark(#71717b, #a1a1a1)")
+            SkPopup(menuId=`keybinding-menu-${row.id}`, invoker=`keybinding-actions-${row.id}`, label=`Actions for ${row.label}`, width=160, list=false, endAlign=28, items=menuItems, keyed=0)
+              if row.canReset
+                SkMenuItem(keysId=`keybinding-menu-${row.id}-keys`, label="Reset to default", menuId=`keybinding-menu-${row.id}`, itemId=`reset-keybinding-${row.id}`, selected=false, check=false, destructive=false, disabled=busy, choose=save(row.id, `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(row.defaultKey)}&when=${encodeURIComponent(row.defaultWhen)}`))
+              if row.canRemove
+                SkMenuItem(keysId=`keybinding-menu-${row.id}-keys`, label="Remove", menuId=`keybinding-menu-${row.id}`, itemId=`remove-keybinding-${row.id}`, selected=false, check=false, destructive=true, disabled=busy, choose=save(row.id, `action=remove&previous=${encodeURIComponent(row.id)}`))
+        if dirty
+          button press=save(row.id, `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(shownKey)}&when=${encodeURIComponent(shownWhen)}`) disabled=(busy or shownKey == "" or not shownValid) class=KbPrimary testId=`save-keybinding-${row.id}` opacity=(busy or shownKey == "" or not shownValid ? 0.64 : 1) id=`save-keybinding-${row.id}` data-focus-stop=(busy or shownKey == "" or not shownValid ? "" : "enabled page")
+            text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        if not dirty and not recording and row.key != ""
+          button press=record(row.id, row.command, row.key, row.condition) aria-label=`Edit shortcut for ${row.label}: ${row.aria}` testId=`edit-keybinding-${row.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.375rem" padding-right="0.375rem" margin-right="-0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(hovered ? "light-dark(#e4e4e7b3, #ffffff12)" : "#00000000") background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title="" id=`edit-keybinding-${row.id}` data-focus-stop="enabled page"
+            for pill in row.pills key=pill.id
+              text pill.text font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #a1a1a1)"
+        if dirty or recording or row.key == ""
+          CaptureField(rowId=row.id, label=row.label, value=shownKey, original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, shownKey, shownWhen), capture=capture, held=held)
+
+// The capture field (KeybindingsSettings.tsx's Input and NewKeybindingKeyInput): a text field that records while it
+// has the focus. Taking the focus (a click, Tab) starts recording; a recorded chord or Escape ends it, and the field
+// keeps the focus and goes on taking keys, as the reference's input does: the next chord replaces the draft and Escape
+// restores the binding without leaving Settings; leaving it stops recording and keeps the draft. An existing binding's
+// field mounts from its pill already recording and takes the focus (autoFocus={isRecording}); the new binding's
+// does not, so the focus stays on "Add keybinding". The recorder (key-recorder.contract) fills it.
+component CaptureField
+  props
+    rowId: string
+    label: string
+    value: string
+    original: string
+    recording: bool
+    setKey: action
+    record: action
+    capture: action
+    // The recorder took ("true") or lost ("") the focus: the window lets go of it on a press outside it (T3Window
+    // outsidePressDown), as a browser blurs the reference's input on such a press.
+    held: action
+  // From the recorder's first key to its blur, though recording ended: it stays up, the window's modal scope.
+  state taking = false
+  action took(key: string)
+    taking = key != "blur"
+    // Another row's field can have started recording as this one let go of the focus: its blur is not this row's.
+    if key != "blur" or recording
+      capture(original, key)
+    if key == "blur"
+      held(`keybinding-recorder-${rowId}`, false)
+  action entered
+    held(`keybinding-recorder-${rowId}`, true)
+    if not recording
+      record()
+  action idleLeft
+    held(`keybinding-field-${rowId}`, false)
+  view
+    if recording or taking
+      // The recorder takes every key while it has the focus (`data-keybinding-capture`: the reference's shortcut
+      // listeners and its Escape-to-go-back skip it), so it is the window's modal scope then: no shortcut button
+      // outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). It mounts modal and focused: the
+      // idle field below hands it the focus that started recording.
+      row class=KbCapture align-items="center" aria-modal=true focusin=entered testId=`keybinding-recording-${rowId}`
+        KeyRecorder(stop="enabled page", prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))
+        DialogOpenFocus(target=`keybinding-recorder-${rowId}`)
+    else
+      row class=KbCapture align-items="center" focusin=entered testId=`keybinding-capture-${rowId}`
+        KeyRecorder(stop="enabled page", prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)
+
+// WarningTooltipIcon: the triangle, and its TooltipPopup (side top) with the whole sentence.
+component Warning
+  props
+    label: string
+    detail: string
+  view
+    Tip(label=detail, side="top", align="center", offset=24)
+      box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" border-radius="0.25rem" aria-label=label role="img" testId="keybinding-conflict"
+        LucideTriangleAlert(size=14, color="#fe9a00")
+
+// WhenClauseControl: "Always" or the expression, opening the builder popover.
+component WhenButton
+  props
+    label: string
+    expression: string
+    rowId: string
+    command: string
+    key: string
+    edit: action
+  view
+    button press=edit(rowId, command, key, expression) popovertarget="keybinding-when-editor" aria-label=`Edit when clause for ${label}` testId=`edit-when-${rowId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=0 background-color="#00000000" min-width=0 flex-shrink=1 id=`edit-when-${rowId}` data-focus-stop="enabled page"
+      text (expression == "" ? "Always" : expression) font-family="monospace" font-size="0.6875rem" font-weight=500 line-height="1.03125rem" color=(expression == "" ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)") line-clamp=1
+      box opacity=0.6
+        LucideChevronDown(size=14, color="light-dark(#71717b, #a1a1a1)")
+
+component WhenEditor
+  inject
+    rem: number
+  props
+    view: WhenEditorView
+    expression: string
+    setWhen: action
+  state fieldFocused = false
+  action fieldFocus(on: bool)
+    fieldFocused = on
+  action toggled(e: ToggleEvent)
+    if e.newState == "closed" and view.error != ""
+      setWhen(view.fallback)
+  // Escape closes the popover (the host's light dismiss) and the new row stays: the popover is the window's
+  // modal scope while it shows, so Settings' Back does not take that Escape.
+  // PopoverContent align="start" sideOffset 6 (KeybindingsSettings.tsx): under the pressed row's trigger, flipping near an edge.
+  view
+    column id="keybinding-when-editor" popover="auto" toggle=toggled position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" margin-top="0.375rem" width="34rem" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label="When" testId="keybinding-when-editor"
+      row align-items="flex-start" justify-content="space-between" gap="0.75rem"
+        text "When" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+        row gap="0.5rem" flex-shrink=0
+          button press=setWhen(view.addRootCondition) class=KbCompact testId="when-add-condition" id="when-add-condition" data-focus-stop="enabled"
+            LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
+            text "Condition" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+          button press=setWhen(view.addRootGroup) class=KbCompact testId="when-add-group" id="when-add-group" data-focus-stop="enabled"
+            LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
+            text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+      column gap="0.375rem"
+        // Input aria-invalid (ui/input.tsx): border destructive/36; focused, destructive/64 and an inset 3 pt ring of
+        // destructive/16 (24 in dark).
+        row height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(view.error != "" ? (fieldFocused ? "light-dark(#fb2c36a3, #fb414aa3)" : "light-dark(#fb2c365c, #fb414a5c)") : "light-dark(#d4d4d8, #ffffff1c)") box-shadow=(view.error != "" and fieldFocused ? "inset 0 0 0 3px light-dark(#fb2c3629, #fb414a3d)" : "none") background-color="light-dark(#fcfcfc, #ffffff09)"
+          input value=expression input=setWhen focus=fieldFocus(true) blur=fieldFocus(false) placeholder="Always" class=FieldPlaceholder aria-label="When expression" aria-invalid=(view.error != "") testId="when-expression" flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.75rem" color="light-dark(#18181b, #f5f5f5)" autocorrect="off" id="field-when-expression" data-editable="yes" data-focus-stop="enabled"
+          if view.unknown != ""
+            Warning(label=view.unknown, detail="T3 Code does not recognize this condition yet. It can still be saved, but it may not match unless the runtime provides it.")
+        if view.error != ""
+          row gap="0.375rem" align-items="center"
+            LucideCircleX(size=14, color="light-dark(#fb2c36, #fb414a)")
+            text view.error font-size="0.6875rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)" testId="when-error"
+      if view.lines.length == 0 and view.error == ""
+        row gap="0.5rem" padding="0.75rem" border-radius="0.5rem" border-style="dashed" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#f4f4f526, #ffffff05)"
+          button press=setWhen(view.addRootCondition) class=KbCompact background-color="light-dark(#1b4ed8, #346bf1)" border-width=0
+            LucidePlus(size=14, color="#ffffff")
+            text "Condition" font-size="0.75rem" font-weight=500 color="#ffffff"
+          button press=setWhen(view.addRootGroup) class=KbCompact
+            LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
+            text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+      for line in view.lines key=line.id
+        row align-items="center" gap="0.5rem" margin-left=(line.depth * rem) box-sizing="border-box" padding=(line.kind == "condition" ? "0.5rem" : "0.25rem") border-radius="0.5rem" border-style="solid" border-width=(line.kind == "condition" ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff12)" testId=`when-line-${line.id}`
+          if line.kind == "group"
+            SettingsSelect(selectId=`when-operator-${line.id}`, label="Operator", valueLabel=line.operator, empty=false, value="", width=96, disabled=false, options=line.operators, choose=setWhen)
+            button press=setWhen(line.addCondition) class=KbCompact testId=`when-line-condition-${line.id}` id=`when-line-condition-${line.id}` data-focus-stop="enabled"
+              LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
+              text "Condition" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+            button press=setWhen(line.addGroup) class=KbCompact testId=`when-line-group-${line.id}` id=`when-line-group-${line.id}` data-focus-stop="enabled"
+              LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
+              text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+          if line.kind != "group"
+            button press=setWhen(line.negate) role="switch" aria-checked=line.negated aria-label=(line.kind == "not" ? "Negate group" : `Negate ${line.label}`) class=KbCompact min-width="2.5rem" background-color=(line.negated ? "light-dark(#f4f4f5, #ffffff14)" : "light-dark(#ffffff, #ffffff09)") testId=`when-negate-${line.id}` id=`when-negate-${line.id}` data-focus-stop="enabled"
+              text "Not" font-size="0.75rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
+          if line.kind == "condition"
+            SettingsSelect(selectId=`when-variable-${line.id}`, label="Condition", valueLabel=line.label, empty=false, value="", width=280, disabled=false, options=line.options, choose=setWhen)
+          box flex=1
+          button press=setWhen(line.remove) aria-label=line.removeLabel class=KbIcon width="1.75rem" height="1.75rem" testId=`when-remove-${line.id}` title="" id=`when-remove-${line.id}` data-focus-stop="enabled"
+            LucideMinus(size=14, color="light-dark(#18181b, #f5f5f5)")

@@ -1,0 +1,160 @@
+// The device appearance the whole app reads: the snapshot's
+// `look`. Reference: routes/__root.tsx (data-chat-width, data-diff-color-scheme,
+// font and theme variables on :root), index.css (--chat-content-max-width,
+// :root[data-diff-color-scheme="blue-orange"]), appearanceContrast.ts and the
+// theme palette roles. Environment identification is left out: its art and pill
+// name a Dev or Nightly stage, which this stable app never has.
+// `themed` is false for the stock T3 Code theme at default contrast and glass,
+// so surfaces keep their measured stock colours; otherwise they take the
+// palette's light-dark() tokens.
+import type { T3Client } from '../client/client';
+import { CLIENT_DEFAULTS, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
+import { alpha, effectiveMode, fontStack, palette, themeRoles } from './settings-appearance';
+import type { CustomTheme } from './settings-themes';
+import type { DiffState } from '../diff/diff';
+import { STANDARD, previewTheme } from './settings-appearance-editor';
+import { clampInterfaceFontSize, clampPromptFontSize } from './appearance-fonts';
+
+export type Look = {
+  themed: boolean; mode: string;
+  canvas: string; sidebar: string; sidebarBorder: string; sidebarText: string; sidebarMuted: string; rowActive: string;
+  surface: string; popover: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
+  /** ui/wizard.tsx: WizardSteps' bg-background (dark:bg-white/4) and WizardPanel's bg-background/80 (dark:bg-white/2). */
+  wizardSteps: string; wizardPanel: string;
+  chatMax: number; diff: string;
+  diffAdd: string; diffDel: string; diffAddSurface: string; diffDelSurface: string; diffAddLine: string; diffDelLine: string;
+  terminalLight: string; terminalDark: string; terminalFont: string; terminalSize: number; terminalFace: string;
+  fontSans: string; fontSize: number; promptSize: number; promptFont: string; codeFont: string; codeSize: number; wordWrap: boolean; math: boolean; smoothing: boolean; panelMs: number;
+  contextStrip: boolean; contextMeter: boolean; richText: boolean; skillsInSlash: boolean; followUp: string;
+  confirmUnpin: boolean; confirmArchive: boolean; confirmDelete: boolean;
+};
+
+const prefsOf = (client: T3Client): ClientPrefs => (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
+const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
+/** --chat-content-max-width in rem: 46rem, 72rem (wide) or the whole column (full). */
+export const CHAT_MAX_REM: Record<string, number> = { comfortable: 46, wide: 72 };
+/** The chat width setting in px at the root font size (the Interface font size). */
+export function chatMaxWidth(chatWidth: string, rootFontSize: number): number {
+  return chatWidth === 'full' ? 100000 : (CHAT_MAX_REM[chatWidth] ?? 46) * rootFontSize;
+}
+// index.css diff tokens: success/destructive by default, blue/orange for colour-blind users.
+const DIFF = {
+  'red-green': { add: 'light-dark(#00a63e, #05df72)', del: 'light-dark(#e7000b, #ff6467)', addSurface: 'light-dark(#eef9f5, #0e1713)', delSurface: 'light-dark(#fef0f0, #1c100f)',
+    addLine: 'light-dark(#18a46c, #07c480)', delLine: 'light-dark(#d52c36, #ff2e3f)' },
+  'blue-orange': { add: 'light-dark(#155dfc, #51a2ff)', del: 'light-dark(#f54900, #ff8904)', addSurface: 'light-dark(#eff6ff, #0e1423)', delSurface: 'light-dark(#fff7ed, #1f130b)',
+    addLine: 'light-dark(#155dfc, #51a2ff)', delLine: 'light-dark(#f54900, #ff8904)' },
+};
+
+/**
+ * What the app wears: the stored themes in the mode they resolve to (resolveThemeAppearance),
+ * or, while the theme editor is open, its draft: on its appearance's half and in that appearance whatever the mode
+ * (ThemeEditorPanel's applyThemeColorPreview toggles the `dark` class to the appearance being edited). The root's
+ * `scheme`, the window (devicePresentation) and the palettes all take it.
+ */
+export function paintOf(client: T3Client): { prefs: ClientPrefs; custom: CustomTheme[]; mode: string } {
+  const preview = previewTheme(client), prefs = prefsOf(client), custom = customOf(client);
+  if (!preview) return { prefs, custom, mode: effectiveMode(client.local.deviceSettings.appearanceMode, prefs, custom) };
+  return { prefs: { ...prefs, [preview.appearance === 'light' ? 'themeLight' : 'themeDark']: preview.id }, custom: [...custom, preview], mode: preview.appearance };
+}
+
+export function look(client: T3Client): Look {
+  const { prefs, custom, mode } = paintOf(client);
+  const pal = palette(prefs, custom, mode);
+  const diffState = (client as unknown as { diffState?: DiffState }).diffState;
+  if (diffState) seedDiffState(client, diffState);
+  const themed = prefs.themeLight !== 't3-code' || prefs.themeDark !== 't3-code' || prefs.appearanceContrast !== 100 || prefs.glassOpacity !== CLIENT_DEFAULTS.glassOpacity;
+  const diff = DIFF[prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green'];
+  // applyAppearanceFontVariables: the root font size (app.contract `rootFont` sets it), 16 until the preferences load.
+  const rootFontSize = clampInterfaceFontSize(prefs.fontSizeInterface);
+  // Light mode paints the theme's background; dark mode a white wash whatever the theme.
+  const background = themed ? palette(prefs, custom, 'light').canvas : '#fcfcfc';
+  const half = (light: string, dark: string) => mode === 'light' ? light : mode === 'dark' ? dark : `light-dark(${light}, ${dark})`;
+  return {
+    themed, mode,
+    terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
+    terminalFont: prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode,
+    terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
+    terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode, prefs.fontSmoothing),
+    canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
+    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
+    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize),
+    diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
+    fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize,
+    // applyAppearanceFontVariables (2359643cff): the Prompt font and size apply only with separate fonts on; otherwise the
+    // prompt box is the interface font at --text-sm (0.875rem), so it scales with Interface size.
+    promptSize: prefs.typographyAdvanced ? clampPromptFontSize(prefs.fontSizePrompt) : 0.875 * rootFontSize,
+    promptFont: fontStack(prefs.typographyAdvanced && prefs.fontFamilyComposer.trim() ? prefs.fontFamilyComposer : prefs.fontFamilySans, false), codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
+    codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, math: prefs.mathRenderingEnabled, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
+    contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
+    skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior,
+    confirmUnpin: prefs.confirmThreadUnpin, confirmArchive: prefs.confirmThreadArchive, confirmDelete: prefs.confirmThreadDelete,
+  };
+}
+
+/** devicePresentation's appearance mode: the window draws in the mode `look` resolves (T3WindowChrome.setAppearance), the theme editor's draft's included. */
+export function windowAppearanceMode(client: T3Client): string {
+  return paintOf(client).mode;
+}
+
+/**
+ * bg-message (--message-surface): the theme's messageSurface role. The stock theme's is index.css's own token
+ * (7df7cb9999): light zinc-200 55% over zinc-100, dark neutral-950 92% over white.
+ */
+function messageSurface(prefs: ClientPrefs, custom: CustomTheme[], mode: string): string {
+  const half = (id: string, appearance: 'light' | 'dark') => id === 't3-code' ? (appearance === 'light' ? '#ebebed' : '#1e1e1e') : themeRoles(id, appearance, custom).messageSurface;
+  const light = half(prefs.themeLight, 'light'), dark = half(prefs.themeDark, 'dark');
+  return mode === 'light' ? light : mode === 'dark' ? dark : `light-dark(${light}, ${dark})`;
+}
+
+// DiffState follows the General diff defaults: seeded once, and again whenever one of them changes.
+const seeded = new WeakMap<DiffState, string>();
+export function seedDiffState(client: T3Client, state: DiffState | undefined): void {
+  if (!state) return;
+  const prefs = prefsOf(client);
+  const signature = `${prefs.diffLayout}|${prefs.diffIgnoreWhitespace}|${prefs.wordWrap}|${prefs.diffFilesCollapsed}`;
+  if (seeded.get(state) === signature) return;
+  seeded.set(state, signature);
+  state.layout = prefs.diffLayout === 'split' ? 'split' : 'stacked';
+  state.ignoreWhitespace = prefs.diffIgnoreWhitespace;
+  state.wrap = prefs.wordWrap;
+  (state as DiffState & { defaultExpanded?: boolean }).defaultExpanded = !prefs.diffFilesCollapsed;
+}
+/** The diff toolbar's layout toggle writes the Diff layout setting back (General → Behavior). */
+export function rememberDiffLayout(client: T3Client, layout: string): void {
+  if (layout !== 'stacked' && layout !== 'split') return;
+  const local = client.local as unknown as { clientSettings?: ClientPrefs };
+  local.clientSettings = { ...prefsOf(client), diffLayout: layout };
+  const state = (client as unknown as { diffState: DiffState }).diffState;
+  seeded.set(state, `${layout}|${local.clientSettings.diffIgnoreWhitespace}|${local.clientSettings.wordWrap}|${local.clientSettings.diffFilesCollapsed}`);
+}
+
+// Terminal roles from T3 Code 1e2ecbd975 packages/shared/src/themePalettes.ts, converted
+// from OKLCH to sRGB like settings-appearance.ts. Order: background, foreground, cursor, selection.
+const TERMINAL_PALETTES: Record<string, readonly [string, string]> = {
+  't3-chat': ['#fdf7fd #501854 #db2777 #f1c4e6', '#1f1a24 #f9f8fb #db2777 #362d3d'],
+  grove: ['#f3f7f4 #241523 #1b7d50 #cce1d7', '#1b2821 #fffaff #69d69a #36654c'],
+  ocean: ['#f5f7f8 #241523 #2672af #d0dfeb', '#17212b #fffaff #70b9ee #36566f'],
+  ember: ['#f9f7f5 #241523 #ae552a #ebdad1', '#291e1a #fffaff #f09a64 #6e4934'],
+  iris: ['#f8f7f9 #241523 #7253b9 #e0d9ee', '#1d1929 #fffaff #9d7df2 #4a3c70'],
+};
+/** JSON for the native terminal bridge; custom/editor roles override the standard palette. */
+/**
+ * The terminal page's font (terminal-frame.contract `font`) as JSON: the family, an empty one the page's default, the
+ * size, and Font smoothing, which the page's root follows as the reference's root does (`-webkit-font-smoothing`).
+ */
+export function terminalFace(family: string, size: number, smoothing: boolean): string {
+  return JSON.stringify({ ...(family.trim() ? { family } : {}), ...(Number.isFinite(size) ? { size } : {}), smoothing });
+}
+
+export function terminalTheme(id: string, mode: 'light' | 'dark', custom: CustomTheme[]): string {
+  const own = custom.find(theme => theme.id === id);
+  const roles = { ...STANDARD[mode], ...(own?.[mode] ?? {}) };
+  const builtIn = own ? undefined : TERMINAL_PALETTES[id]?.[mode === 'dark' ? 1 : 0].split(' ');
+  const rgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
+  return JSON.stringify({ dark: mode === 'dark',
+    background: rgb(builtIn?.[0] ?? roles.terminalBackground ?? '#fcfcfc'),
+    foreground: rgb(builtIn?.[1] ?? roles.terminalForeground ?? '#27272a'),
+    cursor: rgb(builtIn?.[2] ?? roles.terminalCursor ?? '#26384e'),
+    selectionBackground: builtIn?.[3] ?? (own ? roles.terminalSelection : mode === 'dark' ? 'rgba(180, 203, 255, 0.25)' : 'rgba(37, 63, 99, 0.2)'),
+  });
+}

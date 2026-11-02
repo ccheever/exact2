@@ -1,0 +1,52 @@
+# The embedded server runtime that tools/stage-runtime/stage-runtime.mjs puts beside its pin (the
+# release archive and its manifest), and its download cache. Only the pin is committed.
+/server-runtime/*
+!/server-runtime/runtime-pin.json
+/.runtime-cache/
+# Declarations the dev producer writes beside app.ts.
+/app.contract.d.ts
+# The terminal page, built by terminal-host/build.mjs.
+/assets/terminal/
+# Task records, evidence and diaries: local state, never committed (docs/diary.md).
+/.exact/
+# Generated sources (tools/generate/generate.mjs writes them; the app build runs it): built, not
+# committed (rules/RULES.md).
+/src/highlight/highlights-tables.ts
+/src/highlight/syntax-ink.contract
+/data/highlights.wasm
+/src/highlight/shell-parser/
+/src/settings/settings-b-lucide.ts
+/src/settings/settings-icons.contract
+/src/settings/settings-brands.contract
+/src/shared/pages-icons.contract
+/src/shared/icons.contract
+/src/shared/timeline-files.contract
+/src/shared/timeline-files-tables.ts
+/src/shell/shell-icons.contract
+/src/shell/editor-icons.contract
+/src/shell/shell-morph.contract
+/src/sidebar/sidebar-icons.contract
+/src/timeline/timeline-icons.contract
+/src/panel/panel-icons.contract
+/src/browser/page-scripts.ts
+/src/providers/provider-icons.contract
+/src/diff/diff-glyphs.contract
+/assets/mermaid/vendor/
+/assets/math/vendor/
+/assets/file-preview/
+/data/pierre-icons.tsv
+# The iOS app's copies (its bake captures only mobile/).
+/mobile/shared/r12-render-grammar.ts
+/mobile/shared/r12-render-grammar-more.ts
+/mobile/shared/r7-polish-css-words.ts
+/mobile/shared/settings-b-lucide.ts
+/mobile/shared/file-markdown-parser.js
+/mobile/shared/file-markdown-parser.d.ts
+/mobile/file-icons.contract
+/tests/terminal/vectors.json
+# The app's own Cargo workspace builds here (Cargo.toml).
+/target/
+/src/highlight/codex-directives.js
+/src/highlight/codex-directives.d.ts
+/src/timeline/minimap-text.js
+/src/timeline/minimap-text.d.ts

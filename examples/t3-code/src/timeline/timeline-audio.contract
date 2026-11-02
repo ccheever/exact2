@@ -1,0 +1,92 @@
+// A sound as a compact file chip that plays it (T3 Code v0.1.6, MIT; see LICENSE-T3: files/AudioPreview.tsx
+// AudioChip under InlineAudioPreview): the play or pause action, the middle-truncated name, which opens the file, the
+// elapsed time as a fill under the chip, then "0:12 / 1:30" (the duration alone before it plays, "..." while it loads).
+// A source that fails turns the chip destructive ("Unavailable"), its action opening the file instead.
+use TimelineIcon from "./timeline-icons-kit.contract"
+
+keyframes tlAudioSpin
+  from rotate=0
+  to rotate=360
+
+fn audioClock(seconds: number): string = `${floor(seconds / 60)}:${floor(seconds % 60) < 10 ? "0" : ""}${floor(seconds % 60)}`
+// middleTruncateAttachmentName: past 36 characters the start and the last 14 survive.
+fn audioName(name: string): string = name.length <= 36 ? name : `${name.slice(0, 21)}…${name.slice(name.length - 14)}`
+
+component AudioChip
+  props
+    name: string
+    src: string
+    failed: bool
+    open: action
+    report: action
+    id: string
+  view
+    AudioPreview(name=name, src=src, failed=failed, open=open, report=report, id=id, bubble=false, surface="")
+
+// AudioPreview's chip, or with `bubble` a voice note sent alone: the chip in a 16rem message bubble (`surface`, ContextChip
+// shape "bubble": 1rem corners, 0.75 by 0.5rem padding, 14pt text), its name taking the room left.
+component AudioPreview
+  props
+    name: string
+    // The signed source ("" while it is signed), and whether signing failed.
+    src: string
+    failed: bool
+    // Opens the file beside the thread (InlineAudioPreview's onOpen).
+    open: action
+    // Told "1" or "0" and the chip's id as its sound starts or stops: the transcript keeps a playing row mounted
+    // (MessagesTimeline's playingAudioRows, timeline-kept-rows.ts).
+    report: action
+    id: string
+    bubble: bool
+    surface: string
+  state paused = true
+  state ready = false
+  state playing = false
+  state broken = false
+  state duration = 0
+  state elapsed = 0
+  state hovered = false
+  action press
+    if failed or broken
+      open()
+    else
+      paused = not paused
+  action loaded
+    ready = true
+  // A live or unknown length (Infinity, NaN) is none (AudioPreview's `Number.isFinite(value) ? value : 0`).
+  action measured(seconds: number)
+    duration = (seconds > 0 and seconds < 1000000000) ? seconds : 0
+  action tick(seconds: number)
+    elapsed = seconds
+  action started
+    if not playing
+      report(`1${id}`)
+    playing = true
+  action stopped
+    if playing
+      report(`0${id}`)
+    playing = false
+    paused = true
+  action refused(code: string)
+    if playing
+      report(`0${id}`)
+    broken = true
+    playing = false
+    paused = true
+  action hover(over: bool)
+    hovered = over
+  derive down = failed or broken
+  derive loading = not down and not ready
+  derive verb = down ? "Open" : loading ? "Loading" : playing ? "Pause" : "Play"
+  derive ink = down ? "light-dark(#e7000b, #ff6467)" : "light-dark(#2b3d4a, #cadfed)"
+  view
+    row position="relative" hover=hover width=(bubble ? "16rem" : "auto") height=(bubble ? "auto" : "1.0625rem") max-width="100%" padding-left=(bubble ? "0.75rem" : "0.375rem") padding-right=(bubble ? "0.75rem" : "0.375rem") padding-top=(bubble ? "0.5rem" : "0px") padding-bottom=(bubble ? "0.5rem" : "0px") gap=(bubble ? "0.5rem" : "0.25rem") box-sizing="border-box" align-items="center" overflow="hidden" border-radius=(bubble ? "1rem" : "0.25rem") border-width=1 border-style="solid" border-color=(down ? "light-dark(#e7000b59, #ff646759)" : "light-dark(#a8c8e0, #0090cd61)") background-color=(down ? "light-dark(#e7000b14, #ff646714)" : bubble ? surface : hovered ? "#0090cd2b" : "#0090cd1c") title=(down ? "Audio unavailable. Open the file or retry playback." : name) testId=`audio-chip-${id}`
+      box position="absolute" left=0 top=0 bottom=0 width=`${duration > 0 ? min(100, elapsed / duration * 100) : 0}%` background-color="#0090cd2b" pointer-events="none" aria-hidden=true
+      button press=press disabled=loading aria-label=`${down ? "Audio unavailable. " : ""}${verb} ${name}` testId=`audio-play-${id}` width="0.875rem" height="0.875rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
+        box width="0.875rem" height="0.875rem" animation=(loading and src != "" ? "tlAudioSpin 1s linear infinite" : "none")
+          TimelineIcon(name=(down ? "triangle-alert" : loading ? "loader-circle" : playing ? "pause" : "play"), size=14, color=ink)
+      button press=open aria-label=`Preview ${name}` testId=`audio-open-${id}` flex=(bubble ? 1 : 0) min-width=0 max-width=(bubble ? "100%" : "18rem") padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" title=""
+        text audioName(name) min-width=0 line-clamp=1 text-align="left" font-size=(bubble ? "0.875rem" : "0.75rem") font-weight=500 line-height=(bubble ? "1.25rem" : "0.9375rem") white-space="pre" color=ink
+      text (down ? "Unavailable" : loading ? "..." : duration > 0 ? (elapsed > 0 or playing ? `${audioClock(elapsed)} / ${audioClock(duration)}` : audioClock(duration)) : audioClock(elapsed)) flex-shrink=0 font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=ink
+      if src != "" and not down
+        audio src preload="metadata" paused=paused aria-label=name loadedmetadata=loaded canplay=loaded durationchange=measured timeupdate=tick play=started pause=stopped ended=stopped error=refused

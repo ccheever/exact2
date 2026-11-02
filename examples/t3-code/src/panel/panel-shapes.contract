@@ -1,0 +1,356 @@
+use PrSpeedAction from "../pull-requests/pages-pr-quick.contract"
+use PrBreakdown from "../pull-requests/pr-breakdown.contract"
+use TerminalDrawerView from "../terminal/terminal.contract"
+// The right panel's tabbed surfaces (panel-surfaces.ts):
+// the tab strip, the Files surface (tree and preview), the Linked pull requests
+// surface and the device hub's setup wizard, as ShellView.panel carries them.
+use CodeHighlight from "../timeline/markdown.contract"
+use MarkdownEnv from "../timeline/markdown.contract"
+use MarkdownSource from "../timeline/markdown.contract"
+use MermaidDiagram from "../timeline/mermaid-frame.contract"
+use AttachmentUrl from "../timeline/timeline-attachments.contract"
+use PrSurface from "./pr-attachment-shapes.contract"
+use SidebarMenuRow from "../sidebar/sidebar-shapes.contract"
+use AttachmentSurface from "./pr-attachment-shapes.contract"
+use DeviceSessionView from "../device/device-workspace-shapes.contract"
+use DeviceMini from "../device/device-workspace-shapes.contract"
+use TabStrip from "./tab-strip.contract"
+use BrowserPanel from "../browser/browser-shapes.contract"
+use BrowserMini from "../browser/browser-shapes.contract"
+use BrowserFrames from "../browser/browser-shapes.contract"
+use MediaView from "../media/media-actions.contract"
+use ViewerFrameView from "./viewer-frame.contract"
+
+shape PanelTab
+  id: string
+  kind: string
+  title: string
+  icon: string
+  tone: string
+  fileToken: string
+  active: bool
+  pending: bool
+  renaming: bool
+  renameValue: string
+  closeTitle: string
+  closeBody: string
+  closeTarget: string
+  menu: PanelTabMenuItem[]
+  favicon: string // a Browser tab's captured favicon, then the public service's
+  faviconFallback: string
+  audio: string // "none", "audible" or "muted" (the tab's audio button)
+// One row of the tab's context menu (right-panel-tabs.ts tabMenuRows).
+shape PanelTabMenuItem
+  id: string
+  label: string
+  disabled: bool
+shape FilesTreeRow
+  id: string
+  path: string
+  name: string
+  depth: number
+  directory: bool
+  expanded: bool
+  selected: bool
+  token: string
+  ignored: bool
+  // An open folder still loading its children (its row's spinner).
+  loading: bool
+  guides: TreeGuide[]
+shape TreeGuide
+  id: string
+  left: number
+shape FilesCrumb
+  id: string
+  label: string
+  path: string
+  current: bool
+  // Moves the browser to its folder (FolderBreadcrumb); else a label.
+  navigable: bool
+  // Below the current crumb, kept from where the browser came up.
+  descendant: bool
+  // The chevron after it lists its folder (FolderContentsMenu); a host path's chevrons are plain.
+  menu: bool
+  last: bool
+shape FilesCodeRun
+  id: string
+  text: string
+  syntax: string
+shape FilesCodeLine
+  id: string
+  number: string
+  runs: FilesCodeRun[]
+  // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
+  kind: string
+  line: number
+  selected: bool
+  // While the file has a selection (`pinned`) its "+" is on the bottom line only (`pin`).
+  pin: bool
+  pinned: bool
+  entry: string
+  text: string
+  label: string
+shape FileEditor
+  id: string
+  label: string
+  selected: bool
+shape FilesView
+  cwd: string
+  project: string
+  ready: bool
+  loading: bool
+  // The path search is pending ("Loading files…" with an unlisted root).
+  searching: bool
+  error: string
+  query: string
+  truncated: bool
+  // A search matched nothing (the tree hides) and, settled, says so; the loading line is a screen reader's while rows show.
+  noMatches: bool
+  emptySearch: bool
+  loadingQuiet: bool
+  rows: FilesTreeRow[]
+  hasDirectories: bool
+  allExpanded: bool
+  // The tree rows' one context popover (context-menu-actions.ts filesTreeMenuRows).
+  treeMenu: SidebarMenuRow[]
+  explorer: bool
+  showExplorer: bool
+  // The explorer's saved width beside a file ("t3code.fileExplorerWidth"); FilesSurface clamps it to the room.
+  explorerWidth: number
+  // The subheader shows (a file, a folder, or the explorer the crumbs walked up to); the explorer toggle beside a workspace preview.
+  subheader: bool
+  explorerToggle: bool
+  path: string
+  preview: string
+  previewError: string
+  // A read error's attempted path, and the workspace folder for a workspace file.
+  errorPath: string
+  errorCwd: string
+  crumbs: FilesCrumb[]
+  lines: FilesCodeLine[]
+  commentOpen: bool
+  text: string
+  textKey: string
+  gutter: number
+  wrap: bool
+  // FilePreviewPanel showsRawText (the word-wrap toggle) and canOpenInBrowser (a page or a PDF).
+  rawText: bool
+  openInBrowser: bool
+  truncatedNote: string
+  canRender: bool
+  rendered: bool
+  renderLabel: string
+  renderIcon: string
+  editable: bool
+  pending: bool
+  editorId: string
+  editorLabel: string
+  editorShow: bool
+  editorHint: string
+  editorUnavailable: string
+  editors: FileEditor[]
+  absolutePath: string
+  // The rendered file is ChatMarkdown (app.contract's filesMarkdown answers
+  // markdownSource); md, code, diagrams, mdUrls and the Copy code check are what the transcript's answers carry.
+  markdownSource: MarkdownSource[]
+  md: MarkdownEnv
+  code: CodeHighlight[]
+  diagrams: MermaidDiagram[]
+  mdUrls: AttachmentUrl[]
+  codeCopied: string
+  codeCopyNonce: number
+  editing: bool
+  editorText: string
+  // Bumped when a change from outside replaced the editor's text; the editor mounts again on it.
+  editorRevision: number
+  // The last press that began editing, as FilePreview numbered it (its mark counts until the module has heard it).
+  editPress: string
+  crumbMenu: FilesCrumbMenu
+  crumbsMask: string
+  crumbsOffset: number
+  // A rendered page's frame source, or an audio file's signed URL.
+  url: string
+  // An image or video file (media-views.ts filesMediaView).
+  media: MediaView
+  // A Mermaid file the reference will not lay out names why; `diagrams` holds its diagram otherwise.
+  mermaidNote: string
+  // The file shown, by environment, thread and path: the audio player is one per file.
+  fileKey: string
+  // A document, or a file read as binary: AttachmentFilePreview under "File" (preview "attachment").
+  attachment: AttachmentSurface
+  // A PDF, a rendered table or a text file past 1 MB in the viewer page (preview "viewer", files-viewer.ts), and the
+  // "Full file" subheader of the last.
+  viewer: ViewerFrameView
+  fullFile: FullFileBar
+shape FullFileBar
+  open: bool
+  copyLabel: string
+  copied: bool
+  saving: bool
+  saveLabel: string
+shape FilesCrumbEntry
+  id: string
+  path: string
+  label: string
+  directory: bool
+  token: string
+  current: bool
+  ignored: bool
+shape FilesCrumbMenu
+  open: bool
+  root: string
+  back: string
+  backPath: string
+  // The folder the menu lists.
+  dir: string
+  // Stands for the entries: loading, empty, or a failed first listing, which `statusRetry` makes a retry row.
+  status: string
+  statusRetry: bool
+  // After the entries when their refresh failed ("Refresh failed. Retry").
+  retry: string
+  entries: FilesCrumbEntry[]
+shape LinkedPrRow
+  context: string
+  speed: PrSpeedAction[]
+  speedPending: bool
+  quickLabel: string
+  key: string
+  index: number
+  number: number
+  title: string
+  url: string
+  host: string
+  repository: string
+  depth: number
+  state: string
+  stateLabel: string
+  waiting: bool
+  conflict: string
+  open: bool
+  watching: bool
+  checks: string
+  checksLabel: string
+  review: string
+  reviewLabel: string
+  additions: string
+  deletions: string
+  breakdown: PrBreakdown
+  author: string
+  avatar: string
+  initial: string
+  head: string
+  base: string
+  age: string
+  stackSize: number
+  stackLabel: string
+  sourceLabel: string
+  unlinkLabel: string
+  canWatch: bool
+shape LinkedPrs
+  supported: bool
+  rows: LinkedPrRow[]
+  footer: string
+  canWatch: bool
+shape DeviceSurfacePlatform
+  id: string
+  platform: string
+  ready: bool
+  message: string
+shape DeviceHostNotice
+  id: string
+  label: string
+  detail: string
+  failed: bool
+shape DeviceSurfaceRow
+  id: string
+  name: string
+  description: string
+  action: string
+  platform: string
+shape DeviceSurfaceGroup
+  id: string
+  label: string
+  devices: DeviceSurfaceRow[]
+shape DeviceSurface
+  loaded: bool
+  step: number
+  enabled: bool
+  busy: bool
+  pending: string
+  hostStatus: string
+  hubStatus: string
+  hubReady: bool
+  platforms: DeviceSurfacePlatform[]
+  agentEnabled: bool
+  agentStatus: string
+  agentReady: bool
+  failure: string
+  canContinue: bool
+  doneLabel: string
+  notices: DeviceHostNotice[]
+  groups: DeviceSurfaceGroup[]
+  empty: string
+  hint: string
+  panelStatus: string
+  refreshable: bool
+  // The opened device and its workspace (device-session.ts).
+  session: DeviceSessionView
+  // 1e2ecbd975 (5318d054a5): a local host has no available platform (device-support.ts).
+  localPlatformsUnavailable: bool
+shape TerminalSurfaceClose
+  op: string
+  serial: number
+  title: string
+  body: string
+  target: string
+
+shape AutomationRecording // browser-automation-recording.ts automationRecordingView
+  serial: number // bumps once for each request the module newly lists
+  slot: number // the queued send to run it on (app.contract automationRecordingServed0-3)
+
+shape PanelView
+  maximized: bool
+  key: string // the thread (or draft) the panel belongs to (rightPanelStore byThreadKey)
+  launcher: bool // open on the launcher alone (isOpen with no surface)
+  terminalClose: TerminalSurfaceClose
+  terminal: TerminalDrawerView
+  open: bool
+  kind: string
+  active: string
+  count: number
+  tabs: PanelTab[]
+  files: FilesView
+  prs: LinkedPrs
+  device: DeviceSurface
+  deviceSetup: bool
+  pr: PrSurface
+  attachment: AttachmentSurface
+  deviceMini: DeviceMini
+  tabStrip: TabStrip // the tab strip's scroll (tab-strip.ts)
+  browser: BrowserPanel // the active Browser tab (browser-surface.ts browserView)
+  browserMini: BrowserMini // the floating player's browser tab (browser-capture.ts browserMiniView)
+  frames: BrowserFrames // every live Browser tab's frame and the next frame command (browser-frames.ts)
+  annotationOwner: string
+  annotationValue: string
+  annotationSnapshot: string
+  annotationGeneration: number
+  annotationSend: number // an annotation's ⌘Return asks the window's Send, whatever the panel shows
+  automationRecording: AutomationRecording // a recording request the agent's previewAutomation host handed over
+  sideChat: SideChatPane // the active side chat tab's pane (side-chat.ts)
+
+// A side chat tab's pane (side-chat.ts sideChatView): its header's state; its chat view is the root's `sideChat`
+// (side-chat-members.contract).
+shape SideChatPane
+  show: bool
+  threadId: string
+  title: string
+  deleted: bool
+  loading: bool
+  bringBackDisabled: bool
+  bringBackTip: string
+  bringingBack: bool
+  deleteDisabled: bool
+  confirmDelete: bool
+  deleteTitle: string
+  deleteBody: string
+  started: number

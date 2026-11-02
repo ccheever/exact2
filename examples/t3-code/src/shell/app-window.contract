@@ -1,0 +1,1155 @@
+use ThemeRoleUsage from "../appearance/settings-appearance-editor-shapes.contract"
+// The window's view: app.contract's `provide` and `view`, moved here unchanged so
+// the root keeps its lines for state, resources and actions (#108). Each root name the view reads is a
+// prop of the same name; `pending(providerAuthChanged)` is `providerAuthPending`. A feature that shows
+// a new root value adds its prop here and `name=name` to app.contract's `T3Window(...)`. The use lines
+// keep app.contract's order: the plan orders shapes by first use. The window also owns the view-only
+// state no resource, task or mutation reads (#108): an action that
+// writes both sets the window's half, then calls the root's half, passed as `<name>Root`.
+use Time from "./app-shapes.contract"
+use Snapshot, Viewport, LicenseSettings, SnapshotSettings, Settings, Canvas from "../shared/shapes.contract"
+use PairFields from "../connections/pairing-shapes.contract"
+use SshPromptView, SshPasswordPrompt from "../connections/ssh-prompt.contract"
+use TranscriptMarkdown from "../timeline/markdown.contract"
+use LinkMenuRow, LinkMenuPopover from "../timeline/link-menus.contract"
+use TimelineAttachmentUrls from "../timeline/timeline-attachments.contract"
+use PagesHome from "../pages/pages-hero.contract"
+use UsageView, UsageKey from "../usage/pages-usage.contract"
+use PrListView from "../pull-requests/pages-prs.contract"
+use PrDetailView from "../pull-requests/pages-pr-detail.contract"
+use WelcomeView from "../pages/pages-welcome.contract"
+use PaletteView from "../palette/palette.contract"
+use ProviderPage from "../providers/providers.contract"
+use ProviderWizard, AcpRegistry from "../providers/providers-wizard.contract"
+use ConnectionsPage, SbSshHosts from "../connections/connections.contract"
+use KeybindingPage, KeybindingDraft from "../settings/settings-keybindings.contract"
+use ScheduledPage from "../settings/settings-scheduled.contract"
+use KeyDispatch, ShortcutDispatch, ViewReload, ViewZoom, UpdateMenuItems from "../settings/settings-shortcuts.contract"
+use SourceControlPage, IntegrationsPage from "../settings/settings-source-control.contract"
+use StoragePage from "../settings/settings-storage.contract"
+use ArchivePage from "../settings/settings-archive.contract"
+use DiagnosticsPage from "../settings/settings-diagnostics.contract"
+use CoreNav, SettingsCore from "../settings/settings-core.contract"
+use ProjectsPage from "../settings/settings-projects.contract"
+use SbPicker from "../settings/settings-b-icons.contract"
+use PickerCatalog, PickerTarget, ComposerBranches from "../composer/composer-shapes.contract"
+use ComposerEditorView from "../composer/composer-editor.contract"
+use ShellView, ShellDetails from "./shell-shapes.contract"
+use Sidebar, sidebarTipRow from "../sidebar/sidebar.contract"
+use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
+use ComposerMenus from "../composer/composer-controls.contract"
+use heldModifiers from "../shared/press-modifiers.contract"
+use ProjectPicker, WelcomeLayer, WindowOverlays from "./app-overlays.contract"
+use SettingsWindow, ProjectDialogs, SettingsModals from "./app-settings.contract"
+use ThemeEditorHost from "../appearance/settings-appearance-editor.contract"
+use SidebarOverlays from "../sidebar/sidebar-overlays.contract"
+use ChatCanvasView from "./chat-canvas.contract"
+use LiveRegions from "./live-regions.contract"
+use TerminalDrawerView, TerminalDrawer from "../terminal/terminal.contract"
+use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode, HoverModelName from "./hover-layer.contract"
+use StripPrTipCard from "../composer/strip-pr-badge.contract"
+use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
+use WorkflowMemberCard from "../details/lineage-workflows.contract"
+use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
+use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
+use PrCardView from "../details/pr-row.contract"
+use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
+use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
+use CiteAction, CiteOffer, citeHeldOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
+use AppConfirm from "./shell-panels.contract"
+use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "../shared/dialog-trap.contract"
+use PromptLinkPage, PromptLinkView from "../prompt-links/prompt-links.contract"
+use QuitHoldOverlay, quitTypesLatin from "./quit-hold.contract"
+use composerChordKey from "../composer/composer-keys.contract"
+use BrowserFrameLayer from "../browser/browser-frames.contract"
+use SideChatLayer from "../panel/side-chat.contract"
+// A key event as `aria-keyshortcuts` spells its chord: the key's own character where it types a Latin one (AZERTY's
+// W key is Z), else its physical key (composer-keys.contract composerChordKey).
+fn windowChord(k: string, e: KeyboardEvent): string = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 and quitTypesLatin(k) ? k.toLowerCase() : composerChordKey(k, e.code))].filter((part) => part != "").join("+")
+
+component T3Window
+  inject
+    composerTarget: string // a side chat's thread while its composer's popups are open, else ""
+    dispatchCommand: action // a dispatched chord's command, a composer chord to a focused side chat composer (side-chat-members.contract)
+    composerTargetData: Snapshot // the composer the options menus serve: the window's, or a side chat's (side-chat-members.contract)
+    interacted: action // the reader pointed, typed or scrolled (app.contract)
+    workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
+    historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
+  props
+    releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
+    promptLinkPage: PromptLinkView
+    promptLinkAct: action
+    // The root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
+    // and its count of dismissals on focus loss or a changed transcript context.
+    citeWaitDone: number
+    citeWaitAsk: action
+    // The root's 50 ms after a scroll's end before a parked Cite shows again (done to `citeSettleDone`).
+    citeSettleDone: number
+    citeSettleAsk: action
+    citeDismissals: number
+    themeInspecting: bool
+    setThemeInspecting: action
+    themeUsage: ThemeRoleUsage[]
+    themeRevealRequest: action
+    data: Snapshot
+    viewport: Viewport
+    scheme: string
+    settingsCore: SettingsCore
+    sshPrompt: SshPromptView
+    modal: bool
+    shell: ShellView
+    wallTime: Time
+    liveNow: number
+    elapsed: number
+    sidebarWidth: number
+    commandPending: bool
+    lineageStopping: string
+    settings: Settings
+    utilityPage: string
+    home: PagesHome
+    paletteShow: action
+    openThread: action
+    sidebarLocal: action
+    sidebarRun: action
+    openSettings: action
+    openPage: action
+    // A utility page's Back (Escape), to the page before it (app.contract pageBack).
+    pageBack: action
+    openProviderSettings: action
+    sidebarHoverRoot: action
+    sidebarHoverId: string
+    openProjects: action
+    sidebarNewThread: action
+    selectThread: action
+    openConnectionRoot: action
+    command: action
+    resizeSidebar: action
+    resetSidebarWidth: action
+    noticeExit: string
+    noticeDismiss: action
+    pageCover: bool
+    canvas: ChatCanvasView
+    canvasGesture: action
+    rightPanel: bool
+    narrowDiff: bool
+    detailsOpen: bool
+    details: ShellDetails
+    panelUiRoot: action
+    detailsActRoot: action
+    foldHold: bool
+    releaseFold: action
+    jumpRequest: number
+    composerOwner: string
+    prConfirmDisarm: action
+    chatLocal: action
+    markdown: TranscriptMarkdown
+    earlier: action
+    attachmentUrls: TimelineAttachmentUrls
+    conversationWidth: number
+    scrollToEnd: action
+    editor: ComposerEditorView
+    chip: ChipPopover
+    chipFocusChanged: action
+    // Settings or a page covers the composer's chip (app.contract chipCover closes it).
+    chipCovered: bool
+    composerKey: action
+    composerDrop: action
+    editorOp: action
+    openModels: action
+    composerText: string
+    modelsOpen: bool
+    optionsOpen: string
+    write: action
+    send: action
+    composerFocus: action
+    composerBlur: action
+    openOptions: action
+    removeSnapshot: action
+    titleMenuPickRoot: action
+    menuPick: action
+    branches: ComposerBranches
+    terminalDrawer: TerminalDrawerView
+    confirmOp: string
+    diffWidth: number
+    resizeDiff: action
+    finishDiffResize: action
+    prDetail: PrDetailView
+    prMarkdown: TranscriptMarkdown
+    filesMarkdown: TranscriptMarkdown
+    prTab: string
+    prSetTab: action
+    prReload: action
+    prAct: action
+    prCopy: action
+    usage: UsageView
+    usageShortcuts: UsageKey[]
+    usageMetricSet: action
+    usageWindowSet: action
+    usageBreakdownSet: action
+    usageRefreshNow: action
+    prList: PrListView
+    prTyped: bool
+    prQuery: string
+    prSelected: string
+    prPanelOpen: bool
+    prTogglePanel: action
+    prType: action
+    prControl: action
+    prSelect: action
+    prClose: action
+    openConnectionsPage: action
+    welcomeImport: action
+    popoverSession: number
+    closeOptions: action
+    menuCommand: action
+    branchQuery: string
+    searchBranches: action
+    projectsOpen: bool
+    closeModalRoot: action
+    manageProject: action
+    selectProject: action
+    settingsOpen: bool
+    connecting: bool
+    settingsThemeDialog: string
+    settingsNavigation: CoreNav
+    settingsRoute: string
+    settingsQuery: string
+    settingsMenu: string
+    editSettingsQuery: action
+    coreSearchKey: action
+    corePick: action
+    coreClearSearch: action
+    settingsScrollTop: number
+    settingsPage: string
+    coreMenuClose: action
+    coreMenu: action
+    coreChange: action
+    coreNavigate: action
+    coreScope: action
+    coreNoticeScope: action
+    coreThemeDialog: action
+    sourceControl: SourceControlPage
+    modalError: string
+    restLocal: action
+    integrations: IntegrationsPage
+    snapshotSettings: SnapshotSettings
+    settingsCommand: action
+    previewSnapshotSound: action
+    bindings: KeybindingPage
+    keybindingQuery: string
+    keybindingOpen: bool
+    keybindingPrevious: string
+    keybindingCommand: string
+    keybindingKey: string
+    keybindingWhen: string
+    keybindingRecording: bool
+    editKeybindingQuery: action
+    newKeybinding: action
+    cancelKeybinding: action
+    chooseKeybindingCommand: action
+    editKeybinding: action
+    editKeybindingKey: action
+    editKeybindingWhen: action
+    recordKeybinding: action
+    captureKeybinding: action
+    keybindingDrafts: KeybindingDraft[]
+    keybindingRest: action
+    scheduled: ScheduledPage
+    restEditor: string
+    restOpenRoot: action
+    storageSettings: StoragePage
+    archives: ArchivePage
+    restRawRoot: action
+    restCloseRoot: action
+    taskBaseRoot: action
+    licenses: LicenseSettings
+    licenseQuery: string
+    editLicenseQuery: action
+    toggleLicense: action
+    retryLicenses: action
+    diagnostics: DiagnosticsPage
+    selectDiagnosticPeriod: action
+    refreshSettings: action
+    copyDiagnostic: action
+    connectionsPage: ConnectionsPage
+    pendingModal: string
+    connectionOp: action
+    connectionRemove: string
+    connectionMenu: string
+    connectionAskRemove: action
+    connectionToggleMenu: action
+    providerPage: ProviderPage
+    providerDialog: string
+    providerUiRoot: action
+    providerOp: action
+    providerAccent: action
+    projectsSettings: ProjectsPage
+    settingsThemeSubject: string
+    coreThemeChange: action
+    coreThemeLive: action
+    welcome: WelcomeView
+    welcomeStep: string
+    welcomeLink: string
+    welcomePairOpen: bool
+    welcomeGo: action
+    welcomeEditLink: action
+    welcomePair: action
+    welcomeTogglePair: action
+    welcomeSetup: action
+    welcomeFinish: action
+    shortcuts: KeyDispatch[]
+    newThread: action
+    deviceSetting: action
+    selectProvider: action
+    selectModel: action
+    // The Settings pickers outside General (Scheduled Tasks' Model, Source Control's writer model).
+    pickModel: action
+    taskModelPick: string
+    paletteRun: action
+    restSubject: string
+    sbPicker: SbPicker
+    sbQuery: string
+    sbLettersEdited: bool
+    sbLetters: string
+    sbEmoji: string
+    sbSet: action
+    origin: string
+    pairFields: PairFields
+    sbSshHosts: SbSshHosts
+    sbSshHost: string
+    editOriginRoot: action
+    editCredentialRoot: action
+    closeConnectionRoot: action
+    providerWizard: ProviderWizard
+    acpAgents: AcpRegistry
+    wizardStep: number
+    wizardLabelSet: bool
+    wizardLabel: string
+    wizardIdSet: bool
+    wizardId: string
+    acpQuery: string
+    wizardManual: bool
+    providerAddRoot: action
+    providerTarget: string
+    providerVisit: number // app.contract openProviderSettings
+    catalog: PickerCatalog
+    modelQuery: string
+    modelTarget: PickerTarget
+    closeModels: action
+    searchModels: action
+    paletteOpen: bool
+    palette: PaletteView
+    paletteQuery: string
+    paletteHighlight: number
+    paletteScroll: number
+    paletteBusy: bool
+    paletteEdit: action
+    paletteKey: action
+    paletteHover: action
+    paletteClose: action
+    paletteFlag: action
+    paletteRestore: bool
+    answerRevert: action
+    confirmTitle: string
+    confirmBody: string
+    confirmDestructive: bool
+    confirmUi: action
+    toastHover: bool
+    toastHovering: action
+    toastAct: action
+    sshResponding: bool
+    sshAnswer: action
+    providerAuthPending: bool
+    // The root owns the hover state and clock; the window provides them to its triggers and draws the layer.
+    hoverTip: HoverTip
+    hoverShown: bool
+    hoverTipAt: action
+    composerFocused: bool
+    // The held modifiers (app.contract modifierKey): Shift's speed mode on pull request rows, ⌘'s thread-jump hints.
+    modifierKey: action
+    // The quit shortcut's hint (app.contract quitHoldKey), "" while none shows.
+    quitHintMode: string
+    // View's zoom (settings-shortcuts.contract ViewZoom): the step and the root's action that sets it.
+    zoomStep: number
+    zoomTo: action
+    modifierEditableFocus: action
+    modifiersPasted: action
+    speedModeHeld: bool
+    threadJumpHints: bool
+    settingsEnvironmentId: string
+    settingsProjectId: string
+    clearModalError: action
+    titleSend: action
+  provide
+    guideKeysBlocked = paletteOpen or modal or settingsOpen
+    dialogFocusId
+    dialogMenuEntered
+    dialogOpened
+    dialogEntered
+    dialogClosed
+    dialogForget
+    dialogFallback
+    rem = data.look.fontSize
+    renderMath = data.look.math
+    mathFrames = data.mathFrames
+    wizardSteps = data.look.wizardSteps // the setup wizards' step list and panel follow the theme (ui/wizard.tsx)
+    wizardPanel = data.look.wizardPanel
+    still = viewport.prefersReducedMotion
+    corePal = settingsCore.palette // Settings' palette, for rows drawn outside the General route (the writer model's TraitsPicker)
+    hoverTipAt
+    hoverTip
+    hoverShown
+    linkOpen
+    linkMenu
+    fileLinkMenu
+    fileLinkPopover = "chat-file-link-menu"
+    fileLinkPressMenu = false
+    refScrollEnd
+    scheme // the chrome row and the annotation overlay take the resolved appearance (browser-capture.contract)
+    browserPlace // the stage's page box, where the frame layer puts the tab's page (browser-stage.contract)
+    pickModel
+    taskModelPick
+    // The answer whose quote an open citation comment highlights (markdown.contract AnswerMarkdown).
+    citeMessage = (citeShown ? chip.message : "")
+    citeQuote = (citeShown ? chip.quote : "")
+    citeAt = (citeShown ? chip.at : -1)
+    // The answer whose Cite shows (markdown.contract AnswerMarkdown), its offer, its withdrawal, and the
+    // timeline's scroll (ChatColumn).
+    citeOffered = (citeShows ? citeFor : "")
+    citeOfferSet
+    citeWithdraw
+    citeHold
+    citeHolding = (citeWaits > citeWaitDone)
+    citeScrolled
+    citeSettled
+    // The dialogs the focus has entered since they opened: each is `aria-modal` only from then (dialog-trap.contract).
+    dialogSeated
+    prSpeedMode = speedModeHeld
+    threadJumpHints
+  // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
+  // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
+  // The Browser stage's page box, right-anchored as the panel is (its right inset at the width it was measured at), and
+  // the size a rail drag shows over it.
+  state browserRight = 0
+  state browserTop = 0
+  state browserWidth = 0
+  state browserHeight = 0
+  state browserNote = ""
+  action browserPlace(x: number, y: number, width: number, height: number, note: string)
+    browserRight = viewport.width - x - width
+    browserTop = y
+    browserWidth = width
+    browserHeight = height
+    browserNote = note
+  // The Browser pages a View chord may be meant for: the panel's and the floating player's, while they show.
+  derive framesCovered = pageCover or settingsOpen or welcome.show or promptLinkPage.show
+  derive shownPage = framesCovered ? "" : shell.panel.frames.frames.filter((f) => (f.place == "panel" and browserWidth > 0) or (f.place == "mini" and canvas.mini.show)).map((f) => f.frameId).join(",")
+  state dialogFocusId = ""
+  state dialogFocusOwner = ""
+  state dialogFocusPopup = ""
+  state dialogFocusInvoker = ""
+  derive documentPermissions = sortBy(data.messages.map(message => message.inlineDocuments).flat().filter(document => document.permission != ""), document => document.permissionSerial)
+  derive activeDocumentPermissions = (sshPrompt.open or confirmOp != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm) ? documentPermissions.slice(0, 0) : documentPermissions.slice(0, 1)
+  derive documentPermissionOwner = activeDocumentPermissions.map(document => `inline-permission-${document.key}-${document.permissionSerial}`).join("")
+  state documentPermissionFocusOwner = ""
+  state documentPermissionReturnKey = ""
+  state documentPermissionReturnSource = ""
+  derive documentPermissionFocusWidth = documentPermissionFocusOwner == documentPermissionOwner ? 1 : (documentPermissionFocusOwner == "" ? 2 : 3)
+  action syncDocumentPermissionFocus(width: number, height: number)
+    if documentPermissionFocusOwner != documentPermissionOwner
+      if documentPermissionFocusOwner != ""
+        dialogClosed(documentPermissionFocusOwner)
+        documentPermissionFocusOwner = ""
+      else if documentPermissionOwner != ""
+        documentPermissionOpened(documentPermissionOwner)
+        documentPermissionFocusOwner = documentPermissionOwner
+  action documentPermissionOpened(owner: string)
+    if owner == documentPermissionOwner
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let known = frame(dialogFocusId)
+      let hasFocus = dialogFocusOwner != owner and dialogFocusId != "" and not known.unavailable and known.width > 0 and known.height > 0
+      let key = activeDocumentPermissions.map(document => document.key).join("")
+      let target = `inline-frame-${key}`
+      let guest = frame(target)
+      // WK's internal field focus is private. Use this document only when no app focus or lineage is known.
+      if previous.filter(item => item.target != "").length == 0 and (not hasFocus or dialogFocusId == target) and key != "" and not guest.unavailable and guest.width > 0 and guest.height > 0
+        dialogFrames = dialogFrames.filter(item => item.owner != owner and not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, [dialogReturn("", target, "", "")])])
+        documentPermissionReturnKey = key
+        documentPermissionReturnSource = activeDocumentPermissions.map(document => document.src).join("")
+      else
+        dialogOpened(owner)
+  state dialogFrames: DialogFocusFrame[] = []
+  state dialogSeated: string[] = []
+  // The window's root hears every key below the focus, as the reference's window listeners do: it takes a click on
+  // blank ground's focus, as Chromium's body does. A thread that opens gives the composer the focus (app.contract).
+  // Whether the focus is at a field (isEditableFocused): every text `input`, `textarea` and `select` has an `id` and
+  // is `data-editable`. A focus entering one empties the Pull Requests route's state (shortcutModifierState onFocus).
+  state focusEditable = false
+  // rightPanel.close (keyboard-dispatch.ts): the reference's renderer closes the right panel's tab on ⌘W. Its chord is
+  // heard here, at the window's capture, ahead of the menu, so its dispatch button declares none (settings-shortcuts
+  // .contract ShortcutButton). File › Close Window has no ⌘W (the root's `-exact-menu-keys`), so a ⌘W that closes
+  // nothing does nothing, as in the reference. Its default is prevented all the same: AppKit beeps for a key that falls
+  // off the responder chain (NSResponder noResponder(for:)), where Chromium has no default for it.
+  action modifierDown(k: string, e: KeyboardEvent)
+    let closing = shortcuts.filter((item) => item.command == "rightPanel.close" and item.chord != "" and item.chord.toLowerCase() == windowChord(k, e).toLowerCase())
+    if not e.repeat and closing.length > 0
+      preventDefault()
+      closeRightPanel(closing.map((item) => item.kind).join(""), closing.map((item) => item.target).join("")) // one rightPanel.close at most
+    else if e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and windowChord(k, e).toLowerCase() == "meta+w"
+      preventDefault()
+    modifierKey(true, e, focusEditable)
+    interacted()
+  action closeRightPanel(kind: string, target: string)
+    if kind == "pr-close"
+      prClose()
+    else if kind == "close-surface"
+      panelUi("tab-close", target)
+    else
+      panelUi("close", "")
+  action modifierUp(k: string, e: KeyboardEvent)
+    modifierKey(false, e, focusEditable)
+  action windowFocused(e: FocusEvent)
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
+    chipFocusChanged(e.target)
+    dialogFocusId = e.target
+    dialogFocusOwner = ""
+    dialogFocusPopup = ""
+    dialogFocusInvoker = ""
+  // Capture the owning popup and its actual invoker before a menu command removes the popup.
+  // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
+  action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
+    stopPropagation()
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
+    chipFocusChanged(e.target)
+    dialogFocusId = e.target
+    dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
+    dialogFocusPopup = popup
+    dialogFocusInvoker = invoker
+  action windowBlurred(e: FocusEvent)
+    if e.relatedTarget == none
+      focusEditable = false
+    if e.relatedTarget == none and querySelectorAll("[data-dialog-focus~=\"open\"]").length == 0
+      chipFocusChanged("")
+      dialogFocusId = ""
+  action dialogOpened(owner: string)
+    if dialogFrames.filter(item => item.owner == owner).length == 0
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let previousBox = frame(dialogFocusOwner)
+      let mounted = dialogFocusOwner != "" and not previousBox.unavailable and previousBox.width > 0 and previousBox.height > 0
+      let returns = dialogFocusOwner == "" ? [dialogReturn("", dialogFocusId, dialogFocusPopup, dialogFocusInvoker)] : (mounted ? previous.concat([dialogReturn(dialogFocusOwner, dialogFocusId, dialogFocusPopup, dialogFocusInvoker)]) : previous)
+      dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
+  action dialogEntered(owner: string, e: FocusEvent)
+    stopPropagation()
+    let editable = querySelectorAll("[data-editable~=\"yes\"]").includes(e.target)
+    focusEditable = editable
+    if editable
+      modifierEditableFocus()
+    chipFocusChanged(e.target)
+    if dialogFrames.filter(item => item.owner == owner).length == 0
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let previousBox = frame(dialogFocusOwner)
+      let mounted = dialogFocusOwner != "" and not previousBox.unavailable and previousBox.width > 0 and previousBox.height > 0
+      let returns = dialogFocusOwner == "" ? [dialogReturn("", dialogFocusId, dialogFocusPopup, dialogFocusInvoker)] : (mounted ? previous.concat([dialogReturn(dialogFocusOwner, dialogFocusId, dialogFocusPopup, dialogFocusInvoker)]) : previous)
+      dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
+    dialogFocusId = e.target
+    dialogFocusOwner = owner
+    dialogFocusPopup = ""
+    dialogFocusInvoker = ""
+    dialogSeated = dialogSeated.filter((item) => item != owner and not frame(item).unavailable and frame(item).width > 0 and frame(item).height > 0).concat([owner])
+  action dialogClosed(owner: string)
+    let live = querySelectorAll("[data-dialog-focus~=\"open\"]")
+    dialogSeated = dialogSeated.filter((item) => item != owner)
+    // A frame carries its entire lineage, so child/parent removal order cannot discard the outside return.
+    let current = dialogLineage(dialogFrames, dialogFocusOwner)
+    let owns = dialogFocusOwner == owner or ((frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) and current.filter(item => item.owner == owner).length > 0)
+    let returns = (owns ? current : dialogLineage(dialogFrames, owner)).filter(item => item.owner == "" or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)).slice(-1)
+    let back = returns.map(item => item.target).join("")
+    let parent = returns.map(item => item.owner).join("")
+    let unknown = live.filter(id => dialogFrames.filter(item => item.owner == id).length == 0)
+    let top = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).slice(-1).map(item => item.owner).join("")
+    // Keep a departing frame until an as-yet unfocused replacement can inherit it.
+    if unknown.length == 0 or not owns
+      dialogFrames = dialogFrames.filter(item => item.owner != owner and (not owns or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)))
+    let guestTarget = `inline-frame-${documentPermissionReturnKey}`
+    let currentGuest = back == guestTarget ? data.messages.map(message => message.inlineDocuments).flat().filter(document => document.key == documentPermissionReturnKey and document.src == documentPermissionReturnSource) : []
+    let guestBox = frame(guestTarget)
+    // Nested dialogs can inherit this return too; a reused id must never focus a replacement document.
+    let guestStillOwned = back != guestTarget or (currentGuest.length > 0 and not guestBox.unavailable and guestBox.width > 0 and guestBox.height > 0)
+    if owns and unknown.length == 0 and top == parent and back != "" and guestStillOwned
+      let popup = returns.map(item => item.popup).join("")
+      let invoker = returns.map(item => item.invoker).join("")
+      let shown = querySelectorAll("[data-dialog-return~=\"menu\"]")
+      focus(popup != "" and not shown.includes(popup) ? invoker : back)
+  // Forget the owners' frames without moving the focus: a popup that closed while something else took the focus.
+  action dialogForget(owners: string[])
+    dialogFrames = dialogFrames.filter(item => not owners.includes(item.owner))
+    dialogSeated = dialogSeated.filter(item => not owners.includes(item))
+  // A popup is a programmatic fallback, not a Tab stop. Its own Tab must still retry the eligible controls.
+  action dialogFallback(popup: string, targets: string[], k: string, e: KeyboardEvent)
+    if dialogFocusId == popup and k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
+      focus(target == "" ? popup : target)
+  // A link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
+  // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
+  // click's modifiers are its press's own (`kind|meta+shift`; no native gesture read).
+  // Complete this Save request before presenting the next file in an app download.
+  action saveChosen(name: string)
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
+  action saveDismissed
+    chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
+  // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
+  action refScrollEnd(name: string)
+    chatLocal("ref-scroll-end", name, "")
+  action linkOpen(kind: string, href: string, e: MouseEvent)
+    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)
+  // A Markdown web link's own menu (ChatMarkdown's anchor onContextMenu), the `chat-link-menu` popover: the link's
+  // `contextmenu` names it, then its rows show (link-menus.contract). A page over the thread (the pull request page's
+  // detail) has no thread: its ChatMarkdown gets threadRef null ("page"). A pull request link the open thread can link or
+  // links leads with that action (external-link-menu.ts chatLinkMenuView).
+  state linkMenuHref = ""
+  state linkMenuPage = false
+  action linkMenu(href: string)
+    linkMenuHref = href
+    linkMenuPage = pageCover
+  derive linkMenuRows = linkMenuPage ? data.linkMenu.page : data.linkMenu.pulls.filter((pull) => pull.href == linkMenuHref).map((pull) => pull.rows).concat([data.linkMenu.thread]).slice(0, 1).flat()
+  action linkMenuPick(id: string)
+    chatLocal("link-pick", linkMenuPage ? "page" : "", `${id}\n${linkMenuHref}`)
+  // A file link's menu (link-menus.contract FileLinkButton): the chip's rows, which name the file-link-menu.ts pick.
+  state fileMenuTip = ""
+  state fileMenuTarget = ""
+  state fileMenuRows: LinkMenuRow[] = []
+  action fileLinkMenu(tip: string, target: string, rows: LinkMenuRow[])
+    fileMenuTip = tip
+    fileMenuTarget = target
+    fileMenuRows = rows
+  action fileLinkPick(id: string)
+    chatLocal("surface-files-link-pick", fileMenuTip, `${id}\n${fileMenuTarget}`)
+  // Primary presses anywhere in the window outside the Usage page (which takes its
+  // own, pages-usage.contract pressDown), counted as they end; a pinned usage popover closes on one, as
+  // Base UI's outside press does (the sidebar, the theme editor, a toast all count).
+  state outsideDown = false
+  state outsidePresses = 0
+  // The Settings keybinding field that has the focus (settings-keybindings.contract CaptureField), "" for none.
+  state keybindingField = ""
+  action holdKeybindingField(id: string, on: bool)
+    keybindingField = on ? id : (keybindingField == id ? "" : keybindingField)
+  derive prConfirmTarget = prDetail.actions.armedControl == "primary" ? "pull-request-primary" : prDetail.actions.armedControl == "approve" ? "pull-request-approve-workflows" : prDetail.actions.armedControl == "comment" ? "pull-request-comment-close" : prDetail.actions.armedAction == "merge" ? "pr-more-merge-now" : `pr-more-${prDetail.actions.armedAction}`
+  action outsidePressDown(e: PointerEvent)
+    interacted()
+    outsideDown = e.buttons == 1
+    // useInlineActionConfirm also disarms on a press outside the armed control, including non-focusable text.
+    if prDetail.actions.armedAction != "" and not (e.clientX >= frame(prConfirmTarget).x and e.clientX < frame(prConfirmTarget).x + frame(prConfirmTarget).width and e.clientY >= frame(prConfirmTarget).y and e.clientY < frame(prConfirmTarget).y + frame(prConfirmTarget).height)
+      prConfirmDisarm(prDetail.ref, `serial:${prDetail.actions.armedSerial}`)
+    // A press outside the keybinding field ends its recording: a browser blurs the reference's focused input on a
+    // press that lands outside it, where an AppKit text field keeps the focus.
+    if keybindingField != "" and e.buttons == 1 and not (e.clientX >= frame(keybindingField).x and e.clientX < frame(keybindingField).x + frame(keybindingField).width and e.clientY >= frame(keybindingField).y and e.clientY < frame(keybindingField).y + frame(keybindingField).height)
+      blur(keybindingField)
+      keybindingField = ""
+    // A press anywhere but on Cite hides it (observeSelectionActions' capture-phase pointerdown), one a scroll hid
+    // included; the selection stays where the press leaves it.
+    citeParked = ""
+    if citeFor != "" and not (e.clientX >= frame("cite-action").x and e.clientX < frame("cite-action").x + frame("cite-action").width and e.clientY >= frame("cite-action").y and e.clientY < frame("cite-action").y + frame("cite-action").height)
+      citeFor = ""
+    // A skill chip's details close on a primary press outside them (Base UI's outside press). A press on the chip's
+    // pill reaches here too, but it is the trigger's, as Base UI's outside press leaves its trigger alone: the pill's
+    // atom press toggles the details (composer-chip-state.ts `open`).
+    if chipShown and e.buttons == 1 and not (e.clientX >= frame("chip-popover").x and e.clientX < frame("chip-popover").x + frame("chip-popover").width and e.clientY >= frame("chip-popover").y and e.clientY < frame("chip-popover").y + frame("chip-popover").height) and not (e.clientX >= chip.x and e.clientX < chip.x + chip.width and e.clientY >= chip.y and e.clientY < chip.y + chip.height)
+      if chip.kind == "citation"
+        citeSettle()
+      else
+        chipClose(false)
+    // The thread details popover in the chat column closes on a primary press
+    // outside it, as Base UI's outside press. Its backdrop takes the column's presses and the terminal drawer's under it,
+    // the floating player its own (detailsPlayerPointer); a press beside the column (the sidebar, the right panel) closes
+    // it here. Over a right panel sheet the popover is the window's, whose backdrop takes every press.
+    if detailsOpen and not detailsSheet and e.buttons == 1 and (e.clientX < (data.sidebarOpen ? sidebarWidth : 0) or e.clientX >= (data.sidebarOpen ? sidebarWidth : 0) + conversationWidth)
+      detailsAct("dismiss", "", "")
+  // The floating player lies above the popover's backdrop: a primary press on it (its pill buttons, its screen, its resize
+  // edges) is outside the popover and closes it (ChatColumn's players' pointerdown and pointerup). It closes as the press
+  // ends, so the press lands where it went down: a popover leaving between the button's down and up lost a pill button's
+  // press in the agent drive.
+  state detailsPlayerArmed = false
+  action detailsPlayerPointer(e: PointerEvent)
+    if e.buttons == 1
+      detailsPlayerArmed = true
+    else
+      if detailsPlayerArmed and detailsOpen
+        detailsAct("dismiss", "", "")
+      detailsPlayerArmed = false
+  // Over a right panel sheet (a narrow window) the thread details popover is the window's, above the sheet (WindowOverlays).
+  derive detailsSheet = detailsOpen and panelSheet and (rightPanel or shell.panel.open or data.diffOpen)
+  action outsidePressUp(e: PointerEvent)
+    outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses
+    outsideDown = false
+    // A mouse's back and forward buttons step the window's history at their release, as Chromium's do, where ⌘[ and
+    // ⌘] would (historyGo). The release's preventDefault keeps the host from stepping the router for them too.
+    if e.button == 3 or e.button == 4
+      preventDefault()
+      historyGo(e.button == 3 ? "back" : "forward")
+  // AssistantSelectionToolbar.tsx: the Cite an answer offers, drawn by the window above the timeline
+  // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
+  // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press
+  // sends the quote with the window frame of the selection's last line, measured again, then clears the selection
+  // (`removeAllRanges()` after `onCite`). A scroll only parks it (`citeParked`, restoreAfterScroll at 74541bab17): once the
+  // timeline stops (`scrollend`) it comes back at the selection's last line, measured again, while that line is still in the
+  // timeline, and shows after the root's 50 ms more (`citeSettles`); a press, a withdrawal or a new offer forgets it.
+  state citeOffer = CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0)
+  state citeFor = ""
+  state citeParked = ""
+  state citeSettles = 0
+  state citeThread = ""
+  state citeViewport = ""
+  // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the dismissal count at the offer.
+  state citeWaits = 0
+  state citeDismissedAt = 0
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal and citeSettles <= citeSettleDone
+  action citeOfferSet(offer: CiteOffer)
+    citeOffer = offer
+    citeFor = offer.source
+    citeParked = ""
+    citeThread = data.threadId
+    citeViewport = `${viewport.width}x${viewport.height}`
+    citeDismissedAt = citeDismissals
+  // A double-click, or a click while its wait runs (a third): Cite waits 500 ms more.
+  action citeHold
+    let next = citeWaits + 1
+    citeWaits = next
+    citeWaitAsk(next)
+  action citeWithdraw(source: string)
+    if citeFor == source
+      citeFor = ""
+    if citeParked == source
+      citeParked = ""
+  action citeScrolled(left: number, top: number)
+    if citeFor != ""
+      citeParked = citeFor
+      citeFor = ""
+  action citeSettled
+    let box = frame(citeOffer.end)
+    let bounds = frame("transcript")
+    let next = citeSettles + 1
+    if citeParked != "" and citeParked == citeOffer.source and citeLineShown(citeOffer, box, bounds)
+      citeOffer = citeRestored(citeOffer, box, bounds)
+      citeFor = citeParked
+      citeSettles = next
+      citeSettleAsk(next)
+    citeParked = ""
+  action citePress
+    let end = frame(citeOffer.end)
+    // The comment's anchor, held to the answer's width as the press reads it (AssistantCitationChip's popupAnchor).
+    let answer = frame(`cite-${citeOffer.source}`)
+    command("diffreview", `cite:${citeOffer.source}`, `${citeOffer.ranges}|${citeLineFrame(citeHeldOffer(citeOffer, end, answer), end)}|${citeOffer.stream}`, 0)
+    removeAllRanges()
+    citeFor = ""
+    citeParked = ""
+  // The newest skill chip press (composer-chip-popover.ts), hidden at
+  // once when the window closes it or Settings or a page covers it; `instructions` opens the skill's file first (View instructions).
+  state chipClosed = 0
+  derive chipShown = chip.open and chip.seq != chipClosed and not chipCovered
+  action chipClose(instructions: bool)
+    chipClosed = chip.seq
+    editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")
+  // The window's Escape (ChipPopoverEscape): a citation's comment cancels when its textarea has the focus, as its editor's
+  // Escape does; elsewhere it keeps the chip. Existing focus events identify
+  // the field; shared completion metadata lets the root restore its selection.
+  action chipEscape
+    if chip.kind == "citation" and dialogFocusId == "citation-comment-text"
+      citeCancel()
+    else
+      chipClosed = chip.seq
+      editorOp("chip-close", `${chip.seq}`, "escape")
+  // A citation's comment (citation-comment.contract, citation-comment.ts). The draft is the
+  // window's, so every way the popover closes can settle it: Base UI's onOpenChange with resolveAssistantCitationCommentDismissal
+  // (AssistantCitationChip settleDraftOnClose). An untouched draft (`citeDraftSeq` another press's) is the reference's null.
+  state citeDraft = ""
+  state citeDraftSeq = -1
+  derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment
+  action citeEdit(value: string)
+    citeDraft = value
+    citeDraftSeq = chip.seq
+    editorOp("chip-cite-draft", `${chip.seq}`, value)
+  // Save, Enter, and Command/Ctrl+Enter (`send`: then Send, submitCitationAndSend); the editor takes the focus after the chip.
+  action citeSave(send: bool)
+    if citeText.length <= 8000
+      chipClosed = chip.seq
+      editorOp(send ? "chip-cite-send" : "chip-cite-save", `${chip.seq}`, citeText)
+  // Cancel and Escape: closes, and after Cite takes the chip away again (`removeOnCancel`).
+  action citeCancel
+    chipClosed = chip.seq
+    editorOp("chip-cite-cancel", `${chip.seq}`, "")
+  // An outside press here, or the focus leaving the textarea (a press in the composer's text or on the chip's button again,
+  // which the native editor answers by taking the focus: T3ComposerChipPress.swift): a changed draft is committed, one past
+  // the limit keeps the popover open, anything else closes it. A press that left the focus nowhere (the timeline's ground)
+  // then gives the prompt the focus after the chip (PopoverPopup's `finalFocus`, in the native editor).
+  derive citeShown = chipShown and chip.kind == "citation"
+  action citeSettle
+    if citeShown and (citeDraftSeq != chip.seq or citeDraft.trim() == chip.comment.trim())
+      chipClose(false)
+    else if citeShown and citeDraft.length <= 8000
+      chipClosed = chip.seq
+      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)
+  // View-only state: the sidebar's hover card geometry, its list's scroll
+  // offset and a row drag, moved from app.contract. The sidebar is drawn in `when` arms (dark, light),
+  // so the window keeps its state. sidebarHoverId stays in the root: openSettings and openPage close the card.
+  state sidebarHoverLast = ""
+  state sidebarHoverY = 0 // the hovered row's frame in the window (less the list's scroll)
+  state sidebarHoverH = 0
+  // How many hover events the sidebar has had, so a cancelled row-action
+  // sweep's resting hover (sidebar.contract ThreadSection) holds only until the window's hover moves on.
+  state sidebarHoverSeq = 0
+  // The row the host hovers (a row's own key, no `#`). Since main #327 the hover is
+  // the hit's ancestor path, so a row stays hovered under its controls and hears no new enter when the pointer leaves one
+  // for the row itself: the control's tip ending while its row is still hovered gives the row its hover and its card back,
+  // as the reference's card closes for a frame and reopens. A tip a press closed (`sidebarHover("", false)` moves
+  // the card and tips away) gives the row back with them still away, until the pointer enters again.
+  state sidebarHoverHeld = ""
+  state sidebarScrollY = 0
+  state dragId = ""
+  state dragSection = ""
+  state dragDx = 0
+  state dragDy = 0
+  state dragX0 = 0
+  state dragY0 = 0
+  state dragW = 0
+  state dragH = 0
+  state dragTopY = 0
+  state dragDividerY = 0
+  state dragWorkingY = 0
+  state dragSnoozedY = 0
+  state dragSettledY = 0
+  derive dragCX = dragX0 + dragW / 2 + dragDx
+  derive dragCY = dragY0 + dragH / 2 + dragDy
+  derive dragTarget = dragId == "" ? "" : (dragCX > sidebarWidth ? "context" : dragSection == "working" ? "" : (dragSettledY > 0 and dragCY >= dragSettledY ? "settled" : (dragSnoozedY > 0 and dragCY >= dragSnoozedY ? "snoozed" : (dragWorkingY > 0 and dragCY >= dragWorkingY ? "working" : (dragCY < dragDividerY + 36 ? "pinned" : "active")))))
+  derive dragVerb = (dragTarget == "" or dragTarget == dragSection or dragTarget == "working" or dragTarget == "snoozed" or dragTarget == "context") ? "" : (dragTarget == "pinned" ? "pin" : (dragTarget == "settled" ? "settle" : (dragSection == "pinned" ? "unpin" : (dragSection == "settled" ? "unsettle" : "wake"))))
+  // A Working row follows live status: it drags out only as chat context, never between shelves, so the list
+  // neither lifts it nor opens the drop labels (Sidebar.tsx isContextDrag).
+  derive shelfDragId = dragSection == "working" ? "" : dragId
+  derive overlayDragId = dragSection == "working" and dragTarget != "context" ? "" : dragId
+  derive dragOffset = dragDy - (dragSection == "pinned" ? 24 : (dragSection == "active" ? 48 : 0))
+  // The root rewrite: the sidebar's own local ops, through the root's command dispatch (`sidebar` and `search`
+  // send localChanged there), moved from app.contract.
+  // ui/sidebar.tsx: a sidebar that collapses with the focus inside hands it to the window's trigger first; the closed
+  // sidebar is unmounted, so none of its controls stays in the keyboard order.
+  state sidebarFocused = false
+  action sidebarFocusWithin(inside: bool)
+    sidebarFocused = inside
+  action toggleSidebar
+    releaseUndoClaim() // ⌘B is another key: ⌘Z goes back to the fields (ThreadUndoShortcut)
+    if data.sidebarOpen and not settingsOpen and sidebarFocused
+      sidebarFocused = false
+      focus("sidebar-trigger")
+    command("sidebar", "", data.sidebarOpen ? "closed" : "open", 0)
+  action finishResize(vx: number, vy: number)
+    command("sidebar", "", "open", sidebarWidth)
+  action search(value: string)
+    releaseUndoClaim() // the sidebar search's edit hands ⌘Z back to the fields (ThreadUndoShortcut's input listener)
+    command("search", "", value, 0)
+  // The root rewrite: the composer's left edge, which only the view reads (moved from app.contract).
+  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
+  // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
+  // moved from app.contract. The wizard's fields stay in the root: providerWizard reads them.
+  state wizardAttempted = false
+  action providerUi(what: string, value: string)
+    let target = value == "back" ? max(0, wizardStep - 1) : min(wizardManual ? 1 : 2, value == "next" ? wizardStep + 1 : (value == "2" ? 2 : (value == "1" ? 1 : 0)))
+    if what == "open" or what == "driver" or what == "manual" or what == "local"
+      wizardAttempted = false
+    if what == "blocked" // a step past the Provider step's unmet prerequisite (AddProviderDialog go)
+      wizardAttempted = true
+    if what == "step" and wizardStep <= 1 and target > 1 and providerWizard.idError != ""
+      wizardAttempted = true
+    providerUiRoot(what, value)
+  action providerAdd(driver: string, label: string, id: string, accent: string, fields: string[], commandArgs: string[], environment: string[])
+    wizardAttempted = true
+    providerAddRoot(driver, label, id, accent, fields, commandArgs, environment)
+  // The root rewrite: the settings editors' row menu and dialog label (Settings' panels and ProjectDialogs), moved
+  // from app.contract. A settings editor's command is the root's restRaw; rest and restInput name its op and scope.
+  state restLabel = ""
+  state restMenu = ""
+  action restOpen(editor: string, subject: string, label: string)
+    restLabel = label
+    restMenu = ""
+    restOpenRoot(editor, subject)
+  action restMenuOpen(id: string)
+    restMenu = id
+  action restClose
+    restMenu = ""
+    restCloseRoot()
+  action restRaw(op: string, id: string, value: string)
+    restMenu = ""
+    restRawRoot(op, id, value)
+  action rest(op: string, value: string)
+    restRaw(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value)
+  action restInput(op: string, value: string, input: string)
+    restRawRoot(`rest:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, `${value}${encodeURIComponent(input)}`)
+  // The root rewrite: SnapShot's setup dialog (Settings' SnapShot panel and SettingsModals), moved from app.contract.
+  state snapshotSetupOpen = false
+  state snapshotSetupWasEnabled = false
+  state snapshotSetupFrom = "" // the control that opened the setup dialog, which it gives the focus back to (DialogFinalFocus)
+  action toggleSnapshots
+    if snapshotSettings.enabled and not commandPending
+      snapshotSetupOpen = false
+      settingsCommand("setting-snapshot", "snapShotEnabled", "false")
+    else
+      snapshotSetupOpen = true
+      snapshotSetupWasEnabled = false
+      snapshotSetupFrom = snapshotSetupOpen ? snapshotSetupFrom : "snapshot-enabled"
+      clearModalError()
+  action showSnapshotSetup(open: bool)
+    snapshotSetupOpen = open
+    snapshotSetupFrom = open and not snapshotSetupOpen ? "snapshot-setup" : snapshotSetupFrom
+    snapshotSetupWasEnabled = snapshotSettings.enabled
+    clearModalError()
+  // The root rewrite: Add environment's credential and route target (SettingsModals draws the dialog; Settings ›
+  // Connections and the sidebar open it), moved from app.contract. Each wrapper sets the window's half, then calls
+  // the root's (`…Root`). The connections' row menu and remove confirm stay in the root: as a window action,
+  // connectionAskRemove makes the compiler refuse its captured argument in connections-network.contract
+  // (type-cannot-infer, @capture parameter of NetworkAccessRows' `ask`).
+  state routeTarget = "" // Add environment as "Add a route to <routeLabel>"
+  state routeLabel = ""
+  state credential = ""
+  action openConnection
+    credential = ""
+    routeTarget = ""
+    openConnectionRoot()
+  action openRoute(target: string, label: string)
+    credential = ""
+    routeTarget = target
+    routeLabel = label
+    openConnectionRoot()
+  action closeConnection
+    routeTarget = ""
+    credential = ""
+    closeConnectionRoot()
+  action editOrigin(value: string)
+    credential = pairFields.host != "" and pairFields.source == origin and credential == "" ? pairFields.code : credential
+    editOriginRoot(value)
+  action editCredential(value: string)
+    credential = value
+    editCredentialRoot()
+  action closeModal
+    snapshotSetupOpen = false
+    routeTarget = ""
+    credential = ""
+    closeModalRoot()
+  // The root rewrite: the thread title's menu and rename field, the right panel's maximize and the details card's
+  // editors list, moved from app.contract. Each wrapper sets the window's half, then calls the root's (`…Root`),
+  // which keeps what resources read and the sends. The fold hold stays in the root: chatLocal is called inside the
+  // timeline's and the panels' repeated rows, where a window wrapper would be inlined at every call (+5.5 MB of plan).
+  state titleMenuOpen = false
+  state titleMenuFromTitle = false
+  state titleMenuSerial = 0
+  state titleMenuX = 0
+  state titleMenuY = 0
+  state renaming = false
+  state renameText = ""
+  // A maximized right panel lays out inline whatever the window's width; only an unmaximized one in a window of 980 pt
+  // or less is the sheet (ChatView shouldUsePlanSidebarSheet).
+  derive rightMaximized = shell.panel.maximized and (rightPanel or shell.panel.open)
+  derive panelSheet = narrowDiff and not rightMaximized
+  action titleUi(what: string, value: string)
+    let typed = renameText // the commit sends the field's text as the action found it
+    if what == "open" or what == "context"
+      titleMenuX = frame("thread-title").x
+      titleMenuY = frame("thread-title").y + frame("thread-title").height + 4
+      titleMenuOpen = (what == "context" or not titleMenuOpen) and not renaming
+      titleMenuSerial = titleMenuSerial + 1
+      titleMenuFromTitle = what == "open"
+    if what == "close" // Escape or a press outside: the fallback menu's cleanup gives the focus back to what held it, the title when the title opened it (a right-click leaves it where it was)
+      titleMenuOpen = false
+      if titleMenuFromTitle
+        focus("thread-title")
+    if what == "rename" and shell.serverThread
+      titleMenuOpen = false
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    if what == "edit"
+      renameText = value
+    if what == "key" and value == "Escape"
+      renaming = false
+    if (what == "commit" and renaming) or (what == "new-thread" and data.projectId != "")
+      renaming = false
+      titleSend(what, typed)
+  action titleMenuPick(op: string, target: string, value: string, askTitle: string, askBody: string, destructive: bool)
+    titleMenuOpen = op == "ui:submenu" and titleMenuOpen
+    if op == "ui:rename"
+      renaming = true
+      renameText = data.threadTitle
+      focus("header-rename")
+    titleMenuPickRoot(op, target, value, askTitle, askBody, destructive)
+  action panelUi(what: string, id: string)
+    let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
+    titleMenuOpen = false
+    panelUiRoot(what, id)
+  action detailsAct(op: string, target: string, value: string)
+    titleMenuOpen = false
+    detailsActRoot(op, target, value)
+  action sidebarScrolled(x: number, y: number)
+    sidebarScrollY = y
+  action sidebarHover(id: string, over: bool)
+    sidebarHoverSeq = sidebarHoverSeq + 1
+    let row = sidebarTipRow(id)
+    let back = not over and row != "" and row == sidebarHoverHeld and sidebarHoverId == id
+    if over
+      sidebarHoverLast = id
+      sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${id}`).height
+    else if back
+      sidebarHoverLast = row
+      sidebarHoverY = sidebarHoverY == -10000 ? -10000 : frame(`row-${row}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${row}`).height
+    else if id == ""
+      sidebarHoverY = -10000
+    if over and row == ""
+      sidebarHoverHeld = id
+    else if not over and id == sidebarHoverHeld
+      sidebarHoverHeld = ""
+    sidebarHoverRoot(back ? row : id, over or back)
+  action sidebarPressDown
+    sidebarHoverSeq = sidebarHoverSeq + 1
+    sidebarHoverY = -10000
+  action sidebarDrag(id: string, section: string, dx: number, dy: number)
+    if data.sidebar.dragEnabled and not commandPending
+      if dragId != id
+        dragId = id
+        dragSection = section
+        dragDx = 0
+        dragDy = 0
+        sidebarHoverRoot(sidebarHoverId, false) // the root's half closes the hovered row's card
+        dragX0 = frame(`row-${id}`).x
+        dragY0 = frame(`row-${id}`).y
+        dragW = frame(`row-${id}`).width
+        dragH = frame(`row-${id}`).height
+        dragTopY = frame("sidebar-list-top").y
+        dragDividerY = frame("sidebar-pinned-divider").y
+        dragWorkingY = data.sidebar.workingCount > 0 ? frame("shelf-working").y : 0
+        dragSnoozedY = data.sidebar.snoozedCount > 0 ? frame("shelf-snoozed").y : 0
+        dragSettledY = frame("shelf-settled").y
+      dragDx = dragDx + dx
+      dragDy = dragDy + dy
+  action sidebarDragEnd(id: string, vx: number, vy: number) // a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too; sidebarRun sends `sidebar:drop` while no command is pending
+    if dragId == id or id.startsWith("sweep|")
+      if dragTarget == "context"
+        sidebarRun("drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`)
+      else if dragTarget != "" or id.startsWith("sweep|")
+        sidebarRun("drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`)
+      dragId = ""
+      dragSection = ""
+      dragDx = 0
+      dragDy = 0
+  view
+    // The reference bar (DesktopApplicationMenu.ts) has no window tabs, Develop or Go menu and no help book, and its Edit
+    // lacks Xcode's template items: `-exact-menu-remove` takes them and their chords (LLP 1021 §5.3.1). Its File › Close
+    // Window has no accelerator on macOS: `-exact-menu-keys` leaves the item without ⌘W, and AppKit's Close All, which then
+    // shows as a row of its own, goes too (LLP 1021 §5.3.3). With Font smoothing on, the default, text is drawn
+    // `antialiased`, as appearanceFonts.ts sets it on the document root (LLP 1019 D12).
+    main navigationKey="t3-code" navigationBack="" navigate=historyGo testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+      // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
+      input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
+      // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
+      // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
+      // background, so it gives the key up while the prompt shows, as the details under it did.
+      ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or activeDocumentPermissions.length > 0 or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
+      // View › Reload and Force Reload, outside the inert background: the reference's work under any dialog.
+      ViewReload(items=shortcuts, page=shownPage, local=chatLocal)
+      // The screen reader's live regions, outside the inert background too.
+      LiveRegions(view=shell.announce)
+      ViewZoom(items=shortcuts, step=zoomStep, zoom=zoomTo, page=shownPage, local=chatLocal)
+      UpdateMenuItems(check=command("shelllocal:check-for-updates", "", "", 0))
+      row width="100%" height="100%" min-width=0 position="relative" inert=(sshPrompt.open or activeDocumentPermissions.length > 0) testId="ssh-background"
+        // Inert under the composer's file and image previews too: their trap passes over buttons with Keyboard
+        // Navigation off (dialog-trap.contract ControlGuard), so nothing behind them may be a Tab stop.
+        row width="100%" height="100%" min-width=0 inert=(modal or (pageCover and utilityPage == "usage") or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0)
+          if data.sidebarOpen
+            // The sidebar is the first workspace area (AppSidebarLayout workspaceAreaProps("sidebar", 0, "Threads")).
+            column id="workspace-sidebar" height="100%" flex-shrink=0 tabindex=-1 role="region" aria-label="Threads" focusin=workspaceEntered("sidebar")
+              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=shelfDragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY, focusWithin=sidebarFocusWithin)
+          column flex=1 min-width=0 height="100%" // the drawer sits below the chat column, the composer above it
+            ChatColumn(noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=(pageCover or promptLinkPage.show), sidebarWidth=sidebarWidth, canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, viewport=viewport, scheme=scheme, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=panelSheet, detailsOpen=detailsOpen, details=details, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, lineageStopping=lineageStopping, command=command, paletteShow=paletteShow, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, settingsCore=settingsCore, conversationWidth=conversationWidth, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, selectThread=selectThread, openModels=openModels, composerText=composerText, modelsOpen=(modelsOpen and composerTarget == ""), optionsOpen=(composerTarget == "" ? optionsOpen : ""), write=write, send=send, stop=command("stop", "", "", 0), composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=openProviderSettings, branches=branches, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
+            // The terminal is the last workspace area (ThreadTerminalDrawer workspaceAreaProps("terminal", 5, "Terminal")).
+            column id="workspace-terminal" width="100%" flex-shrink=0 role="region" aria-label="Terminal" focusin=workspaceEntered("terminal")
+              TerminalDrawer(view=terminalDrawer, look=data.look, dark=(scheme == "dark"), viewportHeight=viewport.height, composerHeight=data.composerReserved, reduced=viewport.prefersReducedMotion, closePending=(confirmOp != ""), command=command, confirm=titleMenuPick)
+          RightPanels(data=data, narrowDiff=panelSheet, rightMaximized=rightMaximized, viewport=viewport, scheme=scheme, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=command, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
+        PagesCover(pageCover=pageCover, outside=outsidePresses, data=data, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, scheme=scheme, usage=usage, usageShortcuts=usageShortcuts, settings=settings, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, pageBack=pageBack, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prReload=prReload, paletteShow=paletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prClose=prClose, prAct=prAct, prCopy=prCopy, chatLocal=chatLocal, home=home, commandPending=commandPending, command=command, openConnectionsPage=openConnectionsPage, pagesOp=welcomeImport, toggleInert=(modal or shell.panel.deviceSetup or shell.composerFile.open or data.composerImagePreview.length > 0), toggleSidebar=toggleSidebar)
+        if not settingsOpen and utilityPage == "" and not welcome.show
+          PromptLinkPage(link=promptLinkPage, left=(data.sidebarOpen ? sidebarWidth : 0), canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas), run=promptLinkAct)
+        RightSheets(data=data, narrowDiff=panelSheet, modal=(modal or promptLinkPage.show), panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
+        // A side chat tab's chat view over its pane (side-chat.contract SideChatLayer).
+        if not settingsOpen and utilityPage == "" and not welcome.show
+          box position="absolute" left=0 top=0 width=0 height=0 inert=(modal or promptLinkPage.show)
+            SideChatLayer(still=viewport.prefersReducedMotion)
+        // Every live Browser tab's page, over the panels, the sheet and the chat column (the floating player), under the
+        // window's overlays (browser-frames.contract).
+        box position="absolute" left=0 top=0 width=0 height=0 inert=(modal or promptLinkPage.show)
+          BrowserFrameLayer(frames=shell.panel.frames, slotRight=browserRight, slotTop=browserTop, slotWidth=browserWidth, slotHeight=browserHeight, note=browserNote, zoomSerial=shell.panel.browser.zoomSerial, zoomLabel=shell.panel.browser.zoomLabel, viewportWidth=viewport.width, covered=framesCovered, mini=shell.panel.browserMini, miniFrame=canvas.mini, canvasWidth=canvas.containerWidth, gesture=canvasGesture, outside=detailsPlayerPointer, local=chatLocal)
+        if optionsOpen != ""
+          ComposerMenus(rootCommand=command, data=composerTargetData, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
+        ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
+        // Settings' view and its view-only state are there only while Settings is open, as the
+        // reference's settings route: leaving it forgets an open search, an "Add custom model" field, the legacy rows.
+        if settingsOpen
+          SettingsWindow(settingsOpen=settingsOpen, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, connectionRemove=connectionRemove, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=modelsOpen, providerVisit=providerVisit, paletteOpen=paletteOpen, chipOpen=chipShown, coreClearSearch=coreClearSearch, closeModal=closeModal, commandPending=commandPending, settingsScrollTop=settingsScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, keybindingDrafts=keybindingDrafts, keybindingRest=keybindingRest, keybindingHeld=holdKeybindingField, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand)
+        ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""))
+        WelcomeLayer(welcome=welcome, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
+        ShortcutDispatch(items=shortcuts, selectThread=selectThread, newThread=newThread, chatNew=sidebarNewThread, deviceSetting=deviceSetting, toggleDiff=panelUi("toggle", ""), details=detailsAct, openDiff=panelUi("choose", "diff"), closeDiff=panelUi("close", ""), panel=panelUi, prClose=prClose, stop=command("stop", "", "", 0), openOptions=openOptions, selectProvider=selectProvider, selectModel=selectModel, back=closeModal, copyThread=restLocal, palette=paletteShow, run=paletteRun, command=dispatchCommand, settings=openSettings, copy=prCopy, confirm=titleMenuPick)
+        ProjectDialogs(restEditor=restEditor, restSubject=restSubject, restLabel=restLabel, scheduled=scheduled, projectsSettings=projectsSettings, commandPending=commandPending, modalError=modalError, rest=rest, restRaw=restRaw, restClose=restClose, restOpen=restOpen, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, viewport=viewport, scheme=scheme, sbSet=sbSet, taskBase=taskBaseRoot, cardScripts=(details.scripts.length > 0))
+        SidebarOverlays(data=data, width=sidebarWidth, open=(data.sidebarOpen and not modal), busy=commandPending, local=sidebarLocal, run=sidebarRun, hoverId=sidebarHoverId, hoverLast=sidebarHoverLast, hoverY=sidebarHoverY, dragId=overlayDragId, dragTarget=dragTarget, dragVerb=dragVerb, ghostX=dragCX, ghostY=dragCY, shell=shell, pullRequests=home.pullRequests, viewportHeight=viewport.height, hoverH=sidebarHoverH, resize=resizeSidebar, finishResize=finishResize, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, covered=paletteOpen)
+        SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=settingsCommand)
+        WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, commandPending=commandPending, lineageStopping=lineageStopping, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, paletteRestore=paletteRestore, details=details, detailsSheet=detailsSheet, detailsDensity=canvas.density, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct, filesDocuments=filesMarkdown.documents)
+        LinkMenuPopover(menuId="chat-link-menu", rows=linkMenuRows, pick=linkMenuPick)
+        LinkMenuPopover(menuId="chat-file-link-menu", rows=fileMenuRows, pick=fileLinkPick)
+        // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
+        if chipShown and chip.kind != "citation"
+          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
+        // Cite at the selection in an answer (diff-cite.contract), above the timeline's rows.
+        if citeShows
+          CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))
+        // A citation chip's comment, under the cited text after Cite or above the chip's button.
+        if citeShown
+          CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)
+        // The window's hover layer (hover-layer.contract), above every page and panel, below the SSH prompt.
+        // The Usage page draws its own segment card in its scroll content (pages-usage.contract).
+        if hoverShown and hoverTip.kind != "usage"
+          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)
+            if hoverTip.kind == "freshness"
+              PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
+            else if hoverTip.kind == "pr-preview"
+              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
+            else if hoverTip.kind == "pr-badge"
+              // Held to the larger room the layer can flip into, less its 4 pt offset.
+              StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
+            else if hoverTip.kind == "pr-card"
+              for row in details.prRows.rows.concat(details.prRows.rest).filter((entry) => entry.key == hoverTip.text).slice(0, 1) key=row.key
+                PrCardView(card=row.extra.card, testId=hoverTip.testId)
+            else if hoverTip.kind == "breakdown"
+              // The split under the pointer, from the view that holds it: the detail, a Pull Requests row or a linked row.
+              for split in [prDetail.breakdown].concat(prList.groups.map((group) => group.rows.map((row) => row.breakdown)).flat()).concat(shell.panel.prs.rows.map((row) => row.breakdown)).filter((entry) => entry.ref == hoverTip.text).slice(0, 1) key=split.ref
+                PrBreakdownCard(breakdown=split, diff=prDetail.diffScheme, testId=hoverTip.testId)
+            else if hoverTip.kind == "workflow-member"
+              WorkflowMemberCard(tip=hoverTip)
+            else if hoverTip.kind == "scopes"
+              HoverScopes(tip=hoverTip)
+            else if hoverTip.kind == "code"
+              HoverCode(tip=hoverTip)
+            else if hoverTip.kind == "model-name"
+              HoverModelName(tip=hoverTip)
+            else
+              HoverText(tip=hoverTip)
+      // Separate close/open layouts preserve replacement focus lineage without a child-owned timer.
+      box aria-hidden=true resize=syncDocumentPermissionFocus position="absolute" left=0 top=0 width=documentPermissionFocusWidth height=1 opacity=0 pointer-events="none"
+      SshPasswordPrompt(prompt=sshPrompt, responding=sshResponding, answer=sshAnswer)
+      for document in activeDocumentPermissions key=`${document.key}:${document.permissionSerial}`
+        AppConfirm(title=document.permission.split("\n").slice(0, 1).join(""), body=document.permission.split("\n").slice(1).join("\n"), destructive=false, busy=false, confirmId=documentPermissionOwner, confirmLabel="Confirm", cancel=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:deny`), confirm=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:allow`))
+      // QuitHoldOverlay, above every layer (the reference's z-100).
+      if quitHintMode != ""
+        QuitHoldOverlay(mode=quitHintMode)
