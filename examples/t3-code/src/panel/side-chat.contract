@@ -210,7 +210,8 @@ component SideChatThread
       list appearance="none" virtualized=true scrollFollowEnd=true scroll=scrolled testId="side-chat-transcript" flex=1 min-height=0 width="100%" box-sizing="border-box" overflow-x="hidden"
         for message in sideChat.messages key=message.id
           TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=sideCommand, local=sideLocal, documents=sideMarkdown.documents, lane=sideChat.look.chatMax, bubble=sideChat.look.message, ink=(sideChat.look.themed ? sideChat.look.text : "light-dark(#18181b, #f5f5f5)"), now=sideNow, hasMore=sideChat.hasMore, historyLoading=sideChat.historyLoading, historyError=sideChat.historyError, busy=commandPending, earlier=earlier, attachments=sideAttachmentUrls.items, diffScheme=sideChat.look.diff, tail=0, lead=rem, scheme=scheme, seen=seen)
-      column flex-shrink=0 width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay" focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)
+      // The side chat is a ChatView: its composer keeps the window's lane (chat-composer-lane, 3rem) and 1.25rem below.
+      column flex-shrink=0 width="100%" padding-left="3rem" padding-right="3rem" padding-bottom="1.25rem" box-sizing="border-box" align-items="center" role="region" aria-label="Message input" testId="side-chat-composer-overlay" focusin=sideComposerFocusWithin(true) focusout=sideComposerFocusWithin(false)
         column width="100%" max-width=sideChat.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab, as the window's do (app-main.contract): the stash is
           // the window's one (useComposerStash), so the badge shows what either composer stashed.
