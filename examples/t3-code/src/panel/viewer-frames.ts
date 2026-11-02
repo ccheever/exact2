@@ -21,7 +21,7 @@ export type ViewerFrameView = { id: string; src: string; config: string; posts: 
 
 /** What the page shows and how (entry.ts `Config`, without its theme, which the frame adds). */
 export type ViewerConfig = {
-  view: 'pdf' | 'text' | 'office' | 'binary' | 'output';
+  view: 'pdf' | 'browser-pdf' | 'text' | 'office' | 'binary' | 'output';
   /** The viewer's identity: a new key mounts a new viewer, as the reference's React keys do. */
   key: string;
   /** A PDF's identity without its revision: a new key of the same document opens where the reader was
@@ -152,6 +152,7 @@ export type ViewerEvent =
   | { type: 'copy-error'; message: string }
   | { type: 'retry' }
   | { type: 'link'; url: string }
+  | { type: 'download' }
   | { type: 'error'; message: string }
   | { type: 'none' };
 
@@ -204,6 +205,7 @@ export function viewerMessage(state: FrameState, payload: string): ViewerEvent {
       return message.type === 'copy' ? { type: 'copy', text: str(message.text) } : { type: 'copy-error', message: str(message.message, 'Try again.') };
     case 'retry': return { type: 'retry' };
     case 'link': return { type: 'link', url: str(message.url) };
+    case 'download': return { type: 'download' };
     case 'error': return { type: 'error', message: str(message.message) };
     default: return { type: 'none' };
   }
