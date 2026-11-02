@@ -450,7 +450,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
             host.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             host.heightAnchor.constraint(equalToConstant: 128),
             bar.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -64),
+            // The host already reserves the compact compose slot. Let the
+            // native tab bar fill the remaining host width; reserving -64 here
+            // would subtract the compose slot a second time.
+            bar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
         ])
     }
