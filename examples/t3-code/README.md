@@ -759,8 +759,11 @@ above.
   update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description but not
   its "N machines still run … Review" line: Review opens that switch in v0.1.6, and here it would move no machine.
 - A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
-  which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
-  over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks.
+  which follows System Settings › Trackpad › Swipe between pages; v0.1.6 recognises the swipe over wheel events
+  (`HistorySwipeNavigation.tsx`) whatever that setting says. The window root hears AppKit's tracking
+  (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
+  a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
+  sooner, which the arrow cannot know, so it may look unarmed as the step goes.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.

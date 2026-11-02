@@ -273,6 +273,12 @@ extension Presenter {
 /// takes it, one whose `overscroll-behavior-x` is `contain` or `none` keeps
 /// it at its edge, and a `wheel` handler's `preventDefault()` stops it, as
 /// Chrome's history swipe is (LLP 1115.000 D5.5).
+///
+/// The navigation root's `historyswipe` hears the two-finger swipe as AppKit
+/// tracks it, so an app can draw its own sign of it, as Chrome draws its
+/// arrow: `began` and `changed` while the fingers are down, then `ended`
+/// just before the step or `cancelled` when the lift goes nowhere. The
+/// settling AppKit animates after the lift is not told.
 final class BackSwipe {
     unowned let presenter: Presenter
     private(set) var tracking = false
@@ -310,19 +316,39 @@ final class BackSwipe {
               !Self.kept(event) else { return false }
         let navigation = presenter.navigation
         let (back, forward) = (navigation.canGoBack, navigation.canGoForward)
-        guard Self.way(gesture: gesture, dx: dx, dy: dy, enabled: enabled, back: back, forward: forward) != nil else { return false }
+        guard let way = Self.way(gesture: gesture, dx: dx, dy: dy, enabled: enabled, back: back, forward: forward) else { return false }
         tracking = true
         // The side the gesture set out for: one that ends on the other side
         // (the fingers came back past where they started) goes nowhere.
-        var side: CGFloat = 0
+        var side: CGFloat = 0, told: CGFloat?
+        let client = presenter.client(event.locationInWindow)
         track(event, forward ? -1 : 0, back ? 1 : 0) { [weak self] amount, phase, complete in
             if side == 0, amount != 0 { side = amount < 0 ? -1 : 1 }
-            if phase == .ended, amount * side > 0 {
+            let steps = phase == .ended && amount * side > 0
+            if phase != .changed || amount != told { self?.tell(phase, steps: steps, way: way, amount: amount, client: client) }
+            told = amount
+            if steps {
                 if side > 0 { self?.presenter.navigation.goBack() } else { self?.presenter.navigation.goForward() }
             }
             if complete { self?.tracking = false }
         }
         return true
+    }
+
+    /// One callback of the tracking, as the navigation root's `historyswipe`
+    /// hears it: the phase, the way the gesture set out (1 back, -1
+    /// forward), AppKit's `gestureAmount` along it and where the pointer was.
+    private func tell(_ phase: NSEvent.Phase, steps: Bool, way: CGFloat, amount: CGFloat, client: CGPoint) {
+        let name: String
+        switch phase {
+        case .began: name = "began"
+        case .changed: name = "changed"
+        case .ended: name = steps ? "ended" : "cancelled"
+        case .cancelled: name = "cancelled"
+        default: return
+        }
+        guard let root = presenter.navigation.root?.node, root.handlers.contains("historyswipe") else { return }
+        presenter.session?.historySwipe(name, back: way > 0, amount: max(0, Double(amount * way)), client: client, at: root)
     }
 
     /// Whether a scroller under the event keeps a sideways gesture
@@ -339,6 +365,14 @@ final class BackSwipe {
     /// person's scroll direction.
     func swiped(deltaX: CGFloat) -> Bool {
         deltaX > 0 ? presenter.navigation.goBack() : deltaX < 0 && presenter.navigation.goForward()
+    }
+}
+
+extension ExactSession {
+    /// The tracked history swipe, to the navigation root that hears it.
+    func historySwipe(_ phase: String, back: Bool, amount: Double, client: CGPoint, at root: NodeView) {
+        guard state != .destroyed, booted, presenter.views[root.id] === root, root.handlers.contains("historyswipe") else { return }
+        applyInput(runtime.historySwipe(root.id, phase: phase, direction: back ? "back" : "forward", amount: amount, client: client, now: now()))
     }
 }
 #endif

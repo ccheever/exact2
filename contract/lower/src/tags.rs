@@ -535,6 +535,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
+        // @ref LLP 1115.000 D5.5 — the history swipe the host tracks.
+        "historyswipe" => AttrTarget::Handler("historyswipe"),
         // @ref LLP 1020.002 D2 — an iframe's guest, by the Navigation API's
         // event names (an iframe's `navigate=` is its guest's too).
         "currententrychange" => AttrTarget::Handler("currententrychange"),
