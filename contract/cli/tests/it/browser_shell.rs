@@ -296,9 +296,10 @@ fn a_guests_requests_are_held_for_the_agent_on_its_frame() {
         r#"{"multiple":false,"directories":false}"#,
     ));
     let save = ticket(&hold("save-file", r#"{"suggestedFilename":"f.txt"}"#));
+    let print = ticket(&hold("print", r#"{"origin":"a.test","title":"Report"}"#));
     assert!(hold("camera", "{}").contains("not a frame request"));
     let holds = r.device_holds().to_vec();
-    assert_eq!(holds.len(), 4);
+    assert_eq!(holds.len(), 5);
     assert!(holds.iter().all(|h| h.node == Some(id)));
     assert!(
         holds[0].args.contains("\"message\":\"hi\""),
@@ -324,5 +325,15 @@ fn a_guests_requests_are_held_for_the_agent_on_its_frame() {
         answer(format!(r#"{{"op":"tap","ticket":{save},"choice":"ok"}}"#))
             .contains("\"capability\":\"save-file\"")
     );
+    // A print is answered by tap, for the agent's default place, or by an
+    // absolute path to write the PDF to.
+    assert!(answer(format!(
+        r#"{{"op":"type","ticket":{print},"text":"report.pdf"}}"#
+    ))
+    .contains("absolute path"));
+    assert!(answer(format!(
+        r#"{{"op":"type","ticket":{print},"text":"/tmp/report.pdf"}}"#
+    ))
+    .contains("\"answered\":\"value\""));
     assert_eq!(r.device_holds().len(), 1);
 }

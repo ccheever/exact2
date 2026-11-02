@@ -609,9 +609,10 @@ final class WebViews {
         }
     }
 
-    /// A guest's dialog, file input or download destination under the agent
-    /// (@ref LLP 1020.002 §10): held in the runner as `dialog`, `open-file`
-    /// or `save-file` on the frame's node, answered by `tap @t` or `type @t`.
+    /// A guest's dialog, file input, download destination or print under the
+    /// agent (@ref LLP 1020.002 §10): held in the runner as `dialog`,
+    /// `open-file`, `save-file` or `print` on the frame's node, answered by
+    /// `tap @t` or `type @t`.
     private func hold(_ entry: WebEntry, id: UInt32, _ data: Data) {
         guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let token = value["token"],
               let capability = value["capability"] as? String, let args = value["args"] as? [String: Any], let session else { return }
@@ -656,6 +657,18 @@ final class WebViews {
             let shown = "app:/tmp/downloads/\(name)", url = folder.appendingPathComponent(name)
             answer["path"] = url.path
             answer["shown"] = shown
+        case ("value", "print"):
+            answer["path"] = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        case (_, "print"):
+            // The job as a PDF in the app's own temporary files, named for the page.
+            guard let folder = AppFiles.url("app:/tmp/print") else {
+                answer["cancel"] = true
+                break
+            }
+            var title = (asked.args["title"] as? String ?? "").replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespaces)
+            if title.lowercased().hasSuffix(".pdf") { title.removeLast(4) }
+            let name = WebViews.freshName("\(title.isEmpty ? "print" : title).pdf", in: folder, taken: reserved)
+            answer["path"] = folder.appendingPathComponent(name).path
         default: answer["cancel"] = true
         }
         deliver(entry, answer)
