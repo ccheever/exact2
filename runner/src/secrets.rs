@@ -27,6 +27,12 @@ pub trait SecretLease: Send + Sync {
     /// write must never be queued to retry after this lease is released.
     fn write(&self, value: Option<&str>) -> Result<(), String>;
 
+    /// Fence the credential durably before an effectful request escapes the
+    /// callback. An abandoned effect must not leave an old rotating token usable.
+    fn begin_effect(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Finish a successful callback after its writes are durable. A cancelled
     /// or failed callback drops its lease without calling this method.
     fn finish(&self) -> Result<(), String> {
