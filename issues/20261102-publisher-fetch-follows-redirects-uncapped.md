@@ -18,4 +18,4 @@
 
 **Resolution.** All publisher HTTP operations reject redirects, use a 30-second deadline covering headers and body, and read responses within explicit byte caps. Signed AppDrop writes cannot be replayed by a redirect.
 
-**Verification after the fix.** Real local HTTP fixtures verified that redirected reads, listing and signed writes never reached the redirect destination; an oversized streamed head was refused and a direct response succeeded. The focused publisher/push/Android manifest batch passed 21 tests.
+**Verification after the fix.** Real local HTTP fixtures verified that redirected reads, listing and signed writes never reached the redirect destination; an oversized streamed head was refused and a direct response succeeded. The focused publisher/push/Android manifest batch passed 21 tests. Separate local requests stalled before headers and during the streamed body both timed out at 30.001 seconds.
