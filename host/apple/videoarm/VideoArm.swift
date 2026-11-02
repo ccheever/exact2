@@ -937,8 +937,12 @@ final class FullscreenWindow: NSObject, NSWindowDelegate {
         window.delegate = nil
         // Let go of the player before the window goes, so it plays on inline.
         player.player = nil
-        left?(); left = nil
         opener?.makeKeyAndOrderFront(nil)
+        // The leaf drops this object when told; the window it owns stays until AppKit has closed it.
+        let left = self.left
+        self.left = nil
+        DispatchQueue.main.async { withExtendedLifetime(self) {} }
+        left?()
     }
     /// Closes it without telling the leaf, which is going.
     func dismiss() {
