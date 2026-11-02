@@ -1,7 +1,7 @@
 # LLP 1042: Video — browser semantics, native playback
 
 **Type:** Spec
-**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31); §9.1 and §9.2 built (2026-11-02)
+**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31); §9.1 and §9.2 built (2026-11-02); §3 "Full screen" on macOS built (2026-11-02)
 **Systems:** Kernel replaced elements; Contract media attributes/events; web video; Apple AVKit; keyboard viewport; Video Player app
 **Author:** Codex for Charlie Cheever
 **Implementer:** Codex, 2026-09-18
@@ -190,9 +190,26 @@ player while it shows, and the full-screen controller lets go of it before
 the inline view takes it back (AVKit pauses a player a closed controller
 still holds). The full-screen picture keeps the element's `object-fit`, as a
 full-screen element's does on the web (the Fullscreen UA sheet's `contain` is
-an author-overridable default): `cover` fills the screen, cropped. macOS does
-not present it yet and says so in the log. The web calls the element's
-`requestFullscreen()`.
+an author-overridable default): `cover` fills the screen, cropped. On macOS
+the arm opens a window of its own over the leaf, holding an AVPlayerView on
+the same AVPlayer with AVKit's floating controls, and takes it into full
+screen in its own Space, as Safari and QuickTime Player present a video
+(the user's ruling of 2026-11-02 that it be built). The zoom starts from the
+leaf's frame. Escape, the window's green button, Control-Command-F and
+Command-W leave it; the window then closes and `fullscreenchange` reports
+`false`. The inline view keeps the player throughout, so it shows the current
+frame when the window zooms back to it. AVKit's own full screen button is
+hidden in that window: it would open AVKit's private full-screen presentation
+from inside this one. `state.media` reports `fullscreen` and, while the
+window is open, `fullscreenWindow` (its window number, title, frame on
+screen, and whether it is full screen yet). VoiceOver reads the window by its
+title: the video's `aria-label`, `title` or `mediaTitle`, else its window's
+title. The web calls the element's `requestFullscreen()`.
+
+An embedder can keep a page's full screen inside its window instead: T3 Code
+2359643cff sets Electron's `disableHtmlFullscreenWindowResize`, so its video
+fills the app's window, which keeps its size and Space. Exact has no such
+option; an app that wants it lays the player out over its window itself.
 
 ### Events and observations
 
