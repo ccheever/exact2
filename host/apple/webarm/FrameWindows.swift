@@ -520,6 +520,7 @@ final class FramePopup: NSObject, WKUIDelegate, WKNavigationDelegate {
         // content controller is replaced before the view is made, so the
         // popup's own `window.postMessage` reaches its own listeners.
         configuration.userContentController = WKUserContentController()
+        ui.takePrints(on: configuration.userContentController)
         let width = CGFloat(features.width?.doubleValue ?? 800), height = CGFloat(features.height?.doubleValue ?? 600)
         web = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: height), configuration: configuration)
         self.ui = ui
