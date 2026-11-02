@@ -883,11 +883,12 @@ phone app. \`bun exact.mjs help\` lists the verbs, and your own in app.json \`"c
 \`windows\`) names its platform in app.json the first time it runs and builds it in a generated
 workspace; \`update --without <platform>\` stops it.`}
 \`bun ${sdk('scripts/exact.mjs')} setup --check\` names what a native build lacks.
-${DIARY_LINE}
 ${snapbackNotes(dir)}
 
 Generated, so don't edit: \`exact.mjs\`${authoredApp(dir) ? `, \`rust-toolchain.toml\`, \`.cargo/config.toml\`,
 \`Cargo.toml\`'s \`[patch.crates-io]\`` : ''} and this block.
+
+${DIARY_LINE}
 ${END}
 `;
 }
@@ -896,9 +897,15 @@ ${END}
  * own): a workspace manifest or a crate beside app.json. Otherwise its native workspace is generated (scripts/app-shells.mjs). */
 export const authoredApp = dir => existsSync(resolve(dir, 'Cargo.toml')) || APP_CRATES.some(kind => existsSync(resolve(dir, kind, 'Cargo.toml')));
 
-/** The one line that stands for the authoring diary (docs/diary.md): \`feedback
- * status\` prints the instructions when the project keeps a diary. */
-const DIARY_LINE = 'The authoring diary: `bun exact.mjs feedback status` says whether this project keeps one.';
+/** Feedback, required of every agent (Charlie, 2026-11-01): the triggers and the one-line note
+ * (scripts/feedback-note.mjs), and \`feedback status\`, which prints the authoring diary's instructions
+ * when the project keeps one; a \`never\` project skips both (docs/diary.md, LLP 1116 D3). Last in the block. */
+const DIARY_LINE = `## Feedback (required)
+
+When a doc was wrong or missing, a workaround was needed, something took several tries or a
+command confused you, record it: \`bun exact.mjs feedback note "<what happened>"\`. It attaches
+exact2's commit and the last exit code, never output or code. \`bun exact.mjs feedback status\` says
+whether notes are sent and whether to keep a diary; under \`never\`, skip all of this.`;
 
 /** A game's notes: the app's, for a world in Rust under Contract's menus. */
 function gameNotes(dir, name, doc) {
