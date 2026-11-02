@@ -102,6 +102,9 @@ extension NodeView {
         paintParent = superview
         if old !== superview, let old { PaintOrder.changed(old) }
         refreshPaintOrder()
+        #if os(macOS)
+        followShadowStand() // a backdrop's shadow moves, or leaves, with it
+        #endif
     }
 
     private func refreshPaintOrder() {
@@ -246,6 +249,9 @@ extension PaintView {
             Shadow.active?.rank(picture, value)
             #endif
         }
+        #if os(macOS)
+        if let stand = (self as? NodeView)?.shadowStand, stand.zPosition != value { stand.zPosition = value }
+        #endif
     }
 }
 

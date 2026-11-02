@@ -65,9 +65,13 @@ twice the Gaussian's standard deviation. Every native host holds to both.
   A node that clips its overflow would clip that layer too, so its children
   move into a clipping box of their own, as a scroll view takes them; a text
   node that clips keeps clipping (a box would not clip its own glyphs), so
-  its shadow is clipped. macOS's `cacheDisplay` capture (the agent's
-  screenshot, a canvas surface) draws views, not sublayers: there the node
-  draws the shadow with Core Graphics before its box. iOS's GPU capture
+  its shadow is clipped. On macOS a backdrop blur masks the node's own
+  layer, which no clipping box avoids, so its outer casters stand in a
+  layer beside it, under it in its superlayer (LLP 1053.000 §3). macOS's
+  `cacheDisplay` capture (the agent's screenshot, a canvas surface) draws
+  views, not sublayers: there the node draws the shadow with Core Graphics
+  before its box, and for the agent's screenshot a view under a backdrop
+  node draws that node's. iOS's GPU capture
   mirrors the caster's shadow and mask.
 - **Linux.** Neither backend blurs. A Gaussian of an edge falls off as the
   normal CDF of the distance, and the outline's offset curves are its

@@ -109,6 +109,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let css = style["display"]?.string == "none"
             if !(newValue && css && !hostHidden && super.isHidden) { hostHidden = newValue }
             super.isHidden = hostHidden || css
+            if shadowStand != nil { followShadowStand() }
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
@@ -1404,7 +1405,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw?.drawn() }
-        if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
+        if !cssVisibilityHidden, shadowStand == nil, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
         // nor into a capture where the capture shows the layer's paint as
         // the window does (`captureShowsLayerPaint`).
