@@ -74,7 +74,8 @@ there never counts as a change.
 
 **To check a screen against a reference** (the original's screenshot, a design), drive to it and
 take `"screenshot .exact/home.png compare ref/home.png"`: it says in text, node by node, where
-the two differ, and draws `home.diff.png`, so neither picture needs viewing.
+the two differ, and draws `home.diff.png`, so neither picture needs viewing. On the web,
+`agent web --url /item/7` opens at a page, and a capture of the whole page compares at its height.
 
 `agent ios` is the app as a person sees it, UIKit's bars included, with screenshots a pixel a
 point (`--scale 3`: the device's): no other simulator tool is needed ([ios-driving](recipes/ios-driving.md)).
