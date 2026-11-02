@@ -197,14 +197,22 @@ pub(super) fn publish(
         // (LLP 1093): placements moved without each child's layout bit.
         let full = full || hidden || republish;
         // A table that is another box places its parts from its anonymous
-        // table, which can move inside it alone; a row or group places what
-        // it holds by its displacement, which can change with its frame
-        // unchanged (Taffy reports a grid origin's change as its layout's).
+        // table, which can move inside it alone. A row or group places what
+        // it holds by its displacement (`table::displacement`), which can
+        // change with its frame unchanged: it publishes them all again when
+        // that changed or what places it moved, not when it is only on the
+        // way to a dirty cell.
+        let displacement = tree
+            .tables
+            .flat(slot)
+            .then(|| super::table::displacement(arena, tree, slot));
+        let displaced = displacement
+            .is_some_and(|d| tree.displacements.insert(slot, d) != Some(d) || parent_moved);
         let descend_all = full
             || origin_moved
+            || displaced
             || flags.has(NodeFlags::CHILDREN_DIRTY)
-            || tree.tables.anon(slot).is_some()
-            || tree.tables.flat(slot);
+            || tree.tables.anon(slot).is_some();
         arena.set_frame(slot, frame);
         arena.consume_layout_flags(slot);
         if moved {
@@ -237,8 +245,7 @@ pub(super) fn publish(
         // the engine laid them out in the table's grid (`table.rs`), from
         // the grid's origin, moved with the row or group as it is moved
         // relatively. A table that is another box holds its grid.
-        let (fx, fy) = if tree.tables.flat(slot) {
-            let (dx, dy) = super::table::displacement(arena, tree, slot);
+        let (fx, fy) = if let Some((dx, dy)) = displacement {
             (ox + dx, oy + dy)
         } else if let Some(grid) = tree.tables.anon(slot) {
             let l = tree.layout(grid);
@@ -252,7 +259,15 @@ pub(super) fn publish(
                     continue; // its own layout's, in its own space
                 }
                 let full = full || arena.flags(child).has(NodeFlags::ATTACHED);
-                stack.push((child, fx, fy, hidden, full, origin_moved, shift));
+                stack.push((
+                    child,
+                    fx,
+                    fy,
+                    hidden,
+                    full,
+                    origin_moved || displaced,
+                    shift,
+                ));
             }
         } else if let Some(children) = paths.get(&slot) {
             for &(_, child) in children.iter().rev() {
@@ -376,6 +391,82 @@ mod tests {
                 node.id
             );
         }
+    }
+    /// A move inside one cell of a table visits the path to it, not every
+    /// row's cells: a row or group descends whole only when displaced.
+    #[test]
+    fn a_move_inside_one_table_cell_visits_only_its_path() {
+        let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let offer = Offer::definite(400.0, 2000.0);
+        let mut ops = Vec::new();
+        let view = |id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        };
+        let rows: Vec<u32> = (0..20).map(|r| 100 + r).collect();
+        for id in [1, 2, 3, 999] {
+            ops.push(view(id));
+        }
+        ops.extend([
+            prop(2, PropId::SemanticTag, "table"),
+            prop(3, PropId::SemanticTag, "tbody"),
+            style(999, StyleId::Width, "4px"),
+            style(999, StyleId::Height, "4px"),
+            style(999, StyleId::PositionType, "relative"),
+        ]);
+        for &row in &rows {
+            ops.push(view(row));
+            ops.push(prop(row, PropId::SemanticTag, "tr"));
+            let mut cells = Vec::new();
+            for c in 0..2 {
+                let (cell, inner) = (200 + (row - 100) * 2 + c, 400 + (row - 100) * 2 + c);
+                ops.extend([
+                    view(cell),
+                    prop(cell, PropId::SemanticTag, "td"),
+                    view(inner),
+                    style(inner, StyleId::Width, "20px"),
+                    style(inner, StyleId::Height, "10px"),
+                ]);
+                ops.push(Op::SetChildren {
+                    id: inner,
+                    children: if inner == 400 { vec![999] } else { Vec::new() },
+                });
+                ops.push(Op::SetChildren {
+                    id: cell,
+                    children: vec![inner],
+                });
+                cells.push(cell);
+            }
+            ops.push(Op::SetChildren {
+                id: row,
+                children: cells,
+            });
+        }
+        ops.extend([
+            Op::SetChildren {
+                id: 3,
+                children: rows,
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        k.apply(0, 2, &[style(999, StyleId::Left, "3px")]).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        assert!(
+            k.tree().publication_visits <= 8,
+            "visits {}, the path being 1, 2, 3, 100, 200, 400, 999",
+            k.tree().publication_visits
+        );
+        equal_fresh(&k, offer);
     }
     #[test]
     fn paint_and_prop_edits_skip_publication_but_geometry_edits_still_publish() {
