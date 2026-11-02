@@ -386,7 +386,7 @@ package final class TextArea: UITextView {
         return super.canPerformAction(action, withSender: sender)
     }
     #endif
-    // Keep TextKit's line pitch equal to the authored CSS line box, and the
+    // Keep TextKit's lines the authored CSS line boxes (`setLineHeight`), and the
     // node's `direction` the base (LLP 1001 §1). Updating storage attributes
     // preserves the value and selected range; replacing attributedText would
     // reset a selection (including a read-only one).
@@ -394,13 +394,7 @@ package final class TextArea: UITextView {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = textAlignment
         paragraph.baseWritingDirection = direction
-        if let height {
-            paragraph.minimumLineHeight = height
-            paragraph.maximumLineHeight = height
-            // TextKit's zero min/max mean unconstrained; its smallest positive
-            // multiple produces the explicit zero box at driver precision.
-            if height == 0 { paragraph.lineHeightMultiple = .leastNormalMagnitude }
-        }
+        paragraph.setLineHeight(height, font: font ?? UIFont.systemFont(ofSize: 16))
         let attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
         textStorage.addAttributes(attributes, range: NSRange(location: 0, length: textStorage.length))
         typingAttributes.merge(attributes) { _, authored in authored }
