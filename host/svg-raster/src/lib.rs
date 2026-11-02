@@ -87,10 +87,24 @@ pub fn backdrop_blur(pixels: &mut [u8], w: usize, h: usize, sigma: f32) {
             }
         }
         backdrop_blur(&mut small, sw, sh, sigma / 2.0);
+        // Interpolate between the averaged pixel centers; repeating each pixel
+        // creates visible steps in the blurred gradient.
         for y in 0..h {
+            let sy = (y as f32 * 0.5 - 0.25).max(0.0);
+            let y0 = (sy as usize).min(sh - 1);
+            let y1 = (y0 + 1).min(sh - 1);
+            let fy = sy.fract();
             for x in 0..w {
-                pixels[(y * w + x) * 4..][..4]
-                    .copy_from_slice(&small[((y / 2) * sw + x / 2) * 4..][..4]);
+                let sx = (x as f32 * 0.5 - 0.25).max(0.0);
+                let x0 = (sx as usize).min(sw - 1);
+                let x1 = (x0 + 1).min(sw - 1);
+                let fx = sx.fract();
+                for c in 0..4 {
+                    let at = |x, y| small[(y * sw + x) * 4 + c] as f32;
+                    let top = at(x0, y0) * (1.0 - fx) + at(x1, y0) * fx;
+                    let bottom = at(x0, y1) * (1.0 - fx) + at(x1, y1) * fx;
+                    pixels[(y * w + x) * 4 + c] = (top * (1.0 - fy) + bottom * fy).round() as u8;
+                }
             }
         }
         return;
@@ -200,6 +214,23 @@ mod tests {
         let mut px = [1, 2, 3, 4];
         backdrop_blur(&mut px, usize::MAX, 2, 3.0);
         assert_eq!(px, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_large_backdrop_blur_has_a_smooth_edge() {
+        let (w, h) = (128, 4);
+        let mut px = vec![0; w * h * 4];
+        for row in px.chunks_exact_mut(w * 4) {
+            for (x, pixel) in row.chunks_exact_mut(4).enumerate() {
+                let value = if x < w / 2 { 0 } else { 255 };
+                pixel.copy_from_slice(&[value, value, value, 255]);
+            }
+        }
+        backdrop_blur(&mut px, w, h, 20.0);
+        for x in w / 2 - 10..w / 2 + 10 {
+            assert!(px[x * 4] < px[(x + 1) * 4], "flat step at {x}");
+        }
+        assert!(px.chunks_exact(4).all(|pixel| pixel[3] == 255));
     }
 
     #[test]
