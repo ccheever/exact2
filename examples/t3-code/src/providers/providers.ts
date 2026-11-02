@@ -379,7 +379,7 @@ export function providerWizard(host: ProviderHost, open: boolean, serial: number
     accountsNote: open ? multipleAccountsNote(host, identity.meta.id) : '', chatgptAccountsNote: open ? multipleAccountsNote(host, 'codex') : '',
     driver: identity.meta.id, driverLabel: identity.meta.label, label: identity.shownLabel, instanceId: identity.instanceId, idError: identity.error,
     preview: identity.shownLabel.trim() || `${identity.meta.label} Workspace`, idPlaceholder: `${identity.meta.id}_work`,
-    fields: identity.meta.fields.map((field, index) => ({ ...fieldRow('wizard', field, field.key === 'source' ? 'registry' : ''), index })),
+    fields: identity.meta.fields.map((field, index) => { const { secretProvider: _provider, sources: _sources, ...row } = fieldRow('wizard', field, field.key === 'source' ? 'registry' : ''); return { ...row, index }; }), // the wizard's field shape has no secret source
     environment: str(obj(host.config.environment).label) || 'this environment',
     chatgpt: chatgptDialog(host, open && dialog === 'chatgpt', serial), chatgptConnected: open && dialog === 'chatgpt' && chatgptConnected(host, serial),
     codexPicker: open && dialog === 'codex-picker' && target ? [codexTargetResolver?.(host, target) ?? codexPicker(host, target)].filter(picker => picker !== null) : [],
