@@ -340,6 +340,16 @@ final class FieldCell: NSTextFieldCell {
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
     }
+    /// A borderless cell puts the field editor at the rect it is given (the
+    /// field's bounds), not at its drawing rect: an author-drawn field's
+    /// editor gets its line's rect, so the text and the placeholder stand
+    /// where the cell draws them while it is edited too.
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: (controlView.superview as? NodeView)?.authoredEditorRect(rect, in: rect) ?? rect, in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: (controlView.superview as? NodeView)?.authoredEditorRect(rect, in: rect) ?? rect, in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
             + (numberField != nil ? [.minValue, .maxValue] : [])
@@ -380,6 +390,13 @@ final class SecureFieldCell: NSSecureTextFieldCell {
     }
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
         drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
+    }
+    /// As `FieldCell`'s.
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: (controlView.superview as? NodeView)?.authoredEditorRect(rect, in: rect) ?? rect, in: controlView, editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: (controlView.superview as? NodeView)?.authoredEditorRect(rect, in: rect) ?? rect, in: controlView, editor: textObj, delegate: delegate, event: event)
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }

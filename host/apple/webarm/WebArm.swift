@@ -388,6 +388,7 @@ final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     func build() -> WKWebView {
         controller = WKUserContentController()
+        makeUI().takePrints(on: controller)
         let web = partition == nil ? buildFrame() : buildPartitioned()
         built = web
         web.navigationDelegate = self

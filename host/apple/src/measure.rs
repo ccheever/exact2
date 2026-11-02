@@ -112,7 +112,9 @@ pub struct CRequest {
     pub exclusions: *const crate::textflow::Shape,
     /// Exclusion count.
     pub exclusion_count: usize,
-    /// 1 when the one run is Markdown source the host expands (LLP 1045 D3).
+    /// 1 when the one run is Markdown source the host expands (LLP 1045 D3)
+    /// as a reader shows it; 2 when it is a Markdown text area's value, which
+    /// the host lays out as its editor does (`MARKUP_EDITOR`).
     pub markup: u8,
     /// CSS `text-indent`, points.
     pub text_indent: f32,
@@ -564,7 +566,33 @@ fn sanitize(m: CMetrics) -> TextMetrics {
     }
 }
 
+/// [`CRequest::markup`] for a Markdown text area's value: its editor keeps
+/// the syntax at full advance and draws each atom as a pill (LLP 1045 D5,
+/// LLP 1045.000 §4), so its text is not the reader's paragraph.
+pub const MARKUP_EDITOR: u8 = 2;
+
 impl TextMeasurer for CallbackMeasurer {
+    /// A Markdown text area's text as its editor lays it out
+    /// ([`MARKUP_EDITOR`]), which `field-sizing: content` sizes the field
+    /// by; any other field's is the paragraph engine's.
+    fn field_text(
+        &mut self,
+        _kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        if request.paragraph.markup != exact_kernel::Markup::Markdown {
+            return None;
+        }
+        let f = self.f;
+        Some(sanitize(self.foreign(request, None, |ctx, c| {
+            let editor = CRequest {
+                markup: MARKUP_EDITOR,
+                ..*c
+            };
+            f(ctx, &editor)
+        })))
+    }
+
     fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
         match self.time_format {
             Some(f) => crate::time::format(f, self.ctx, r),
@@ -749,6 +777,51 @@ mod tests {
             height: 20.0,
             baseline: 15.0,
         }
+    }
+
+    #[allow(unsafe_code)] // Borrowed synchronous C callback.
+    extern "C" fn by_markup(_: *mut c_void, request: *const CRequest) -> CMetrics {
+        // SAFETY: the request is alive for this synchronous call.
+        let markup = unsafe { (*request).markup };
+        CMetrics {
+            width: 10.0,
+            height: 20.0 * f32::from(markup + 1),
+            baseline: 15.0,
+        }
+    }
+
+    /// A Markdown text area's text is measured as its editor lays it out
+    /// (`MARKUP_EDITOR`), where its pills and syntax take their room; any
+    /// other field's is the paragraph engine's, as before.
+    #[test]
+    fn a_markdown_text_areas_text_is_its_editors() {
+        let mut m = CallbackMeasurer::new(by_markup, std::ptr::null_mut(), None);
+        let runs = [exact_kernel::TextRun::new(
+            "Fix [a.ts](src/a.ts)",
+            exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default()),
+        )];
+        let mut request = TextMeasureRequest {
+            atoms: Default::default(),
+            exclusions: &[],
+            runs: &runs,
+            paragraph: exact_kernel::text::Paragraph::from_style(
+                &exact_kernel::StyleProps::default(),
+            ),
+            width: AxisOffer::Definite(200.0),
+            height: AxisOffer::MaxContent,
+        };
+        let textarea = exact_kernel::FieldKind::Textarea;
+        assert_eq!(m.field_text(textarea, &request), None, "plain");
+        request.paragraph.markup = exact_kernel::Markup::Markdown;
+        let editor = m
+            .field_text(textarea, &request)
+            .expect("a Markdown field's own");
+        assert_eq!(editor.height, 20.0 * f32::from(MARKUP_EDITOR + 1));
+        assert_eq!(
+            m.measure(&request).height,
+            40.0,
+            "a reader's paragraph stays markup 1"
+        );
     }
 
     /// ExactKit's measure answers by width (CRequest::height is advisory),

@@ -149,7 +149,7 @@ final class AtomAttachment: NSTextAttachment {
     /// The platform's horizontal padding, of the label's font size, as the web's pill has.
     static let padding: CGFloat = 0.3
 
-    private static func font(_ attributes: [NSAttributedString.Key: Any]) -> PlatformFont {
+    static func font(_ attributes: [NSAttributedString.Key: Any]) -> PlatformFont {
         attributes[.font] as? PlatformFont ?? .systemFont(ofSize: 16)
     }
     /// The padding on each inline side: its kind's, else the platform's.
@@ -173,8 +173,7 @@ final class AtomAttachment: NSTextAttachment {
         }
         // Symbol roles name their glyph through the image node, which a face has none of.
         guard !atom.icon.hasPrefix("symbol:") else { return nil }
-        // Three device pixels a point: sharp at every display scale.
-        guard let picture = AtomIcons.image(atom.icon, pixels: Int((size * 3).rounded(.up)), node: atom.node) else { return nil }
+        guard let picture = AtomIcons.image(atom.icon, pixels: Self.pixels(size), node: atom.node) else { return nil }
         #if os(macOS)
         return (NSImage(cgImage: picture, size: CGSize(width: picture.width, height: picture.height)), false)
         #else
@@ -182,23 +181,40 @@ final class AtomAttachment: NSTextAttachment {
         #endif
     }
 
+    /// A picture's pixels for an icon of `size` points: three device pixels
+    /// a point, sharp at every display scale.
+    private static func pixels(_ size: CGFloat) -> Int { Int((size * 3).rounded(.up)) }
+
     /// Whether the pill keeps room for an icon: an SF Symbol there is, or a
-    /// picture, before it arrives too, so its arrival moves no text.
+    /// picture, before it arrives too, so its arrival moves no text; not one
+    /// that could not be read.
     private func hasIcon(_ size: CGFloat) -> Bool {
-        atom.icon.hasPrefix("symbol:sf/") ? icon(size) != nil : !atom.icon.isEmpty && !atom.icon.hasPrefix("symbol:")
+        if atom.icon.hasPrefix("symbol:sf/") { return icon(size) != nil }
+        return !atom.icon.isEmpty && !atom.icon.hasPrefix("symbol:") && !AtomIcons.failed(atom.icon, pixels: Self.pixels(size))
     }
 
     /// The label's width and padding, an icon's, a border's, no wider than
-    /// the line (D4), and a point inside the font's ascender and descender,
-    /// so the line keeps the height it has without the atom (§5.1); a
-    /// border's top and bottom are drawn inside that.
+    /// the line (D4), and the font's height less a point at its ascender, so
+    /// the line keeps the height it has without the atom (§5.1); a border's
+    /// top and bottom are drawn inside that.
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: NSTextLocation, textContainer: NSTextContainer?,
                                    proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
         let face = Self.font(attributes)
+        return Self.bounds(width(face), face: face, line: proposedLineFragment.width)
+    }
+
+    /// The pill's width in `face`, before the line's bound.
+    func width(_ face: PlatformFont) -> CGFloat {
         let label = ceil((atom.label as NSString).size(withAttributes: [.font: face]).width)
         let cap = face.capHeight, room = hasIcon(cap) ? cap + face.pointSize * 0.25 : 0
-        let wide = label + room + 2 * (padding(face) + atom.borderWidth)
-        return CGRect(x: 0, y: face.descender + 1, width: max(1, min(wide, proposedLineFragment.width)), height: face.ascender - face.descender - 2)
+        return label + room + 2 * (padding(face) + atom.borderWidth)
+    }
+
+    /// A pill `width` wide in `face`, no wider than a `line` wide, from the
+    /// font's descender, where the label's descenders end, to a point inside
+    /// its ascender.
+    static func bounds(_ width: CGFloat, face: PlatformFont, line: CGFloat) -> CGRect {
+        CGRect(x: 0, y: face.descender, width: max(1, min(width, line)), height: face.ascender - face.descender - 1)
     }
 
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: NSTextLocation, textContainer: NSTextContainer?) -> AtomImage? {
@@ -217,6 +233,8 @@ final class AtomAttachment: NSTextAttachment {
         let selectedLook = atom.selected && !(atom.exact && atom.ownsSelectedFill)
         let ink = atom.selected && atom.emphasized && !(atom.exact && atom.ownsSelectedInk) ? selectedInk : plainInk
         let symbol = icon(face.capHeight), rtl = atom.rightToLeft(in: attributes)
+        // A picture on its way keeps its room: the label is drawn where it stays.
+        let pending = symbol == nil && hasIcon(face.capHeight)
         let pad = padding(face), edge = atom.borderWidth
         let draw = { (rect: CGRect) in
             let radius = max(0, min(rect.height / 2, atom.radius ?? face.pointSize * 0.3))
@@ -231,7 +249,8 @@ final class AtomAttachment: NSTextAttachment {
             }
             // The icon first, then the label, from the pill's leading edge.
             var lead = rect.minX + pad + edge, trail = rect.maxX - pad - edge
-            let line = face.ascender - face.descender, top = rect.minY + (rect.height - line) / 2
+            // The label's line ends at the pill's bottom, the font's descender.
+            let line = face.ascender - face.descender, top = rect.maxY - line
             if let (image, tinted) = symbol {
                 let side = face.capHeight, baseline = top + face.ascender
                 var frame = CGRect(x: rtl ? trail - side : lead, y: baseline - side, width: side, height: side)
@@ -252,6 +271,9 @@ final class AtomAttachment: NSTextAttachment {
                 (tinted ? image.withTintColor(ink, renderingMode: .alwaysOriginal) : image).draw(in: frame)
                 #endif
                 if rtl { trail -= side + face.pointSize * 0.25 } else { lead += side + face.pointSize * 0.25 }
+            } else if pending {
+                let room = face.capHeight + face.pointSize * 0.25
+                if rtl { trail -= room } else { lead += room }
             }
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail

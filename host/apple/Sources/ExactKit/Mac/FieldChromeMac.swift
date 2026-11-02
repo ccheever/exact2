@@ -119,7 +119,10 @@ final class FieldChromeCache: @unchecked Sendable {
             field.font = font; field.stringValue = "Hg"
             let height = field.fittingSize.height
             let bounds = NSRect(x: 0, y: 0, width: 320, height: height)
-            let rect = field.cell!.drawingRect(forBounds: bounds)
+            // The field editor sets the text in from the cell's drawing rect
+            // by its line fragment padding, as a textarea's inset holds it;
+            // a grouped row's field takes it back (`layoutField`).
+            let rect = field.cell!.drawingRect(forBounds: bounds).insetBy(dx: key.kind & 4 == 0 ? NodeView.editorPadding : 0, dy: 0)
             result = ExactFieldChrome(top: Float(max(0, rect.minY)), right: Float(max(0, 320 - rect.maxX)),
                 bottom: Float(max(0, height - rect.maxY)), left: Float(max(0, rect.minX)),
                 minimum_height: Float(height), provisional: 0)

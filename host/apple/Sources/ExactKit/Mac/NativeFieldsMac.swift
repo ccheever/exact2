@@ -17,11 +17,17 @@ extension NodeView {
     var isNativeTextControl: Bool {
         (field != nil || textArea != nil) && props["markup"] != "markdown" && style["appearance"]?.string != "none"
     }
+    /// The rect a native field's cell sets its text in: the content box's
+    /// line, out by the field editor's line fragment padding, which the
+    /// kernel's chrome holds (`FieldChromeCache.measure`), so the glyphs
+    /// start at the content box's edge. A grouped row's field is out by it
+    /// already (`layoutField`).
     func nativeEditorRect(in proposed: NSRect) -> NSRect? {
         guard isNativeTextControl, let rect = kernelContentBox else { return nil }
         let content = proposed.insetBy(left: rect.minX, top: rect.minY,
             right: max(0, bounds.width - rect.maxX), bottom: max(0, bounds.height - rect.maxY))
-        return field?.font.map { cssLine(in: content, font: $0) } ?? content
+        let line = field?.font.map { cssLine(in: content, font: $0) } ?? content
+        return fieldInCell ? line : line.insetBy(dx: -Self.editorPadding, dy: 0)
     }
     /// An input the author draws (`appearance: none`) has the kernel's
     /// content box for its frame; its line is placed as a native one's, and
