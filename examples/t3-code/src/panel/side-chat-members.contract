@@ -18,6 +18,12 @@ members T3Code
   // A side chat this window starts (the composer's `/side`, the panel's "+" or its launcher) takes the focus to its
   // Bring back once its tab shows, as the reference's pane does (measured on v0.1.6).
   state sideChatFocused = 0
+  // Whether the reader last pressed a key rather than the pointer (a key the window's `keycapture` heard, a press its
+  // `pointerdown` did), as Chromium's :focus-visible reads a script's focus: Bring back, focused as the pane opens, shows
+  // its tooltip after a start from the keyboard (Base UI opens a tooltip on a visible focus) and not after a click.
+  state keyboardLast = false
+  action pointerPressed
+    keyboardLast = false
   task sideChatStarted when sideChatThread != "" and shell.panel.sideChat.started > sideChatFocused key=shell.panel.sideChat.started
     after(1, sideChatFocusPane)
   action sideChatFocusPane

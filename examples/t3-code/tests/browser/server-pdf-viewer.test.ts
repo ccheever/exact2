@@ -46,13 +46,13 @@ describe("a server tab's PDF", () => {
       const config = JSON.parse(browser.pdfViewer.config) as Obj;
       // One frame per runtime and origin: its page narrows its connections to the URL's origin once.
       expect([browser.pdfUrl, browser.pdfViewer.src, config.view, config.src, config.name, browser.pdfViewer.id])
-        .toEqual([signed, VIEWER_PAGE, 'pdf', signed, 'guide.pdf', viewerFrameId(`server-pdf-tab|${browser.runtimeId}|${scope}`)]);
+        .toEqual([signed, VIEWER_PAGE, 'browser-pdf', signed, 'guide.pdf', viewerFrameId(`server-pdf-tab|${browser.runtimeId}|${scope}`)]);
     }
     // A page that is no PDF asset has none.
     expect((await panelView(shown('https://example.com/paper.pdf'), module, 0)).browser.pdfViewer.src).toBe('');
   });
 
-  it("hears its page by the tab's runtime: the config after a boot, and a link opened outside the app", async () => {
+  it("hears its page by the tab's runtime: the config after a boot, a link opened outside the app, and Download", async () => {
     const client = shown('http://127.0.0.1:3773/api/assets/token/guide.pdf');
     const browser = (await panelView(client, module, 0)).browser;
     await surfaceLocal(client, module, 'server-pdf-viewer:{"type":"boot"}', browser.runtimeId, 'tab');
@@ -62,6 +62,8 @@ describe("a server tab's PDF", () => {
     const before = (JSON.parse((await panelView(client, module, 0)).browser.pdfViewer.config) as Obj).key;
     await surfaceLocal(client, module, 'server-pdf-viewer:{"type":"retry"}', browser.runtimeId, 'tab');
     expect((JSON.parse((await panelView(client, module, 0)).browser.pdfViewer.config) as Obj).key).not.toBe(before);
+    // Download fetches the PDF to save it; with no app files to write it to, it says the file could not be loaded.
+    await expect(surfaceLocal(client, module, 'server-pdf-viewer:{"type":"download"}', browser.runtimeId, 'tab')).rejects.toThrow('The file could not be loaded. Try again.');
   });
 
   it('is never an iframe of the URL itself', () => {
