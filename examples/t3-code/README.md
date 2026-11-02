@@ -711,8 +711,9 @@ Differences that belong to the app:
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
 - A server Browser tab's PDF is Chromium's PDF viewer drawn by the viewer page over PDF.js, which reads its signed
   URL (`server-pdf-viewer.ts`, `file-preview-host/src/pdf/browser-pdf-viewer.ts`), where the reference embeds the URL
-  in Chromium's own viewer: an embed would run an HTML answer as a page. Three things differ. Print is hidden, as
-  Chromium hides it where printing is off: no page in Exact can print (clone/issues/match1102-media-pdf-print.md).
+  in Chromium's own viewer: an embed would run an HTML answer as a page. Print prints the PDF's own pages through
+  the platform's print panel, a sheet on the window, as Electron's viewer opens the system's (LLP 1020.002 D5); under
+  the agent it is a `print` request, and `tap @t ok` saves the job under `app:/tmp/print/`. Two things differ.
   Chromium's drawing tools (Draw, Undo, Redo) are not there. Present fills the tab, not the screen. Neither viewer
   has a find bar (Electron draws none). A PDF from another origin loads only when its server
   lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
