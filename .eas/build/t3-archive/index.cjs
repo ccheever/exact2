@@ -1,7 +1,7 @@
 const { createHash } = require('node:crypto');
-const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
+const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs');
 const { join, resolve } = require('node:path');
-const { tmpdir } = require('node:os');
+const { homedir, tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
 
 const fail = (message) => { throw new Error(message); };
@@ -20,91 +20,76 @@ const plistValue = (profile, key) => {
   finally { rmSync(decoded, { force: true }); }
 };
 
-function credentialParts(value) {
-  const credentials = value?.ios ?? value;
-  const certificate = credentials?.distributionCertificate;
-  const profile = credentials?.provisioningProfileBase64 ?? credentials?.provisioningProfile?.dataBase64;
-  if (!certificate?.dataBase64 || !certificate.password || !profile) fail('EAS did not provide an iOS distribution certificate and provisioning profile');
-  return { certificate, profile };
-}
-
-function installSigning(credentials, directory) {
-  const { certificate, profile } = credentialParts(credentials);
-  const p12 = join(directory, 'distribution.p12');
-  const mobileprovision = join(directory, 'T3Code.mobileprovision');
-  writeFileSync(p12, Buffer.from(certificate.dataBase64, 'base64'), { mode: 0o600 });
-  writeFileSync(mobileprovision, Buffer.from(profile, 'base64'), { mode: 0o600 });
-  const uuid = plistValue(mobileprovision, 'UUID');
-  const profileDestination = join(process.env.HOME, 'Library/MobileDevice/Provisioning Profiles', `${uuid}.mobileprovision`);
-  mkdirSync(join(process.env.HOME, 'Library/MobileDevice/Provisioning Profiles'), { recursive: true });
-  writeFileSync(profileDestination, readFileSync(mobileprovision), { mode: 0o600 });
-
-  const keychain = join(directory, 'T3Code-signing.keychain-db');
-  const keychainPassword = `${uuid}-${Date.now()}`;
-  const keychains = run('security', ['list-keychains', '-d', 'user'])
-    .split('\n').map(value => value.trim().replace(/^"|"$/g, '')).filter(Boolean);
-  try {
-    run('security', ['create-keychain', '-p', keychainPassword, keychain]);
-    run('security', ['set-keychain-settings', '-lut', '21600', keychain]);
-    run('security', ['unlock-keychain', '-p', keychainPassword, keychain]);
-    run('security', ['import', p12, '-k', keychain, '-P', certificate.password, '-T', '/usr/bin/codesign']);
-    run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', keychainPassword, keychain]);
-    run('security', ['list-keychains', '-d', 'user', '-s', ...keychains, keychain]);
-    const identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]);
-    const identity = identities.match(/([0-9A-F]{40})/i)?.[1];
-    if (!identity) fail('The EAS distribution certificate did not produce a codesigning identity');
-    return { identity, keychain, keychainPassword, profile: mobileprovision, profileDestination, uuid, keychains };
-  } catch (error) {
-    run('security', ['list-keychains', '-d', 'user', '-s', ...keychains], { stdio: 'ignore' });
-    run('security', ['delete-keychain', keychain], { stdio: 'ignore' });
-    rmSync(profileDestination, { force: true });
-    throw error;
+function provisioningProfilePath(teamId, bundleIdentifier) {
+  const directory = join(process.env.HOME ?? homedir(), 'Library/MobileDevice/Provisioning Profiles');
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.mobileprovision')) continue;
+    const profile = join(directory, entry.name);
+    try {
+      if (plistValue(profile, 'Entitlements.application-identifier') === `${teamId}.${bundleIdentifier}`) return profile;
+    } catch {
+      // Ignore unrelated or stale profile files.
+    }
   }
+  fail(`EAS prepared no provisioning profile for ${bundleIdentifier}`);
 }
 
-function cleanupSigning(signing) {
-  if (!signing) return;
-  run('security', ['list-keychains', '-d', 'user', '-s', ...signing.keychains], { stdio: 'ignore' });
-  run('security', ['delete-keychain', signing.keychain], { stdio: 'ignore' });
-  if (existsSync(signing.profileDestination)) rmSync(signing.profileDestination, { force: true });
+function signingIdentity(teamId) {
+  const listed = run('security', ['list-keychains', '-d', 'user']);
+  const keychains = [...listed.matchAll(/\"([^\"]+)\"/g)].map(match => match[1]);
+  for (const name of readdirSync(tmpdir())) {
+    if (/^eas-build-[\w-]+\.keychain(?:-db)?$/.test(name)) keychains.push(join(tmpdir(), name));
+  }
+  const uniqueKeychains = [...new Set(keychains)];
+  for (const keychain of uniqueKeychains) {
+    if (!existsSync(keychain)) continue;
+    let identities;
+    try { identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]); }
+    catch { continue; }
+    const lines = identities.split('\n').filter(line => /Apple Distribution/.test(line));
+    const line = lines.find(value => value.includes(`(${teamId})`)) ?? lines[0];
+    const identity = line?.match(/\b[0-9A-F]{40}\b/i)?.[0];
+    if (identity) {
+      run('security', ['list-keychains', '-d', 'user', '-s', ...uniqueKeychains, keychain]);
+      return { identity, keychain };
+    }
+  }
+  fail(`EAS prepared no Apple Distribution identity for team ${teamId}`);
 }
 
 exports.default = async function archive(ctx, { inputs, env }) {
+  const teamId = inputs.team_id?.value;
   const buildNumber = inputs.build_number?.value;
+  if (!/^[A-Z0-9]{6,20}$/.test(teamId ?? '')) fail('EAS must provide an Apple team ID');
   if (!/^[1-9]\d*$/.test(buildNumber ?? '')) fail('EAS must allocate a positive remote build number');
-  const directory = mkdtempSync(join(tmpdir(), 't3-code-eas-'));
-  const output = resolve(ctx.workingDirectory, '.exact/t3-production');
+
+  const source = resolve(ctx.workingDirectory);
+  const output = resolve(source, '.exact/t3-production');
   mkdirSync(output, { recursive: true });
-  let signing;
-  try {
-    signing = installSigning(inputs.credentials?.value, directory);
-    const source = resolve(ctx.workingDirectory);
-    const ipa = join(output, 'T3Code.ipa');
-    const command = ['host/apple/build.mjs', '--device', 't3-code-ios', '--archive', ipa];
-    const buildEnv = {
-      ...process.env,
-      ...env,
-      EXACT_APP_DIR: join(source, 'examples/t3-code/mobile'),
-      EXACT_BUILD_NUMBER: buildNumber,
-      EXACT_VERSION: '1.0.0',
-      EXACT_IDENTITY: signing.identity,
-      EXACT_PROFILE: signing.profile,
-      EXACT_UPDATE_TRUST: 'production',
-      EXACT_UPDATE_GENESIS: '1',
-      EXACT_NON_EXEMPT_ENCRYPTION: 'false',
-    };
-    run('bun', command, { cwd: source, env: buildEnv, stdio: 'inherit' });
-    writeFileSync(join(output, 'build.json'), JSON.stringify({
-      appCommit: run('git', ['rev-parse', 'HEAD'], { cwd: source }),
-      buildNumber,
-      version: '1.0.0',
-      bundleIdentifier: 'com.exact.t3code.ios',
-      ipaSha256: digest(ipa),
-      provisioningProfileUUID: signing.uuid,
-      source: command,
-    }, null, 2) + '\n', { mode: 0o600 });
-  } finally {
-    cleanupSigning(signing);
-    rmSync(directory, { recursive: true, force: true });
-  }
+  const ipa = join(output, 'T3Code.ipa');
+  const profile = provisioningProfilePath(teamId, 'com.exact.t3code.ios');
+  const signing = signingIdentity(teamId);
+  const command = ['host/apple/build.mjs', '--device', 't3-code-ios', '--archive', ipa];
+  const buildEnv = {
+    ...process.env,
+    ...env,
+    EXACT_APP_DIR: join(source, 'examples/t3-code/mobile'),
+    EXACT_BUILD_NUMBER: buildNumber,
+    EXACT_VERSION: '1.0.0',
+    EXACT_IDENTITY: signing.identity,
+    EXACT_PROFILE: profile,
+    EXACT_UPDATE_TRUST: 'production',
+    EXACT_UPDATE_GENESIS: '1',
+    EXACT_NON_EXEMPT_ENCRYPTION: 'false',
+  };
+  run('bun', command, { cwd: source, env: buildEnv, stdio: 'inherit' });
+  writeFileSync(join(output, 'build.json'), JSON.stringify({
+    appCommit: run('git', ['rev-parse', 'HEAD'], { cwd: source }),
+    buildNumber,
+    version: '1.0.0',
+    bundleIdentifier: 'com.exact.t3code.ios',
+    ipaSha256: digest(ipa),
+    provisioningProfileUUID: plistValue(profile, 'UUID'),
+    source: command,
+  }, null, 2) + '\n', { mode: 0o600 });
 };

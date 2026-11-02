@@ -4,9 +4,11 @@ build:
     - eas/checkout
     - eas/install_node_modules
     - eas/resolve_build_config
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team
     - t3_archive:
         inputs:
-          credentials: ${ eas.job.secrets.buildCredentials }
+          team_id: ${ steps.resolve_apple_team.apple_team_id }
           build_number: ${ eas.job.version.buildNumber }
     - eas/upload_artifact:
         name: Upload T3 Code IPA
@@ -24,7 +26,7 @@ functions:
     name: Build and inspect signed T3 Code archive
     path: ./t3-archive
     inputs:
-      - name: credentials
-        type: json
+      - name: team_id
+        type: string
       - name: build_number
         type: string
