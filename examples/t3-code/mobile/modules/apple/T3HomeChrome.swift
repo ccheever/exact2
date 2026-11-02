@@ -108,15 +108,6 @@ private final class T3FieldDelegate: NSObject, UITextFieldDelegate {
     func textFieldDidEndEditing(_ textField: UITextField) { editing?(textField, false) }
 }
 
-private final class T3CompactTabDelegate: NSObject, UITabBarDelegate {
-    private let select: (String) -> Void
-    init(select: @escaping (String) -> Void) { self.select = select }
-    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-        guard let id = item.accessibilityIdentifier, id.hasPrefix("workspace-tab-") else { return }
-        select(String(id.dropFirst("workspace-tab-".count)))
-    }
-}
-
 private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
     private let select: (String) -> Void
     private let keys: [String]
@@ -126,27 +117,6 @@ private final class T3SystemTabDelegate: NSObject, UITabBarControllerDelegate {
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
         guard let index = tabBarController.viewControllers?.firstIndex(where: { $0 === viewController }), keys.indices.contains(index) else { return }
         select(keys[index])
-    }
-}
-
-private final class T3WorkspaceTabBar: UITabBar {
-    var onContentLayout: ((CGRect) -> Void)?
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let buttons = tabButtons(in: self) { $0.accessibilityIdentifier?.hasPrefix("workspace-tab-") == true }
-        let identified = buttons.isEmpty ? tabButtons(in: self) { _ in true } : buttons
-        let row = identified.reduce(CGRect.null) { $0.union(convert($1.bounds, from: $1)) }
-        if !row.isNull { onContentLayout?(row) }
-    }
-    override func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-        invalidateIntrinsicContentSize()
-    }
-    private func tabButtons(in view: UIView, matching match: (UIView) -> Bool) -> [UIView] {
-        view.subviews.filter { !$0.isHidden }.flatMap { subview in
-            if subview is UIControl, match(subview) { return [subview] }
-            return tabButtons(in: subview, matching: match)
-        }
     }
 }
 
@@ -257,10 +227,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var filter: UIButton?
     private var compose: UIButton?
     private var dismiss: UIButton?
-    private var compactTabHost: UIView?
-    private var compactTabBar: UITabBar?
-    private var compactCompose: UIButton?
-    private var compactTabDelegate: T3CompactTabDelegate?
     private var systemTabController: T3SystemTabController?
     private var systemTabDelegate: T3SystemTabDelegate?
     private var glassLeading: NSLayoutConstraint?
@@ -380,7 +346,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             // UIKit orders rightBarButtonItems from the trailing edge inward.
             installedRight = [filter, settings]
         } else { installedRight = [settings] }
-        if config.layout == "compact" && route.controller.t3UsesVerticalSystemBar {
+        if config.layout == "compact" {
             let compose = UIBarButtonItem(image: UIImage(systemName: "square.and.pencil"), primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
             compose.accessibilityLabel = "New chat"
             compose.accessibilityIdentifier = "workspace-compose"
@@ -504,79 +470,13 @@ private final class T3HomeChromeView: ExactNativeInstance {
     }
     @available(iOS 26.0, *)
     private func makeCompactTabs(_ route: ExactRoute) {
-        if route.controller.t3UsesVerticalSystemBar {
-            makeSystemTabs(route)
-            return
-        }
-        // New T3 Code keeps Home search in UIKit's integrated header button. The
-        // bottom control is a native tab bar with compose beside it.
-        makeHeaderSearch(route)
-        let item = route.controller.navigationItem
-        item.preferredSearchBarPlacement = .automatic
-        item.searchBarPlacementAllowsToolbarIntegration = false
-
-        let bar = T3WorkspaceTabBar()
-        bar.translatesAutoresizingMaskIntoConstraints = false
-        bar.accessibilityIdentifier = "workspace-tab-bar"
-        bar.itemPositioning = .fill
-        bar.tintColor = .label
-        if #available(iOS 17.0, *) { bar.traitOverrides.horizontalSizeClass = .compact }
-        let host = UIView()
-        host.translatesAutoresizingMaskIntoConstraints = false
-        host.backgroundColor = .clear
-        root.addSubview(host)
-        host.addSubview(bar)
-        let definitions: [(String, String, String)] = [
-            ("threads", "Chats", "text.bubble"),
-            ("pullRequests", "PRs", "arrow.triangle.branch"),
-            ("usage", "Usage", "chart.bar.xaxis"),
-            ("settings", "Settings", "gearshape"),
-        ]
-        bar.items = definitions.map { key, label, symbol in
-            let tab = UITabBarItem(title: nil, image: T3TabIcon.image(UIImage(systemName: symbol)), tag: 0)
-            tab.accessibilityLabel = label
-            tab.accessibilityIdentifier = "workspace-tab-\(key)"
-            if key == "threads" { tab.selectedImage = T3TabIcon.image(UIImage(systemName: "text.bubble.fill")) }
-            return tab
-        }
-        bar.selectedItem = bar.items?.first
-        let tabDelegate = T3CompactTabDelegate { [weak self] key in self?.emit("tab", key) }
-        bar.delegate = tabDelegate
-        var composeConfiguration = UIButton.Configuration.glass()
-        composeConfiguration.cornerStyle = .capsule
-        composeConfiguration.baseForegroundColor = .label
-        composeConfiguration.image = UIImage(systemName: "square.and.pencil")
-        let compose = UIButton(configuration: composeConfiguration, primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
-        compose.translatesAutoresizingMaskIntoConstraints = true
-        compose.accessibilityLabel = "New chat"
-        compose.accessibilityIdentifier = "workspace-compose"
-        host.addSubview(compose)
-        compactTabHost = host; compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
-        bar.onContentLayout = { [weak host, weak bar] frame in
-            guard let host, let bar else { return }
-            let row = bar.convert(frame, to: host)
-            let size = row.height + 8
-            compose.frame = CGRect(x: row.maxX + 26, y: row.midY - size / 2, width: size, height: size)
-        }
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-            host.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -76),
-            host.bottomAnchor.constraint(equalTo: root.bottomAnchor),
-            host.heightAnchor.constraint(equalToConstant: 128),
-            bar.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            // The host already reserves the compact compose slot. Let the
-            // native tab bar fill the remaining host width; reserving -64 here
-            // would subtract the compose slot a second time.
-            bar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-        ])
+        makeSystemTabs(route)
     }
 
     @available(iOS 26.0, *)
     private func makeSystemTabs(_ route: ExactRoute) {
-        // A UITabBarController is the UIKit owner that opts the app into the
-        // iPhone Duo's vertical system rail. A standalone UITabBar is always a
-        // bottom overlay, even when the scene exposes verticalBarEdge.
+        // One UITabBarController owns Home tabs on every iPhone. UIKit chooses
+        // the horizontal bar on phones and the vertical system rail on Duo.
         makeHeaderSearch(route)
         let keys = ["threads", "pullRequests", "usage", "settings"]
         let labels = ["Chats", "PRs", "Usage", "Settings"]
@@ -710,14 +610,13 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabHost?.removeFromSuperview(); compactTabHost = nil; compactTabDelegate = nil
+        bar?.removeFromSuperview(); bar = nil
         if let controller = systemTabController {
             controller.willMove(toParent: nil)
             controller.view.removeFromSuperview()
             controller.removeFromParent()
         }
         systemTabController = nil; systemTabDelegate = nil
-        compactCompose?.removeFromSuperview(); compactCompose = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
