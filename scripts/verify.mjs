@@ -823,9 +823,10 @@ const testEnd = (host, shots, persisted) => async (s, t) => {
 };
 
 /** The authored tests (app.mjs `authoredTests`), a file at a time: `{ passed, failed, results }` (each with its file,
- * its end screen's `end`, and the store it left), with `error` naming each file that does not compile; `{ none }` without
- * a file. A test is numbered by its place in `results`, so its captures' names are its own across the files, and each
- * file after the first runs under a storage name of its own, so a store one file's test left is not another's. */
+ * its end screen's `end`, and the store it left), with `error` naming each file whose tests could not run and why (such
+ * as a compile error, or no simulator chosen); `{ none }` without a file. A test is numbered by its place in `results`,
+ * so its captures' names are its own across the files, and each file after the first runs under a storage name of its
+ * own, so a store one file's test left is not another's. */
 async function tests(host, app, shots) {
   const [{ runTests }, { authoredTests }] = await Promise.all([import('./agent-test.mjs'), import('./app.mjs')]);
   const persisted = persistedStates(app.dir), files = authoredTests(app.dir);
@@ -1168,7 +1169,7 @@ export function report({ host, built, compiler = [], server, tested, checks, rel
   if (tested?.none) out.push('tests: none (no *.test.contract)');
   if (tested?.error) {
     broken++;
-    out.push(`tests: did not compile`, ...tested.error.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => `  ${l}`));
+    out.push(`tests: could not run`, ...tested.error.split('\n').filter((l) => l.trim()).slice(0, 6).map((l) => `  ${l}`));
   }
   if (tested?.results && !(tested.error && !tested.results.length)) {
     failedTests = tested.failed;
