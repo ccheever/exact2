@@ -11,6 +11,11 @@ package protocol TextPresentation: AnyObject {
     /// `atoms` and `atomFaces` JSON (LLP 1045.000; empty for none), in a
     /// paragraph `rtl` says runs right to left.
     func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool) -> [Run]?
+    /// A Markdown text area's value as its editor lays it out: its syntax
+    /// at full advance, a link's destination as nothing, each atom its pill
+    /// (no wider than `width`, when the offer has one); nil where the
+    /// reader's runs stand in.
+    func editorMarkdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool, width: CGFloat?) -> [Run]?
     func attributes(_ run: Run, color: [Double], attributes: inout [NSAttributedString.Key: Any])
     /// The paragraph's whole attributed string, once every run's are set:
     /// what spans runs (an inline box's extent) is read here.
@@ -26,4 +31,5 @@ package extension NSAttributedString.Key {
 
 extension TextPresentation {
     package func finish(_ string: NSMutableAttributedString) {}
+    package func editorMarkdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool, width: CGFloat?) -> [Run]? { nil }
 }

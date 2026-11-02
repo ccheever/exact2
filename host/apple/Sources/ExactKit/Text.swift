@@ -48,6 +48,9 @@ final class PresentedText: TextPresentation {
     func markdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool) -> [Run]? {
         MarkdownLink.installed?.expand(source.text, base: source, color: nil, linkColor: nil, atomColor: nil, boldText: engine.boldTextSteps(source.family), atoms: MarkdownAtoms(kinds: atoms, faces: faces, rtl: rtl))
     }
+    func editorMarkdown(_ engine: TextEngine, source: Run, atoms: String, faces: String, rtl: Bool, width: CGFloat?) -> [Run]? {
+        MarkdownLink.installed?.editorRuns(source.text, base: source, atoms: MarkdownAtoms(kinds: atoms, faces: faces, rtl: rtl), width: width) { engine.font($0) }
+    }
     func attributes(_ r: Run, color: [Double], attributes a: inout [NSAttributedString.Key: Any]) {
         a[.foregroundColor] = r.color.map(TextEngine.color) ?? TextEngine.color(color)
         if r.hidden { a[.exactHidden] = true }

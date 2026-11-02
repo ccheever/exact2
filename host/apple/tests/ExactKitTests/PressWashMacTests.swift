@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// The pressed look's wash (`PressLookMac.swift`) is masked by a picture of
 /// the node. AppKit's backing stores belong to the views that drew them: a
@@ -93,6 +94,71 @@ final class PressWashMacTests: XCTestCase {
         let mask = try XCTUnwrap(wash.mask)
         XCTAssertTrue(Set(contents(mask)).isDisjoint(with: live), "the mask shares a view's backing store")
         button.pressed = false
+    }
+
+    func testRepeatedCanvasCapturesKeepTheLiveLabelAfterItMoves() throws {
+        ExactSurfaces.install()
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "canvas"],
+            ["op": "children", "id": 3, "ids": [1]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 80],
+        ]))
+        window.orderFrontRegardless()
+        settle()
+        let button = try XCTUnwrap(p.views[1])
+        let text = try XCTUnwrap(p.views[2])
+        XCTAssertNotNil(text.canvasAbove)
+        XCTAssertNotNil(text.textRaster, "even small canvas labels need independently owned pixels for capture")
+        let label = CGRect(x: 30, y: 30, width: 150, height: 20)
+        guard let before = onScreen() else { throw XCTSkip("no window server picture") }
+        let originalInk = ink(before, in: label)
+        XCTAssertGreaterThan(originalInk, 40)
+        for step in 0..<6 {
+            autoreleasepool {
+                for _ in 0..<3 {
+                    XCTAssertNotNil(Capture.bitmap(of: button, scale: window.backingScaleFactor))
+                }
+                settle()
+            }
+            let dx = CGFloat(step.isMultiple(of: 2) ? 18 : 0)
+            p.apply(wireBatch([["op": "frame", "id": 2, "x": 10 + dx, "y": 10.0, "w": 150.0, "h": 20.0]]))
+            settle()
+            let shown = try XCTUnwrap(onScreen())
+            XCTAssertGreaterThan(ink(shown, in: label.offsetBy(dx: dx, dy: 0)), originalInk / 2,
+                                 "capture \(step) must not take the live label's backing store")
+        }
+    }
+
+    func testOffscreenDrawingRestoresOwnedCanvasTextWithoutAnotherEdit() throws {
+        ExactSurfaces.install()
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "canvas"],
+            ["op": "children", "id": 3, "ids": [1]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 80],
+            ["op": "style", "id": 2, "style": ["font_size": 52.0, "line_height": 0.6, "text_color": [0, 0, 0, 255]]],
+            ["op": "frame", "id": 2, "x": 10, "y": 10, "w": 150, "h": 31.2],
+        ]))
+        window.orderFrontRegardless()
+        settle()
+        let text = try XCTUnwrap(p.views[2])
+        XCTAssertNotNil(text.textRasterOverflowLayer)
+        XCTAssertFalse(Capture.capturing)
+        let bitmap = try XCTUnwrap(text.bitmapImageRepForCachingDisplay(in: text.bounds))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        text.draw(text.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        XCTAssertNil(text.textRaster, "offscreen drawing temporarily uses direct paint")
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while text.textRaster == nil, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertNotNil(text.textRaster, "the publication pump restores pixels without another edit")
+        XCTAssertNotNil(text.textRasterOverflowLayer?.contents)
     }
 
     /// The red channel at a window point (points, top-left origin).

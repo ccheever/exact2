@@ -28,10 +28,19 @@ extension Capture {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let tree = paintOrderLayer(of: view, root: root)
+        defer { releasePaintCopy(tree) }
         guard let image = picture(of: tree, size: view.bounds.size, scale: scale) else { return nil }
         let rep = NSBitmapImageRep(cgImage: image)
         rep.size = view.bounds.size
         return rep
+    }
+
+    /// Detached copies still participate in the current transaction. Drop
+    /// their borrowed backing stores before commit so AppKit retains its ink.
+    static func releasePaintCopy(_ tree: CALayer) {
+        tree.contents = nil
+        if let mask = tree.mask { releasePaintCopy(mask) }
+        for child in tree.sublayers ?? [] { releasePaintCopy(child) }
     }
 
     /// A layer tree drawn into a bitmap of `size` points, its first row at
