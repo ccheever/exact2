@@ -74,7 +74,8 @@ component PanelResizeRail
     finish(vx, vy)
   view
     box position="absolute" top=0 bottom=0 left=0 width="0.375rem" z-index=28 cursor="col-resize" touch-action="none" pan=dragged panrelease=released hover=hover role="separator" aria-orientation="vertical" aria-label=label testId=testId
-      box position="absolute" top=0 bottom=0 left=0 width=1 pointer-events="none" background-color=(dragging ? "light-dark(#1b4ed899, #346bf199)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000")
+      // On the border itself: the rail starts inside it.
+      box position="absolute" top=0 bottom=0 left=-1 width=1 pointer-events="none" background-color=(dragging ? "light-dark(#1b4ed899, #346bf199)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000")
 
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
@@ -577,9 +578,16 @@ component LinkedPrRowView
           if row.waiting
             text `${row.host}/${row.repository}` min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" letter-spacing=-0.19 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
           else
-            text row.repository max-width="8rem" min-width=0 flex-shrink=1 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+            // MiddleTruncate: the head is cut with the ellipsis, the tail kept whole ("t3-fix…shared-notes").
+            row max-width="8rem" min-width=0 flex-shrink=1 aria-label=row.repository
+              text row.repositoryHead min-width=0 flex-shrink=1 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+              if row.repositoryTail != ""
+                text row.repositoryTail flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
             row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
-              text row.head min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+              row min-width=0 flex-shrink=1 aria-label=row.head
+                text row.headStart min-width=0 flex-shrink=1 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
+                if row.headEnd != ""
+                  text row.headEnd flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true
               text "→" flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)"
               text row.base min-width=0 flex-shrink=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
           box flex=1 min-width=0
