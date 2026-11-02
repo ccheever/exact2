@@ -1,7 +1,7 @@
 import { threadFindTick, threadFindView } from './src/timeline/thread-find-runtime';
 import type { StreamPicked } from './src/browser/server-browser-files';
 import { serverStreamSource, serverStreamPainted, serverStreamInput, serverStreamUpload, serverStreamFrame, serverStreamDecode } from './src/browser/server-browser-runtime';
-import { captureDesktopPip } from './src/browser/browser-desktop-pip';
+import { captureDesktopPips } from './src/browser/browser-desktop-pip';
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
 import { promptLinkView, promptLinksReady } from './src/prompt-links/prompt-link-handler';
 import { keyboardSettings, keybindingSettings } from './src/settings/keybinding-settings';
@@ -108,7 +108,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
     return at;
   }
   if (source === 'serverBrowserUpload') { adoptAppFiles(storage); return native?.available ? serverStreamUpload(client, transport.wrap(native, source) as Native, String(args[0] ?? ''), String(args[1] ?? ''), args[2] as StreamPicked[]) : null; }
-  if (source === 'browserPipCapture') { adoptAppFiles(storage); return captureDesktopPip(client, String(args[0] ?? ''), Number(args[1]) || 0); }
+  if (source === 'browserPipCapture') { adoptAppFiles(storage); return captureDesktopPips(client); }
   if (source === 'serverBrowserDecode') { adoptAppFiles(storage); return serverStreamDecode(client, String(args[0] ?? '')); }
   if (source === 'serverBrowserStatus') { noteNow(client, Number(args[1]) || 0); return serverStreamFrame(client, String(args[0] ?? '')); }
   if (source === 'serverBrowserFrame') return serverStreamSource(client, String(args[0] ?? ''), String(args[1] ?? ''));

@@ -325,11 +325,10 @@ export type BrowserFrameView = {
 };
 /** A desktop tab's separate preview window (browser-desktop-pip.ts; browser-shapes.contract `BrowserDesktopPip`). */
 export type BrowserDesktopPipView = { show: boolean; runtimeId: string; frameId: string; title: string; request: number };
-export const EMPTY_DESKTOP_PIP: Readonly<BrowserDesktopPipView> = { show: false, runtimeId: '', frameId: '', title: '', request: 0 };
-export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand; pip: BrowserPipView; desktopPip: BrowserDesktopPipView };
+export type BrowserFramesView = { frames: BrowserFrameView[]; namers: BrowserFrameView[]; command: FrameCommand; pip: BrowserPipView; desktopPips: BrowserDesktopPipView[] };
 export const EMPTY_FRAME: BrowserFrameView = { frameId: '', src: 'about:blank', partition: '', zoom: 1, colorScheme: 'system', environment: '', profile: '', place: '', pageWidth: 0, pageHeight: 0,
   held: false, heldWidth: 0, heldHeight: 0, promptType: '', promptTitle: '', promptMessage: '', promptDefault: '' };
-export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND, pip: emptyBrowserPip(), desktopPip: { ...EMPTY_DESKTOP_PIP } });
+export const emptyFramesView = (): BrowserFramesView => ({ frames: [], namers: [], command: NO_COMMAND, pip: emptyBrowserPip(), desktopPips: [] });
 /** A hidden page that must keep drawing, and the size it last laid out at. */
 export type FrameHold = (runtimeId: string) => { width: number; height: number } | null;
 /** The layer's frames: the panel's tab placed in its slot (`panel`: its runtime id and fixed viewport, if it shows one), the
@@ -347,5 +346,5 @@ export function frameLayerView(owner: object, panel: { runtimeId: string; pageWi
     });
   }
   const namers = [...store.namers.keys()].map(partition => ({ ...EMPTY_FRAME, frameId: namerIdOf(partition), partition }));
-  return { frames: layer, namers, command: frameCommandView(owner), pip: emptyBrowserPip(), desktopPip: { ...EMPTY_DESKTOP_PIP } };
+  return { frames: layer, namers, command: frameCommandView(owner), pip: emptyBrowserPip(), desktopPips: [] };
 }

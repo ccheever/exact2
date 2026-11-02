@@ -9,6 +9,7 @@ use TipBubble from "../shell/shell-tip.contract"
 use BrowserCapture from "./browser-shapes.contract"
 use BrowserMini from "./browser-shapes.contract"
 use BrowserDesktopPip from "./browser-shapes.contract"
+use BrowserPipShot from "./browser-shapes.contract"
 use ChatCanvasMini from "../shell/chat-canvas.contract"
 
 // animate-status-pulse (status-pulse 2s infinite): full, then half opacity; reduced motion holds it still.
@@ -268,20 +269,29 @@ component BcPillButton
         BcIcon(name=icon, size=14, color="light-dark(#18181b, #f5f5f5)")
       TipBubble(label=tip, side="top", align=align, offset=28, inset=0, shown=tipShown)
 
-// The separate preview window (Manager.ts openPictureInPicture): Electron's floating panel, "Preview · <title>", 480 by
-// 320 at first and at the page's aspect, here Exact's panel (LLP 1042 §9.1) over a hidden image of the tab's latest
-// capture (server-browser-members.contract `desktopPipPicture`). Its close is `leavepictureinpicture`; a failure is
-// `pictureinpictureerror`, the reference's toast; the image unmounted closes the window.
+// A tab's separate preview window (Manager.ts openPictureInPicture): Electron's floating panel, "Preview · <title>",
+// 480 by 320 at first and at the page's aspect, here Exact's panel (LLP 1042 §9.1), one per tab (§9.2), over a hidden
+// image of the tab's latest capture (server-browser-members.contract `desktopPipPictures`). The image's first picture
+// opens it. Its close is `leavepictureinpicture`; a failure is `pictureinpictureerror`, the reference's toast; the
+// image unmounted closes the window.
 component DesktopBrowserPip
   props
     pip: BrowserDesktopPip
     local: action
   inject
-    desktopPipPicture: string
+    desktopPipPictures: BrowserPipShot[]
+  state asked = false
+  derive picture = desktopPipPictures.filter((shot) => shot.request == pip.request).map((shot) => shot.path).join("")
+  action loaded
+    if not asked
+      asked = true
+      requestPictureInPicture(`browser-desktop-pip-${pip.request}`, presentation="panel", title=pip.title, width=480, height=320)
+  action broken(message: string)
+    loaded()
   action left
     local("surface-browser-desktop-pip-left", pip.runtimeId, "")
   action failed(message: string)
     local("surface-browser-desktop-pip-failed", pip.runtimeId, message)
   view
-    if desktopPipPicture != ""
-      image desktopPipPicture id="browser-desktop-pip" leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="browser-desktop-pip"
+    if picture != ""
+      image picture id=`browser-desktop-pip-${pip.request}` load=loaded error=broken leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="browser-desktop-pip"
