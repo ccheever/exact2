@@ -6051,10 +6051,10 @@ logs, source revision, commands and exit statuses reproduce these counts.
 
 Shelf and Excord, both rendering devices and all five permitted desktop
 journeys pass at `cc9e9d0377`, rebased by the orchestrator onto `8ae83ea70a`.
-The declared-game path remains unqualified: both game builds fail before
-launch. The first `exact-windows` run also fails its existing modal-deadline
-assertion; the same command and profile pass on the second run. The cause
-is not established. This is not a zero-failure qualification.
+The declared-game path passes in the follow-up at `415314d1dc` below; both
+builds failed before launch at `cc9e9d0377`. The first `exact-windows` run
+also fails its existing modal-deadline assertion; the same command and
+profile pass on the second run. The cause is not established. This is not a zero-failure qualification.
 
 Charlie restored access at 15:40 PST. The NucBox reports a 12:10:49 restart;
 the orchestrator removed the previous tasks and fixture before this run.
@@ -6069,15 +6069,15 @@ files are under `target/win-qual/nucbox/` in this worktree. The existing
 `target/win-default/` evidence is untouched. No performance result is
 predicted or measured.
 
-| Item and prediction | Outcome at `cc9e9d0377` |
+| Item and prediction | Outcome (`cc9e9d0377`; game follow-up at `415314d1dc`) |
 | --- | --- |
 | 1. Shelf and Excord build with `fxc` present | Pass: both package their Windows executables. |
 | 2. `exact-windows` passes | Miss on round 1: 39 pass, one fails, one is ignored. Round 2 passes 40 with one ignored, using the same explicit package-profile override. |
 | 3. Ink, pinned, text and image pass on both devices | Pass on each: 54 Ink, 103 pinned, 217 text and three image tests. Ignored tests remain ignored. |
 | 4. Five default-arm journeys pass per device and assert Ink in frame 1 | Pass: all ten journeys. The first DPI operator failed before launching a test because PowerShell cannot return a process for the Settings URI; the corrected operator passes both devices. |
 | 5. Excord's agent reports default Ink/direct D3D11 and baked CPU | Pass on corrected drives. The first drives wrongly looked for smoke output in agent logs; `state.painter` reports both choices. Both drives scroll, edit an unsent draft and open the account menu. |
-| 6. A scaffolded Windows game reports CPU with no key and Ink with an explicit key | Miss: neither executable builds, so neither window launches. Both fail with E0425 in the Windows host's accessibility calls. |
-| 7. Missing `fxc` refuses the default app, permits baked CPU and permits a default game | The app refusal and CPU build pass. The game build fails on the accessibility dependency, after passing the shader-compiler guard. |
+| 6. A scaffolded Windows game reports CPU with no key and Ink with an explicit key | Miss at `cc9e9d0377`: both builds fail with E0425. Pass at `415314d1dc`: both windows reach the world after Play and exit 0 after 120 frames, asserting CPU and Ink respectively with `EXACT_PAINTER` absent. |
+| 7. Missing `fxc` refuses the default app, permits baked CPU and permits a default game | The app refusal and CPU build pass at `cc9e9d0377`. The game build fails there, then passes without `fxc` at `415314d1dc`; the explicit Ink build passes with the SDK restored. |
 | 8. Headless Ink opens one device and CPU opens none | Pass: agent, smoke, screenshot and explicit headless Ink each open one D3D11 device; the CPU agent opens zero. The window's discarded extra device is absent. |
 
 The suite recipe is `native.py`: `EXACT_PAINTER` is absent,
@@ -6156,12 +6156,11 @@ error[E0425]: cannot find function `windowless_site` in crate `accesskit_windows
 error[E0425]: cannot find function `embed_windowless` in crate `accesskit_windows`
 ```
 
-The generated game workspace resolves the registry dependency; the root
-workspace patches it to `vendor/accesskit-windows`. No game dependency or
-runtime code is changed in this qualification. Stop this game attempt here:
-`QUEUE.md` names the build repair and the two launches still owed. The raw
-game fixture's diary records the build failure. Its no-painter manifest is
-restored after the explicit Ink attempt.
+At `cc9e9d0377`, the generated game workspace resolves the registry
+dependency; the root workspace patches it to `vendor/accesskit-windows`.
+The game follow-up below repairs and qualifies that build. The raw fixture's
+diary retains the failure, and its no-painter manifest was restored after
+the explicit Ink attempt.
 
 `evidence.tar.gz` contains 415 files, including the SHA-256 manifest of its
 414 raw inputs. Its SHA-256 is
@@ -6179,10 +6178,10 @@ listeners. `pid-ledger-complete.json` and `pids.md` retain the process
 receipts. Settings PID 12872 predates the DPI operator and is left open;
 the scale is restored to 100%. Both owned SSH masters are closed.
 
-The game builds and painter reports remain owed, alongside investigation
-of the modal-deadline failure. The Ink-window game handoff and optional
-Excord RichEdit input remain separate unqualified work. Sleep/wake remains
-excluded from unattended runs.
+The game builds and painter reports pass at `415314d1dc` below. Investigation
+of the modal-deadline failure remains owed. The Ink-window game handoff and
+optional Excord RichEdit input remain separate unqualified work. Sleep/wake
+remains excluded from unattended runs.
 
 The following suite result lines are verbatim from this run's `checks/`.
 
@@ -6251,3 +6250,128 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; fin
 This record changes no Rust or guide. The prediction of zero failures in
 staged caps and `cargo fmt --all -- --check` is met. Their commands, exit
 statuses and raw output are retained under `target/win-qual/mac/`.
+
+### Game build follow-up at `415314d1dc` (2026-11-01)
+
+The scaffolded game now builds and launches on Windows. Its absent painter
+selects CPU and keeps the module's window presentation; an explicit Ink
+painter selects direct D3D11. The default game also builds without `fxc`.
+These are path and build qualifications, with no performance comparison.
+
+`game/Cargo.toml` now names the root's vendored `accesskit_windows`.
+`game/app/shells.lock` is refreshed through `bun game/app/shells.mjs
+--update-lock`; `game/Cargo.lock` retains Cargo's unused-patch entry.
+The named Mac regression test uses the existing `outsideWorkspaceProblems`
+check on both the game workspace and a generated shell workspace. It checks
+every root patch against the same resolved vendor path. This keeps the check
+beside the generator's tests; games generate their workspace before Cargo
+resolves it. `gameShells` rereads the source manifest on each call, before
+`lockedMetadata` checks the generated manifest's stat, so no stamp changes.
+
+The first Windows retry at `2c2f37ef00` clears the AccessKit failure but finds
+another missing declaration: the baked Windows entry names
+`exact_linux::Composed` and `exact_linux::package::Entry`, while its shell
+links only `exact-windows`. `game/app/shells.mjs` now declares `exact-linux`
+for that shell. A second Mac test checks both host dependencies. No Rust
+source changes. The Windows retry at `415314d1dc` reuses the generated
+workspace and passes, also exercising regeneration of its manifest.
+
+| Prediction, written before the invocation | Outcome |
+| --- | --- |
+| The new patch-parity test fails before the patch | Matched: it names the missing vendored `accesskit_windows`. |
+| The new Windows-shell dependency test fails before its fix | Matched: `exact-linux` is absent. |
+| Both regression tests pass after the fixes | Pass: two pass, zero fail. |
+| `exact new` creates the game; naming Windows leaves its painter absent | Pass. `configure-game.mjs` writes the inferred game declaration and calls the existing `namePlatform` helper. |
+| The no-`fxc` and explicit-Ink game builds pass at `2c2f37ef00` | Miss: both fail with E0433 for `exact_linux`, after compiling vendored AccessKit. |
+| Both builds pass at `415314d1dc` | Pass: the no-key game builds with `fxc` hidden; the Ink game builds with it restored. |
+| Both first launch wrappers pass | Miss: both children reach the world and complete 120 frames, but PowerShell returns an empty exit-code property. |
+| Retaining the process handle makes both repeated launches pass | Pass: CPU and Ink are asserted in frame 1, the world is shown, and each child exits 0 after 120 frames. |
+
+The no-`fxc` environment removes PATH entries containing `fxc.exe` and
+points `ProgramFiles(x86)` at an empty SDK root. The SDK files are unchanged.
+The retained command receipts contain both environments, with
+`EXACT_PAINTER` absent. The compiler confirms the dependency source:
+
+```text
+   Compiling accesskit_windows v0.35.2 (C:\Users\Charlie Cheever\projects\exact2-1149-win-default\vendor\accesskit-windows)
+```
+
+The successful builds and repeated launch assertions report:
+
+```text
+Windows: C:\Users\Charlie Cheever\projects\exact2-1149-win-default\target\win-qual\game2\game-cpu-round-2\Qual Game.exe
+Windows: C:\Users\Charlie Cheever\projects\exact2-1149-win-default\target\win-qual\game2\game-ink-round-2\Qual Game.exe
+exact-windows: first-screen painter cpu adapter None
+ASSERT first-frame painter cpu; world first-screen; 120 frames; exit 0; EXACT_PAINTER absent
+exact-windows: first-screen painter ink adapter Some("AMD Radeon(TM) 8060S Graphics (direct D3D11)")
+ASSERT first-frame painter ink; world first-screen; 120 frames; exit 0; EXACT_PAINTER absent
+```
+
+The existing `EXACT_AGENT_WINDOW_TAP=play` hook opens the scaffold's lone
+full-window `world` canvas. Both retained screenshots show its world, player,
+beacons and HUD. With CPU, the unchanged `window_frame` path delegates that
+canvas to `gpu_window_frame`. Its frame 120 reports `present 0.000 ms`,
+consistent with the module presenting inside `window_frame`. This does not
+remeasure LLP 1015.001's frame budget. The Ink-window handoff remains in `QUEUE.md`.
+
+Raw scripts, predictions, command/PID receipts, both failed builds, both
+successful builds and all four launches are retained under
+`target/win-qual/game2/` on the mirror. The copied archive extracts to
+`target/win-qual/game2/nucbox-final/` here. Its 141 files include the manifest
+of 140 raw input hashes, all verified after copying. The archive SHA-256 is
+`125d4ca6311f2cfdab8fa5b40e4711e1334e6396e5ffa2627a6ed07066a2f60f`.
+The archive wrapper also reports an empty PowerShell exit property; the
+archive and every input hash verify. Earlier evidence is untouched.
+
+All three tasks are unregistered: `Exact-WinQual-Game2`,
+`Exact-WinQual-Game2Round2` and `Exact-WinQual-Game2Launches`. The four game
+PIDs, 65036, 66396, 71180 and 70688, exit themselves; none is killed.
+`pid-ledger.json` retains command and wrapper PIDs. `cleanup.log` reports
+zero recorded command PIDs still live and zero remaining tasks. The final
+audit checks all 42 recorded PIDs: none remains live. No fixture or
+power-state command is used.
+
+The first full Mac scaffold run predicted a pass and missed: 10 pass and
+30 fail, chiefly because the newly vendored package is outside the old SDK
+shell lock. Refreshing that lock clears the dependency failures. The next full run predicts
+a pass and misses with 36 passes and four failures. After the Windows-shell
+dependency fix, the final run predicts those same four failures and 37
+passes; that prediction matches. The two focused regression tests pass.
+The four remaining failures are outside this Windows dependency repair:
+
+- The pinned nightly's `rust-lld` cannot load `@rpath/libLLVM.dylib`, already
+  recorded in `QUEUE.md`; the scaffold's web proof cannot link.
+- The long game name makes the generated `hunger` expression fail Rustfmt.
+- The generated-type test expects the old two-name import list.
+- The Beacons file-inventory test omits its manifest, data crate and strings.
+
+The last three share one follow-up line in `QUEUE.md`. No further retry is
+made. Raw Mac outputs are `mac-tests.log`, `mac-tests-round-2.log`,
+`mac-tests-round-3.log` and `mac-regressions.log` under
+`target/win-qual/game2/`. Their result lines are verbatim:
+
+```text
+ 10 pass
+ 30 fail
+Ran 40 tests across 1 file. [18.86s]
+
+ 36 pass
+ 4 fail
+Ran 40 tests across 1 file. [392.86s]
+
+ 37 pass
+ 4 fail
+Ran 41 tests across 1 file. [386.40s]
+
+ 2 pass
+ 39 filtered out
+ 0 fail
+Ran 2 tests across 1 file. [929.00ms]
+```
+
+Staged caps and `cargo fmt --all -- --check` pass after the source and
+record changes. Caps reports `All budgets within cap. 10 categories
+inspected.`; formatting exits 0 with no output.
+No guide under `docs/` or Rust source changed, so guide tests and Clippy
+are not rerun in this follow-up. The Windows game builds and painter
+reports are no longer owed; the four Mac scaffold-test failures remain.

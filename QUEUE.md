@@ -1745,14 +1745,6 @@ and the Linux headless CPU renderer without claiming display frame timing.
   exists, games must keep the CPU painter so the module owns presentation.
   Qualify the handoff against LLP 1015.001's frame p50 of 7.22 ms at
   1280×720 and 10.83 ms at 1920×1080 before changing the game path.
-- **A scaffolded Windows game cannot build with the SDK's accessibility calls**
-  (2026-11-01, Windows default qualification at `cc9e9d0377`). The generated
-  game workspace lacks the root workspace's `accesskit_windows` patch;
-  `exact-windows` fails with E0425 for `embed_windowless` and `windowless_site`.
-  Carry that dependency into the game workspace, then repeat the no-painter
-  build without `fxc`, the explicit Ink build with it, and both window
-  painter reports. Raw logs: `target/win-qual/nucbox/checks/{fxc-game-build,
-  game-ink-build}.log` in the Windows-default worktree.
 - **Windows modal deadline may flake** (2026-11-01, Windows default review).
   `modal::tests::native_modal_and_carrier_deadlines_cancel_rearm_and_release`
   failed in `about_to_wait_honors_retry_pending_redraw_and_earlier_timer`:
@@ -1827,3 +1819,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
   un-normalizing Parley's coordinates (including `avar` and `fvar`) or carrying
   the requested values. Repeat the audit before admitting variable faces.
 - The JS build should ask a `render=build` route's `pages=` source and render each page (`host/web-js/src/emit.rs` `build_pages` skips parameterised routes; only the Rust render entry asks the source). An app `exact new` made cannot pre-render `/product/:id` today (docs/agent-pitfalls.md, "Websites").
+
+- **Game scaffold tests need current template expectations** (2026-11-01): `game/new.test.mjs` fails long-name Rust formatting, the generated type's import-list expectation and Beacons' tracked-file inventory; retained output is `target/win-qual/game2/mac-tests-round-3.log` in the Windows-default worktree.
