@@ -26,7 +26,7 @@ final class PictureInPictureHost {
     private(set) var window: PictureInPictureWindow?
     #endif
 
-    /// The request's options (LLP 1042 §9.1): `presentation="window"` and how that window opens.
+    /// The request's options (LLP 1042 §9.1): `presentation=` and how Exact's window opens.
     struct Options: Equatable {
         /// `"window"` or `"panel"`, Exact's window; nil, the platform's.
         var presentation: String?
