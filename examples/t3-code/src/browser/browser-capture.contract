@@ -294,4 +294,4 @@ component DesktopBrowserPip
     local("surface-browser-desktop-pip-failed", pip.runtimeId, message)
   view
     if picture != ""
-      image picture id=`browser-desktop-pip-${pip.request}` load=loaded error=broken leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="browser-desktop-pip"
+      image picture id=`browser-desktop-pip-${pip.request}` load=loaded error=broken leavepictureinpicture=left pictureinpictureerror=failed aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`browser-desktop-pip-${pip.request}`
