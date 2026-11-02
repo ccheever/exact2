@@ -335,6 +335,9 @@ final class FieldCell: NSTextFieldCell {
     override func titleRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
     }
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
             + (numberField != nil ? [.minValue, .maxValue] : [])
@@ -370,6 +373,9 @@ final class SecureFieldCell: NSSecureTextFieldCell {
     }
     override func titleRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.titleRect(forBounds: rect)
+    }
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        drawingAntialiased(fieldNode?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
     }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }

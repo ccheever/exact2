@@ -10,6 +10,8 @@
 //   timeline-files.contract       FileTypeIcon: each Pierre icon's paths, opacities, fill rules and tint
 //   mobile/file-icons.contract    the iOS app's FileTypeIcon: the same, without file-icon-marks.mjs's icons
 //   timeline-files-tables.ts      Pierre's file-name and extension tables (timeline-files.ts resolves with them)
+//   assets/file-icons/            each Pierre icon, and Lucide's folder, as an SVG per scheme in its tint: the
+//                                 composer chips' icons (composer-chip-presentation.ts), an image source a pill draws
 //   data/pierre-icons.tsv         the same tables for the Markdown module's file chips (pierre_icons.rs)
 //   icons.contract, shell-icons.contract, sidebar-icons.contract, timeline-icons.contract,
 //   panel-icons.contract, settings-icons.contract, provider-icons.contract, diff-glyphs.contract,
@@ -555,11 +557,35 @@ const brandsContract = () => `${header(`The source-control marks (icon-marks.mjs
 ${markComponents(SOURCE_CONTROL_MARKS)}
 `;
 
+/** One SVG file per token and scheme, its tint resolved, for the composer's pills: an atom's icon is an image source
+ *  in its own colours, so each scheme has its own file (PierreEntryIcon draws the sprite in the resolved theme's). */
+async function chipIconFiles(symbols, tints) {
+  const halves = tint => /^light-dark\((#[0-9a-f]+),\s*(#[0-9a-f]+)\)$/i.exec(tint)?.slice(1) ?? [tint, tint];
+  const svg = (viewBox, paths) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${paths.join('')}</svg>\n`;
+  const out = [];
+  for (const token of [...symbols.keys()].sort()) {
+    const { viewBox, paths } = symbols.get(token);
+    const tint = token.endsWith('-plain') ? tints.fallback : tints.tints.get(token) ?? tints.fallback;
+    halves(tint).forEach((ink, dark) => {
+      const ink_ = paint => (paint === 'currentColor' ? ink : paint);
+      const shapes = paths.map(p => `<path d="${p.d}" fill="${ink_(p.fill)}"${p.opacity !== 1 ? ` opacity="${p.opacity}"` : ''}${p.rule !== 'nonzero' ? ` fill-rule="${p.rule}"` : ''}`
+        + (p.stroke !== 'none' ? ` stroke="${ink_(p.stroke)}" stroke-width="${p.width}" stroke-linecap="${p.cap}" stroke-linejoin="${p.join}"` : '') + '/>');
+      out.push({ file: join(example, 'assets', 'file-icons', `${token}-${dark ? 'dark' : 'light'}.svg`), text: svg(viewBox, shapes) });
+    });
+  }
+  // A folder, or a path the server has not described, is Lucide's, in the muted icon colour (PierreEntryIcon's fallback).
+  const folder = flatten(await lucideNode(lucideNames().get('folder')));
+  ['#71717b', '#a3a3a3'].forEach((ink, dark) => out.push({ file: join(example, 'assets', 'file-icons', `folder-${dark ? 'dark' : 'light'}.svg`),
+    text: svg('0 0 24 24', [`<path d="${folder}" fill="none" stroke="${ink}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`]) }));
+  return out;
+}
+
 export async function generate() {
   const pierre = pierreModule(), symbols = pierreSymbols(pierre), tints = pierreTints();
   const tables = fileTables(pierre);
   const lucide = await lucideSet();
   return [
+    ...await chipIconFiles(symbols, tints),
     { file: join(example, 'src', 'settings', 'settings-b-lucide.ts'), text: lucide },
     // The iOS app's bake captures only mobile/, so its project icon picker reads its own copy.
     { file: join(example, 'mobile', 'shared', 'settings-b-lucide.ts'), text: lucide },

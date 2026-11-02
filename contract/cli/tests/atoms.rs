@@ -295,6 +295,69 @@ fn a_malformed_atom_press_is_refused_before_it_runs() {
     }
 }
 
+/// An atom's own style and its states' (LLP 1045.000 D3, D4): what moves
+/// the text in its kind's row, the paint by state as kernel rows, which the
+/// decorations table reads as it reads a kind's colours.
+#[test]
+fn an_atoms_style_and_states_reach_its_tables() {
+    let source = r##"atom mention prefix="@" padding-inline="0" border-radius="4px" border="1px solid #d4d4d8"
+  :hover
+    text-decoration-line="underline"
+  :checked
+    outline="2px solid light-dark(#2563eb, #60a5fa)"
+    outline-offset="-2px"
+    border-radius="6px"
+atom skill prefix="$" padding-inline="0.25em"
+component App
+  state d = ""
+  view
+    textarea value=d markup="markdown" atoms="mention skill" testId="editor"
+"##;
+    let runner = boot(source);
+    assert_eq!(
+        json_prop(&runner, "editor", PropId::Atoms),
+        json!([
+            {"name": "mention", "prefix": "@", "padding": "0px", "border": 1.0},
+            {"name": "skill", "prefix": "$", "padding": "0.25em"},
+        ])
+    );
+    let styles = json_prop(&runner, "editor", PropId::AtomStyles);
+    let radius = |r: &str| {
+        [
+            StyleId::BorderRadiusTopLeft,
+            StyleId::BorderRadiusTopRight,
+            StyleId::BorderRadiusBottomRight,
+            StyleId::BorderRadiusBottomLeft,
+        ]
+        .map(|id| json!([id as u16, r]))
+    };
+    let border = [
+        StyleId::BorderColorTop,
+        StyleId::BorderColorRight,
+        StyleId::BorderColorBottom,
+        StyleId::BorderColorLeft,
+    ]
+    .map(|id| json!([id as u16, "#d4d4d8"]));
+    let own: Vec<Json> = radius("4px").into_iter().chain(border).collect();
+    assert_eq!(styles["mention"], Json::Array(own));
+    assert_eq!(
+        styles["mention:hover"],
+        json!([[StyleId::TextDecorationLine as u16, "underline"]])
+    );
+    let mut checked = vec![
+        json!([StyleId::OutlineColor as u16, "light-dark(#2563eb, #60a5fa)"]),
+        json!([StyleId::OutlineWidth as u16, 2.0]),
+        json!([StyleId::OutlineOffset as u16, -2.0]),
+    ];
+    checked.extend(radius("6px"));
+    assert_eq!(styles["mention:checked"], Json::Array(checked));
+    assert_eq!(styles["skill"], json!([]));
+    assert!(styles.get("skill:hover").is_none());
+    let table = exact_runner::decorations::StyleTable::decode(&styles.to_string()).unwrap();
+    let checked = table.get("mention:checked").unwrap();
+    assert!(checked.mask.has(StyleId::OutlineWidth) && checked.mask.has(StyleId::OutlineOffset));
+}
+
 #[test]
 fn the_compiler_refuses_what_an_atom_cannot_be() {
     let field = |decl: &str, attrs: &str| {
@@ -312,6 +375,21 @@ fn the_compiler_refuses_what_an_atom_cannot_be() {
         (field("atom a link=\"x:\"\natom b link=\"X:\"", "atoms=\"a b\""), "lower-atom-duplicate"),
         (field("atom a link=\"relative\"\natom b link=\"relative\"", "atoms=\"a b\""), "lower-atom-duplicate"),
         (field("atom a link=\"x:\"", "atoms=\"b\""), "lower-atom-unknown"),
+        // Its style: lengths in px (padding also em), one value each.
+        (field("atom a link=\"x:\" padding-inline=\"10%\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" border-radius=\"4px 2px\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" padding=\"0\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" text-decoration-line=\"line-through\"", "atoms=\"a\""), "lower-atom-style"),
+        // A line with no style draws none, as CSS's initial `none`: refused, not ignored.
+        (field("atom a link=\"x:\" outline=\"2px #2563eb\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" border-width=\"1px\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" outline-color=\"#2563eb\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\" outline=\"2px solid notacolour\"", "atoms=\"a\""), "lower-attr-value"),
+        // A state paints; what moves the text is the atom's own.
+        (field("atom a link=\"x:\"\n  :hover\n    padding-inline=\"2px\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\"\n  :checked\n    border=\"1px solid red\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\"\n  :active\n    color=\"red\"", "atoms=\"a\""), "lower-atom-style"),
+        (field("atom a link=\"x:\"\n  :hover\n    role=\"link\"", "atoms=\"a\""), "lower-atom-style"),
         (
             "atom a link=\"x:\"\ncomponent App\n  state d = \"\"\n  view\n    textarea value=d atoms=\"a\"\n".into(),
             "lower-atom-field",

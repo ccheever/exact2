@@ -343,13 +343,17 @@ fn the_outline_is_every_heading_in_order() {
 /// would fail loudly if block detection regressed on real documents.
 #[test]
 fn this_repositorys_own_documents_parse_into_blocks() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../llp");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs");
     let mut files = 0;
     let mut headings = 0;
     let mut tables = 0;
-    for entry in std::fs::read_dir(&root).expect("llp/") {
+    let entries = std::fs::read_dir(&root)
+        .expect("docs/")
+        .chain(std::fs::read_dir(root.join("recipes")).expect("docs/recipes/"));
+    for entry in entries {
         let path = entry.expect("entry").path();
-        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+        // The lookup card is one untitled screen by design.
+        if path.extension().and_then(|e| e.to_str()) != Some("md") || path.ends_with("card.md") {
             continue;
         }
         let source = std::fs::read_to_string(&path).expect("read");
@@ -359,7 +363,7 @@ fn this_repositorys_own_documents_parse_into_blocks() {
             "{} parsed to nothing",
             path.display()
         );
-        // Every LLP opens with its own `# LLP NNNN:` title.
+        // Every document opens with its own `# ` title.
         assert!(!doc.title.is_empty(), "{} has no title", path.display());
         headings += doc
             .blocks

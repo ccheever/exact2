@@ -492,9 +492,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
-  the composer's and the fields' typed text is a shade heavier than the reference's, which draws
-  all of its text `antialiased`.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
   the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
@@ -760,14 +757,18 @@ above.
   update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description but not
   its "N machines still run … Review" line: Review opens that switch in v0.1.6, and here it would move no machine.
 - A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
-  which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
-  over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks.
+  which follows System Settings › Trackpad › Swipe between pages; v0.1.6 recognises the swipe over wheel events
+  (`HistorySwipeNavigation.tsx`) whatever that setting says. The window root hears AppKit's tracking
+  (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
+  a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
+  sooner, which the arrow cannot know, so it may look unarmed as the step goes.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
-- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
-  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
-  takes no outline from the app.
+- A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
+  default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
+  it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
+  its 30% `Highlight` over the chip.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
@@ -778,13 +779,6 @@ above.
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
   has the keyboard focus, as VoiceOver's cursor does in an AppKit window.
-- When a thread switch replaces a draft in the focused prompt, VoiceOver reads the old draft as it
-  leaves ("see Turn with file edits now", about 0.6 s after VO-Space on a composer thread chip, cutting
-  off "Message, edit text", or after ⌘⇧[; 3 of 3 each); the reference's reads none of it. Exact's
-  textarea writes the new draft into the same text view (`TextAreaMac.swift` `writeValue`), for which
-  AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
-  view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
-  removed text, which VoiceOver does not read.
 - The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
   draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
   pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
@@ -802,17 +796,16 @@ above.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
-- A composer reference's pill has no fill, as v0.1.6's ContextChip has none, and each kind's face carries its own
-  ink (LLP 1045.000 Q11). Two things still differ: its glyph is the nearest SF Symbol (a document for any file, not
-  its file-type icon; no project favicon or image thumbnail), as the Apple editor draws only `symbol:sf/` icons; and
-  its padding and radius are the platform's, where v0.1.6's come from its Tailwind classes (LLP 1045.000 §10 Q2).
+- A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
+  thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
+  image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
+  The other chips, and a thread whose project icon is a monogram, an emoji or a Lucide glyph, show the nearest
+  SF Symbol to v0.1.6's Lucide glyph. The icon is as tall as the text's cap height, where v0.1.6's is 1em.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
-- A composer chip's name does not underline while the pointer is over it, where the reference's
-  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
-  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
-  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
-  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
+- A composer chip's name underlines under the pointer only while the window is key, as AppKit tracks
+  hover; an unavailable reference underlines too, where v0.1.6's is a plain span that does not. An atom
+  kind's `:hover` is the kind's, not one chip's.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
@@ -1514,6 +1507,19 @@ Not reachable with a hub: the combined skipped-records warning (neither app has 
 the ChatGPT card's connected accounts (it lists authenticated providers whose own limits carry an external usage link,
 ChatGPT subscription sharing, which a hub account never is; the app tests cover it), and the fallback model notice
 (below).
+
+**Checked with real input and VoiceOver (2026-11-02, the text lane)** (the bundle of this branch with exact2
+#1273 and #1274 merged in, and the before bundle of `8de4044fb6`, each a lane copy on its own bundle id and `HOME`,
+paired with `second` seeded with `--turns`; keys from the HID event source, VoiceOver read from its caption panel;
+the oracle on its own home and port):
+
+- A thread switch in the focused prompt is silent. With drafts in "Turn with file edits" and "Background thread
+  (completed turn)", ⌘⇧] and ⌘⇧[ with the prompt focused: before, VoiceOver spelled or read part of a draft at 6 of 6
+  switches ("h r e a d", "thread" going forward, "Bravo" going back); now at 0 of 12. exact2 #1274 makes the app's
+  write into a focused textarea post nothing VoiceOver reads from (LLP 1045 D5). The drafts stay with their threads.
+- With Font smoothing on, the prompt's typed text draws `antialiased`, as the reference's does: a draft's ink is 14%
+  lighter than before (4078.6 to 3502.0 at 2×), now drawn as the reference draws its own (exact2 #1273, LLP 1019 D12's
+  Fields).
 
 **Fixed, not checked with real input or VoiceOver:**
 

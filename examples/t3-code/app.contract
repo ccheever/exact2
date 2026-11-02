@@ -175,6 +175,7 @@ component T3Code
     pickerPick
     richComposer
     richComposerOwner
+    scheme // the resolved light or dark scheme, which picks a composer chip icon's file (composerAtomFace)
     composerMoved
     composerBeforeInput
     composerIntentNotice

@@ -1,0 +1,18 @@
+# Code review: feedback nudges and one-line notes, round 3 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra, `codex exec -m gpt-6-astra -c model_reasoning_effort="xhigh" -s read-only --ephemeral`, a throwaway worktree at `88cffa5258`.
+- **Method:** one brief (sha256 `ed23328dd0daf018498e0ca7f45859b3bb23bce96de91307a446b7529d6e576f`), shared by both reviewers, blind to the other review. The author (Claude, fb1) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Response:** every finding is addressed in `83fde38703` except cross-process locking of two simultaneous sends, documented as uncoordinated; round 4 reviews it.
+
+1. **BLOCKER — Credentials and app output still enter notes.** [scripts/feedback-note.mjs:73](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback-note.mjs:73). Read-only evaluation confirmed that `error: response {"password":"hunter2","token":"abc"}` survives both `errorTail()` and `redact()` unchanged. Quoted keys evade the credential regex, while short values pass as names. This is reachable: server startup failures incorporate app stderr into accepted `test:`/`verify:` diagnostics (`scripts/verify.mjs:215,393,1365`). Under `always`, the next note sends it automatically, contradicting the documented exclusions. **Fix:** exclude app/server output at its origin, use structured diagnostic templates with supplied values removed, and mask quoted credential keys and short values. Add coverage through a server-failure diagnostic.
+
+2. **MAJOR — The archive can still mark unsent notes as sent.** [scripts/feedback.mjs:136](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback.mjs:136) and [scripts/feedback.mjs:179](/Users/admin/x2scratch/fb1-rv-astra/scripts/feedback.mjs:179). `pending()` reads the payload, then `sentText` independently rereads each file. Another process appending between those reads produces payload A but archive snapshot A+B; B is subsequently archived without being posted. Archiving also has an unprotected read/write interval, and treats a nonmatching current file as having no unsent remainder, potentially deleting edits or newer notes after overlapping sends. The new test covers only an append during one awaited send. **Fix:** construct the payload and archive record from one snapshot; coordinate append/archive operations and overlapping sends, preserving unmatched contents. Add deterministic multiprocess coverage.
+
+3. **MINOR — Child-only signals still allow a later nudge.** [scripts/app-cli.mjs:202](/Users/admin/x2scratch/fb1-rv-astra/scripts/app-cli.mjs:202). `interrupted` is latched only when the parent receives a signal. If one test child receives SIGTERM directly, its result becomes 143; a subsequent test returning 1 overwrites that result at line 313. The final nudge sees exit 1 and `interrupted=false`, violating silence after interruption. **Fix:** also latch interruption from child signals and signal-style exit statuses. Test a signaled child followed by an ordinary failure; the current test only supplies `interrupted:true` directly.
+
+Confirmed by inspection: refused flags and bare `--backend` now reach logging; both relayed streams receive the bounded drain; parent-delivered interruption persists; same-day throttle and disclosure claims use exclusive creation; docs now say “commit.” Per-project consent, withholding-only `*`, and the `EXACT_FEEDBACK=0` send gate remain intact. Diagnostic privacy and archive preservation are only partially fixed.
+
+The permitted test command produced 2 passes; 11 tests failed during fixture creation because the read-only sandbox denied `mkdtemp` (`EPERM`). The worktree remains unchanged.
+
+VERDICT: CHANGES

@@ -105,7 +105,7 @@ typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
 decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
-atom          = "atom" IDENT style-line ;
+atom          = "atom" IDENT style-line [ block(style-line | state) ] ;
 style-line    = { FIELD "=" style-literal } NL ;
 part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
@@ -1461,9 +1461,29 @@ component Composer
   space; or `prefix="@"`, one of the characters at the start of a word, then a
   bare run or a `"…"` string, followed by white space. A relative link and a
   prefix token are atoms only when a face names their source; a scheme link
-  always is. It may take `role="link"` (a button by default) and `color` and
-  `background-color`; the pill's other metrics are the platform's
-  (`lower-atom-style`). It is scoped and imported as `style` is.
+  always is. It may take `role="link"` (a button by default) and its style,
+  CSS's rows on its line or in an indented block under it: `color`,
+  `background-color`, `border-color`, `border-radius` (one length in px),
+  `outline` (a width, `solid` and a colour, or `none`), `outline-offset` (px,
+  negative inside the pill) and `text-decoration-line` (`underline`, the
+  label's), each also in a `:hover` block (the pointer over the pill) and a
+  `:checked` block (the selection exactly the atom, as a press leaves it); and
+  on its own, `padding-inline` (px or em, both sides) and `border` (`1px solid
+  <colour>`, or `border-width` with `border-style="solid"`). Unsaid, each is the
+  platform's token's. A pill keeps its line's height: its border's top and
+  bottom are drawn inside it, and a ring takes no room (on Apple one that would
+  reach past the pill is cut at its edge). Anything else is `lower-atom-style`.
+  It is scoped and imported as `style` is.
+
+  ```text
+  atom mention prefix="@" padding-inline="0" border-radius="4px"
+    :hover
+      text-decoration-line="underline"
+    :checked
+      outline="2px solid light-dark(#2563eb, #60a5fa)"
+      outline-offset="-2px"
+      border-radius="6px"
+  ```
 - `atoms="a b"` on a `text` or `textarea` with `markup="markdown"` lists the
   kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
   one scheme, a shared prefix character, or both relative are refused
@@ -1471,8 +1491,10 @@ component Composer
 - `atomFaces` takes `AtomFace(source, label, icon, title, color,
   backgroundColor, direction, ariaLabel)` records, keyed by an atom's whole source: equal
   source is one atom, and new text is a new key. An empty label is a link's text
-  or a token without its prefix and quotes; the icon is an image source (the web
-  draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
+  or a token without its prefix and quotes; the icon is an image source, drawn
+  in its own colours (an asset, an `app:/` file, a `data:` or http(s) URL; of
+  the symbols, Apple draws `symbol:sf/<name>` in the pill's ink and the web
+  none). `color` and `backgroundColor`
   paint that atom over its kind's `color` and `background-color`, or are empty
   for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
   a theme entry's name, a role, a `-exact-platform-color()` only as one of the
@@ -1507,9 +1529,9 @@ component Composer
   KB of text, or 16 KB in 256 runs or more, a Markdown text being one run per
   piece.
 
-The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
-icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
-the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
+The web, macOS and iOS draw atoms in the editor and the reader (on Apple the
+reader's pill draws no icon, border, ring or `:hover` paint, and UIKit's smart
+delete takes one of the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
 an atom's label in place and its role only from its own element, which the
 next-item command passes over on macOS and reaches after the field on iOS
 (LLP 1045.000 §10 Q10). Linux, Windows and Android show the source in the
@@ -1626,6 +1648,7 @@ host.
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
+| Zero or one `HistorySwipeEvent` (the action takes it or leaves it) | `historyswipe`, on the navigation root |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop`, `dragenter`, `dragleave` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
@@ -1781,7 +1804,19 @@ The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
 also carry `navigationKey` (the navigation root; its `navigationBack`, naming the
-Back control, is optional). Transform geometry/release
+Back control, is optional). `historyswipe` belongs there too: on macOS it
+hears the two-finger swipe back or forward as AppKit tracks it, so an app can
+draw its own sign of the swipe (an arrow at the window's edge) while the step
+stays the platform's ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md)
+D5.5). Its `HistorySwipeEvent` has `phase` (`"began"`, `"changed"`, then
+`"ended"` just before the step or `"cancelled"` when the lift goes nowhere),
+`direction` (`"back"` or `"forward"`, the way the swipe set out), `amount`,
+AppKit's `gestureAmount` along that way (0 at rest, 1 a whole page; a slow lift
+steps from about 0.25 on macOS 27, a quick one from less), and `clientX` and
+`clientY`, where the pointer was as the swipe began. The swipe follows
+System Settings › Trackpad › Swipe between pages, so with it off nothing comes.
+The web's browser draws its own arrow and tells the page nothing, so the web,
+iOS, Linux and Windows send none. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
@@ -2576,7 +2611,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `setRangeText(id, text[, start, end[, selectionMode]])`: a field's range replacement, one `input`, preserve selection by default; no undo step on a plain field, one on the Markdown editor ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `startTrace_EXPERIMENTAL()`, `stopTrace_EXPERIMENTAL()`: experimental, so named while the trace's fields may still change; a recording of each display-link callback, from which it estimates the frames the display showed again, from an app's own control and in any build, a production one included; `stopTrace_EXPERIMENTAL()` puts the trace on the clipboard as compact JSON and in a `trace-recording-*.json` file in the app's temporary directory; `stopTrace_EXPERIMENTAL(maxBytes)` copies it cut to that many bytes (its totals and scroll segments as rows, then the frames late the longest first, as many as fit), for a conversation that limits a message (a budget too small for its totals gets a note naming the size that fits them), and still saves the whole trace. On iOS it splits each scroll a person makes of an element's scroller, a route's page or the document into its drag and its glide, with an estimate, from the display link's callbacks, of the hitch time ratio Apple's scroll metrics report; a Mac recording follows no scroller. It lists each late frame with the main thread's busy time, overrun, batches and host phases. Apple hosts (tvOS, with no clipboard, only saves the file); the web and Linux refuse it in the journal | [`TraceRecording.swift`](../host/apple/Sources/ExactKit/TraceRecording.swift) |
-| `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
+| `openURL(url)`: an absolute `http`, `https`, `mailto` or `tel` URL, or one of a scheme app.json's `open_url.schemes` declares (`"open_url": {"schemes": ["vscode", "zed"]}`, an editor's deep link), opened by whatever the system registered for it; the web's JS target, macOS and iOS open declared schemes (a browser asks first) and journal one nothing could open, and under the agent journal them instead (`openURL vscode: …`). `openURL(url, id)` also says whether it opened, as Electron's `shell.openExternal` does: `change` at the element `id` names hears `opened` when the system took the URL, or `failed` when it was refused or nothing could open it (no app registered for its scheme, a host with no browser). The web hears `opened` for any URL it hands the browser, which does not say what opened it. Where the agent's drive journals an open instead, macOS answers whether an app is registered for the URL and the other hosts answer `opened` A link's `href` of a declared scheme opens on macOS and iOS, which hand followed links to `openURL`; the web writes no such `href` (its link policy keeps the four schemes). `file`, `javascript`, `data` and the other schemes that run or read content cannot be declared. Any other scheme is refused in the journal ([LLP 1133.000](../llp/1133.000-the-roster.rfc.md) §2) | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js), [`OpenURL.swift`](../host/apple/Sources/ExactKit/OpenURL.swift) |
 | `setScheme(scheme)`: the app's scheme, `"light"`, `"dark"` or `"system"` (follow the system's appearance) | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. The Mac's View ▸ Zoom In multiplies whichever size stands ([The Mac's menu bar](#keys)). A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(title=, text=, url=, files=)`: the system share sheet by the Web Share API's names, at least one of `text`, `url` and `files`, each its own item of the sheet (pass a picture alone to share only it, as a Share Card button does; `contract vocab share`); `url` absolute `http(s)`. `files=` lists `app:/` files, each behind the app's `fs.read` grant (on Apple a regular file of at most 64 MB, reached through no symbolic link), and `"#id"` entries: a PNG of that element as it is drawn now, at the display's scale, named by the share's `title` (else by the id) (iOS and macOS; the web refuses it, `share: refused: a picture of an element is not available on the web`; Android and Linux refuse files). A literal `#id` no element carries is refused here (`lower-share-picture`), a missing one at run time in the journal. Offer it where `exactPage()`'s `canShareFiles` and `canSharePictures` hold (LLP 1125 D12). The outcome is a journal line | [share corpus](../contract/corpus/share.contract), [Metronome](../apps/metronome/app.contract) |

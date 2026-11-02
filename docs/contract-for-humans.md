@@ -1171,9 +1171,10 @@ An action can issue host commands such as `focus("editor")`,
 commands that address a node. The [command inventory](contract-grammar.md#host-commands)
 and linked checks describe the more specialized picker, sharing, formatting,
 scrolling, and delivery commands. Commands are distinct from pure functions:
-`openURL` does not return a Contract value, and a `fn` cannot issue it. The
-compiler does not check most commands' arguments, and hosts differ: the
-JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
+`openURL` does not return a Contract value, and a `fn` cannot issue it; to hear
+whether the URL opened, name an element, `openURL(url, "opened")`, whose `change`
+hears `opened` or `failed`. The compiler does not check most commands'
+arguments, and hosts differ: headless Linux carries neither `focus` nor
 `openURL`. Check the host you target.
 
 A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
