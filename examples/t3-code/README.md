@@ -509,8 +509,9 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
   reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
-  main keeps the limit), so the composer is opaque where the reference's glass shows the
-  transcript through it, and so is the Usage page's segment popover.
+  main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
+  through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
+  (`composer-editor.contract` ComposerGlass), so it moves with the card once the card's new size is measured.
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
@@ -730,8 +731,6 @@ Differences that belong to the app:
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
 - An image inside a link's text has no tooltip and no keyboard menu key.
-- In the composer, a review comment's popover shows its comment and diff as plain text (the
-  reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar

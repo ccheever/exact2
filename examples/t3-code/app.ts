@@ -193,7 +193,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerFieldObserved') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(host, args, composerFieldOwner(host)); }
   if (source === 'composerFieldAcknowledged') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldAcknowledged(host, args, composerFieldOwner(host), native); }
   if (source === 'composerIntent') return composerIntentAnswer(sideChatClient(client, String(args[13] ?? '')), args); // the field's source session: a side chat's is its scope's
-  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return chipPopoverView(sideChatClient(client, String(args[1] ?? ''))); } // args[1]: the composer it serves, a side chat's thread or ''
+  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return highlightView('chip', () => chipPopoverView(sideChatClient(client, String(args[1] ?? '')))); } // args[1]: the composer it serves, a side chat's thread or ''; a review comment's diff and fences are coloured
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
   if (source === 'composerChipPressed') return composerChipPressed(sideChatClient(client, String(args[1] ?? '')), args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);

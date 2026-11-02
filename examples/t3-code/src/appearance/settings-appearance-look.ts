@@ -18,7 +18,7 @@ import { clampInterfaceFontSize, clampPromptFontSize } from './appearance-fonts'
 export type Look = {
   themed: boolean; mode: string;
   canvas: string; sidebar: string; sidebarBorder: string; sidebarText: string; sidebarMuted: string; rowActive: string;
-  surface: string; popover: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
+  surface: string; popover: string; glass: string; border: string; input: string; text: string; muted: string; accent: string; accentText: string; message: string;
   /** ui/wizard.tsx: WizardSteps' bg-background (dark:bg-white/4) and WizardPanel's bg-background/80 (dark:bg-white/2). */
   wizardSteps: string; wizardPanel: string;
   chatMax: number; diff: string;
@@ -76,7 +76,7 @@ export function look(client: T3Client): Look {
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
     terminalFace: terminalFace(prefs.typographyAdvanced ? prefs.fontFamilyTerminal : prefs.fontFamilyCode, prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode, prefs.fontSmoothing),
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
-    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
+    message: messageSurface(prefs, custom, mode), wizardSteps: half(background, '#ffffff0a'), wizardPanel: half(alpha(background, 0.8), '#ffffff05'), surface: pal.surface, popover: pal.popover, glass: pal.glass, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
     diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize),
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
     fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize,
