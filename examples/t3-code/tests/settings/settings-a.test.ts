@@ -243,7 +243,7 @@ describe('terminal appearance in the snapshot', () => {
     const prefs = client.local.clientSettings as Obj;
     let value = look(as(client));
     expect(JSON.parse(value.terminalLight).background).toEqual({ r: 252, g: 252, b: 252 });
-    expect(JSON.parse(value.terminalDark).background).toEqual({ r: 10, g: 10, b: 10 });
+    expect(JSON.parse(value.terminalDark).background).toEqual({ r: 0, g: 0, b: 0 });
     Object.assign(prefs, { themeLight: 'grove', themeDark: 'ocean', fontFamilyCode: 'Menlo', fontSizeCode: 15 });
     value = look(as(client));
     expect(JSON.parse(value.terminalLight).background).toEqual({ r: 243, g: 247, b: 244 });

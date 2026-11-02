@@ -1708,7 +1708,11 @@ router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser'
 Forward and a `link` to a declared route do the same with no handler: the runner goes
 there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
 still needs the handler. A declared but disabled
-control refuses them, as does `closedby="none"` on a sheet. A route whose scroller opens
+control refuses them, as does `closedby="none"` on a sheet. Where the app's own Back and
+Forward go less far than its router (a palette open over the page, a history capped at
+so many visits), bind the root's `navigationHistory` to the ways it offers now (`"back
+forward"`, the default, `"back"`, `"forward"` or `"none"`): on the Mac a way withheld is
+no swipe, menu item or mouse button (`contract vocab navigationHistory`). A route whose scroller opens
 with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
 the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
 transparent header on the web, and the bar's material comes as the content scrolls. On a pushed iOS
@@ -2128,7 +2132,11 @@ unless the app must look like another: `presentation="window"` asks for a
 browser's picture-in-picture window as Chromium draws it on the Mac, and
 `presentation="panel"` for a floating panel with a title bar, each with
 `title=`, `width=` and `height=` (LLP 1042 §9.1); the web shows either in
-Document Picture-in-Picture's window where the browser has one.
+Document Picture-in-Picture's window where the browser has one. On macOS
+each image asked for in a panel gets a panel of its own, while the
+picture-in-picture window (the platform's or `"window"`) holds one image
+at a time, as a browser's does, and moves to the next that asks
+(LLP 1042 §9.2).
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media

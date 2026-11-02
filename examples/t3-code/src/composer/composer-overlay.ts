@@ -29,6 +29,8 @@ export type ComposerOverlay = { transcriptTail: number; scrollLift: number; comp
 
 /** Before the first measurement: an empty expanded composer (118pt card, 20pt foot) and its strip. */
 export const UNMEASURED_INSET = 170;
+/** The overlay's top padding (pt-2): its `overlay` frame leaves it out, and ChatView's reserved height includes it. */
+export const OVERLAY_TOP = 8;
 /** The transcript's end below its last row's own 12pt: the overlay's 8pt top padding and the footer's 16pt, less those 12. */
 const TAIL_GAP = 12;
 /** ScrollToEnd sits at the transcript's foot plus 6: the reference's clearance + 4, its py-1.5 and the overlay's 8pt top padding. */
@@ -63,7 +65,7 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
   hold.content = content; hold.pulls = pulls;
   if (!overlay.length || overlay[3]! <= 0) {
     const tail = (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + TAIL_GAP;
-    return { transcriptTail: tail, scrollLift: (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + LIFT_GAP, composerReserved: hold.inset || UNMEASURED_INSET };
+    return { transcriptTail: tail, scrollLift: (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + LIFT_GAP, composerReserved: hold.inset ? hold.inset + OVERLAY_TOP : UNMEASURED_INSET };
   }
   const [, top, , height] = overlay as [number, number, number, number];
   const measured = Math.ceil(height);
@@ -73,7 +75,7 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
   // the stash's shoulder tab beside an empty dock (it is off to the side of the centred pill).
   const bottom = top + height;
   const clearTop = dock.length && dock[3]! > 0.5 ? top : shoulder.length ? shoulder[1]! + shoulder[3]! : top;
-  return { transcriptTail: hold.applied + TAIL_GAP, scrollLift: Math.ceil(bottom - clearTop) + LIFT_GAP, composerReserved: hold.inset };
+  return { transcriptTail: hold.applied + TAIL_GAP, scrollLift: Math.ceil(bottom - clearTop) + LIFT_GAP, composerReserved: hold.inset + OVERLAY_TOP };
 }
 
 const holds = new WeakMap<object, OverlayHold>();

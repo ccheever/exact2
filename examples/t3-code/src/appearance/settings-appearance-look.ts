@@ -152,7 +152,9 @@ export function terminalTheme(id: string, mode: 'light' | 'dark', custom: Custom
   const builtIn = own ? undefined : TERMINAL_PALETTES[id]?.[mode === 'dark' ? 1 : 0].split(' ');
   const rgb = (hex: string) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
   return JSON.stringify({ dark: mode === 'dark',
-    background: rgb(builtIn?.[0] ?? roles.terminalBackground ?? '#fcfcfc'),
+    // The standard theme sets no --app-theme-* roles, so index.css's `--terminal-background: var(--background)` applies:
+    // the canvas (true black in dark), not the palette's terminal role.
+    background: rgb(builtIn?.[0] ?? (own ? roles.terminalBackground : roles.canvas) ?? '#fcfcfc'),
     foreground: rgb(builtIn?.[1] ?? roles.terminalForeground ?? '#27272a'),
     cursor: rgb(builtIn?.[2] ?? roles.terminalCursor ?? '#26384e'),
     selectionBackground: builtIn?.[3] ?? (own ? roles.terminalSelection : mode === 'dark' ? 'rgba(180, 203, 255, 0.25)' : 'rgba(37, 63, 99, 0.2)'),

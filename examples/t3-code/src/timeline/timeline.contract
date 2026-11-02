@@ -75,11 +75,14 @@ component TimelineRow
     hoverPart: action
     // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
+  // MessagesTimeline's parent link ("Subagent of", a side chat's "Context from") is the list's header: 0.5rem above it
+  // (pt-2) and nothing below.
+  derive parentLink = message.kind == "fork" and (message.icon == "bot" or message.icon == "messages-square")
   view
-    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
+    column id=`row-${message.id}` hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? (parentLink ? 0.5 * rem : lead) : 0) padding-left="3rem" padding-right="3rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
-      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${(message.kind == "user" and message.groupedNext ? 4 : rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta)) / 16}rem`
+      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${(message.kind == "user" and message.groupedNext ? 4 : (parentLink ? 0 : rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta))) / 16}rem`
         if message.kind == "user"
           UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme, seen=seen)
         else if message.kind == "workflow"
@@ -87,9 +90,10 @@ component TimelineRow
         else
           if message.kind == "checkpoint"
             if message.fileCount > 0
-              column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top=(message.attached ? "1rem" : "0px") box-sizing="border-box"
+              // Attached, the card sits 1rem under the answer's text (mt-4), whose row already ends in 0.125rem of padding.
+              column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top=(message.attached ? "0.875rem" : "0px") box-sizing="border-box"
                 ChangedFiles(message=message, command=command, local=local, diffScheme=diffScheme)
-                RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                RowActions(answer=false, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
           else
             if message.kind == "fork"
               row width="100%" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box"
@@ -102,12 +106,12 @@ component TimelineRow
             else
               if message.kind == "meta"
                 column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
-                  RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                  RowActions(answer=true, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
               else
                 TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, busy=busy, now=now, scheme=scheme, diffScheme=diffScheme, attachments=attachments)
                 if message.actionsId != "" and message.kind != "checkpoint"
                   column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
-                    RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
+                    RowActions(answer=true, message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
 
 // A sent message: attribution and intent above an 18pt bubble, then the
 // hover-revealed time, Edit from here and Copy message. An automation's or another
@@ -302,7 +306,7 @@ component DividerPill
   derive live = message.targetId != ""
   derive ink = (hovered and live ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
   view
-    button press=command("open-related-thread", message.targetId, "", 0) hover=hover disabled=(not live) aria-label=message.actionLabel testId=`source-${message.id}` cursor=(live ? "pointer" : "default") height="1.625rem" padding-left=(live ? "0.625rem" : "0.5rem") padding-right=(live ? "0.625rem" : "0.5rem") box-sizing="border-box" border-radius="0.8125rem" border-width=(live ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color=(hovered and live ? "light-dark(#f4f4f5, #ffffff0a)" : (live ? "light-dark(#fcfcfc, #000000)" : "#00000000")) display="flex" flex-direction="row" align-items="center" gap="0.375rem" min-width=0
+    button press=command("open-related-thread", message.targetId, "", 0) hover=hover disabled=(not live) aria-label=message.actionLabel testId=`source-${message.id}` cursor=(live ? "pointer" : "default") height=(live ? "1.625rem" : "1.5rem") padding-left=(live ? "0.625rem" : "0.5rem") padding-right=(live ? "0.625rem" : "0.5rem") box-sizing="border-box" border-radius="0.8125rem" border-width=(live ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0e)" background-color=(hovered and live ? "light-dark(#f4f4f5, #ffffff0a)" : (live ? "light-dark(#fcfcfc, #000000)" : "#00000000")) display="flex" flex-direction="row" align-items="center" gap="0.375rem" min-width=0
       :focus-visible
         box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"
       TimelineIcon(name=(message.icon == "bot" or message.icon == "messages-square" ? message.icon : "fork"), size=12, color=ink)
@@ -325,9 +329,12 @@ component ShowMoreButton
       text (expanded ? "Show less" : "Show full message") font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")
 
 // Copy, fork and the answer's wall-clock time; hidden until the row is hovered
-// or one of its controls is focused, and always occupying its 24pt line.
+// or one of its controls is focused, and always occupying its 24pt line. It ends the answer's group, inside its
+// 0.125rem padding (py-0.5): under the answer's own row (`answer`), which ends in that padding, it keeps 0.375rem
+// (mt-1.5) from the text by taking 0.25rem.
 component RowActions
   props
+    answer: bool
     message: Message
     command: action
     local: action
@@ -336,7 +343,7 @@ component RowActions
     part: string
     hoverPart: action
   view
-    row width="100%" height="1.5rem" margin-top="0.375rem" gap="0.5rem" align-items="center" opacity=(visible or message.copied > 0 ? 1 : 0)
+    row width="100%" height="1.5rem" margin-top=(answer ? "0.25rem" : "0.375rem") margin-bottom="0.125rem" gap="0.5rem" align-items="center" opacity=(visible or message.copied > 0 ? 1 : 0)
       RowTip(label="Copy message", side="top", align="center", offset=28, shown=(part == "copy"), hover=hoverPart(message.hoverKey, "copy"))
         CopyButton(id=message.actionsId, copied=message.copied, local=local, hover=hover)
       if message.actionsFork
@@ -523,18 +530,18 @@ component TimelineContent
                   // After a failed tool the row stands in for the run's tool calls and discloses them; while an approval
                   // waits nothing is thinking, so it holds still (`live`).
                   if message.groupId != ""
-                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=message.live, shimmer=message.live, iconLight="", iconDark="")
                   else
-                    row width="100%" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" align-items="center"
+                    row width="100%" padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" align-items="center"
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=message.live, shimmer=message.live, iconLight="", iconDark="")
               else
                 if message.kind == "live"
-                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.detail != "" ? message.detail + " " : ""}${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction=(message.detail != "" ? "column" : "row") align-items=(message.detail != "" ? "flex-start" : "center") title=""
+                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.detail != "" ? message.detail + " " : ""}${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction=(message.detail != "" ? "column" : "row") align-items=(message.detail != "" ? "flex-start" : "center") title=""
                     // The latest thought above the status line, an ordinary work-log row that wraps beside its icon.
                     // Keyed by its text, like the status line below.
                     for thought in (message.detail != "" ? [message.detail] : []) key=thought
-                      row width="100%" min-height="1.5rem" gap="0.375rem" align-items="flex-start"
+                      row width="100%" min-height="1.5rem" gap="0.375rem" align-items="flex-start" padding-bottom="0.25rem"
                         row width="1.5rem" height="1.5rem" flex-shrink=0 align-items="center" justify-content="center"
                           TimelineIcon(name="brain", size=16, color="light-dark(#44444a, #a1a1a1)")
                         text thought flex=1 min-width=0 font-size="0.875rem" line-height="1.421875rem" line-clamp=4 text-align="left" color="light-dark(#71717b, #a1a1a1)"

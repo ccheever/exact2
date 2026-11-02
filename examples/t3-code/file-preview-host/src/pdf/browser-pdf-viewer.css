@@ -49,7 +49,8 @@
 }
 #toolbar input::selection { background-color: var(--selection); }
 #fit { margin-inline-start: 12px; }
-#more { margin-inline-start: 4px; }
+#print, #more { margin-inline-start: 4px; }
+.print-frame { position: fixed; width: 0; height: 0; border: 0; visibility: hidden; }
 #more.open { background-color: rgba(255, 255, 255, 0.24); }
 .progress { position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: var(--blue-300); opacity: 0; visibility: hidden; }
 #toolbar[data-loading] .progress { opacity: 1; visibility: visible; transform-origin: left; animation: browser-pdf-progress 1.2s ease-in-out infinite; }

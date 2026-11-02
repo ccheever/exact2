@@ -847,5 +847,90 @@ final class BackSessionMacTests: XCTestCase {
         XCTAssertTrue(text("seen").hasSuffix("began forward 0.5;ended forward 0.5;"), text("seen"))
         XCTAssertEqual(text("url"), "/v/1", "the swipe went forward")
     }
+
+    /// A root's `navigationHistory` withholds a way the router has: no
+    /// swipe is tracked that way, so its `historyswipe` hears nothing, and
+    /// Go ▸ Back or Forward, the three-finger swipe and the agent's `back`
+    /// do not go. Saying it again offers the way at once.
+    func testARootOffersOnlyTheWaysItsNavigationHistorySays() throws {
+        _ = NSApplication.shared
+        let source = """
+        routes nav
+          home "/"
+            visit "/v/:n"
+
+        component App
+          state ways = "back forward"
+          state seen = ""
+          action next(n: number)
+            nav = push(nav, path("visit", n))
+          action follow(location: string)
+            nav = go(nav, location)
+          action offer(w: string)
+            ways = w
+          action swiped(e: HistorySwipeEvent)
+            seen = `${seen}${e.phase} ${e.direction};`
+          view
+            main navigationKey="app" navigationBack="" navigate=follow historyswipe=swiped navigationHistory=ways width="100%" height="100%"
+              text `${top(nav).url}` testId="url"
+              text seen testId="seen"
+              button press=next(1) testId="one"
+                text "One"
+              button press=next(2) testId="two"
+                text "Two"
+              for w in ["back forward", "back", "forward", "none"] key=w
+                button press=offer(w) testId=w
+                  text w
+
+        """
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+        let view = ExactView(session: session)
+        let p = session.presenter
+        let node = { (id: String) in try XCTUnwrap(p.views.values.first { $0.props["testId"] == id }) }
+        let text = { (id: String) in try node(id).props["text"] ?? "" }
+        try p.press(node("one").id); try p.press(node("two").id)
+        XCTAssertTrue(p.navigation.goBack())
+        XCTAssertEqual(try text("url"), "/v/1", "a visit beneath and one ahead")
+        var tracked: [[CGFloat]] = []
+        p.backSwipe.track = { _, min, max, handler in
+            tracked.append([min, max])
+            handler(0.1 * (min + max), .began, false); handler(0, .cancelled, false); handler(0, [], true)
+        }
+        func began(_ dx: Int32) throws -> NSEvent {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: dx, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        try p.press(node("none").id)
+        XCTAssertFalse(p.navigation.canGoBack); XCTAssertFalse(p.navigation.canGoForward)
+        XCTAssertFalse(view.wantsScrollEventsForSwipeTracking(on: .horizontal))
+        XCTAssertFalse(p.backSwipe.scroll(try began(14), enabled: true))
+        XCTAssertFalse(p.backSwipe.scroll(try began(-14), enabled: true))
+        XCTAssertFalse(p.backSwipe.swiped(deltaX: 1)); XCTAssertFalse(p.backSwipe.swiped(deltaX: -1))
+        XCTAssertEqual(p.navigation.agentBack()?.refused, "the navigation root's navigationHistory does not offer back")
+        XCTAssertTrue(tracked.isEmpty, "no swipe is tracked")
+        XCTAssertEqual(try text("seen"), "", "so the root hears none")
+        XCTAssertEqual(try text("url"), "/v/1")
+        // Forward alone: the swipe back is not tracked, the swipe forward is, with no side back.
+        try p.press(node("forward").id)
+        XCTAssertFalse(p.navigation.canGoBack); XCTAssertTrue(p.navigation.canGoForward)
+        XCTAssertFalse(p.backSwipe.scroll(try began(14), enabled: true))
+        XCTAssertTrue(p.backSwipe.scroll(try began(-14), enabled: true))
+        XCTAssertEqual(tracked, [[-1, 0]])
+        XCTAssertEqual(try text("seen"), "began forward;cancelled forward;")
+        // Back alone, then both again.
+        try p.press(node("back").id)
+        XCTAssertTrue(p.navigation.canGoBack); XCTAssertFalse(p.navigation.canGoForward)
+        XCTAssertFalse(p.backSwipe.scroll(try began(-14), enabled: true))
+        XCTAssertTrue(p.backSwipe.scroll(try began(14), enabled: true))
+        XCTAssertEqual(tracked, [[-1, 0], [0, 1]])
+        try p.press(node("back forward").id)
+        XCTAssertTrue(p.navigation.canGoBack); XCTAssertTrue(p.navigation.canGoForward)
+        XCTAssertTrue(p.backSwipe.swiped(deltaX: -1))
+        XCTAssertEqual(try text("url"), "/v/2", "the three-finger swipe went forward")
+    }
 }
 #endif

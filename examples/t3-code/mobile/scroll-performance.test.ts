@@ -44,7 +44,8 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('if item.card and item.trailingDivider and not item.last and not sidebar');
   expect(home).toContain('if item.trailingDivider and not item.last and surface != "sidebar-list"');
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
-  expect(app).toContain('width=workspace.contentSettledWidth min-width=0 max-width="100%" overflow-x="hidden" background-color=look.sheet');
+  expect(app).toContain('width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : workspace.contentSettledWidth)');
+  expect(app).toContain('max-width=(mobileRoutePresentation(entry.name, `${entry.id}`, newTaskSession, workspace.usesSplitView) == "fullscreen" ? viewport.width : "100%")');
 });
 
 test('Home keeps menus outside the virtualized feed at one bounded resident pair', () => {

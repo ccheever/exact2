@@ -45,6 +45,10 @@ shape CorePalette
   surface: string
   // The composer card's fill over its glass (look.glass).
   glass: string
+  // Settings' own nav: its surface, selected row and hovered row.
+  nav: string
+  navActive: string
+  navHover: string
 
 style SettingsGhost
   cursor="pointer"

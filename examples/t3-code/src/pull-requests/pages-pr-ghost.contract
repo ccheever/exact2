@@ -179,5 +179,5 @@ component PrdGhostTab
     label: string
     active: bool
   view
-    row height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" background-color=(active ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(active ? "0 1px 2px #0000001a" : "none") align-items="center" justify-content="center"
+    row height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.375rem" background-color=(active ? "light-dark(#fcfcfc, #ffffff14)" : "#00000000") box-shadow=(active ? "0 1px 2px #0000001a" : "none") align-items="center" justify-content="center"
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717b, #a1a1a1)")

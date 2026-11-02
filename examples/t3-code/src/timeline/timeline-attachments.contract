@@ -183,6 +183,16 @@ component ImagePreviewDialog
   // Closing gives the focus back to the Markdown image that opened it (Base UI Dialog's finalFocus).
   action closePreview
     local("image-close", "", "")
+  // The video's full screen (preview-player.contract): it covers the window and the rest is hidden.
+  state full = false
+  action setFull(on: bool)
+    full = on
+  // Escape leaves full screen first, as Chromium's does; otherwise it, or a press on the backdrop, closes the dialog.
+  action dismiss
+    if full
+      full = false
+    else
+      closePreview()
   // MediaVideoPlayer failedSrc / ExpandedImageDialog failedImageSrc: the URL the player or the picture
   // refused (an `image` `error`, exact2 #121); Retry video signs the attachment again.
   state failedUrl = ""
@@ -196,20 +206,21 @@ component ImagePreviewDialog
       // The focus trap (dialog-trap.contract): Previous, the media's actions, the X, Next. The backdrop is no Tab stop (the reference's popup takes its clicks).
       FocusGuard(guardId="image-preview-guard-start", targets=dialogTargets, popup="image-preview")
       DialogOpenFocus(target="image-preview-close")
-      button press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
+      button press=dismiss aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       // DialogPopup's media variant: the X (icon-sm, media-close) at the 92vw × 92vh popup's top-right corner, inside
-      // its 1pt border; the first of the dialog's items.
-      button id="image-preview-close" press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+      // its 1pt border; the first of the dialog's items, gone while the media is full screen.
+      button id="image-preview-close" press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=(windowWidth * 0.04 + 1) top=(windowHeight * 0.04 + 1) z-index=1 width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display=(full ? "none" : "flex") flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
         Icon(name="x", size=16, color="#ffffff")
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
-        PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
-        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions")
+        PreviewStep(label="Previous media", shown=(previous and not full), flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
+        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions", full=full)
           column min-width=0 align-items="center"
-            box position="relative"
+            // In full screen neither this box nor MediaActions' is a containing block: the video's box is placed against the dialog's.
+            box position=(full ? "static" : "relative")
               // ExpandedVideo, the player with native controls, playing (attachment-media.contract).
               if video
                 if url != "" and not videoFailed
-                  ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke, download=local("video-download", url, name))
+                  ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke, download=local("video-download", url, name), full=full, setFull=setFull)
                 else
                   if failed or videoFailed
                     column width=min(windowWidth * 0.92 - 96, 512)
@@ -225,8 +236,8 @@ component ImagePreviewDialog
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size="0.875rem" line-height="1.25rem" color="#ffffff"
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading image"
-            text (position != "" ? `${name} ${position}` : name) margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
-        PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), elementId="image-preview-next", testId="image-preview-next")
+            text (position != "" ? `${name} ${position}` : name) display=(full ? "none" : "block") margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
+        PreviewStep(label="Next media", shown=(next and not full), flip=false, press=local("image-step", "", "next"), elementId="image-preview-next", testId="image-preview-next")
       FocusGuard(guardId="image-preview-guard-end", targets=dialogTargets, popup="image-preview")
 
 component PreviewStep

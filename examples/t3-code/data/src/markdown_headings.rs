@@ -118,8 +118,9 @@ fn fragment_links(blocks: &mut [markdown_parse::Block]) {
 /// orderedListGutterStyle: each list item's marker gutter in `ch`, 0 for the default 1.25rem. An
 /// ordered list whose widest marker has several digits widens it to the digits, the period and the
 /// trailing space (`--list-gutter: <digits + 2>ch`). A list is the items at one depth, up to a
-/// shallower item or any other block; the widest marker drawn sizes all of its items.
-fn list_gutters(blocks: &[markdown_parse::Block]) -> Vec<f64> {
+/// shallower item or any other block; the widest marker drawn sizes all of its items. Then each
+/// bullet takes the marker its nesting draws (bullet_markers).
+fn list_gutters(blocks: &mut [markdown_parse::Block]) -> Vec<f64> {
     let digits = |marker: &str| {
         let count = marker.chars().take_while(char::is_ascii_digit).count();
         (count > 0 && count + 1 == marker.chars().count()).then_some(count)
@@ -152,7 +153,40 @@ fn list_gutters(blocks: &[markdown_parse::Block]) -> Vec<f64> {
             }
         }
     }
+    let bullets = bullet_markers(blocks);
+    for (block, marker) in blocks.iter_mut().zip(bullets) {
+        if let Some(marker) = marker {
+            block.marker = marker.to_string();
+        }
+    }
     gutters
+}
+
+/// Each bullet item's marker as `.chat-markdown` draws it: a disc, a circle inside another bullet list
+/// (`ul ul`), a square two deep (`ul ul ul`). Only bullet lists count, so a bullet list under a
+/// numbered item keeps the disc. Other blocks get `None`.
+fn bullet_markers(blocks: &[markdown_parse::Block]) -> Vec<Option<&'static str>> {
+    // The lists still open, outermost first: (depth, ordered), as list_gutters keeps them.
+    let mut open: Vec<(u32, bool)> = Vec::new();
+    blocks
+        .iter()
+        .map(|block| {
+            if !matches!(block.kind, markdown_parse::Kind::Item) {
+                open.clear();
+                return None;
+            }
+            let ordered = block.marker != "•";
+            open.retain(|&(depth, kind)| depth < block.depth || depth == block.depth && kind == ordered);
+            if open.last().is_none_or(|&(depth, _)| depth < block.depth) {
+                open.push((block.depth, ordered));
+            }
+            (!ordered).then(|| match open.iter().filter(|&&(_, kind)| !kind).count() {
+                1 => "•",
+                2 => "◦",
+                _ => "▪",
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -229,9 +263,18 @@ mod heading_tests {
     }
 
     #[test]
+    fn bullets_nest_by_bullet_lists_only() {
+        let blocks = parsed("- a\n  - b\n    - c\n- d\n\n1. one\n   - under a number\n     - nested\n2. two");
+        assert_eq!(
+            bullet_markers(&blocks),
+            [Some("•"), Some("◦"), Some("▪"), Some("•"), None, Some("•"), Some("◦"), None]
+        );
+    }
+
+    #[test]
     fn wide_ordered_markers_widen_their_whole_list() {
-        let blocks = parsed("9. nine\n10. ten\n    - nested\n11. eleven\n\ntext\n\n1. one\n2. two\n\n- a\n- b");
-        let gutters: Vec<f64> = list_gutters(&blocks)
+        let mut blocks = parsed("9. nine\n10. ten\n    - nested\n11. eleven\n\ntext\n\n1. one\n2. two\n\n- a\n- b");
+        let gutters: Vec<f64> = list_gutters(&mut blocks)
             .into_iter()
             .zip(&blocks)
             .filter(|(_, block)| matches!(block.kind, markdown_parse::Kind::Item))

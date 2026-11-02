@@ -119,7 +119,7 @@ describe('page contracts', () => {
 
   test('the terminal preview grows to its 12 rows, and the Mac mini is the reference glyph', () => {
     const rows = appText('settings-rows.contract');
-    expect(rows).toContain('column width="100%" height=(12 * size * 1.38 + 4)');
+    expect(rows).toContain('column width="100%" height=(12 * size * 1.436 + 2)');
     expect(rows).toContain(' watching for changes, press ');
     const kit = appText('settings-b-kit.contract');
     expect(kit).toContain('path d="M5.5 6h13A2.5 2.5 0 0 1 21 8.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 15.5v-7A2.5 2.5 0 0 1 5.5 6z"');

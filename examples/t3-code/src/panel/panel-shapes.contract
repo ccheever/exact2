@@ -221,6 +221,9 @@ shape LinkedPrRow
   url: string
   host: string
   repository: string
+  // MiddleTruncate's split: the head draws the ellipsis, the tail stays whole ("" tail: drawn whole).
+  repositoryHead: string
+  repositoryTail: string
   depth: number
   state: string
   stateLabel: string
@@ -239,6 +242,8 @@ shape LinkedPrRow
   avatar: string
   initial: string
   head: string
+  headStart: string // the head branch's MiddleTruncate split, as the repository's
+  headEnd: string
   base: string
   age: string
   stackSize: number

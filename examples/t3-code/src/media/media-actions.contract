@@ -38,6 +38,9 @@ component MediaActions
     testId: string
     // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
     elementId: string
+    // Its video is full screen (preview-player.contract): the box is then no containing block, so the player can
+    // cover the window, and shows no tooltip over it.
+    full: bool
   // The tooltip is drawn (MediaTip), as the reference's TooltipPopup; opening the menu closes it.
   state over = false
   action hover(value: bool)
@@ -54,9 +57,9 @@ component MediaActions
       local("media-menu", source, "key")
   slot
   view
-    box id=elementId data-focus-stop="enabled" tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position="relative" max-width="100%" testId=testId
+    box id=elementId data-focus-stop="enabled" tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position=(full ? "static" : "relative") max-width="100%" testId=testId
       children
-      MediaTip(label=tip, shown=over)
+      MediaTip(label=tip, shown=(over and not full))
 
 // A Markdown image once it has loaded (ChatMarkdown expandableMarkdownImageProps): the
 // image is a button "Preview <alt>" (a click, Enter or Space) that opens the expanded image dialog over its document's images
@@ -194,17 +197,17 @@ component FilesMedia
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" role="status" aria-label=(media.kind == "video" ? "Loading video" : "Loading image") testId="file-media-loading"
         ShellIcon(name="loader", size=24, color="light-dark(#71717b, #a1a1a1)")
     if media.state == "failed" and media.kind == "image"
-      MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed")
+      MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-failed", full=false)
         column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box"
           text media.failText text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-image-error"
     if media.state == "ready" and media.kind == "image"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="auto" padding="1rem" box-sizing="border-box" testId="file-image"
-        MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions")
+        MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-image-actions", full=false)
           image media.url aria-label=media.name error=local("media-image-error", media.url) max-width="100%" max-height="100%" object-fit="contain" testId="file-image-picture"
     if media.kind == "video" and media.state != "loading"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" padding="1rem" box-sizing="border-box" testId="file-video"
         column width="100%" max-width="64rem" align-items="center"
-          MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions")
+          MediaActions(source=media.source, tip=media.tip, local=local, elementId="", testId="file-video-actions", full=false)
             // A player per file (WorkspaceVideoPreview's key): another file's video starts with nothing held.
             for shown in [media] key=media.retryKey
               FilesVideo(media=shown, local=local)

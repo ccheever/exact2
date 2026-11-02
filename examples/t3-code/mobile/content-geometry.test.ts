@@ -157,6 +157,9 @@ test('thread content consumes only the measured trailing reservation', () => {
   expect(source).toContain('maxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
   expect(source).toContain('contentMaxWidth=min(threadContentWidth, workspace.chatContentMaxWidth)');
   expect(source).not.toContain('id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" padding-right=threadTrailingReservation');
-  expect(source).toContain('column position="absolute" top=0 left=0 right=threadTrailingReservation bottom=(-threadCoveredBottom) pointer-events="auto"');
+  // The feed runs under the rail to the screen edge (the bar's edge effect spans it); its rows stay clear of the rail.
+  expect(source).toContain('column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"');
+  expect(source).toContain('trailingReservation=threadTrailingReservation');
+  expect(appText('mobile/thread.contract')).toContain('padding-right=(horizontalPadding + trailingReservation)');
   expect(source).toContain('right=threadTrailingReservation');
 });

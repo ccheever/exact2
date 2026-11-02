@@ -681,7 +681,7 @@ fn chat_document(
     split_strikes(&mut doc.blocks);
     heading_ids(&mut doc.blocks);
     fragment_links(&mut doc.blocks);
-    let gutters = list_gutters(&doc.blocks);
+    let gutters = list_gutters(&mut doc.blocks);
     let mut tasks = task_items(&mut doc.blocks, source);
     // After the task markers go: `- [x] تم` reads right to left.
     let directions = block_directions(&doc.blocks, &text, &context_image_hrefs(source), raw_html);
