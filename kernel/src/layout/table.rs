@@ -4,8 +4,8 @@
 //! holds its captions, row groups, rows and cells as the grid's items: a
 //! cell's column is the table's, whatever row holds it. A row or row group
 //! keeps no engine children; its box spans its rows, and publication places
-//! what it holds from the grid's origin, moved as the row or group is moved
-//! relatively ([`Tables::flat`]). A table whose author said a `display` is
+//! what it holds from the grid's origin, moved as the engine moved the row or
+//! group from where the grid placed it ([`Tables::flat`], [`displacement`]). A table whose author said a `display` is
 //! that box, holding an anonymous table, a node of the engine's own, as the
 //! grid (CSS 2.2 §17.2.1). The columns are `auto` tracks, the deviation
 //! `style/table.rs` declares.
@@ -182,27 +182,29 @@ impl Tables {
     }
 }
 
-/// What `position: relative` moves `slot`'s box by where its insets are
-/// lengths, `left` over `right` and `top` over `bottom` (CSS 2.2 §9.4.3).
-/// A row's or row group's cells are the grid's items beside it, not its
-/// children in the engine, so publication moves them by this.
-pub(super) fn relative(arena: &NodeArena, slot: u32) -> (f32, f32) {
-    use crate::style::Dimension;
-    // A popover row is in the top layer, absolutely positioned whatever its author wrote.
-    if crate::style::top_layer::layout_position(arena, slot)
-        != crate::generated::PositionType::Relative
-    {
+/// What the engine moved `slot`, a row or row group, by from where its grid
+/// placed it (Taffy's `grid_origin`): its `position: relative` offset (CSS 2.2
+/// §9.4.3, as the engine resolves it: percentages, `calc()`, and `right` over
+/// `left` right to left), its alignment in its area aside, or, for a popover
+/// laid out before it has a block of its own (absolute in the top layer), how
+/// far its insets put it from its area. A row's or row group's cells
+/// are the grid's items beside it, not its children in the engine, so
+/// publication moves them by this, and they follow their row's box. Anything
+/// else (static, sticky, whose insets the host applies) moves nothing.
+pub(super) fn displacement(arena: &NodeArena, tree: &LayoutTree, slot: u32) -> (f32, f32) {
+    use crate::generated::PositionType;
+    let moved = matches!(
+        crate::style::top_layer::layout_position(arena, slot),
+        PositionType::Relative | PositionType::Absolute
+    );
+    let Some(node) = arena.taffy(slot).filter(|_| moved) else {
         return (0.0, 0.0);
-    }
-    let s = arena.style(slot);
-    let env = arena.env();
-    let px = |d: Dimension| match d.resolve(env) {
-        Dimension::Points(v) => Some(v),
-        _ => None,
     };
-    let x = px(s.left).or_else(|| px(s.right).map(|v| -v));
-    let y = px(s.top).or_else(|| px(s.bottom).map(|v| -v));
-    (x.unwrap_or(0.0), y.unwrap_or(0.0))
+    let Some(origin) = tree.grid_origin(node) else {
+        return (0.0, 0.0);
+    };
+    let at = tree.layout(node).location;
+    (at.x - origin.x, at.y - origin.y)
 }
 
 /// The table `slot` is placed in: `slot` and each part between it and the
