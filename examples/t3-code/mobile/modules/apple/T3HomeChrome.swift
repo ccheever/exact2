@@ -556,7 +556,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
             guard let host, let bar else { return }
             let row = bar.convert(frame, to: host)
             let size = row.height + 8
-            compose.frame = CGRect(x: row.maxX + 16, y: row.midY - size / 2, width: size, height: size)
+            compose.frame = CGRect(x: row.maxX + 26, y: row.midY - size / 2, width: size, height: size)
         }
         NSLayoutConstraint.activate([
             host.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
