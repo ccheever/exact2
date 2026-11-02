@@ -774,9 +774,10 @@ above.
   focus ring, as AppKit draws a ring only for keyboard focus; v0.1.6 rings it.
 - A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
   tooltip on hover only, where v0.1.6's opens on a keyboard focus.
-- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
-  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
-  takes no outline from the app.
+- A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
+  default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
+  it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
+  its 30% `Highlight` over the chip.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
@@ -810,19 +811,16 @@ above.
   press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
   the Picture in Picture process.
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
-  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
-  Symbol (a document for any file, not its file-type icon; no project favicon or image
-  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
-  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
-  per scheme.
+- A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
+  thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
+  image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
+  The other chips, and a thread whose project icon is a monogram, an emoji or a Lucide glyph, show the nearest
+  SF Symbol to v0.1.6's Lucide glyph. The icon is as tall as the text's cap height, where v0.1.6's is 1em.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
-- A composer chip's name does not underline while the pointer is over it, where the reference's
-  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
-  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
-  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
-  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
+- A composer chip's name underlines under the pointer only while the window is key, as AppKit tracks
+  hover; an unavailable reference underlines too, where v0.1.6's is a plain span that does not. An atom
+  kind's `:hover` is the kind's, not one chip's.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
