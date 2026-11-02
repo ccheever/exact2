@@ -1048,6 +1048,7 @@ package final class Presenter {
                 later.forEach { $0() }
                 batchApplied()
                 if !boxFilters.isEmpty { boxFilters.render() }
+                ShadowStand.followAll()
                 leaves.batchApplied(moved: moved)
             }
             // Only scheduled: the hit-test is the next display frame's.
