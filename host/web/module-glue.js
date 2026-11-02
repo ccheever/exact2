@@ -540,10 +540,18 @@ export function call(request) {
 // The page owns localStorage for both placements. Locks use the physical key shared with the JS target.
 const secretTurns = new Map();
 const secretTurnKey = (id, request) => `${id}:${workerKey(request)}`;
-function endSecretTurn(turn) {
+function endSecretTurn(turn, completed = false) {
   if (!turn.live) return;
   turn.live = false; turn.cancel.abort();
-  for (const release of turn.locks.values()) release();
+  for (const [name, release] of turn.locks) {
+    try {
+      if (turn.armed.has(name)) {
+        if (!completed) { globalThis.exact?.discardSecretWrite?.(name); localStorage.removeItem(`exact.secret.${name}`); }
+        localStorage.removeItem(`exact.exclusive.exact.secret.${name}`);
+      }
+    } catch {} // A surviving marker makes the next holder invalidate before reading.
+    finally { release(); }
+  }
   secretTurns.delete(secretTurnKey(turn.id, turn.request));
 }
 function forgetSecretTurns(id, keep) {
@@ -557,7 +565,12 @@ function takeSecret(turn, name) {
   return new Promise((resolve, reject) => {
     navigator.locks.request(`exact.secret.${name}`, { signal: turn.cancel.signal }, () => new Promise(release => {
       if (!turn.live) { release(); reject(new Error('the secret’s answer was let go')); return; }
-      turn.locks.set(name, release); resolve();
+      try {
+        globalThis.exact?.discardSecretWrite?.(name);
+        const marker = `exact.exclusive.exact.secret.${name}`;
+        if (localStorage.getItem(marker) != null) { localStorage.removeItem(`exact.secret.${name}`); localStorage.removeItem(marker); }
+        turn.locks.set(name, release); resolve();
+      } catch (error) { release(); reject(error); }
     })).catch(reject);
   });
 }
@@ -573,7 +586,7 @@ export async function run(token, deliver) {
         const snapshot = new Map(turn.request.store);
         for (const name of held.locks.keys()) {
           const fresh = localStorage.getItem(`exact.secret.${name}`);
-          if ((snapshot.get(name) ?? null) !== fresh) carried.writes.push([name, fresh]);
+          if ((snapshot.get(name) ?? null) !== fresh) carried.writes.push([name, fresh, true]);
           if (fresh == null) snapshot.delete(name); else snapshot.set(name, fresh);
         }
         turn.request.store = [...snapshot];
@@ -582,7 +595,7 @@ export async function run(token, deliver) {
       for (const field of ['reads', 'writes', 'topics']) result[field] = [...carried[field], ...(result[field] ?? [])];
       result.externalRead ||= carried.externalRead; result.entropy ||= carried.entropy;
       if (result.secret !== undefined) {
-        held ??= { id, request: turn.request, live: true, locks: new Map(), cancel: new AbortController() };
+        held ??= { id, request: turn.request, live: true, locks: new Map(), armed: new Set(), cancel: new AbortController() };
         secretTurns.set(key, held);
         let secretError;
         try { await takeSecret(held, result.secret); } catch (error) { secretError = String(error.message ?? error); }
@@ -595,12 +608,19 @@ export async function run(token, deliver) {
         continue;
       }
       // Persist while holding the lock, then let the runner apply the same writes before another owner starts.
-      if (held) for (const [name, value] of result.writes) if (held.locks.has(name)) {
+      if (held) for (const write of result.writes) if (held.locks.has(write[0])) {
+        const [name, value] = write; globalThis.exact?.discardSecretWrite?.(name);
         try { if (value == null) localStorage.removeItem(`exact.secret.${name}`); else localStorage.setItem(`exact.secret.${name}`, value); }
         catch (error) { localStorage.removeItem(`exact.secret.${name}`); throw error; }
+        write[2] = true;
+      }
+      if (held && result.tag === 1 && result.request && !['GET', 'HEAD'].includes(result.request.method ?? 'GET')) {
+        for (const name of held.locks.keys()) {
+          localStorage.setItem(`exact.exclusive.exact.secret.${name}`, '1'); held.armed.add(name);
+        }
       }
       await deliver?.(result);
-      if (held && (result.tag !== 1 || result.request?.stream)) endSecretTurn(held);
+      if (held && (result.tag !== 1 || result.request?.stream)) endSecretTurn(held, result.tag !== 2 && !result.error);
       return result;
     }
   } catch (error) { if (held) endSecretTurn(held); throw error; }

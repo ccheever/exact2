@@ -67,7 +67,7 @@ test('a batch with no store ops retries failures, once per name until success or
   expect(storage.getItem('exact.secret.token')).toBeNull();
 });
 
-test('an inaccessible localStorage retains writes and removals; a nameless drive never opens it', () => {
+test('an inaccessible localStorage cannot safely retry an unobserved secret; a nameless drive never opens it', () => {
   const storage = page(1000, { 'exact.secret.token': 'old' }), warned = [];
   let blocked = true;
   const get = () => { if (blocked) throw new Error('disabled storage'); return storage; };
@@ -75,10 +75,10 @@ test('an inaccessible localStorage retains writes and removals; a nameless drive
   apply(write('new')); apply(write(null)); apply();
   expect(warned).toHaveLength(2);
   blocked = false; apply();
-  expect(storage.getItem('exact.secret.token')).toBeNull();
+  expect(storage.getItem('exact.secret.token')).toBe('old');
   blocked = true; apply(write(null)); apply(write('latest'));
   blocked = false; apply();
-  expect(storage.getItem('exact.secret.token')).toBe('latest');
+  expect(storage.getItem('exact.secret.token')).toBe('old');
   let reads = 0;
   const memoryWarnings = [];
   const memory = host(() => { reads++; throw new Error('must not open storage'); }, memoryWarnings, false);
@@ -129,4 +129,20 @@ test('a durable write that still does not fit is said, and the kept answers are 
   // Forgetting writes nothing, so it never meets the quota.
   storeInPage(storage, 'exact.state.theme', null);
   expect(storage.getItem('exact.state.theme')).toBeNull();
+});
+
+
+test('failed page writes are fenced by a later realm or acknowledged durable write', () => {
+  const storage = page(1000, { 'exact.secret.token': 'old' }), warned = [];
+  const set = storage.setItem; let blocked = true;
+  storage.setItem = (...args) => { if (blocked) throw new Error('unavailable'); set(...args); };
+  const apply = host(() => storage, warned);
+  apply(write('stale'));
+  set('exact.secret.token', 'fresh-from-other-page');
+  blocked = false; apply();
+  expect(storage.getItem('exact.secret.token')).toBe('fresh-from-other-page');
+  blocked = true; apply(write('older-retry'));
+  apply({ ...write('durable'), durable: true });
+  set('exact.secret.token', 'durable'); blocked = false; apply();
+  expect(storage.getItem('exact.secret.token')).toBe('durable');
 });

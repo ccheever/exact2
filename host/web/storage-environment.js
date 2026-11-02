@@ -114,13 +114,29 @@ export function keyStore(name, indexedDB) {
 export function exclusiveSecret(store, prefix, name, work) {
   if (!globalThis.navigator?.locks) return Promise.reject(Object.assign(new Error('This browser cannot coordinate shared secret updates'), { name: 'NotSupportedError' }));
   return navigator.locks.request(`${prefix}${name}`, async () => {
-    const flush = () => {
-      store.persist();
-      if (store.pending.has(name)) { localStorage.removeItem(prefix + name); throw new Error('The shared secret could not be persisted'); }
+    const discard = () => {
+      store.pending.delete(name);
+      if (store.writes) store.writes = store.writes.filter(([key]) => key !== name);
     };
-    flush();
-    const fresh = localStorage.getItem(prefix + name);
+    const key = prefix + name, marker = `exact.exclusive.${key}`;
+    // A prior failed write belongs to an older snapshot, never this lease.
+    discard();
+    if (localStorage.getItem(marker) != null) {
+      localStorage.removeItem(key); localStorage.removeItem(marker);
+    }
+    const fresh = localStorage.getItem(key);
     if (fresh == null) store.map.delete(name); else store.map.set(name, fresh);
-    try { return await work(); } finally { flush(); }
+    localStorage.setItem(marker, '1');
+    let completed = false;
+    try { const value = await work(); completed = true; return value; } finally {
+      store.persist();
+      if (store.pending.has(name)) {
+        discard(); store.map.delete(name);
+        localStorage.removeItem(key);
+        throw new Error('The shared secret could not be persisted');
+      }
+      if (!completed) { discard(); store.map.delete(name); localStorage.removeItem(key); }
+      localStorage.removeItem(marker);
+    }
   });
 }

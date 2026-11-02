@@ -748,6 +748,9 @@ impl Batch {
             Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
             None => s.push_str("null"),
         }
+        if w.durable {
+            s.push_str(",\"durable\":true");
+        }
         s.push('}');
         self.ops.push(s);
     }

@@ -364,9 +364,17 @@ impl Module {
                     .as_str()
                     .ok_or_else(|| unavailable("invalid store write"))?;
                 if let Some(value) = write[1].as_str() {
-                    store.set(name, value)?;
+                    if write[2].as_bool() == Some(true) {
+                        store.set_durable(name, value)?;
+                    } else {
+                        store.set(name, value)?;
+                    }
                 } else if write[1].is_null() {
-                    store.forget(name)?;
+                    if write[2].as_bool() == Some(true) {
+                        store.forget_durable(name)?;
+                    } else {
+                        store.forget(name)?;
+                    }
                 } else {
                     return Err(unavailable("invalid store value"));
                 }
@@ -1095,6 +1103,23 @@ mod tests {
             .step(&mut store, "source", "key".into(), reply)
             .is_ok());
         assert_eq!((store.reads(), store.entropy_draws()), (1, 1));
+    }
+
+    #[test]
+    fn persisted_secret_writes_reach_the_runner_as_acknowledged() {
+        let mut module = Module::new("test", "secret.keep token", "revision");
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::Unit));
+        let mut store = Store::new("secret.keep token", []);
+        let reply = br#"{"tag":0,"value":null,"writes":[["token","fresh",true]]}"#;
+        assert!(module
+            .step(&mut store, "source", "key".into(), reply)
+            .is_ok());
+        let writes = store.take_writes();
+        assert_eq!(writes.len(), 1);
+        assert!(writes[0].durable);
+        assert_eq!(store.get("token"), Some("fresh"));
     }
 
     #[test]

@@ -404,3 +404,24 @@ for (const placement of ['main', 'worker']) test(`${placement}: secret locks ret
     expect((await race(w.ask('read'))).value).toBe(null);
   } finally { w.done(); environment.restore(); }
 }, 20000);
+
+
+for (const placement of ['main', 'worker']) test(`${placement}: abandoning a sent secret update cannot replay its credential`, async () => {
+  const environment = secretEnvironment('old');
+  const w = await moduleRealm(`return store.exclusive('token', async () => {
+    if (source === 'refresh') await fetch('https://api.castle.test/token', {method:'POST', body:'old'});
+    return store.get('token');
+  });`, { placement, secrets: true, stored: [['token', 'stale']] });
+  try {
+    expect((await w.ask('refresh')).request.method).toBe('POST');
+    expect(environment.disk.get('exact.exclusive.exact.secret.token')).toBe('1');
+    w.forget([]);
+    expect((await w.ask('read')).value).toBeNull();
+    expect(environment.disk.has('exact.secret.token')).toBe(false);
+    // A page that died without cleanup leaves the same marker for its successor.
+    environment.disk.set('exact.secret.token', 'spent-before-page-exit');
+    environment.disk.set('exact.exclusive.exact.secret.token', '1');
+    expect((await w.ask('successor')).value).toBeNull();
+    expect(environment.disk.has('exact.exclusive.exact.secret.token')).toBe(false);
+  } finally { w.done(); environment.restore(); }
+}, 20000);
