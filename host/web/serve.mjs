@@ -1081,6 +1081,7 @@ export function webContentType(route) {
   if (route === AUTH_CALLBACK) return 'text/html';
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+    '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.xml': 'application/xml',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
     '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
