@@ -131,6 +131,36 @@ final class PressWashMacTests: XCTestCase {
         }
     }
 
+    func testOffscreenDrawingRestoresOwnedCanvasTextWithoutAnotherEdit() throws {
+        ExactSurfaces.install()
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "canvas"],
+            ["op": "children", "id": 3, "ids": [1]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 80],
+            ["op": "style", "id": 2, "style": ["font_size": 52.0, "line_height": 0.6, "text_color": [0, 0, 0, 255]]],
+            ["op": "frame", "id": 2, "x": 10, "y": 10, "w": 150, "h": 31.2],
+        ]))
+        window.orderFrontRegardless()
+        settle()
+        let text = try XCTUnwrap(p.views[2])
+        XCTAssertNotNil(text.textRasterOverflowLayer)
+        XCTAssertFalse(Capture.capturing)
+        let bitmap = try XCTUnwrap(text.bitmapImageRepForCachingDisplay(in: text.bounds))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        text.draw(text.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        XCTAssertNil(text.textRaster, "offscreen drawing temporarily uses direct paint")
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while text.textRaster == nil, Date() < deadline {
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        XCTAssertNotNil(text.textRaster, "the publication pump restores pixels without another edit")
+        XCTAssertNotNil(text.textRasterOverflowLayer?.contents)
+    }
+
     /// The red channel at a window point (points, top-left origin).
     private func red(_ image: CGImage, _ x: CGFloat, _ y: CGFloat) -> UInt8 {
         let scale = CGFloat(image.width) / window.frame.width
