@@ -768,9 +768,6 @@ above.
   (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
   a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
   sooner, which the arrow cannot know, so it may look unarmed as the step goes.
-  AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
-  palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
-  thread, where ⌘[ and the sidebar arrows do nothing either.
 - A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
   default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
   it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays

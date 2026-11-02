@@ -36,6 +36,7 @@ use PickerCatalog, PickerTarget, ComposerBranches from "../composer/composer-sha
 use ComposerEditorView from "../composer/composer-editor.contract"
 use ShellView, ShellDetails from "./shell-shapes.contract"
 use Sidebar, sidebarTipRow from "../sidebar/sidebar.contract"
+use NavigationHistory, historySteps, historyWays from "../sidebar/sidebar-shapes.contract"
 use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
 use ComposerMenus from "../composer/composer-controls.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
@@ -78,6 +79,7 @@ component T3Window
     pointerPressed: action // the reader's last press was the pointer's (src/panel/side-chat-members.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
+    navigationHistory: NavigationHistory // the steps historyGo takes, which the root offers alone (`historyWays`)
     confirmationFocused: action // the confirmation that holds the focus, for the window's chords (shell-members.contract)
     confirmationClosed: action
   props
@@ -1092,7 +1094,7 @@ component T3Window
     // Window has no accelerator on macOS: `-exact-menu-keys` leaves the item without ⌘W, and AppKit's Close All, which then
     // shows as a row of its own, goes too (LLP 1021 §5.3.3). With Font smoothing on, the default, text is drawn
     // `antialiased`, as appearanceFonts.ts sets it on the document root (LLP 1019 D12).
-    main navigationKey="t3-code" navigationBack="" navigate=historyGo historyswipe=historySwiped testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main navigationKey="t3-code" navigationBack="" navigate=historyGo historyswipe=historySwiped navigationHistory=historyWays(navigationHistory, historySteps(paletteOpen, modal, settingsOpen)) testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
       input id="external-open-answer" display="none" change=externalOpenAnswered autocorrect="off"
