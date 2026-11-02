@@ -76,7 +76,7 @@ const SETTINGS: &str = "list appearance=\"auto\" testId=\"list\" flex=1
       text \"Account\"
     button press=go testId=\"profile\"
       image \"symbol:sf/person.circle\"
-      text \"Profile\"
+      text \"Profile\" testId=\"profile-title\"
       image \"symbol:sf/chevron.right\"
     button press=go testId=\"notes\"
       image \"symbol:sf/bell\"
@@ -235,11 +235,11 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     assert_eq!(profile.height, 52.0);
     // (to a float's rounding: the header above is a line of the body style).
     assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
-    // Each row spans its card (16 in from the list, 370 wide); its
-    // content starts at the text, after an icon, as UIKit's label does
-    // (55 in at the test's 16-point root, `-exact-list-symbol-inset`).
+    // Each row spans its card (16 in from the list, 370 wide), its content at its inset
+    // where an icon stands, the text after it as UIKit's label is (55 in at a 16-point root).
     assert_eq!((profile.x, profile.width), (16.0, 370.0));
-    assert_eq!(content_x(&r, "profile"), 71.0);
+    assert_eq!(content_x(&r, "profile"), 32.0);
+    assert_eq!(frame("profile-title").x, 71.0);
     assert_eq!(content_x(&r, "delete"), 32.0, "no icon: 16 into the group");
     let own = boot(&SETTINGS.replace(
         "destructive=true testId=\"delete\"",
@@ -318,8 +318,8 @@ fn a_class_replaces_the_sheet_as_an_attribute_does() {
 
 #[test]
 fn a_symbol_under_a_condition_moves_the_text_with_it() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\"");
-    let x = |r: &Runner<NoData>| content_x(r, "row");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\" testId=\"title\"");
+    let x = |r: &Runner<NoData>| r.kernel().node(id(r, "title")).unwrap().frame.x;
     assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
     let row = id(&r, "row");
     r.dispatch(row, exact_runner::Event::Press).unwrap();

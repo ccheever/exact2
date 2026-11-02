@@ -702,7 +702,10 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
 /// those inputs to Cargo, so a change to them runs this bake again.
 fn snapback_glue(app: &Path) -> Result<(), String> {
     let driver = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../snapback4/ts");
-    let driver = driver.canonicalize().map_err(|e| e.to_string())?;
+    // A checkout without the Snapback client has no driver for an app to mount.
+    let Ok(driver) = driver.canonicalize() else {
+        return Ok(());
+    };
     let root = app.canonicalize().map_err(|e| e.to_string())?;
     if !mounts(&root)?.iter().any(|(_, dir)| *dir == driver) {
         return Ok(());

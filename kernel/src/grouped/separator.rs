@@ -56,10 +56,19 @@ impl Kernel {
         // Right to left the row's insets mirror (`style::sides::mirror_unsaid`),
         // and the line runs from its content's right edge to the left.
         let rtl = row.computed_row(StyleId::Direction, |s| s.direction) == Direction::Rtl;
+        // After a leading symbol, which stands at the row's inset, the line
+        // starts at the text, as UIKit's does beside a cell's image.
+        let text = self.after_symbol(&row);
         let (from, to) = match (pushed, rtl) {
             (true, _) => (border_left, f.width - border_right),
-            (false, false) => (border_left + left, f.width - border_right - end),
-            (false, true) => (border_left + end, f.width - border_right - right),
+            (false, false) => (
+                text.map_or(border_left + left, |(start, _)| start),
+                f.width - border_right - end,
+            ),
+            (false, true) => (
+                border_left + end,
+                text.map_or(f.width - border_right - right, |(_, end)| end),
+            ),
         };
         if to <= from {
             return None;
@@ -114,6 +123,37 @@ impl Kernel {
             w.has(StyleId::BorderWidthTop) || w.has(StyleId::BorderStyleTop)
         });
         (mine, theirs)
+    }
+
+    /// The left and right edges, in `row`'s space, of what follows its
+    /// leading symbol: its first shown child when that is the sheet's
+    /// symbol, a symbol image no accessory names whose size and fit its
+    /// author left to the sheet, and the next shown child that is no
+    /// accessory.
+    fn after_symbol(&self, row: &NodeRef<'_>) -> Option<(f32, f32)> {
+        let accessory = |n: &NodeRef<'_>| {
+            super::apple_symbol(n).is_some_and(|s| {
+                matches!(
+                    s.as_str(),
+                    "chevron.forward" | "chevron.right" | "checkmark"
+                )
+            })
+        };
+        let mut shown = row
+            .children()
+            .into_iter()
+            .filter_map(|c| self.node(c))
+            .filter(|n| n.style.display != Display::None);
+        let symbol = shown.next()?;
+        let sized = [StyleId::Width, StyleId::Height, StyleId::ObjectFit]
+            .iter()
+            .any(|r| symbol.style.written.has(*r));
+        if sized || super::apple_symbol(&symbol).is_none() || accessory(&symbol) {
+            return None;
+        }
+        let text = shown.find(|n| !accessory(n))?;
+        let x = text.frame.x - row.frame.x;
+        Some((x, x + text.frame.width))
     }
 
     /// The row after `row` that is shown.

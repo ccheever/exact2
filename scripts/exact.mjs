@@ -1,5 +1,5 @@
 #!/bin/sh
-':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-1.4.2/bin/bun" ]; then exec "$HOME/.bun-1.4.2/bin/bun" "$0" "$@"; else exec bun "$0" "$@"; fi
+':' //; if [ -n "$BUN" ]; then exec "$BUN" "$0" "$@"; elif [ -x "$HOME/.bun-1.4.2/bin/bun" ]; then exec "$HOME/.bun-1.4.2/bin/bun" "$0" "$@"; elif command -v bun >/dev/null 2>&1; then exec bun "$0" "$@"; else exec "$HOME/.bun/bin/bun" "$0" "$@"; fi
 // exact — run an Exact app from a terminal on macOS, and install one so it
 // keeps running from a terminal after you close the laptop.
 //
@@ -57,7 +57,8 @@ const { androidSdk } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
-const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
+// Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
+const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
 const { generate: gameVocabulary } = await import('../game/vocab.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -1329,7 +1330,7 @@ async function main(argv) {
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
-    await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
+    await snapbackDevice.devicePreflight(app, nextOrigin ? [nextOrigin] : []);
     return;
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }

@@ -36,8 +36,7 @@ aria-labelledby` (a region), `h1`–`h6`, `table` with `caption`, `th scope` and
 `dl`, `select`, `input type="search"`, `link href` (an `a`), `image "src" alt=""` (an
 `img`). A list of links or cards is a `column role="list"` of `role="listitem"`s; a field's
 label, a `text id=` the field names with `aria-labelledby`. `curl` a page `serve` renders
-to read it; `agent web --url /planet/3 "screenshot .exact/p.png compare design/p.png"` says
-in text where it differs from a design's capture of the page.
+to read it.
 
 ## A setting
 

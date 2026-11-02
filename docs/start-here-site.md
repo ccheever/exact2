@@ -40,7 +40,6 @@ say why each line is so: keep its shape, replace its content. Read
 |`contract build app.contract --json --errors-only`|The compile check: `[]` and exit zero mean no errors. It rewrites `app.contract.d.ts`, the types `app.ts` imports, and type-checks `app.ts`.|
 |`web-build --out dist`, `serve dist`|The site, and a server that renders `render=request` pages per request and builds again on an edit (`npm run build`, `npm start`).|
 |`test web`|Runs `app.test.contract` in Chrome.|
-|`agent web --url /item/7 "clock data" "screenshot .exact/p.png compare design/p.png"`|Opens a page and says in text, node by node with its source line, where it differs from a design's capture.|
 
 Keep scratch files in `.exact/` and helper scripts in `tools/`: neither makes the build stale.
 
@@ -80,6 +79,24 @@ component App
                   text i.name
 ```
 
+|Declaration|Where|Meaning|
+|---|---|---|
+|`shape Name` with typed fields|file|a record: `string`, `number`, `bool`, `T[]`, `option<T>`, another shape|
+|`fn name(a: T): U = expr`|file|a function of its arguments|
+|`style Name` with rows; `class=Name`|file|a class of style rows; an element's own rows win|
+|`routes nav`|file|the pages: `name "/path/:param" render=…`, nested to stack, `notfound`|
+|`component Name` with `props`|file|the first is the root; another is called as a tag, `Card(item=i)`|
+|`state x = value`|component|a stored value an action assigns|
+|`derive x = expr`|component|a value computed from others, kept current|
+|`resource x = source(args) as shape T else empty()`|root|a read of the data module, again when `args` change; `pending(x)`, `failed(x)`, `failure(x)`|
+|`mutation x as shape T`, `send x = source(args)`|root|a write with a reply (`refreshes y` reads `y` again)|
+|`action name(arg: T)`|component|what an event runs: assignments and sends, landing when it ends|
+
+A route's entry `e` (from `for e in stack(nav)`) has `e.name`, `e.id` and `e.params.id`;
+`top(nav)` is the page shown. `path("item", id)` writes a route's path, `go(nav, url)` follows
+a link, `replace(nav, url)` changes the location in place, `searchParam(top(nav), "q")` reads
+the query and `fragment(top(nav))` what follows `#`.
+
 - **Syntax.** Indent with spaces. Subtract with spaces (`a - b`): names hold hyphens. A view
   chooses with `if`/`else` and repeats with `for x in xs key=x.id`; there is no `form` (a
   field's Enter is its `submit`).
@@ -89,15 +106,15 @@ component App
   `formatNumber(n, "decimal")`). No truthiness; absence is an option (`none`, `some(x)`,
   `match x { case some(v) => …, case none => … }`), not `null`; a value never changes
   (`xs.concat([x])`); an order is `sortBy(xs, x => x.key)`, stable (`"desc"` third).
-- **Data.** A `resource` is a reactive read (`pending(x)`, `failed(x)`) that reads again when
-  its arguments change; a `derive` is a value computed from others. An event runs an
-  `action`, whose writes land when it ends. A route's parameters are `e.params.id`; the
-  query `searchParam(top(nav), "q")`, so a filter in it survives Back and a shared link.
+- **The query** holds a page's filters and sort, so Back, reload and a shared link keep them.
 - **A page's head:** `head title=… description=… status=404` inside the page. A path no route
   matches is the `notfound` route, which `serve` answers 404.
 
-**The data module** answers each source with exactly its declared shape: an extra field fails
-a resource. Type a source's result (`Promise<Result<'loadItems'>>`) so the build names one.
+**The data module**, `app.ts`, exports `answer`, which `sources` implements: each source is
+`(args, store, storage, native)`, `args` its arguments in order (`loadItem: async ([id]) => …`).
+It answers with exactly the declared shape: an extra field fails a resource, so build each
+record field by field. Type a source's result (`Promise<Result<'loadItems'>>`) so the build
+names one.
 It reaches only what its `grants` name: `export const grants = \`net.fetch ${API}\``, with
 `const API = import.meta.env.API_BASE_URL` (app.json's `env`). A failed read should throw,
 failing its resource. It imports its own `.ts` and pure-JS npm packages; one needing Node
@@ -118,8 +135,9 @@ Each is refused at build, with the remedy; write the remedy the first time.
 
 ## Look it up
 
-`bun exact.mjs contract vocab <name> …` answers for any tag, property, function or recipe in
-one call (`contract vocab head select table media`); `contract vocab` alone prints the card,
-every name on one page. `bun exact.mjs docs <heading words>` prints a section of the long
-guides. Recipes: `website`, `web-look` and `responsive-columns` (wide layouts), `select`,
+This guide, the pattern and the website recipe are the language a site needs; look up a
+name, not a chapter. `bun exact.mjs contract vocab <name> …` answers for any tag, property,
+function or recipe in one call (`contract vocab head select table media`); `contract vocab`
+alone prints the card, every name on one page. `bun exact.mjs docs <heading words>` prints the
+one section of the long guides that answers a question. Recipes: `website`, `web-look` and `responsive-columns` (wide layouts), `select`,
 `fetch-loading-error`, `rest-backend`, `tamber` (a brand), `tests`.
