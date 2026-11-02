@@ -325,8 +325,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
   floating player, profiles, and an agent's `previewAutomation` requests. A server-rendered tab's floating player pops
-  it into the platform's picture-in-picture window (`server-browser-pip.ts`): a stream of its own paints a hidden image
-  that Exact's `requestPictureInPicture` floats, as the reference floats its canvas stream.
+  it into Chromium's picture-in-picture window as Exact draws it (`requestPictureInPicture(…, presentation="window")`,
+  LLP 1042 §9.1; `server-browser-pip.ts`): a stream of its own paints a hidden image that it floats, as the reference
+  floats its canvas stream. A desktop tab's separate preview window is Exact's floating panel
+  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -569,8 +571,7 @@ exact2 only when a library many apps can reuse needs it.
 
 - `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
-  source, LLP 1020.002 D8), the agent's cursor drawn on the page's view and the separate preview window's
-  snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
+  source, LLP 1020.002 D8) and the agent's cursor drawn on the page's view need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
   go to the environment from there, since the data module reads only the app's files.
 - `T3BrowserPage.swift`'s `stage`: Copy image of a Browser artifact needs its pixels, and data code reads only the
@@ -789,12 +790,9 @@ above.
   Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
   Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
   (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
-- A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
-  216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
-  return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's
-  icon. Pause does nothing, as the tab is live. A press elsewhere on the panel does not bring the app forward, as a
-  press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
-  the Picture in Picture process.
+- One Browser window floats at a time: opening a desktop tab's separate preview window closes another tab's, or the
+  server tab's picture in picture, where the reference keeps a window per tab beside Chromium's. Exact floats one
+  image per process, as a document floats one picture-in-picture element (LLP 1042 §9).
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.

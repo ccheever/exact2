@@ -1,5 +1,6 @@
 // T3Code's server browser streams (the panel's and the mini view's) and the data module's external opens (LLP 1091.002).
 use ServerBrowserFrame from "./server-browser.contract"
+use BrowserPipShot from "./browser-shapes.contract"
 members T3Code
   resource serverBrowserLive = serverBrowserFrame(shell.panel.browser.runtimeId, shell.panel.browser.streamUrl) as shape ServerBrowserFrame
   resource serverBrowserMiniLive = serverBrowserFrame(shell.panel.browserMini.runtimeId, shell.panel.browserMini.streamUrl) as shape ServerBrowserFrame
@@ -35,11 +36,26 @@ members T3Code
     after(1, streamDecodePipFrame)
   action streamDecodePipFrame
     send serverBrowserChanged = serverBrowserDecode(serverPipFrame.runtimeId)
-  // openServerPictureInPicture: the hidden image floats once it has a picture, the seed or the stream's first.
+  // A desktop tab's separate preview window: its frame captured about 12 times a second
+  // (PICTURE_IN_PICTURE_FRAME_INTERVAL_MS), the latest capture the window's picture.
+  mutation desktopPipShot as shape BrowserPipShot queue
+  derive desktopPipPicture = match desktopPipShot { case some(value) => value.request == shell.panel.frames.desktopPip.request ? value.path : "", case none => "" }
+  derive desktopPipShots = match desktopPipShot { case some(value) => value.seq, case none => 0 }
+  task desktopPipCapture when shell.panel.frames.desktopPip.show key=`${shell.panel.frames.desktopPip.request}:${desktopPipShots}`
+    after(84, desktopPipCaptureNow)
+  action desktopPipCaptureNow
+    send desktopPipShot = browserPipCapture(shell.panel.frames.desktopPip.runtimeId, shell.panel.frames.desktopPip.request)
+  // openPictureInPicture's window, once the tab has a picture: Exact's titled panel at Electron's 480 × 320.
+  task desktopPipFloat when desktopPipPicture != "" key=shell.panel.frames.desktopPip.request
+    after(1, desktopPipFloatNow)
+  action desktopPipFloatNow
+    requestPictureInPicture("browser-desktop-pip", presentation="panel", title=shell.panel.frames.desktopPip.title, width=480, height=320)
+  // openServerPictureInPicture: the hidden image floats once it has a picture, the seed or the stream's first, in
+  // Chromium's video window, which shows the opener's origin as its title (LLP 1042 §9.1).
   task streamPipFloat when shell.panel.frames.pip.request > 0 and (shell.panel.frames.pip.seed != "" or serverPipFrame.image != "") key=shell.panel.frames.pip.request
     after(1, streamPipFloatNow)
   action streamPipFloatNow
-    requestPictureInPicture("server-browser-pip")
+    requestPictureInPicture("server-browser-pip", presentation="window", title="t3code://app")
   state streamWidth = 0
   state streamHeight = 0
   state streamFollowSize = false

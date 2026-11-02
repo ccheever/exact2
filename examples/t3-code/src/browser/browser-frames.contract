@@ -15,6 +15,7 @@ use BrowserMini from "./browser-shapes.contract"
 use ChatCanvasMini from "../shell/chat-canvas.contract"
 use BrowserMiniPlayer from "./browser-capture.contract"
 use ServerBrowserPip from "./server-browser.contract"
+use DesktopBrowserPip from "./browser-capture.contract"
 
 // ZoomIndicator: in 200 ms, held to 1.5 s, out in 200 ms.
 keyframes bfZoomPill
@@ -23,8 +24,8 @@ keyframes bfZoomPill
   88% opacity=1 translate="0px 0px"
   to opacity=0 translate="0px -4px"
 
-// One tab's page. `hatch` hands the recorder, the agent's cursor and the separate window the page's web view
-// (T3BrowserPage.swift), which have no framework counterpart yet (LLP 1020.002 D8, B10). `behind`: hidden but held, so
+// One tab's page. `hatch` hands the recorder and the agent's cursor the page's web view (T3BrowserPage.swift), which
+// have no framework counterpart yet (LLP 1020.002 D8, B10). `behind`: hidden but held, so
 // laid out and drawing but transparent: WebKit throttles a web view that is hidden, not one that is see-through, and a
 // native view does not go under the app for a negative z-index. The slot's children draw over the page (the floating player's chrome). A dialog the page holds
 // for the person (browser-automation-run.ts adoptFramePrompt) shows over the page while it shows, as Chromium's
@@ -123,6 +124,8 @@ component BrowserFrameLayer
     // A server tab's picture-in-picture window: the hidden image its stream paints (server-browser.contract).
     if frames.pip.show
       ServerBrowserPip(pip=frames.pip, local=local)
+    if frames.desktopPip.show
+      DesktopBrowserPip(pip=frames.desktopPip, local=local)
     for n in frames.namers key=n.frameId
       iframe id=n.frameId src=n.src partition=n.partition load=named(n.frameId) aria-hidden=true tabindex=-1 position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" border-width=0
     if panelShown and note != ""

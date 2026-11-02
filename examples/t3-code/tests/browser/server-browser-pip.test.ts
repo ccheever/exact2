@@ -112,11 +112,11 @@ describe("a server tab's picture-in-picture window", () => {
     expect(query('rt').interactive).toBeUndefined();
   });
 
-  it('is floated by `requestPictureInPicture` over a hidden image its own stream paints (LLP 1042 §9)', () => {
-    // The members' task floats the image by its id.
+  it('is floated by `requestPictureInPicture` over a hidden image its own stream paints (LLP 1042 §9, §9.1)', () => {
+    // The members' task floats the image by its id, in Chromium's window titled with the opener's origin (LLP 1042 §9.1).
     const floated: unknown[][] = [];
     members.call('streamPipFloatNow', {}, { requestPictureInPicture: (...args: unknown[]) => floated.push(args) }, []);
-    expect(floated).toEqual([['server-browser-pip']]);
+    expect(floated).toEqual([['server-browser-pip', { presentation: 'window', title: 't3code://app' }]]);
     // The image shows the seed until the window's stream has a picture, then the stream's; with neither, no image.
     const pip = { show: true, runtimeId: 'rt:pip', streamUrl: '', seed: 'app:/tmp/seed.jpg', request: 1 }, image = 'id="server-browser-pip"';
     const frame = (runtimeId: string, picture: string) => ({ serverPipFrame: { runtimeId, image: picture } });

@@ -34,6 +34,8 @@ describe('app.contract', () => {
     for (const name of ['composerFieldNext', 'composerFieldOther', 'richComposer', 'richPromptPreview', 'composerEdited', 'composerFieldChanged', 'composerFieldAck', 'chipObserved', 'chipPressed', 'prTabSaved', 'interactionNoted', 'interactionResumed', 'pickerAnnounced']) exempt.add(name);
     // A Browser frame's package calls, which the root names but data code makes (app.contract frameCommand), ask no server.
     for (const name of ['siteCleared', 'promptAnswered']) exempt.add(name);
+    // A desktop tab's separate window's capture is the frame's picture, taken by data code (browser-desktop-pip.ts).
+    exempt.add('desktopPipShot');
     // The window's Back and Forward read the client's own history (sidebar-history.ts).
     exempt.add('navigationHistory');
     // A side chat's Markdown and its rich field are its own renderer's and the module's, as the window's are.

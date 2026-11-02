@@ -6,12 +6,11 @@ import WebKit
 /// The `t3-browser-page` hatch: each Browser tab's partitioned frame (browser-frames.contract `BrowserFrame`) hands
 /// its WKWebView here (LLP 1020.002 §9, tier 3) for what the framework does not do yet. MIT reference, see LICENSE-T3,
 /// T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`startRecording`, `saveRecording`, `captureScreenshot`,
-/// `revealArtifact`, `openPictureInPicture`, RECORDING_ARM_GRACE_MS),
+/// `revealArtifact`, RECORDING_ARM_GRACE_MS),
 /// apps/web/src/components/preview/AgentBrowserCursor.tsx.
 ///
 /// - The recording (T3BrowserRecorder.swift): the frame as a capture source is LLP 1020.002 D8, waiting on B10.
 /// - The agent's cursor (T3BrowserAgentCursor.swift): a layer of the page's view, so it travels with the page.
-/// - The separate preview window (T3BrowserCapture.swift `T3BrowserPictureInPicture`): the page's snapshots, B10's too.
 /// - The artifact directory (`T3BrowserArtifacts`), the local server's state directory outside the app's files: a capture
 ///   the frame wrote under `app:/tmp/browser-shots` moves in, and a screenshot or recording there is revealed in the Finder
 ///   or copied, which have no framework call; a saved recording's bytes go from there to the upload URL the data module
@@ -28,11 +27,10 @@ final class T3BrowserPages {
         /// Cookies moved into the page's partition from the profile's old store; the data module reloads the page once for them.
         var migrated = 0
         let recording = T3BrowserRecording()
-        var pip: T3BrowserPictureInPicture?
         /// The file the encoder finished last, which `save` may move into the artifact directory (once).
         var encodedPath: String?
         var grace: DispatchWorkItem?
-        func close() { grace?.cancel(); grace = nil; recording.close(); pip?.close(); pip = nil }
+        func close() { grace?.cancel(); grace = nil; recording.close() }
     }
     private(set) var pages: [String: Page] = [:]
     /// The module's data root (T3Module sets it), where the artifact directory falls back to, and its `app:/tmp`.
@@ -131,7 +129,7 @@ final class T3BrowserPages {
     /// separate window, the recording, and the cookies moved in from the profile's old store.
     var status: [String: Any] {
         ["browserPages": pages.mapValues { page -> [String: Any] in
-            ["size": [Double(page.web?.frame.width ?? 0), Double(page.web?.frame.height ?? 0)], "pip": page.pip != nil, "recording": page.recording.report, "migrated": page.migrated]
+            ["size": [Double(page.web?.frame.width ?? 0), Double(page.web?.frame.height ?? 0)], "recording": page.recording.report, "migrated": page.migrated]
         }]
     }
 
@@ -139,13 +137,13 @@ final class T3BrowserPages {
 
     // MARK: Ops (T3Module+Browser.swift routes them)
 
-    /// `browserPage` (the cursor), `browserRecord`, `browserPip`, `browserArtifact` and `browserRecordingUpload`; false for any other op.
+    /// `browserPage` (the cursor), `browserRecord`, `browserArtifact` and `browserRecordingUpload`; false for any other op.
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) -> Bool {
         let generation = request["generation"] as? Int ?? 0
         let answer = { (value: [String: Any]) in reply(["ok": true, "generation": generation, "value": value]) }
         let refuse = { (kind: String, message: String) in reply(["ok": false, "generation": generation, "error": ["kind": kind, "message": message, "uncertain": false]]) }
         let op = request["op"] as? String ?? ""
-        guard ["browserPage", "browserRecord", "browserPip", "browserArtifact", "browserRecordingUpload"].contains(op) else { return false }
+        guard ["browserPage", "browserRecord", "browserArtifact", "browserRecordingUpload"].contains(op) else { return false }
         DispatchQueue.main.async { [self] in
             if op == "browserArtifact" { return artifact(request, answer: answer, refuse: refuse) }
             if op == "browserRecordingUpload" { return recordingUpload(request, reply: answer) }
@@ -155,8 +153,7 @@ final class T3BrowserPages {
                 T3BrowserAgentCursor.show(on: web, phase: request["phase"] as? String ?? "move", x: (request["x"] as? NSNumber)?.doubleValue ?? 0,
                                           y: (request["y"] as? NSNumber)?.doubleValue ?? 0, sequence: request["sequence"] as? Int ?? 0, controller: request["controller"] as? String ?? "agent")
                 answer([:])
-            case "browserRecord": record(page, request, answer: answer, refuse: refuse)
-            default: pictureInPicture(page, web, open: request["action"] as? String != "close", answer: answer)
+            default: record(page, request, answer: answer, refuse: refuse)
             }
         }
         return true
@@ -231,16 +228,6 @@ final class T3BrowserPages {
         let size = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
         note("record saved \(target.lastPathComponent)")
         answer(["id": id, "path": target.path, "mimeType": mimeType, "sizeBytes": size, "createdAt": T3BrowserArtifacts.iso(now)])
-    }
-
-    private func pictureInPicture(_ page: Page, _ web: WKWebView, open: Bool, answer: ([String: Any]) -> Void) {
-        if !open { page.pip?.close(); return answer(["open": false]) }
-        if let pip = page.pip { pip.window.orderFrontRegardless(); return answer(["open": true]) }
-        let pip = T3BrowserPictureInPicture(web: web, title: (web.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines), agent: agent)
-        pip.closed = { [weak self, weak page] in page?.pip = nil; self?.changed() }
-        page.pip = pip
-        changed()
-        answer(["open": true])
     }
 
     // MARK: Artifacts (Manager.ts captureScreenshot's file, revealArtifact)

@@ -6,8 +6,7 @@ use exact_runner::{DataError, DataSource, Placement};
 pub struct Markdown;
 pub type Data<J> = exact_data::Mixed<J, exact_data::Placed<Markdown>>;
 
-/// Every source app.ts answers must be listed as TypeScript-owned below, or the
-/// bake refuses it as an unknown source (chat.test.ts checks the two agree).
+/// Every source app.ts answers is TypeScript-owned below, or the bake refuses it (chat.test.ts).
 pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
     exact_data::Mixed::new(
         javascript,
@@ -79,6 +78,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "paletteView",
             "paletteCommand",
             "shellView",
+            "browserPipCapture",
             "serverBrowserControl",
             "serverBrowserDecode",
             "serverBrowserDialog",

@@ -24,6 +24,7 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { closeServerPictureInPicture, openServerPictureInPicture, serverPictureInPictureKey, serverPictureInPictureKeyOf } from './server-browser-pip';
+import { closeDesktopPictureInPicture, desktopPipRuntimeOf, openDesktopPictureInPicture } from './browser-desktop-pip';
 import { previewRuntimeTabId } from './browser-state';
 import { readWindowZoom } from './browser-viewport';
 import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
@@ -103,7 +104,7 @@ export const captureNativeCall = (client: T3Client, request: Obj): Promise<Obj> 
 async function nativeCall(host: Host, request: Obj, stage?: PreviewCaptureFailureStage): Promise<Obj> {
   const native = host.native;
   // The page ops name the tab's frame (T3BrowserPage.swift keys a page by its element id).
-  if (typeof request.tab === 'string' && (request.op === 'browserRecord' || request.op === 'browserPip')) request = { ...request, frame: frameIdOf(request.tab) };
+  if (typeof request.tab === 'string' && request.op === 'browserRecord') request = { ...request, frame: frameIdOf(request.tab) };
   if (!native?.available) {
     if (stage) throw new PreviewCaptureFailure('renderer-unavailable', stage);
     throw new ClientError('The browser is unavailable in this window.');
@@ -231,7 +232,7 @@ export function floatingTabOf(client: T3Client): string | null {
  *  separate window, an agent's recording holds it, or the agent drives it in its turn. */
 export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
   const tab = report(client, runtimeId), recording = obj(tab.recording);
-  const held = tab.pip === true || recording.armed === true || recording.capturing === true || recording.recording === true
+  const held = desktopPipRuntimeOf(client) === runtimeId || recording.armed === true || recording.capturing === true || recording.recording === true
     || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId)
     || agentDriving(client, runtimeId, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return held ? browserMiniSourceSize(client, runtimeId) : null;
@@ -266,7 +267,7 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
     pickTip: failed ? 'Page didn\'t load. Pick is unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
-    separateWindow: tab.pip === true,
+    separateWindow: desktopPipRuntimeOf(client) === runtimeId,
   };
 }
 /** Bumps when a ⌘Return annotation should send: the panel projects it (`shell.panel.annotationSend`) whatever it shows, so
@@ -305,7 +306,7 @@ export async function captureLocal(client: T3Client, native: Native, state: Pane
     case 'annotate': await toggleAnnotate(client, host, target, value); return true;
     case 'capture': await capture(client, host, target, value === 'record'); return true;
     case 'float': toggleFloat(client, state, target); return true;
-    case 'window': await toggleSeparateWindow(client, host, target); return true;
+    case 'window': toggleSeparateWindow(client, target); return true;
     default: return false;
   }
 }
@@ -424,11 +425,11 @@ export function toggleFloat(client: T3Client, state: PanelState, target: Capture
   client.diffOpen = false;
 }
 
-/** handleNativePictureInPicture: the separate preview window opens or closes. */
-async function toggleSeparateWindow(client: T3Client, host: Host, target: Pick<CaptureTarget, 'runtimeId'>): Promise<void> {
-  const open = report(client, target.runtimeId).pip === true;
-  try { await nativeCall(host, { op: 'browserPip', tab: target.runtimeId, action: open ? 'close' : 'open' }); }
-  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Unable to update popped-out preview', description: errorText(error) }); }
+/** handleNativePictureInPicture: the separate preview window opens or closes (browser-desktop-pip.ts); a window that
+ *  could not open is the toast its catch shows (browser-surface.ts `desktop-pip-failed`). */
+function toggleSeparateWindow(client: T3Client, target: Pick<CaptureTarget, 'runtimeId'>): void {
+  if (desktopPipRuntimeOf(client) === target.runtimeId) closeDesktopPictureInPicture(client);
+  else openDesktopPictureInPicture(client, target.runtimeId);
 }
 
 // ── Annotate's results ─────────────────────────────────────────────────────────────────────────
@@ -533,7 +534,7 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), url: session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId),
-    separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : tab.pip === true, ...size,
+    separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : desktopPipRuntimeOf(client) === runtimeId, ...size,
     windowZoom: readWindowZoom(client.presentation) };
 }
 
@@ -549,7 +550,7 @@ export async function browserMiniLocal(client: T3Client, native: Native, op: str
   else if (op === 'window' && runtimeId && value === 'server' && ref) {
     if (serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId)) closeServerPictureInPicture(client);
     else openServerPictureInPicture(client, { environmentId: ref.environmentId, threadId: ref.threadId, tabId, runtimeId });
-  } else if (op === 'window' && runtimeId) await toggleSeparateWindow(client, host, { runtimeId });
+  } else if (op === 'window' && runtimeId) toggleSeparateWindow(client, { runtimeId });
   return '';
 }
 
