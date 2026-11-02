@@ -13,6 +13,13 @@ so a banded scroll view would still have been cut at the node's top. Found by
 reading frames in the running app with lldb: Home's route content started at
 y=82, the thread's at 0.
 
+On the iPhone Duo (951 pt, split layout) two more things kept the bar's edge
+effect short of the right rail. Home reserved a 304 pt sidebar that the native
+workspace never drew (lldb read the container's `configuration` as nil; why it
+never arrived is not found), so Home's list ended 220 pt before the rail. The thread feed's column stopped at the rail
+(`right=threadTrailingReservation`), and UIKit draws the effect only as wide as
+the scroll view.
+
 ### Lean in
 
 The swipe events view is now `position="absolute"`: it has no size, so
@@ -20,6 +27,10 @@ nothing moves. In exact2, a scroller's node no longer clips while its scroll
 view is banded past it (`NodeView.clipsOwnBox`); the scroll view still clips
 its content at the same sides, so Home keeps clipping its incidental sideways
 overflow.
+
+Home now shows no sidebar in split layout (its own list fills the width), and
+the thread feed reaches the screen edge with the rail's width as right padding,
+so its rows stay clear of the rail.
 
 ### Needed
 

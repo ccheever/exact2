@@ -24,7 +24,8 @@ export interface AdaptiveWorkspaceInput {
 export function adaptiveWorkspace(input: AdaptiveWorkspaceInput) {
   const layout = deriveLayout(input);
   const sidebarAvailable = input.primarySidebarAvailable !== false;
-  const showPrimarySidebar = sidebarAvailable && (input.pathname === '/' || input.primarySidebarPreferredVisible);
+  // Home's own list fills the screen; a sidebar beside it would show the same list twice.
+  const showPrimarySidebar = sidebarAvailable && input.pathname !== '/' && input.primarySidebarPreferredVisible;
   const auxiliaryPaneRole = input.focusedAuxiliaryPaneRole ?? (/\/files(?:\/|$)/.test(input.pathname) ? 'inspector' : 'supplementary');
   const fileInspector = deriveFileInspectorPaneLayout({ layout, viewportWidth: input.width,
     preferredWidth: input.fileInspectorPreferredWidth,

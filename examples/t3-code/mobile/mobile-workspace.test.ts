@@ -174,8 +174,8 @@ test('split geometry reserves a persistent sidebar while compact geometry stays 
   for (const width of [402, 719, 720, 744, 819, 820, 1366]) {
     const compact = mobileWorkspace([home], { ...options, width, primarySidebarPreferredVisible: false });
     const split = width >= 720;
-    expect(compact).toMatchObject({ sidebarVisible: split, emptyWorkspaceDetail: split,
-      contentSettledWidth: split ? width - compact.sidebarTargetWidth : width });
+    // Home alone fills the width: its own list, no sidebar.
+    expect(compact).toMatchObject({ sidebarVisible: false, sidebarTargetWidth: 0, emptyWorkspaceDetail: split, contentSettledWidth: width });
     expect(compact.sidebarMounted).toBe(width >= 720);
   }
   expect(mobileWorkspace([home, thread], { ...options, width: 932, height: 430 })).toMatchObject({ usesSplitView: false, sidebarTargetWidth: 0, contentSettledWidth: 932 });
