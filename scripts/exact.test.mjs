@@ -284,6 +284,18 @@ for (const framework of ['ExactMIDI', 'ExactWeb']) test.skipIf(!tools)(`${framew
   assert.deepEqual(read(), expected);
 }), 60000);
 
+test.skipIf(!tools)('macOS ExactMIDI and ExactWeb frameworks carry no iOS privacy manifest', () => inDir(dir => {
+  const app = { id: 'test.timing', manifest: {} }, product = resolve(dir, 'libexact_timing.dylib'), source = resolve(dir, 'timing.c');
+  writeFileSync(source, 'int timing_fixture(void){return 42;}\n');
+  const cc = spawnSync('xcrun', ['--sdk', 'macosx', 'clang', '-dynamiclib', source, '-o', product], { encoding: 'utf8' });
+  assert.equal(cc.status, 0, cc.stderr);
+  for (const framework of ['ExactMIDI', 'ExactWeb']) {
+    const container = dirname(signedGpuProduct(product, { app, framework, platform: 'MacOSX' }));
+    assert.equal(existsSync(resolve(container, 'Resources/PrivacyInfo.xcprivacy')), false, framework);
+    assert.equal(JSON.parse(readFileSync(`${container}.source`, 'utf8')).length, 5, `${framework}'s signed cache is keyed on no manifest`);
+  }
+}), 60000);
+
 test.skipIf(!tools)('GPU archives hash the signed framework binary, including declared modules', () => inDir(dir => {
   const app = { id: 'test.gpu', manifest: {} };
   const digests = new Map();

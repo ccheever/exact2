@@ -30,6 +30,8 @@ const timingPrivacy = {
   NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
   NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }],
 };
+// The manifest wrapFramework puts in an iOS or tvOS framework; signedGpuProduct keys its signed copy on it.
+const frameworkPrivacy = (name, platform) => ['ExactMIDI', 'ExactWeb'].includes(name) && platform !== 'MacOSX' ? timingPrivacy : null;
 export function writeIOSPrivacyManifests(bundle) {
   const write = (directory, value) => writeFileSync(resolve(directory, 'PrivacyInfo.xcprivacy'), plistFile(value));
   write(bundle, runtimePrivacy);
@@ -605,7 +607,8 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
   renameSync(from, layout.binary);
   run('install_name_tool', ['-id', frameworkInstallName(name, platform), layout.binary], { stdio: 'ignore' });
   writeFileSync(layout.info, plistFile(frameworkInfo(name, app, platform)));
-  if (name === 'ExactMIDI' || name === 'ExactWeb' && platform !== 'MacOSX') writeFileSync(resolve(dirname(layout.info), 'PrivacyInfo.xcprivacy'), plistFile(timingPrivacy));
+  const privacy = frameworkPrivacy(name, platform);
+  if (privacy) writeFileSync(resolve(dirname(layout.info), 'PrivacyInfo.xcprivacy'), plistFile(privacy));
 }
 
 /** The Info.plist `wrapFramework` writes. `signedGpuProduct` keys its signed copy on it, so
@@ -650,9 +653,9 @@ export function signedGpuProduct(product, { identity = '-', framework = null, ap
   const directory = resolve(dirname(product), 'signed', ...(framework ? ['frameworks', basename(product)] : []));
   const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
   const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
+  const privacy = frameworkPrivacy(framework, platform);
   const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
-    hardened, framework, framework ? frameworkInfo(framework, app, platform) : null,
-    ...(framework === 'ExactMIDI' || framework === 'ExactWeb' && platform !== 'MacOSX' ? [timingPrivacy] : [])]);
+    hardened, framework, framework ? frameworkInfo(framework, app, platform) : null, ...(privacy ? [privacy] : [])]);
   // An ad-hoc signature (`-`: every simulator build) names no certificate
   // to require; asked for one, the verification failed, and the copy was
   // signed again by every build, which reran the app's bake and compile.
