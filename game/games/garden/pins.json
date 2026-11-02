@@ -1,22 +1,31 @@
 {
   "ticks": {
-    "0": "0x0be8317ba6f50466",
-    "5136": "0xbd48043dcd31acfe"
+    "0": "0x6e544c4bb30d8026",
+    "5136": "0xe6738b6bed4fa204"
   },
   "saves": {
-    "continuation": "07fa22c232ba0ba440e5f2bfdd06659123787d97af82705ab02bd85fbf574e34",
-    "market": "18d0da17e97b186d8554c90e24be9e8f9460bf1405d91720bc276f44fa3b8e0d",
-    "recovery": "5aa652d7087e64bc27a886c22bab1de40eff9919fa1e9f398667dd00de998d04",
-    "watering": "7d568f2ab462911de4eabdc16aff2910f8899e6806e811b135e7f8e78cacdb2a",
-    "compost": "143931bc89f19b61094a75fbb709e229d791c1487500e6abfeb462fbebd08810"
+    "continuation": "277f8bd2e951ff3d67a55484200bfbbc9664b777415c72c8fad03a780fe4c11c",
+    "market": "1b56322477cef3fb0327762907a7a25a61fdb39d037844b5e77f803f31c9babf",
+    "recovery": "f9d966a00cf8e4e3f4b770b56e80f990d137551ad810a476b6693b6293807917",
+    "watering": "c80cd3544ff29778c7b531bff6aa60b0eabdd3fc762f4877b54e84473ce2f8f8",
+    "compost": "46d9265e1cbd7689c3317471b7b881a5009cc5a2786f32f69ad7964c4902d048"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "513bda91f81df9c753b5272cc758d0760acfc39302e75e0b8bca6318f0b56550",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "e293cd11377e924cf58386fa3bab5908990294c7d5570b1e811106415f4e518a",
+  "sourceInputs": "8a30cc9dbca5bf15c2ff0adfaeb00d95e3258d992255b041b4d85823c76fab0a",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "a507f57b58d14557d3fb3ca2dc67df418b628ac6",
-  "reason": "Today's engine rounds and main's merge, plus levels: Game::LEVELS with checked and shown data reloading in place (LLP 1046.009 reconciled with the garden's data files); garden's balance is saved simulation data and its looks presentation data; tennis's rule state as a Contract program"
+  "at": "7b96edf883effa7dcf29d83be03d58e7849ff8bc",
+  "reason": "Restore the complete garden and adapt its models, saved state, and native text capture to the release engine"
 }
