@@ -349,6 +349,9 @@ export function rootActions(client: T3Client): Item[] {
     { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') });
   if (triageEnvironment(client)) action('triage', ['triage', 'bug', 'issue', 'report', 'broken', 'debug', 'help', 'support'],
     { op: 'flow', arg: 'triage', icon: 'bug', title: 'Triage an issue', description: 'An agent investigates a T3 Code problem and helps file an issue' });
+  // Find shows only where the server can search the thread (supportsThreadFind).
+  if (thread && client.config.threadFind === true) action('find-current-thread', ['find', 'search', 'messages', 'plans'],
+    { op: 'find-thread', icon: 'text-search', title: 'Find in current thread', shortcut: commandShortcut(client, 'chat.find') });
   if (composerPromptLink(client, false)) {
     action('copy-prompt-link', ['copy', 'share', 'prompt', 'link'], { op: 'flow', arg: 'copy-prompt-link', icon: 'link', title: 'Copy prompt link' });
     if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });

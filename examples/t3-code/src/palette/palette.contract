@@ -606,7 +606,7 @@ component CommandPaletteBody
             box position="absolute" left="0.6875rem" top="0.625rem" display="flex" z-index=2
               PaletteIcon(name=(view.addon == "folder-plus" ? "folder-plus" : "search"), size=16, color=(view.addon == "folder-plus" ? (dark ? "#f5f5f5" : "#18181b") : (dark ? "#a1a1a1" : "#71717b")))
           if query == ""
-            text view.placeholder position="absolute" left="2.0625rem" top=0 right=view.inputPaddingRight font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1 aria-hidden=true
+            text view.placeholder position="absolute" left="2.0625rem" top=0 right=view.inputPaddingRight font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" aria-hidden=true
           // py-2 in the reference; the native field sets its text 1pt higher than Chrome in the same box, so 9/7.
           input id="palette-input" testId="palette-input" value=query input=edit key=inputKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=(view.placeholder == "" ) width="100%" height="2.25rem" padding-left="1.9375rem" padding-right=view.inputPaddingRight padding-top="0.5625rem" padding-bottom="0.4375rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" box-sizing="border-box" data-focus-stop=((view.placeholder == "" ) ? "" : "enabled") outline="none" data-editable="yes"
           if view.accessory != ""
@@ -702,7 +702,7 @@ component PaletteDialog
       column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
         box position="relative" width="100%" height="2rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#fcfcfc, #ffffff09)" box-shadow=(dark ? "0 0 0 2px #346bf13d" : "0 0 0 2px #1b4ed83d") box-sizing="border-box"
           if query == ""
-            text view.placeholder position="absolute" left="0.6875rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="1.875rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1 aria-hidden=true
+            text view.placeholder position="absolute" left="0.6875rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="1.875rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" aria-hidden=true
           input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(view.enterOp, view.enterArg, view.enterArg2) autofocus=true aria-label=view.placeholder autocorrect="off" spellcheck="false" width="100%" height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.25rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" box-sizing="border-box" data-focus-stop="enabled" data-editable="yes"
         if view.contextTitle != ""
           text view.contextTitle font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="link-pr-preview"
@@ -765,7 +765,7 @@ component PaletteThreadPicker
             box position="absolute" left="0.6875rem" top="0.625rem" display="flex" z-index=2
               PaletteIcon(name="search", size=16, color="light-dark(#71717b, #a1a1a1)")
             if query == ""
-              text view.placeholder position="absolute" left="2.0625rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #a1a1a1)" line-clamp=1 aria-hidden=true
+              text view.placeholder position="absolute" left="2.0625rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #a1a1a1)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" aria-hidden=true
             input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=view.loading width="100%" height="2.25rem" padding-left="1.9375rem" padding-right="0.6875rem" padding-top="0.5625rem" padding-bottom="0.4375rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" box-sizing="border-box" data-focus-stop=(view.loading ? "" : "enabled") outline="none" data-editable="yes"
         if view.rows.length > 0
           scroll scrollTop=scroll flex-shrink=1 min-height=0 max-height="20rem" width="100%" box-sizing="border-box" testId="palette-list"
