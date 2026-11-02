@@ -1026,8 +1026,18 @@ name: no CSS specification defines it (CSS Fonts 4 dropped `font-smooth`).
   row and draw as before: no browser applies the property off the Mac, Linux's
   and a terminal's rasterizers have no such switch, and the snapshot drivers
   draw their runs in SwiftUI.
+- **Fields** (Daehyeon Mun, 2026-11-02, amending the declared deviation
+  below). On the Mac the text AppKit draws for a field follows the row too:
+  a textarea's text view and an input's field editor lay their text out in
+  TextKit 2 fragments that draw with smoothing off (`AntialiasedFragment`,
+  through an `NSTextLayoutManagerDelegate` an `auto` field does not have),
+  and an input's cell draws its value and placeholder so, as does a
+  textarea's placeholder. Measured on the parity page's field row (14 px,
+  500, at 2×): an `antialiased` input's and textarea's ink, editing or not,
+  equals the Exact-drawn label's beside it, 13% under `auto`'s, which is the
+  label's `auto` ink to the pixel. UIKit's fields draw as before: iOS is not
+  known to smooth fonts (UIKit above).
 - **Declared.** Apple reads the row once per paragraph, so an inline run's own
-  value gives way to its paragraph's. Text a platform view draws (a text
-  field's, a native control's title) keeps the platform's smoothing, and so
-  does a paragraph the content-region reader holds (LLP 1072 §8.1, over 64 KB
-  of text).
+  value gives way to its paragraph's. A native control's title keeps the
+  platform's smoothing, and so does a paragraph the content-region reader
+  holds (LLP 1072 §8.1, over 64 KB of text).
