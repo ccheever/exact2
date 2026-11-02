@@ -6,7 +6,7 @@ import type { Obj } from '../../src/client/domain';
 import type { Files, Native } from '../../src/client/protocol';
 import { pagesHome } from '../../src/pages/pages-home';
 import { pagesLocal } from '../../src/pages/pages-commands';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, contractFns } from '../support/contract-action-fixture';
 
 const at = '2026-11-01T00:00:00.000Z';
 
@@ -52,16 +52,18 @@ describe('the menu (HeroPicker)', () => {
   const picker = contractComponent('pages-hero.contract', 'HeroPicker');
   const row = (id: string, pinned: boolean, canPin = true) => ({ id, name: id, selected: id === 'b', canPin, pinned, pinTitle: '' });
   const home = (projects: Obj[]) => ({ projects, pinChord: 'Meta+Shift+p' });
+  // DraftHeroHeadline's ComboboxSearchInput onKeyDown: the search field, which holds the focus, takes the shortcut.
   test('the thread pin shortcut pins the highlighted row, and nothing else does', () => {
     const press = (cursor: string, key: string, e: Obj, canPin = true) => {
       const calls: unknown[][] = [];
-      picker.call('pinKey', { open: true, query: '', cursor, held: ['a', 'b'], pinOver: '', over: false },
-        { home: home([row('a', true, canPin), row('b', false, canPin)]), command: (...args: unknown[]) => calls.push(['command', ...args]),
+      picker.call('searchKey', { open: true, query: '', cursor, held: ['a', 'b'], pinOver: '', over: false },
+        { ...contractFns('menu-keys.contract'), home: home([row('a', true, canPin), row('b', false, canPin)]), command: (...args: unknown[]) => calls.push(['command', ...args]),
           preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']) },
-        [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...e }]);
+        [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: '', ...e }]);
       return calls;
     };
     expect(press('b', 'P', { metaKey: true, shiftKey: true })).toEqual([['preventDefault'], ['stopPropagation'], ['command', 'pageslocal:hero-pin', 'b', '', 0]]);
+    expect(press('b', 'ㅔ', { metaKey: true, shiftKey: true, code: 'KeyP' })).toEqual([['preventDefault'], ['stopPropagation'], ['command', 'pageslocal:hero-pin', 'b', '', 0]]);
     expect(press('b', 'p', { metaKey: true })).toEqual([]);
     expect(press('-', 'P', { metaKey: true, shiftKey: true })).toEqual([]);
     expect(press('add-project', 'P', { metaKey: true, shiftKey: true })).toEqual([]);

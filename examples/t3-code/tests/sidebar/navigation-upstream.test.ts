@@ -8,7 +8,7 @@ import { pagesHome } from '../../src/pages/pages-home';
 import { revealThreadTerminal } from '../../src/terminal/terminal-panel';
 import { scopedThreadKey, selectThreadTerminalUiState, terminalUiStore } from '../../src/terminal/terminal-ui-state';
 import { surfaceStore } from '../../src/panel/panel-surfaces';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, contractFns } from '../support/contract-action-fixture';
 import { contractFn } from '../support/contract-fn-fixture';
 import { opened } from '../support/composer-controls-fixture';
 import { scratchMachine } from '../../src/sidebar/sidebar-view';
@@ -114,14 +114,14 @@ test('revealing an existing terminal chooses its panel or drawer without allocat
 });
 
 test('the project combobox filters, moves its highlight, and commits only an existing row', async () => {
-  const picker = contractComponent('pages-hero.contract', 'HeroPicker'), state = picker.state();
+  const picker = contractComponent('pages-hero.contract', 'HeroPicker'), state = { ...picker.state(), held: [] as string[] };
   const dbStep = await contractFn('diff.contract', 'dbStep', ['ids', 'current', 'down']);
-  const calls: unknown[][] = [], scope = { current: 'a', rowIds: ['a', 'b'], highlight: 'a', dbStep,
+  const calls: unknown[][] = [], scope = { current: 'a', rowIds: ['a', 'b'], highlight: 'a', dbStep, ...contractFns('menu-keys.contract'), home: { projects: [], pinChord: 'Meta+Shift+p' },
     hidePopover: (...args: unknown[]) => calls.push(['hide', ...args]), focus: (...args: unknown[]) => calls.push(['focus', ...args]),
     command: (...args: unknown[]) => calls.push(['command', ...args]), addProject: () => calls.push(['add']), preventDefault() {} };
   picker.call('search', state, scope, ['Beta']);
   expect(state).toMatchObject({ query: 'Beta', cursor: '' });
-  picker.call('searchKey', state, scope, ['ArrowDown']);
+  picker.call('searchKey', state, scope, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: false, code: 'ArrowDown' }]);
   expect(state.cursor).toBe('b');
   picker.call('pickRow', state, scope, ['b']);
   expect(calls).toEqual([['hide', 'hero-project-menu'], ['focus', 'empty-choose-project'], ['command', 'pages:hero-project', 'b', '', 0]]);

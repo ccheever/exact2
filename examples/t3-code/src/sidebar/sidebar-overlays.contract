@@ -4,6 +4,7 @@
 // the search field, the Archive/Delete/Unpin confirmations
 // (ConfirmDialogHost) and the custom snooze dialog (CustomSnoozeDialog.tsx).
 use Snapshot from "../shared/shapes.contract"
+use pinChordPressed from "../shared/menu-keys.contract"
 use FieldPlaceholder from "../shared/field-placeholder.contract"
 use ProviderMark from "../shared/icons.contract"
 use SidebarIcon from "./sidebar-icons.contract"
@@ -127,8 +128,14 @@ component SidebarScopeMenu
       local("scope-toggle", "", key)
     else
       local("scope", "", key)
+  // Sidebar.tsx's search onKeyDown: the thread pin shortcut pins the highlighted project, ahead of the window's own
+  // (which pins the open thread).
   action searchKey(k: string, e: KeyboardEvent)
-    if k == "Enter" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
+    if pinChordPressed(k, e, data.sidebar.scopePinChord) and data.sidebar.scopes.filter((scope) => scope.key == highlighted and scope.canPin).length > 0
+      preventDefault()
+      stopPropagation()
+      run("project-pin", "", highlighted)
+    else if k == "Enter" and e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
       if highlighted != "" and highlighted != "\n"
         local("scope-toggle", "", highlighted)
@@ -166,15 +173,8 @@ component SidebarScopeMenu
     keyed = over ? key : keyed
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
-  // The thread pin shortcut pins the highlighted project here, ahead of the window's own (which pins the open thread).
-  action pinKey(k: string, e: KeyboardEvent)
-    let chord = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 ? k.toLowerCase() : k)].filter((part) => part != "").join("+")
-    if data.sidebar.scopePinChord != "" and chord.toLowerCase() == data.sidebar.scopePinChord.toLowerCase() and data.sidebar.scopes.filter((scope) => scope.key == highlighted and scope.canPin).length > 0
-      preventDefault()
-      stopPropagation()
-      run("project-pin", "", highlighted)
   view
-    column keycapture=pinKey position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"

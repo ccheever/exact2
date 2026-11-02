@@ -11,7 +11,7 @@ import { scopeHighlight, shouldCreateNewThreadInCurrentProject, sidebarSnapshot 
 import { sidebarCommand } from '../../src/sidebar/sidebar-commands';
 import { sidebarSession } from '../../src/sidebar/sidebar-state';
 import { toasts } from '../../src/shell/toast';
-import { contractComponent } from '../support/contract-action-fixture';
+import { contractComponent, contractFns } from '../support/contract-action-fixture';
 import { keyboardDispatch } from '../../src/shell/keyboard-dispatch';
 
 afterEach(() => fleet.entries.clear());
@@ -113,17 +113,23 @@ describe('useOrderWhileOpen', () => {
   });
 });
 
+// Sidebar.tsx's search onKeyDown: the search field, which holds the focus, takes these keys.
 describe('the filter\'s keys', () => {
-  const menu = contractComponent('sidebar-overlays.contract', 'SidebarScopeMenu');
+  const menu = contractComponent('sidebar-overlays.contract', 'SidebarScopeMenu'), menuKeys = contractFns('menu-keys.contract');
   const press = (highlighted: string, key: string, e: Obj) => {
     const calls: unknown[][] = [];
     const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: false }], scopeHighlight: '' } };
-    menu.call('pinKey', { hovered: highlighted, pinOver: '' }, { data, run: (...args: unknown[]) => calls.push(['run', ...args]), preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']) },
-      [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...e }]);
+    menu.call('searchKey', { hovered: highlighted, keyed: '\n', pinOver: '' }, { ...menuKeys, data, run: (...args: unknown[]) => calls.push(['run', ...args]), local() {}, preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']) },
+      [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: '', ...e }]);
     return calls;
   };
   test('the thread pin shortcut pins the highlighted project', () => {
     expect(press('g1', 'P', { metaKey: true, shiftKey: true })).toEqual([['preventDefault'], ['stopPropagation'], ['run', 'project-pin', '', 'g1']]);
+  });
+  // Under Korean 2-Set the P key types ㅔ; the shortcut is its physical key, as the palette's is.
+  test('by its physical key where the layout types another character', () => {
+    expect(press('g1', 'ㅔ', { metaKey: true, shiftKey: true, code: 'KeyP' })).toEqual([['preventDefault'], ['stopPropagation'], ['run', 'project-pin', '', 'g1']]);
+    expect(press('g1', 'ㅔ', { metaKey: true, shiftKey: true, code: 'KeyO' })).toEqual([]);
   });
   test('and nothing else: another chord, the first row (All projects) highlighted, or one that cannot be pinned', () => {
     expect(press('g1', 'p', { metaKey: true })).toEqual([]);
@@ -135,7 +141,7 @@ describe('the filter\'s keys', () => {
   test('the arrows move the highlight, from no row to the first or the last, and wrap', () => {
     const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: true }], scopeHighlight: '' } };
     const step = (state: Obj, key: string) => {
-      menu.call('searchKey', state, { data, local() {}, preventDefault() {} }, [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }]);
+      menu.call('searchKey', state, { ...menuKeys, data, local() {}, preventDefault() {} }, [key, { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: '' }]);
       return menu.derives(state, { data }).highlighted;
     };
     const state: Obj = { hovered: '\n', keyed: '\n', pinOver: '' };
@@ -143,18 +149,18 @@ describe('the filter\'s keys', () => {
     expect(step({ hovered: '\n', keyed: '\n', pinOver: '' }, 'ArrowUp')).toBe('g2');
     expect(step({ hovered: 'g1', keyed: 'g1', pinOver: '' }, 'ArrowDown')).toBe('g2');
     const none = { sidebar: { ...data.sidebar, scopeHighlight: '\n' } }, fresh: Obj = { hovered: '\n', keyed: '\n', pinOver: '' };
-    menu.call('searchKey', fresh, { data: none, local() {}, preventDefault() {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }]);
+    menu.call('searchKey', fresh, { ...menuKeys, data: none, local() {}, preventDefault() {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: 'ArrowDown' }]);
     expect(menu.derives(fresh, { data: none }).highlighted).toBe('');
     const calls: unknown[][] = [];
-    menu.call('pinKey', state, { data, run: (...args: unknown[]) => calls.push(args), preventDefault() {}, stopPropagation() {} }, ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }]);
+    menu.call('searchKey', state, { ...menuKeys, data, run: (...args: unknown[]) => calls.push(args), local() {}, preventDefault() {}, stopPropagation() {} }, ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true, code: 'KeyP' }]);
     expect(calls).toEqual([['project-pin', '', 'g2']]);
   });
   // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
   test('before the pointer moves, the shortcut pins the chosen project, which Base UI highlights on open', () => {
     const calls: unknown[][] = [];
     const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }], scopeHighlight: 'g1' } };
-    menu.call('pinKey', { hovered: '\n', pinOver: '' }, { data, run: (...args: unknown[]) => calls.push(['run', ...args]), preventDefault() {}, stopPropagation() {} },
-      ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }]);
+    menu.call('searchKey', { hovered: '\n', keyed: '\n', pinOver: '' }, { ...menuKeys, data, run: (...args: unknown[]) => calls.push(['run', ...args]), local() {}, preventDefault() {}, stopPropagation() {} },
+      ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true, code: 'KeyP' }]);
     expect(calls).toEqual([['run', 'project-pin', '', 'g1']]);
   });
   test('a new query drops the row the pointer rested on, so Return takes the first match', () => {
