@@ -921,9 +921,10 @@ export class Session {
     if (this.state === 'connected' && this.socket) {
       this.probe(FOREGROUND_PROBE_MS, null);
       this.lookForBetterRoute();
-      // The shell and thread streams resubscribe too, since a suspended app may have missed events.
+      // The shell and thread streams resubscribe too, since a suspended app may have missed events. `_foreground`: the
+      // stream did not fail, so what it delivered still holds while it resumes from its cursor.
       let notify = false;
-      for (const [id, key] of this.streams) if (key === 'shell' || key === 'thread') notify = this.inbox.append(this.generation, key, id, { _retryDue: true }) || notify;
+      for (const [id, key] of this.streams) if (key === 'shell' || key === 'thread') notify = this.inbox.append(this.generation, key, id, { _retryDue: true, _foreground: true }) || notify;
       if (notify) this.hooks.changed('events');
     } else if (this.reconnectAt !== null) { this.reconnectAt = null; this.failures = 0; this.start(); }
   }

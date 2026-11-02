@@ -158,6 +158,27 @@ describe('same-session stream retries (c5a929e)', () => {
     expect(client.error).toBe('');
     expect(client.ready).toBe(true);
   });
+  // The window's return (transport-session.ts foreground) resubscribes streams that never failed. The window stays
+  // ready while they resume, so an open command menu keeps Return and Send stays on (ConnectionWakeups'
+  // application-active resubscription keeps the reference's snapshot).
+  test('a resubscription on the window\'s return keeps the window ready until the stream resumes', async () => {
+    const wire = new Wire(), client = new T3Client(), files = disk();
+    await client.refresh(wire, files);
+    const readyAtSubscribe: boolean[] = [];
+    const later = wire.later.bind(wire);
+    wire.later = async (input: unknown) => {
+      const request = obj(input);
+      if (request.op === 'subscribe') { readyAtSubscribe.push(client.ready); wire.calls.push(request); const id = `sub-${++wire.serial}`; wire.subscriptions[String(request.key)] = id; return wire.good({ id }); }
+      return later(input);
+    };
+    wire.emit('shell', { _retryDue: true, _foreground: true });
+    await client.refresh(wire, files);
+    expect([readyAtSubscribe, client.ready]).toEqual([[true], true]);
+    // A failed stream's retry is not steady: the shell waits for the server's completion marker again.
+    wire.emit('shell', { _retryDue: true });
+    await client.refresh(wire, files);
+    expect([readyAtSubscribe, client.ready]).toEqual([[true, true], false]);
+  });
   test('an authorization failure is not retried and does not resynchronize', async () => {
     const wire = new Wire(), client = new T3Client(), files = disk();
     await client.refresh(wire, files);

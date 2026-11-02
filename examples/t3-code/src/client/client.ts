@@ -184,6 +184,8 @@ export class T3Client {
   private snapshotQuestionPins = new Map<string, string | null>();
   /** Streams the transport scheduled to resubscribe on this session (`_retryDue`), and their failure text. */
   private streamRetryDue = new Set<string>();
+  /** Of those, the ones the window's return resubscribes (`_foreground`): their streams did not fail. */
+  private streamResumeDue = new Set<string>();
   private streamError = '';
 
   get ready(): boolean {
@@ -457,7 +459,7 @@ export class T3Client {
     const generation = this.generation;
     this.synchronizedGeneration = -1;
     this.shellLive = false; this.threadLive = false;
-    delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear();
+    delete this.subscriptions.config; delete this.subscriptions.shell; this.streamRetryDue.clear(); this.streamResumeDue.clear();
     // The grants come in on their own (`session-state`, adoptSession): the config and the shell do not wait on them.
     await this.call(native, { op: 'readSession' }, generation);
     const config = await this.request(native, 'server.getConfig', {}, generation);
@@ -512,18 +514,21 @@ export class T3Client {
 
   /** The same-session resubscribe a stream failure scheduled (client-runtime rpc/client.ts). */
   private async retryStreams(native: Native): Promise<void> {
-    const due = this.streamRetryDue, generation = this.generation;
-    this.streamRetryDue = new Set();
+    const due = this.streamRetryDue, resumed = this.streamResumeDue, generation = this.generation;
+    this.streamRetryDue = new Set(); this.streamResumeDue = new Set();
     if (due.has('config')) { await this.synchronize(native); }
     else {
+      // The window's return resubscribes streams that never failed: the shell and thread they delivered stay live, so
+      // the window stays ready (an open command menu, Send) while they resume from their cursors, as the reference's
+      // state keeps its snapshot through a foreground resubscription.
       if (due.has('shell')) {
-        const marker = this.config.shellResumeCompletionMarker === true;
+        const marker = this.config.shellResumeCompletionMarker === true, steady = resumed.has('shell') && this.shellLive;
         const shellSub = await this.call(native, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: {
           afterSequence: this.shell.sequence, ...(marker ? { requestCompletionMarker: true } : {}),
         } }, generation);
-        this.subscriptions.shell = str(shellSub.id); this.shellLive = !marker;
+        this.subscriptions.shell = str(shellSub.id); this.shellLive = steady || !marker;
       }
-      if (due.has('thread') && this.threadId) await this.openThread(native, this.threadId, this.thread !== null);
+      if (due.has('thread') && this.threadId) await this.openThread(native, this.threadId, this.thread !== null, resumed.has('thread'));
     }
     if (this.error === this.streamError) this.error = '';
     this.streamError = '';
@@ -568,10 +573,12 @@ export class T3Client {
     applyStaged(this);
   }
 
-  async openThread(native: Native, id: string, resume = false): Promise<void> {
+  /** `steady`: the thread's stream resumes after the window's return; a live thread stays live meanwhile. */
+  async openThread(native: Native, id: string, resume = false, steady = false): Promise<void> {
     if (id === this.absentThreadId && !this.shell.threads.some(thread => thread.id === id)) return;
     const epoch = ++this.threadEpoch, generation = this.generation;
-    this.threadLive = false; this.threadSubscription = '';
+    const live = steady && resume && this.threadLive && str(obj(this.thread?.projection.thread).id) === id;
+    this.threadLive = live; this.threadSubscription = '';
     delete this.subscriptions.thread;
     if (!resume || str(obj(this.thread?.projection.thread).id) !== id) {
       const snapshot = await this.http(native, `/api/orchestration/threads/${encodeURIComponent(id)}/bounded`, generation);
@@ -588,7 +595,7 @@ export class T3Client {
     if (epoch !== this.threadEpoch || id !== this.threadId) return;
     this.subscriptions.thread = str(subscription.id);
     this.threadSubscription = id;
-    this.threadLive = !marker;
+    this.threadLive = live || !marker;
   }
 
   private async drain(native: Native): Promise<void> {
@@ -632,7 +639,11 @@ export class T3Client {
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;
         // The transport resubscribes a failed stream on this session after a backoff (250 ms
         // doubling to 30 s); an authorization failure waits for the next session (c5a929e).
-        if (item._retryDue) { this.streamRetryDue.add(key); continue; }
+        if (item._retryDue) {
+          this.streamRetryDue.add(key);
+          if (item._foreground === true) this.streamResumeDue.add(key); else this.streamResumeDue.delete(key);
+          continue;
+        }
         if (item._transportError || item._streamEnded) {
           const detail = obj(item._transportError);
           this.error = this.streamError = str(detail.message, 'The live stream ended. Reconnect to continue.');
