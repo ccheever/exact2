@@ -312,6 +312,9 @@
      invalid without an inherited said marker, letting a bare text style fill it. */
   #exact-root input[data-native], #exact-root textarea[data-native] { border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); }
   #exact-root select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: var(--exact-control-line-height); --exact-control-line-height: 2.125; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding-block: 0; padding-inline: .75em 2em; border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); background: linear-gradient(45deg, #0000 50%, var(--exact-secondary-label) 50%) right calc(.75em + 4px) center / 4px 4px no-repeat, linear-gradient(135deg, var(--exact-secondary-label) 50%, #0000 50%) right .75em center / 4px 4px no-repeat, transparent; }
+  /* A select whose author wrote its height is that box: its text at the normal leading, which
+     the platform's taller one would push below the padding and cut (element.rs marks it). */
+  #exact-root select:not([multiple])[data-exact-said~="height"] { line-height: normal; }
   /* LLP 1115.000 D4.14: the chevron is at the inline end, so on a right-to-left page it is at the left. */
   #exact-root select:not([multiple]):dir(rtl) { background-position: left .75em center, left calc(.75em + 4px) center, 0 0; }
   #exact-root input[data-exact-field] { box-sizing: border-box; line-height: var(--exact-control-line-height); --exact-control-line-height: 2; --exact-shell-line-height: var(--exact-said-line-height) var(--exact-control-line-height); padding: 0 .75em; border: 1px solid; border-radius: calc(8px * var(--exact-curve-reach)); corner-shape: var(--exact-curve); }

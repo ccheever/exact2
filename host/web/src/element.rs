@@ -1272,6 +1272,18 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             out.insert("data-exact-said".into(), said.join(" "));
         }
     }
+    // A select's height is its line height (index.html): one whose author wrote its height is
+    // that box, which the sheet fills at the normal leading, so its text is not cut below.
+    if kind == Some(ControlKind::Select)
+        && node.props.bool(PropId::Multiple) != Some(true)
+        && node.style.written.has(StyleId::Height)
+    {
+        let words = match out.get("data-exact-said") {
+            Some(said) if !said.is_empty() => format!("{said} height"),
+            _ => "height".to_string(),
+        };
+        out.insert("data-exact-said".into(), words);
+    }
     // @ref LLP 1075.003 §9.10 — what else its author wrote `appearance: none`
     // on says so too: in a route's header it is no bar item (navigation.js),
     // as iOS projects none of it, and a Back control so written is the
