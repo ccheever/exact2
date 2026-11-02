@@ -23,7 +23,7 @@ use ProviderAntigravitySetup from "./providers-setup.contract"
 use RedactedText from "../shared/redacted-text.contract"
 use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract"
 use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManagement, CustomModelEditor from "./providers-upkeep.contract"
-use UpkeepSelect, UpkeepOption from "./providers-upkeep.contract"
+use UpkeepOption, SecretSourceSelect from "./providers-upkeep.contract"
 use CodexRuntimeFields from "./codex-setup.contract"
 use CodexSetupRow from "./codex-setup.contract"
 use CodexRuntimeSection from "./codex-setup.contract"
@@ -50,6 +50,9 @@ shape ProviderFieldRow
   redacted: bool
   clearable: bool
   options: ProviderOption[]
+  // A dedicated variable read from a secret provider: its provider id, and the source picker's options.
+  secretProvider: string
+  sources: UpkeepOption[]
 shape ProviderVariable
   rowKey: string
   index: number
@@ -508,7 +511,8 @@ component ProviderConfigField
       else
         input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? "14rem" : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}` id=`field-provider-field-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
 
-// A dedicated environment secret (Cursor API key).
+// A dedicated environment secret (Cursor API key). One that holds a secret provider's reference shows
+// SecretSourceInput's parts instead of the password field: the source picker and the reference.
 component ProviderSecretField
   props
     field: ProviderFieldRow
@@ -522,11 +526,20 @@ component ProviderSecretField
   action edit(value: string)
     draft = value
     edited = true
+  // Value drops the reference, as committing an empty one does; the reference's own provider changes nothing.
+  action pickSource(value: string)
+    if value == "__stored__"
+      op("provider-env-field", instance, field.key, "", true)
   derive value = edited ? draft : field.value
   view
     PvRow(title=field.label, description=field.description, status="", policy="", wide=wide, divided=divided)
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
-        input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off" id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        if field.secretProvider != ""
+          row flex=1 min-width=0 gap="0.375rem" align-items="flex-start"
+            SecretSourceSelect(selectId=`provider-env-source-${field.key}`, label=`${field.label} source`, provider=field.secretProvider, disabled=(not writable), options=field.sources, choose=pickSource)
+            input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) aria-label=`${field.label} reference` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-env-${field.key}` id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
+        else
+          input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}` autocorrect="off" id=`field-provider-env-${field.key}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
         if field.clearable
           PvRemoveButton(label=`Clear ${field.label}`, buttonId=`clear-provider-env-${field.key}`, icon="x", size="sm", iconSize=14, disabled=(not writable), stop="enabled page", press=op("provider-env-field", instance, field.key, "", true))
 
@@ -558,8 +571,7 @@ component ProviderVariableRow
       row width="100%" min-width=0 gap="0.375rem" align-items="center"
         input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-name-${variable.index}` id=`field-provider-variable-name-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")
         if reference
-          row width="12rem" flex-shrink=0
-            UpkeepSelect(selectId=`provider-variable-source-${variable.index}`, label=`Environment variable value ${variable.index + 1} source`, valueLabel=variable.secretProvider, width="auto", small=false, disabled=(not writable), options=variable.sources, area="bottom span-right", choose=pickSource)
+          SecretSourceSelect(selectId=`provider-variable-source-${variable.index}`, label=`Environment variable value ${variable.index + 1} source`, provider=variable.secretProvider, disabled=(not writable), options=variable.sources, choose=pickSource)
         PvRemoveButton(label=`Remove environment variable ${variable.label}`, buttonId=`provider-variable-remove-${variable.index}`, icon="x", size="micro", iconSize=12, disabled=(not writable), stop="enabled page", press=op("provider-env-remove", instance, `${variable.index}`, "", true))
       row width="100%" min-width=0 gap="0.375rem" align-items="flex-start"
         input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(reference ? "" : variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive and not reference ? "password" : "text") aria-label=(reference ? `Environment variable value ${variable.index + 1} reference` : `Environment variable value ${variable.index + 1}`) autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="Menlo, Consolas, \"Liberation Mono\", monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}` id=`field-provider-variable-value-${variable.index}` data-editable="yes" data-focus-stop=(not writable ? "" : "enabled page")

@@ -144,7 +144,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'highlightStore') return highlightStore(args[0] as { id: number; line: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
   if (source === 'codexReceive') return codexReceive(client, native, String(args[0] ?? '')); // the sign-in's loopback callback (codex-setup-ops.ts)
-  if (source === 'promptLinksReady') return promptLinksReady(client);
+  if (source === 'promptLinksReady') return promptLinksReady(client, String(args[2] ?? ''));
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick

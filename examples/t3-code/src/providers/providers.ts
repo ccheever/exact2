@@ -97,6 +97,7 @@ const fieldRow = (instanceId: string, field: DriverField, value: string, extra: 
   value: field.control === 'password' ? '' : value, redacted: extra.redacted === true || field.control === 'password' && value.length > 0,
   clearable: extra.clearable === true || field.control === 'password' && value.length > 0,
   options: (field.options || []).map(option => ({ value: option.value, label: option.label, selected: option.value === (value || field.options![0]!.value) })),
+  secretProvider: '', sources: [] as ReturnType<typeof secretSources>,
 });
 
 const PROVIDER_ALIAS_SLUGS = new Set(['default', 'auto']);
@@ -188,8 +189,12 @@ function variableView(instanceId: string, variable: Obj, index: number) {
     index, name: str(variable.name), value: secret ? secret.reference : value, sensitive: variable.sensitive === true,
     redacted: variable.valueRedacted === true, label: str(variable.name) || String(index + 1),
     secretProvider: secret?.provider ?? '',
-    sources: secret ? [{ value: '__stored__', label: 'Value', note: '', selected: false }, { value: secret.provider, label: secret.provider, note: '', selected: true }] : [],
+    sources: secret ? secretSources(secret.provider) : [],
   };
+}
+/** The source picker's options: Value, and the provider the reference names, labelled by its id as this build offers none. */
+function secretSources(provider: string) {
+  return [{ value: '__stored__', label: 'Value', note: '', selected: false }, { value: provider, label: provider, note: '', selected: true }];
 }
 function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
   const kind = setupKind(host, row, provider), environmentLabel = environmentLabelOf(host), entry = setupOf(host, row.id);
@@ -248,7 +253,10 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
     showSetup: (meta?.env.length || 0) > 0 || setupKind(host, row, provider) !== '',
     envFields: (meta?.env || []).map(field => {
       const variable = arr(row.instance.environment).find(entry => entry.name === field.key);
-      const redacted = variable?.valueRedacted === true;
+      const redacted = variable?.valueRedacted === true, secret = secretOf(variable);
+      // ProviderEnvironmentFieldRow's SecretSourceInput: a reference shows in its own field beside the source picker.
+      if (secret) return { ...fieldRow(row.id, field, '', { clearable: true }), rowKey: `${row.id}:${field.key}:secret:${secret.provider}:${secret.reference}`,
+        value: secret.reference, placeholder: '', redacted: false, secretProvider: secret.provider, sources: secretSources(secret.provider) };
       return fieldRow(row.id, field, redacted ? '' : str(variable?.value), { placeholder: redacted ? 'Stored secret - enter a new value to replace' : field.placeholder, redacted, clearable: variable !== undefined });
     }),
     // A managed Codex instance folds its read-only runtime paths instead (CodexManagedRuntimeFields).
@@ -480,7 +488,8 @@ export async function runProviderOp(host: ProviderHost, native: Native, op: stri
 
 async function providerOp(host: ProviderHost, native: Native, op: string, id: string, value: string): Promise<string> {
   const input = value.startsWith('{') ? obj(JSON.parse(value)) : { value };
-  if (op === 'provider-refresh') { await host.rpc(native, 'server.refreshProviders', { refreshModels: true }); await refreshConfig(host, native); return ''; }
+  // EnvironmentProviderSettings' Refresh also re-reads secret providers' references (reloadSecrets).
+  if (op === 'provider-refresh') { await host.rpc(native, 'server.refreshProviders', { refreshModels: true, reloadSecrets: true }); await refreshConfig(host, native); return ''; }
   if (op === 'provider-health' || op === 'provider-cursor-usage') {
     const settings = await freshSettings(host, native);
     if (op === 'provider-cursor-usage') { await host.rpc(native, 'server.updateSettings', { patch: { cursorKeychainUsageEnabled: input.value === 'true' } }, true); await host.rpc(native, 'server.refreshProviders', {}); }
@@ -607,7 +616,11 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       const field = meta?.env.find(candidate => candidate.key === str(input.key));
       if (!field) throw new ClientError('That variable is not available for this provider.');
       const text = str(input.value).trim(), others = arr(instance.environment).filter(variable => variable.name !== field.key);
-      const environment = text ? [...arr(instance.environment).map(variable => variable.name === field.key ? { name: field.key, value: text, sensitive: true } : variable),
+      const secret = secretOf(arr(instance.environment).find(variable => variable.name === field.key));
+      // nextProviderEnvironmentWithFieldSecret: a new reference for the same provider replaces the variable at the end.
+      if (secret && text && !SECRET_REFERENCE.test(text)) return 'Enter a valid secret reference.';
+      if (secret && text === secret.reference) return '';
+      const environment = secret && text ? [...others, { name: field.key, value: '', sensitive: true, secret: { provider: secret.provider, reference: text } }] : text ? [...arr(instance.environment).map(variable => variable.name === field.key ? { name: field.key, value: text, sensitive: true } : variable),
         ...(arr(instance.environment).some(variable => variable.name === field.key) ? [] : [{ name: field.key, value: text, sensitive: true }])] : others;
       next = withKey(instance, 'environment', environment.length ? environment : undefined);
     } else if (op.startsWith('provider-env-')) {

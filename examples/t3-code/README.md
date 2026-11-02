@@ -405,13 +405,14 @@ credential, else to the primary while the Local environment switch is on (`relau
 while the server starts, the window shows the connecting state (the host opens the first window
 before the server is ready, exact2 #117). A launch reopens no thread: the reference's window loads `/`
 every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding opens a new
-draft in the most recently active project (by latest user message; a visit is not activity) of the
-environments whose shells are in, without waiting for a slow one; only a workspace with no project yet
-waits until every switched-on environment's shell is in. This machine is always in that first pick: with the
-Local environment switch on, the reference creates its window only once the local backend is ready
-(DesktopWindow.ts `createMainIfBackendReady`), so the clone's landing waits for the local environment while
-its backend is starting or its shell is not in yet. The clone does the same
-(`home-landing.ts`), focusing that project's environment when it is not the one the launch reconnected.
+draft in the most recently active project (by latest user message; a visit is not activity) of every
+environment, reading each one's shell from the cache it kept since the last launch. The clone keeps no shell
+between launches, so its landing (`home-landing.ts`) waits until every switched-on environment, This machine
+included, has its shell in or has settled offline: refused, or waiting to retry after its third failed attempt
+(`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). It also waits while This machine's server starts, as
+the reference opens its window only once the local backend is ready (DesktopWindow.ts
+`createMainIfBackendReady`). It focuses the picked project's environment when it is not the one the launch
+reconnected.
 The window keeps its frame across launches (the host's frame autosave, restored after the window's final
 style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
@@ -716,12 +717,9 @@ Differences that belong to the app:
   still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
-- The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
-  not for This machine while its server starts, nor for one that is retrying: the reference opens its
-  window only once the server is ready, and keeps waiting for any switched-on environment until its
-  third attempt has failed (`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). So a relaunch can
-  open the draft in another environment's project when the most recent one is This machine's or a
-  retrying one's.
+- The launch's landing waits for every switched-on environment's shell (`home-landing.ts`), where the
+  reference picks at once from the shells it cached. An environment that stays unreachable through three
+  attempts is left out of the clone's pick; the reference still offers its cached projects.
 - Code colours: a code text paints plain until the data crate's lexers answer for it, a few frames
   through the root's pump (`app.contract` highlightStep), where the reference's loaded highlighter
   colours it in the render that shows it. The lexers share the data crate's thread with the chat

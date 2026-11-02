@@ -146,6 +146,7 @@ component SidebarScopeMenu
       let at = keys.indexOf(highlighted)
       let next = at < 0 ? (k == "ArrowDown" ? 0 : keys.length - 1) : (at + (k == "ArrowDown" ? 1 : keys.length - 1)) % keys.length
       hovered = "\n"
+      cleared = false
       match keys.at(next)
         case some(key)
           keyed = key
@@ -157,6 +158,7 @@ component SidebarScopeMenu
   action queryInput(value: string)
     hovered = "\n"
     keyed = "\n"
+    cleared = false
     local("scope-query", "", value)
   // Return picks the highlighted row; with none (several projects chosen, no query) it picks nothing.
   action submitScope
@@ -164,13 +166,17 @@ component SidebarScopeMenu
       local("scope", "", highlighted)
   // The highlighted row (Base UI's: the one under the pointer, else the one the arrows moved to, else
   // data.sidebar.scopeHighlight), whose pin shows; and the pin under the pointer. "\n" is no row: All projects' key is "".
+  // The pointer leaving the rows clears the highlight until the arrows, a new query or the pointer set one
+  // (useListNavigation's resetOnPointerLeave, which the Combobox leaves on).
   state hovered = "\n"
   state keyed = "\n"
+  state cleared = false
   state pinOver = ""
-  derive highlighted = hovered != "\n" ? hovered : (keyed != "\n" and data.sidebar.scopes.filter((scope) => scope.key == keyed).length > 0 ? keyed : data.sidebar.scopeHighlight)
+  derive highlighted = hovered != "\n" ? hovered : (cleared ? "\n" : (keyed != "\n" and data.sidebar.scopes.filter((scope) => scope.key == keyed).length > 0 ? keyed : data.sidebar.scopeHighlight))
   action rowHover(key: string, over: bool)
     hovered = over ? key : (hovered == key ? "\n" : hovered)
     keyed = over ? key : keyed
+    cleared = over ? false : (hovered == key ? true : cleared)
   action pinHover(key: string, over: bool)
     pinOver = over ? key : (pinOver == key ? "" : pinOver)
   view

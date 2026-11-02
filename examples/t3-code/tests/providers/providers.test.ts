@@ -801,6 +801,31 @@ test("a variable read from a secret provider keeps its reference through other e
   expect(appText('providers-wizard.contract')).not.toContain('text "=" font-size="0.75rem"');
 });
 
+// ProviderEnvironmentFieldRow at v0.1.6: a dedicated variable holding a reference shows SecretSourceInput's source
+// picker (KeyRoundIcon, titled with the provider) and the reference in its own field, not an empty password field.
+test("a dedicated variable read from a secret provider shows its reference beside an icon source picker", async () => {
+  const server = new FakeServer();
+  obj(server.settings.providerInstances).cursor_work = { driver: 'cursor', enabled: true,
+    environment: [{ name: 'CURSOR_API_KEY', value: '', sensitive: true, secret: { provider: 'onepassword', reference: 'op://Work/Cursor/key' } }] };
+  server.config = server.snapshot();
+  const op = (key: string, value: string) => runProviderOp(server, native, 'provider-env-field', 'cursor_work', JSON.stringify({ key, value }));
+  const field = () => providerPage(server, 'cursor_work', 0).editors[0]!.envFields[0]!;
+  const environment = () => arr(obj(obj(server.settings.providerInstances).cursor_work).environment);
+  expect(field()).toMatchObject({ key: 'CURSOR_API_KEY', value: 'op://Work/Cursor/key', placeholder: '', redacted: false, clearable: true, secretProvider: 'onepassword',
+    sources: [{ value: '__stored__', label: 'Value', note: '', selected: false }, { value: 'onepassword', label: 'onepassword', note: '', selected: true }] });
+  expect(await op('CURSOR_API_KEY', 'op://a\nb')).toBe('Enter a valid secret reference.');
+  expect(writes(server)).toHaveLength(0);
+  await op('CURSOR_API_KEY', ' op://Work/Cursor/other ');
+  expect(environment()).toEqual([{ name: 'CURSOR_API_KEY', value: '', sensitive: true, secret: { provider: 'onepassword', reference: 'op://Work/Cursor/other' } }]);
+  // Value (the picker's other source) commits an empty reference: the variable goes, leaving the empty password field.
+  await op('CURSOR_API_KEY', '');
+  expect(obj(obj(server.settings.providerInstances).cursor_work).environment).toBeUndefined();
+  expect(field()).toMatchObject({ value: '', secretProvider: '', sources: [], clearable: false });
+  const card = appText('providers.contract');
+  expect(card).toContain('SecretSourceSelect(selectId=`provider-env-source-${field.key}`, label=`${field.label} source`, provider=field.secretProvider');
+  expect(appText('providers-upkeep.contract')).toContain('title=(provider == "" ? "Value" : provider)');
+});
+
 test('custom models add and remove with T3 validation (a new bare entry is stored as its slug)', async () => {
   const server = new FakeServer();
   const op = (name: string, key: string, value = '') => runProviderOp(server, native, name, 'exact_fixture', JSON.stringify({ key, value }));
@@ -859,7 +884,7 @@ test('enable, delete, refresh and the health interval use the documented server 
   await runProviderOp(server, native, 'provider-remove', 'codex_disposable', '{}');
   expect(Object.keys(obj(server.settings.providerInstances))).toEqual(['exact_fixture']);
   await runProviderOp(server, native, 'provider-refresh', '', '{}');
-  expect(server.calls.find(call => call.method === 'server.refreshProviders')?.payload).toEqual({ refreshModels: true });
+  expect(server.calls.find(call => call.method === 'server.refreshProviders')?.payload).toEqual({ refreshModels: true, reloadSecrets: true });
   expect(healthInterval(server.settings)).toEqual({ seconds: 300, preset: 300, base: 'balanced' });
   await runProviderOp(server, native, 'provider-health', '', JSON.stringify({ key: '', value: '330' }));
   expect(server.settings.backgroundActivity).toEqual({ schemaVersion: 1, profile: 'custom', baseProfile: 'balanced', overrides: { providerHealthRefreshInterval: 330000 } });

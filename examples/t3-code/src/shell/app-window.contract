@@ -75,6 +75,8 @@ component T3Window
     interacted: action // the reader pointed, typed or scrolled (app.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
+    confirmationFocused: action // the confirmation that holds the focus, for the window's chords (shell-members.contract)
+    confirmationClosed: action
   props
     releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
     promptLinkPage: PromptLinkView
@@ -386,6 +388,7 @@ component T3Window
     dialogMenuEntered
     dialogOpened
     dialogEntered
+    confirmationEntered
     dialogClosed
     dialogForget
     dialogFallback
@@ -518,6 +521,13 @@ component T3Window
     dialogFocusOwner = ""
     dialogFocusPopup = ""
     dialogFocusInvoker = ""
+    confirmationFocused("")
+  // A confirmation that is no dialog of the window's focus lifecycle (Settings' This machine and network confirms): the
+  // window's own focus facts, and the confirmation that holds the focus.
+  action confirmationEntered(owner: string, e: FocusEvent)
+    stopPropagation()
+    windowFocused(e)
+    confirmationFocused(owner)
   // Capture the owning popup and its actual invoker before a menu command removes the popup.
   // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
   action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
@@ -562,9 +572,11 @@ component T3Window
     dialogFocusPopup = ""
     dialogFocusInvoker = ""
     dialogSeated = dialogSeated.filter((item) => item != owner and not frame(item).unavailable and frame(item).width > 0 and frame(item).height > 0).concat([owner])
+    confirmationFocused(querySelectorAll("[data-confirmation~=\"open\"]").includes(owner) ? owner : "")
   action dialogClosed(owner: string)
     let live = querySelectorAll("[data-dialog-focus~=\"open\"]")
     dialogSeated = dialogSeated.filter((item) => item != owner)
+    confirmationClosed(owner)
     // A frame carries its entire lineage, so child/parent removal order cannot discard the outside return.
     let current = dialogLineage(dialogFrames, dialogFocusOwner)
     let owns = dialogFocusOwner == owner or ((frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) and current.filter(item => item.owner == owner).length > 0)

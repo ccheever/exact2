@@ -39,6 +39,20 @@ describe('the docked picker', () => {
     // A Settings row's picker keeps the list alone.
     expect(picker.derives(picker.state(), scope({ anchor: { id: 'row', top: 100, bottom: 128, left: 40 } })).width).toBe(362);
   });
+  test('a highlighted model row fills foreground/9%, as ComboboxItem does', () => {
+    const modelRow = contractComponent('src/composer/model-picker.contract', 'ModelRow');
+    const fill = (highlighted: boolean) => modelRow.attribute('id=`model-row-${row.key}`', 'background-color', { over: false }, { highlighted, row: { kind: 'model', key: 'k', reason: '' } });
+    expect([fill(true), fill(false)]).toEqual(['light-dark(#18181b17, #f5f5f517)', '#00000000']);
+  });
+  test('a locked note counts at its laid-out height, not three lines', () => {
+    const state = picker.state();
+    const locked = scope({ data: { running: false, composer: { toolbarTop: 600, effortHeight: 300, effortFocusAny: 1, effortGroups: [{ note: 'Your prompt contains…', options: [] }] } } });
+    expect(picker.derives(state, locked).rowHeight).toBe(300);
+    picker.call('noteSized', state, locked, [159, 70]);
+    expect(picker.derives(state, locked).rowHeight).toBe(300 + 70 - 54);
+    // The height a note measured no longer counts once the note is gone.
+    expect(picker.derives(state, scope()).rowHeight).toBe(193);
+  });
   test('Return that confirms an input method\'s candidate picks nothing', () => {
     const picks: unknown[] = [];
     const state = picker.state();

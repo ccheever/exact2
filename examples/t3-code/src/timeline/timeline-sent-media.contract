@@ -43,10 +43,11 @@ component StandaloneMedia
                 MediaCell(image=image, messageId=messageId, urls=urls, local=local, lone=false, height="100%", topRight="0px", bottomRight="0px")
         box position="absolute" left=0 top=0 right=0 bottom=0 border-width=1 border-style="solid" border-color="light-dark(#00000017, #ffffff1f)" border-top-left-radius="1rem" border-bottom-left-radius="1rem" border-top-right-radius=topRight border-bottom-right-radius=bottomRight pointer-events="none" aria-hidden=true
     else
-      // One item spans the stack's 20rem; more go two to a row, 0.5rem apart, a SnapShot across both.
-      row width="20rem" max-width="100%" flex-wrap="wrap" gap="0.5rem" justify-content="flex-end"
+      // One item spans the stack's 20rem; more fill a two-column grid's cells 0.5rem apart, a SnapShot across both, so an
+      // odd last item takes the left cell.
+      row width="20rem" max-width="100%" flex-wrap="wrap" gap="0.5rem" justify-content="flex-start"
         for image in images key=image.id
-          box width=(images.length == 1 or image.snapshot ? "100%" : "48.75%") display="flex" flex-direction="row" justify-content="flex-end"
+          box width=(images.length == 1 or image.snapshot ? "100%" : "calc(50% - 0.25rem)") display="flex" flex-direction="row" justify-content="flex-end"
             StackItem(image=image, messageId=messageId, urls=urls, local=local, topRight=(images.length == 1 ? topRight : "1rem"), bottomRight=(images.length == 1 ? bottomRight : "1rem"))
 
 // The first index of each collage row of two.

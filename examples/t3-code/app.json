@@ -91,6 +91,7 @@
     "dialog-focus",
     "focus-stop",
     "dialog-return",
+    "confirmation",
     "editable",
     "browser-frame",
     "browser-environment",

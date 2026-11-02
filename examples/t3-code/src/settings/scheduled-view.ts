@@ -267,7 +267,8 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const key = target?.taskId ? `${editing.environmentId}:${target.taskId}` : 'new';
     const picker = pickerOf(taskBase, key);
     const shown = picker?.project || draft.projectId;
-    // Pinned first. The chosen project stays listed after it is archived.
+    // Pinned first. The chosen project stays listed after it is archived: the task's, and the editor's live pick, which
+    // every project choice hands the picker (settings-scheduled.contract chooseProject), so `shown` is that pick.
     const chosen = new Set([draft.projectId, str(task?.projectId), shown]);
     const projects = scopedProjects.filter(project => project.archivedAt == null || chosen.has(str(project.id)))
       .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));

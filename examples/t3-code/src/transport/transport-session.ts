@@ -275,7 +275,9 @@ export class Session {
     for (const call of this.pending.values()) { if (call.trace !== null) traces.push(call.trace); traces.push(...call.joinedTraces); }
     return { state: this.state, origin: this.origin, environmentId: str(this.descriptor.environmentId), message: this.message, descriptor: this.descriptor,
       failureKind: this.failureKind, traceId: this.failureTrace, traces, activeRouteId: this.primary ? '' : this.routes.activeId,
-      homeOrigin: this.primary ? '' : this.routes.home, primary: this.primary, focus: this.primary ? 'primary' : this.origin ? '' : this.restoredFocus };
+      homeOrigin: this.primary ? '' : this.routes.home, primary: this.primary, focus: this.primary ? 'primary' : this.origin ? '' : this.restoredFocus,
+      // The failed attempt a retry waits after (the supervisor's backoff `attempt`), 0 while none waits.
+      backoffAttempt: this.state === 'reconnecting' && this.reconnectAt !== null ? this.failures : 0 };
   }
 
   private setStatus(next: string, text: string): void {
