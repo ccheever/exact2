@@ -225,6 +225,11 @@ fn measure_at(
     depth: u8,
 ) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
+    if takes(Kind::Length, false) || takes(Kind::Length, true) {
+        if let Some(text) = math(text, takes, depth) {
+            return Some((Kind::Length, text.into()));
+        }
+    }
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
     }
@@ -296,6 +301,61 @@ fn measure_at(
     }
     note(text);
     Some((Kind::Length, super::scale::text(text)?.into()))
+}
+
+/// A row's whole value that is `calc()`, `min()`, `max()` or `clamp()` over
+/// length tokens (`calc(space-2 * -1)`, CSS's `calc(var(--space-2) * -1)`):
+/// each token's text in its place, read as a row naming it whole reads it
+/// (the read recorded), for the kernel's `calc()` to evaluate where it
+/// draws, so a `rem` token stays `rem`. `None` when it names no token.
+fn math(text: &str, takes: &dyn Fn(Kind, bool) -> bool, depth: u8) -> Option<String> {
+    if depth >= 8 {
+        return None;
+    }
+    let length = |kind: Kind, varies: bool| kind == Kind::Length && takes(kind, varies);
+    math_with(text, |word| {
+        measure_at(word, &length, depth + 1).map(|(_, v)| v.into())
+    })
+}
+
+/// `text`, a whole `calc()`, `min()`, `max()` or `clamp()`, with each name
+/// in it that `token` gives a text for replaced by that text, grouped in
+/// parentheses. A unit (`0.5rem`) and a function's name are no names.
+/// `None` when `text` is no such function or `token` gives nothing: the
+/// web target's writer of such a row reads it too.
+pub fn math_with(text: &str, mut token: impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let f = &text[..text.find('(')?];
+    if !text.ends_with(')')
+        || !["calc", "min", "max", "clamp"]
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(f))
+    {
+        return None;
+    }
+    let (mut out, mut named, mut rest) = (String::with_capacity(text.len()), false, text);
+    while let Some(at) = rest.find(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        let end = rest[at..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+            .map_or(rest.len(), |n| at + n);
+        let word = &rest[at..end];
+        let unit = rest[..at].ends_with(|c: char| c.is_ascii_digit() || c == '.');
+        out.push_str(&rest[..at]);
+        match (!unit && !rest[end..].starts_with('('))
+            .then(|| token(word))
+            .flatten()
+        {
+            Some(value) => {
+                named = true;
+                out.push('(');
+                out.push_str(value.trim());
+                out.push(')');
+            }
+            None => out.push_str(word),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    named.then_some(out)
 }
 
 /// The rows a number token may name (LLP 1121 D3).
@@ -401,4 +461,36 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
     }
     let _out = Out;
     Some(parse(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `calc(space-2 * -1)`, CSS's `calc(var(--space-2) * -1)`: each length
+    // token a math function names is its text, its read recorded; a unit, a
+    // function's name, a colour and a row that takes no length read none.
+    #[test]
+    fn a_math_function_reads_the_length_tokens_it_names() {
+        let table = kinded([
+            ("space-2", "0.5rem", false, Kind::Length, false),
+            ("ink", "#000000", false, Kind::Color, false),
+        ]);
+        let _scope = bind(&table);
+        let length = |k: Kind, _| k == Kind::Length;
+        let (read, names) = recorded(|| measure("calc(space-2 * -1)", length));
+        assert_eq!(read, Some((Kind::Length, "calc((0.5rem) * -1)".into())));
+        assert_eq!(names, vec![Box::<str>::from("space-2")]);
+        assert_eq!(
+            measure("max(space-2, 4rem)", length).map(|(_, v)| v),
+            Some("max((0.5rem), 4rem)".into())
+        );
+        assert_eq!(measure("calc(2rem * 2)", length), None);
+        assert_eq!(measure("calc(ink * 2)", length), None);
+        assert_eq!(measure("translate(space-2)", length), None);
+        assert_eq!(
+            measure("calc(space-2 * -1)", |k, _| k == Kind::Number),
+            None
+        );
+    }
 }

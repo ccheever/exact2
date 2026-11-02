@@ -246,6 +246,7 @@ impl Modes {
         for (i, node) in plan.nodes.iter().enumerate() {
             if let Some(p) = parts[i].as_mut() {
                 self.type_rows(plan, &node, p);
+                self.math_rows(plan, &node, p)?;
                 self.boundary(plan, &node, p);
             }
         }
@@ -287,6 +288,56 @@ impl Modes {
                 p.css.replace_range(at, &format!("var({prop})"));
             }
         }
+    }
+
+    /// A node's static rows whose value is `calc()`, `min()`, `max()` or
+    /// `clamp()` over a token the page declares (`calc(space-2 * -1)`):
+    /// the kernel folded the token's sentinel into its arithmetic, so the
+    /// declaration is written again from the literal, each such token its
+    /// `var()` and any other length token its CSS, for the browser's
+    /// `calc()` to evaluate.
+    fn math_rows(
+        &self,
+        plan: &Plan,
+        node: &exact_plan::NodesRow,
+        p: &mut Parts,
+    ) -> Result<(), String> {
+        for b in node.bindings.iter().map(|b| plan.binding(b)) {
+            if b.kind != BindingKind::Style {
+                continue;
+            }
+            let Some(text) = crate::style::literal(plan, plan.code(b.expr)) else {
+                continue;
+            };
+            let Some(text) = text.as_str().map(str::trim) else {
+                continue;
+            };
+            let mut declared = false;
+            let Some(css) = exact_kernel::style::theme::math_with(text, |word| {
+                if let Some((_, prop, _)) = self.tokens.iter().find(|(n, ..)| n == word) {
+                    declared = true;
+                    return Some(format!("var({prop})"));
+                }
+                let row = plan.theme.iter().find(|r| plan.str(r.name) == word)?;
+                (crate::measures::kind(row) == Some(Kind::Length)).then(|| {
+                    crate::measures::css(Kind::Length, crate::measures::value_at(plan, row, 0))
+                })
+            }) else {
+                continue;
+            };
+            if !declared {
+                continue;
+            }
+            let Some(id) = StyleId::from_bit(u32::from(b.id)) else {
+                continue;
+            };
+            let prop = crate::style::css_property(id);
+            let Some((.., at)) = spans(&p.css).into_iter().rev().find(|(n, ..)| *n == prop) else {
+                return Err(format!("`{prop}=\"{text}\"`: the JS target writes no `{prop}` declaration to hold it; write the token's value, or a token for the whole expression in the design"));
+            };
+            p.css.replace_range(at, &css);
+        }
+        Ok(())
     }
 
     /// `text` with each sentinel its token's `var()`.

@@ -603,3 +603,42 @@ fn a_bound_font_keeps_its_styles_weight_in_a_development_build() {
         release.js
     );
 }
+
+/// A length token inside `calc()`, `min()`, `max()` or `clamp()`: where the
+/// page declares it (one that varies, and every one in a development build)
+/// the row is the literal with the token's `var()`, for the browser's
+/// `calc()`; where it does not, the kernel's folded value.
+#[test]
+fn a_token_in_a_math_function_is_its_var_where_the_page_declares_it() {
+    let plan = plan(
+        "math",
+        DESIGN,
+        "component App\n  view\n    column margin-top=\"calc(space.row * -1)\" margin-bottom=\"max(radius.card, 50%)\" margin-left=\"calc(radius.card * 2)\" padding=\"calc(space.row * 2) 4px\"\n      text \"a\"\n",
+    );
+    let release = crate::emit::emit(&plan, false, false).unwrap().css;
+    assert!(
+        release.contains("margin-top:calc((var(--x-space-row)) * -1)"),
+        "{release}"
+    );
+    assert!(release.contains("margin-left:12px"), "{release}");
+    // A shorthand's sides each.
+    assert!(
+        release.contains("padding-top:calc((var(--x-space-row)) * 2)"),
+        "{release}"
+    );
+    assert!(release.contains("padding-right:4px"), "{release}");
+    let dev = crate::emit::emit(&plan, false, true).unwrap().css;
+    assert!(
+        dev.contains("margin-bottom:max((var(--x-radius-card)), 50%)"),
+        "{dev}"
+    );
+    assert!(
+        dev.contains("margin-left:calc((var(--x-radius-card)) * 2)"),
+        "{dev}"
+    );
+    // No sentinel is left in the page.
+    assert!(
+        !release.contains("7000") && !dev.contains("7000"),
+        "{release}\n{dev}"
+    );
+}
