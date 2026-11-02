@@ -26,11 +26,13 @@ import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink, threadLinksIn, unknownThreadLinkLabel } from './thread-links';
 import { notePullRequestLinks } from './pull-link-registry';
 import { chipInks } from '../composer/composer-chip-presentation';
+import { pullRequestChipHover } from '../pull-requests/pr-chip-preview';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
   detail: string; icon: string; target: string; owner: string;
-  /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); [] until then and for every other chip. */
+  /** A file link's menu rows (file-link-menu.ts withFileLinkMenus); a pull request chip's PullRequestContextDetails lines
+   *  (pr-chip-preview.ts); [] for every other chip. */
   menu: { id: string; label: string }[];
 }
 /** A chip kind's ink (markdown-chip-inks.contract ChipInk): `light-dark()` of its accent raised to 5:1 on each theme half. */
@@ -199,7 +201,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
   const seen = new Set<string>();
-  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, ...chip, owner, menu: [] }); };
+  const add = (chip: Omit<ChipView, 'id' | 'owner' | 'menu'> & Partial<Pick<ChipView, 'menu'>>) => { if (seen.has(chip.href)) return; seen.add(chip.href); chips.push({ id: `chip-${chips.length}`, menu: [], ...chip, owner }); };
   // The thread's provider skills for its workspace, as the composer's `$` menu reads them (a sketch of a client has none).
   const skills = client?.config && client.projection ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [];
   for (const link of contextLinks(text)) {
@@ -207,7 +209,9 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     if (!target) continue;
     const href = link.href, kind = target.kind, label = link.label.trim() || kind;
     const record = records.get(target.id);
-    add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills));
+    const chip = contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads, skills);
+    // A pull request chip's hover card reads its target (`size`) and falls back to the context's details (`menu`).
+    add(chip.kind === 'pr' ? { ...chip, ...pullRequestChipHover(client, record!.pullRequest) } : chip);
   }
   // A known `$skill` in the prose is its skill's chip (markdown.rs skill_runs): its details popover (SkillChipPopover).
   if (skills.length && text.includes('$')) for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {

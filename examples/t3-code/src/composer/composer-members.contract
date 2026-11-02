@@ -4,6 +4,7 @@ use ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldAcknowledgeme
 use ComposerEditorView from "./composer-editor.contract"
 use ChipPopover, ComposerChipFinish, ComposerChipRequest, chipPopoverFocus from "./composer-chip-popover.contract"
 use Change from "../shared/shapes.contract"
+use TranscriptMarkdown from "../timeline/markdown.contract"
 use composerChord, composerChordIn from "./composer-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 members T3Code
@@ -23,6 +24,8 @@ members T3Code
   derive chipText = chipSide ? sideText : composerText
   derive chipLive = not modal and chipData.requestMode != "approval" and not chipData.composer.subagent
   resource chip = composerChip(data.revision, chipTarget) as shape ChipPopover
+  // A review comment's comment, as its details draw it (ChatMarkdown with no folder).
+  resource chipMarkdown = renderFileMarkdown(chip.markdownSource, data.look.math) as shape TranscriptMarkdown
   // The side chat it served closed or changed: the window's composer has the details again.
   task chipTargetLapse when chipTarget != "" and chipTarget != sideChatThread key=`${chipTarget}|${sideChatThread}`
     after(1, chipTargetLapsed)
