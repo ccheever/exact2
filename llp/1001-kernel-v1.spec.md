@@ -1274,9 +1274,10 @@ expected to change nothing on iOS, as iOS Safari ignores the property); the
 web writes it with Firefox's `-moz-osx-font-smoothing`; Linux, Windows, a
 terminal and the widget and watch drivers admit it and draw as before.
 Declared: Apple reads it once per paragraph, so an inline run's own value
-gives way to its paragraph's, and text a platform view draws (a text field's,
-a native control's title) and a paragraph the content-region reader holds keep
-the platform's smoothing.
+gives way to its paragraph's, and a native control's title and a paragraph
+the content-region reader holds keep the platform's smoothing. The Mac's
+fields, an input's and a textarea's text, follow the row (D12's Fields,
+2026-11-02).
 
 **Book typography** (the reader diary, 2026-10-04). `text-align: justify`
 fills every line but a paragraph's last and one before a forced break, on

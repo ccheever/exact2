@@ -368,6 +368,23 @@ and the row is kept only if the numbers say so.
   a minimal replacement (common prefix and suffix kept) with the selection
   transformed through it, so an app's own edit to `value` does not throw the
   caret to the end.
+- **What VoiceOver hears of the app's write** (Daehyeon Mun, 2026-11-02).
+  When the app's `value` replaces a focused textarea's text (a chat app's
+  thread switch swapping the draft), a person using VoiceOver hears none of
+  it, as in Chrome. On the Mac AppKit posts `AXSelectedTextChanged` for a
+  storage replacement, and VoiceOver infers an edit from it, reading the
+  text that went or spelling what came as typing; it does the same for any
+  `AXValueChanged`, with WebKit's edit description
+  (`AXTextStateChangeType`, `AXTextChangeValues`) or without. Measured with
+  VoiceOver on macOS 27, an `NSTextView` whose text a timer replaces, read
+  from its caption panel: each of those spoke at every write, and swapping
+  in a fresh text view read the whole new field as a focus change. So the
+  text view is no accessibility element while the write lands; AppKit
+  posts nothing for one, and VoiceOver said nothing at 3 of 3 writes. A
+  character typed after it echoes as before.
+  Declared: an assistive technology that follows notifications (a braille
+  display's line) shows the new text at its next read, not at the write.
+  An input's field editor and iOS write as before.
 
 **Native validation status, 2026-09-22:** UIKit must retain its specialized
 per-editor undo manager; replacing it with a plain `UndoManager` can leave
