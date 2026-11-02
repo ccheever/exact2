@@ -201,6 +201,7 @@ shape ThreadColors
   placeholder: string
   codeBackground: string
   codeForeground: string
+  markdownBorder: string
   userCodeBackground: string
   userCodeForeground: string
   queuedIntentBorder: string

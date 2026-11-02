@@ -53,6 +53,17 @@ describe('bounded transcript Markdown reuse', () => {
     expect(source).toContain('view role=(item.header ? "columnheader" : "cell")');
   });
 
+  test('thread Markdown uses the pinned opaque rule for code and table chrome', () => {
+    const source = appText('mobile/thread-markdown.contract');
+    expect(source).toContain('border-color=colors.markdownBorder');
+    expect(source).toContain('border-bottom-color=colors.markdownBorder');
+    expect(source).toContain('border-top-color=colors.markdownBorder');
+    expect(source).toContain('border-left-color=colors.markdownBorder');
+    expect(source).not.toContain('border-color=(user ? colors.userCodeBackground : colors.codeBackground)');
+    expect(source).not.toContain('border-bottom-color=(user ? colors.userCodeBackground : colors.codeBackground)');
+    expect(source).not.toContain('border-color=colors.borderSubtle');
+  });
+
   test('completed Duo table response presents cells and alignment without changing Copy or adjacent code', () => {
     const code = '"abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx"';
     const body = ['T3-CONVERSATION-QA-04', '', '| Plant | Count | Note |', '|---|---:|---|',
