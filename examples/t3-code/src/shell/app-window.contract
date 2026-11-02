@@ -74,6 +74,7 @@ component T3Window
     dispatchCommand: action // a dispatched chord's command, a composer chord to a focused side chat composer (side-chat-members.contract)
     composerTargetData: Snapshot // the composer the options menus serve: the window's, or a side chat's (side-chat-members.contract)
     interacted: action // the reader pointed, typed or scrolled (app.contract)
+    pointerPressed: action // the reader's last press was the pointer's (src/panel/side-chat-members.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
     confirmationFocused: action // the confirmation that holds the focus, for the window's chords (shell-members.contract)
@@ -660,6 +661,7 @@ component T3Window
   derive prConfirmTarget = prDetail.actions.armedControl == "primary" ? "pull-request-primary" : prDetail.actions.armedControl == "approve" ? "pull-request-approve-workflows" : prDetail.actions.armedControl == "comment" ? "pull-request-comment-close" : prDetail.actions.armedAction == "merge" ? "pr-more-merge-now" : `pr-more-${prDetail.actions.armedAction}`
   action outsidePressDown(e: PointerEvent)
     interacted()
+    pointerPressed()
     outsideDown = e.buttons == 1
     // useInlineActionConfirm also disarms on a press outside the armed control, including non-focusable text.
     if prDetail.actions.armedAction != "" and not (e.clientX >= frame(prConfirmTarget).x and e.clientX < frame(prConfirmTarget).x + frame(prConfirmTarget).width and e.clientY >= frame(prConfirmTarget).y and e.clientY < frame(prConfirmTarget).y + frame(prConfirmTarget).height)

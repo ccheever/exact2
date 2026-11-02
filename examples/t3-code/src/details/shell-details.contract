@@ -38,6 +38,7 @@ use AddMachineOption from "./git.contract"
 use ScriptRow from "./project-scripts.contract"
 use ThreadAutomationsSection from "./thread-automations.contract"
 use DetailsItemsMenu from "./thread-details-shapes.contract"
+use KmItem, KeyMenu from "../shared/menu-keys.contract"
 use ThreadServersView from "./thread-details-shapes.contract"
 use ThreadServerRow from "./thread-details-shapes.contract"
 use UsageView from "./thread-details-shapes.contract"
@@ -129,9 +130,20 @@ component DetailsBody
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
-  // A right-click opens the card's items menu (the scroll's contextPopover); the row under the pointer lets go of its fill.
-  action menuOpened
+  // A right-click opens the card's items menu (the scroll's contextPopover) at the pointer, the ContextMenu key at the
+  // focused row's centre; the row under the pointer lets go of its fill. "Choose what to show" opens it under its own
+  // start (ThreadDetailsPanel's menuPosition: the click's point, or the button's left and bottom).
+  state menuLeft = "0px"
+  state menuTop = "0px"
+  action menuOpened(e: PointerEvent)
     hovered = ""
+    menuLeft = `${e.clientX}px`
+    menuTop = `${e.clientY}px`
+  action chooseOpened
+    let at = frame("details-choose-items")
+    menuLeft = `${at.x}px`
+    menuTop = `${at.y + at.height}px`
+    showPopover("details-items-menu", source="details-choose-items")
   // The section flags follow the rows that will render, so no empty section draws a hairline.
   derive showEnvironment = density == "full" and details.items.environment
   derive showOpenIn = details.editorShow and density != "essential" and details.items.openIn
@@ -222,12 +234,12 @@ component DetailsBody
         // Shown only when no section above has content, so an emptied card can be refilled.
         if not (showWorkspace or showVcs or showServers or showAutomations or showLineage or showSideChats or showUsage or showContext)
           box padding="0.5rem" box-sizing="border-box" width="100%"
-            button popovertarget="details-items-menu" hover=hover("choose") testId="details-choose-items" width="100%" height="1.75rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "choose" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+            button id="details-choose-items" press=chooseOpened hover=hover("choose") aria-haspopup="menu" testId="details-choose-items" width="100%" height="1.75rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.5rem" background-color=(hovered == "choose" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               // SlidersHorizontalIcon (Lucide).
               svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#71717b, #a1a1a1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
                 path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
               text "Choose what to show" flex=1 min-width=0 margin-left="0.125rem" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#18181bcc, #f5f5f5cc)" text-box-trim="trim-both" text-box-edge="cap alphabetic"
-      ItemsMenuPopover(menu=details.itemsMenu, local=local)
+      ItemsMenuPopover(menu=details.itemsMenu, local=local, left=menuLeft, top=menuTop)
       PathMenuPopover(path=details.workspacePath, act=act)
 
 // ThreadDetailsSection: px-2 pt-2 pb-2.5, a hairline above all but the first; the
@@ -246,24 +258,41 @@ component DetailsSection
       children
 
 // ThreadDetailsItemsMenuItems ("Show in thread details", a checkbox per item, then Reset to default): the card's context
-// menu and the "Choose what to show" row's. On macOS it is a native menu, which closes after a choice (Base UI's
-// checkbox items keep the menu open), headed by the popover's `aria-label`, with `aria-checked` as each item's checkmark.
-// The painted check is an `aria-hidden` glyph, not an icon box, so each row is text alone and the popover stays
-// menu-shaped (LLP 1021 D3); the Mac's menu leaves an `aria-hidden` child out of the item's title.
+// menu and the "Choose what to show" row's, drawn as Settings' is (appearance/thread-details-items-menu.contract): a check
+// icon box beside each label keeps the popover from being menu-shaped (LLP 1021 D3), so macOS draws it here rather than
+// as its own menu, and a checkbox row's choice keeps it open, as Base UI's MenuCheckboxItem does. It opens at `left` and
+// `top`, the other way from the point where it does not fit, as Base UI's popup flips (LLP 1021 D2). The keys and the
+// highlight are Base UI Menu's (menu-keys.contract KeyMenu).
 component ItemsMenuPopover
   props
     menu: DetailsItemsMenu
     local: action
+    left: string
+    top: string
+  derive keyItems = menu.items.map((item) => KmItem(id=`details-items-${item.id}`, label=item.label)).concat(menu.resetDisabled ? [] : [KmItem(id="details-items-reset", label="Reset to default")])
+  state lit = ""
+  action hover(id: string, over: bool)
+    if over
+      focus(id)
+    else if lit == id
+      focus("details-items-menu-keys")
+  action focused(id: string, on: bool)
+    lit = on ? id : (lit == id ? "" : lit)
   view
     box position="absolute" left=0 top=0 width=0 height=0
-      column id="details-items-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="menu" aria-label="Show in thread details" padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" testId="details-items-menu"
-        for item in menu.items key=item.id
-          button id=`details-items-${item.id}` press=local("surface-details-items", item.id, item.checked ? "false" : "true") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitemcheckbox" aria-checked=item.checked testId=`details-items-${item.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-            text (item.checked ? "✓" : "") aria-hidden=true width="1rem" flex-shrink=0 text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
-            text item.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
-        hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff14)"
-        button id="details-items-reset" press=local("surface-details-items-reset", "", "") popovertarget="details-items-menu" popovertargetaction="hide" role="menuitem" disabled=menu.resetDisabled testId="details-items-reset" width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color="#00000000" opacity=(menu.resetDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
-          text "Reset to default" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+      column id="details-items-menu" popover="auto" role="menu" aria-label="Show in thread details" margin=0 left=left top=top padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#18181b1a, #f5f5f51a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" testId="details-items-menu"
+        // MenuGroupLabel: px-2 py-1.5, text-xs font-medium, muted. The popover's label names the menu for VoiceOver.
+        text "Show in thread details" aria-hidden=true padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#71717b, #a1a1a1)"
+        KeyMenu(menuId="details-items-menu-keys", items=keyItems, keyed=0, gap="0px", modal=true)
+          for item in menu.items key=item.id
+            button id=`details-items-${item.id}` press=local("surface-details-items", item.id, item.checked ? "false" : "true") hover=hover(`details-items-${item.id}`) focus=focused(`details-items-${item.id}`, true) blur=focused(`details-items-${item.id}`, false) role="menuitemcheckbox" aria-checked=item.checked testId=`details-items-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.25rem" background-color=(lit == `details-items-${item.id}` ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              box width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                if item.checked
+                  ShellIcon(name="check", size=14, color="light-dark(#18181b, #f5f5f5)")
+              text item.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
+          hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff14)"
+          button id="details-items-reset" press=local("surface-details-items-reset", "", "") popovertarget="details-items-menu" popovertargetaction="hide" hover=hover("details-items-reset") focus=focused("details-items-reset", true) blur=focused("details-items-reset", false) role="menuitem" disabled=menu.resetDisabled testId="details-items-reset" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.25rem" background-color=(lit == "details-items-reset" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(menu.resetDisabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+            text "Reset to default" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)"
 
 // showWorkspaceContextMenu: the Workspace row's one item, which copies the path ("Path copied", shell-commands.ts). The
 // reference's menu has no heading, so the popover has no `aria-label` to head it.

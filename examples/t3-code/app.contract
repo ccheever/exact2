@@ -230,6 +230,8 @@ component T3Code
     sideChat // a side chat tab's own chat view (src/panel/side-chat-members.contract)
     sideChatThread
     sideChatPlace
+    keyboardLast
+    pointerPressed
     sideChatX
     sideChatY
     sideChatWidth
@@ -829,6 +831,8 @@ component T3Code
   derive speedModeHeld = speedModifiers(speedModifierState)
   action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
     quitHoldKey(down, e)
+    if down and not ["Alt", "Control", "Meta", "Shift"].includes(e.key)
+      keyboardLast = true
     // DesktopWindow.ts: a held ⌘W closes one tab or terminal, not each one behind it, so its repeats are dropped. W by
     // its key, or by its physical key where the source types no Latin character there (Korean 2-Set's ㅈ); AZERTY's W
     // key types Z.
