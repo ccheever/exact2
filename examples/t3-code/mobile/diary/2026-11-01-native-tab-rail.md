@@ -16,5 +16,5 @@ The latest upstream layout uses Chats, PRs, Usage and Settings tabs, with New ch
 
 - Focused Home, native configuration and layout tests pass.
 - iOS simulator build installs and launches on bake-b2 (iOS 27.2).
-- Captured `/tmp/t3-mobile-parity/final-iphone18.png` with the new rail and accessibility nodes for all four tabs plus New chat.
+- Captured `/tmp/t3-mobile-parity/final-iphone18-v3.png` with the upstream-sized rail, header Search, and accessibility nodes for all four tabs plus New chat.
 - The local Duo is occupied by another session, so its final screenshot must be captured by the owning session before claiming Duo image parity.
