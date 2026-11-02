@@ -134,12 +134,31 @@ ${top}`);
       done, door: () => captured.door, aborted: () => glue.call({ op: 'aborted', id: realm.id }).tickets,
       ask: source => glue.run(glue.call(request('answer', source)).continuation),
       resume: (source, response = { status: 200, headers: [], body: 'fresh' }) => glue.run(glue.call(request('resume', source, { outcome: { response } })).continuation),
+      background: () => glue.call({ op: 'background', id: realm.id }),
+      drain: () => glue.run(glue.call({ op: 'background-round', id: realm.id }).token),
       forget: inFlight => glue.call({ op: 'forget', id: realm.id, inFlight: inFlight.map(s => request('answer', s)) }),
       overlay: source => glue.call({ op: 'overlay', id: realm.id, source, args: [], answer: [], writes: [] }),
     };
   } catch (error) { done(); throw error; }
 }
 const race = p => Promise.race([p.then(v => v, e => `rejected: ${e.message}`), new Promise(r => setTimeout(() => r('STILL WAITING'), 1500))]);
+
+test('background storage counters survive a turn after an answer abandons its read', async () => {
+  const w = await moduleRealm(`if (source === 'abandoned') {
+    void read('app:/data/abandoned'); throw new Error('abandoned');
+  }
+  return read('app:/data/current');`, { placement: 'main' });
+  try {
+    expect((await w.ask('abandoned')).tag).toBe(2);
+    expect(w.background().head).toBe(true);
+    const current = w.ask('current');
+    const drained = await w.drain();
+    expect(drained.writes).toBe(0);
+    expect(drained.failed).toBe(0);
+    expect(w.background().head).toBe(false);
+    expect((await current).value).toBe('app:/data/current');
+  } finally { w.done(); }
+}, 20000);
 
 // The sequence above, on the worker. An answer waiting there held the
 // worker's turn on an operation only the other answer's turn could deliver,
@@ -339,6 +358,28 @@ function secretEnvironment(kept) {
     for (const [name, descriptor] of Object.entries(saved)) { if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name]; }
   } };
 }
+
+for (const placement of ['main', 'worker']) test(`${placement}: module read flags remain boolean across secret waits`, async () => {
+  const environment = secretEnvironment('old');
+  const w = await moduleRealm(`if (source === 'plain') return source;
+    if (source === 'entropy') crypto.randomUUID();
+    if (source === 'external') store.has('token');
+    return store.exclusive('token', () => {
+      if (source === 'after') { crypto.randomUUID(); store.has('token'); }
+      return source;
+    });`, { placement, secrets: true });
+  try {
+    for (const [source, entropy, externalRead] of [
+      ['plain', false, false], ['locked', false, false], ['entropy', true, false],
+      ['external', false, true], ['after', true, true], ['plain', false, false],
+    ]) {
+      const result = await w.ask(source);
+      expect(result.value).toBe(source);
+      expect(result.entropy).toBe(entropy);
+      expect(result.externalRead).toBe(externalRead);
+    }
+  } finally { w.done(); environment.restore(); }
+}, 20000);
 
 // These are the real OAuth package, browser prelude, module turns and worker protocol. Only the
 // provider's HTTP replies and the browser's lock/storage backends are supplied by the test.

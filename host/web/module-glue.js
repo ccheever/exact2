@@ -577,8 +577,13 @@ function takeSecret(turn, name) {
 export async function run(token, deliver) {
   let turn = turns.get(token); turns.delete(token);
   if (!turn) throw new Error('browser continuation is no longer live');
+  if (turn.request.op !== 'answer' && turn.request.op !== 'resume') {
+    const result = await turn.run();
+    await deliver?.(result);
+    return result;
+  }
   const { id } = turn, key = secretTurnKey(id, turn.request);
-  let held = secretTurns.get(key), carried = { reads: [], writes: [], topics: [] };
+  let held = secretTurns.get(key), carried = { reads: [], writes: [], topics: [], externalRead: false, entropy: false };
   try {
     for (;;) {
       if (held && !held.live) throw new Error('the secret’s answer was let go');

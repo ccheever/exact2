@@ -536,7 +536,9 @@ try {
     await ask('refusedLater');if((await ask('refusedLater',[],response())).message!=='after the fetch')throw new Error('async error');
     if((await ask('parallel')).request.url!=='https://api.castle.xyz/a')throw new Error('parallel first request');
     if((await ask('parallel',[],response('\u0000\u00ff'))).request.url!=='https://api.castle.xyz/b')throw new Error('parallel second request');
-    if((await ask('parallel',[],response('ok'))).value.error!=='0,255/ok')throw new Error('parallel binary body');
+    const parallel=await ask('parallel',[],response('ok'));
+    // binary.js applies Headers guards through ibex2 hooks; browser Headers remain mutable.
+    if(parallel.value?.error!=='0,255/ok/""/changed/changed/TypeError/true/TypeError')throw new Error(`parallel binary body and response guards: ${JSON.stringify(parallel)}`);
     const upload=(await ask('upload',['view'])).request;
     if(upload?.body_base64!=='AP+ACg0A'||upload.body!=='')throw new Error(`a byte body: ${JSON.stringify(upload)}`);
     if((await ask('upload',['view'],response('ok'))).value!=='ok')throw new Error('a byte body reply');
