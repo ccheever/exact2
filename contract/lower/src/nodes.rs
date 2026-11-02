@@ -143,18 +143,28 @@ impl Lowerer<'_> {
         let expanded = timed.as_deref().unwrap_or(expanded);
         let composed = self.compose_animation(expanded)?;
         let expanded = composed.as_deref().unwrap_or(expanded);
-        let lengths =
-            svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
+        let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
+        let lengths = svg::coerce_lengths(tag, in_svg, expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
-        // A box's `transform` as the rows it equals (LLP 1055.000 D5's
-        // deferral keeps the rest), before `check_svg` reads the rows.
-        let boxed = crate::box_transform::lower(
-            tag,
-            svg::in_svg(self.svg_depth > 0, parent_tag),
-            expanded,
-        )?;
+        svg::check_svg_content(tag, in_svg, parent_tag, *span)?;
+        // Keep a rejected transform out of the remaining attribute checks,
+        // including containing-block validation, while preserving its refusal.
+        let (boxed, class_len) = match crate::box_transform::lower(tag, in_svg, expanded) {
+            Ok(rows) => (rows, class_len),
+            Err(error) => {
+                self.errors.push(native::name_the_fix(n, error));
+                let refused = |a: &Attr| a.name == "transform" && !native::leftover(tag, a);
+                let removed = expanded
+                    .iter()
+                    .take(class_len)
+                    .filter(|a| refused(a))
+                    .count();
+                let kept = expanded.iter().filter(|a| !refused(a)).cloned().collect();
+                (Some(kept), class_len - removed)
+            }
+        };
         let expanded = boxed.as_deref().unwrap_or(expanded);
-        self.check_svg(tag, parent_tag, expanded, *span)?;
+        self.check_svg(tag, parent_tag, expanded)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1011.002 D3 — the one box `vertical-align` moves.
         let inline_image = tag == "image" && matches!(parent_tag, Some("text"));
@@ -294,7 +304,6 @@ impl Lowerer<'_> {
         let expanded = audio.as_deref().unwrap_or(expanded);
         // @ref LLP 1074 T1 — a box that contains its absolutely positioned
         // descendants on every host is lowered `position: relative`.
-        let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
         let relative = contain::positioned(
             &t,
             expanded,
