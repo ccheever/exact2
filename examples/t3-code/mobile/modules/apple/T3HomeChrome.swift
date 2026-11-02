@@ -117,6 +117,27 @@ private final class T3CompactTabDelegate: NSObject, UITabBarDelegate {
     }
 }
 
+private final class T3WorkspaceTabBar: UITabBar {
+    var onContentLayout: ((CGRect) -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let buttons = tabButtons(in: self) { $0.accessibilityIdentifier?.hasPrefix("workspace-tab-") == true }
+        let identified = buttons.isEmpty ? tabButtons(in: self) { _ in true } : buttons
+        let row = identified.reduce(CGRect.null) { $0.union(convert($1.bounds, from: $1)) }
+        if !row.isNull { onContentLayout?(row) }
+    }
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        invalidateIntrinsicContentSize()
+    }
+    private func tabButtons(in view: UIView, matching match: (UIView) -> Bool) -> [UIView] {
+        view.subviews.filter { !$0.isHidden }.flatMap { subview in
+            if subview is UIControl, match(subview) { return [subview] }
+            return tabButtons(in: subview, matching: match)
+        }
+    }
+}
+
 private enum T3TabIcon {
     static func image(_ image: UIImage?) -> UIImage? {
         guard let image else { return nil }
@@ -142,8 +163,10 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var compose: UIButton?
     private var dismiss: UIButton?
     private var compactTabBar: UITabBar?
-    private var compactTabSurface: UIVisualEffectView?
     private var compactCompose: UIButton?
+    private var compactComposeWidth: NSLayoutConstraint?
+    private var compactComposeHeight: NSLayoutConstraint?
+    private var compactComposeCenterY: NSLayoutConstraint?
     private var compactTabDelegate: T3CompactTabDelegate?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
@@ -380,27 +403,13 @@ private final class T3HomeChromeView: ExactNativeInstance {
         item.preferredSearchBarPlacement = .automatic
         item.searchBarPlacementAllowsToolbarIntegration = false
 
-        let bar = UITabBar()
+        let bar = T3WorkspaceTabBar()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.accessibilityIdentifier = "workspace-tab-bar"
         bar.itemPositioning = .fill
         bar.tintColor = .label
-        let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = nil
-        appearance.backgroundColor = .clear
-        appearance.shadowColor = .clear
-        bar.standardAppearance = appearance
-        if #available(iOS 15.0, *) { bar.scrollEdgeAppearance = appearance }
-        bar.backgroundImage = UIImage()
-        bar.shadowImage = UIImage()
-        let surface = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        surface.clipsToBounds = true
-        surface.layer.cornerRadius = 44
-        root.addSubview(surface)
+        if #available(iOS 17.0, *) { bar.traitOverrides.horizontalSizeClass = .compact }
         root.addSubview(bar)
-        compactTabSurface = surface
         let definitions: [(String, String, String)] = [
             ("threads", "Chats", "text.bubble"),
             ("pullRequests", "PRs", "arrow.triangle.branch"),
@@ -427,19 +436,27 @@ private final class T3HomeChromeView: ExactNativeInstance {
         compose.accessibilityIdentifier = "workspace-compose"
         root.addSubview(compose)
         compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
+        let composeWidth = compose.widthAnchor.constraint(equalToConstant: 56)
+        let composeHeight = compose.heightAnchor.constraint(equalToConstant: 56)
+        let composeCenterY = compose.centerYAnchor.constraint(equalTo: bar.centerYAnchor)
+        compactComposeWidth = composeWidth; compactComposeHeight = composeHeight
+        compactComposeCenterY = composeCenterY
+        bar.onContentLayout = { [weak self, weak bar] frame in
+            guard let self, let bar else { return }
+            let row = bar.convert(frame, to: self.root)
+            let size = max(44, frame.height + 8)
+            composeWidth.constant = size
+            composeHeight.constant = size
+            composeCenterY.constant = row.midY - bar.frame.midY
+        }
         NSLayoutConstraint.activate([
-            surface.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-            surface.trailingAnchor.constraint(equalTo: compose.leadingAnchor, constant: -16),
-            surface.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
-            surface.heightAnchor.constraint(equalToConstant: 88),
-            bar.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            bar.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
-            bar.heightAnchor.constraint(equalTo: surface.heightAnchor),
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -76),
+            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
             compose.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
-            compose.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-            compose.widthAnchor.constraint(equalToConstant: 88),
-            compose.heightAnchor.constraint(equalToConstant: 88),
+            composeCenterY,
+            composeWidth,
+            composeHeight,
         ])
     }
     private var acceptsSearch: Bool {
@@ -531,7 +548,8 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabSurface?.removeFromSuperview(); compactTabSurface = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
+        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
+        compactComposeWidth = nil; compactComposeHeight = nil; compactComposeCenterY = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
