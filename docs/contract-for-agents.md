@@ -2218,6 +2218,10 @@ chip must read left to right in right-to-left text, `direction="ltr"`, and its
 accessible name when the drawn label is not what a screen reader should say,
 `ariaLabel=`) and hear `atompress=`
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
+Unsaid, a pill is the platform's token; when the design draws its chips another
+way, write that on the `atom` as CSS (`padding-inline`, `border`,
+`border-radius`, a ring in a `:checked` block, an underline in a `:hover`
+block) and leave the rest to the platform.
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
@@ -3546,6 +3550,8 @@ keyed by its digest. Use it only for
 the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
+
+### The driver's operations
 
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new

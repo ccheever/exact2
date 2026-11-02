@@ -38,6 +38,9 @@ package final class TextArea: NSTextView {
     /// drawn again for (FieldAtoms.swift, LLP 1045.000 D8).
     var atomElements: [AtomElement] = []
     var atomLook: (window: ObjectIdentifier?, tokens: [NSObjectProtocol]) = (nil, [])
+    /// Where the atom under the pointer starts, and the tracking that finds it, while a kind has `:hover` paint.
+    package var hoveredAtom: Int?
+    var atomHover: (AnyObject, NSTrackingArea)?
     // A pill is its atom's element where assistive technology points (`atomElement(atScreen:)`).
     package override func accessibilityHitTest(_ point: NSPoint) -> Any? { atomElement(atScreen: point) ?? super.accessibilityHitTest(point) }
     // A press on a pill is the atom's (D7); the arrow over one, as over a token.

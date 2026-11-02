@@ -102,6 +102,9 @@ package struct MarkdownAtoms: Hashable {
     /// A reader's lines run right to left, its node's `direction`: a pill
     /// whose face pins none is isolated in it (LLP 1045.000 D4).
     package var rtl = false
+    /// The source offset where the atom under the pointer starts, or -1:
+    /// its kind's `:hover` paint draws on it.
+    package var hovered = -1
     package init(kinds: String = "", faces: String = "", styles: String = "", dark: Bool = false, contrast: Bool = false, rtl: Bool = false) {
         (self.kinds, self.faces, self.styles, self.dark, self.contrast, self.rtl) = (kinds, faces, styles, dark, contrast, rtl)
     }
@@ -127,6 +130,25 @@ package final class MarkupAtom: NSObject {
     package let direction: String
     /// Its face's `ariaLabel`; empty for its label.
     package let ariaLabel: String
+    /// The selection is exactly it, and the pointer is over it: its kind's
+    /// `:checked` and `:hover` paint draw on it.
+    package var exact = false, hovered = false
+    /// What its kind's style says of the pill, in px: its inline padding
+    /// (`em` of the label's size when `paddingEm`), nil for the
+    /// platform's; its border's width and colour (nil the ink); its corner
+    /// radius, nil for the platform's; its ring's width, colour (nil the
+    /// ink) and offset; and whether its label is underlined.
+    package var padding: CGFloat?, paddingEm = false
+    package var borderWidth: CGFloat = 0, border: [Double]?
+    package var radius: CGFloat?
+    package var ring: CGFloat = 0, ringInk: [Double]?, ringOffset: CGFloat = 0
+    package var underline = false
+    /// Its kind's `:checked` paint gives a fill (an ink): exactly selected,
+    /// that one draws in place of the platform's selected look.
+    package var ownsSelectedFill = false, ownsSelectedInk = false
+    /// The field it is drawn in, whose app's files its icon is read from
+    /// and which draws it again when the icon arrives.
+    package weak var node: NodeView?
     package init(kind: String, label: String, icon: String, title: String, role: String, href: String, ink: [Double]?, background: [Double]?,
                  selected: Bool, emphasized: Bool = true, dark: Bool, contrast: Bool, direction: String = "", ariaLabel: String = "") {
         (self.kind, self.label, self.icon, self.title, self.role, self.href) = (kind, label, icon, title, role, href)

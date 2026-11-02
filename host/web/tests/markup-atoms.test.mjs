@@ -31,13 +31,13 @@ const iconOnTheRight = box => box.evaluate(b => {
 });
 const attr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
-async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}' } = {}) {
+async function editor(engine, source, drive, { width = 500, faceList = [], styles = '{}', kinds = KINDS } = {}) {
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(request) {
     const path = new URL(request.url).pathname;
     if (['/markup-editor.js', '/navigation.js', '/atoms.js', '/geometry-glue.js'].includes(path)) return new Response(Bun.file(resolve(WEB, path.slice(1))), { headers: { 'content-type': 'text/javascript' } });
     if (path === '/markup-editor.wasm') return new Response(wasm, { headers: { 'content-type': 'application/wasm' } });
     return new Response(`<!doctype html><meta charset="utf-8"><style>body{font:16px/1.4 system-ui} img, video, svg { display: block; }</style>
-      <textarea id="editor" markup="markdown" data-atoms="${attr(KINDS)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
+      <textarea id="editor" markup="markdown" data-atoms="${attr(kinds)}" data-atom-faces="${attr(faces(faceList))}" data-atom-styles="${attr(styles)}" style="width:${width}px;height:200px"></textarea>
       <script type="module">
         globalThis.exact = {};
         let field = document.getElementById('editor');
@@ -158,6 +158,39 @@ for (const engine of engines) {
       const copied = await field.evaluate(el => { const data = new DataTransfer(), e = new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.clipboardData ? data.getData('text/plain') : null; });
       if (copied !== null && engine !== 'firefox') expect(copied).toBe(CITE);
     });
+  }, 60000);
+
+  engineTest[engine](`${engine}: a kind's padding, border and radius are its pill's; :hover and :checked paint it, and a face's paint wins`, async () => {
+    const kinds = JSON.stringify([{ name: 'citation', link: 'cite:', padding: '0px', border: 1 }, { name: 'mention', prefix: '@' }]);
+    const styles = JSON.stringify({
+      citation: 'border-top-left-radius:4px;border-top-color:rgb(1, 2, 3)',
+      'citation:hover': 'text-decoration-line:underline',
+      'citation:checked': 'outline-color:rgb(37, 99, 235);outline-width:2px;outline-offset:-2px;border-top-left-radius:6px',
+    });
+    const source = `see ${CITE} now\nplain`, start = 4, end = 4 + CITE.length;
+    await editor(engine, source, async (page, field) => {
+      const box = island(field), look = () => box.evaluate(b => { const c = getComputedStyle(b); return [c.paddingLeft, c.borderLeftWidth, c.borderTopColor, c.borderTopLeftRadius, c.textDecorationLine, c.outlineWidth, c.outlineOffset, c.outlineStyle]; });
+      // The pill keeps the line's height: the border's top and bottom are taken back.
+      const [withAtom, plain] = await field.evaluate(el => [...el.querySelectorAll('.md-line')].map(line => line.getBoundingClientRect().height));
+      expect(Math.abs(withAtom - plain)).toBeLessThan(1);
+      // No ring until selected (a style of `none` computes its width differently by engine).
+      const own = await look();
+      expect([...own.slice(0, 5), own[7]]).toEqual(['0px', '1px', 'rgb(1, 2, 3)', '4px', 'none', 'none']);
+      await box.hover(); await settle(page);
+      expect((await look())[4]).toBe('underline');
+      await page.mouse.move(0, 0);
+      // Exactly selected (a press selects it), it draws the ring at its radius.
+      await box.click(); await settle(page);
+      expect(await state(field)).toEqual([source, start, end]);
+      const checked = await look();
+      expect([checked[3], ...checked.slice(5)]).toEqual(['6px', '2px', '-2px', 'solid']);
+      // A range that holds more than the atom is no longer it: no ring.
+      await field.evaluate((el, [s, e]) => el.setSelectionRange(s, e), [start - 1, end]); await settle(page);
+      expect((await look())[7]).toBe('none');
+      // A face's colour, on the pill, over the kind's state paint.
+      await field.evaluate(el => { el.setAttribute('data-atom-faces', JSON.stringify([{ source: '[Quote](cite:1)', label: 'A quote', icon: '', title: '', color: 'rgb(7, 8, 9)', backgroundColor: '' }])); el.exactMarkup.sync(); });
+      expect(await island(field).evaluate(b => getComputedStyle(b).color)).toBe('rgb(7, 8, 9)');
+    }, { kinds, styles, faceList: [[CITE, 'A quote']] });
   }, 60000);
 
   engineTest[engine](`${engine}: a gated token becomes an atom when its face arrives, and a face update redraws it`, async () => {

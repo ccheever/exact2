@@ -57,8 +57,9 @@ enum AtomPaint {
         batch(value)?.textChannels(dark: atoms.dark, contrast: atoms.contrast)
     }
 
-    /// `(ink, background)` by kind name.
-    static func resolve(_ atoms: MarkdownAtoms) -> [String: (ink: [Double]?, background: [Double]?)] {
+    /// Each kind's paint rows (`atomStyles`), its own under its name and
+    /// each state's under `<kind>:hover` and `<kind>:checked`.
+    static func resolve(_ atoms: MarkdownAtoms) -> [String: AtomRows] {
         guard !atoms.styles.isEmpty, atoms.styles != "{}" else { return [:] }
         // The decorations resolver reads the same rows (`[style id, literal]`).
         let request = ["record": "{\"value\":\"\",\"spans\":[]}", "current": "", "styles": atoms.styles]
@@ -67,10 +68,28 @@ enum AtomPaint {
         let reply = data.withUnsafeBytes { raw in exact_field_decorations(raw.bindMemory(to: UInt8.self).baseAddress, raw.count, &count) }
         guard let reply, let object = try? JSONSerialization.jsonObject(with: Data(bytes: reply, count: count)) as? [String: Any],
               let styles = object["styles"] as? [String: [String: Any]] else { return [:] }
+        let colour = { (value: Any?) in batch(value)?.channels(dark: atoms.dark, contrast: atoms.contrast) }
+        let length = { (value: Any?) in (value as? NSNumber).map { CGFloat($0.doubleValue) } }
         return styles.mapValues { rows in
-            (batch(rows["text_color"])?.channels(dark: atoms.dark, contrast: atoms.contrast),
-             batch(rows["background_color"])?.channels(dark: atoms.dark, contrast: atoms.contrast))
+            AtomRows(ink: colour(rows["text_color"]), background: colour(rows["background_color"]), border: colour(rows["border_color_top"]),
+                     radius: length(rows["border_radius_top_left"]), ring: length(rows["outline_width"]), ringInk: colour(rows["outline_color"]),
+                     ringOffset: length(rows["outline_offset"]), underline: (rows["text_decoration_line"] as? String).map { $0.contains("underline") })
         }
+    }
+
+    /// Each kind's measured style from its table row (`atoms`): its inline
+    /// padding, `"<n>px"` or `"<n>em"`, and its border's width in px.
+    static func metrics(_ atoms: MarkdownAtoms) -> [String: (padding: CGFloat?, em: Bool, border: CGFloat)] {
+        guard atoms.kinds.contains("\"padding\"") || atoms.kinds.contains("\"border\""),
+              let rows = try? JSONSerialization.jsonObject(with: Data(atoms.kinds.utf8)) as? [[String: Any]] else { return [:] }
+        var out: [String: (padding: CGFloat?, em: Bool, border: CGFloat)] = [:]
+        for row in rows {
+            guard let name = row["name"] as? String else { continue }
+            let text = row["padding"] as? String ?? "", em = text.hasSuffix("em")
+            let padding = Double(text.dropLast(2)).map { CGFloat($0) }
+            out[name] = (padding, em, CGFloat((row["border"] as? NSNumber)?.doubleValue ?? 0))
+        }
+        return out
     }
 
     private static func batch(_ value: Any?) -> BatchValue? {
@@ -97,6 +116,19 @@ enum AtomPaint {
     }
 }
 
+/// What a kind's paint rows say for one state; nil where they say nothing.
+struct AtomRows {
+    var ink: [Double]?, background: [Double]?, border: [Double]?, radius: CGFloat?
+    var ring: CGFloat?, ringInk: [Double]?, ringOffset: CGFloat?, underline: Bool?
+    /// `state`'s rows over these, row by row, as a state's block wins.
+    func with(_ state: AtomRows?) -> AtomRows {
+        guard let state else { return self }
+        return AtomRows(ink: state.ink ?? ink, background: state.background ?? background, border: state.border ?? border,
+                        radius: state.radius ?? radius, ring: state.ring ?? ring, ringInk: state.ringInk ?? ringInk,
+                        ringOffset: state.ringOffset ?? ringOffset, underline: state.underline ?? underline)
+    }
+}
+
 /// The pill an editor atom draws: its picture, the attachment's only
 /// drawing, so nothing outlives a restyle (§5.1).
 final class AtomAttachment: NSTextAttachment {
@@ -114,37 +146,64 @@ final class AtomAttachment: NSTextAttachment {
     override func viewProvider(for parentView: UIView?, location: NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? { nil }
     #endif
 
-    /// Horizontal padding, of the label's font size, as the web's pill has.
+    /// The platform's horizontal padding, of the label's font size, as the web's pill has.
     static let padding: CGFloat = 0.3
 
     private static func font(_ attributes: [NSAttributedString.Key: Any]) -> PlatformFont {
         attributes[.font] as? PlatformFont ?? .systemFont(ofSize: 16)
     }
-    private func icon(_ size: CGFloat) -> AtomImage? {
-        guard atom.icon.hasPrefix("symbol:sf/") else { return nil }
-        let name = String(atom.icon.dropFirst("symbol:sf/".count))
+    /// The padding on each inline side: its kind's, else the platform's.
+    private func padding(_ face: PlatformFont) -> CGFloat {
+        guard let padding = atom.padding else { return Self.padding * face.pointSize }
+        return atom.paddingEm ? padding * face.pointSize : padding
+    }
+
+    /// Its icon at `size`: an SF Symbol, tinted with the ink, or a picture
+    /// from any other image source, in its own colours (`AtomIcons`), which
+    /// draws the pill again when it arrives.
+    private func icon(_ size: CGFloat) -> (image: AtomImage, tinted: Bool)? {
+        guard !atom.icon.isEmpty else { return nil }
+        if atom.icon.hasPrefix("symbol:sf/") {
+            let name = String(atom.icon.dropFirst("symbol:sf/".count))
+            #if os(macOS)
+            return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular)).map { ($0, true) }
+            #else
+            return UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size)).map { ($0, true) }
+            #endif
+        }
+        // Symbol roles name their glyph through the image node, which a face has none of.
+        guard !atom.icon.hasPrefix("symbol:") else { return nil }
+        // Three device pixels a point: sharp at every display scale.
+        guard let picture = AtomIcons.image(atom.icon, pixels: Int((size * 3).rounded(.up)), node: atom.node) else { return nil }
         #if os(macOS)
-        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular))
+        return (NSImage(cgImage: picture, size: CGSize(width: picture.width, height: picture.height)), false)
         #else
-        return UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: size))
+        return (UIImage(cgImage: picture), false)
         #endif
     }
 
-    /// The label's width and padding, an icon's, no wider than the line
-    /// (D4), and a point inside the font's ascender and descender, so the
-    /// line keeps the height it has without the atom (§5.1).
+    /// Whether the pill keeps room for an icon: an SF Symbol there is, or a
+    /// picture, before it arrives too, so its arrival moves no text.
+    private func hasIcon(_ size: CGFloat) -> Bool {
+        atom.icon.hasPrefix("symbol:sf/") ? icon(size) != nil : !atom.icon.isEmpty && !atom.icon.hasPrefix("symbol:")
+    }
+
+    /// The label's width and padding, an icon's, a border's, no wider than
+    /// the line (D4), and a point inside the font's ascender and descender,
+    /// so the line keeps the height it has without the atom (§5.1); a
+    /// border's top and bottom are drawn inside that.
     override func attachmentBounds(for attributes: [NSAttributedString.Key: Any], location: NSTextLocation, textContainer: NSTextContainer?,
                                    proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
         let face = Self.font(attributes)
         let label = ceil((atom.label as NSString).size(withAttributes: [.font: face]).width)
-        let cap = face.capHeight, room = icon(cap) == nil ? 0 : cap + face.pointSize * 0.25
-        let wide = label + room + 2 * Self.padding * face.pointSize
+        let cap = face.capHeight, room = hasIcon(cap) ? cap + face.pointSize * 0.25 : 0
+        let wide = label + room + 2 * (padding(face) + atom.borderWidth)
         return CGRect(x: 0, y: face.descender + 1, width: max(1, min(wide, proposedLineFragment.width)), height: face.ascender - face.descender - 2)
     }
 
     override func image(for bounds: CGRect, attributes: [NSAttributedString.Key: Any], location: NSTextLocation, textContainer: NSTextContainer?) -> AtomImage? {
         let face = Self.font(attributes), atom = atom
-        let fill = TextEngine.color(atom.background ?? AtomPaint.token(dark: atom.dark, contrast: atom.contrast))
+        let fill = atom.background.map(TextEngine.color) ?? TextEngine.color(AtomPaint.token(dark: atom.dark, contrast: atom.contrast))
         #if os(macOS)
         // As a token field's selected token: emphasized only in the key window.
         let selected = atom.emphasized ? NSColor.selectedContentBackgroundColor : .unemphasizedSelectedContentBackgroundColor
@@ -154,28 +213,43 @@ final class AtomAttachment: NSTextAttachment {
         let selected = UIColor.tintColor, selectedInk = UIColor.white
         let plainInk = atom.ink.map(TextEngine.color) ?? attributes[.foregroundColor] as? UIColor ?? .label
         #endif
-        let ink = atom.selected && atom.emphasized ? selectedInk : plainInk
+        // Exactly selected, its kind's `:checked` fill and ink win over the platform's selected look.
+        let selectedLook = atom.selected && !(atom.exact && atom.ownsSelectedFill)
+        let ink = atom.selected && atom.emphasized && !(atom.exact && atom.ownsSelectedInk) ? selectedInk : plainInk
         let symbol = icon(face.capHeight), rtl = atom.rightToLeft(in: attributes)
+        let pad = padding(face), edge = atom.borderWidth
         let draw = { (rect: CGRect) in
-            let radius = min(rect.height / 2, face.pointSize * 0.3)
-            (atom.selected ? selected : fill).setFill()
-            #if os(macOS)
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-            #else
-            UIBezierPath(roundedRect: rect, cornerRadius: radius).fill()
-            #endif
+            let radius = max(0, min(rect.height / 2, atom.radius ?? face.pointSize * 0.3))
+            (selectedLook ? selected : fill).setFill()
+            Self.rounded(rect, radius).fill()
+            // A border inside the pill's box, its colour else the ink.
+            if edge > 0 {
+                let path = Self.rounded(rect.insetBy(dx: edge / 2, dy: edge / 2), max(0, radius - edge / 2))
+                path.lineWidth = edge
+                (atom.border.map(TextEngine.color) ?? ink).setStroke()
+                path.stroke()
+            }
             // The icon first, then the label, from the pill's leading edge.
-            var lead = rect.minX + Self.padding * face.pointSize, trail = rect.maxX - Self.padding * face.pointSize
+            var lead = rect.minX + pad + edge, trail = rect.maxX - pad - edge
             let line = face.ascender - face.descender, top = rect.minY + (rect.height - line) / 2
-            if let symbol {
+            if let (image, tinted) = symbol {
                 let side = face.capHeight, baseline = top + face.ascender
-                let frame = CGRect(x: rtl ? trail - side : lead, y: baseline - side, width: side, height: side)
+                var frame = CGRect(x: rtl ? trail - side : lead, y: baseline - side, width: side, height: side)
+                if !tinted {
+                    // A picture keeps its proportions in the square.
+                    let size = image.size, scale = min(side / max(size.width, 1), side / max(size.height, 1))
+                    frame = CGRect(x: frame.midX - size.width * scale / 2, y: frame.midY - size.height * scale / 2, width: size.width * scale, height: size.height * scale)
+                }
                 #if os(macOS)
-                symbol.isTemplate = true
-                let tinted = NSImage(size: frame.size, flipped: false) { r in symbol.draw(in: r); ink.set(); r.fill(using: .sourceAtop); return true }
-                tinted.draw(in: frame)
+                if tinted {
+                    image.isTemplate = true
+                    let tinted = NSImage(size: frame.size, flipped: false) { r in image.draw(in: r); ink.set(); r.fill(using: .sourceAtop); return true }
+                    tinted.draw(in: frame)
+                } else {
+                    image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                }
                 #else
-                symbol.withTintColor(ink, renderingMode: .alwaysOriginal).draw(in: frame)
+                (tinted ? image.withTintColor(ink, renderingMode: .alwaysOriginal) : image).draw(in: frame)
                 #endif
                 if rtl { trail -= side + face.pointSize * 0.25 } else { lead += side + face.pointSize * 0.25 }
             }
@@ -183,8 +257,19 @@ final class AtomAttachment: NSTextAttachment {
             style.lineBreakMode = .byTruncatingTail
             style.baseWritingDirection = rtl ? .rightToLeft : .leftToRight
             let label = CGRect(x: lead, y: top, width: max(0, trail - lead), height: line)
-            (atom.label as NSString).draw(with: label, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-                                          attributes: [.font: face, .foregroundColor: ink, .paragraphStyle: style], context: nil)
+            var text: [NSAttributedString.Key: Any] = [.font: face, .foregroundColor: ink, .paragraphStyle: style]
+            if atom.underline { text[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            (atom.label as NSString).draw(with: label, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: text, context: nil)
+            // The ring, which follows the pill's corners as CSS's outline
+            // does; the picture holds only the pill, so one that reaches past
+            // its edge is cut there.
+            if atom.ring > 0 {
+                let out = atom.ringOffset + atom.ring / 2
+                let path = Self.rounded(rect.insetBy(dx: -out, dy: -out), max(0, radius + out))
+                path.lineWidth = atom.ring
+                (atom.ringInk.map(TextEngine.color) ?? ink).setStroke()
+                path.stroke()
+            }
         }
         #if os(macOS)
         return NSImage(size: bounds.size, flipped: true) { rect in draw(rect); return true }
@@ -195,6 +280,12 @@ final class AtomAttachment: NSTextAttachment {
         return UIGraphicsImageRenderer(size: bounds.size, format: format).image { _ in draw(CGRect(origin: .zero, size: bounds.size)) }
         #endif
     }
+
+    #if os(macOS)
+    private static func rounded(_ rect: CGRect, _ radius: CGFloat) -> NSBezierPath { NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius) }
+    #else
+    private static func rounded(_ rect: CGRect, _ radius: CGFloat) -> UIBezierPath { UIBezierPath(roundedRect: rect, cornerRadius: radius) }
+    #endif
 }
 
 extension MarkupAtom {
@@ -209,16 +300,28 @@ extension MarkupAtom {
     }
 
     /// The atom of a styling row `[start, end, kind, label, icon, title, role, href, ink, background,
-    /// direction, ariaLabel]`, its face's paint over its kind's.
-    static func of(_ row: [Any], paint: [String: (ink: [Double]?, background: [Double]?)], selection: NSRange, atoms: MarkdownAtoms) -> (NSRange, MarkupAtom)? {
+    /// direction, ariaLabel]`: its kind's paint, then its `:hover` paint when the pointer is over it
+    /// and its `:checked` paint when the selection is exactly it, and its face's colours over all.
+    static func of(_ row: [Any], paint: [String: AtomRows], metrics: [String: (padding: CGFloat?, em: Bool, border: CGFloat)] = [:],
+                   selection: NSRange, atoms: MarkdownAtoms, node: NodeView? = nil) -> (NSRange, MarkupAtom)? {
         guard row.count >= 8, let start = row[0] as? Int, let end = row[1] as? Int, end > start else { return nil }
         let text = { (i: Int) in row[i] as? String ?? "" }
         let face = { (i: Int) in i < row.count ? AtomPaint.face(row[i], atoms) : nil }
         let range = NSRange(location: start, length: end - start), kind = text(2)
         let selected = selection.length > 0 && selection.location <= start && end <= NSMaxRange(selection)
-        return (range, MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
-                                  ink: face(8) ?? paint[kind]?.ink, background: face(9) ?? paint[kind]?.background, selected: selected,
-                                  emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast,
-                                  direction: row.count > 10 ? text(10) : "", ariaLabel: row.count > 11 ? text(11) : ""))
+        let exact = selection == range, hovered = atoms.hovered == start
+        let checked = exact ? paint[kind + ":checked"] : nil
+        let rows = (paint[kind] ?? AtomRows()).with(hovered ? paint[kind + ":hover"] : nil).with(checked)
+        let atom = MarkupAtom(kind: kind, label: text(3), icon: text(4), title: text(5), role: text(6), href: text(7),
+                              ink: face(8) ?? rows.ink, background: face(9) ?? rows.background, selected: selected,
+                              emphasized: atoms.emphasized, dark: atoms.dark, contrast: atoms.contrast,
+                              direction: row.count > 10 ? text(10) : "", ariaLabel: row.count > 11 ? text(11) : "")
+        (atom.exact, atom.hovered) = (exact, hovered)
+        if let measured = metrics[kind] { (atom.padding, atom.paddingEm, atom.borderWidth) = (measured.padding, measured.em, measured.border) }
+        (atom.border, atom.radius, atom.underline) = (rows.border, rows.radius, rows.underline ?? false)
+        (atom.ring, atom.ringInk, atom.ringOffset) = (rows.ring ?? 0, rows.ringInk, rows.ringOffset ?? 0)
+        (atom.ownsSelectedFill, atom.ownsSelectedInk) = (checked?.background != nil, checked?.ink != nil)
+        atom.node = node
+        return (range, atom)
     }
 }
