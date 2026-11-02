@@ -1,6 +1,6 @@
 # A forged Android share copies any file the app can read
 
-**Status:** Open
+**Status:** Closed
 **Systems:** Android extras (`ExactActivity.environment`), cold share (`host/linux/src/picker.rs`), share claim (`runner/src/runner/picker/shared.rs`)
 **Severity:** P1
 **Author:** Grok, from a review of this checkout
@@ -15,3 +15,8 @@
 **Fix.** Accept `EXACT_SHARE` only from `Shares.request`, which opens streams through the intent's URI grant. Ignore a JSON `size` when measuring the copy, and refuse a copy that grows past `FILE_CAP`. Adopt a descriptor only for an fd this process just detached.
 
 **Acceptance.** An `x_share` extra copies nothing. A real share sheet still copies the granted streams, and a stream larger than 64 MiB is dropped rather than stored.
+
+
+**Resolution.** Android ignores external `x_share` extras and accepts only streams opened through the intent URI grant. The copy uses measured bytes, stops past the 64 MiB limit, and removes an oversized partial output. Detached descriptors come only from the app's own share handoff.
+
+**Verification after the fix.** The integrated runner regression passed for accurate byte counts and a source that grows past the cap after admission. Android canvas Kotlin compiled against the installed SDK; manifest and launch-environment regressions passed. A real device share-sheet interaction was not exercised.
