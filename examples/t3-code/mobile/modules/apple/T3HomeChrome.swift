@@ -162,11 +162,9 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var filter: UIButton?
     private var compose: UIButton?
     private var dismiss: UIButton?
+    private var compactTabHost: UIView?
     private var compactTabBar: UITabBar?
     private var compactCompose: UIButton?
-    private var compactComposeWidth: NSLayoutConstraint?
-    private var compactComposeHeight: NSLayoutConstraint?
-    private var compactComposeCenterY: NSLayoutConstraint?
     private var compactTabDelegate: T3CompactTabDelegate?
     private var glassLeading: NSLayoutConstraint?
     private var glassTrailing: NSLayoutConstraint?
@@ -409,7 +407,11 @@ private final class T3HomeChromeView: ExactNativeInstance {
         bar.itemPositioning = .fill
         bar.tintColor = .label
         if #available(iOS 17.0, *) { bar.traitOverrides.horizontalSizeClass = .compact }
-        root.addSubview(bar)
+        let host = UIView()
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.backgroundColor = .clear
+        root.addSubview(host)
+        host.addSubview(bar)
         let definitions: [(String, String, String)] = [
             ("threads", "Chats", "text.bubble"),
             ("pullRequests", "PRs", "arrow.triangle.branch"),
@@ -431,32 +433,25 @@ private final class T3HomeChromeView: ExactNativeInstance {
         composeConfiguration.baseForegroundColor = .label
         composeConfiguration.image = UIImage(systemName: "square.and.pencil")
         let compose = UIButton(configuration: composeConfiguration, primaryAction: UIAction { [weak self] _ in self?.emit("compose") })
-        compose.translatesAutoresizingMaskIntoConstraints = false
+        compose.translatesAutoresizingMaskIntoConstraints = true
         compose.accessibilityLabel = "New chat"
         compose.accessibilityIdentifier = "workspace-compose"
-        root.addSubview(compose)
-        compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
-        let composeWidth = compose.widthAnchor.constraint(equalToConstant: 56)
-        let composeHeight = compose.heightAnchor.constraint(equalToConstant: 56)
-        let composeCenterY = compose.centerYAnchor.constraint(equalTo: bar.centerYAnchor)
-        compactComposeWidth = composeWidth; compactComposeHeight = composeHeight
-        compactComposeCenterY = composeCenterY
-        bar.onContentLayout = { [weak self, weak bar] frame in
-            guard let self, let bar else { return }
-            let row = bar.convert(frame, to: self.root)
-            let size = max(44, frame.height + 8)
-            composeWidth.constant = size
-            composeHeight.constant = size
-            composeCenterY.constant = row.midY - bar.frame.midY
+        host.addSubview(compose)
+        compactTabHost = host; compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
+        bar.onContentLayout = { [weak host, weak bar] frame in
+            guard let host, let bar else { return }
+            let row = bar.convert(frame, to: host)
+            let size = row.height + 8
+            compose.frame = CGRect(x: row.maxX + 16, y: row.midY - size / 2, width: size, height: size)
         }
         NSLayoutConstraint.activate([
-            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-            bar.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -76),
-            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
-            compose.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
-            composeCenterY,
-            composeWidth,
-            composeHeight,
+            host.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+            host.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -76),
+            host.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            host.heightAnchor.constraint(equalToConstant: 128),
+            bar.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -64),
+            bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
         ])
     }
     private var acceptsSearch: Bool {
@@ -548,8 +543,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
-        compactComposeWidth = nil; compactComposeHeight = nil; compactComposeCenterY = nil
+        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabHost?.removeFromSuperview(); compactTabHost = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
