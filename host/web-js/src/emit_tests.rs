@@ -119,13 +119,9 @@ fn a_dynamic_only_layout_transition_registers_presence() {
     let literal = contract::compile(&app("\"260ms ease\"")).unwrap();
     crate::emit::emit(&literal, false, false).expect("literal layout control emits");
     let dynamic = contract::compile(&app("(reduced ? \"none\" : \"260ms ease\")")).unwrap();
-    let result = crate::emit::emit(&dynamic, false, false);
-    assert!(
-        result.is_ok(),
-        "issue809 feature: {:?}",
-        result.as_ref().err()
-    );
-    let js = result.unwrap().js;
+    let js = crate::emit::emit(&dynamic, false, false)
+        .expect("a computed layout transition emits")
+        .js;
     assert!(js.contains("--exact-layout-transition"), "{js}");
     assert_eq!(
         js.matches("pr(").count(),

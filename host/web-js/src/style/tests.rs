@@ -424,13 +424,7 @@ pub(crate) fn assert_spring_transitions(map: &str) {
 
 #[test]
 fn computed_layout_transitions_match_the_kernel_web_protocol() {
-    let result = style_writes(StyleId::LayoutTransition as u16, false, true);
-    assert!(
-        result.is_ok(),
-        "issue809 feature: {:?}",
-        result.as_ref().err()
-    );
-    let writes = result.unwrap();
+    let writes = style_writes(StyleId::LayoutTransition as u16, false, true).unwrap();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].name, "--exact-layout-transition");
     let mut values: Vec<String> = [
