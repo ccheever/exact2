@@ -1,6 +1,9 @@
 use Run, Block from "./shapes.contract"
 use CodeBlock, Terminal from "./code.contract"
 
+// A tab's blocks carry the group "<set>|<index>". A set's first tab shows until the reader picks another.
+fn tabShown(group: string, opened: string[]): bool = opened.includes(group) or (group.endsWith("|0") and not opened.map(x => x.startsWith(group.slice(0, group.length - 1))).includes(true))
+
 style Prose
   font-size="var(--text-base)" line-height=1.65 color="var(--color-text-secondary)"
 
@@ -40,6 +43,7 @@ component Blocks
     block: Block
     opened: string[]
     toggle: action
+    pick: action
     seen: action
   view
     if block.kind == "heading"
@@ -131,4 +135,10 @@ component Blocks
                                           text
                                             Runs(runs=c.runs, weight=400)
                           else
-                            view margin-top=32 border-bottom="1px solid var(--color-border-secondary)"
+                            if block.kind == "tabs"
+                              row role="tablist" margin-top=16 gap=4 flex-wrap="wrap" border-bottom="1px solid var(--color-border-secondary)" testId=`tabs-${block.href}`
+                                for label, i in block.text.split("\n") key=label
+                                  button role="tab" press=pick(block.href, `${block.href}|${i}`) aria-selected=tabShown(`${block.href}|${i}`, opened) appearance="none" padding="8px 12px" margin-bottom=-1 border-bottom=(tabShown(`${block.href}|${i}`, opened) ? "2px solid var(--color-text-default)" : "2px solid transparent") testId=`tab-${block.href}-${i}`
+                                    text label font-size="var(--text-sm)" font-weight=500 color=(tabShown(`${block.href}|${i}`, opened) ? "var(--color-text-default)" : "var(--color-text-secondary)")
+                            else
+                              view margin-top=32 border-bottom="1px solid var(--color-border-secondary)"

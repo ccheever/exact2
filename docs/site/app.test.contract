@@ -94,6 +94,15 @@ test "a guide's sections open and close only by its chevron"
   tap "nav-toggle-contractForHumans"
   expect tree missing "nav-open-learnContractForHumansValuesAndTypes"
 
+test "content tabs show the first tab, then the one picked"
+  size 1440x900
+  at "/_components"
+  expect tree has "open-tabs-0|0"
+  expect tree missing "open-tabs-0|1"
+  tap "tab-tabs-0-1"
+  expect tree has "open-tabs-0|1"
+  expect tree missing "open-tabs-0|0"
+
 test "GitHub alerts render as callouts"
   size 1440x900
   at "/_components"

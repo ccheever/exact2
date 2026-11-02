@@ -134,6 +134,8 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
   let group = '';
   let marker = '';
   let collapsibles = 0;
+  let tabs: Block | null = null;
+  let tabSets = 0;
   const block = (b: Partial<Block> & { kind: string }) => out.push({ id: next(), depth: 0, lang: '', text: '', href: '', group, runs: [], rows: [], lines: [], tree: [], ...b });
   const tree = (text: string): TreeRow[] => {
     const rows: TreeRow[] = [];
@@ -226,6 +228,18 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
           const raw = t.raw.trim();
           const comment = raw.match(/^<!--\s*(steps|prerequisites)\s*-->$/);
           if (comment) { marker = comment[1]; break; }
+          if (/^<!--\s*tabs\s*-->$/.test(raw)) {
+            block({ kind: 'tabs', href: `tabs-${tabSets++}`, group: '' });
+            tabs = out[out.length - 1];
+            break;
+          }
+          const tab = raw.match(/^<!--\s*tab:\s*(.+?)\s*-->$/);
+          if (tab && tabs) {
+            group = `${tabs.href}|${tabs.text ? tabs.text.split('\n').length : 0}`;
+            tabs.text = tabs.text ? `${tabs.text}\n${tab[1]}` : tab[1];
+            break;
+          }
+          if (/^<!--\s*\/tabs\s*-->$/.test(raw)) { tabs = null; group = ''; break; }
           if (/^<!--/.test(raw)) break;
           const open = raw.match(/^<details>\s*<summary>([\s\S]*?)<\/summary>/i);
           if (open) {

@@ -23,6 +23,29 @@ The plan is baked at build, so the first frame needs nothing else. Inline `code`
 2. Start the dev loop with `bun exact.mjs web`.
 3. Edit `app.contract` and save.
 
+## Tabs
+
+<!-- tabs -->
+<!-- tab: macOS -->
+
+```sh
+bun host/apple/build.mjs --run
+```
+
+<!-- tab: iOS -->
+
+```sh
+bun host/apple/build.mjs --ios --run
+```
+
+<!-- tab: Linux -->
+
+```sh
+cargo build --profile host-dev -p caltrain-linux
+```
+
+<!-- /tabs -->
+
 ## File tree
 
 ```filetree

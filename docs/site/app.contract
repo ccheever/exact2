@@ -83,6 +83,8 @@ component App
     voted = answer
   action toggle(id: string)
     opened = opened.includes(id) ? opened.filter(x => x != id) : opened.concat([id])
+  action pick(set: string, id: string)
+    opened = opened.filter(x => not x.startsWith(`${set}|`)).concat([id])
   action copyMarkdown
     send markdown = fetchMarkdown(top(nav).name)
   action seen(id: string, entry: IntersectionObserverEntry)
@@ -157,4 +159,4 @@ component App
             else
               scroll id=`page-${e.id}` flex=1 min-width=0 -exact-layout-transition="220ms ease" background-color="var(--color-background-default)"
                 margin="clamp(-1px, (100vw - 960px) * 1000, 8px)" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-xl)"
-                Article(page=page, missing=(e.name == "notfound"), url=top(nav).url, moved=moved.to, suggestions=moved.suggestions, from=from, opened=opened, toggle=toggle, seen=seen, active=active, copyMarkdown=copyMarkdown, copied=copied, voted=voted, vote=vote, roomy=roomy, year=site.year, theme=theme, chooseTheme=chooseTheme)
+                Article(page=page, missing=(e.name == "notfound"), url=top(nav).url, moved=moved.to, suggestions=moved.suggestions, from=from, opened=opened, toggle=toggle, pick=pick, seen=seen, active=active, copyMarkdown=copyMarkdown, copied=copied, voted=voted, vote=vote, roomy=roomy, year=site.year, theme=theme, chooseTheme=chooseTheme)

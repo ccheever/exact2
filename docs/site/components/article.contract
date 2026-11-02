@@ -1,5 +1,5 @@
 use Page, Link from "./shapes.contract"
-use Blocks from "./blocks.contract"
+use Blocks, tabShown from "./blocks.contract"
 use Rail, PageActions from "./toc.contract"
 use Footer from "./footer.contract"
 
@@ -91,6 +91,7 @@ component Article
     from: string
     opened: string[]
     toggle: action
+    pick: action
     seen: action
     active: string
     copyMarkdown: action
@@ -120,8 +121,8 @@ component Article
           PageActions(page=page, roomy=roomy, copyMarkdown=copyMarkdown, copied=copied)
           view height=1 background-color="var(--color-border-secondary)" margin="28px 0 20px" testId="header-rule"
           for b in page.blocks key=b.id
-            view display=((b.group == "" or opened.includes(b.group)) ? "block" : "none") padding-left=(b.group != "" ? 16 : 0) testId=((b.group != "" and opened.includes(b.group)) ? `open-${b.group}` : `block-${b.id}`)
-              Blocks(block=b, opened=opened, toggle=toggle, seen=seen)
+            view display=((b.group == "" or tabShown(b.group, opened)) ? "block" : "none") padding-left=((b.group != "" and not b.group.startsWith("tabs-")) ? 16 : 0) testId=((b.group != "" and tabShown(b.group, opened)) ? `open-${b.group}` : `block-${b.id}`)
+              Blocks(block=b, opened=opened, toggle=toggle, pick=pick, seen=seen)
           view height=1 background-color="var(--color-border-secondary)" margin="48px 0 24px"
           row flex-wrap="wrap" gap=12
             if page.prev.href != ""
