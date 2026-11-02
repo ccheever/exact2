@@ -8,7 +8,9 @@ import { composerFieldObserved } from '../../src/composer/composer-field-bridge'
 import { composerChipStore } from '../../src/composer/composer-chip-store';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
-import { chipPopover } from '../../src/composer/composer-chip-popover';
+import { chipPopover, reviewCommentRendered } from '../../src/composer/composer-chip-popover';
+import { pullRequestContextLines } from '../../src/pull-requests/pr-chip-preview';
+import { withFileLinkMenus } from '../../src/timeline/file-link-menu';
 import { chipAct, composerImagePreview, composerImageStep, previewAnnotationSummary, reviewCommentDetails } from '../../src/composer/composer-chip-details';
 import { adoptReviewComments, pullRequestRecords } from '../../src/composer/composer-editor';
 import { messageChips } from '../../src/timeline/message-chips';
@@ -123,5 +125,25 @@ describe('a sent pull request chip opens the pull request (PullRequestChip)', ()
     expect(messageChips(item, '', []).map(chip => [chip.kind, chip.label, chip.tip, chip.detail, chip.target])).toEqual([
       ['pr', '#12', 'Open Draft pull request #12: Fix tabs', 'draft', 'https://github.com/o/r/pull/12'],
       ['review', 'app.ts L3', 'src/app.ts', 'Working tree · +3\nRename this.', '']]);
+  });
+  test('its hover: PullRequestContextDetails as a tooltip with no preview target, and as the card\'s fallback', () => {
+    const pullRequest = { number: 12, title: 'Fix tabs', url: 'https://github.com/o/r/pull/12', state: 'open', isDraft: true, headBranch: 'fix/tabs', baseBranch: 'main' };
+    const item = { type: 'user_message', text: '[#12](t3-context://v1/review-comment/pr12)', attachments: [],
+      context: { version: 1, records: [{ ...comment, contextId: 'pr12', label: '#12', pullRequest }] } };
+    // No client, so no environment to read the card from: `size` (the card's target) is empty.
+    const [chip] = withFileLinkMenus(new T3Client(), messageChips(item, '', []));
+    expect([chip!.size, chip!.menu.map(row => row.label)]).toEqual(['', ['draft', 'Draft', 'Pull request #12', 'Fix tabs', 'fix/tabs', 'main']]);
+    expect(pullRequestContextLines({ ...pullRequest, url: 'https://gitlab.com/o/r/-/merge_requests/3', number: 3, state: 'merged', isDraft: false }).slice(0, 3)).toEqual(['merged', 'Merged', 'Merge request #3']);
+  });
+});
+
+describe('a review comment\'s details render as the reference\'s do', () => {
+  test('the comment as ChatMarkdown with no folder, the diff as numbered lines named review.diff', () => {
+    const press = { seq: 5, open: true, surface: 'composer', kind: 'review-comment', context: 'review-comment_x', name: 'app.ts L3', label: 'app.ts L3', frame: [10, 400, 80, 19] };
+    const rendered = reviewCommentRendered(new T3Client(), chipPopover(press, [], undefined, { 'review-comment_x': comment }));
+    expect(rendered.markdownSource).toEqual([{ id: 'chip-review:5', kind: 'attachment', title: '', body: 'Rename this.' }]);
+    expect(rendered.diffLines.map(line => [line.number, line.runs.map(run => run.text).join('')])).toEqual([['1', '@@ -1 +1 @@'], ['2', '-a'], ['3', '+b']]);
+    expect(rendered.diffGutter).toBeGreaterThan(0);
+    expect(reviewCommentRendered(new T3Client(), chipPopover(press, [], undefined, { 'review-comment_x': { ...comment, text: ' ', diff: '' } }))).toMatchObject({ markdownSource: [], code: [], diffLines: [] });
   });
 });

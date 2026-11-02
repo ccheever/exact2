@@ -270,7 +270,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `attachment-media*`, `media-frame.*`: PDFs in the viewer page's PDF.js (`file-preview-host/`), a draft past 16 MiB
   given to it as a copy in app:/cache (LLP 1020.001 D7), HTML in a sandboxed `iframe` that loads its token directory
   and external hosts as the reference's frame does, or as source coloured by the reference's html lexer
-  (`highlights.ts`), audio and video in the platform's players, "Unable to
+  (`highlights.ts`), audio and video in the platform's players (an expanded video preview has Chromium's
+  controls over it, `preview-player.contract`), "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -477,10 +478,6 @@ The clone follows the reference wherever exact2 allows it. Where it cannot, the 
 exact2 issue. The open ones are records under main's `issues/` (the GitHub issues the clone
 filed were moved there or closed). The gaps someone using this app runs into:
 
-- Popovers flip near a window edge only as far as main's first slice goes
-  ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
-  #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
-  the record stays open for the rest of the placement work.
 - A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
   timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
@@ -505,8 +502,9 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
   reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
-  main keeps the limit), so the composer is opaque where the reference's glass shows the
-  transcript through it, and so is the Usage page's segment popover.
+  main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
+  through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
+  (`composer-editor.contract` ComposerGlass), so it moves with the card once the card's new size is measured.
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
@@ -702,11 +700,12 @@ Differences that belong to the app:
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
-- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
-  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
-  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
-  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
-  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+- A server Browser tab's PDF is Chromium's PDF viewer drawn by the viewer page over PDF.js, which reads its signed
+  URL (`server-pdf-viewer.ts`, `file-preview-host/src/pdf/browser-pdf-viewer.ts`), where the reference embeds the URL
+  in Chromium's own viewer: an embed would run an HTML answer as a page. Three things differ. Print is hidden, as
+  Chromium hides it where printing is off: no page in Exact can print (clone/issues/match1102-media-pdf-print.md).
+  Chromium's drawing tools (Draw, Undo, Redo) are not there. Present fills the tab, not the screen. Neither viewer
+  has a find bar (Electron draws none). A PDF from another origin loads only when its server
   lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
   a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
   popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
@@ -729,8 +728,6 @@ Differences that belong to the app:
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
 - An image inside a link's text has no tooltip and no keyboard menu key.
-- In the composer, a review comment's popover shows its comment and diff as plain text (the
-  reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
@@ -767,11 +764,6 @@ above.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
-- A sent citation's details read their Go to source as a button, where v0.1.6's is a link to the current page, and its
-  chip does not say whether the details are open ("collapsed"). A press with the pointer focuses Go to source without a
-  focus ring, as AppKit draws a ring only for keyboard focus; v0.1.6 rings it.
-- A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
-  tooltip on hover only, where v0.1.6's opens on a keyboard focus.
 - A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
   where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
   takes no outline from the app.
@@ -785,15 +777,14 @@ above.
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
   has the keyboard focus, as VoiceOver's cursor does in an AppKit window.
-- The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
-  after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
-  open, so several items can be turned on or off in one visit.
 - The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
   draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
   pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
   paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
   build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
-  Web Inspector, not Chrome DevTools.
+  Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
+  Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
+  (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
 - A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
   216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
   return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's
@@ -801,12 +792,12 @@ above.
   press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
   the Picture in Picture process.
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
-  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
-  Symbol (a document for any file, not its file-type icon; no project favicon or image
-  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
-  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
-  per scheme.
+- Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
+  usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
+- A composer reference's pill has no fill, as v0.1.6's ContextChip has none, and each kind's face carries its own
+  ink (LLP 1045.000 Q11). Two things still differ: its glyph is the nearest SF Symbol (a document for any file, not
+  its file-type icon; no project favicon or image thumbnail), as the Apple editor draws only `symbol:sf/` icons; and
+  its padding and radius are the platform's, where v0.1.6's come from its Tailwind classes (LLP 1045.000 §10 Q2).
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
 - A composer chip's name does not underline while the pointer is over it, where the reference's
@@ -821,8 +812,6 @@ above.
 - A character typed right after a mention or a skill makes its source longer, and deleting the
   space after one makes it text again; the reference keeps the chip until its document is
   rebuilt (LLP 1045.000 §6).
-- Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
-  composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
 - A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
   reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
   folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the

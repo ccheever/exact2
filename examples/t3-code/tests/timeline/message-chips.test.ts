@@ -256,6 +256,22 @@ describe('the chips and rows a context reference draws', () => {
       expect(view.split('\n').find(line => line.includes(focused))).toMatch(/autofocus=/);
     }
   });
+  // AssistantCitationChip: Go to source is a PopoverClose around a router Link, and its trigger is Base UI's
+  // PopoverTrigger, which says whether the details are open (VoiceOver: "collapsed").
+  test("a sent citation's Go to source is a link, and its chip says whether its details are open", async () => {
+    const { contractComponent } = await import('../support/contract-action-fixture');
+    const { appText } = await import('../support/app-files');
+    const lines = appText('markdown.contract').split('\n');
+    const from = lines.indexOf('component CitationContextChip'), view = lines.slice(from, lines.findIndex((line, i) => i > from && line.startsWith('component ')));
+    expect(view.find(line => line.includes('testId="citation-context-source"'))).toContain('role="link"');
+    expect(view.find(line => line.includes('button popovertarget=popupId'))).toContain('aria-expanded=open');
+    expect(view.find(line => line.includes('column id=popupId popover="auto"'))).toContain('toggle=toggled');
+    const chip = contractComponent('markdown.contract', 'CitationContextChip'), state = { open: false };
+    chip.call('toggled', state, {}, [{ newState: 'open', oldState: 'closed' }]);
+    expect(state.open).toBe(true);
+    chip.call('toggled', state, {}, [{ newState: 'closed', oldState: 'open' }]);
+    expect(state.open).toBe(false);
+  });
   // ThreadContextChip renders a router Link: VoiceOver reads "link, Thread, …", as for any link in the message.
   test("a thread chip is a link; the other chips stay buttons", async () => {
     const { appText } = await import('../support/app-files');
