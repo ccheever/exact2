@@ -1,0 +1,101 @@
+shape Run
+  id: string
+  text: string
+  code: bool
+  strong: bool
+  em: bool
+  href: string
+
+shape Cell
+  id: string
+  runs: Run[]
+
+shape Row
+  id: string
+  header: bool
+  cells: Cell[]
+
+shape Tok
+  id: string
+  text: string
+  color: string
+
+shape Line
+  id: string
+  tokens: Tok[]
+
+shape TreeRow
+  id: string
+  name: string
+  depth: number
+  folder: bool
+
+shape Link
+  title: string
+  href: string
+
+shape Block
+  id: string
+  kind: string
+  depth: number
+  lang: string
+  text: string
+  href: string
+  group: string
+  runs: Run[]
+  rows: Row[]
+  lines: Line[]
+  tree: TreeRow[]
+
+shape TocItem
+  id: string
+  title: string
+  href: string
+
+shape Page
+  slug: string
+  section: string
+  title: string
+  description: string
+  subtitle: string
+  updated: string
+  prev: Link
+  next: Link
+  editUrl: string
+  feedbackUrl: string
+  markdownPath: string
+  claudeUrl: string
+  chatgptUrl: string
+  cursorUrl: string
+  blocks: Block[]
+  toc: TocItem[]
+
+shape NavItem
+  id: string
+  title: string
+  href: string
+  route: string
+  depth: number
+  description: string
+  parent: string
+  children: number
+
+shape NavGroup
+  id: string
+  title: string
+  items: NavItem[]
+
+shape Nav
+  groups: NavGroup[]
+  year: string
+
+shape Moved
+  to: string
+  go: string
+  suggestions: Link[]
+
+shape Markdown
+  text: string
+
+shape Viewport
+  width: number

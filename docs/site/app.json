@@ -1,0 +1,20 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Exact Docs",
+  "short_name": "Exact Docs",
+  "id": "dev.exact.docs",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "dev.exact.docs",
+    "name": "Exact Docs"
+  },
+  "host": {
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0"
+    }
+  }
+}

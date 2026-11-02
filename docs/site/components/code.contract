@@ -1,0 +1,59 @@
+use Line from "./shapes.contract"
+
+style Frame
+  border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" overflow="hidden"
+
+style Bar
+  align-items="center" justify-content="space-between" padding="6px 8px 6px 16px" border-bottom="1px solid var(--color-border-secondary)" background-color="var(--color-background-subtle)"
+
+style Label
+  font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)"
+
+style Body
+  padding="14px 16px" overflow-x="auto" background-color="var(--color-background-default)"
+
+component Lines
+  props
+    lines: Line[]
+  view
+    column align-items="flex-start"
+      for l in lines key=l.id
+        text font-family="var(--font-mono)" font-size="var(--text-sm)" line-height=1.7 white-space="pre" min-height="1.7em"
+          for t in l.tokens key=t.id
+            text t.text color=(t.color == "" ? "var(--color-text-default)" : t.color)
+
+component CopyButton
+  props
+    source: string
+  state copied = false
+  action copy
+    copyText(source)
+    copied = true
+  view
+    button press=copy appearance="none" aria-label=(copied ? "Copied" : "Copy") title=(copied ? "Copied" : "Copy") padding=6 border-radius="var(--radius-lg)" testId="copy"
+      image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+
+component CodeBlock
+  props
+    lang: string
+    source: string
+    lines: Line[]
+  view
+    column class=Frame
+      row class=Bar
+        text (lang == "" ? "text" : lang) class=Label
+        CopyButton(source=source)
+      view class=Body
+        Lines(lines=lines)
+
+component Terminal
+  props
+    source: string
+    lines: Line[]
+  view
+    column class=Frame testId="terminal"
+      row class=Bar
+        text "Terminal" class=Label
+        CopyButton(source=source)
+      view class=Body
+        Lines(lines=lines)

@@ -1,0 +1,65 @@
+use Page from "./shapes.contract"
+
+style Label
+  text-transform="uppercase" font-family="var(--font-mono)" font-size="var(--text-xs)" color="var(--color-text-secondary)" margin-bottom=4
+
+style Action
+  font-size="var(--text-sm)" color="var(--color-text-secondary)"
+
+component RailLink
+  props
+    href: string
+    icon: string
+    label: string
+  view
+    link href=href
+      row align-items="center" gap=8
+        image icon aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+        text label class=Action
+
+component Rail
+  props
+    page: Page
+    roomy: bool
+    active: string
+    copyMarkdown: action
+    copied: bool
+  view
+    nav aria-label="Page" inert=(not roomy) width="clamp(0px, (100vw - 1280px) * 1000, 13rem)" overflow="hidden" flex-shrink=0 margin-left="clamp(0px, (100vw - 1280px) * 1000, 64px)" position="sticky" top=24 align-self="flex-start" testId="toc"
+      column gap=28
+        column gap=10
+          RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
+          RailLink(href=page.markdownPath, icon="symbol:document", label="View as Markdown")
+        if page.toc.length > 0
+          column gap=8 border-left="1px solid var(--color-border-secondary)" padding-left=12
+            text "On this page" class=Label
+            for i in page.toc key=i.id
+              link href=i.href margin-left=-13 padding-left=12 border-left=(i.href == `#${active}` ? "1px solid var(--color-text-default)" : "1px solid transparent") testId=(i.href == `#${active}` ? "toc-active" : `toc-${i.id}`)
+                row
+                  text i.title font-size="var(--text-sm)" color=(i.href == `#${active}` ? "var(--color-text-default)" : "var(--color-text-secondary)")
+        column gap=10 testId="ai-actions"
+          text "AI" class=Label
+          button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 padding=0 testId="copy-markdown"
+            image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+            text (copied ? "Copied" : "Copy markdown") class=Action
+          RailLink(href=page.claudeUrl, icon="symbol:icon.claude", label="Open in Claude")
+          RailLink(href=page.cursorUrl, icon="symbol:icon.cursor", label="Open in Cursor")
+          RailLink(href=page.chatgptUrl, icon="symbol:icon.openai", label="Open in ChatGPT")
+
+// The rail's actions as one wrapping row under the page header, for windows too narrow for the rail
+// (below 1280px, where the rail's width clamps to 0).
+component PageActions
+  props
+    page: Page
+    roomy: bool
+    copyMarkdown: action
+    copied: bool
+  view
+    row flex-wrap="wrap" column-gap=16 row-gap=8 overflow="hidden" inert=roomy max-height="clamp(0px, (1280px - 100vw) * 1000, 400px)" margin-top="clamp(0px, (1280px - 100vw) * 1000, 16px)" testId="page-actions"
+      RailLink(href=page.editUrl, icon="symbol:pencil", label="Edit page")
+      button press=copyMarkdown appearance="none" display="flex" align-items="center" gap=8 padding=0
+        image (copied ? "symbol:checkmark" : "symbol:copy") aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+        text (copied ? "Copied" : "Copy markdown") class=Action
+      RailLink(href=page.claudeUrl, icon="symbol:icon.claude", label="Claude")
+      RailLink(href=page.cursorUrl, icon="symbol:icon.cursor", label="Cursor")
+      RailLink(href=page.chatgptUrl, icon="symbol:icon.openai", label="ChatGPT")
