@@ -19,9 +19,6 @@ const MAX_PAGES = 2000;
 const MAX_BYTES = 100 * 1024 * 1024;
 const BOOKMARK_INDENT = 20;
 const SIDENAV_KEY = "sidenavCollapsed";
-/** How long a hidden frame's PDF is given after `load` before it prints: WebKit's view of it gets the document a moment
- *  later, and a print before then prints blank pages (LLP 1020.002 D5, "Printing"). */
-const PRINT_SETTLE_MS = 250;
 
 /** The viewer's Material Symbols (pdf/elements/icons.html; cr's file-download and chevron-right). */
 const ICONS: Record<string, string> = {
@@ -541,20 +538,20 @@ export class BrowserPdfViewer {
     const pdf = this.pdf;
     if (!pdf || this.printing) return;
     this.printing = true;
-    // The host reads the job's name from the page's title, which reaches it some time after it changes.
+    // The host names the job after the page's title as `print()` runs (LLP 1020.002 D5, "Printing").
     const title = document.title;
     document.title = this.name;
     const done = () => { document.title = title; this.printing = false; };
     void pdf.getData().then((data) => {
       const url = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: "application/pdf" }));
       const frame = h("iframe", { class: "print-frame", src: url, tabindex: -1, "aria-hidden": "true" });
-      frame.addEventListener("load", () => setTimeout(() => {
+      frame.addEventListener("load", () => {
         try { frame.contentWindow?.print(); } finally {
           frame.remove();
           URL.revokeObjectURL(url);
           done();
         }
-      }, PRINT_SETTLE_MS), { once: true });
+      }, { once: true });
       document.body.append(frame);
     }, done);
   }
