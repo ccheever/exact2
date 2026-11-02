@@ -165,6 +165,9 @@ members T3Code
       paletteOpen = false
       paletteFocusBack(palettePage)
       send localChanged = command("device-setting", arg, arg2, 0)
+    if op == "find-thread"
+      paletteOpen = false
+      command("chatlocal:find-open", "", "", 0)
     if op == "copy-thread"
       paletteOpen = false
       paletteFocusBack(palettePage)

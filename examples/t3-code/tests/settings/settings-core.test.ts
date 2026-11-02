@@ -143,7 +143,7 @@ describe('general rows', () => {
     const row = (id: string) => sections.flatMap(section => [...section.rows, ...(section.advanced ?? [])]).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status, row('default-model').description])
       .toEqual(['GPT-5.6-Luna', 'Medium', '', 'Default model for new threads, selected automatically. Projects can override it.']);
-    expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'lock-open', 'default']);
+    expect([row('default-permissions').label, row('default-permissions').icon, row('default-permissions').inheritance]).toEqual(['Full access', 'shield-off', 'default']);
     expect([row('snooze-limited-threads').checked, row('snooze-limited-threads').inheritance, row('snooze-limited-threads').resettable]).toEqual([true, 'environment', false]);
     expect([row('new-threads').label, row('worktree-submodules').label, row('days-before-auto-settle').value]).toEqual(['Current checkout', 'Recursive', '3']);
     expect(row('version').value).toBe('0.1.6'); // this app's own release, not the server's

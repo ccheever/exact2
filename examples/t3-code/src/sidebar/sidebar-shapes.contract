@@ -14,6 +14,13 @@ shape NavigationHistory
   backTip: string
   forwardTip: string
   brandWidth: number
+// Whether Back and Forward step now (sidebar-members.contract historyGo): not under the palette or a dialog other than
+// Settings, as ⌘[ and ⌘].
+fn historySteps(paletteOpen: bool, modal: bool, settingsOpen: bool): bool = not paletteOpen and (not modal or settingsOpen)
+// The ways the window root offers (`navigationHistory`, LLP 1115.000 D5.5): those historyGo would take. The router holds
+// more visits than the history (it keeps no 50 limit, and archived threads stay in it), so the Mac's swipe, its edge
+// arrow and the mouse's side buttons come only where a step goes (README, "A two-finger swipe", for where v0.1.6 differs).
+fn historyWays(h: NavigationHistory, steps: bool): string = not steps ? "none" : (h.backKind != "" ? (h.forwardKind != "" ? "back forward" : "back") : (h.forwardKind != "" ? "forward" : "none"))
 // Custom snooze's calendar month (snooze-calendar.ts, drawn by snooze-calendar.contract).
 shape CalendarDay
   id: string

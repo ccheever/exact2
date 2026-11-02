@@ -1,8 +1,9 @@
 // @ref LLP 1042 §9.1 — Exact's own picture-in-picture window: a floating,
 // non-activating panel on every Space, locked to the picture's aspect; the
-// browser's kind at the bottom right with its controls shown on hover, the
-// titled kind where a new window opens; its controls and its close are the
-// image's leave.
+// browser's kind at the bottom right with its controls shown on hover, placed
+// as Chromium places it and following the next image that asks, the titled
+// kind where a new window opens; its controls and its close are the image's
+// leave.
 #if os(macOS)
 import AppKit
 import XCTest
@@ -66,8 +67,7 @@ final class PictureInPictureWindowMacTests: XCTestCase {
         // Measured beside T3 Code v0.1.6 on a 1352 × 849-point visible frame.
         XCTAssertEqual(PictureInPictureWindow.chromiumSize(NSSize(width: 1600, height: 1000), screen: NSSize(width: 1352, height: 849)), NSSize(width: 284, height: 178))
         XCTAssertEqual(PictureInPictureWindow.chromiumSize(NSSize(width: 922, height: 1224), screen: NSSize(width: 1352, height: 849)), NSSize(width: 284, height: 377))
-        XCTAssertEqual(panel.frame.maxX, screen.maxX - PictureInPictureWindow.inset, accuracy: 1)
-        XCTAssertEqual(panel.frame.minY, screen.minY + PictureInPictureWindow.inset, accuracy: 1)
+        XCTAssertEqual(panel.frame, PictureInPictureWindow.chromiumFrame(size, topLeft: nil, screen: screen))
         XCTAssertEqual(window.report["controls"] as? [String], ["minimize", "back", "close"])
         XCTAssertEqual(window.report["controlsShown"] as? Bool, false)
         XCTAssertNil(window.press("hover"))
@@ -88,13 +88,48 @@ final class PictureInPictureWindowMacTests: XCTestCase {
         }
     }
 
-    func testTheNextWindowOpensWhereTheLastClosed() {
+    func testTheWindowIsPlacedAsChromiumPlacesIt() {
+        // Measured beside T3 Code v0.1.6 on a 1352 × 849-point visible frame (878 points high, from the top
+        // left: 1051, 683 and 1053, 486), and a window moved to 1051, 683 that takes a portrait picture.
+        let screen = NSRect(x: 0, y: 0, width: 1352, height: 849)
+        XCTAssertEqual(PictureInPictureWindow.chromiumFrame(NSSize(width: 284, height: 178), topLeft: nil, screen: screen), NSRect(x: 1051, y: 17, width: 284, height: 178))
+        XCTAssertEqual(PictureInPictureWindow.chromiumFrame(NSSize(width: 284, height: 377), topLeft: nil, screen: screen), NSRect(x: 1053, y: 15, width: 284, height: 377))
+        XCTAssertEqual(PictureInPictureWindow.chromiumFrame(NSSize(width: 284, height: 377), topLeft: NSPoint(x: 1051, y: 195), screen: screen), NSRect(x: 1051, y: 15, width: 284, height: 377))
+        XCTAssertEqual(PictureInPictureWindow.chromiumFrame(NSSize(width: 400, height: 531), topLeft: NSPoint(x: 700, y: 728), screen: screen), NSRect(x: 700, y: 197, width: 400, height: 531))
+        XCTAssertEqual(PictureInPictureWindow.width(400, aspect: NSSize(width: 922, height: 1224), max: NSSize(width: 1014, height: 637)), NSSize(width: 400, height: 531))
+        XCTAssertEqual(PictureInPictureWindow.width(600, aspect: NSSize(width: 922, height: 1224), max: NSSize(width: 1014, height: 637)), NSSize(width: 480, height: 637))
+    }
+
+    func testTheNextWindowOpensWhereTheLastClosedAtItsWidth() throws {
         let first = open(panel: false, picture: picture(400, 300))
-        first.panel.setFrame(NSRect(x: 100, y: 200, width: 400, height: 300), display: false)
+        first.panel.setFrame(NSRect(x: 100, y: 400, width: 400, height: 300), display: false)
         first.close()
         said = []
         let next = open(panel: false, picture: picture(400, 300))
-        XCTAssertEqual(next.panel.frame, NSRect(x: 100, y: 200, width: 400, height: 300))
+        XCTAssertEqual(next.panel.frame, NSRect(x: 100, y: 400, width: 400, height: 300))
+        next.close()
+        said = []
+        let portrait = open(panel: false, picture: picture(300, 400))
+        let screen = try XCTUnwrap(portrait.panel.screen?.visibleFrame)
+        XCTAssertEqual(portrait.panel.frame, PictureInPictureWindow.chromiumFrame(NSSize(width: 400, height: 533), topLeft: NSPoint(x: 100, y: 700), screen: screen))
+    }
+
+    func testTheWindowFollowsTheNextImageWhereItStands() throws {
+        let window = open(panel: false, picture: picture(400, 300))
+        window.panel.setFrame(NSRect(x: 120, y: 300, width: 400, height: 300), display: false)
+        var next: [String] = []
+        window.follow(title: "t3code://next") { next.append($0) }
+        window.frame(picture(300, 400, .systemBlue))
+        spin { next.contains("enter") }
+        XCTAssertEqual(said, ["enter"], "the image before hears nothing more from the window")
+        XCTAssertEqual(next, ["enter"])
+        XCTAssertTrue(window.isOpen)
+        XCTAssertEqual(window.report["title"] as? String, "t3code://next")
+        let screen = try XCTUnwrap(window.panel.screen?.visibleFrame)
+        XCTAssertEqual(window.panel.frame, PictureInPictureWindow.chromiumFrame(NSSize(width: 400, height: 533), topLeft: NSPoint(x: 120, y: 600), screen: screen))
+        XCTAssertEqual(window.panel.contentAspectRatio.width / window.panel.contentAspectRatio.height, 0.75, accuracy: 0.001)
+        XCTAssertNil(window.press("close"))
+        XCTAssertEqual(next, ["enter", "leave"])
     }
 
     func testTheAskedSizeKeepsItsAreaAtThePicturesAspect() {
