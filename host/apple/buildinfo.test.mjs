@@ -1,12 +1,13 @@
 // The build stamp (`buildinfo.mjs`): `bun test host/apple/buildinfo.test.mjs`;
 // the async lane runs it (`tests/it/development.rs`).
 import { test, expect } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { buildInfo, commitOf, releaseNotes, NOTES_MAX } from './buildinfo.mjs';
 import { nativeManifestMetadata } from '../../scripts/app.mjs';
+import { writeIOSPrivacyManifests } from './assets.mjs';
 
 const root = resolve(import.meta.dir, '../..');
 const now = new Date('2026-10-08T10:00:00Z');
@@ -19,6 +20,26 @@ test('frame health collection defaults off in production and follows the manifes
   expect(stamp({ frame_health: { mode: 'off' } }).ExactFrameHealthMode).toBe('off');
   expect(stamp({ frame_health: { mode: 'core' } }, { production: true }).ExactFrameHealthMode).toBe('core');
   expect(nativeManifestMetadata({ app: { id: 'com.example.health' }, frame_health: { mode: 'off' } }, 'ios').frame_health).toEqual({ mode: 'off' });
+});
+
+test('iOS privacy manifests are Exact\'s declarations, beside the binaries that make its calls', () => {
+  const bundle = mkdtempSync(resolve(tmpdir(), 'exact-privacy-'));
+  try {
+    for (const name of ['ExactCore', 'ExactModules', 'ExactMIDI', 'ExactWeb']) mkdirSync(resolve(bundle, `Frameworks/${name}.framework`), { recursive: true });
+    writeIOSPrivacyManifests(bundle);
+    const read = directory => JSON.parse(spawnSync('plutil', ['-convert', 'json', '-o', '-', resolve(directory, 'PrivacyInfo.xcprivacy')], { encoding: 'utf8' }).stdout);
+    const core = read(resolve(bundle, 'Frameworks/ExactCore.framework'));
+    expect(read(bundle)).toEqual(core);
+    expect(core.NSPrivacyTracking).toBe(false);
+    expect(core.NSPrivacyAccessedAPITypes.find(item => item.NSPrivacyAccessedAPIType.endsWith('ActiveKeyboards')).NSPrivacyAccessedAPITypeReasons).toEqual(['54BD.1']);
+    expect(core.NSPrivacyAccessedAPITypes.map(item => item.NSPrivacyAccessedAPIType)).not.toContain('NSPrivacyAccessedAPICategoryDiskSpace');
+    for (const name of ['ExactMIDI', 'ExactWeb']) expect(read(resolve(bundle, `Frameworks/${name}.framework`))).toEqual({ NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [], NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }] });
+    expect(existsSync(resolve(bundle, 'Frameworks/ExactModules.framework/PrivacyInfo.xcprivacy'))).toBe(false);
+    const widget = resolve(bundle, 'PlugIns/Widgets.appex');
+    mkdirSync(widget, { recursive: true });
+    writeIOSPrivacyManifests(widget);
+    expect(read(widget)).toEqual(core);
+  } finally { rmSync(bundle, { recursive: true, force: true }); }
 });
 
 test('native binary identity includes protocol handler registration and templates', () => {

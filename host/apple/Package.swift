@@ -57,7 +57,7 @@ let core: [Target] = [
         dependencies: ["CExact"],
         path: "Sources/ExactCore",
         swiftSettings: [.unsafeFlags(["-application-extension"])] + devTools,
-        linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedFramework("ImageIO")]
+        linkerSettings: (widgetCore ? [.unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", libDir + "/lib" + libName + ".a"])] : [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName)]) + [.linkedLibrary("c++"), .linkedLibrary("sqlite3"), .linkedFramework("ImageIO")]
     ),
     // The snapshot driver (LLP 1126 D4, D5): SwiftUI over a headless
     // session's node model, for WidgetKit's archive. Linked by an app with

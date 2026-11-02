@@ -14,6 +14,51 @@ const run = (cmd, args, opts = {}) => {
   return r;
 };
 
+/** Exact's declarations for the app executable, `ExactCore.framework` and the
+ * widget extension, with the iOS calls each reason covers (Swift modules under
+ * host/apple/Sources; Rust std's file metadata is stat, fstat and lstat).
+ * https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api
+ * - FileTimestamp C617.1, files in the app or app group container: ExactKit's
+ *   RasterSpool (its spool), ShareReceive (the share inbox), PlanURL and
+ *   IOS/DevMenuIOS (a development plan); update/src/store/disk.rs (updates).
+ * - FileTimestamp 3B52.1, files the person picked or opened:
+ *   host/apple/src/picker.rs, runner/src/runner/picker/shared.rs,
+ *   data/src/documents/kept.rs.
+ * - SystemBootTime 35F9.1, time elapsed within the app: ExactCore's Text and
+ *   HeadlessSession; ExactKit's Session, Collection, RegionTextSource and
+ *   PlanURL; ExactUpdates' Updates; ExactDrag's TransformDragHold;
+ *   ExactSnapshot's LiveDriver.
+ * - UserDefaults CA92.1, the app's own defaults: ExactKit's BuildInfo,
+ *   ShortcutItems, Wakes and IOS/DevMenuIOS.
+ * - ActiveKeyboards 54BD.1, the emoji keyboard a text area with `emojiPicker`
+ *   opens: ExactKit's IOS/TextAreaIOS. */
+const runtimePrivacy = {
+  NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
+  NSPrivacyAccessedAPITypes: [
+    ['FileTimestamp', ['C617.1', '3B52.1']], ['SystemBootTime', ['35F9.1']], ['UserDefaults', ['CA92.1']],
+    ['ActiveKeyboards', ['54BD.1']],
+  ].map(([category, reasons]) => ({ NSPrivacyAccessedAPIType: `NSPrivacyAccessedAPICategory${category}`, NSPrivacyAccessedAPITypeReasons: reasons })),
+};
+// SystemBootTime 35F9.1: ExactMIDI's time for an event CoreMIDI left unstamped
+// (midiarm/MIDIArm.swift, mach_absolute_time) and ExactWeb's click intervals
+// for web automation (webarm/FrameAutomation.swift, systemUptime).
+const timingPrivacy = {
+  NSPrivacyTracking: false, NSPrivacyTrackingDomains: [], NSPrivacyCollectedDataTypes: [],
+  NSPrivacyAccessedAPITypes: [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }],
+};
+// The manifest wrapFramework puts in an iOS or tvOS framework; signedGpuProduct keys its signed copy on it.
+const frameworkPrivacy = (name, platform) => ['ExactMIDI', 'ExactWeb'].includes(name) && platform !== 'MacOSX' ? timingPrivacy : null;
+export function writeIOSPrivacyManifests(bundle) {
+  const write = (directory, value) => writeFileSync(resolve(directory, 'PrivacyInfo.xcprivacy'), plistFile(value));
+  write(bundle, runtimePrivacy);
+  const core = resolve(bundle, 'Frameworks/ExactCore.framework');
+  if (existsSync(core)) write(core, runtimePrivacy);
+  for (const name of ['ExactMIDI', 'ExactWeb']) {
+    const arm = resolve(bundle, `Frameworks/${name}.framework`);
+    if (existsSync(arm)) write(arm, timingPrivacy);
+  }
+}
+
 /** The app icon from the manifest's first square icon of at least 512 px
  * (`icons`, the web manifest's own field): loose PNGs named by
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
@@ -578,6 +623,8 @@ export function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS
   renameSync(from, layout.binary);
   run('install_name_tool', ['-id', frameworkInstallName(name, platform), layout.binary], { stdio: 'ignore' });
   writeFileSync(layout.info, plistFile(frameworkInfo(name, app, platform)));
+  const privacy = frameworkPrivacy(name, platform);
+  if (privacy) writeFileSync(resolve(dirname(layout.info), 'PrivacyInfo.xcprivacy'), plistFile(privacy));
 }
 
 /** The Info.plist `wrapFramework` writes. `signedGpuProduct` keys its signed copy on it, so
@@ -622,8 +669,9 @@ export function signedGpuProduct(product, { identity = '-', framework = null, ap
   const directory = resolve(dirname(product), 'signed', ...(framework ? ['frameworks', basename(product)] : []));
   const container = resolve(directory, framework ? `${framework}.framework` : basename(product));
   const signed = framework ? resolve(container, framework) : container, record = `${container}.source`;
+  const privacy = frameworkPrivacy(framework, platform);
   const source = JSON.stringify([createHash('sha256').update(readFileSync(product)).digest('hex'), identity ?? '-',
-    hardened, framework, framework ? frameworkInfo(framework, app, platform) : null]);
+    hardened, framework, framework ? frameworkInfo(framework, app, platform) : null, ...(privacy ? [privacy] : [])]);
   // An ad-hoc signature (`-`: every simulator build) names no certificate
   // to require; asked for one, the verification failed, and the copy was
   // signed again by every build, which reran the app's bake and compile.
