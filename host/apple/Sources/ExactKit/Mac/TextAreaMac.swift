@@ -450,8 +450,9 @@ extension NodeView {
     /// in a focused textarea, as in a browser's (LLP 1045 D5): AppKit posts
     /// a selection change for it, and VoiceOver, inferring an edit from
     /// that or from any value change posted, reads the text that went or
-    /// spells what came as typing. An element that is not one posts
-    /// nothing, so the text view is none while the write lands.
+    /// spells what came as typing. AppKit posts nothing for a view that is
+    /// no accessibility element, so the text view is none while the write
+    /// lands.
     func writeValue(_ value: String, into f: NSTextView) {
         if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.hasMarkedText() { pendingValue = value; return }
