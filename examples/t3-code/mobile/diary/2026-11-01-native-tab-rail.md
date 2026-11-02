@@ -16,5 +16,5 @@ The latest upstream layout uses Chats, PRs, Usage and Settings tabs, with New ch
 
 - Focused Home, native configuration and layout tests pass.
 - iOS simulator build installs and launches on bake-b2 (iOS 27.2).
-- Captured `/tmp/t3-mobile-parity/tabbar-height-fixed.png` after making UIKit's tab bar transparent and giving its single glass surface the same 88pt frame as New chat; the screenshot shows matched-height controls, header Search, and all four tabs plus New chat.
+- Captured `/tmp/t3-mobile-parity/final-native-aligned.png` after porting Expo's native row measurement: UIKit owns the tab-bar glass and selected state, while New chat uses the measured row height plus 8pt and shares its centerline. The screenshot shows matched-height controls and header Search.
 - The local Duo is occupied by another session, so its final screenshot must be captured by the owning session before claiming Duo image parity.
