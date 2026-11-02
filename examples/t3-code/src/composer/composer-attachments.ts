@@ -14,6 +14,7 @@ import { draftFiles, setDraftFiles } from './composer-editor-files';
 import { contextId, contextReferences } from './composer-editor-menu';
 import { contextLinks, contextTarget } from './context-links';
 import { videoMimeType } from './composer-video';
+import { requestSave, saveName } from '../media/save-file';
 export { videoMimeType } from './composer-video';
 
 /** removeInlineContextReference: every link to the context, with one adjoining space, and a trailing gap trimmed. */
@@ -101,12 +102,14 @@ export function composerVideoSnapshot(client: T3Client): { composerVideos: Array
     composerVideoPreview: tile ? [{ open: true, id: tile.id, name: tile.name, width: size?.width ?? 0, height: size?.height ?? 0, src: tile.src }] : [] };
 }
 
-/** `editorlocal:shelf-video-*`: Play opens the expanded preview, Remove is removeComposerFileFromDraft. */
+/** `editorlocal:shelf-video-*`: Play opens the expanded preview, Save saves its file, Remove is removeComposerFileFromDraft. */
 export async function videoOp(client: T3Client, native: Native, op: string, id: string): Promise<string> {
   if (op === 'shelf-video-close') { previews.delete(client); return ''; }
   const file = draftFiles(client.local).find(candidate => candidate.id === id && candidate.draftKey === client.draftKey);
   if (!file) throw new ClientError('That video is no longer attached.');
   if (op === 'shelf-video-play') { previews.set(client, id); return ''; }
+  // The player's Download: the staged copy saved where the person chooses, as Chromium's download of the blob does.
+  if (op === 'shelf-video-save') { requestSave(client, stagedMediaSrc(file), saveName(file.name, 'video')); return ''; }
   if (op !== 'shelf-video-remove') throw new ClientError(`Unknown editor action: ${op}`);
   if (previews.get(client) === id) previews.delete(client);
   const key = client.draftKey;
