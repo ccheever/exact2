@@ -111,7 +111,9 @@ impl<D: DataSource> Runner<D> {
     /// `prompt`) is answered by `tap @t ok` or `cancel`, and a `prompt` by
     /// `type @t <text>` too; `open-file` (a file input) and `save-file` (a
     /// download's destination) as LLP 1069.010's are, and a download by
-    /// `tap @t ok` for the agent's default place. Retired with its frame.
+    /// `tap @t ok` for the agent's default place; a `print` (a page's
+    /// `window.print()`) by `tap @t ok` for a PDF in its default place, or
+    /// `type @t` with the PDF's path. Retired with its frame.
     pub fn hold_frame_request(&mut self, request: &str) -> Result<String, String> {
         let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(request)
         else {
@@ -129,7 +131,7 @@ impl<D: DataSource> Runner<D> {
         let (choices, value): (&[&str], bool) = match capability {
             "dialog" => (&["ok"], prompt),
             "open-file" => (&[], true),
-            "save-file" => (&["ok"], true),
+            "save-file" | "print" => (&["ok"], true),
             _ => {
                 return Err(format!(
                     "frameRequest: {capability:?} is not a frame request"
@@ -196,7 +198,7 @@ impl<D: DataSource> Runner<D> {
             HoldAnswer::Value(v)
                 if matches!(
                     hold.capability.as_str(),
-                    "open-file" | "open-directory" | "save-file"
+                    "open-file" | "open-directory" | "save-file" | "print"
                 ) =>
             {
                 let paths = crate::file_pickers::answer_paths(v);
