@@ -9,8 +9,8 @@
 // so the preview grows into the destination; any other is `.dismiss`.
 // The node's own `contextmenu` action fires as the menu is about to show,
 // before its rows or preview are read (D1's "both fire"), so a popover a
-// list's rows share shows the row pressed. Under the agent this host is off
-// and the popover opens painted (D4, `MenuHost.agentContext`).
+// list's rows share shows the row pressed. While the agent paints, this host
+// is off and the popover opens painted (D4, `MenuHost.agentContext`).
 #if os(iOS)
 import UIKit
 
@@ -99,7 +99,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             restore(owner)
             open = nil
         }
-        let wanted = !ExactEnv.agentMode && view.menuSource?.props["contextPopover"]?.isEmpty == false
+        let wanted = !ExactEnv.agentPaints && view.menuSource?.props["contextPopover"]?.isEmpty == false
         if wanted, projected[key] == nil {
             let interaction = UIContextMenuInteraction(delegate: self)
             let before = companions(of: view)
@@ -129,7 +129,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
             restore(owner)
         }
         var wanted: [UInt32: NodeView] = [:]
-        if !ExactEnv.agentMode {
+        if !ExactEnv.agentPaints {
             for v in presenter.textViews.values where v.hasInlineContextPopover { wanted[v.id] = v }
             for v in presenter.carrying("contextPopover") where v.props["contextPopover"]?.isEmpty == false { wanted[v.id] = v }
         }
@@ -344,7 +344,7 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate, UIEditM
     /// UIKit's public programmatic menu API. It presents the same authored
     /// actions as a long press, without lifting a preview for keyboard input.
     func showKeyboard(_ source: NodeView, at point: CGPoint) -> Bool {
-        guard !ExactEnv.agentMode, source.window != nil, let menus,
+        guard !ExactEnv.agentPaints, source.window != nil, let menus,
               menus.eligible(source, contextMenu: true), let name = source.props["contextPopover"],
               let pop = popover(named: name), !menus.isConfirmation(pop) else { return false }
         if let previous = open {
