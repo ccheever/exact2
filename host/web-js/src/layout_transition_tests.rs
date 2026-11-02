@@ -16,10 +16,7 @@ const VALUES: [&str; 8] = [
     "",
     "unset",
 ];
-/// Values a binding computes, not as its code names them: unset, with a
-/// journal line, whether the kernel refuses one (`bogus`) or takes it (the
-/// second, QUEUE.md); and ones that clear the row, as the runner clears them,
-/// with none.
+/// Computed strings follow the same grammar as named values.
 const COMPUTED: [&str; 4] = ["bogus", "260ms  ease", "  ", " UNSET"];
 
 /// Whether the runner holds the row for `v`: not cleared before parsing
@@ -59,10 +56,6 @@ fn bun(script: &str) -> serde_json::Value {
     serde_json::from_slice(&out.stdout).unwrap()
 }
 
-fn row(plan: &exact_plan::Plan) -> exact_plan::BindingsRow {
-    node_row(plan).1
-}
-
 fn node_row(plan: &exact_plan::Plan) -> (NodeType, exact_plan::BindingsRow) {
     plan.nodes
         .iter()
@@ -80,59 +73,49 @@ fn node_row(plan: &exact_plan::Plan) -> (NodeType, exact_plan::BindingsRow) {
 fn a_bound_layout_transition_compiles_and_is_followed() {
     let js = crate::emit::emit(&plan(), false, false).unwrap().js;
     assert!(js.contains("\"--exact-layout-transition\""), "{js}");
-    assert!(
-        js.contains(r#";lt(e0,["-exact-spring(300, 24, 1)","1s 200ms linear","260ms ease","320ms cubic-bezier(.32,.72,0,1)"],()=>"#),
-        "{js}"
-    );
+    assert!(js.contains("pr(e0);"), "{js}");
 }
 
 #[test]
-fn each_named_value_writes_what_the_kernel_writes_and_a_computed_one_is_unset() {
-    let plan = plan();
-    let values = crate::style::layout_transitions(&plan, plan.code(row(&plan).expr));
-    let mut expected = Vec::new();
-    for v in VALUES {
-        let css = runner_holds(v).then(|| crate::style::layout_transition(v).unwrap());
-        assert_eq!(values.held.get(v), css.as_ref(), "{v:?}");
-        expected.push(serde_json::json!(css.flatten()));
-    }
-    assert_eq!(values.held["260ms ease"].as_deref(), Some("260 0 ease"));
-    assert_eq!(values.held["none"], None);
-    assert_eq!(values.unsets, ["", "unset"]);
-    let map = crate::style::layout_transition_map(&values, "7", "say");
+fn named_and_computed_values_write_the_kernel_css() {
     let inputs: Vec<serde_json::Value> = VALUES
         .iter()
+        .chain(COMPUTED.iter())
         .map(|v| serde_json::json!(v))
-        .chain(COMPUTED.iter().map(|v| serde_json::json!(v)))
         .chain([serde_json::json!(5), serde_json::Value::Null])
         .collect();
+    let expected: Vec<_> = inputs
+        .iter()
+        .map(|v| {
+            let mut props = exact_kernel::StyleProps::default();
+            if let Some(v) = v.as_str().filter(|v| runner_holds(v)) {
+                props
+                    .set_dynamic(
+                        StyleId::LayoutTransition,
+                        &exact_kernel::StyleValue::Text(v.into()),
+                    )
+                    .unwrap();
+            }
+            let (css, _) = exact_web::css::css_text(&props, &[]);
+            css.split(';')
+                .find_map(|d| d.strip_prefix("--exact-layout-transition:"))
+                .map(str::to_string)
+        })
+        .collect();
+    let map = &*crate::style::LAYOUT_TRANSITION_MAP;
     let got = bun(&format!(
-        "const journal=[];const say=l=>journal.push(l);const m={map};console.log(JSON.stringify({{out:{}.map(m),journal}}))",
+        "const journal=[];const m={map};console.log(JSON.stringify({{out:{}.map(v=>m(v,()=>journal.push(JSON.stringify(v)))),journal}}))",
         serde_json::Value::Array(inputs)
     ));
-    expected.extend(std::iter::repeat_n(
-        serde_json::Value::Null,
-        COMPUTED.len() + 2,
-    ));
-    assert_eq!(got["out"], serde_json::Value::Array(expected));
-    assert_eq!(crate::style::layout_transition("bogus"), None);
+    assert_eq!(got["out"], serde_json::json!(expected));
+    assert_eq!(got["journal"], serde_json::json!(["\"bogus\"", "5"]));
     assert!(runner_holds("260ms  ease"));
     assert!(!runner_holds("  ") && !runner_holds(" UNSET"));
-    let why = "; unset (the JS target writes only the values the code names)";
-    assert_eq!(
-        got["journal"],
-        serde_json::json!([
-            format!("view 7: invalid layout-transition value \"bogus\"{why}"),
-            format!("view 7: invalid layout-transition value \"260ms  ease\"{why}"),
-            format!("view 7: invalid layout-transition value 5{why}"),
-        ])
-    );
 }
 
 /// Paint's layout bit (`own_from`'s `holds_layout_transition`, flag 256,
 /// with the policy bit 4) is set where the kernel's mask holds the row: a
-/// value it names, `none` included; never a blank or `unset`, which clear it,
-/// nor a computed one, which this target unsets.
+/// parsed value, `none` included; never a blank, `unset` or an invalid value.
 #[test]
 fn the_paint_flag_is_set_where_the_kernel_holds_the_row() {
     let plan = plan();
@@ -141,7 +124,7 @@ fn the_paint_flag_is_set_where_the_kernel_holds_the_row() {
     let mut expected: Vec<u32> = VALUES
         .map(|v| if runner_holds(v) { 260 } else { 0 })
         .to_vec();
-    expected.extend(COMPUTED.map(|_| 0));
+    expected.extend(COMPUTED.map(|v| if runner_holds(v) { 260 } else { 0 }));
     expected.extend([0, 0]);
     let got = bun(&format!(
         "console.log(JSON.stringify([...{},...{},5,null].map(v=>{test})))",

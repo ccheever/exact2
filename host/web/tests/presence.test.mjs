@@ -4,7 +4,7 @@ import { beforeAll, afterAll, test, expect } from 'bun:test';
 import { readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
@@ -91,8 +91,6 @@ beforeAll(async () => {
     // `/js/` is the JS target's directory, beside this one; its modules import ours as `../web/`.
     const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.replace(/^\/(web\/)?/, '');
     const js = resolve(WEB, '../web-js', path);
-    // names.js is a build's output (the plan's names), which rt.js reaches through perf.js since db825de7b.
-    if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
     res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
@@ -438,4 +436,224 @@ check('JS commits keep ghost containment and restore the latest paint decision a
     expect(await evaluate('jsHolder.style.isolation')).toBe(required ? 'isolate' : '');
     await evaluate('jsIsolation(false); jsShown(true)');
   }
+});
+
+// A bound row as the JS target emits it (rows.rs): `S` writes what the row's
+// map gives (style.rs `LAYOUT_TRANSITION_MAP`, which the Rust tests hold to the
+// kernel's CSS for computed values), here that value itself, and `pr` loads presence.
+check('a bound layout transition gains, stops and starts again on actions and on a reply', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const samples = await p.evaluate(async () => {
+      const { h, S, sig, res, W, act, pr, mount, pieces, data } = await import('/js/rt.js');
+      const curve = sig('1000 0 linear'), offset = sig(0), tall = sig(false);
+      let card, asked, answer;
+      // The preference's first answer is a reply in a commit of its own: until then the placeholder reduces motion.
+      data.answer = () => asked = new Promise(ok => { answer = ok; });
+      mount(root => {
+        const app = h(root, 'div', 0, {}, 0);
+        app.style.cssText = 'position:relative;width:700px;height:900px';
+        const prefs = res('prefs', 'prefs', () => [], undefined, undefined, undefined, { reduced: true });
+        card = h(app, 'div', 0, {}, 0);
+        card.style.cssText = 'position:absolute;left:20px;width:100px;background:red;overflow:hidden';
+        S(card, '--exact-layout-transition', '', () => prefs().reduced ? null : curve());
+        S(card, 'top', 'px', () => prefs().reduced ? offset() + 50 : offset());
+        S(card, 'height', 'px', () => tall() ? 140 : 40); pr(card);
+      });
+      await pieces();
+      const read = () => {
+        const stand = card.previousElementSibling, surface = stand?.hasAttribute('data-exiting') ? stand.firstElementChild : card;
+        return { y: card.getBoundingClientRect().y - card.parentElement.getBoundingClientRect().y, height: surface.getBoundingClientRect().height,
+          css: card.style.getPropertyValue('--exact-layout-transition'), animations: document.getAnimations().filter(a => a.playState !== 'finished' && a.playState !== 'idle').length,
+          stands: document.querySelectorAll('[data-exiting]').length };
+      };
+      const out = {}, take = (name, f) => { f?.(); out[name] = read(); };
+      take('reduced');
+      const landed = new Promise(ok => { const o = new MutationObserver(() => { o.disconnect(); ok(); }); o.observe(card, { attributeFilter: ['style'] }); });
+      answer({ reduced: false }); await asked; await landed;
+      take('reply gains with move'); take('reply midpoint', () => seek(500)); take('reply end', () => seek(1000));
+      take('shift', act(() => W(offset, 100))); take('shift quarter', () => seek(250));
+      take('none stops the move', act(() => { W(curve, null); W(offset, 300); }));
+      take('gain before move', act(() => { W(curve, '1000 0 linear'); W(offset, 400); })); take('gain midpoint', () => seek(500)); take('gain end', () => seek(1000));
+      take('grow', act(() => W(tall, true))); take('grow midpoint', () => seek(500));
+      take('none stops the size', act(() => { W(curve, null); W(tall, false); }));
+      take('again after none', act(() => { W(curve, '1000 0 linear'); W(offset, 200); })); take('again midpoint', () => seek(500)); take('again end', () => seek(1000));
+      return out;
+    });
+    const idle = { css: '', animations: 0, stands: 0 }, on = { css: '1000 0 linear' };
+    const want = {
+      'reduced': { y: 50, height: 40, ...idle },
+      'reply gains with move': { y: 50, ...on }, 'reply midpoint': { y: 25 }, 'reply end': { y: 0 },
+      'shift': { y: 0 }, 'shift quarter': { y: 25 },
+      'none stops the move': { y: 300, ...idle },
+      'gain before move': { y: 300, ...on }, 'gain midpoint': { y: 350 }, 'gain end': { y: 400 },
+      'grow': { height: 40 }, 'grow midpoint': { height: 90 },
+      'none stops the size': { y: 400, height: 40, ...idle },
+      'again after none': { y: 400, ...on }, 'again midpoint': { y: 300 }, 'again end': { y: 200 },
+    };
+    const near = (got, wanted) => typeof wanted === 'number' ? Math.abs(got - wanted) <= .05 : got === wanted;
+    const misses = Object.entries(want).flatMap(([name, values]) => Object.entries(values)
+      .filter(([key, wanted]) => !near(samples[name][key], wanted)).map(([key, wanted]) => `${name}.${key}: ${JSON.stringify(samples[name][key])}, not ${JSON.stringify(wanted)}`));
+    expect(misses).toEqual([]);
+  } finally { await context.close(); await browser.close(); }
+});
+
+// The runtime driven directly can count a style getter's and a derive's runs,
+// which a Contract cannot.
+check('gaining presence never previews a source or a retired child effect, and ordinary styles keep their IDs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, when, sig, memo, res, W, act, pr, mount, pieces, data, Views } = await import('/js/rt.js');
+      const counts = { derives: 0, styles: 0, asks: 0 }, samples = {};
+      const mode = sig(false), offset = sig(0), shown = sig(true), tint = sig(false);
+      data.answer = (_, args) => { counts.asks++; return { v: args[0] }; };
+      let card, original;
+      mount(root => {
+        const app = h(root, 'div', 0, {}, 0);
+        app.style.cssText = 'position:relative;width:700px;height:900px';
+        const seed = h(app, 'div', 0, {}, 0);
+        seed.style.cssText = 'position:absolute;left:300px;width:10px;height:10px;--exact-layout-transition:1000 0 linear'; pr(seed);
+        for (let n = 0; n < 40; n++) {
+          const ordinary = h(app, 'div', 0, {}, 0);
+          S(ordinary, 'background-color', '', () => tint() ? 'red' : 'blue');
+        }
+        when(app, shown, parent => {
+          const resource = res('ownedProof', 'ownedProof', () => [1], undefined, undefined, 'n', 0);
+          const curve = memo(() => { counts.derives++; resource(); return mode() ? '1000 0 linear' : null; });
+          card = h(parent, 'div', 0, {}, 0); original ??= card;
+          card.style.cssText = 'position:absolute;width:100px;height:40px;background:red';
+          S(card, '--exact-layout-transition', '', () => { counts.styles++; return curve(); });
+          S(card, 'top', 'px', offset); pr(card);
+        }, () => {});
+      });
+      await pieces();
+      const capture = name => { samples[name] = { ...counts, y: card.getBoundingClientRect().y - card.parentElement.getBoundingClientRect().y, connected: card.isConnected }; };
+      capture('initial');
+      act(() => { W(mode, true); W(offset, 100); })(); capture('gain');
+      act(() => { W(shown, false); W(mode, false); })();
+      samples.retired = { ...counts, connected: original.isConnected, animations: original.getAnimations().length };
+      act(() => { W(shown, true); W(mode, true); W(offset, 400); })(); capture('newChild');
+      const ids = Views.size;
+      for (let n = 0; n < 10; n++) act(() => W(tint, !tint()))();
+      return { samples, idsBefore: ids, idsAfter: Views.size };
+    });
+    const expected = {
+      initial: { derives: 1, styles: 1, asks: 1, y: 0, connected: true },
+      gain: { derives: 2, styles: 2, asks: 1, y: 0, connected: true },
+      retired: { derives: 3, styles: 2, asks: 1, connected: false, animations: 0 },
+      newChild: { derives: 4, styles: 3, asks: 2, y: 400, connected: true },
+    };
+    expect({ samples: result.samples, idGrowth: result.idsAfter - result.idsBefore },
+      "settle and flush counts, the first gain's box and ordinary styles' IDs").toEqual({ samples: expected, idGrowth: 0 });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('ordinary dynamic styles neither load presence nor register view IDs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, sig, W, act, mount, pieces, Views } = await import('/js/rt.js');
+      const tint = sig(false), boxes = [];
+      mount(root => {
+        for (let n = 0; n < 40; n++) {
+          const box = h(root, 'div', 0, {}, 0); boxes.push(box);
+          S(box, 'background-color', '', () => tint() ? 'red' : 'blue');
+        }
+      });
+      for (let n = 0; n < 10; n++) act(() => W(tint, !tint()))();
+      await pieces();
+      return { presence: !!globalThis.exact.presenceLive, ids: Views.size, boxes: boxes.length,
+        colors: [...new Set(boxes.map(box => box.style.backgroundColor))] };
+    });
+    expect(result).toEqual({ presence: false, ids: 0, boxes: 40, colors: ['blue'] });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('a real shared commit measures current queued gains only when its deferred tail runs', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext({ reducedMotion: 'no-preference' }), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const observed = await p.evaluate(async () => {
+      const { h, S, when, sig, W, act, pr, mount, pieces } = await import('/js/rt.js');
+      const branch = sig(true), enabled = sig(false), offset = sig(0);
+      let moving, reads = 0;
+      mount(root => {
+        const app = h(root, 'div', 0, {}, 0); app.style.cssText = 'position:relative;width:500px;height:600px';
+        const named = parent => {
+          const e = h(parent, 'div', 0, { 'data-shared-element': 'handoff' }, 0);
+          e.style.cssText = 'position:absolute;left:300px;width:10px;height:10px;--exact-layout-transition:1000 0 linear'; pr(e);
+        };
+        when(app, branch, named, named);
+        moving = h(app, 'div', 0, {}, 0); moving.style.cssText = 'position:absolute;width:100px;height:40px';
+        S(moving, '--exact-layout-transition', '', () => { reads++; return enabled() ? '1000 0 linear' : null; });
+        S(moving, 'top', 'px', offset); pr(moving);
+      });
+      await pieces();
+      const original = document.startViewTransition, updates = [];
+      // Hold the browser's public callback. The shared module and both actual
+      // runtime tails remain production code; no private flush hook is called.
+      document.startViewTransition = update => {
+        let finish;
+        const done = new Promise(resolve => { finish = resolve; });
+        updates.push(async () => { try { update(); } finally { finish(); } await done; });
+        return { ready: done, updateCallbackDone: done, finished: done, skipTransition() {} };
+      };
+      const y = () => moving.getBoundingClientRect().y - moving.parentElement.getBoundingClientRect().y;
+      try {
+        act(() => { W(branch, false); W(enabled, true); W(offset, 100); })();
+        act(() => W(offset, 200))(); // this tail waits behind the same capture
+        const held = { updates: updates.length, reads, y: y(), css: moving.style.getPropertyValue('--exact-layout-transition') };
+        await updates[0](); await exact.viewTransition(); seek(0);
+        const start = { reads, y: y() };
+        seek(500); const middle = y(); seek(1000); const end = y();
+        return { held, start, middle, end };
+      } finally { document.startViewTransition = original; }
+    });
+    expect(observed).toEqual({ held: { updates: 1, reads: 1, y: 0, css: '' }, start: { reads: 2, y: 0 }, middle: 100, end: 200 });
+  } finally { await context.close(); await browser.close(); }
+});
+
+check('rebound list items, indices and match values gain presence before their first move', async () => {
+  const browser = await suiteBrowser(), context = await browser.newContext(), p = await context.newPage();
+  try {
+    await p.goto(`http://127.0.0.1:${server.address().port}/`);
+    await p.waitForFunction(() => globalThis.ready);
+    const result = await p.evaluate(async () => {
+      const { h, S, each, match, sig, W, act, pr, mount, pieces } = await import('/js/rt.js');
+      const items = sig([[1, false, 0]]), indices = sig([1, 2]), value = sig([false, 0]);
+      const cards = [], reads = [0, 0, 0];
+      const row = (parent, slot, enabled, offset) => {
+        const card = h(parent, 'div', 0, {}, 0);
+        card.style.cssText = 'position:absolute;width:100px;height:40px;background:red';
+        S(card, '--exact-layout-transition', '', () => { if (slot !== null) reads[slot]++; return enabled() ? '1000 0 linear' : null; });
+        S(card, 'top', 'px', offset); pr(card);
+        if (slot !== null) cards[slot] = card;
+      };
+      mount(root => {
+        const group = () => {
+          const e = h(root, 'div', 0, {}, 0);
+          e.style.cssText = 'position:relative;width:400px;height:200px';
+          return e;
+        };
+        each(group(), items, item => item()[0], (parent, item) => row(parent, 0, () => item()[1], () => item()[2]));
+        each(group(), indices, item => item(), (parent, item, index) => row(parent, item() === 1 ? 1 : null, () => index() > 0, () => index() * 100));
+        match(group(), value, (parent, bound) => row(parent, 2, () => bound()[0], () => bound()[1]));
+      });
+      await pieces();
+      const boxes = () => cards.map(card => card.getBoundingClientRect().y - card.parentElement.getBoundingClientRect().y);
+      const before = boxes(), originals = [...cards];
+      act(() => { W(items, [[1, true, 100]]); W(indices, [2, 1]); W(value, [true, 100]); })();
+      const start = boxes(); seek(500); const middle = boxes(); seek(1000); const end = boxes();
+      return { before, start, middle, end, reads, kept: cards.every((card, i) => card === originals[i]) };
+    });
+    expect(result).toEqual({ before: [0, 0, 0], start: [0, 0, 0], middle: [50, 50, 50], end: [100, 100, 100], reads: [2, 2, 2], kept: true });
+  } finally { await context.close(); await browser.close(); }
 });

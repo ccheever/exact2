@@ -169,7 +169,6 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
 
 /// The attribute and its value expression, with `v` the binding's value.
 /// The tests are own_from's value tests, in the row's authored vocabulary.
-#[allow(clippy::field_reassign_with_default)]
 pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, String)> {
     let bits = |value: String| Some((format!("data-exact-f-{}-{}", b.kind as u8, b.id), value));
     let flag = |bit: u32, test: &str| bits(format!("({test})?{bit}:0"));
@@ -196,32 +195,13 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         StyleId::WrapFlow => return flag(WRAP, "v===\"both\""),
         StyleId::TintColor if kind == NodeType::Image => return flag(POLICY, "v!=null"),
         StyleId::Isolation => return flag(ISOLATION | STACK, "v===\"isolate\""),
-        // Set where the kernel takes the value (rows.rs, GitHub #809).
         StyleId::LayoutTransition => {
-            let values = crate::style::layout_transitions(plan, plan.code(b.expr));
-            let table = serde_json::to_string(&values.held.keys().collect::<Vec<_>>()).unwrap();
-            return flag(LAYOUT | POLICY, &format!("typeof v===\"string\"&&{table}.includes(v)"));
+            return flag(LAYOUT | POLICY, &format!("({})(v)!==null", transition_parser()));
         }
         StyleId::ExitAnimation => return flag(POLICY, "v!=null"),
         StyleId::Transition => {
-            let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL
-                .iter()
-                .flat_map(|p| [p.name(), p.css_name()])
-                .chain(["all", "border-color"])
-                .filter_map(|name| {
-                    let transition = exact_motion::Transitions::parse(name).ok()?;
-                    // This row is behind DerefMut; it cannot be a StyleProps initializer.
-                    let mut style = StyleProps::default();
-                    style.transition = transition;
-                    style.mask.set(StyleId::Transition);
-                    Some((name, own(&style).policy))
-                })
-                .collect();
-            let predicate = include_str!("../transition-paint.js")
-                .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap())
-                .replace("MAX_TRANSITIONS", &exact_motion::MAX_TRANSITIONS.to_string())
-                .replace("MAX_LINEAR_STOPS", &exact_motion::easing::MAX_LINEAR_STOPS.to_string());
-            return flag(POLICY, &format!("({predicate})(v)"));
+            let parser = transition_parser();
+            return flag(POLICY, &format!("({parser})(v)?.some(t=>t.stacks)??false"));
         }
         StyleId::Animation => {
             let names: Vec<_> = plan
@@ -289,6 +269,35 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         _ => return None,
     };
     flag(STACK, test)
+}
+
+/// The shared, whole-list transition grammar: paint reads policy, layout
+/// lowering reads the selected declaration's kernel/web protocol.
+#[allow(clippy::field_reassign_with_default)]
+pub(crate) fn transition_parser() -> String {
+    let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL
+        .iter()
+        .flat_map(|p| [p.name(), p.css_name()])
+        .chain(["all", "border-color", "d"])
+        .filter_map(|name| {
+            let transition = exact_motion::Transitions::parse(name).ok()?;
+            // This row is behind DerefMut; it cannot be a StyleProps initializer.
+            let mut style = StyleProps::default();
+            style.transition = transition;
+            style.mask.set(StyleId::Transition);
+            Some((name, own(&style).policy))
+        })
+        .collect();
+    include_str!("../transition-paint.js")
+        .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap())
+        .replace(
+            "MAX_TRANSITIONS",
+            &exact_motion::MAX_TRANSITIONS.to_string(),
+        )
+        .replace(
+            "MAX_LINEAR_STOPS",
+            &exact_motion::easing::MAX_LINEAR_STOPS.to_string(),
+        )
 }
 
 /// Specialize the mirror to the facts this plan can produce, including
