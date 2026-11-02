@@ -405,7 +405,7 @@ function serverRow(context: ServerContext, key: string, id: string, title: strin
 }
 
 const RUNTIME = [['approval-required', 'Supervised', 'Ask before commands and file changes.', 'lock'], ['auto-accept-edits', 'Auto-accept edits', 'Auto-approve edits, ask before other actions.', 'pen-line'],
-  ['auto', 'Auto', 'Supported providers approve routine actions; others still ask.', 'sparkles'], ['full-access', 'Full access', 'Allow commands and edits without prompts.', 'lock-open']] as const;
+  ['auto', 'Auto', 'Supported providers approve routine actions; others still ask.', 'sparkles'], ['full-access', 'Full access', 'Allow commands and edits without prompts.', 'shield-off']] as const;
 const BACKGROUND = { balanced: ['Balanced', 'Pauses probes for idle clients, locked hosts, or low power mode.'], performance: ['Performance', 'Allows scoped background probes while any subscribed client remains connected.'],
   'battery-saver': ['Battery saver', 'Also pauses background probes when the host or client is on battery.'] } as Record<string, [string, string]>;
 
@@ -567,7 +567,7 @@ export function generalSections(client: T3Client, context: ServerContext, route 
       : `Press ${mod}${device.sendShortcut === 'mod-enter' ? ' + Shift' : ''} + Enter to do the opposite for one message.`), 'select', { ...select(prefs.followUpBehavior, [['queue', 'Queue'], ['steer', 'Steer']]), width: 0 }),
     serverRow(context, 'enableProviderUpdateChecks', 'provider-update-checks', 'Provider update checks', 'Check installed provider CLIs for newer available versions and fetch model catalog updates. When off, new models may not appear.', 'switch'),
     serverRow(context, 'continueThreadsAfterServerUpdate', 'continue-threads-after-server-update', 'Continue threads after restarts', 'Automatically resume interrupted threads after an update, crash, or machine restart on the selected environments.', 'switch',
-      { status: restart || !scope.connected ? '' : 'All selected connected environments must support restart continuation.', disabled: !restart, resetLabel: 'continue threads after restarts' }, restart && settings.continueThreadsAfterServerUpdate === true),
+      { status: restart || !scope.connected ? '' : 'All selected connected environments must support restart continuation.', disabled: !restart, resetLabel: 'continue threads after restarts' }, restart && settings.continueThreadsAfterServerUpdate !== true),
     serverRow(context, 'backgroundActivity', 'background-activity', 'Background activity', profile === 'advanced' ? `Uses custom intervals. Shared policy: ${(BACKGROUND[baseProfile(background)] ?? BACKGROUND.balanced!)[0]}.` : (BACKGROUND[profile] ?? BACKGROUND.balanced!)[1], 'select',
       { value: profile, label: profile === 'advanced' ? 'Advanced' : (BACKGROUND[profile] ?? BACKGROUND.balanced!)[0], info: 'This shared policy gates background work such as Git refreshes and provider health probes after their individual intervals elapse.',
         width: 160, value2: profile === 'advanced' && envScope ? 'configure' : '',
