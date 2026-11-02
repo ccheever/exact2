@@ -26,4 +26,10 @@ pub trait SecretLease: Send + Sync {
     /// Persist a value, or remove it, before returning success. A failed
     /// write must never be queued to retry after this lease is released.
     fn write(&self, value: Option<&str>) -> Result<(), String>;
+
+    /// Finish a successful callback after its writes are durable. A cancelled
+    /// or failed callback drops its lease without calling this method.
+    fn finish(&self) -> Result<(), String> {
+        Ok(())
+    }
 }
