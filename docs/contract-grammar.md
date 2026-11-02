@@ -1816,7 +1816,14 @@ steps from about 0.25 on macOS 27, a quick one from less), and `clientX` and
 `clientY`, where the pointer was as the swipe began. The swipe follows
 System Settings › Trackpad › Swipe between pages, so with it off nothing comes.
 The web's browser draws its own arrow and tells the page nothing, so the web,
-iOS, Linux and Windows send none. Transform geometry/release
+iOS, Linux and Windows send none. The root's `navigationHistory` says which
+ways through history it offers now: `"back forward"`, the default, offers each
+wherever the router has somewhere to go, and `"back"`, `"forward"` or `"none"`
+withholds the rest. Bind it when the app's own Back and Forward go less far
+than its router's visits (a palette open over the page, a history capped at so
+many visits). On macOS a way withheld is no swipe AppKit tracks, so no
+`historyswipe` either, and no Go ▸ Back or Forward or mouse side button; the
+web's history is the browser's, and the other hosts ignore it. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 

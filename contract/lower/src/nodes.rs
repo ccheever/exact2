@@ -348,13 +348,14 @@ impl Lowerer<'_> {
         let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
         // @ref LLP 1038 D8 — only the first root selects navigation; an
         // iframe's `navigate` is its guest's (LLP 1020.002 D2). The history
-        // swipe is the root's too (LLP 1115.000 D5.5).
+        // swipe and the ways through history offered are the root's too
+        // (LLP 1115.000 D5.5).
         let elsewhere = parent_tag.is_some()
             || arm.is_some()
             || order != 0
             || !has(&["navigationKey"])
             || !has(&["navigationBack"]);
-        for name in ["navigate", "historyswipe"] {
+        for name in ["navigate", "historyswipe", "navigationHistory"] {
             if (tag != "iframe" || name != "navigate") && has(&[name]) && elsewhere {
                 return err(
                     "lower-navigate-root",
