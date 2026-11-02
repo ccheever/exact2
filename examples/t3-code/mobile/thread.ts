@@ -47,6 +47,7 @@ export interface ThreadComposerState { editing: boolean; saving: boolean; canCan
 export interface ThreadSnapshot { queuedCanSelect: boolean; queuedFailed: boolean; queuedCanEdit: boolean; queued: boolean; queuedOwner: string; queuedStatus: string; queuedReason: string; queuedCanRetry: boolean; revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
   emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyRequest: string; historyLoading: boolean; historyError: string; historyRevision: number;
   readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; pendingInput: PendingInputView; }
+interface ProjectedThreadItem { row: Obj; item: Obj }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const legacyAutomationPrefix = /^\[Triggered by schedule task: [^\r\n]+\]\r?\n\r?\n/;
 const legacyAutomationMessageId = /^scheduled-task-message:(.+):\d+:(?:scheduled|manual)$/;
@@ -72,13 +73,15 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false, ro
 function threadRows(client: T3Client, now: number, dark = false, routeKey = '', html?: ThreadHtmlPresentation,
   markdown?: ReturnType<typeof mobileThreadMarkdownCache>): ThreadRow[] {
   mobileThreadForkObserveProjection(client);
-  const source = transcriptRows(client, true), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
-  const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
+  const source = transcriptRows(client, true), projected = new Map<string, ProjectedThreadItem>();
+  for (const row of arr(client.projection.visibleTurnItems)) {
+    projected.set(JSON.stringify([row.sourceThreadId, row.sourceItemId]), { row, item: obj(row.item) });
+  }
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
     // Pinned mobile buildThreadFeed omits checkpoints, including populated changes.
     if (message.kind === 'checkpoint') continue;
-    const item = raw.get(message.id), user = message.kind === 'user', fork = item?.type === 'fork' ? projected.get(message.id) : undefined;
+    const projectedItem = projected.get(message.id), item = projectedItem?.item, user = message.kind === 'user', fork = item?.type === 'fork' ? projectedItem?.row : undefined;
     const intent = user && item?.type === 'user_message' ? userIntentBadge(item.inputIntent) : null;
     const automation = user && item?.type === 'user_message' && (item.scheduledTaskId !== undefined
       || legacyAutomationPrefix.test(str(item.text)) && (legacyAutomationMessageId.test(str(item.messageId)) || item.createdBy === 'agent'));
@@ -99,13 +102,13 @@ function threadRows(client: T3Client, now: number, dark = false, routeKey = '', 
       intent: intent?.label ?? '', intentDescription: intent?.description ?? '', intentTone: intent?.tone ?? '', copyConfiguration: item && ['user', 'assistant', 'plan'].includes(message.kind) ? JSON.stringify({ id: message.id,
         owner: { origin: client.origin, environment: client.environmentId, generation: client.generation, project: client.projectId,
           thread: client.threadId, epoch: client.threadEpoch, route: routeKey,
-          sourceThread: str(projected.get(message.id)?.sourceThreadId), sourceItem: str(projected.get(message.id)?.sourceItemId) },
+          sourceThread: str(projectedItem?.row.sourceThreadId), sourceItem: str(projectedItem?.row.sourceItemId) },
         text: item.type === 'proposed_plan' ? str(item.markdown) : ['user_message', 'assistant_message'].includes(str(item.type)) ? str(item.text) : '' }) : '',
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, htmlRender: message.kind === 'html-render' && html
         ? mobileHtmlRenderSnapshot(client, html.context, message.htmlRenderKey ?? '', true, html.width, html.theme, html.iconColor) : emptyHtmlRender, media, first: false, last: false, ...mobileThreadForkPresentation(client, message.id),
       activities: fork ? [mobileForkLifecycleActivity(fork, client, now, dark, routeKey)] : (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
-        const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
+        const shown = mobileThreadActivity(activity, projected.get(activity.id)?.row, client, now, dark, mobileMessageTime(activity.timestamp), routeKey);
         // Parse only visible reasoning; tools keep literal command/result output.
         return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? markdown?.blocks(`reasoning:${activity.id}`, shown.output) ?? [] : [] };
       }) });
