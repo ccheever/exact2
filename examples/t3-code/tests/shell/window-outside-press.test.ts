@@ -12,7 +12,7 @@ function press(x: number, y: number, kind = 'skill'): string[] {
   const window = contractComponent('app-window.contract', 'T3Window');
   const closed: string[] = [];
   const scope: Env = {
-    interacted: () => {},
+    interacted: () => {}, pointerPressed: () => {},
     chip: { open: true, seq: 3, kind, ...pill },
     chipCovered: false,
     frame: (id: string) => (id === 'chip-popover' ? popover : { x: 0, y: 0, width: 0, height: 0 }),
