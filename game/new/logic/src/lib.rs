@@ -33,8 +33,9 @@ pub struct Critter {
 impl Critter {
     /// From 0, just fed, to 1, starved.
     pub fn hunger(&self, tick: u64) -> f32 {
-        (tick.saturating_sub(self.fed_at) as f32 / (STARVES_AFTER_S * SmallGame::HZ) as f32)
-            .min(1.0)
+        // Apart, so rustfmt lays this out the same whatever name a new game gives the type.
+        let starves = (STARVES_AFTER_S * SmallGame::HZ) as f32;
+        (tick.saturating_sub(self.fed_at) as f32 / starves).min(1.0)
     }
 }
 /// The shape of this game's saves. `Game::restorable` refuses a save of another

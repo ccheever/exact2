@@ -11,6 +11,7 @@ import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link'
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
 import { openThreadLinkTarget, relabelThreadLinks } from './thread-links';
 import { isThreadScope } from '../client/scope-root';
+import { answerExternalOpen } from '../client/external-open';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
@@ -58,7 +59,7 @@ import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkPick } from './external-link-menu';
 import { withFileLinkMenus } from './file-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
-import { completeSave } from '../media/save-file';
+import { completeSave, saveDownload, saveName } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
 import { foldedMessageSummary, plainContextReferences, userMessagePresentation } from './user-message';
@@ -128,6 +129,7 @@ export function headerRenameDir(client: T3Client, title: string): string {
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op === 'save-complete') { completeSave(client, Number(id)); return ''; }
+  if (op === 'external-open-answer') { answerExternalOpen(Number(id), value); return ''; } // `openURL`'s answer (external-open.ts)
   if (op.startsWith('inline-doc-')) { await inlineDocumentEvent(client, id, op.slice(11), value, native, storage, image => openInlineDocumentImage(client, image.src, image.name, `inline-frame-${id}`)); return ''; }
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim(), '', 'preserve'); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)
@@ -162,6 +164,10 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
   if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
   if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id, value); return ''; } // a chip's thumbnail at `value` reported an error
+  if (op === 'video-download') { // the expanded video's Download (preview-player.contract): id = its URL, value = its name
+    try { await saveDownload(client, id, saveName(value, 'video')); } catch { throw new ClientError('The file could not be loaded. Try again.'); }
+    return '';
+  }
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);

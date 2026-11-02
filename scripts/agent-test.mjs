@@ -17,7 +17,8 @@ import { onThisMachine, serverUrl } from './verify.mjs';
 import { backendOrigin, backendOriginSelection, staticFacts } from '../js/bake/src/typescript.mjs';
 import { declaredSettings, inlineSettings, settingValues } from '../js/bake/src/__exact_env.mjs';
 import { createRequire } from 'node:module';
-import { devicePreflight, mountsSnapback } from '../snapback4/web/device-build.mjs';
+// Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
+const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
  * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
@@ -199,9 +200,9 @@ const listening = (origin, ms = 1000) => new Promise((done) => {
 export async function backendPreflight(app, dist, say = console.error) {
   const down = [];
   for (const origin of loopbackOrigins(dist)) if (!(await listening(origin))) down.push(origin);
-  if (!down.length) return devicePreflight(app, fetchOrigins(dist));
+  if (!down.length) return snapbackDevice?.devicePreflight(app, fetchOrigins(dist));
   const what = `no backend at ${down.map(origin=>`${origin} (source: ${backendOriginSource(app,origin)})`).join(', ')}: nothing listens there, and app.ts fetches it (a net.fetch grant)`;
-  if (!mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
+  if (!snapbackDevice?.mountsSnapback(app)) return say(`note: ${what}; a test that loads from it fails`);
   throw new Error(`${what}. The app's Snapback client cannot open data that has never synced, so every test would fail. Start the server first, from the backend's directory (\`npx snapback4 dev --port ${new URL(down[0]).port || 80}\`, seeded if the tests read seeded rows), then run the tests again.`);
 }
 /** A `snapback4 dev` server's commit head (`seq` of `GET /changes`), asked as its first declared persona; null for

@@ -19,7 +19,8 @@ export async function formControlsSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-form-controls-')), root = resolve(import.meta.dir, '..'), plan = resolve(dir, 'controls.plan');
   let s;
   try {
-    const compiled = spawnSync(resolve(root, 'target', HOST_DEV, 'contract'), ['build', resolve(root, 'scripts/fixtures/form-controls.contract'), '-o', plan], { encoding: 'utf8' });
+    // Built if it is missing or stale, as the HTTP iframe fixture's compile is (a fresh checkout has no binary).
+    const compiled = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(root, 'scripts/fixtures/form-controls.contract'), '-o', plan], { cwd: root, encoding: 'utf8' });
     if (!check(compiled.status === 0, `${host} form controls compile: ${compiled.stderr ?? compiled.error}`)) return;
     s = await open({ host, plan });
     if (host === 'ios') for (const target of ['fruit', 'level', 'day']) {

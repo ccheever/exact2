@@ -387,7 +387,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 82] = [
+pub const HANDLERS: [&str; 83] = [
     "press",
     "change",
     "input",
@@ -485,6 +485,9 @@ pub const HANDLERS: [&str; 82] = [
     "nexttrack",
     "stop",
     "navigate",
+    // The platform's history swipe as it tracks it (LLP 1115.000 D5.5),
+    // on the navigation root: a `HistorySwipeEvent` to take or leave.
+    "historyswipe",
     // An iframe's guest, by the Navigation API's names (LLP 1020.002 D2):
     // each may hand its action a `FrameNavigation`.
     "currententrychange",

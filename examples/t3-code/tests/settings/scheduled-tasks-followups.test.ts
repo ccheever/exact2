@@ -107,6 +107,18 @@ describe('Runs on switches a new task to another environment', () => {
     expect(page.projects.map(project => project.value)).toEqual(['p3', 'p1']);
     expect(page.editors.map(editor => editor.projectId)).toEqual(['p3']);
   });
+  // ScheduledTaskEditorForm keeps `draft.projectId` listed after an archive: the pick made in the open editor, which
+  // reaches the page as its picker's project (settings-scheduled.contract chooseProject), not only the task's.
+  test("a project picked in the open editor stays listed when it is archived elsewhere", async () => {
+    const { client, native, subscriptions } = harness();
+    const at = '2026-10-31T00:00:00.000Z';
+    client.shell.projects = [{ id: 'p1', title: 'fixture', workspaceRoot: '/repo' }, { id: 'p2', title: 'old', workspaceRoot: '/old', archivedAt: at } as Obj as typeof client.shell.projects[number]];
+    await watchLive(client, native);
+    liveEvent(client, { key: SCHEDULED_TASKS_KEY, subscriptionId: subscriptionsOf(subscriptions), value: { tasks: [] } });
+    const page = (taskBase: string) => scheduledPage(client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase);
+    expect((await page('')).projects.map(project => project.value)).toEqual(['p1']);
+    expect((await page('key=new&project=p2&ref=main&query=')).projects.map(project => project.value)).toEqual(['p1', 'p2']);
+  });
   test('a new task starts on the primary environment, listed first, when the window is focused elsewhere', async () => {
     const { client, native, subscriptions } = harness();
     await studio();

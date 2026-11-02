@@ -43,9 +43,9 @@ export function markdownFileMenuRows(client: T3Client, target: string, context: 
 
 /**
  * Each file link chip's rows (a chip's `tip` is the link's full path), an image of a file of no media kind's too (its
- * file chip, media-views.ts markdownMediaChips); every other chip has none.
+ * file chip, media-views.ts markdownMediaChips); every other chip keeps what messageChips gave it.
  */
 export function withFileLinkMenus(client: T3Client, chips: ChipView[], context: FileLinkMenuContext = {}): ChipView[] {
-  for (const chip of chips) chip.menu = chip.kind === 'link' || (chip.kind === 'media' && chip.size === 'file') ? markdownFileMenuRows(client, chip.tip, context) : [];
+  for (const chip of chips) if (chip.kind === 'link' || (chip.kind === 'media' && chip.size === 'file')) chip.menu = markdownFileMenuRows(client, chip.tip, context);
   return chips;
 }

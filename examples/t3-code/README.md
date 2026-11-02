@@ -270,7 +270,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `attachment-media*`, `media-frame.*`: PDFs in the viewer page's PDF.js (`file-preview-host/`), a draft past 16 MiB
   given to it as a copy in app:/cache (LLP 1020.001 D7), HTML in a sandboxed `iframe` that loads its token directory
   and external hosts as the reference's frame does, or as source coloured by the reference's html lexer
-  (`highlights.ts`), audio and video in the platform's players, "Unable to
+  (`highlights.ts`), audio and video in the platform's players (an expanded video preview has Chromium's
+  controls over it, `preview-player.contract`), "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -324,8 +325,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not offer, #100): tabs and the chrome row, history and local servers, the address bar's search
   engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
   floating player, profiles, and an agent's `previewAutomation` requests. A server-rendered tab's floating player pops
-  it into the platform's picture-in-picture window (`server-browser-pip.ts`): a stream of its own paints a hidden image
-  that Exact's `requestPictureInPicture` floats, as the reference floats its canvas stream.
+  it into Chromium's picture-in-picture window as Exact draws it (`requestPictureInPicture(…, presentation="window")`,
+  LLP 1042 §9.1; `server-browser-pip.ts`): a stream of its own paints a hidden image that it floats, as the reference
+  floats its canvas stream. A desktop tab's separate preview window is Exact's floating panel
+  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -405,13 +408,14 @@ credential, else to the primary while the Local environment switch is on (`relau
 while the server starts, the window shows the connecting state (the host opens the first window
 before the server is ready, exact2 #117). A launch reopens no thread: the reference's window loads `/`
 every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding opens a new
-draft in the most recently active project (by latest user message; a visit is not activity) of the
-environments whose shells are in, without waiting for a slow one; only a workspace with no project yet
-waits until every switched-on environment's shell is in. This machine is always in that first pick: with the
-Local environment switch on, the reference creates its window only once the local backend is ready
-(DesktopWindow.ts `createMainIfBackendReady`), so the clone's landing waits for the local environment while
-its backend is starting or its shell is not in yet. The clone does the same
-(`home-landing.ts`), focusing that project's environment when it is not the one the launch reconnected.
+draft in the most recently active project (by latest user message; a visit is not activity) of every
+environment, reading each one's shell from the cache it kept since the last launch. The clone keeps no shell
+between launches, so its landing (`home-landing.ts`) waits until every switched-on environment, This machine
+included, has its shell in or has settled offline: refused, or waiting to retry after its third failed attempt
+(`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). It also waits while This machine's server starts, as
+the reference opens its window only once the local backend is ready (DesktopWindow.ts
+`createMainIfBackendReady`). It focuses the picked project's environment when it is not the one the launch
+reconnected.
 The window keeps its frame across launches (the host's frame autosave, restored after the window's final
 style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
@@ -477,10 +481,6 @@ The clone follows the reference wherever exact2 allows it. Where it cannot, the 
 exact2 issue. The open ones are records under main's `issues/` (the GitHub issues the clone
 filed were moved there or closed). The gaps someone using this app runs into:
 
-- Popovers flip near a window edge only as far as main's first slice goes
-  ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
-  #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
-  the record stays open for the rest of the placement work.
 - A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
   timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
@@ -494,9 +494,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
-  the composer's and the fields' typed text is a shade heavier than the reference's, which draws
-  all of its text `antialiased`.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
   the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
@@ -505,11 +502,10 @@ filed were moved there or closed). The gaps someone using this app runs into:
   focused, where the reference's menu item undoes the field's text (its ⌘Z is thread.undo then too).
 - Check for Updates… shows in every build. In a build with an update store its press would do nothing (the
   module has no hook into the host's check); no build has one while `deploy.store` is `"0"`.
-- An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
-  reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
-  main keeps the limit), so the composer is opaque where the reference's glass shows the
-  transcript through it, and so is the Usage page's segment popover.
+  main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
+  through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
+  (`composer-editor.contract` ComposerGlass), so it moves with the card once the card's new size is measured.
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
@@ -580,8 +576,7 @@ exact2 only when a library many apps can reuse needs it.
 
 - `T3BrowserPage.swift`, `T3BrowserRecorder.swift`, `T3BrowserAgentCursor.swift` and `T3BrowserCapture.swift`: what a
   Browser tab's frame hands its `t3-browser-page` hatch (LLP 1020.002 tier 3). The recording (the frame as a capture
-  source, LLP 1020.002 D8), the agent's cursor drawn on the page's view and the separate preview window's
-  snapshots need the page's web view; the artifact directory is the local server's own folder, outside the app's
+  source, LLP 1020.002 D8) and the agent's cursor drawn on the page's view need the page's web view; the artifact directory is the local server's own folder, outside the app's
   files, where a capture moves in and Reveal in Finder acts, which has no framework call; a saved recording's bytes
   go to the environment from there, since the data module reads only the app's files.
 - `T3BrowserPage.swift`'s `stage`: Copy image of a Browser artifact needs its pixels, and data code reads only the
@@ -700,8 +695,9 @@ Differences that belong to the app:
   `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
   browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
   page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
-  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
-  timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, and its timers are not
+  held to WebKit's one a second for a hidden page (`apple.inactiveSchedulingPolicy="none"`), though it draws no
+  animation frames; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
   the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
   reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
   reference's menu does. A page's dialog while
@@ -711,23 +707,21 @@ Differences that belong to the app:
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
-- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
-  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
-  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
-  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
-  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+- A server Browser tab's PDF is Chromium's PDF viewer drawn by the viewer page over PDF.js, which reads its signed
+  URL (`server-pdf-viewer.ts`, `file-preview-host/src/pdf/browser-pdf-viewer.ts`), where the reference embeds the URL
+  in Chromium's own viewer: an embed would run an HTML answer as a page. Three things differ. Print is hidden, as
+  Chromium hides it where printing is off: no page in Exact can print (clone/issues/match1102-media-pdf-print.md).
+  Chromium's drawing tools (Draw, Undo, Redo) are not there. Present fills the tab, not the screen. Neither viewer
+  has a find bar (Electron draws none). A PDF from another origin loads only when its server
   lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
   a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
   popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
   still does).
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
-- The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
-  not for This machine while its server starts, nor for one that is retrying: the reference opens its
-  window only once the server is ready, and keeps waiting for any switched-on environment until its
-  third attempt has failed (`state/shell.ts` `allEnvironmentShellsBootstrappedAtom`). So a relaunch can
-  open the draft in another environment's project when the most recent one is This machine's or a
-  retrying one's.
+- The launch's landing waits for every switched-on environment's shell (`home-landing.ts`), where the
+  reference picks at once from the shells it cached. An environment that stays unreachable through three
+  attempts is left out of the clone's pick; the reference still offers its cached projects.
 - Code colours: a code text paints plain until the data crate's lexers answer for it, a few frames
   through the root's pump (`app.contract` highlightStep), where the reference's loaded highlighter
   colours it in the render that shows it. The lexers share the data crate's thread with the chat
@@ -738,8 +732,6 @@ Differences that belong to the app:
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
 - An image inside a link's text has no tooltip and no keyboard menu key.
-- In the composer, a review comment's popover shows its comment and diff as plain text (the
-  reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
@@ -771,19 +763,18 @@ above.
   update feed (`settings-a-about.ts`), and Nightly is not cloned. The row keeps v0.1.6's description but not
   its "N machines still run … Review" line: Review opens that switch in v0.1.6, and here it would move no machine.
 - A two-finger swipe steps the window's history with AppKit's gesture (`trackSwipeEvent`, LLP 1115.000 D5.5),
-  which follows System Settings › Trackpad › Swipe between pages and draws nothing. v0.1.6 recognises the swipe
-  over wheel events (`HistorySwipeNavigation.tsx`) and draws an arrow at the main area's edge as it tracks.
+  which follows System Settings › Trackpad › Swipe between pages; v0.1.6 recognises the swipe over wheel events
+  (`HistorySwipeNavigation.tsx`) whatever that setting says. The window root hears AppKit's tracking
+  (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
+  a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
+  sooner, which the arrow cannot know, so it may look unarmed as the step goes.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
-- A sent citation's details read their Go to source as a button, where v0.1.6's is a link to the current page, and its
-  chip does not say whether the details are open ("collapsed"). A press with the pointer focuses Go to source without a
-  focus ring, as AppKit draws a ring only for keyboard focus; v0.1.6 rings it.
-- A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
-  tooltip on hover only, where v0.1.6's opens on a keyboard focus.
-- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
-  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
-  takes no outline from the app.
+- A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
+  default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
+  it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
+  its 30% `Highlight` over the chip.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
@@ -794,42 +785,30 @@ above.
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
   has the keyboard focus, as VoiceOver's cursor does in an AppKit window.
-- When a thread switch replaces a draft in the focused prompt, VoiceOver reads the old draft as it
-  leaves ("see Turn with file edits now", about 0.6 s after VO-Space on a composer thread chip, cutting
-  off "Message, edit text", or after ⌘⇧[; 3 of 3 each); the reference's reads none of it. Exact's
-  textarea writes the new draft into the same text view (`TextAreaMac.swift` `writeValue`), for which
-  AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
-  view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
-  removed text, which VoiceOver does not read.
-- The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
-  after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
-  open, so several items can be turned on or off in one visit.
 - The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
   draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
   pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
   paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
   build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
-  Web Inspector, not Chrome DevTools.
-- A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
-  216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
-  return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's
-  icon. Pause does nothing, as the tab is live. A press elsewhere on the panel does not bring the app forward, as a
-  press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
-  the Picture in Picture process.
+  Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
+  Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
+  (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
+- One Browser window floats at a time: opening a desktop tab's separate preview window closes another tab's, or the
+  server tab's picture in picture, where the reference keeps a window per tab beside Chromium's. Exact floats one
+  image per process, as a document floats one picture-in-picture element (LLP 1042 §9).
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
-  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
-  Symbol (a document for any file, not its file-type icon; no project favicon or image
-  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
-  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
-  per scheme.
+- Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
+  usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
+- A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
+  thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
+  image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
+  The other chips, and a thread whose project icon is a monogram, an emoji or a Lucide glyph, show the nearest
+  SF Symbol to v0.1.6's Lucide glyph. The icon is as tall as the text's cap height, where v0.1.6's is 1em.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
-- A composer chip's name does not underline while the pointer is over it, where the reference's
-  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
-  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
-  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
-  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
+- A composer chip's name underlines under the pointer only while the window is key, as AppKit tracks
+  hover; an unavailable reference underlines too, where v0.1.6's is a plain span that does not. An atom
+  kind's `:hover` is the kind's, not one chip's.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's
@@ -837,8 +816,6 @@ above.
 - A character typed right after a mention or a skill makes its source longer, and deleting the
   space after one makes it text again; the reference keeps the chip until its document is
   rebuilt (LLP 1045.000 §6).
-- Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
-  composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
 - A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
   reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
   folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
@@ -1546,6 +1523,19 @@ Not reachable with a hub: the combined skipped-records warning (neither app has 
 the ChatGPT card's connected accounts (it lists authenticated providers whose own limits carry an external usage link,
 ChatGPT subscription sharing, which a hub account never is; the app tests cover it), and the fallback model notice
 (below).
+
+**Checked with real input and VoiceOver (2026-11-02, the text lane)** (the bundle of this branch with exact2
+#1273 and #1274 merged in, and the before bundle of `8de4044fb6`, each a lane copy on its own bundle id and `HOME`,
+paired with `second` seeded with `--turns`; keys from the HID event source, VoiceOver read from its caption panel;
+the oracle on its own home and port):
+
+- A thread switch in the focused prompt is silent. With drafts in "Turn with file edits" and "Background thread
+  (completed turn)", ⌘⇧] and ⌘⇧[ with the prompt focused: before, VoiceOver spelled or read part of a draft at 6 of 6
+  switches ("h r e a d", "thread" going forward, "Bravo" going back); now at 0 of 12. exact2 #1274 makes the app's
+  write into a focused textarea post nothing VoiceOver reads from (LLP 1045 D5). The drafts stay with their threads.
+- With Font smoothing on, the prompt's typed text draws `antialiased`, as the reference's does: a draft's ink is 14%
+  lighter than before (4078.6 to 3502.0 at 2×), now drawn as the reference draws its own (exact2 #1273, LLP 1019 D12's
+  Fields).
 
 **Fixed, not checked with real input or VoiceOver:**
 

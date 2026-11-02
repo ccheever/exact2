@@ -64,10 +64,10 @@ component FilesSurface
     searchFocus: action
   derive beside = files.path != "" and files.preview != ""
   // FileExplorerPane: beside a file the explorer is 160 to 560 wide and leaves the file 256; the width is saved when a
-  // drag ends or a key moves it.
+  // drag ends or a key moves it. Until the row is measured the cap is 560, so the first frame has the saved width.
   state rowWidth = 0
   state userWidth = -1
-  derive explorerMax = max(160, min(560, rowWidth - 256))
+  derive explorerMax = rowWidth > 0 ? max(160, min(560, rowWidth - 256)) : 560
   derive explorerWidth = max(160, min(explorerMax, userWidth >= 0 ? userWidth : files.explorerWidth))
   action rowSized(width: number, height: number)
     rowWidth = width

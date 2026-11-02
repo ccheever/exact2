@@ -115,6 +115,12 @@ describe('a sent message takes the shape of what it holds', () => {
     expect(shape([image('a'), image('b', { source: { kind: 'snap-shot', appName: 'Safari' } })])).toMatchObject({ shape: 'media', layout: 'stack' });
     expect(shape([image('a'), file('v', 'clip.mp4', { mimeType: 'video/mp4' })])).toMatchObject({ shape: 'media', layout: 'stack' });
   });
+  test('a stack lays its items out as grid-cols-2 gap-2 does: half cells less the gap, an odd last one in the left cell', async () => {
+    const view = await Bun.file(new URL('../../src/timeline/timeline-sent-media.contract', import.meta.url)).text();
+    const stack = view.slice(view.indexOf('// One item spans the stack'), view.indexOf('fn collagePairs'));
+    expect(stack).toContain('justify-content="flex-start"');
+    expect(stack).toContain('"calc(50% - 0.25rem)"');
+  });
   test('media sent with words sits above the bubble; a folded message keeps its grid', () => {
     expect(shape([image('a')], 'Look at this')).toMatchObject({ shape: '', mediaAbove: true, layout: 'lone' });
     expect(shape([image('a')], 'From another agent', [], [], true)).toMatchObject({ shape: '', mediaAbove: false, layout: '' });

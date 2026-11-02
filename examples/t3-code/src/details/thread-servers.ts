@@ -63,7 +63,7 @@ export async function threadServerLocal(client: T3Client, native: Native, op: st
   if (op === 'external') {
     // Like links: a modified press goes to the system browser.
     const url = resolveDiscoveredServerUrl(ref.environmentId, server.url, preparedConnection(client));
-    if (!openExternal(url)) failure(client, 'Unable to open in browser', new Error('This address cannot be opened.'));
+    if (!(await openExternal(url))) failure(client, 'Unable to open in browser', new Error('Unable to open link.'));
     return '';
   }
   if (op === 'open') {

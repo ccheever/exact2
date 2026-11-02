@@ -800,7 +800,7 @@ component WebhookRotateDialog
   derive targets = ["task-webhook-rotate-cancel", "task-webhook-rotate-confirm"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=50 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)"
-      column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
+      column role="alertdialog" aria-label="Rotate this webhook URL?" id="webhook-rotate-dialog" testId="webhook-rotate-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("webhook-rotate-dialog") key=dialogFallback("webhook-rotate-dialog", targets) gap="0.75rem" padding="1.5rem" max-width="24rem" border-radius="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6"
         FocusGuard(guardId="webhook-rotate-guard-start", targets=targets, popup="webhook-rotate-dialog")
         DialogOpenFocus(target="task-webhook-rotate-cancel")
         text "Rotate this webhook URL?" font-size="1rem" font-weight=600 role="heading" aria-level=2

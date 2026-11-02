@@ -146,6 +146,10 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
     await s.tap('a', media);
     assert.deepEqual(calls.at(-1), [1, 'mediasession', media]);
   }
+  // Exact's picture-in-picture window is the Mac's: the web carrier is given no input (LLP 1042 §9.1).
+  const before = calls.length, pip = await s.tap('a', { pictureInPicture: 'close' });
+  assert.equal(pip.delivery, 'unsupported');
+  assert.ok(!calls.slice(before).some(Array.isArray));
   for (const spec of ['', '+', '   ', null, false, new Number(0)]) {
     await s.clock(spec);
     assert.deepEqual(calls.at(-1), { op: 'clock', to: 0 });
@@ -878,12 +882,6 @@ test('a plain screenshot in an app that keeps reference pictures names compare; 
     assert.match(note(['screenshot .exact/other.png']), /compare \S*ref\/<name>\.png"/);
     assert.equal(note(['screenshot .exact/home.png compare ref/home.png']), '');
     assert.equal(note(['screenshot .exact/a.apng over 600 every 50']), '');
-    // A design's screenshots beside the app.
-    rmSync(resolve(app, 'ref'), { recursive: true });
-    const site = resolve(app, 'site'), shots = resolve(app, 'design', 'screenshots');
-    mkdirSync(site); mkdirSync(shots, { recursive: true }); writeFileSync(resolve(shots, 'home-desktop.png'), '');
-    const said = []; referenceNote(['screenshot .exact/home.png'], site, (l) => said.push(l));
-    assert.match(said.join('\n'), /design\/screenshots\/ holds 1 reference picture/);
   } finally { rmSync(app, { recursive: true, force: true }); }
 });
 

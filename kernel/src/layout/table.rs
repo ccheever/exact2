@@ -188,10 +188,13 @@ impl Tables {
 /// children in the engine, so publication moves them by this.
 pub(super) fn relative(arena: &NodeArena, slot: u32) -> (f32, f32) {
     use crate::style::Dimension;
-    let s = arena.style(slot);
-    if s.position_type != crate::generated::PositionType::Relative {
+    // A popover row is in the top layer, absolutely positioned whatever its author wrote.
+    if crate::style::top_layer::layout_position(arena, slot)
+        != crate::generated::PositionType::Relative
+    {
         return (0.0, 0.0);
     }
+    let s = arena.style(slot);
     let env = arena.env();
     let px = |d: Dimension| match d.resolve(env) {
         Dimension::Points(v) => Some(v),

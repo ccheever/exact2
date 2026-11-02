@@ -1,6 +1,7 @@
 import { threadFindTick, threadFindView } from './src/timeline/thread-find-runtime';
 import type { StreamPicked } from './src/browser/server-browser-files';
 import { serverStreamSource, serverStreamPainted, serverStreamInput, serverStreamUpload, serverStreamFrame, serverStreamDecode } from './src/browser/server-browser-runtime';
+import { captureDesktopPip } from './src/browser/browser-desktop-pip';
 import { snapshotSettings } from './src/snapshot/snapshot-settings';
 import { promptLinkView, promptLinksReady } from './src/prompt-links/prompt-link-handler';
 import { keyboardSettings, keybindingSettings } from './src/settings/keybinding-settings';
@@ -107,6 +108,7 @@ export function answer(source: string, args: unknown[], store: unknown, storage:
     return at;
   }
   if (source === 'serverBrowserUpload') { adoptAppFiles(storage); return native?.available ? serverStreamUpload(client, transport.wrap(native, source) as Native, String(args[0] ?? ''), String(args[1] ?? ''), args[2] as StreamPicked[]) : null; }
+  if (source === 'browserPipCapture') { adoptAppFiles(storage); return captureDesktopPip(client, String(args[0] ?? ''), Number(args[1]) || 0); }
   if (source === 'serverBrowserDecode') { adoptAppFiles(storage); return serverStreamDecode(client, String(args[0] ?? '')); }
   if (source === 'serverBrowserStatus') { noteNow(client, Number(args[1]) || 0); return serverStreamFrame(client, String(args[0] ?? '')); }
   if (source === 'serverBrowserFrame') return serverStreamSource(client, String(args[0] ?? ''), String(args[1] ?? ''));
@@ -144,7 +146,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'highlightStore') return highlightStore(args[0] as { id: number; line: number; records: number[] }[]); // the lexers' answer
   if (source === 'promptLinkView') return promptLinkView(client);
   if (source === 'codexReceive') return codexReceive(client, native, String(args[0] ?? '')); // the sign-in's loopback callback (codex-setup-ops.ts)
-  if (source === 'promptLinksReady') return promptLinksReady(client);
+  if (source === 'promptLinksReady') return promptLinksReady(client, String(args[2] ?? ''));
   if (source === 'snapshot') {
     noteNow(client, Number(args[0]) || 0);
     transport.observe(Number(args[0]) || 0); // the tick's clock, until its first tick
@@ -193,7 +195,7 @@ export async function answerClient(source: string, args: unknown[], _store: unkn
   if (source === 'composerFieldObserved') { const host = sideChatClient(client, String(args[2] ?? '')); return composerFieldObserved(host, args, composerFieldOwner(host)); }
   if (source === 'composerFieldAcknowledged') { const host = sideChatClient(client, String(args[3] ?? '')); return composerFieldAcknowledged(host, args, composerFieldOwner(host), native); }
   if (source === 'composerIntent') return composerIntentAnswer(sideChatClient(client, String(args[13] ?? '')), args); // the field's source session: a side chat's is its scope's
-  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return chipPopoverView(sideChatClient(client, String(args[1] ?? ''))); } // args[1]: the composer it serves, a side chat's thread or ''
+  if (source === 'composerChip') { noteChipTarget(client, String(args[1] ?? '')); return highlightView('chip', () => chipPopoverView(sideChatClient(client, String(args[1] ?? '')))); } // args[1]: the composer it serves, a side chat's thread or ''; a review comment's diff and fences are coloured
   if (source === 'composerChipObserved') return composerChipObserved(client, args[0]);
   if (source === 'composerChipPressed') return composerChipPressed(sideChatClient(client, String(args[1] ?? '')), args[0]);
   if (source === 'snapshotSettings') return snapshotSettings(client, native, args[0] === true);

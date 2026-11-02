@@ -4,6 +4,8 @@
 // snapshot carries the latest request (`externalOpen`), and app.contract's `externalOpen` task opens it once per
 // serial. app.json's `open_url.schemes` lists the editors' schemes, which `openURL` refuses unless declared. An
 // agent run journals the open (`openURL vscode: … (journaled, not opened under the agent)`) instead of opening it.
+// As Electron's `shell.openExternal` resolves whether the system opened the URL, `openURL(url, id)` answers
+// `opened` or `failed`, which app-window.contract hands back (`external-open-answer`, `answerExternalOpen`).
 import { REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from '../shared/editors';
 
 const SAFE_WEB_PROTOCOLS = new Set(['http:', 'https:']);
@@ -34,14 +36,33 @@ export function parseSafeExternalUrl(rawUrl: unknown): string | null {
 export type ExternalOpen = { serial: number; url: string };
 let request: ExternalOpen = { serial: 0, url: '' };
 const opened: string[] = [];
+// The opens waiting for Contract's answer, by serial. An open waits once a plan has answered: each boot's plan answers
+// the serial standing at its first answer `opened` (server-browser-members.contract), so an open View › Reload's new plan
+// will not perform is not left waiting, and one before any plan, or in a test with none, is taken as opened.
+const waiting = new Map<number, (opened: boolean) => void>();
+let answered = false;
 
-/** ElectronShell.openExternal: true when the URL was accepted and handed to Contract's `openURL`. */
-export function openExternal(rawUrl: unknown): boolean {
+/** ElectronShell.openExternal: whether the system opened the URL. A refused URL is false at once. */
+export function openExternal(rawUrl: unknown): Promise<boolean> {
   const url = parseSafeExternalUrl(rawUrl);
-  if (url === null) return false;
+  if (url === null) return Promise.resolve(false);
   request = { serial: request.serial + 1, url };
   opened.push(url);
-  return true;
+  if (!answered) return Promise.resolve(true);
+  const serial = request.serial;
+  return new Promise(resolve => { waiting.set(serial, resolve); });
+}
+
+/** Tests: whether an open waits for an answer, as it does once a plan has answered. */
+export function awaitExternalOpenAnswersForTests(on: boolean): void { answered = on; }
+
+/**
+ * `openURL(url, id)`'s answer for the open at `serial`, `opened` or `failed`. Only the latest request opens, so one it
+ * replaced before its task ran shares its answer.
+ */
+export function answerExternalOpen(serial: number, value: string): void {
+  answered = true;
+  for (const [at, resolve] of waiting) if (at <= serial) { waiting.delete(at); resolve(value === 'opened'); }
 }
 
 /** The snapshot's `externalOpen`: the latest accepted URL and its serial (0 before the first). */

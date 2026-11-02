@@ -205,7 +205,7 @@ component ImagePreviewDialog
               // ExpandedVideo, the player with native controls, playing (attachment-media.contract).
               if video
                 if url != "" and not videoFailed
-                  ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke)
+                  ExpandedVideo(url=url, name=name, maxWidth=(windowWidth * 0.92 - 96), maxHeight=min(windowHeight * 0.86, windowHeight - 160), broke=broke, download=local("video-download", url, name))
                 else
                   if failed or videoFailed
                     column width=min(windowWidth * 0.92 - 96, 512)

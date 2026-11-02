@@ -2123,7 +2123,12 @@ image's `pictureinpictureerror(message)`, on every host that cannot float it
 too, so handle it where a press asked: a toast, the control unpressed. The
 image may be a hidden 1-point one that a stream of its own paints; removing it
 closes the window. macOS and the web's JS target float it
-([LLP 1042 §9](../llp/1042-video.spec.md)).
+([LLP 1042 §9](../llp/1042-video.spec.md)). Leave the window to the platform
+unless the app must look like another: `presentation="window"` asks for a
+browser's picture-in-picture window as Chromium draws it on the Mac, and
+`presentation="panel"` for a floating panel with a title bar, each with
+`title=`, `width=` and `height=` (LLP 1042 §9.1); the web shows either in
+Document Picture-in-Picture's window where the browser has one.
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media
@@ -2218,6 +2223,10 @@ chip must read left to right in right-to-left text, `direction="ltr"`, and its
 accessible name when the drawn label is not what a screen reader should say,
 `ariaLabel=`) and hear `atompress=`
 ([inline atoms](contract-grammar.md#inline-atoms-atom-atoms-atomfaces-atompress)).
+Unsaid, a pill is the platform's token; when the design draws its chips another
+way, write that on the `atom` as CSS (`padding-inline`, `border`,
+`border-radius`, a ring in a `:checked` block, an underline in a `:hover`
+block) and leave the rest to the platform.
 Keep them out of your own rules over `setSelectionRange` and `beforeinput`: the
 editor keeps a caret out of an atom and deletes it whole. An editor where
 Arabic or Hebrew lines sit beside English ones gives each line its base
@@ -3546,6 +3555,8 @@ keyed by its digest. Use it only for
 the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
+
+### The driver's operations
 
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new

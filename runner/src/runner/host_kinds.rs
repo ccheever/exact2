@@ -3,7 +3,67 @@
 //! validated before any clock moves, a refusal named for the batch's `error`.
 
 use super::Event;
-use exact_plan::EventKind;
+use exact_plan::{EventKind, Value};
+
+/// The platform's history swipe as the host tracks it (LLP 1115.000 D5.5):
+/// AppKit's phase of the gesture, the way a lift would step, its
+/// `gestureAmount` along that way, which `ended` is about to take, and where
+/// the pointer was as it began.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistorySwipe {
+    /// `began`, `changed`, `ended` (the step goes) or `cancelled`.
+    pub phase: &'static str,
+    /// Toward the page after (Forward), else the page before (Back).
+    pub forward: bool,
+    /// How far the page has gone that way: 0 at rest, 1 a whole page.
+    pub amount: f64,
+    /// The pointer as the gesture began, from the viewport's top left.
+    pub client_x: f64,
+    /// See `client_x`.
+    pub client_y: f64,
+}
+
+impl HistorySwipe {
+    /// ABI kind 60's payload: `phase,direction,amount,clientX,clientY`.
+    fn parse(payload: &str) -> Option<Self> {
+        let mut parts = payload.split(',');
+        let phase = match parts.next()? {
+            "began" => "began",
+            "changed" => "changed",
+            "ended" => "ended",
+            "cancelled" => "cancelled",
+            _ => return None,
+        };
+        let forward = match parts.next()? {
+            "back" => false,
+            "forward" => true,
+            _ => return None,
+        };
+        let mut number = || {
+            let n = exact_num::parse_f64(parts.next()?).ok()?;
+            n.is_finite().then_some(n)
+        };
+        let (amount, client_x, client_y) = (number()?, number()?, number()?);
+        (amount >= 0.0 && parts.next().is_none()).then_some(Self {
+            phase,
+            forward,
+            amount,
+            client_x,
+            client_y,
+        })
+    }
+
+    /// The `HistorySwipeEvent` record, its fields in the compiler's order.
+    pub(super) fn value(&self) -> Value {
+        Value::record(vec![
+            Value::str(self.phase),
+            Value::str(if self.forward { "forward" } else { "back" }),
+            Value::Number(self.amount),
+            Value::Number(self.client_x),
+            Value::Number(self.client_y),
+        ])
+    }
+}
 
 impl Event {
     /// Decode ABI kind 6 (`key`), 43 (`keyup`) or 44 (`keycapture`),
@@ -17,8 +77,9 @@ impl Event {
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
-    /// 51 (scrollend, none), 52 (field selectionchange), or 53/54
-    /// (beforeinput/input metadata) from its UTF-8 payload.
+    /// 51 (scrollend, none), 52 (field selectionchange), 53/54
+    /// (beforeinput/input metadata), or 60 (historyswipe) from its UTF-8
+    /// payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code,
@@ -50,6 +111,9 @@ impl Event {
             36 => Ok(Event::Beforeunload),
             // DOM's `scrollend`: no payload (LLP 1005, 2026-10-13).
             51 => Ok(Event::Scrollend),
+            60 => HistorySwipe::parse(payload)
+                .map(Event::Historyswipe)
+                .ok_or("invalid history swipe"),
             37 => super::WheelEvent::parse(payload)
                 .map(Event::Wheel)
                 .ok_or("invalid wheel event"),
@@ -267,7 +331,7 @@ impl Event {
 
 #[cfg(test)]
 mod tests {
-    use super::Event;
+    use super::{Event, HistorySwipe};
 
     #[test]
     fn selection_rectangles_preserve_geometry_and_verbatim_text() {
@@ -378,6 +442,30 @@ mod tests {
             Event::of_host_kind(46, "typed").err(),
             Some("invalid focus event")
         );
+        assert_eq!(
+            Event::of_host_kind(60, "changed,forward,0.25,10,-4"),
+            Ok(Event::Historyswipe(HistorySwipe {
+                phase: "changed",
+                forward: true,
+                amount: 0.25,
+                client_x: 10.0,
+                client_y: -4.0,
+            }))
+        );
+        for bad in [
+            "moved,back,0,0,0",
+            "ended,up,0,0,0",
+            "began,back,-1,0,0",
+            "began,back,NaN,0,0",
+            "began,back,0,0",
+            "began,back,0,0,0,0",
+        ] {
+            assert_eq!(
+                Event::of_host_kind(60, bad).err(),
+                Some("invalid history swipe"),
+                "{bad}"
+            );
+        }
         assert_eq!(
             Event::of_host_kind(99, "").err(),
             Some("unknown event kind")

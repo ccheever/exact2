@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { artifactLocal, browserCaptureView, browserMiniView, cancelHiddenPicks, captureHost, captureLocal, emptyCaptureView, floatingTabOf } from '../../src/browser/browser-capture';
 import { adoptFrameEvent, frameIdOf, syncFrames } from '../../src/browser/browser-frames';
+import { captureDesktopPip, closeDesktopPictureInPicture, desktopPipView, openDesktopPictureInPicture } from '../../src/browser/browser-desktop-pip';
 import { automationTick, toggleFrameMute, useAutomationCalls, type AutomationCalls } from '../../src/browser/browser-automation-run';
 import { serveRecordingRequests } from '../../src/browser/browser-automation-recording';
 import { annotateState } from '../../src/browser/browser-annotate';
@@ -33,6 +34,7 @@ import { DEFAULT_SEND_RULES } from '../../src/composer/composer-editor-intent';
 import { activeRef } from '../../src/terminal/terminal-drawer-view';
 import { chatCanvasView } from '../../src/shell/chat-canvas-view';
 import { contractFn } from '../support/contract-fn-fixture';
+import { contractComponent } from '../support/contract-action-fixture';
 import { appPath } from '../support/app-files';
 
 const ref = { environmentId: 'local', threadId: 'thread-1' };
@@ -128,7 +130,7 @@ describe('PreviewChromeRow: Annotate, Capture and Float preview', () => {
     const client = fakeClient();
     expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false)).toMatchObject({ pickActive: false, pickDisabled: false, pickTip: 'Annotate elements, regions, and drawings',
       captureDisabled: false, recording: false, floating: false, floatDisabled: false, separateWindow: false });
-    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
+    openDesktopPictureInPicture(client, runtimeId);
     fakePage(() => new Promise(() => {}));
     await captureLocal(client, fakeModule({}).native, browserPanel(), 'annotate', target, 'dark');
     useAutomationCalls(null);
@@ -446,7 +448,8 @@ describe('the floating player and the separate window', () => {
   });
 
   it('shows the floating tab unless the panel shows it (shouldRenderPreviewMiniPlayer), sized by its page', () => {
-    const client = fakeClient({ size: [640, 360], pip: true });
+    const client = fakeClient({ size: [640, 360] });
+    openDesktopPictureInPicture(client, runtimeId);
     browserHost(client).store.applyServerSnapshot(ref, { threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' });
     browserHost(client).store.reconcileServerSessions(ref, { sessions: [{ threadId: 'thread-1', tabId: 'tab-1', navStatus: { _tag: 'Success', url: 'https://example.com/', title: 'Example' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-09T00:00:00.000Z' }], serverEpoch: 'epoch-1', revision: 1 });
     miniStoreOf(client).open('thread-1', { kind: 'browser', tabId: 'tab-1' });
@@ -484,10 +487,20 @@ describe('the floating player and the separate window', () => {
 
   it('handleNativePictureInPicture opens and closes the separate window, and the More menu names it', async () => {
     const client = fakeClient(), module = fakeModule({});
+    adoptFrameEvent(client, frameIdOf(runtimeId), 'event=currententrychange&id=1&title=Floating%20page&url=https%3A%2F%2Fexample.com%2F', 0);
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    (client.presentation.browserPages as Obj)[frameIdOf(runtimeId)] = { pip: true };
+    // Manager.ts openPictureInPicture: "Preview · " and the page's title, read as the window opens.
+    expect(desktopPipView(client)).toMatchObject({ show: true, runtimeId, frameId: frameIdOf(runtimeId), title: 'Preview · Floating page' });
+    expect(browserCaptureView(client, ref, 'tab-1', runtimeId, true, false).separateWindow).toBe(true);
+    const first = desktopPipView(client).request;
     await captureLocal(client, module.native, browserPanel(), 'window', target, '');
-    expect(module.calls.map(call => [call.action, call.frame])).toEqual([['open', frameIdOf(runtimeId)], ['close', frameIdOf(runtimeId)]]);
+    expect(desktopPipView(client).show).toBe(false);
+    expect(module.calls).toEqual([]); // Exact's window, no app module call
+    // The window's own close (`leavepictureinpicture`) ends it; another open is a new request.
+    await captureLocal(client, module.native, browserPanel(), 'window', target, '');
+    expect(desktopPipView(client).request).toBeGreaterThan(first);
+    closeDesktopPictureInPicture(client, runtimeId);
+    expect(desktopPipView(client).show).toBe(false);
     expect(browserView(client, browserPanel().surfaces[0]!).capture.separateWindow).toBe(false); // no session: the empty view
   });
 });
@@ -644,5 +657,44 @@ describe('a real Escape, the pill by a real pointer, the drag and the resize, th
     const held = await run(pans(['7.1', '7.1', '7.1', '7.1'])), fresh = await run(pans(['7.1', '8.1', '9.1', '10.1']));
     expect([held.last.width, held.last.height]).toEqual([305, 423]);
     expect(fresh.last.width).toBeGreaterThan(305 + 40);
+  });
+});
+
+// Manager.ts openPictureInPicture's window over Exact's panel (LLP 1042 §9.1): the tab's frame captured about 12 times a
+// second into three files in turn, the latest one the window's picture; the panel opens titled, at Electron's 480 × 320.
+describe('the separate preview window (openPictureInPicture)', () => {
+  const members = contractComponent('src/browser/server-browser-members.contract', 'T3Code');
+  const window = contractComponent('src/browser/browser-capture.contract', 'DesktopBrowserPip');
+
+  it('captures the tab into three files in turn, the last good one the picture', async () => {
+    const client = fakeClient(), calls = fakePage(() => null);
+    openDesktopPictureInPicture(client, runtimeId);
+    const { request } = desktopPipView(client), shot = () => captureDesktopPip(client, runtimeId, request);
+    const first = await shot(), second = await shot();
+    expect(first.request).toBe(request);
+    expect(second.seq).toBe(first.seq + 1);
+    expect(calls.filter(call => call.call === 'captureScreenshot').map(call => [call.id, call.path])).toEqual([first, second].map(taken => [frameIdOf(runtimeId), taken.path]));
+    expect(new Set([first.path, second.path, (await shot()).path, (await shot()).path]).size).toBe(3);
+    // A failed capture keeps the picture before it and moves on; a closed window or another request gets none.
+    const kept = (await shot()).path;
+    fakePage(() => null, { captureScreenshot: true });
+    expect((await shot()).path).toBe(kept);
+    expect((await captureDesktopPip(client, runtimeId, request + 1)).path).toBe('');
+    closeDesktopPictureInPicture(client);
+    expect((await shot()).path).toBe('');
+    useAutomationCalls(null);
+  });
+
+  it('floats the picture in a titled panel at 480 × 320 once there is one, and its close or failure reaches the tab', () => {
+    const floated: unknown[][] = [], local: unknown[][] = [];
+    const desktopPip = { show: true, runtimeId, frameId: 'frame-a', title: 'Preview · Example', request: 2 }, shell = { panel: { frames: { desktopPip } } };
+    members.call('desktopPipFloatNow', {}, { shell, requestPictureInPicture: (...args: unknown[]) => floated.push(args) }, []);
+    expect(floated).toEqual([['browser-desktop-pip', { presentation: 'panel', title: 'Preview · Example', width: 480, height: 320 }]]);
+    const scope = { pip: desktopPip, local: (...args: unknown[]) => local.push(args) };
+    expect(window.drawn('id="browser-desktop-pip"', {}, { ...scope, desktopPipPicture: '' })).toBe(false);
+    expect(window.drawn('id="browser-desktop-pip"', {}, { ...scope, desktopPipPicture: 'app:/tmp/a.png' })).toBe(true);
+    window.call('left', {}, scope, []);
+    window.call('failed', {}, scope, ['not possible']);
+    expect(local).toEqual([['surface-browser-desktop-pip-left', runtimeId, ''], ['surface-browser-desktop-pip-failed', runtimeId, 'not possible']]);
   });
 });

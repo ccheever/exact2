@@ -29,8 +29,8 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
     const scope = {
       none: null,
       querySelectorAll: (selector: string) => {
-        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]']).toContain(selector);
-        return selector.includes('editable') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
+        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]', '[data-confirmation~="open"]']).toContain(selector);
+        return selector.includes('editable') || selector.includes('confirmation') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
       },
       frame: (id: string) => { const laid = live.has(id) || controls.has(id); return { unavailable: !laid, width: laid ? 400 : 0, height: laid ? 300 : 0 }; },
       dialogFrame: (owner: string, returns: { owner: string; target: string }[]) => ({ owner, returns }),
@@ -39,6 +39,7 @@ describe('dialog focus lifecycle uses the actual previous focus', () => {
       dialogLineage: (frames: { owner: string; returns: { owner: string; target: string }[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       focus: (id: string) => focused.push(id), stopPropagation() {},
       chipFocusChanged: (id: string) => observedFocus.push(id),
+      confirmationFocused() {}, confirmationClosed() {},
     };
     const call = (action: string, ...args: unknown[]) => window.call(action, state, scope, args);
     const outside = (id: string) => call('windowFocused', { target: id });

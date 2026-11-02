@@ -160,6 +160,23 @@ describe('the filter\'s keys', () => {
     menu.call('searchKey', state, { ...menuKeys, data, run: (...args: unknown[]) => calls.push(args), local() {}, preventDefault() {}, stopPropagation() {} }, ['P', { metaKey: true, ctrlKey: false, altKey: false, shiftKey: true, code: 'KeyP' }]);
     expect(calls).toEqual([['project-pin', '', 'g2']]);
   });
+  // useListNavigation's onPointerLeave (resetOnPointerLeave, on in the Combobox): leaving the rows clears the highlight,
+  // not back to the selected row; moving to another row keeps one, and the arrows start again from no row.
+  test('the pointer leaving the rows clears the highlight until the arrows, a query or the pointer set one', () => {
+    const data = { sidebar: { scopePinChord: 'Meta+Shift+p', scopes: [{ key: '', canPin: false }, { key: 'g1', canPin: true }, { key: 'g2', canPin: true }], scopeHighlight: 'g1' } };
+    const state: Obj = { hovered: '\n', keyed: '\n', cleared: false, pinOver: '' };
+    const hover = (key: string, over: boolean) => { menu.call('rowHover', state, { data }, [key, over]); return menu.derives(state, { data }).highlighted; };
+    expect(menu.derives(state, { data }).highlighted).toBe('g1');
+    expect([hover('g2', true), hover('g1', true), hover('g2', false), hover('g1', false)]).toEqual(['g2', 'g1', 'g1', '\n']);
+    const calls: unknown[][] = [];
+    menu.call('submitScope', state, { data, local: (...args: unknown[]) => calls.push(args) }, []);
+    expect(calls).toEqual([]);
+    menu.call('searchKey', state, { ...menuKeys, data, local() {}, preventDefault() {} }, ['ArrowDown', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code: 'ArrowDown' }]);
+    expect(menu.derives(state, { data }).highlighted).toBe('');
+    hover('g2', true); hover('g2', false);
+    menu.call('queryInput', state, { data, local() {} }, ['g']);
+    expect(menu.derives(state, { data }).highlighted).toBe('g1');
+  });
   // Base UI Combobox: before the pointer moves, the selected row is highlighted (focusItemOnOpen over selectedIndex).
   test('before the pointer moves, the shortcut pins the chosen project, which Base UI highlights on open', () => {
     const calls: unknown[][] = [];

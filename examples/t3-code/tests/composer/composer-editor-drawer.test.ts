@@ -5,7 +5,7 @@ describe('ComposerCommandMenuLayer placement', () => {
   test('the layer sits card-wide on the chat column, its bottom edge on the card top', () => {
     // 840×620 window, sidebar 208pt: the chat column fills the rest; the card's top is at 457.
     const drawer = composerDrawer({ chat: [208, 0, 632, 620], card: [228, 457, 592, 144] });
-    expect(drawer).toEqual({ placed: true, left: 20, width: 592, bottom: 163, listMax: 288, cardX: 228, cardY: 457, cardWidth: 592, cardHeight: 144, hold: 0 });
+    expect(drawer).toEqual({ placed: true, left: 20, width: 592, bottom: 163, listMax: 288, cardX: 228, cardY: 457, cardWidth: 592, cardHeight: 144, hold: 0, glass: true, glassLeft: 20, glassBottom: 19 });
   });
   test('a short window caps the list at the room above the card (at least 96pt for the layer)', () => {
     expect(composerDrawer({ chat: [0, 0, 600, 400], card: [20, 220, 560, 144] }).listMax).toBe(195);

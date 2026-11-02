@@ -88,6 +88,11 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("load", "`iframe`, `image` or a native module"),
     ("message", "`iframe`, `canvas` or a native module"),
     ("document", "`scroll`"),
+    // @ref LLP 1115.000 D5.5 — `nodes.rs` refuses it elsewhere.
+    (
+        "historyswipe",
+        "the navigation root (the first root, with `navigationKey`); a `HistorySwipeEvent` for each step of the history swipe macOS tracks, nothing on other hosts",
+    ),
     (
         "reachstart",
         "`list virtualized=true` with one direct `each`",

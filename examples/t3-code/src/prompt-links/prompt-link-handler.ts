@@ -11,14 +11,16 @@ import { openScratchProject } from '../composer/scratch-project';
 import { openRemoteScratch } from '../composer/scratch-machine';
 import { stage } from '../composer/composer-controls';
 import { projectsByActivity, isScratchProject } from '../pages/pages-home';
-import { backgroundShellsBootstrapped } from '../pages/home-landing';
+import { allShellsBootstrapped } from '../pages/home-landing';
 import { prEnvironments, type PrEnvironment } from '../pull-requests/pages-pr-environments';
 import { actOnHandoff } from '../pull-requests/pages-pr-acton';
 import { cloneDestination } from '../palette/palette-add';
 import { startTrackedClone } from '../shell/project-clones-live';
 import { pushToast } from '../shell/toast';
 import { findPromptLinkProject, findPromptLinkPullRequestThread, resolvePromptLinkModelSelection } from './prompt-link-model';
-import { primaryEnvironmentId } from '../connections/local-primary';
+import { primary as localPrimary, primaryEnvironmentId } from '../connections/local-primary';
+import { parseCommitUrl } from '../diff/diff-commits';
+import { parseChangeRequestUrl } from '../palette/palette-linkpr';
 import { placeLinkedPrompt, warnAboutHiddenCharacters } from './linked-prompt';
 import { parseNewThreadLink, parseThreadLinkPrompt, promptLinkAppPath, promptLinkPullRequestUrl, type NewThreadLink, type PromptLinkRepository } from './prompt-links';
 import { isWebUrl, openFileInPreview, openUrlInPreview } from '../browser/browser-links';
@@ -40,7 +42,18 @@ const states = new WeakMap<T3Client, State>();
 const pairings = new WeakMap<T3Client, { pairingUrl: string; title: string; busy: boolean }>();
 const paired = new WeakMap<T3Client, Set<string>>();
 const NO_MODIFIERS = { meta: false, ctrl: false, shift: false, alt: false };
-export const promptLinksReady = (client: T3Client): boolean => client.ready && backgroundShellsBootstrapped(client);
+/**
+ * DesktopWebLinkCoordinator receiveLink: a server publishes its config before its projects, so a source control link
+ * handed over at launch waits until every environment's projects are in (allReachableShellsLiveAtom), lest it miss
+ * its project; without the local environment that never settles, so it does not wait. A `t3code://` link waits too,
+ * as its route does (NewThreadLinkView reads the same atom). Any other link waits only for the connection.
+ */
+export function promptLinksReady(client: T3Client, value: string): boolean {
+  if (!client.ready) return false;
+  const holds = !!promptLinkAppPath(value) || (prLinksOpenInApp(client) && !localPrimary.disabled
+    && (parseChangeRequestUrl(value) !== null || parseCommitUrl(value) !== null));
+  return !holds || allShellsBootstrapped(client);
+}
 export const dismissPromptLink = (client: T3Client): void => { states.delete(client); };
 export function promptLinkView(client: T3Client) {
   const state = states.get(client), pairing = pairings.get(client);
@@ -211,7 +224,7 @@ export async function openPromptLink(client: T3Client, native: Native, storage: 
   const pairingUrl = readPairingAppLink(value);
   if (pairingUrl !== null) { askPairing(client, pairingUrl); return ''; }
   // A commit link of the open thread's repository opens as one clicked in the app does; one its workspace lacks, and no
-  // pull request names, continues as a web link. promptLinksReady holds it, as a pull request link, until the projects arrive.
+  // pull request names, continues as a web link. promptLinksReady holds it, as a source control link, until the projects arrive.
   if (!promptLinkAppPath(value) && isWebUrl(value)) {
     let lacked = false;
     if (await openCommitLink(client, native, value, NO_MODIFIERS, async () => { lacked = true; }) && !lacked) return '';

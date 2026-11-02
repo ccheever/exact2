@@ -51,6 +51,7 @@ use StripPrTipCard from "../composer/strip-pr-badge.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
 use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
+use PrContextTip from "../pull-requests/pages-pr-links.contract"
 use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
 use PrCardView from "../details/pr-row.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
@@ -63,6 +64,7 @@ use QuitHoldOverlay, quitTypesLatin from "./quit-hold.contract"
 use composerChordKey from "../composer/composer-keys.contract"
 use BrowserFrameLayer from "../browser/browser-frames.contract"
 use SideChatLayer from "../panel/side-chat.contract"
+use HistorySwipe, HistorySwipeArrow, historySwipeIdle, historySwipeStep from "./history-swipe.contract"
 // A key event as `aria-keyshortcuts` spells its chord: the key's own character where it types a Latin one (AZERTY's
 // W key is Z), else its physical key (composer-keys.contract composerChordKey).
 fn windowChord(k: string, e: KeyboardEvent): string = [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), (k.length == 1 and quitTypesLatin(k) ? k.toLowerCase() : composerChordKey(k, e.code))].filter((part) => part != "").join("+")
@@ -73,8 +75,11 @@ component T3Window
     dispatchCommand: action // a dispatched chord's command, a composer chord to a focused side chat composer (side-chat-members.contract)
     composerTargetData: Snapshot // the composer the options menus serve: the window's, or a side chat's (side-chat-members.contract)
     interacted: action // the reader pointed, typed or scrolled (app.contract)
+    pointerPressed: action // the reader's last press was the pointer's (src/panel/side-chat-members.contract)
     workspaceEntered: action // the workspace areas F6 moves between (shell-members.contract)
     historyGo: action // Back and Forward, and the router's `navigate` (src/sidebar/sidebar-members.contract)
+    confirmationFocused: action // the confirmation that holds the focus, for the window's chords (shell-members.contract)
+    confirmationClosed: action
   props
     releaseUndoClaim: action // ⌘B and the sidebar search release the undo notice's claim (app.contract)
     promptLinkPage: PromptLinkView
@@ -149,6 +154,7 @@ component T3Window
     scrollToEnd: action
     editor: ComposerEditorView
     chip: ChipPopover
+    chipMarkdown: TranscriptMarkdown
     chipFocusChanged: action
     // Settings or a page covers the composer's chip (app.contract chipCover closes it).
     chipCovered: bool
@@ -387,6 +393,7 @@ component T3Window
     dialogOpener
     dialogOpened
     dialogEntered
+    confirmationEntered
     dialogClosed
     dialogForget
     dialogFallback
@@ -526,6 +533,13 @@ component T3Window
     dialogFocusPopup = ""
     dialogFocusInvoker = ""
     dialogPressId = ""
+    confirmationFocused("")
+  // A confirmation that is no dialog of the window's focus lifecycle (Settings' This machine and network confirms): the
+  // window's own focus facts, and the confirmation that holds the focus.
+  action confirmationEntered(owner: string, e: FocusEvent)
+    stopPropagation()
+    windowFocused(e)
+    confirmationFocused(owner)
   // Capture the owning popup and its actual invoker before a menu command removes the popup.
   // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
   action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
@@ -574,9 +588,11 @@ component T3Window
     dialogFocusInvoker = ""
     dialogPressId = ""
     dialogSeated = dialogSeated.filter((item) => item != owner and not frame(item).unavailable and frame(item).width > 0 and frame(item).height > 0).concat([owner])
+    confirmationFocused(querySelectorAll("[data-confirmation~=\"open\"]").includes(owner) ? owner : "")
   action dialogClosed(owner: string)
     let live = querySelectorAll("[data-dialog-focus~=\"open\"]")
     dialogSeated = dialogSeated.filter((item) => item != owner)
+    confirmationClosed(owner)
     // A frame carries its entire lineage, so child/parent removal order cannot discard the outside return.
     let current = dialogLineage(dialogFrames, dialogFocusOwner)
     let owns = dialogFocusOwner == owner or ((frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) and current.filter(item => item.owner == owner).length > 0)
@@ -619,6 +635,10 @@ component T3Window
     chatLocal("save-complete", `${data.saveRequest.nonce}`, name)
   action saveDismissed
     chatLocal("save-complete", `${data.saveRequest.nonce}`, "")
+  // Whether the system opened the latest external link (`openURL(url, id)`, server-browser-members.contract), for the
+  // data module's ElectronShell.openExternal (external-open.ts).
+  action externalOpenAnswered(value: string)
+    chatLocal("external-open-answer", `${data.externalOpen.serial}`, value)
   // A ref list scrolled toward its end (ref-paging.contract RefPageScroll): ref-paging.ts loads its next page.
   action refScrollEnd(name: string)
     chatLocal("ref-scroll-end", name, "")
@@ -646,6 +666,11 @@ component T3Window
     fileMenuRows = rows
   action fileLinkPick(id: string)
     chatLocal("surface-files-link-pick", fileMenuTip, `${id}\n${fileMenuTarget}`)
+  // The history swipe's edge arrow (history-swipe.contract), over the main content beside the sidebar.
+  state historySwipe: HistorySwipe = historySwipeIdle()
+  action historySwiped(e: HistorySwipeEvent)
+    let left = data.sidebarOpen ? sidebarWidth : 0
+    historySwipe = historySwipeStep(historySwipe, e, left, viewport.width - left, viewport.height)
   // Primary presses anywhere in the window outside the Usage page (which takes its
   // own, pages-usage.contract pressDown), counted as they end; a pinned usage popover closes on one, as
   // Base UI's outside press does (the sidebar, the theme editor, a toast all count).
@@ -659,6 +684,7 @@ component T3Window
   action outsidePressDown(e: PointerEvent)
     interacted()
     dialogPressId = ""
+    pointerPressed()
     outsideDown = e.buttons == 1
     // useInlineActionConfirm also disarms on a press outside the armed control, including non-focusable text.
     if prDetail.actions.armedAction != "" and not (e.clientX >= frame(prConfirmTarget).x and e.clientX < frame(prConfirmTarget).x + frame(prConfirmTarget).width and e.clientY >= frame(prConfirmTarget).y and e.clientY < frame(prConfirmTarget).y + frame(prConfirmTarget).height)
@@ -1066,9 +1092,10 @@ component T3Window
     // Window has no accelerator on macOS: `-exact-menu-keys` leaves the item without ⌘W, and AppKit's Close All, which then
     // shows as a row of its own, goes too (LLP 1021 §5.3.3). With Font smoothing on, the default, text is drawn
     // `antialiased`, as appearanceFonts.ts sets it on the document root (LLP 1019 D12).
-    main navigationKey="t3-code" navigationBack="" navigate=historyGo testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main navigationKey="t3-code" navigationBack="" navigate=historyGo historyswipe=historySwiped testId="t3-code" -exact-menu-remove="close-all show-tab-bar show-all-tabs develop back forward paste-and-match-style find spelling-and-grammar substitutions transformations app-help" -exact-menu-keys="close-window=none" focusin=windowFocused focusout=windowBlurred keycapture=modifierDown keyup=modifierUp paste=modifiersPasted tabindex=-1 pointerdown=outsidePressDown pointerup=outsidePressUp pointermove=interacted wheel=interacted viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #000000)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont -webkit-font-smoothing=(data.look.smoothing ? "antialiased" : "auto") color=(settingsCore.palette.text == "" ? "light-dark(#18181b, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // Save file's target (app.contract saveNow): the Save panel's chosen name or dismissal lands here.
       input id="save-file" testId="save-file" display="none" change=saveChosen cancel=saveDismissed autocorrect="off"
+      input id="external-open-answer" display="none" change=externalOpenAnswered autocorrect="off"
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.
@@ -1123,7 +1150,7 @@ component T3Window
         LinkMenuPopover(menuId="chat-file-link-menu", rows=fileMenuRows, pick=fileLinkPick)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
         if chipShown and chip.kind != "citation"
-          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
+          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true), documents=chipMarkdown.documents, local=chatLocal)
         // Cite at the selection in an answer (diff-cite.contract), above the timeline's rows.
         if citeShows
           CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))
@@ -1137,7 +1164,9 @@ component T3Window
             if hoverTip.kind == "freshness"
               PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
             else if hoverTip.kind == "pr-preview"
-              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
+              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text, fallback=hoverTip.lines)
+            else if hoverTip.kind == "pr-details"
+              PrContextTip(lines=hoverTip.lines, testId=hoverTip.testId)
             else if hoverTip.kind == "pr-badge"
               // Held to the larger room the layer can flip into, less its 4 pt offset.
               StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
@@ -1163,6 +1192,8 @@ component T3Window
       SshPasswordPrompt(prompt=sshPrompt, responding=sshResponding, answer=sshAnswer)
       for document in activeDocumentPermissions key=`${document.key}:${document.permissionSerial}`
         AppConfirm(title=document.permission.split("\n").slice(0, 1).join(""), body=document.permission.split("\n").slice(1).join("\n"), destructive=false, busy=false, confirmId=documentPermissionOwner, confirmLabel="Confirm", cancel=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:deny`), confirm=chatLocal("inline-doc-permission", document.key, `${document.permissionSerial}:allow`))
+      if historySwipe.shown
+        HistorySwipeArrow(swipe=historySwipe)
       // QuitHoldOverlay, above every layer (the reference's z-100).
       if quitHintMode != ""
         QuitHoldOverlay(mode=quitHintMode)
