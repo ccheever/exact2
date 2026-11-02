@@ -328,7 +328,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   it into Chromium's picture-in-picture window as Exact draws it (`requestPictureInPicture(…, presentation="window")`,
   LLP 1042 §9.1; `server-browser-pip.ts`): a stream of its own paints a hidden image that it floats, as the reference
   floats its canvas stream. A desktop tab's separate preview window is Exact's floating panel
-  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second.
+  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second. As in the
+  reference, each desktop tab keeps its own window beside the others and beside the server tabs' one window, which
+  moves to the next server tab that pops out (LLP 1042 §9.2).
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -790,9 +792,6 @@ above.
   Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
   Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
   (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
-- One Browser window floats at a time: opening a desktop tab's separate preview window closes another tab's, or the
-  server tab's picture in picture, where the reference keeps a window per tab beside Chromium's. Exact floats one
-  image per process, as a document floats one picture-in-picture element (LLP 1042 §9).
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
