@@ -107,7 +107,7 @@ export function mobileThreadColors(scheme: string, palette = 't3-code', baseFont
     userForeground: token('user-bubble-foreground'), primary: token('primary'), primaryForeground: token('primary-foreground'),
     danger: token('danger'), dangerForeground: token('danger-foreground'), warningForeground: token('warning-foreground'), composerSurface: token('composer-surface'),
     composerBorder: token('composer-border'), placeholder: token('placeholder'),
-    codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
+    codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'), markdownBorder: token('md-hr'),
     userCodeBackground: token('md-user-code-bg'), userCodeForeground: token('md-user-code-text'),
     queuedIntentBorder: token('adaptive-amber-500-a25-400-a25'), queuedIntentBackground: token('adaptive-amber-500-a10-400-a10'),
     queuedIntentForeground: token('adaptive-amber-700-300'), steerIntentBorder: token('adaptive-sky-500-a25-400-a25'),

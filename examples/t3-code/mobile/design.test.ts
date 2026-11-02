@@ -68,6 +68,11 @@ test('history controls use a translucent border role', () => {
   expect(mobileThreadColors('dark').historyBorder).toBe('rgba(25, 25, 25, 0.6)');
 });
 
+test('Markdown chrome uses the pinned opaque rule color', () => {
+  expect(mobileThreadColors('light').markdownBorder).toBe('#e4e4e7');
+  expect(mobileThreadColors('dark').markdownBorder).toBe('#191919');
+});
+
 describe('iOS HTML render theme', () => {
   test('keeps raw default text and status colors apart from adjusted UI text and fills', () => {
     const light = mobileHtmlRenderTheme('light');
