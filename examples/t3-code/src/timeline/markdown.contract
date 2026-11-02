@@ -1226,13 +1226,11 @@ component CodeBlock
                 else
                   text color=(plainFence(block.href) ? ink : synColor(token.cls)) font-style=synSlant(token.cls) font-weight=synWeight(token.cls)
                     MarkedText(value=token.text, at=codeAt + token.at, ms=ms, me=me)
-// MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with
-// no card, centred and fit to the lane, under the code header's actions ("Show code" left of Copy);
-// "Show code" turns it back into the code block, where "Show diagram" sits left of
-// Copy. While the diagram renders its source holds the space unseen; a failure shows
-// pele's message (with Retry when the renderer failed to load) above the source.
-// MermaidDiagram renders it with the reference's pele in the Mermaid page,
-// the fence's own frame; the page posts what came of it (MermaidFrameView).
+// MarkdownMermaidCodeBlock (74541bab17): a closed ```mermaid fence draws its diagram with no card, centred and fit to
+// the lane, under the code header's actions ("Show code" left of Copy); "Show code" turns it back into the code block,
+// where "Show diagram" sits left of Copy. While the diagram renders its source holds the space unseen; a failure shows
+// pele's message (with Retry when the renderer failed to load) above the source. MermaidDiagram renders it with the
+// reference's pele in the Mermaid page, the fence's own frame; the page posts what came of it (MermaidFrameView).
 component MermaidBlock
   inject
     dialogOpener: action

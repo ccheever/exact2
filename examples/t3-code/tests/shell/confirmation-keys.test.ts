@@ -77,6 +77,7 @@ describe('a confirmation holds the app shortcuts', () => {
       frame: (id: string) => ({ unavailable: !live.includes(id), width: live.includes(id) ? 400 : 0, height: live.includes(id) ? 300 : 0 }),
       dialogFrame: (owner: string, returns: unknown[]) => ({ owner, returns }),
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
+      dialogBack: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
       dialogLineage: (frames: { owner: string; returns: unknown[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       confirmationFocused: (owner: string) => reported.push(owner), confirmationClosed: (owner: string) => reported.push(`closed:${owner}`),
     };
