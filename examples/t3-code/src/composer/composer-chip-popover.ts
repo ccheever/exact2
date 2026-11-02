@@ -28,6 +28,7 @@ import { codeLines, type CodeLine, type MarkdownSource } from '../panel/files-su
 import { sourceGutter } from '../panel/files-crumbs-settle';
 import { markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 
 export type ChipPopover = {
   finish: ComposerChipFinish;
@@ -83,7 +84,7 @@ export type ChipPopover = {
   highlightPending: boolean;
 };
 type CodeHighlight = ReturnType<typeof messageCodeBlocks>[number];
-const NO_MARKDOWN_ENV: MarkdownEnv = { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [], inks: [] };
+const NO_MARKDOWN_ENV: MarkdownEnv = { codeFont: DEFAULT_CODE_FONT, codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [], inks: [] };
 export const NO_CHIP: ChipPopover = { finish: NO_CHIP_FINISH, seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
   kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '',
   markdownSource: [], code: [], md: NO_MARKDOWN_ENV, diffLines: [], diffGutter: 0, highlightPending: false };

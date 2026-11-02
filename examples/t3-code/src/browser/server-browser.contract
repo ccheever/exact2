@@ -179,7 +179,7 @@ component ServerBrowserPage
           column position="absolute" left="1rem" top="3rem" right="1rem" gap="0.5rem" padding="1rem" background-color="light-dark(#ffffff, #171717)" border-radius="0.5rem" role="alert" testId="server-browser-error"
             text (frame.gone ? "This browser tab has closed." : "Set up the browser on this environment.")
             if frame.setupCommand != ""
-              text frame.setupCommand user-select="text" font-family="monospace"
+              text frame.setupCommand user-select="text" font-family="Menlo, Consolas, \"Liberation Mono\", monospace"
             button "Retry" press=control("retry") testId="server-browser-retry"
         if frame.chooserId != "" and frame.controlled
           row position="absolute" bottom="0.5rem" left="0.5rem" gap="0.5rem" padding="0.5rem" background-color="light-dark(#ffffff, #171717)" border-radius="0.5rem" role="group" aria-label="Browser file picker"

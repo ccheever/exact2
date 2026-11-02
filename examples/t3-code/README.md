@@ -806,13 +806,6 @@ above.
   page has Use devices and Agents can use devices with the hub's and agent-device's versions inline, then a Device
   sources section (Local simulators, Add source for SSH, EAS and Simlock hosts, `DeviceSourcesSettings.tsx`); porting
   it is its own task.
-- Settings › Appearance's prompt sample stays one line high, clipping "shipping." and the labels' descenders, where
-  v0.1.6's wraps to two lines: the field's `field-sizing: content` measures one line although its chips make the text
-  wrap. In two of four drives its file chips also drew no icon, an empty gap after each label
-  (`clone/issues/match1102b-sweep-settings-atom-icons.md`).
-- Monospace labels in Settings (Keybindings' When clauses, versions) run about 2% wider than v0.1.6's in the same
-  face and size (SF Mono, 11 to 14 pt): "!terminalFocus" at 11 pt is 92.7 pt in v0.1.6 and about 94.5 pt here. The
-  cause, likely the system font's size-specific tracking, is not traced.
 - A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
   thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
   image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
