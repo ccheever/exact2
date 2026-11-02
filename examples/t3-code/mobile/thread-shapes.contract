@@ -187,6 +187,7 @@ shape ThreadColors
   iconSubtle: string
   iconMuted: string
   border: string
+  historyBorder: string
   borderSubtle: string
   subtle: string
   subtleStrong: string
