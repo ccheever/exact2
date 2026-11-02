@@ -358,7 +358,7 @@ const badRedirects = Object.entries(redirects).flatMap(([from, to]) => [
 ]);
 for (const e of badRedirects) console.error(e);
 writeFileSync(join(OUT, 'redirects.ts'), `const moved: { redirects: Record<string, string>; pages: { path: string; title: string }[] } = ${JSON.stringify({ redirects, pages: listed.map(p => ({ path: p.path, title: p.title })) })};\nexport default moved;\n`);
-writeFileSync(join(OUT, 'pages.json'), JSON.stringify(listed.map(p => ({ path: p.path, route: p.route, title: p.title, description: p.description, source: p.source })), null, 2));
+writeFileSync(join(OUT, 'pages.json'), JSON.stringify(listed.map(p => ({ path: p.path, route: p.route, title: p.title, description: p.description, source: p.source, section: sections.find(x => x.pages.some(n => n.source === p.source))?.title ?? '', updated: isoDateOf(p.source) })), null, 2));
 
 const app = readFileSync(APP, 'utf8');
 const begin = app.indexOf(ROUTES_BEGIN), end = app.indexOf(ROUTES_END);

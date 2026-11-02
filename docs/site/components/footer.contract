@@ -28,6 +28,10 @@ component Footer
           row align-items="center" gap=6
             image "symbol:icon.github" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
             text "GitHub" class=FooterLink
+        link href="/llms.txt" testId="footer-llms"
+          row align-items="center" gap=6
+            image "symbol:document" aria-hidden=true font-size="var(--text-sm)" color="var(--color-icon-default)"
+            text "View llms.txt" class=FooterLink
       row role="radiogroup" aria-label="Theme" gap=2 padding=2 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-full)"
         ThemeButton(value="system", label="System theme", icon="symbol:icon.desktop", theme=theme, choose=choose)
         ThemeButton(value="light", label="Light theme", icon="symbol:icon.sun", theme=theme, choose=choose)
