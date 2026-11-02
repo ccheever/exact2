@@ -1745,57 +1745,30 @@ and the Linux headless CPU renderer without claiming display frame timing.
   exists, games must keep the CPU painter so the module owns presentation.
   Qualify the handoff against LLP 1015.001's frame p50 of 7.22 ms at
   1280×720 and 10.83 ms at 1920×1080 before changing the game path.
+- **A scaffolded Windows game cannot build with the SDK's accessibility calls**
+  (2026-11-01, Windows default qualification at `cc9e9d0377`). The generated
+  game workspace lacks the root workspace's `accesskit_windows` patch;
+  `exact-windows` fails with E0425 for `embed_windowless` and `windowless_site`.
+  Carry that dependency into the game workspace, then repeat the no-painter
+  build without `fxc`, the explicit Ink build with it, and both window
+  painter reports. Raw logs: `target/win-qual/nucbox/checks/{fxc-game-build,
+  game-ink-build}.log` in the Windows-default worktree.
 - **Windows modal deadline may flake** (2026-11-01, Windows default review).
   `modal::tests::native_modal_and_carrier_deadlines_cancel_rearm_and_release`
   failed in `about_to_wait_honors_retry_pending_redraw_and_earlier_timer`:
   it chose the two-second deadline instead of the half-second timer. The
   rerun passed with a different profile override; cause not established.
   Reproduce before changing the clock or assertions. Raw failure:
-  `target/win-default/nucbox/checks-initial/windows.log`.
-- **NucBox sleep/wake needs a verified wake-timer design** (2026-10-31,
-  LLP 1149.001 G7). The unattended October 30 sleep journey never woke;
-  G7 skips sleep/wake on both devices. Before another unattended attempt,
-  verify a resume-capable timer is armed and permitted by the active power
-  plan, retain its due time and wake-source evidence, and provide an
-  independent recovery path. A timer handle alone does not prove the machine
-  or physical display will wake. The November 1 Windows-default attempt
-  retained enabled AC/DC wake timers and a confirmed scheduled wake, then
-  lost SSH after launch; neither device's result was collected
-  (`host/ink/MEASUREMENTS.md`, “Windows default”). Keep this separate from
-  the AMD-hook crash. Before the next unattended run, wake the machine,
-  retain the sleep logs, and remove this lane's tasks and processes in
-  `C:\Users\Charlie Cheever\projects\exact2-1149-win-default`.
-  Stop and unregister the exact tasks below; the drive names are the prefix
-  `Exact-WinDefault-Drive-` followed by each listed suffix. Stop fixture PID
-  `965576` only if it is still this mirror's Bun transcript server; its receipt
-  is `target/win-default/fixture-pid.txt`. Inspect the sleep children named by
-  `target/win-default/{d3d11,wgpu}-sleep_wake-elevated/cargo-pid.txt` and stop
-  only surviving processes verified against those receipts. Preserve all
-  raw files. Task XML receipts are in `target/win-default/`; the copied name
-  list is `target/win-default/review/cleanup-tasks.txt`.
-
-  Tasks: `Exact-WinDefault-Drive`, `Exact-WinDefault-Finish`, `Exact-WinDefault-Fixture`,
-  `Exact-WinDefault-Native`, `Exact-WinDefault-WakeBackup`, `Exact-WinDefault-device_loss`,
-  `Exact-WinDefault-sleep_wake`.
-
-  Drive suffixes: `cpu-100-return`, `cpu-150`, `cpu-close`, `cpu-composer`, `cpu-composer-focus`,
-  `cpu-menu`, `cpu-menu-closed`, `cpu-open`, `cpu-resized`, `cpu-restored`, `cpu-scale-100`,
-  `cpu-scale-150`, `cpu-scrolled`, `cpu-selected`.
-
-  Drive suffixes: `ink-100-return`, `ink-150`, `ink-close`, `ink-club`, `ink-composer`,
-  `ink-composer-focus`, `ink-general`, `ink-history`, `ink-menu`, `ink-menu-closed`, `ink-open`,
-  `ink-resized`, `ink-restored`, `ink-scale-100`, `ink-scale-150`, `ink-scrolled`, `ink-visible`,
-  `ink-window`.
-
-  Drive suffixes: `restore-default-close`, `restore-default-draft`, `restore-default-focus`,
-  `restore-default-open`, `restore-default-selected`, `restore-draft`, `restore-focus`,
-  `restore-selected`.
-
-  Drive suffixes: `richedit-100-return`, `richedit-150`, `richedit-close`, `richedit-composer`,
-  `richedit-composer-focus`, `richedit-menu`, `richedit-menu-closed`, `richedit-open`,
-  `richedit-resized`, `richedit-restored`, `richedit-scale-100`, `richedit-scale-150`,
-  `richedit-selected`.
-
+  `target/win-default/nucbox/checks-initial/windows.log`. At `cc9e9d0377`,
+  it failed again, then passed with the same explicit package-profile
+  override (`target/win-qual/nucbox/checks/{windows,windows-round-2}.log`).
+- **NucBox sleep/wake is excluded from unattended runs** (2026-11-01,
+  LLP 1149.001 G7 and Windows default qualification). The October 30 and
+  November 1 journeys did not wake unattended. November 1 retained enabled
+  wake timers and a confirmed scheduled wake, then lost SSH; neither
+  device's result was collected (`host/ink/MEASUREMENTS.md`, “Windows
+  default”). Any future sleep/wake qualification needs a person at the
+  machine. Keep this separate from the AMD-hook crash.
 - **Excord's optional RichEdit composer does not accept typing** (2026-11-01,
   Windows default qualification). With `EXACT_INK_RICHEDIT=1`, clicking the
   composer and sending Ctrl+A and text at 100% leaves its value unchanged;

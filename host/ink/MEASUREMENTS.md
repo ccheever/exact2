@@ -5770,6 +5770,8 @@ changes selection and qualifies it by existing suites and app drives;
 S2.5, S2.9, G6e and G7c remain the performance evidence. No series,
 quiet-machine gate or PresentMon collection runs here.
 
+### Earlier qualification at `a28244e3e5`
+
 Before the NucBox runs, predict zero failures in `exact-windows`, both
 Ink device suites, the pinned suites, text and image tests, and all six
 desktop journeys on each device with `EXACT_PAINTER` absent. Predict
@@ -5986,20 +5988,12 @@ The NucBox is asleep and unreachable; no command is sent to it in this round.
 The reviewed runtime and desktop-harness changes invalidate the earlier
 Windows qualification for the new tip.
 
-After waking and cleaning the NucBox, the new tip still owes Shelf and
-Excord builds, the baked CPU Excord smoke, `exact-windows`, both Ink/pinned/
-text/image suites, native surfaces and the composition/windowless-field
-checks. Repeat resize, minimize/restore, caret, DPI and device loss on both
-devices with the painter absent and with `EXACT_PAINTER=ink`; test WARP arm
-selection too. Default journeys must now assert Ink in frame 1. Check that
-smoke, screenshot and explicit headless launches do not start the window's
-device workers. Repeat the CPU window override and Excord's desktop drive;
-RichEdit remains unqualified. Sleep/wake needs the existing recovery work
-before any new attempt. The exact cleanup tasks and process receipts are
-listed in `QUEUE.md`'s NucBox sleep/wake item. A game scaffolded by `exact new`
-must also launch with no painter key and no `EXACT_PAINTER`, report `painter
-cpu`, and keep the module's direct presentation; repeat with explicit Ink
-and CPU choices and the environment override.
+The repairs require Windows qualification of Shelf, Excord and the declared
+Windows game, both devices' suites and five desktop journeys, arm selection,
+shader-compiler refusal and headless device preparation. The November 1
+requalification below records those results at `cc9e9d0377`. Sleep/wake is
+excluded from unattended runs; RichEdit input and the Ink-window handoff to
+a game's GPU module remain unqualified.
 
 The zero-failure prediction missed: the first Linux invocation could not
 compile the new test because its helper imports were missing. Adding those
@@ -6028,7 +6022,8 @@ zero failures in those checks; the unrelated scaffold launcher failure
 remains recorded above. The rebase does not qualify Windows runtime behavior.
 All requested post-rebase checks pass, matching that prediction. Their raw
 output is retained in `target/win-default/review/rebased/`, including the
-source revision, commands and exit statuses. NucBox qualification remains open.
+source revision, commands and exit statuses. These Mac checks do not qualify
+Windows; the subsequent NucBox results are recorded below.
 
 ### Game-default ruling (2026-11-01)
 
@@ -6041,8 +6036,8 @@ device or creating a window. The Ink-window handoff remains in `QUEUE.md`.
 Before running the Mac checks, predict zero failures in Linux, Ink, guides,
 caps, formatting and Clippy, plus the bake tests, manifest scripts and the
 focused scaffold tests. No performance result is predicted or measured.
-The NucBox remains asleep; this path and the other Windows checks listed
-above are unrun. Raw output is retained under
+The NucBox was asleep during this Mac round; no Windows command ran.
+Raw output is retained under
 `target/win-default/game-default/`.
 
 Mac validation on `15075af5b0` meets the zero-failure prediction: Linux passes
@@ -6051,3 +6046,208 @@ tests, guides five, manifest scripts 22 and the two focused scaffold tests.
 Caps, formatting and Clippy pass; ignored tests remain ignored. The retained
 logs, source revision, commands and exit statuses reproduce these counts.
 `origin/main` remains `a88bb1e534`, so no further rebase was needed.
+
+### Requalification at `cc9e9d0377` (2026-11-01)
+
+Shelf and Excord, both rendering devices and all five permitted desktop
+journeys pass at `cc9e9d0377`, rebased by the orchestrator onto `8ae83ea70a`.
+The declared-game path remains unqualified: both game builds fail before
+launch. The first `exact-windows` run also fails its existing modal-deadline
+assertion; the same command and profile pass on the second run. The cause
+is not established. This is not a zero-failure qualification.
+
+Charlie restored access at 15:40 PST. The NucBox reports a 12:10:49 restart;
+the orchestrator removed the previous tasks and fixture before this run.
+The mirror was advanced through a local bundle and reset to `cc9e9d0377`.
+No sleep/wake journey or power-state command ran. Sleep/wake is excluded
+from unattended runs; the five journeys are resize, minimize/restore,
+caret, DPI and elevated device loss.
+
+Each invocation writes its prediction before launching, beside its command,
+PID, result and log in `target/win-qual/checks/` on the mirror. The copied
+files are under `target/win-qual/nucbox/` in this worktree. The existing
+`target/win-default/` evidence is untouched. No performance result is
+predicted or measured.
+
+| Item and prediction | Outcome at `cc9e9d0377` |
+| --- | --- |
+| 1. Shelf and Excord build with `fxc` present | Pass: both package their Windows executables. |
+| 2. `exact-windows` passes | Miss on round 1: 39 pass, one fails, one is ignored. Round 2 passes 40 with one ignored, using the same explicit package-profile override. |
+| 3. Ink, pinned, text and image pass on both devices | Pass on each: 54 Ink, 103 pinned, 217 text and three image tests. Ignored tests remain ignored. |
+| 4. Five default-arm journeys pass per device and assert Ink in frame 1 | Pass: all ten journeys. The first DPI operator failed before launching a test because PowerShell cannot return a process for the Settings URI; the corrected operator passes both devices. |
+| 5. Excord's agent reports default Ink/direct D3D11 and baked CPU | Pass on corrected drives. The first drives wrongly looked for smoke output in agent logs; `state.painter` reports both choices. Both drives scroll, edit an unsent draft and open the account menu. |
+| 6. A scaffolded Windows game reports CPU with no key and Ink with an explicit key | Miss: neither executable builds, so neither window launches. Both fail with E0425 in the Windows host's accessibility calls. |
+| 7. Missing `fxc` refuses the default app, permits baked CPU and permits a default game | The app refusal and CPU build pass. The game build fails on the accessibility dependency, after passing the shader-compiler guard. |
+| 8. Headless Ink opens one device and CPU opens none | Pass: agent, smoke, screenshot and explicit headless Ink each open one D3D11 device; the CPU agent opens zero. The window's discarded extra device is absent. |
+
+The suite recipe is `native.py`: `EXACT_PAINTER` is absent,
+`EXACT_INK_DEVICE` names `d3d11` or `wgpu`, and `WGPU_BACKEND=dx12`.
+Cargo uses `--profile gpu-dev -- --test-threads=1`,
+`--config profile.gpu-dev.package.exact-linux.opt-level=0`,
+`EXACT_REQUIRED=1` and `EXACT_INK_REQUIRED=1`. The interactive tasks use
+`powershell.exe` with a visible console and the console user's SID; device
+loss runs elevated. `dpi-round-2.ps1` drives the existing Settings handshake
+and restores 100% scale. Its numeric exit files are empty; both retained
+Cargo logs report one passing test and no failures.
+
+The default wgpu child reports
+`first-screen painter ink adapter Some("AMD Radeon(TM) 8060S Graphics (wgpu Dx12)")`.
+The D3D11 child reports the direct D3D11 adapter. Readback checks confirm
+Ink in frame 1 and the requested adapter in all 25 retained child logs
+that contain that frame. These are assertions in the journey, not just
+log observations: `Shelf::launch_fault` calls `default_frame_is_ink` for
+the default arm. The suite also passes
+`desktop_arms_preserve_the_requested_device_and_default_painter`, whose
+negative cases reject a CPU first frame, a later Ink frame and no frame.
+Explicit Ink+wgpu and Ink+WARP resize controls pass, as does CPU resize.
+Both native-surface suites, standalone composition/windowless-field tests
+and the direct-window caret test pass.
+
+The Excord drives call the public `open` API in `scripts/agent.mjs`.
+`env: { EXACT_PAINTER: undefined }` removes the portable driver's CPU
+policy from the child environment, so the bake selects the painter.
+The corrected driver asserts `state.painter.name` and its device, then
+records these lines:
+
+```text
+painter: ink — AMD Radeon(TM) 8060S Graphics (direct D3D11)
+HEADLESS_D3D11_OPENS 1
+painter: cpu
+HEADLESS_D3D11_OPENS 0
+```
+
+`excord-{ink,cpu}-agent-round-2.png` retain the account menu and unsent
+draft; the tree, state, input replies and host logs accompany them. Both
+paths accept the operations. These drives are headless; they do not repeat
+the earlier Excord desktop resize/DPI drive or qualify optional RichEdit
+input. The fixture runs in each driver's process and closes with it.
+The temporary CPU manifest is restored byte for byte. The CPU executable
+is kept separately, and hashes identify all three successful app binaries.
+
+`EXACT_AGENT_WINDOW_READY` enables the existing device-open log. The agent,
+smoke, screenshot and explicit headless runs each contain exactly one
+`D3D11CreateDevice` call. This tests the built Windows entry path beyond
+the environment-predicate unit test. The headless painter still prepares
+its own device; no second device is prepared and discarded by the window
+entry. The CPU control contains no device-open line.
+
+For the no-`fxc` checks, the child environment removes directories containing
+`fxc.exe` from PATH and points `ProgramFiles(x86)` at an empty SDK root,
+because the builder also searches installed SDKs. No SDK file changes.
+The default Excord build exits 1 with the required message, and the same
+manifest with `painter: "cpu"` builds:
+
+```text
+error: Windows Ink requires fxc.exe: install the Windows SDK, or select host.windows.painter: "cpu".
+```
+
+`exact new --game` refuses app-only naming flags; the corrected invocation
+creates `winqual-game`. A game intentionally has no authored `app.json`,
+which the first wrapper then wrongly tried to read. `configure-game.mjs`
+carries `gameDefaults`' existing declaration into that optional file and
+calls `namePlatform(dir, 'windows')`; the resulting manifest names no
+painter. The third game qualification wrapper reaches both actual builds.
+The default build without `fxc` and the explicit Ink build with it fail
+with the same three compiler errors:
+
+```text
+error[E0425]: cannot find function `embed_windowless` in crate `accesskit_windows`
+error[E0425]: cannot find function `windowless_site` in crate `accesskit_windows`
+error[E0425]: cannot find function `embed_windowless` in crate `accesskit_windows`
+```
+
+The generated game workspace resolves the registry dependency; the root
+workspace patches it to `vendor/accesskit-windows`. No game dependency or
+runtime code is changed in this qualification. Stop this game attempt here:
+`QUEUE.md` names the build repair and the two launches still owed. The raw
+game fixture's diary records the build failure. Its no-painter manifest is
+restored after the explicit Ink attempt.
+
+`evidence.tar.gz` contains 415 files, including the SHA-256 manifest of its
+414 raw inputs. Its SHA-256 is
+`e5b8c6bf77c273436397368982b35aae63d8b01b56170f868a4acd24cf1c373c`.
+The archive and every input hash verify after copying. Commands, predictions,
+failed attempts, screenshots, binary hashes and PID receipts are retained
+on both machines under `target/win-qual/`; the archive extracts locally to
+`nucbox/`. `readback-verification.json` records the child-log checks.
+
+All six registered tasks are unregistered: `Exact-WinQual-Native`,
+`Exact-WinQual-Followup`, `Exact-WinQual-Dpi`, `Exact-WinQual-Finish`,
+`Exact-WinQual-DpiRound2` and `Exact-WinQual-Game`. `cleanup.log` reports
+zero recorded PIDs still live, zero remaining tasks and zero fixture
+listeners. `pid-ledger-complete.json` and `pids.md` retain the process
+receipts. Settings PID 12872 predates the DPI operator and is left open;
+the scale is restored to 100%. Both owned SSH masters are closed.
+
+The game builds and painter reports remain owed, alongside investigation
+of the modal-deadline failure. The Ink-window game handoff and optional
+Excord RichEdit input remain separate unqualified work. Sleep/wake remains
+excluded from unattended runs.
+
+The following suite result lines are verbatim from this run's `checks/`.
+
+```text
+windows:
+test result: FAILED. 39 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.50s
+windows-round-2:
+test result: ok. 40 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+d3d11-ink:
+test result: ok. 54 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.34s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+d3d11-pinned:
+test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 25.38s
+d3d11-text:
+test result: ok. 217 passed; 0 failed; 1 ignored; 0 measured; 1427 filtered out; finished in 3.76s
+d3d11-image:
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.44s
+d3d11-shelf_resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 6.10s
+d3d11-shelf_minimize_restore:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 1.97s
+d3d11-shelf_idle_caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 2.57s
+d3d11-dpi-round-2:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 9.14s
+d3d11-shelf_device_loss:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 5.93s
+wgpu-ink:
+test result: ok. 54 passed; 0 failed; 34 ignored; 0 measured; 0 filtered out; finished in 5.17s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+wgpu-pinned:
+test result: ok. 103 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 54.06s
+wgpu-text:
+test result: ok. 217 passed; 0 failed; 1 ignored; 0 measured; 1427 filtered out; finished in 3.75s
+wgpu-image:
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 130 filtered out; finished in 2.77s
+wgpu-shelf_resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 6.42s
+wgpu-shelf_minimize_restore:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 2.57s
+wgpu-shelf_idle_caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 3.88s
+wgpu-dpi-round-2:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 7.13s
+wgpu-shelf_device_loss:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 6.33s
+explicit-ink-wgpu-resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 6.40s
+explicit-ink-warp-resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 5.70s
+cpu-resize:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 5.76s
+d3d11-surfaces:
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1635 filtered out; finished in 0.66s
+wgpu-surfaces:
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 1635 filtered out; finished in 0.44s
+composition_and_windowless_text:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 0.10s
+windowless_field_edit_and_scale:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 0.10s
+direct-caret:
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.30s
+```
+
+This record changes no Rust or guide. The prediction of zero failures in
+staged caps and `cargo fmt --all -- --check` is met. Their commands, exit
+statuses and raw output are retained under `target/win-qual/mac/`.
