@@ -23,14 +23,14 @@ test('scroll-facing snapshots use sampled clocks instead of a frame clock', () =
 });
 
 test('feed scrollports measure authored padding and avoid animating stream corrections', () => {
-  const home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract'), work = appText('mobile/thread-work.contract');
+  const app = appText('mobile/app.contract'), home = appText('mobile/home.contract'), thread = appText('mobile/thread.contract'), work = appText('mobile/thread-work.contract');
   expect(home).toContain('list id=listId appearance="none" flex=1 min-height=0 box-sizing="border-box"');
   expect(home).toContain('min-width=0\n        virtualized=true\n        estimated-item-height=88');
   expect(home).toContain('box position="relative" min-width=0 overflow="hidden"');
   expect(home).toContain('button appearance="none" press=selectThread(item.id)');
   expect(home).toContain('keyboardDismissMode="on-drag" scrollbar-width="none" touch-action="pan-y"');
   expect(thread).toContain('column flex=1 min-height=0 min-width=0 justify-content="flex-end"');
-  expect(thread).toContain('min-width=0 box-sizing="border-box" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
+  expect(thread).toContain('min-width=0 box-sizing="border-box" overflow-x="hidden" overscroll-behavior="contain" keyboardDismissMode="none" touch-action="pan-y" virtualized=true');
   expect(thread).not.toContain('scroll-behavior="smooth"');
   expect(work).toContain('button appearance="none" press=toggleDetail');
   expect(work).toContain('scroll max-height=210 min-width=0 box-sizing="border-box" overflow-y="auto" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"');
@@ -44,6 +44,7 @@ test('feed scrollports measure authored padding and avoid animating stream corre
   expect(home).toContain('if item.card and item.trailingDivider and not item.last and not sidebar');
   expect(home).toContain('if item.trailingDivider and not item.last and surface != "sidebar-list"');
   expect(thread).toContain('button appearance="none" press=action("fork-response", row.id, row.forkKey)');
+  expect(app).toContain('width=workspace.contentSettledWidth min-width=0 max-width="100%" overflow-x="hidden" background-color=look.sheet');
 });
 
 test('Home keeps menus outside the virtualized feed at one bounded resident pair', () => {
