@@ -728,7 +728,7 @@ fn bound_layout_transition_policy_keeps_valid_none_but_unsets_refused_values() {
         .iter()
         .map(|text| {
             let mut style = exact_kernel::StyleProps::default();
-            let value = Value::str(*text);
+            let value = Value::str(text);
             if !exact_runner::bridge::unsets(StyleId::LayoutTransition as u16, &value) {
                 let _ = exact_runner::bridge::set_style(
                     &mut style,
