@@ -2,8 +2,9 @@
 
 **Building an app with Exact rather than working on it?** This checkout is the version to use:
 Exact has no releases, tags or npm package, and an app uses the checkout by path. Make it with
-`bun scripts/exact.mjs new <path>` and read `docs/start-here.md`, or for a website
-`docs/start-here-site.md`: it is the only required reading (LLP 1115 D7). The rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+`bun scripts/exact.mjs new <path>`. A website (pages served to a browser) reads only
+`docs/start-here-site.md`; any other app reads `docs/start-here.md`. That guide is the only
+required reading (LLP 1115 D7). The rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
 `docs/reference.md`) is lookup only, by the section its table names: do not read the long
 guides front to back. `docs/recipes/` answers the common questions in one short file each,
 `contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
