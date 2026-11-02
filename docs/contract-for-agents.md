@@ -1708,7 +1708,11 @@ router itself, as `nav = back(nav)` would (LLP 1115 D5). On the web the browser'
 Forward and a `link` to a declared route do the same with no handler: the runner goes
 there itself, as `nav = go(nav, url)` would (LLP 1115.000 D4.3); a native host's link
 still needs the handler. A declared but disabled
-control refuses them, as does `closedby="none"` on a sheet. A route whose scroller opens
+control refuses them, as does `closedby="none"` on a sheet. Where the app's own Back and
+Forward go less far than its router (a palette open over the page, a history capped at
+so many visits), bind the root's `navigationHistory` to the ways it offers now (`"back
+forward"`, the default, `"back"`, `"forward"` or `"none"`): on the Mac a way withheld is
+no swipe, menu item or mouse button (`contract vocab navigationHistory`). A route whose scroller opens
 with a full-bleed picture says `navigationBar="transparent"`: iOS draws its bar clear at
 the scroller's top and insets nothing, so the picture sits under the bar as under a fixed
 transparent header on the web, and the bar's material comes as the content scrolls. On a pushed iOS
