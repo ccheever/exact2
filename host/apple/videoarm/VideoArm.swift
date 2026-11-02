@@ -124,6 +124,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     let poster = PlatformImageView(frame: .zero)
     #if os(macOS)
     let presentation = AVPlayerView(frame: .zero)
+    /// The full-screen window `requestFullscreen` opened, while it shows.
+    var fullscreen: FullscreenWindow?
     #else
     var controller: AVPlayerViewController?
     var inline: VideoLayerView?
@@ -272,13 +274,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         return controller != nil ? "AVKit" : inline != nil ? "AVPlayerLayer" : "AVPlayer"
         #endif
     }
-    var isFullscreen: Bool {
-        #if os(macOS)
-        return false
-        #else
-        return fullscreen != nil
-        #endif
-    }
+    var isFullscreen: Bool { fullscreen != nil }
     var snapshot: [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? .nan
         return ["currentTime": seconds, "duration": duration.isFinite ? duration as Any : NSNull(),
@@ -291,7 +287,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
                 "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit",
-                "appliedDynamicRange": appliedDynamicRange]
+                "appliedDynamicRange": appliedDynamicRange].merging(fullscreenReport) { $1 }
     }
     func emit(_ event: String = "snapshot", payload: String = "") {
         guard !invalidated else { return }
@@ -786,6 +782,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         let fit = props["objectFit"] ?? "contain", gravity = self.gravity
         #if os(macOS)
         presentation.videoGravity = gravity
+        if let fullscreen, fullscreen.player.videoGravity != gravity { fullscreen.player.videoGravity = gravity }
         #else
         if let controller, controller.videoGravity != gravity {
             UIView.performWithoutAnimation { controller.videoGravity = gravity }
@@ -821,6 +818,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         inline?.playerLayer.player = nil
         inline?.removeFromSuperview()
         controller = nil; inline = nil
+        #else
+        fullscreen?.dismiss(); fullscreen = nil
         #endif
         container.removeFromSuperview()
     }
@@ -873,12 +872,114 @@ extension VideoArm {
         emit("fullscreenchange", payload: "false")
         emit()
     }
+
+    var fullscreenReport: [String: Any] { [:] }
 }
 #else
-extension VideoArm {
-    func enterFullscreen() {
-        FileHandle.standardError.write(Data("exact video: requestFullscreen: not on macOS yet\n".utf8))
+/// The window `requestFullscreen` opens on macOS: AVKit's player view on the
+/// leaf's own AVPlayer, alone in a window that takes the screen in a Space of
+/// its own, as Safari and QuickTime Player present a video. It opens over the
+/// leaf, so the zoom into full screen starts from where the video is, and
+/// closes when it leaves full screen, however that happened: Escape, the
+/// window's green button, Control-Command-F or Command-W.
+final class FullscreenWindow: NSObject, NSWindowDelegate {
+    final class Window: NSWindow {
+        // Escape leaves full screen, as it leaves a video's on the web.
+        override func cancelOperation(_ sender: Any?) {
+            if styleMask.contains(.fullScreen) { toggleFullScreen(nil) } else { super.cancelOperation(sender) }
+        }
     }
+    let window: Window
+    let player = AVPlayerView(frame: .zero)
+    var entered: (() -> Void)?
+    var left: (() -> Void)?
+    private weak var opener: NSWindow?
+
+    init(_ source: AVPlayer, over view: NSView, title: String) {
+        opener = view.window
+        let frame = view.window.map { $0.convertToScreen(view.convert(view.bounds, to: nil)) } ?? NSRect(x: 0, y: 0, width: 640, height: 360)
+        window = Window(contentRect: frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        super.init()
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = .black
+        window.collectionBehavior = [.fullScreenPrimary]
+        // The title names the window to VoiceOver, Mission Control and the Window menu.
+        window.title = title
+        window.delegate = self
+        buttons(hidden: true)
+        // AVKit's full-screen controls. Its own full screen button would open
+        // a second full-screen presentation of AVKit's from this one.
+        player.controlsStyle = .floating
+        player.showsFullScreenToggleButton = false
+        player.showsSharingServiceButton = false
+        // The inline view goes on publishing Now Playing for the same player.
+        player.updatesNowPlayingInfoCenter = false
+        player.player = source
+        window.contentView = player
+    }
+    /// The window's buttons only in full screen: at the leaf's size, on the
+    /// way in and out, it is the video alone.
+    private func buttons(hidden: Bool) {
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { window.standardWindowButton(kind)?.isHidden = hidden }
+    }
+    func show() {
+        window.makeKeyAndOrderFront(nil)
+        window.toggleFullScreen(nil)
+    }
+    func windowWillEnterFullScreen(_ notification: Notification) { buttons(hidden: false) }
+    func windowDidEnterFullScreen(_ notification: Notification) { entered?(); entered = nil }
+    func windowWillExitFullScreen(_ notification: Notification) { buttons(hidden: true) }
+    func windowDidExitFullScreen(_ notification: Notification) { window.close() }
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) { window.close() }
+    func windowWillClose(_ notification: Notification) {
+        window.delegate = nil
+        // Let go of the player before the window goes, so it plays on inline.
+        player.player = nil
+        left?(); left = nil
+        opener?.makeKeyAndOrderFront(nil)
+    }
+    /// Closes it without telling the leaf, which is going.
+    func dismiss() {
+        entered = nil; left = nil
+        if window.delegate != nil { window.close() }
+    }
+    /// The driver's view of it (LLP 1012): the window server's number for a
+    /// `screencapture -l`, its frame on screen, and whether it is full screen yet.
+    var report: [String: Any] {
+        let frame = window.frame
+        return ["window": window.windowNumber, "title": window.title, "fullScreen": window.styleMask.contains(.fullScreen),
+                "frame": ["x": frame.minX, "y": frame.minY, "w": frame.width, "h": frame.height]]
+    }
+}
+
+extension VideoArm {
+    /// `requestFullscreen` (HTML's Element.requestFullscreen): the video takes
+    /// the screen in its own window; `fullscreenchange` reports true once it
+    /// has, then false when the window closes. The inline view keeps showing
+    /// the player meanwhile, so the frame under the window is current when it
+    /// zooms back. A second request while it shows, or an `audio`, does nothing.
+    func enterFullscreen() {
+        guard !invalidated, fullscreen == nil, props["semanticTag"] != "audio", player.currentItem != nil, container.window != nil else { return }
+        let title = [props["accessibilityLabel"], props["title"], props["mediaTitle"], container.window?.title].compactMap { $0 }.first { !$0.isEmpty } ?? ""
+        let full = FullscreenWindow(player, over: container, title: title)
+        full.player.videoGravity = gravity
+        full.player.allowsPictureInPicturePlayback = presentation.allowsPictureInPicturePlayback
+        full.entered = { [weak self] in self?.emit("fullscreenchange", payload: "true"); self?.emit() }
+        full.left = { [weak self] in self?.leftFullscreen() }
+        fullscreen = full
+        full.show()
+    }
+
+    private func leftFullscreen() {
+        guard !invalidated else { return }
+        fullscreen = nil
+        emit("fullscreenchange", payload: "false")
+        emit()
+    }
+
+    var fullscreenReport: [String: Any] { fullscreen.map { ["fullscreenWindow": $0.report] } ?? [:] }
 }
 #endif
 
