@@ -337,7 +337,7 @@ describe('automatic earlier activity', () => {
   });
 });
 
-test('authored paging gates inactive views, rejects stale observations and isolates history from Stop', () => {
+test('authored paging gates inactive views, preserves prepend anchors and isolates history from Stop', () => {
   const feed = contractComponent('mobile/thread.contract', 'ThreadFeed');
   const history = contractComponent('mobile/thread.contract', 'ThreadHistory');
   const root = contractComponent('mobile/app.contract', 'App');
