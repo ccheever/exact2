@@ -259,6 +259,23 @@ fn a_list_style_of_none_is_taken_and_writes_nothing() {
     let bare = plan("", "");
     assert_eq!(plan("\n  list-style=\"none\"", ""), bare);
     assert_eq!(plan("", " list-style-type=\"none\""), bare);
+    // Any other marker is refused with the same words in a `style` as on an element.
+    let source = |style: &str, list: &str| {
+        format!(
+            "style Bare\n  margin=0{style}\n\n{}",
+            app(
+                "",
+                &format!("view role=\"list\" class=Bare{list}\n  text \"a\"")
+            )
+        )
+    };
+    let refused = |s: String| contract::compile(&s).unwrap_err().message;
+    let (styled, inline) = (
+        refused(source("\n  list-style-type=\"disc\"", "")),
+        refused(source("", " list-style-type=\"disc\"")),
+    );
+    assert!(styled.contains("a bullet is a `text \"•\"`"), "{styled}");
+    assert_eq!(styled.split("; ").nth(1), inline.split("; ").nth(1));
 }
 
 /// A message that names an edit never edits what is not wrong: a role that is

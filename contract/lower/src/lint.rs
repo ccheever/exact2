@@ -359,20 +359,7 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
         None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
             "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
         }
-        // CSS 2.1 §17.6.2's collapsing model is not implemented; the separated one with no spacing
-        // is what a table drawn with rules between its rows needs.
-        None if a.name == "border-collapse" => {
-            "; tables use the separated model: `border-spacing=0` puts the cells edge to edge, and a \
-             `border-bottom` on each cell draws a rule between rows"
-                .into()
-        }
-        // No `::marker` (CSS Lists 3 §3): every list is `list-style: none`, which is taken
-        // (`tags::attr_valued`); any other value is not.
-        None if a.name.starts_with("list-style") => {
-            "; a list here draws no marker, as `list-style=\"none\"` has it; a bullet is a \
-             `text \"•\"` before the item's text in a row"
-                .into()
-        }
+        None if css_hint(&a.name).is_some() => css_hint(&a.name).unwrap_or_default(),
         // LLP 1048.007 D5: the build chooses.
         None if tag == "image" && a.name == "loading" => {
             "; Exact chooses: an image a `for` repeats loads as its row comes into view, and a lone \
@@ -720,4 +707,25 @@ pub fn lint(file: &File) -> Vec<LowerError> {
         e.message = crate::params::shown(&e.message, &params);
     }
     errors
+}
+
+/// What to write for a CSS property Exact does not take, on an element or in a `style`.
+pub(crate) fn css_hint(name: &str) -> Option<String> {
+    match name {
+        // CSS 2.1 §17.6.2's collapsing model is not implemented; the separated one with no spacing
+        // is what a table drawn with rules between its rows needs.
+        "border-collapse" => Some(
+            "; tables use the separated model: `border-spacing=0` puts the cells edge to edge, and a \
+             `border-bottom` on each cell draws a rule between rows"
+                .into(),
+        ),
+        // No `::marker` (CSS Lists 3 §3): every list is `list-style: none`, which is taken
+        // (`tags::attr_valued`); any other value is not.
+        _ if name.starts_with("list-style") => Some(
+            "; a list here draws no marker, as `list-style=\"none\"` has it; a bullet is a \
+             `text \"•\"` before the item's text in a row"
+                .into(),
+        ),
+        _ => None,
+    }
 }
