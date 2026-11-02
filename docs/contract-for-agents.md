@@ -2128,7 +2128,11 @@ unless the app must look like another: `presentation="window"` asks for a
 browser's picture-in-picture window as Chromium draws it on the Mac, and
 `presentation="panel"` for a floating panel with a title bar, each with
 `title=`, `width=` and `height=` (LLP 1042 §9.1); the web shows either in
-Document Picture-in-Picture's window where the browser has one.
+Document Picture-in-Picture's window where the browser has one. On macOS
+each image asked for in a panel gets a panel of its own, while the
+picture-in-picture window (the platform's or `"window"`) holds one image
+at a time, as a browser's does, and moves to the next that asks
+(LLP 1042 §9.2).
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media
