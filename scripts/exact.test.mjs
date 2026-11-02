@@ -971,7 +971,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['glass'], 'docs/contract-for-agents.md', /glass/],
     [['detent'], 'docs/contract-for-agents.md', /detent/],
     [['tab', 'bar'], 'docs/recipes/tabs.md', /tab bar/],
-    [['back', 'button'], 'docs/recipes/navigation-stack.md', /UIKit's Back/],
+    [['back', 'button'], 'docs/recipes/navigation-stack.md', /`button id="back"`/],
     [['search'], 'docs/recipes/list-rows.md', /search/],
     [['menu'], 'docs/recipes/list-rows.md', /menu/],
     [['swipe'], 'docs/recipes/list-rows.md', /swipe/],

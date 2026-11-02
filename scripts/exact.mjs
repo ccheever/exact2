@@ -1155,9 +1155,10 @@ function sections(text) {
 /** A query (its words singular, by one space) whose section ranking alone misses, because it is said in passing more
  *  densely elsewhere or its section says it in other words ("dark mode": light and dark), and its section's heading. */
 const TOPICS = {
-  log: 'Inspection and testing', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
+  log: 'The driver\'s operations', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
   'tab bar': 'Recipe: tabs', 'back button': 'Recipe: a navigation stack', share: 'Host commands',
   'dark mode': 'Recipe: theme: colours, light and dark, icons',
+  'safe area': 'Declarations',
   font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
   deploy: 'Recipe: porting an app, a release build, splitting the work',
   accessibility: 'Native views: accessibility', strings: 'Recipe: app.json, assets and modules',
