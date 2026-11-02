@@ -233,9 +233,16 @@ crate's editing rules and pressed as `atompress`; the value stays the
 source. Unblocks T3 Code's composer chips and transcript citations without a
 References row or app editing rules. Take: the Apple hosts' adoption of the
 crate's other hidden syntax (`QUEUE.md`, "Markdown editor") waits behind
-atoms. Still out: pill padding and radius, a second control inside a pill,
-atoms in the Linux, Windows and Android editors (they show the source), and
-inline math (a child RFC's). **Expanded (Daehyeon Mun, 2026-10-29, waived;
+atoms. Still out: a second control inside a pill, atoms in the Linux,
+Windows and Android editors (they show the source), and inline math (a child
+RFC's). **Expanded (Daehyeon Mun, 2026-11-02, waived; LLP 1045.000 §10
+Q14):** an atom's own style, written as CSS on its declaration: its inline
+padding, border and radius, a ring while the selection is exactly it
+(`:checked`), `:hover` paint and an underline, and on Apple an icon from any
+image source, so T3 Code's chips match their original's. Take: waived (Daehyeon
+Mun, 2026-11-02): the paint goes through the rows a kind already had, and the
+three outline rows are an atom's alone. Still out: the Apple reader's border,
+ring, hover paint and icon. **Expanded (Daehyeon Mun, 2026-10-29, waived;
 LLP 1045 D11):** the app gives each source line of the editor its base
 direction, `paragraphDirs` in HTML's `dir` words, drawn on the web and Apple.
 Unblocks T3 Code's composer, whose original gives each block the direction of

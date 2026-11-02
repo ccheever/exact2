@@ -13,6 +13,8 @@ extension NodeView {
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .textColor))
         f.effectiveAppearance.performAsCurrentDrawingAppearance { look.secondaryOpacity = NSColor.secondaryLabelColor.alphaComponent }
         look.atoms = markdownAtoms
+        look.atoms.hovered = f.hoveredAtom ?? -1
+        look.node = self
         look.atoms.emphasized = f.window?.isKeyWindow ?? true
         look.paragraphDirs = props["paragraphDirs"] ?? ""
         look.rtl = markdownRTL

@@ -105,7 +105,7 @@ typed-params  = typed-param { "," typed-param } [ "," ] ;
 typed-param   = IDENT ":" type ;
 style         = "style" IDENT block(style-line | part) ;
 decoration    = "decoration" IDENT ( style-line | block(style-line) ) ;
-atom          = "atom" IDENT style-line ;
+atom          = "atom" IDENT style-line [ block(style-line | state) ] ;
 style-line    = { FIELD "=" style-literal } NL ;
 part          = "::" "placeholder" NL block(style-line) ;
 style-literal = STRING | NUMBER | "-" NUMBER | "true" | "false" ;
@@ -1461,9 +1461,29 @@ component Composer
   space; or `prefix="@"`, one of the characters at the start of a word, then a
   bare run or a `"…"` string, followed by white space. A relative link and a
   prefix token are atoms only when a face names their source; a scheme link
-  always is. It may take `role="link"` (a button by default) and `color` and
-  `background-color`; the pill's other metrics are the platform's
-  (`lower-atom-style`). It is scoped and imported as `style` is.
+  always is. It may take `role="link"` (a button by default) and its style,
+  CSS's rows on its line or in an indented block under it: `color`,
+  `background-color`, `border-color`, `border-radius` (one length in px),
+  `outline` (a width, `solid` and a colour, or `none`), `outline-offset` (px,
+  negative inside the pill) and `text-decoration-line` (`underline`, the
+  label's), each also in a `:hover` block (the pointer over the pill) and a
+  `:checked` block (the selection exactly the atom, as a press leaves it); and
+  on its own, `padding-inline` (px or em, both sides) and `border` (`1px solid
+  <colour>`, or `border-width` with `border-style="solid"`). Unsaid, each is the
+  platform's token's. A pill keeps its line's height: its border's top and
+  bottom are drawn inside it, and a ring takes no room (on Apple one that would
+  reach past the pill is cut at its edge). Anything else is `lower-atom-style`.
+  It is scoped and imported as `style` is.
+
+  ```text
+  atom mention prefix="@" padding-inline="0" border-radius="4px"
+    :hover
+      text-decoration-line="underline"
+    :checked
+      outline="2px solid light-dark(#2563eb, #60a5fa)"
+      outline-offset="-2px"
+      border-radius="6px"
+  ```
 - `atoms="a b"` on a `text` or `textarea` with `markup="markdown"` lists the
   kinds it recognizes (`lower-atom-field`, `lower-atom-unknown`); two kinds with
   one scheme, a shared prefix character, or both relative are refused
@@ -1471,8 +1491,10 @@ component Composer
 - `atomFaces` takes `AtomFace(source, label, icon, title, color,
   backgroundColor, direction, ariaLabel)` records, keyed by an atom's whole source: equal
   source is one atom, and new text is a new key. An empty label is a link's text
-  or a token without its prefix and quotes; the icon is an image source (the web
-  draws a URL or asset, not yet a `symbol:`). `color` and `backgroundColor`
+  or a token without its prefix and quotes; the icon is an image source, drawn
+  in its own colours (an asset, an `app:/` file, a `data:` or http(s) URL; of
+  the symbols, Apple draws `symbol:sf/<name>` in the pill's ink and the web
+  none). `color` and `backgroundColor`
   paint that atom over its kind's `color` and `background-color`, or are empty
   for the kind's. Each is a colour as a bound `color` takes one: `light-dark()`,
   a theme entry's name, a role, a `-exact-platform-color()` only as one of the
@@ -1507,9 +1529,9 @@ component Composer
   KB of text, or 16 KB in 256 runs or more, a Markdown text being one run per
   piece.
 
-The web, macOS and iOS draw atoms in the editor and the reader (on Apple an
-icon draws only for `symbol:sf/<name>`, and UIKit's smart delete takes one of
-the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
+The web, macOS and iOS draw atoms in the editor and the reader (on Apple the
+reader's pill draws no icon, border, ring or `:hover` paint, and UIKit's smart
+delete takes one of the two spaces an atom's deletion leaves). VoiceOver on macOS and iOS reads
 an atom's label in place and its role only from its own element, which the
 next-item command passes over on macOS and reaches after the field on iOS
 (LLP 1045.000 §10 Q10). Linux, Windows and Android show the source in the
