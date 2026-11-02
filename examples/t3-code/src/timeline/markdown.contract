@@ -975,20 +975,28 @@ component ResolvedChip
           AttachmentChipBody(run=run, chip=chip, urls=urls, local=local, hovered=hovered)
 // PullRequestChip (contextChipParts.tsx): "#N" with its state's glyph and ContextChip kind (pr-open, pr-draft, pr-merged,
 // pr-closed; pull-request when the state is unknown), a button that opens the pull request (useOpenPrLink, pr-chip-open.ts).
-// The reference's hover card (PullRequestLinkPreview, or PullRequestContextDetails in a tooltip) is not drawn here.
+// Its hover is the window's hover layer's (hover-layer.contract): with a preview target (`chip.size`) PullRequestLinkPreview's
+// card (kind "pr-preview": 350 ms open, 120 ms close), which falls back to PullRequestContextDetails (`chip.menu`) when the
+// read fails; without one those details as a tooltip (kind "pr-details", Base UI's 600 ms).
 component PrContextChip
   inject
     chipInks: ChipInk[]
+    rem: number
+    hoverTipAt: action
   props
     run: ChatRun
     chip: ChipView
     local: action
   state hovered = false
+  derive frameId = `pr-chip-${chip.owner}-${run.id}`
   action hover(over: bool)
     hovered = over
+    hoverTipAt(hoverTipAtFrame(frameId, chip.size != "" ? "pr-preview" : "pr-details", chip.target, chip.menu.map((row) => row.label), "top", "center", frame(frameId), (chip.size != "" ? 6.5 : 4.5) * rem, chip.size != "" ? "pull-request-link-preview" : "pull-request-context-details"), "trigger", over)
+    if chip.size != ""
+      local("pr-preview", chip.size, over ? "1" : "0")
   derive ink = inkOf(chipInks, chipAccent("pr", chip.detail))
   view
-    button press=local("chip-pr", chip.target, "") hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` max-width="15rem" padding=0 gap="0.175rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" id=`context-chip-${run.id}` title=""
+    button press=local("chip-pr", chip.target, "") hover=hover aria-label=chip.tip testId=`context-chip-${run.id}` max-width="15rem" padding=0 gap="0.175rem" border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" id=frameId title=""
       EditorMenuIcon(name=(chip.detail == "draft" ? "git-pull-request-draft" : chip.detail == "merged" ? "git-merge" : chip.detail == "closed" ? "git-pull-request-closed" : "git-pull-request"), color=ink, size=14)
       text chip.label min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.0625rem" white-space="pre" color=ink text-decoration-line=(hovered ? "underline" : "none")
 // AssistantCitationChip outside the composer (T3 Code 9c161462c9, MIT; see LICENSE-T3): a ContextChipPopover, width "lg"

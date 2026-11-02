@@ -177,6 +177,9 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   if (!selection) {
     shown.delete(client); guideReader(client).shownKey = ''; releaseChangeBreakdowns(client, 'detail');
     if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
+    // A sent pull request chip's card (markdown.contract PrContextChip) shows with no pull request open.
+    const hovered = input.preview ?? hoveredLink(client);
+    if (live && hovered) view.preview = await readPreview(client, native!, hovered, input.now);
     return view;
   }
   view.open = true; view.ref = input.selected;

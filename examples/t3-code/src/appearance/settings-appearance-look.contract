@@ -12,6 +12,8 @@ shape Look
   rowActive: string
   surface: string
   popover: string
+  // The composer card's translucent fill over its glass (composer-editor.contract ComposerGlass).
+  glass: string
   border: string
   input: string
   text: string

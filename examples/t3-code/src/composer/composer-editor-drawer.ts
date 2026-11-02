@@ -5,9 +5,10 @@
 // top (`card`); the drawer's own 17pt seam reaches under the card.
 import type { Obj } from '../client/domain';
 
-export type ComposerDrawer = { placed: boolean; left: number; width: number; bottom: number; listMax: number; cardX: number; cardY: number; cardWidth: number; cardHeight: number; hold: number };
-/** Until both frames are measured the drawer stays in the composer's flow. */
-export const NO_DRAWER: ComposerDrawer = { placed: false, left: 0, width: 0, bottom: 0, listMax: 288, cardX: 0, cardY: 0, cardWidth: 0, cardHeight: 0, hold: 0 };
+export type ComposerDrawer = { placed: boolean; left: number; width: number; bottom: number; listMax: number; cardX: number; cardY: number; cardWidth: number; cardHeight: number; hold: number;
+  glass: boolean; glassLeft: number; glassBottom: number };
+/** Until both frames are measured the drawer stays in the composer's flow, and the card has no glass under it. */
+export const NO_DRAWER: ComposerDrawer = { placed: false, left: 0, width: 0, bottom: 0, listMax: 288, cardX: 0, cardY: 0, cardWidth: 0, cardHeight: 0, hold: 0, glass: false, glassLeft: 0, glassBottom: 0 };
 const SEAM = 17; // --chat-composer-attachment-overlap: calc(1rem + 1px)
 
 function frame(frames: Obj, name: string): number[] {
@@ -25,10 +26,13 @@ export function composerDrawer(frames: Obj): ComposerDrawer {
   const unplaced = { ...NO_DRAWER, cardX, cardY: cardTop, cardWidth: Math.max(0, cardWidth), cardHeight: Math.max(0, cardHeight) };
   if (!chat.length) return unplaced;
   const [chatX, chatTop, chatWidth, chatHeight] = chat as [number, number, number, number];
-  if (cardWidth <= 0 || chatWidth <= 0 || chatHeight <= 0 || cardTop < chatTop || cardTop > chatTop + chatHeight) return unplaced;
+  if (cardWidth <= 0 || chatWidth <= 0 || chatHeight <= 0) return unplaced;
+  // The card's glass (app-main.contract ComposerGlass): its box in the column, held by the column's foot as the overlay is.
+  const glass = cardHeight > 0 ? { glass: true, glassLeft: cardX - chatX, glassBottom: chatTop + chatHeight - cardTop - cardHeight } : {};
+  if (cardTop < chatTop || cardTop > chatTop + chatHeight) return { ...unplaced, ...glass };
   // maxHeight: max(96, rect.top - 24 + overlap) from the window top, less the seam and the drawer's top border; the list caps at max-h-72.
   const room = Math.max(96, cardTop - chatTop - 24 + SEAM) - SEAM - 1;
-  return { ...unplaced, placed: true, left: cardX - chatX, width: cardWidth, bottom: chatTop + chatHeight - cardTop, listMax: Math.min(288, room) };
+  return { ...unplaced, ...glass, placed: true, left: cardX - chatX, width: cardWidth, bottom: chatTop + chatHeight - cardTop, listMax: Math.min(288, room) };
 }
 
 /**
