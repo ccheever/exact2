@@ -95,6 +95,31 @@ final class PressWashMacTests: XCTestCase {
         button.pressed = false
     }
 
+    func testRepeatedCanvasCapturesKeepTheLiveLabelAfterItMoves() throws {
+        let p = fixture()
+        window.orderFrontRegardless()
+        settle()
+        let button = try XCTUnwrap(p.views[1])
+        let label = CGRect(x: 30, y: 30, width: 150, height: 20)
+        guard let before = onScreen() else { throw XCTSkip("no window server picture") }
+        let originalInk = ink(before, in: label)
+        XCTAssertGreaterThan(originalInk, 40)
+        for step in 0..<6 {
+            autoreleasepool {
+                for _ in 0..<3 {
+                    XCTAssertNotNil(Capture.bitmap(of: button, scale: window.backingScaleFactor))
+                }
+                settle()
+            }
+            let dx = CGFloat(step.isMultiple(of: 2) ? 18 : 0)
+            p.apply(wireBatch([["op": "frame", "id": 2, "x": 10 + dx, "y": 10.0, "w": 150.0, "h": 20.0]]))
+            settle()
+            let shown = try XCTUnwrap(onScreen())
+            XCTAssertGreaterThan(ink(shown, in: label.offsetBy(dx: dx, dy: 0)), originalInk / 2,
+                                 "capture \(step) must not take the live label's backing store")
+        }
+    }
+
     /// The red channel at a window point (points, top-left origin).
     private func red(_ image: CGImage, _ x: CGFloat, _ y: CGFloat) -> UInt8 {
         let scale = CGFloat(image.width) / window.frame.width

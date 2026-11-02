@@ -82,6 +82,7 @@ extension NodeView {
         defer { CATransaction.commit() }
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let tree = Capture.paintOrderLayer(of: self, root: layer)
+        defer { Capture.releasePaintCopy(tree) }
         // The copy stands where the node does in its parent: here it is the wash's own box, whole and unshadowed.
         tree.transform = CATransform3DIdentity
         tree.opacity = 1; tree.isHidden = false; tree.shadowOpacity = 0; tree.mask = nil
