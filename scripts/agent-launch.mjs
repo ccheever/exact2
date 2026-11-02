@@ -16,6 +16,7 @@ import { boundSettings, settingChanges, settingInputs, settingLines } from '../j
 import { besidePattern } from '../host/web/beside.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
+import { listAssets } from '../host/web/serve.mjs';
 import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -935,7 +936,22 @@ export function notBuildInput(dir, keep = []) {
 }
 
 const fileDigest = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
-/** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
+const COPIED = /^(assets|deck)(\/|$)/;
+/** What differs in assets/ and deck/, which packaging copies into the bundle unchanged: the files as listAssets reads
+ * them now against the names, sizes and SHA-256 the bake recorded, the comparison packaging makes (verifyBakeFiles).
+ * A build script can write these files after the build starts, so their times decide nothing. listAssets skips a
+ * symbolic link, as the build-start walk does, and the bake refuses one. This reads and hashes every file listAssets
+ * lists on every drive, so large media makes each drive slower. Null when the receipt records no assets: the trees
+ * then keep the build-start rule. */
+function copiedChanges(app, recorded) {
+  if (!Array.isArray(recorded)) return null;
+  const cards = list => new Map(list.filter(card => COPIED.test(card?.name)).map(card => [card.name, card]));
+  const was = cards(recorded), now = cards(listAssets(app.dir));
+  return [...new Set([...was.keys(), ...now.keys()])]
+    .filter(name => was.get(name)?.bytes !== now.get(name)?.bytes || was.get(name)?.sha256 !== now.get(name)?.sha256)
+    .map(name => shown(resolve(app.dir, name)));
+}
+/** An Apple build's recorded inputs and direct-copy assets by digest; the app's remaining files by build-start time. */
 export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hashed`: this drive compared its inputs' bytes already
   if (!existsSync(receipt)) return [];
   const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
@@ -947,6 +963,8 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
   const game = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const skip = path => ignored(path) || game(path);
+  const copied = copiedChanges(app, build?.compat?.embedded?.assets);
+  const timed = path => !copied || !COPIED.test(relative(app.dir, resolve(ROOT, path)));
   const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || skip(path));
   // Platform-local modules live under the host crate directory skipped above,
   // but their separate dylib's sources are absent from the binary receipt.
@@ -971,7 +989,7 @@ export function receiptChanges(receipt, app, { hashed = false } = {}) { // `hash
   let baked = [], unread = [];
   if (build?.linkedPlan) { const at = resolve(build.linkedPlan, 'inputs.json'); try { baked = JSON.parse(readFileSync(at, 'utf8')).paths; if (!Array.isArray(baked)) throw new Error(); } catch { baked = []; unread = [shown(at)]; } }
   const tools = info ? [...depInfoNewer(since, null, info, app.workspace), ...watchedNewer(since, baked)].filter(path => !skipped(path) && !products.has(resolve(ROOT, path))) : [];
-  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own, ...tools, ...unread, ...replaced])];
+  return [...new Set([...(build?.binary && !hashed ? pendingBuildInputs(build) : []), ...own.filter(timed), ...tools.filter(timed), ...unread, ...replaced, ...(copied ?? [])])];
 }
 
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
