@@ -42,7 +42,7 @@
 // row pushes `detail` and stays selected under it; one presses and stays.
 // `rail` has a narrow, absolutely positioned header whose actions overflow
 // until UIKit lifts them into its bar. Its native container stays in the
-// viewport throughout projection (NavigationBasicsIOSTests).
+// viewport throughout projection (ContentOwnersIOSTests).
 routes nav
   start "/"
     detail "/detail"
