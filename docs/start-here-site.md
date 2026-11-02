@@ -40,7 +40,6 @@ say why each line is so: keep its shape, replace its content. Read
 |`contract build app.contract --json --errors-only`|The compile check: `[]` and exit zero mean no errors. It rewrites `app.contract.d.ts`, the types `app.ts` imports, and type-checks `app.ts`.|
 |`web-build --out dist`, `serve dist`|The site, and a server that renders `render=request` pages per request and builds again on an edit (`npm run build`, `npm start`).|
 |`test web`|Runs `app.test.contract` in Chrome.|
-|`agent web --url /item/7 "clock data" "screenshot .exact/p.png compare design/p.png"`|Opens a page and says in text, node by node with its source line, where it differs from a design's capture.|
 
 Keep scratch files in `.exact/` and helper scripts in `tools/`: neither makes the build stale.
 

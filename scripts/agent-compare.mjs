@@ -10,7 +10,7 @@
 // sub-point offsets do not count.
 import { MalformedOperation } from './agent-keys.mjs';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, relative, resolve } from 'node:path';
 import { crop, decodePng, encodePng, shrink } from './png.mjs';
 import { scaledLines } from './agent-inspect.mjs';
 
@@ -562,15 +562,12 @@ export async function compareOp(s, referencePath, take) {
   return { ...shot, compare: { ...kept, reference: referencePath }, diff, side, ...(close ? { close } : {}), text };
 }
 
-/** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/`, `reference/`, `design/` or
- *  `screenshots/` folder, or a design's `screenshots/`, in the app, here or beside the app) is told of `compare`, which
- *  says where the screen differs in text, so neither picture is viewed. */
+/** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/` or `reference/` folder in
+ *  the app or here) is told of `compare`, which says where the screen differs in text, so neither picture is viewed. */
 export function referenceNote(ops, appDir, say = console.error) {
   const shots = ops.map((line) => line.trim().split(/\s+/)).filter(([op, png, ...rest]) => op === 'screenshot' && png && !rest.includes('compare') && rest[0] !== 'over' && rest[1] !== 'save');
   if (!shots.length) return;
-  const names = ['ref', 'reference', 'references', 'design', 'designs', 'screenshots'];
-  const dirs = [appDir, process.cwd(), appDir && dirname(appDir)].filter(Boolean)
-    .flatMap((base) => names.flatMap((name) => [resolve(base, name), resolve(base, name, 'screenshots')]));
+  const dirs = [appDir, process.cwd()].filter(Boolean).flatMap((base) => ['ref', 'reference', 'references'].map((name) => resolve(base, name)));
   // A file of that name, or a folder that cannot be read, gives no note rather than ending the drive.
   const pngsIn = (d) => { try { return readdirSync(d).filter((f) => f.endsWith('.png')); } catch { return []; } };
   const dir = dirs.find((d) => pngsIn(d).length);
