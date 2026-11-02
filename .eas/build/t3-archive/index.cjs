@@ -71,6 +71,13 @@ function prepareRust(source) {
     stdio: 'inherit',
   });
   if (dependencies.status !== 0) fail(`Mobile viewer dependency setup failed (${dependencies.status ?? dependencies.error?.message})`);
+  const cargoFetch = spawnSync('cargo', ['fetch', '--locked'], {
+    cwd: source,
+    env: { ...process.env, CARGO_NET_OFFLINE: '0' },
+    encoding: 'utf8',
+    stdio: 'inherit',
+  });
+  if (cargoFetch.status !== 0) fail(`Exact Cargo dependency fetch failed (${cargoFetch.status ?? cargoFetch.error?.message})`);
 }
 
 function provisioningProfilePath(teamId, bundleIdentifier) {
