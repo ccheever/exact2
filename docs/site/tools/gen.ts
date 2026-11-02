@@ -20,7 +20,6 @@ const ORIGIN = (process.env.SITE_ORIGIN ?? '').replace(/\/+$/, '');
 const MARKDOWN = join(SITE, 'assets/markdown');
 const EDIT = `https://github.com/ccheever/exact2/edit/main/docs`;
 const IMAGES = join(SITE, 'assets/images');
-const DEPLOY = process.argv.includes('--deploy');
 
 type Run = { id: string; text: string; code: boolean; strong: boolean; em: boolean; href: string };
 type Cell = { id: string; runs: Run[] };
@@ -367,8 +366,7 @@ const dateOf = (source: string) => {
 const none: Link = { title: '', href: '' };
 const prompt = (url: string) => encodeURIComponent(`Read this documentation page, so I can ask questions about it:\n\n${url}`);
 const listed = pages.filter(p => !p.hidden);
-const published = DEPLOY ? pages.filter(p => !p.hidden) : pages;
-published.forEach(page => {
+pages.forEach(page => {
   const i = listed.indexOf(page);
   const { blocks, toc } = render(page);
   const markdownPath = page.path === '/' ? '/index.md' : `${page.path}.md`;
@@ -409,7 +407,7 @@ const nav = {
   })),
 };
 writeFileSync(join(OUT, 'nav.ts'), `export default ${JSON.stringify(nav)};\n`);
-writeFileSync(join(OUT, 'index.ts'), `export const pages: Record<string, () => Promise<{ default: unknown }>> = {\n${published.map(p => `  ${p.route}: () => import('./${p.route}.ts'),`).join('\n')}\n};\n`);
+writeFileSync(join(OUT, 'index.ts'), `export const pages: Record<string, () => Promise<{ default: unknown }>> = {\n${pages.map(p => `  ${p.route}: () => import('./${p.route}.ts'),`).join('\n')}\n};\n`);
 
 const paths = new Set(pages.map(p => p.path));
 const badRedirects = Object.entries(redirects).flatMap(([from, to]) => [

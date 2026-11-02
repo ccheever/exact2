@@ -54,7 +54,8 @@ function resolve(url: string): Result<'resolveMoved'> {
 const sources: Sources = {
   loadPage: async ([route]): Promise<Page> => {
     const load = pages[route];
-    return load ? ((await load()).default as Page) : missing;
+    const module = await load?.().catch(() => null);
+    return module ? (module.default as Page) : missing;
   },
   loadNav: async (): Promise<Result<'loadNav'>> => nav,
   resolveMoved: async ([url]): Promise<Result<'resolveMoved'>> => resolve(url),
