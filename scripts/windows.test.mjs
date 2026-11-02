@@ -97,8 +97,10 @@ test('JS build trees serve native paths without admitting private or escaping fi
         res.on('end',()=>done({status:res.statusCode,body:Buffer.concat(chunks).toString()}));
       }).on('error',fail);
     });
-    for(const [path,body] of [['/','shell'],['/index.html','shell'],['/app.js','entry'],['/nested%20caf%C3%A9/data.js','unicode'],['/nested%20caf%C3%A9/','nested'],['/app-route','shell']])
+    for(const [path,body] of [['/','shell'],['/index.html','shell'],['/app.js','entry'],['/nested%20caf%C3%A9/data.js','unicode'],['/nested%20caf%C3%A9/','nested']])
       expect(await request(path)).toEqual({status:200,body});
+    // A path no file holds is a page only by the build's route table (545eb7a063), which this tree has none of.
+    expect(await request('/app-route')).toEqual({status:404,body:''});
     for(const path of ['/.private.js','/%2e%2e/outside/secret.js','/nested%20caf%C3%A9/../../outside/secret.js','/nested%5cdata.js','/%00','/outside/secret.js'])
       expect(await request(path)).toEqual({status:404,body:''});
     // An explicitly selected volume root already ends in its native separator.
@@ -498,7 +500,7 @@ test('browser contextmenu reaches an off-center point and refuses invalid or cov
     expect(events.map(event=>event[0]).sort()).toEqual(['contextmenu','pointerdown','pointerup']);
     expect(events.every(event=>event[1]===45 && event[2]===105 && event[3]===2 && event[4]===true)).toBe(true);
     for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) {
-      await assert.rejects(session.tap('world',{contextmenu:true,at}), /contextmenu|covers/);
+      await assert.rejects(session.tap('world',{contextmenu:true,at}), /contextmenu|covers|tap at needs two finite numbers/);
     }
     expect((await session.carrier.ask({op:'state'})).events).toEqual(events);
     await session.tap('world',{down:true,at:[25,75]});
@@ -524,7 +526,7 @@ test('explicit primary mouse replaces a touch history and preserves real mouse i
     const {events}=await s.carrier.ask({op:'state'});
     expect(events.slice(0,2).every(e=>e[0]==='touch' && e[1]>1)).toBe(true);
     expect(events.slice(2)).toEqual([1,0,2,0].map((buttons,i)=>['mouse',1,i%2?'pointerup':'pointerdown',45,105,buttons,true]));
-    for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) await assert.rejects(s.tap('world',{mouse:true,at}), /mouse|covers/);
+    for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) await assert.rejects(s.tap('world',{mouse:true,at}), /mouse|covers|tap at needs two finite numbers/);
     for(const opts of [{down:true},{contextmenu:true},{wheel:[0,1]},{drag:{dx:1,dy:1}}]) await assert.rejects(s.tap('world',{mouse:true,...opts}), /another input mode|one of mouse, dblclick, contextmenu/);
     expect((await s.carrier.ask({op:'state'})).events).toEqual(events);
     await s.tap('world',{down:true,at:[25,75]});
