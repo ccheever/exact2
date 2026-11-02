@@ -259,7 +259,7 @@ A change (Dynamic Type, legibility weight, control size) goes through `set_env`.
 
 Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constrained heights. The font comes out of the key only if the probes show the insets don't depend on it. A miss is measured on the main thread with a real configured control before the batch is presented, as for buttons. No per-platform guess is written into the schema.
 
-- **Where the text goes:** the host places the text editor in the content box. The node's frame is the control's frame.
+- **Where the text goes:** the host places the text editor in the content box. The node's frame is the control's frame. The glyphs start at the content box's inline start and stand on the line box centred in it, while the field is edited as well (the user's ruling of 2026-11-03). On macOS the field editor sets its glyphs in from its rect by its line fragment padding (2 points), so the chrome a native field measures counts that padding as a textarea's does: a bezeled field's text stays where AppKit puts it, and its content box is 2 points narrower on each side.
 - **Web:** the browser lays out its own `<input>`, `<textarea>` and `<button>`.
 - **Painted hosts:** answer synchronously from their look (D7).
 - **No provisional frame:** each host counts batches it presented while any control's measure was provisional (`state.layout.provisional`). The checks assert zero (§4).
