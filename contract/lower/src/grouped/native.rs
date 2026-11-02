@@ -44,8 +44,8 @@ pub(crate) fn margins_said(attrs: &[Attr]) -> bool {
 }
 
 /// A native button row's widest for its leading inset `inset`: the card less
-/// that inset (`grouped-button-max-width`), a symbol's too, so a row its
-/// author makes as wide as the card stays in it.
+/// that inset (`grouped-button-max-width`), so a row its author makes as
+/// wide as the card stays in it.
 fn widest(inset: &Expr) -> Expr {
     match inset {
         Expr::Ternary(c, a, b, span) => {
@@ -56,12 +56,7 @@ fn widest(inset: &Expr) -> Expr {
             // Mac (`grouped-button-padding-start`), and its widest that.
             let name = [
                 ("row-inset", "button-max-width"),
-                ("row-inset-symbol", "button-max-width-symbol"),
                 ("button-padding-start", "button-max-width-pushed"),
-                (
-                    "button-padding-start-symbol",
-                    "button-max-width-pushed-symbol",
-                ),
             ]
             .into_iter()
             .find(|(inset, _)| v == &metric(inset))

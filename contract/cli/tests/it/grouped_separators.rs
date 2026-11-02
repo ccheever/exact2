@@ -229,9 +229,8 @@ fn a_full_width_native_button_row_stays_in_its_card() {
         (16.0, 370.0),
         "a row its author placed with a margin is the author's, stretched across the card"
     );
-    // A row a class made one: its inset knows a leading symbol, and its
-    // widest does too.
+    // A row a class made one, a leading symbol in it, stands at the row's
+    // inset with the symbol, and spans to the card's trailing inset.
     let symbol = frame("class-symbol");
-    // At the test's 16-point root UIKit's text starts 55 in (`-exact-list-symbol-inset`).
-    assert_eq!((symbol.x, symbol.x + symbol.width), (71.0, 385.0));
+    assert_eq!((symbol.x, symbol.x + symbol.width), (32.0, 386.0));
 }

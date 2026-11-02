@@ -265,6 +265,17 @@ pub fn host_css_of(
         css.push_str("--exact-padding-bottom:");
         css.push_str(&bottom);
         css.push(';');
+        // After a leading symbol the line starts at the text, the symbol's
+        // lead past the content edge (index.html, `grouped-symbol-lead`).
+        let mut probe = exact_kernel::StyleProps::default();
+        let lead = exact_kernel::StyleValue::Text("-exact-grouped-symbol-lead".into());
+        if probe.set_dynamic(StyleId::MarginLeft, &lead).is_ok()
+            && probe.mask.has(StyleId::MarginLeft)
+        {
+            css.push_str("--exact-symbol-lead:");
+            crate::css::dimension(&mut css, probe.margin_left);
+            css.push(';');
+        }
     }
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {

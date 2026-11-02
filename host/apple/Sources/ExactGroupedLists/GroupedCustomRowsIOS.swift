@@ -134,31 +134,30 @@ extension GroupedListView {
 
     /// Where the custom row `id`'s line starts from its cell's leading edge,
     /// read live, so a row not yet carried has it too: at its content box
-    /// (the row's inset, past a leading symbol), the row at the place it is
-    /// carried to (`carry`), as the kernel places the line where the sheet
-    /// draws it (`Kernel::grouped_separator`). Right to left the leading
-    /// edge is the right, where the kernel mirrors the sheet's insets.
-    /// A `delete=` row is a swipe scroll whose content holds the row's
-    /// insets (`swipe_rows::grouped`): its line starts at that content's
-    /// box, past a leading symbol there, at the text as UIKit's does with
-    /// an image, not at the card's edge.
+    /// (the row's inset), past a leading symbol at the text as UIKit's does
+    /// with an image, the row at the place it is carried to (`carry`), as
+    /// the kernel places the line (`Kernel::grouped_separator`). Right to
+    /// left the leading edge is the right, where the kernel mirrors the
+    /// sheet's insets. A `delete=` row is a swipe scroll whose content holds
+    /// the row's insets (`swipe_rows::grouped`): its line starts in that
+    /// content, not at the card's edge.
     func lineStart(_ id: UInt32) -> CGFloat? {
         guard let row = host.presenter.views[id] else { return nil }
         let x = row.grid.map { PixelGrid.round($0.layout.minX, scale: host.presenter.gridScale) } ?? carried[id]?.frame.minX ?? row.frame.minX
-        var box = row.contentBox().offsetBy(dx: -row.bounds.minX, dy: 0)
-        if let body = row.props["swipeContent"].flatMap({ swipeBody(of: row, named: $0) }) {
-            var content = body.contentBox()
-            let shown = body.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
-            if shown.count > 1, leadingSymbol(of: body) === shown[0] {
-                let text = body.container.convert(shown[1].frame, to: body)
-                if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft {
-                    content.size.width = max(0, text.maxX - content.minX)
-                } else {
-                    content = CGRect(x: text.minX, y: content.minY, width: max(0, content.maxX - text.minX), height: content.height)
-                }
+        let body = row.props["swipeContent"].flatMap { swipeBody(of: row, named: $0) } ?? row
+        var content = body.contentBox()
+        let shown = body.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
+        let accessories = ["chevron.forward", "chevron.right", "checkmark"]
+        if leadingSymbol(of: body) === shown.first,
+           let after = shown.dropFirst().first(where: { !($0.kind == "image" && accessories.contains($0.props["symbolName"] ?? "")) }) {
+            let text = body.container.convert(after.frame, to: body)
+            if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft {
+                content.size.width = max(0, text.maxX - content.minX)
+            } else {
+                content = CGRect(x: text.minX, y: content.minY, width: max(0, content.maxX - text.minX), height: content.height)
             }
-            box = body.convert(content, to: row).offsetBy(dx: -row.bounds.minX, dy: 0)
         }
+        let box = body.convert(content, to: row).offsetBy(dx: -row.bounds.minX, dy: 0)
         if collection.effectiveUserInterfaceLayoutDirection == .rightToLeft { return row.bounds.width - box.maxX - x }
         return x + box.minX
     }
