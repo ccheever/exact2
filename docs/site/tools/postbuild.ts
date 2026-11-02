@@ -1,5 +1,6 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { sections } from '../constants/navigation.ts';
 import { redirects } from '../constants/redirects.ts';
 import { site } from '../constants/site.ts';
 
@@ -10,6 +11,13 @@ const ORIGIN = site.origin;
 type Page = { path: string; route: string; title: string; description: string; source: string; section: string; updated: string };
 const pages: Page[] = JSON.parse(readFileSync(join(SITE, 'content/pages.json'), 'utf8'));
 if (!existsSync(join(DIST, 'routes.json'))) throw new Error(`${DIST} has no routes.json: run web-build first`);
+
+const hidden = sections.flatMap(s => s.pages).filter(p => p.hidden).map(p => p.path);
+const isHidden = (pattern: string) => hidden.some(h => pattern === h || pattern.startsWith(`${h}/`));
+const table = JSON.parse(readFileSync(join(DIST, 'routes.json'), 'utf8'));
+table.routes = table.routes.filter((r: { pattern: string }) => !isHidden(r.pattern));
+writeFileSync(join(DIST, 'routes.json'), `${JSON.stringify(table, null, 2)}\n`);
+for (const path of hidden) rmSync(join(DIST, path.slice(1)), { recursive: true, force: true });
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const withSlash = (p: string) => (p === '/' ? p : `${p}/`);

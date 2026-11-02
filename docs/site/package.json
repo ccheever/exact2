@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "gen": "bun tools/gen.ts",
-    "build": "bun tools/gen.ts && bun exact.mjs web-build --out dist && bun tools/postbuild.ts dist && bun tools/seo-check.ts dist",
+    "build": "bun tools/gen.ts --deploy && bun exact.mjs web-build --out dist && bun tools/postbuild.ts dist && bun tools/seo-check.ts dist && bun tools/gen.ts",
     "start": "bun exact.mjs serve dist"
   },
   "dependencies": {},
