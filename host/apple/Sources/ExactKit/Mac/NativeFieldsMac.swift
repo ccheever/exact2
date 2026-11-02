@@ -64,7 +64,7 @@ extension NodeView {
         n.stringValue = f.stringValue
         n.font = f.font
         n.textColor = f.textColor
-        let focused = window != nil && f.currentEditor() != nil
+        let focused = window != nil && editingEditor != nil
         f.removeFromSuperview()
         addSubview(n)
         field = n
@@ -86,7 +86,7 @@ extension NodeView {
         field.focusRingType = outlineNone || (native && fieldInCell) || themed ? .none : native ? .default : .exterior
         restyleFieldFocus()
         syncFieldSide()
-        if native, field.currentEditor() == nil {
+        if native, editingEditor == nil {
             field.attributedStringValue = NSAttributedString(string: field.stringValue, attributes: fieldTextAttributes)
         }
         if let editor = field.currentEditor() as? NSTextView { styleFieldEditor(editor) }

@@ -587,10 +587,12 @@ extension NodeView {
     }
     package func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
-        showFieldFocus(false)
-        textAreaScroll?.noteFocusRingMaskChanged()
-        presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
-        presenter?.blur(id)
+        leavingFocus {
+            showFieldFocus(false)
+            textAreaScroll?.noteFocusRingMaskChanged()
+            presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
+            presenter?.blur(id)
+        }
     }
 }
 
