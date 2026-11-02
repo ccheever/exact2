@@ -128,17 +128,25 @@ package class ScrollView: UIScrollView {
     /// rule 2), so the drag it steps aside from is taken here.
     func admitsPan(velocity: CGPoint, translation: CGPoint, start: CGPoint) -> Bool {
         let direction = velocity == .zero ? translation : velocity
+        return touchActionAllows(direction, from: start) && !handsOff(direction)
+    }
+    /// `admitsPan` without its side effect on `bounces`, for another view's
+    /// recognizer that waits on this pan (a `swipe`, LLP 1057.001 §8.4).
+    func wouldPan(_ direction: CGPoint, from start: CGPoint) -> Bool {
+        touchActionAllows(direction, from: start) && !chains(direction)
+    }
+    /// Whether `touch-action`, intersected from the node hit at `start`
+    /// through this container as CSS does, leaves `direction` to the pan. It
+    /// governs the initial direction, not a reversal.
+    private func touchActionAllows(_ direction: CGPoint, from start: CGPoint) -> Bool {
         var view = hitTest(start, with: nil)
         if CanvasInputs.owns(view) { return false }
-        // CSS intersects touch-action from the hit element through the
-        // scroll container. It governs initial direction, not reversal.
         while let current = view {
             if let node = current as? NodeView, !node.allowsTouchPan(direction) { return false }
             if current === self { break }
             view = current.superview
         }
-        if let owner = scrollingNode, !owner.allowsTouchPan(direction) { return false }
-        return !handsOff(direction)
+        return scrollingNode?.allowsTouchPan(direction) ?? true
     }
     /// CSS's scroll chaining at a gesture's start (LLP 1070 G1, Q4 as ruled
     /// provisionally): under `overscroll-behavior: auto`, a drag that begins

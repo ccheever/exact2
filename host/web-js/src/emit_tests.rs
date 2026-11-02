@@ -25,6 +25,21 @@ fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization
     }
 }
 
+/// @ref LLP 1057.001 §8.3 — the web makes no swipe: the JS target takes a plan
+/// with `swipe` and links no motion for it, where `swiperight`'s drag needs it
+#[test]
+fn a_swipe_builds_and_links_no_motion() {
+    let page = |attrs: &str| {
+        let source = format!("component App\n  action went\n    let n = 1\n  view\n    column {attrs}\n      text \"a\"\n");
+        crate::emit::emit(&contract::compile(&source).unwrap(), false, false).unwrap()
+    };
+    assert!(!page("swipe=went swipe-direction=\"down\"").motion);
+    assert!(
+        page("swiperight=went").motion,
+        "the premise: a drag links motion"
+    );
+}
+
 /// @ref LLP 1145 D4 — list.js reads `reach-margin` from the list's options.
 #[test]
 fn a_reach_margin_is_a_list_option() {

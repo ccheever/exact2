@@ -1201,15 +1201,25 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return false
         }
         guard let start, let view else { return true }
-        var overSwipeRight = false
-        var hit = view.hitTest(start, with: nil)
+        let hit = view.hitTest(start, with: nil)
         if CanvasInputs.owns(hit) { return false }
-        while let current = hit {
-            if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
-            if current === view { break }
-            hit = current.superview
+        return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: Self.overRightSwipe(hit, in: view), velocity: velocity)
+    }
+
+    /// Whether the content pop stays off a touch on `hit`: anywhere on a
+    /// `swiperight` row (LLP 1057.001 §7), or on a node with a one-finger
+    /// `swipe` to the right with no `press` node between (§8.4, rule 3).
+    static func overRightSwipe(_ hit: UIView?, in view: UIView) -> Bool {
+        var current = hit, pressBetween = false
+        while let v = current {
+            if let node = v as? NodeView {
+                if node.handlers.contains("swiperight") || (!pressBetween && node.takesRightSwipe) { return true }
+                if node.handlers.contains("press") { pressBetween = true }
+            }
+            if v === view { return false }
+            current = v.superview
         }
-        return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: velocity)
+        return false
     }
 
     /// UIKit's push or pop on `nav`, while it runs: its coordinator presents

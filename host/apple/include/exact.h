@@ -593,6 +593,8 @@ uint32_t exact_share_land(ExactRuntime rt);
  *      the whole value verbatim; x2apps codeedit #2);
  * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
  * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
+ * 61 = swipe: UTF-8 left|right|up|down, the direction the platform recognized
+ *      (LLP 1057.001 §8).
  * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
  *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
  *      true|false for repeat, and optionally newline, true|false for isComposing;

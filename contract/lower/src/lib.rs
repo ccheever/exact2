@@ -77,6 +77,7 @@ mod stmts;
 mod strings;
 pub mod style_names;
 mod svg;
+mod swipe;
 mod swipe_rows;
 mod symbols;
 mod tables;

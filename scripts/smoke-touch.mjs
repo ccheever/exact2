@@ -11,6 +11,8 @@
 // grouped list (LLP 1084, `contract/corpus/grouped-touch.contract`, in
 // Caltrain's bundle): a real tap on a row's switch, detail button or row
 // lands on the cell or accessory UIKit draws, not the hidden authored node.
+// Then a discrete swipe (LLP 1057.001 §8.9, `contract/corpus/swipe-touch.contract`):
+// real flicks on a bar, its field and a card, which swipe only where §8.4 says.
 // The final activity archive phase requires --build for its gallery variant;
 // without it, an installed app without the gallery skips that phase with a reason.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
@@ -58,6 +60,12 @@ if (argv.includes('--build')) {
   if (refused.status !== 0) throw Error('FAIL ios-touch activity refusals');
 }
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
+// A corpus fixture compiled to a plan Caltrain's bundle opens, or the compiler's refusal
+const fixture = (name) => {
+  const plan = resolve(mkdtempSync(resolve(ROOT, 'target/exact-touch-')), `${name}.plan`);
+  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, `contract/corpus/${name}.contract`), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  return { plan, c };
+};
 for (const timing of ['agent', 'platform']) {
   const opened = Date.now();
   let s;
@@ -135,8 +143,7 @@ for (const timing of ['agent', 'platform']) {
 // A grouped list's rows under real touches: each tap aims at what UIKit
 // draws (the switch, the detail button, the cell) and does what a finger does.
 {
-  const plan = resolve(mkdtempSync(resolve(ROOT, 'target/exact-touch-')), 'grouped-touch.plan');
-  const c = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/grouped-touch.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  const { plan, c } = fixture('grouped-touch');
   let s;
   if (check(c.status === 0, `grouped: the fixture did not compile: ${c.stderr}`)) {
     try {
@@ -197,6 +204,65 @@ for (const timing of ['agent', 'platform']) {
       console.log(`grouped modal (${touch}): ${tap.delivery}, removes ${state.slots.removes}`);
     } catch (error) { check(false, `grouped modal (${touch}): ${error.message}`); }
     finally { await s.close(); }
+  }
+}
+
+// A discrete swipe under real touches (LLP 1057.001 §8.9): a flick down the
+// bar, or down its field while the text fits, swipes; once the text overflows,
+// the same flick scrolls the field and swipes nothing. On the focused field a
+// flick from the caret swipes, as a quick flick from it moves nothing; a
+// flick from a selection handle swipes nothing and keeps the selection; and a
+// long press's caret drag moves the caret and swipes nothing. On the card a
+// flick swipes and does not press, a tap presses, and a long press opens the
+// menu and, moved on, swipes nothing.
+{
+  const { plan, c } = fixture('swipe-touch');
+  let s;
+  if (check(c.status === 0, `swipe: the fixture did not compile: ${c.stderr}`)) {
+    try {
+      s = await open({ host: 'ios', app: 'caltrain', plan, touch: 'platform' }); usedTouches = true;
+      await s.clock('settle');
+      const expect = async (what, r, want) => {
+        check(r.delivery === 'platform', `swipe: ${what} was not a real touch: ${JSON.stringify(r)}`);
+        await s.clock('settle');
+        const seen = byTestId(await s.tree(), 'facts')?.props.text;
+        check(seen === want, `swipe: after ${what} the facts (swipes, presses, menus) read ${seen}, not ${want}`);
+      };
+      // 120 points down in 80 ms, from 8 points below the target's top
+      const flick = (target) => s.tap(target, { drag: { dx: 0, dy: 120, over: 80, from: [40, 8] } });
+      await expect('a flick down the bar', await flick('bar'), '1 0 0');
+      await expect('a flick down the fitting field', await flick('field'), '2 0 0');
+      await expect('a flick down the card', await flick('card'), '3 0 0');
+      await expect('a tap on the card', await s.tap('card'), '3 1 0');
+      await expect('a long press on the card, then a move', await s.tap('card', { drag: { dx: 0, dy: 120, press: 800, over: 200, from: [40, 8] } }), '3 1 1');
+      // Three lines in the field, which still fits them. Its 17-point text
+      // starts 16 points in, and the first line's middle is 20 points down.
+      const caret = async () => byTestId(await s.tree(), 'caret')?.props.text;
+      await s.tap('field', { at: [200, 20] });
+      await s.type('field', 'Hello there\nsecond line\nthird line'); await s.clock('settle');
+      // A flick from the caret, at the text's end, is the bar's swipe: a quick flick from it moves nothing
+      await expect('a flick from the caret', await s.tap('field', { drag: { dx: 4, dy: 120, over: 80, from: [87, 60] } }), '4 1 1');
+      // A double tap on "Hello" selects it, its end handle 55 points in, below the line. The runner's two taps can
+      // come too far apart to be a double tap and only place the caret, so try again
+      let word;
+      for (let tries = 0; tries < 3 && !/^0-5$/.test(word ?? ''); tries++) {
+        await s.tap('field', { at: [200, 20] }); await s.tap('field', { at: [36, 20] }); await s.tap('field', { at: [36, 20] }); await s.clock('settle');
+        word = await caret();
+      }
+      check(word === '0-5', `swipe: a double tap selected ${word}, not "Hello" (0-5)`);
+      await expect('a flick from a selection handle', await s.tap('field', { drag: { dx: 4, dy: 120, over: 100, from: [55, 36] } }), '4 1 1');
+      check((await caret()) === word, `swipe: the flick from the handle changed the selection to ${await caret()}`);
+      // A long press on the first line, moved down a line, drags the caret there
+      await s.tap('field', { at: [200, 20] }); await s.clock('settle');
+      const before = await caret();
+      await expect("a long press's caret drag", await s.tap('field', { drag: { dx: 0, dy: 22, press: 700, over: 200, from: [36, 20] } }), '4 1 1');
+      check((await caret()) !== before, `swipe: the long press's drag moved no selection (still ${before})`);
+      await s.type('field', Array.from({ length: 8 }, (_, i) => `Line ${i + 1}`).join('\n'));
+      await expect('a flick down the overflowing field', await flick('field'), '4 1 1');
+      console.log('swipe: real flicks swiped on the bar, the fitting field, the caret and the card, and not on a selection handle, the overflowing field or after a long press');
+    } catch (error) {
+      check(false, `swipe: ${error.message}`);
+    } finally { await s?.close(); }
   }
 }
 

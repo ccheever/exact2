@@ -301,6 +301,21 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     {
         return Err(mismatch());
     }
+    // A computed `swipe-direction` or `touch-count` that lowering would
+    // refuse as a literal is refused here, so the row is unset and journaled
+    // (LLP 1057.001 §8.1): an unset direction leaves the swipe off, and an
+    // unset count leaves it the platform's own. A direction is kept as
+    // lowering keeps a literal.
+    if prop == PropId::SwipeDirection {
+        let PropValue::Str(s) = &out else {
+            return Err(mismatch());
+        };
+        let words = exact_kernel::props::swipe_directions(s).ok_or_else(mismatch)?;
+        return Ok((prop, PropValue::Str(words.into())));
+    }
+    if prop == PropId::TouchCount && !matches!(&out, PropValue::Int(n) if *n >= 1) {
+        return Err(mismatch());
+    }
     Ok((prop, out))
 }
 

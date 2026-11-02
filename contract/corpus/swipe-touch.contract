@@ -1,0 +1,30 @@
+// Real-touch fixture (LLP 1057.001 §8.9): a card with a swipe down, a
+// `press` and a context menu, and below it a bar with a swipe down holding a
+// field that grows with its text to three lines and then scrolls.
+// `bun scripts/smoke-touch.mjs` flicks, taps and holds them through the
+// touch runner and reads the counts.
+component SwipeTouch
+  state swipes = 0
+  state presses = 0
+  state menus = 0
+  state draft = "Hello there"
+  state caret = ""
+  action swiped
+    swipes = swipes + 1
+  action pressed
+    presses = presses + 1
+  action menued
+    menus = menus + 1
+  action setDraft(v)
+    draft = v
+  action selected(e: InputEvent)
+    caret = `${e.selectionStart}-${e.selectionEnd}`
+  view
+    column testId="root" width="100%" height="100%"
+      text `${swipes} ${presses} ${menus}` testId="facts" padding-top=60 padding-left=16
+      text caret testId="caret" padding-left=16
+      column testId="card" swipe=swiped swipe-direction="down" press=pressed contextmenu=menued margin=16 height=160 border-radius=12 background-color="#eef2ff" align-items="center" justify-content="center"
+        text "Card"
+      // Room below the bar for a flick to stay on the screen
+      row testId="bar" swipe=swiped swipe-direction="down" padding=16 margin-bottom=240 background-color="#f2f2f7"
+        textarea appearance="none" testId="field" aria-label="Message" value=draft input=setDraft selectionchange=selected field-sizing="content" font-size=17 line-height="20.287px" min-height=40.3333 max-height=81 flex=1 padding-left=16 padding-right=16 padding-top=10.0231 padding-bottom=10.0231 border-radius=20 box-sizing="border-box" background-color="#ffffff"

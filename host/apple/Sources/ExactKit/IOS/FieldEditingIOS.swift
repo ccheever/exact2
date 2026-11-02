@@ -95,7 +95,10 @@ extension NodeView {
     }
     /// The selection moved: a person's non-collapsed one is a `select`
     /// (x2apps codeedit #2, `FieldSelections`).
-    @objc package func textFieldDidChangeSelection(_ textField: UITextField) { presenter?.fieldSelections.changed(self) }
+    @objc package func textFieldDidChangeSelection(_ textField: UITextField) {
+        selectionMovedAt = ProcessInfo.processInfo.systemUptime
+        presenter?.fieldSelections.changed(self)
+    }
     @objc package func textFieldDidEndEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         if presenter?.editing === self { presenter?.editing = nil }

@@ -736,6 +736,7 @@ package final class Presenter {
     /// hover`); under the agent it stands for the system cursor.
     var agentPointer: NSPoint?
     var onSwiperight: ((UInt32) -> Void)?
+    var onSwipe: ((UInt32, String) -> Void)?
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?

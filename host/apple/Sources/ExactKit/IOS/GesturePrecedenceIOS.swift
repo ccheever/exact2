@@ -19,11 +19,12 @@ extension NodeView {
     /// A press handler or text input strictly between the touch and this node.
     /// A `pan` passes a press (`presses: false`): it takes the touch once it
     /// begins, cancelling the press, as a draggable element hears a drag that
-    /// starts on a button inside it (kanban F6).
-    func pressBoundary(_ touch: UITouch, presses: Bool = true) -> Bool {
+    /// starts on a button inside it (kanban F6). A finger's `swipe` passes a
+    /// text input (`editors: false`, LLP 1057.001 §8.4).
+    func pressBoundary(_ touch: UITouch, presses: Bool = true, editors: Bool = true) -> Bool {
         var view = touch.view
         while let current = view, current !== self {
-            if let node = current as? NodeView, (presses && node.handlers.contains("press")) || node.field != nil || node.textArea != nil { return true }
+            if let node = current as? NodeView, (presses && node.handlers.contains("press")) || (editors && (node.field != nil || node.textArea != nil)) { return true }
             view = current.superview
         }
         return false
@@ -32,11 +33,14 @@ extension NodeView {
         // A swipe waits for the screen-edge back gesture to fail, as UIKit's
         // own swipe actions and Signal's swipe to reply do: from the edge, back wins.
         #if os(iOS)
-        // Only the screen-edge one: iOS 26's content pop is the same class,
-        // and it waits for the swipe in turn, so waiting on it would leave neither.
-        if gesture === swipeRecognizer, let nav = other.view?.next as? UINavigationController,
+        // Only the screen-edge one: iOS 26's content pop is the same class.
+        // `swiperight`'s pan waiting on it would leave neither able to begin
+        // (LLP 1057.001 §7, measured); a `swipe` to the right gets its touch
+        // from the content pop's own gate (`NavigationHost.overRightSwipe`).
+        if gesture === swipeRecognizer || gesture is DiscreteSwipe, let nav = other.view?.next as? UINavigationController,
            nav.interactivePopGestureRecognizer === other { return true }
         #endif
+        if let swipe = gesture as? DiscreteSwipe { return swipeRequiresFailure(swipe, of: other) }
         guard dragRecognizers.contains(where: { $0 === gesture }), let owner = other.view as? NodeView,
               owner !== self, owner.isDescendant(of: self) else { return false }
         return owner.dragRecognizers.contains { $0 === other }

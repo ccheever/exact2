@@ -271,6 +271,7 @@ impl Lowerer<'_> {
         };
         tags::validate_list(tag, expanded, *span)?;
         self.check_collection(tag, expanded, children, *span, scope)?;
+        crate::swipe::check(expanded)?;
         // @ref LLP 1115.000 D16 — whether this list's rows are cells.
         let cells = cells::rows(tag, expanded, children, grouped.is_some());
         let grouped_list = grouped.is_some();

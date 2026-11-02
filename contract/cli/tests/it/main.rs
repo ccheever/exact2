@@ -201,6 +201,7 @@ mod styles_rows;
 mod surface;
 mod svg;
 mod svg_use_foreign_object;
+mod swipe;
 mod symbol_ink;
 mod symbol_tint;
 mod symbols;

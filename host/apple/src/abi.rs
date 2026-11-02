@@ -1020,8 +1020,8 @@ impl<D: DataSource> Bridge<D> {
             // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
             // toggle (50), focusin (46) and focusout (47) with their targets, scrollend (51),
             // a file drag's enter (55) and leave (56), a paste with files (57), an iframe's record (58), an atom's press (59),
-            // the history swipe the Mac tracks (60) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=60 => {
+            // the history swipe the Mac tracks (60), a discrete swipe's direction (61, LLP 1057.001 §8) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=61 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),

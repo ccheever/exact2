@@ -201,6 +201,22 @@ impl PropList {
     }
 }
 
+/// `swipe-direction`'s value as lowering and the runner keep it (LLP 1057.001
+/// §8.1): its words lowercased and each kept once, or `None` when it names no
+/// direction or a word other than left, right, up and down.
+pub fn swipe_directions(value: &str) -> Option<String> {
+    let mut words: Vec<String> = Vec::new();
+    for word in value.split_ascii_whitespace().map(str::to_ascii_lowercase) {
+        if !matches!(word.as_str(), "left" | "right" | "up" | "down") {
+            return None;
+        }
+        if !words.contains(&word) {
+            words.push(word);
+        }
+    }
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

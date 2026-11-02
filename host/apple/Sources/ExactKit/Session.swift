@@ -741,6 +741,7 @@ public final class ExactSession {
         presenter.onKey = { [unowned self] id, press in applyInput(runtime.key(id, press.payload, up: press.up, capture: press.capture, now: now())) }
         presenter.onContextmenu = { [unowned self] id in applyInput(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in applyInput(runtime.swiperight(id, now: now())) }
+        presenter.onSwipe = { [unowned self] id, direction in applyInput(runtime.swipe(id, direction: direction, now: now())) }
         presenter.onRefresh = { [unowned self] id in applyInput(runtime.refresh(id, now: now())) }
         presenter.onPan = { [unowned self] id, dx, dy in applyInput(runtime.pan(id, dx: dx, dy: dy, now: now())) }
         presenter.onPanRelease = { [unowned self] id, vx, vy in applyInput(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }

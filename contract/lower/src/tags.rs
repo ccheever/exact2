@@ -529,6 +529,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
+        // @ref LLP 1057.001 §8 — a discrete swipe in the directions a node names
+        "swipe" => AttrTarget::Handler("swipe"),
+        "swipe-direction" => AttrTarget::Prop(p("swipeDirection")),
+        "touch-count" => AttrTarget::Prop(p("touchCount")),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
         "scrollend" => AttrTarget::Handler("scrollend"),

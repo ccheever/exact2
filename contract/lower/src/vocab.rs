@@ -17,6 +17,8 @@ pub fn accepts(prop: PropId) -> Option<&'static str> {
     match prop {
         PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
         PropId::ParagraphDirs => Some("ltr, rtl or auto, HTML's dir words: written, one word for every line; bound, one per source line in order, separated by white space, a line past the last word taking the last"),
+        PropId::SwipeDirection => Some("one or more of left, right, up and down, physical, separated by white space; a computed value outside them is unset, which leaves the swipe off"),
+        PropId::TouchCount => Some("a whole number of at least 1, how many touches the swipe takes; left out, the platform's own swipe"),
         _ => None,
     }
 }

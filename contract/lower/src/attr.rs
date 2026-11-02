@@ -279,6 +279,12 @@ impl Lowerer<'_> {
                 } else if prop == exact_kernel::PropId::IntersectMargin {
                     glass = crate::intersect::margin(&a.value, a.span)?;
                     &glass
+                } else if prop == exact_kernel::PropId::SwipeDirection {
+                    glass = crate::swipe::direction(&a.value, a.span)?;
+                    &glass
+                } else if prop == exact_kernel::PropId::TouchCount {
+                    glass = crate::swipe::count(&a.value, a.span)?;
+                    &glass
                 } else if let Some(width) = values::split_width(prop, &a.value) {
                     glass = width;
                     &glass

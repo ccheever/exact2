@@ -793,6 +793,7 @@ extension NodeView {
         if let next = directed(tv.typingAttributes[.paragraphStyle] as? NSParagraphStyle) { tv.typingAttributes[.paragraphStyle] = next }
     }
     package func textViewDidChangeSelection(_ textView: UITextView) {
+        selectionMovedAt = ProcessInfo.processInfo.systemUptime
         // A person's selection beside a hidden link destination (LLP 1045 D5).
         if let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil {
             let live = f.selectedRange

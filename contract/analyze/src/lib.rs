@@ -387,7 +387,7 @@ fn check_tasks(c: &Component) -> Vec<AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 83] = [
+pub const HANDLERS: [&str; 84] = [
     "press",
     "change",
     "input",
@@ -450,6 +450,7 @@ pub const HANDLERS: [&str; 83] = [
     // D7); it may hand its action an `AtomEvent`.
     "atompress",
     "swiperight",
+    "swipe",
     "refresh",
     "scroll",
     // DOM's `scrollend`: a scroll finished, its momentum or animation
