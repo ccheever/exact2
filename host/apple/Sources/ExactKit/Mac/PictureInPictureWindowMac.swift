@@ -150,10 +150,12 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
     private func openingFrame(_ size: NSSize) -> NSRect {
         let screen = Self.screen
         if titled {
-            // As a new window: centred at the asked size (480 × 320 where none is), then its
-            // content takes the picture's aspect, keeping its area and the window's top left.
-            var frame = NSRect(origin: .zero, size: asked ?? NSSize(width: 480, height: 320))
-            frame.origin = NSPoint(x: (screen.midX - frame.width / 2).rounded(), y: (screen.midY - frame.height / 2).rounded())
+            // As a new window: where AppKit centres one (somewhat above the middle) at the asked size
+            // (480 × 320 where none is), then its content takes the picture's aspect, keeping its
+            // area and the window's top left.
+            panel.setFrame(NSRect(origin: .zero, size: asked ?? NSSize(width: 480, height: 320)), display: false)
+            panel.center()
+            let frame = panel.frame
             let content = Self.fit(panel.contentRect(forFrameRect: frame).size, aspect: size)
             var fitted = panel.frameRect(forContentRect: NSRect(origin: .zero, size: content))
             fitted.origin = NSPoint(x: frame.minX, y: frame.maxY - fitted.height)
