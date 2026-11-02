@@ -623,7 +623,11 @@ export function contract(args, env = process.env) {
   // executable directly. `cargo run` still resolves the workspace and checks
   // fingerprints on every vocab/build lookup, which makes a builder pay that
   // startup cost repeatedly during one app bake.
-  const direct = existsSync(binary);
+  // A target override puts Cargo's executable under `target/<triple>/debug`.
+  // Keep the Cargo path in that case; the fixed host path below would otherwise
+  // run an older host binary (or an incompatible one) after Cargo built the
+  // requested target.
+  const direct = !env.CARGO_BUILD_TARGET && existsSync(binary);
   if (!direct) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
   // `build --json` is one JSON array on stdout and nothing on stderr: the compiler's diagnostics, then app.ts's.
   const json = args[0] === 'build' && args.includes('--json');
