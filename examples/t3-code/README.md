@@ -509,7 +509,10 @@ filed were moved there or closed). The gaps someone using this app runs into:
   reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the composer is opaque where the reference's glass shows the
-  transcript through it.
+  transcript through it, and so is the Usage page's segment popover.
+- The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
+  its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
+  is shifted inside the area, not the window.
 - A ChatGPT sign-in's browser page, once the callback is in, reads "Return to T3 Code (Exact)" and "You can close
   this tab." (the host's page, LLP 1133.005 D9), where the reference's adds "Your sign-in response has been received.
   T3 Code is finishing the connection."
@@ -1474,6 +1477,57 @@ Not reachable with these fixtures: a terminal excerpt in a sent message (the fix
 details), the fallback model notice (the stand-in reports no usage limits), and the narrow-window Merge row (the stand-in's
 pull request has a running check, so v0.1.6 offers no Merge; neither app shows one).
 
+**Checked with real input against a CLIProxyAPI hub (2026-11-02)** (the bundle of `8aee49c9b6`, then this round's fixes;
+a lane copy on its own bundle id and `HOME`; `second` seeded with `--turns` and given a real CLIProxyAPI hub with four
+Claude and three Codex accounts as its usage limit source, as `seed --limits` adds its stand-in; the v0.1.6 oracle paired
+with the same lane server and driven the same way). Presses, hovers, keys and VoiceOver's keys came from the HID event
+source; each result was read back from the window, the lane server's settings or VoiceOver's caption panel. No model
+turn ran through the hub, and nothing was written to it. 7 rows, 19 checks: 12 hold, 3 failed and are fixed, 1 failed
+and is left as a known difference, and 3 are not reachable with a hub; the oracle was driven through each.
+
+Hold:
+
+- Usage › Limits draws a Claude pool (Session with the two accounts that report a session window, Weekly and
+  Weekly · Fable with four) and a Codex pool (Weekly with three), one segment per account, with the same window labels,
+  figures ("40% left", "↻ +11%"), pace marks and arrows, reset times and banked credit counts as the oracle at the same
+  minute (2 of 2 reads). Hub accounts carry no accent colour in either app, so each segment takes its pool's colour.
+- A segment's popover: Plan "ChatGPT Pro 200 Subscription", Via "Lane Second · CLIProxyAPI hub", Left, Resets, Even pace,
+  Restores and "2 banked · expires in 28d 14h" with Use reset (not pressed), the email blurred (1 of 1). Escape closes a
+  pinned one (3 of 4: the first Escape of the session closed nothing and was not seen again; the oracle 1 of 1).
+- The same hub added a second time under another URL on its host keeps both entries (`cliproxy-127.0.0.1-8317-2`,
+  "Hub two"), and Limits still draws one segment per account, with the plan of the freshest read; Remove hub leaves
+  the first (1 of 1). The oracle the same (1 of 1).
+- `/usage-limits` on a Codex thread shows "Usage limits 3 accounts", each account's Weekly row, its credits line and
+  Use reset, as the oracle's (1 of 1).
+- Thread details: with Usage limits and Context window turned on, a Codex thread with hub accounts only shows no Usage
+  limits section in either app (the section reads the instance's own limits), and a stand-in thread's Context reads
+  "12k / 200k" in both (1 of 1 each).
+- VoiceOver on Limits reads, step by step, "Session", "41%", "left", "Under pace: headroom left for the rest of the
+  window, image", "↻ +10%", then each segment ("…: 81% left, resets in 1h 38m, 33% of the window left, dialog pop up
+  collapsed, button"), then the next window, in the oracle's order and words (16 of 16). The oracle reads a figure's
+  digits and its "%" as separate runs and adds "clickable" to the pace image.
+
+Failed, then fixed and checked again with real input (the rebuilt bundle, the same lane server):
+
+- A segment's popover was 286 pt wide, so its plan and source wrapped, where v0.1.6's is 320 pt (the w-72 column inside
+  PopoverPopup's padding). It is now that width (`usage-pooled.contract` `popCardWidth`).
+- The first and last segments' popovers sat flush with the segment's edge; v0.1.6 centres every popover on its segment
+  and shifts it only at the edge. It is now centred and shifted only to stay inside the scroll area (`popLeft`).
+  Its side, worked out before from the page's layout as if unscrolled, is now measured when it opens (`popSide`, the
+  segment's top in the scroll area). Checked again: the first Codex segment's popover is 320 pt wide, centred, with its
+  plan on one line, as the oracle's (1 of 1).
+- The composer's account label shrank to keep the whole plan; in v0.1.6 the label keeps its width and the plan is cut
+  ("… · ChatGPT Pro 200 Subscript…"). The label now keeps its width (`usage-bars.contract` `UsageAccountLabel`).
+  Checked again: the three plans are cut as the oracle's are (1 of 1).
+
+Left as a known difference: a weekly Claude segment's popover opens above it in v0.1.6, over the page's header; the clone
+opens it below, since its card is drawn in the page's scroll area, which clips it (below).
+
+Not reachable with a hub: the combined skipped-records warning (neither app has a skipped record: Cost reads 0 sessions),
+the ChatGPT card's connected accounts (it lists authenticated providers whose own limits carry an external usage link,
+ChatGPT subscription sharing, which a hub account never is; the app tests cover it), and the fallback model notice
+(below).
+
 **Fixed, not checked with real input or VoiceOver:**
 
 - Pairing a saved environment again reconnects it with the new credential, as the reference's
@@ -1544,7 +1598,11 @@ sign-ins, Kotoeri's ⌃K, Reduce motion and trackpad momentum by a person, and G
 - ⇧⌘P in the project filter and the hero's project menu, and the two-finger swipe, once their causes are found.
 - The Browser address bar's Return, once the plan's size limit allows its fix.
 - A terminal excerpt's details, once a fixture sends one.
-- The fallback model notice, once a fixture provider reports usage limits.
+- The fallback model notice. A hub cannot reach it: v0.1.6 reads the default provider's own usage limits
+  (`resolveNewThreadModelSelection`), never a hub's pools. It shows on a new thread's draft with no model chosen when the
+  default model's provider reports a window at 100% that has not reset, Settings has a fallback model, and the fallback's
+  provider is enabled, installed, signed in, available, not itself exhausted and allowed in the project. It needs a
+  fixture provider that reports its own usage limits; it was not forced.
 - The narrow-window Merge row, with a pull request whose checks have all finished.
 
 Open native context menus with a HID right-click, not `orca computer`'s. VoiceOver's keys need the modifier keys'

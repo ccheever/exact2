@@ -153,7 +153,8 @@ component UsageRedacted
       if over
         CnTooltip(tip=(revealed ? "Click to hide account" : "Click to reveal account"), tipId=`${testId}-tip`, above=20)
 
-// AccountSummary: the account's label (redacted when it holds an address), then " · plan".
+// AccountSummary: the account's label (redacted when it holds an address), then " · plan", in one truncating line: the
+// label takes up to the whole width and the plan's end is cut first, as the reference's inline span cuts it.
 component UsageAccountLabel
   props
     label: string
@@ -164,11 +165,12 @@ component UsageAccountLabel
   view
     row min-width=0 max-width="100%" align-items="baseline" overflow="hidden" testId=testId
       if redact != ""
-        UsageRedacted(value=redact, placeholder=redactMask, testId=`${testId}-redacted`)
+        box flex-shrink=0 min-width=0 max-width="100%"
+          UsageRedacted(value=redact, placeholder=redactMask, testId=`${testId}-redacted`)
       else
-        text label min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
+        text label flex-shrink=0 min-width=0 max-width="100%" font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
       if plan != ""
-        text plan flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="pre" color="light-dark(#71717b, #a1a1a1)"
+        text plan min-width=0 font-size="0.75rem" line-height="1rem" white-space="pre" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #a1a1a1)"
 
 // ResetCredits: "N reset credits banked · next expires in …", "Use reset" (outline xs; "Using…"
 // while the redeem runs) and the last outcome. The confirm is mounted over the window

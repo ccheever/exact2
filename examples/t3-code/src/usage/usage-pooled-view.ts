@@ -4,9 +4,9 @@
 // ActiveSegmentPopover's check that its segment is still drawn,
 // AccountAvatar, AccountName, AccountChip, LimitNotices), UsageLimits.tsx (UsageLimitsSection's
 // provider filter) and UsagePage.tsx (CursorEnableLimits, CursorEnableRow). Changes: Contract has no container query, so the bar's `@2xl/pool` width
-// (42rem) is worked out here from the page's layout (`poolBarWidth`); the popover's side is the one the reference lands on after its
-// collision flip on an unscrolled page (`popoverSides`: below a bar too near the page's top for the
-// popover, above every other; exact2 #112); every figure and word is otherwise the reference's.
+// (42rem) is worked out here from the page's layout (`poolBarWidth`); Contract has no position-try fallback to measure a
+// popover with (exact2 #112), so each segment carries its popover's height as laid out (`popoverHeight`), from which the page
+// flips it below a segment too near the scroll area's top; every figure and word is otherwise the reference's.
 import { arr, str, type Obj } from '../client/domain';
 import { providerInstanceInitials } from '../client/presentation';
 import { driverMeta } from '../providers/providers-meta';
@@ -56,7 +56,7 @@ function segmentIdentity(account: LimitAccount, window: import('../client/domain
 }
 
 export type PooledSegment = ReturnType<typeof segmentView>;
-function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('../client/domain').Obj, reset: { restoresPercent: number } | undefined, refillPercent: number, column: number, count: number, now: number, format: string, side: string) {
+function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('../client/domain').Obj, reset: { restoresPercent: number } | undefined, refillPercent: number, column: number, count: number, now: number, format: string) {
   const remaining = remainingPercent(window), resetsIn = formatResetsIn(window, now), timeLeft = paceRemainingPercent(window, now);
   const credits = Number(account.limits.resetCredits && (account.limits.resetCredits as { availableCount?: number }).availableCount) || 0;
   const label = account.displayName ?? (account.email ? accountInitials(account.email) : account.driver);
@@ -65,12 +65,10 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
   const redeem = state.redeems.get(redeemKeyOf(account, window)) ?? REDEEM_IDLE;
   const resetCredits = account.limits.resetCredits as import('../client/domain').Obj | undefined;
   const avatar = account.redeem ? 'instance' : account.email ? 'chip' : '';
-  return {
-    id, identity: segmentIdentity(account, window), column, side, remaining, credits, ...named, showName: count > 1,
+  const view = {
+    id, identity: segmentIdentity(account, window), column, remaining, credits, ...named, showName: count > 1,
     // The even-pace tick's place along the segment; -1 without a clock.
     timeLeft: timeLeft ?? -1,
-    // PopoverPopup align center, shifted inside the page at the bar's ends (Base UI's collision shift).
-    align: count > 1 && column === 1 ? 'start' : count > 1 && column === count ? 'end' : 'center',
     label: `${label}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ''}${timeLeft === null ? '' : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : ''}`,
     resets: resetsIn ? resetsIn.replace('resets in ', '↻ ') : '',
     creditsAria: credits ? `${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : '',
@@ -90,6 +88,18 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
     redeemable: !!account.redeem && credits > 0, creditsText: account.redeem && credits > 0 && resetCredits ? resetCreditsSummary(resetCredits, now, true) : '',
     busy: redeem.busy, status: redeem.status ?? '',
   };
+  return { ...view, popHeight: popoverHeight(view) };
+}
+
+/**
+ * SegmentPopover's height in points with its 6 pt side offset, as its 18rem column lays it out: the header (avatar
+ * row and email), then each group of rows after a 10 pt gap and an 11 pt rule (who, when, the credits row).
+ * The page opens it above its segment when the scroll area has this much room above the segment, else below
+ * (Base UI's flip).
+ */
+export function popoverHeight(segment: { email: string; plan: string; whereLabel: string; resetsAt: string; evenPace: string; restores: string; redeemable: boolean }): number {
+  const people = (segment.plan ? 1 : 0) + (segment.whereLabel ? 1 : 0), times = 1 + (segment.resetsAt ? 1 : 0) + (segment.evenPace ? 1 : 0) + (segment.restores ? 1 : 0);
+  return 32 + 20 + (segment.email ? 18 : 0) + (people ? 10 + 11 + people * 20 - 4 : 0) + 10 + 11 + times * 20 - 4 + (segment.redeemable ? 10 + 11 + 24 : 0) + 6;
 }
 
 /**
@@ -107,7 +117,7 @@ export function withoutDrivers(config: Obj | null, hidden: ReadonlySet<string>):
 }
 
 /** Everything UsageLimitsPooled draws for the selected environments at the page's limits clock, less the hidden drivers. */
-export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string; md: boolean; hiddenDrivers?: ReadonlySet<string> }) {
+export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[], layout: { barWidth: number; format: string; hiddenDrivers?: ReadonlySet<string> }) {
   const now = state.limitsNow, hidden = layout.hiddenDrivers ?? new Set<string>();
   const presentations = new Map<string, LimitPresentation>(selectedConnected(state).map(env => [env.id, { entry: { target: { label: env.label } }, serverConfig: withoutDrivers(env.config, hidden) }]));
   const pools = collectLimitPools(collectLimitAccounts(presentations), now);
@@ -129,7 +139,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
         if (!member.window) return [];
         const id = `${poolIndex}-${windowIndex}-${position}`;
         state.segments.set(id, { account: member.account, redeemKey: redeemKeyOf(member.account, member.window), name: accountName(member.account).name });
-        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), member.refillPercent, position + 1, window.columns.length, now, layout.format, 'top')];
+        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), member.refillPercent, position + 1, window.columns.length, now, layout.format)];
       });
       return {
         key: `${window.kind}:${window.id}`, prefix: `${poolIndex}-${windowIndex}-`, label: details?.label ?? window.label, description: details?.description ?? '',
@@ -147,7 +157,6 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
     return { key: pool.driver, prefix: `${poolIndex}-`, driver: pool.driver, icon: acp ? resolveOfficialAcpRegistryIconUrl(str(acp.iconUrl)) ?? '' : '', label: driverLabel(pool.driver), light, dark, windows, cursorBefore: cursorEnvironments.length > 0 && poolIndex === cursorPromptAt };
   });
   state.links = links.map(link => link.url);
-  popoverSides(views, { wide, md: layout.md, cursorRows: cursorEnvironments.length });
   return {
     wide,
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,
@@ -177,36 +186,6 @@ function drawnEntries(state: UsageState, segments: readonly { id: string; identi
   return segments.map(segment => `${segment.id}=${segment.identity}.${state.appearances.get(segment.identity) ?? 1}`);
 }
 
-type SideWindow = { count: number; refill: string; description: string; statuses: unknown[];
-  segments: { side: string; email: string; plan: string; whereLabel: string; resetsAt: string; evenPace: string; restores: string; redeemable: boolean }[] };
-/**
- * The side each popover takes, as Base UI's collision flip would on an unscrolled page: a bar whose top
- * lies nearer the scroll area's top than the popover is tall opens below it, every other above. The
- * heights are the layout's (UsageLimitsPooled's gaps, PoolWindowCard's padding, SegmentPopover's rows),
- * in points; Contract has no position-try fallback to measure it (exact2 #112).
- */
-export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow[] }[], layout: { wide: boolean; md: boolean; cursorRows: number }): void {
-  const cursorHeight = 20 + 12 + 34 + 16 + 12 + 28;
-  let y = 24; // the page's top padding
-  pools.forEach((pool, poolIndex) => {
-    if (poolIndex > 0) y += 32;
-    if (pool.cursorBefore && layout.cursorRows) y += cursorHeight + 32;
-    y += 20 + 12; // the section heading and its gap
-    pool.windows.forEach((window, windowIndex) => {
-      if (windowIndex > 0) y += 12;
-      const figures = 20 + 4 + 36 + (window.refill ? 4 + 16 : 0);
-      const bar = (layout.wide ? 32 : 20) + (layout.wide ? 0 : window.count * 32) + window.statuses.length * 20;
-      const row = layout.md ? Math.max(figures, bar) : figures + 12 + bar;
-      const barTop = y + 17 + (layout.md ? (row - bar) / 2 : figures + 12);
-      for (const segment of window.segments) {
-        const people = (segment.plan ? 1 : 0) + (segment.whereLabel ? 1 : 0), times = 1 + (segment.resetsAt ? 1 : 0) + (segment.evenPace ? 1 : 0) + (segment.restores ? 1 : 0);
-        const popover = 32 + 20 + (segment.email ? 18 : 0) + (people ? 10 + 11 + people * 20 - 4 : 0) + 10 + 11 + times * 20 - 4 + (segment.redeemable ? 10 + 11 + 24 : 0) + 6;
-        segment.side = barTop < popover ? 'bottom' : 'top';
-      }
-      y += 34 + row + (window.description ? 12 + 16 : 0);
-    });
-  });
-}
 export function emptyPooled(): PooledView {
   return { wide: false, empty: false, pools: [], drawn: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
 }
