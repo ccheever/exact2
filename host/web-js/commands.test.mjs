@@ -104,7 +104,7 @@ test("a prompt's Return commits its field, then presses its action", async () =>
 
 // `openURL` hands the browser a scheme app.json's `open_url` declares (`exact.openSchemes`), whatever the case it is
 // written in; an undeclared scheme, and one that runs or reads content even if declared, is refused; under the agent
-// a declared one is journaled, not opened.
+// a declared one is journaled, not opened. `change` at a named element hears which.
 test('openURL opens a declared scheme, refuses the rest, and journals under the agent', async () => {
   const server = Bun.serve({ port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
@@ -119,7 +119,14 @@ test('openURL opens a declared scheme, refuses the rest, and journals under the 
         const page = commands(line => said.push(line)), agent = commands(line => said.push(line), () => true);
         for (const url of ['vscode://vscode-remote/ssh-remote+devbox/p', 'VSCode://file/a', 'zed://ssh/devbox/p', 'javascript:alert(1)']) page.openURL(url);
         agent.openURL('vscode://file/b');
-        globalThis.result = { opened, said };
+        const asked = document.body.appendChild(document.createElement('div')), heard = [];
+        asked.id = 'asked';
+        asked.addEventListener('change', e => heard.push(e.detail));
+        page.openURL('https://example.com/', 'asked');
+        page.openURL('zed://ssh/devbox/p', 'asked');
+        page.openURL('https://example.com/', 'absent');
+        await new Promise(r => setTimeout(r));
+        globalThis.result = { opened, said, heard };
       </script>`, { headers: { 'content-type': 'text/html' } });
   } });
   let browser;
@@ -128,9 +135,10 @@ test('openURL opens a declared scheme, refuses the rest, and journals under the 
     const page = await browser.newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => globalThis.result);
-    const { opened, said } = await page.evaluate(() => globalThis.result);
-    expect(opened).toEqual(['vscode://vscode-remote/ssh-remote+devbox/p', 'vscode://file/a']);
-    expect(said).toHaveLength(3);
+    const { opened, said, heard } = await page.evaluate(() => globalThis.result);
+    expect(opened).toEqual(['vscode://vscode-remote/ssh-remote+devbox/p', 'vscode://file/a', 'https://example.com/', 'https://example.com/']);
+    expect(heard).toEqual(['opened', 'failed']);
+    expect(said).toHaveLength(4);
     expect(said[0]).toStartWith('openURL refused: "zed://ssh/devbox/p"');
     expect(said[1]).toStartWith('openURL refused: "javascript:alert(1)"');
     expect(said[2]).toBe('openURL vscode: vscode://file/b (journaled, not opened under the agent)');

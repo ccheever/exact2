@@ -50,3 +50,35 @@ fn a_trace_command_is_refused_in_the_journal() {
         );
     }
 }
+
+// `openURL(url, id)`: `change` at `id` hears whether the URL opened; the
+// headless host opens nothing, so it hears `failed`.
+#[test]
+fn an_open_is_answered_at_the_named_element() {
+    const OPEN: &str = r#"component App
+  state heard = ""
+  action open
+    openURL("https://example.com/", "opened")
+  action answered(value: string)
+    heard = value
+  view
+    column
+      button press=open testId="open" height=30
+        text "Open"
+      input id="opened" display="none" change=answered
+      text heard testId="heard"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(OPEN),
+        (),
+        (400., 800.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    tap(&mut p, "open");
+    let tree = crate::agent::handle(&mut p, r#"{"op":"tree"}"#);
+    assert!(tree.contains("\"failed\""), "{tree}");
+}

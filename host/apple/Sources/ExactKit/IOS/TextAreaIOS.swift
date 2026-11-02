@@ -194,6 +194,9 @@ package final class TextArea: UITextView {
     /// Its inline atoms' accessibility elements, and the tap that presses one (FieldAtoms.swift, LLP 1045.000 D7, D8).
     var atomElements: [AtomElement] = []
     var atomTap: (AnyObject, UITapGestureRecognizer)?
+    /// Where the atom under the pointer starts, and the hover that finds it, while a kind has `:hover` paint.
+    package var hoveredAtom: Int?
+    var atomHover: (AnyObject, UIGestureRecognizer)?
     // Typed text never takes a link's marks from the character before the
     // caret (its closing parenthesis, or its `[`).
     package override var typingAttributes: [NSAttributedString.Key: Any] {

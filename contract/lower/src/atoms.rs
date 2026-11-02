@@ -5,10 +5,13 @@ use super::*;
 use exact_kernel::PropId;
 use serde_json::{json, Map, Value};
 
-/// A declared kind: its table row and its paint rows.
+mod style;
+
+/// A declared kind: its table row and its paint rows, its own (`""`) and
+/// each state's.
 pub(crate) struct Declared {
     row: Map<String, Value>,
-    paint: Value,
+    paint: Vec<(&'static str, Vec<Value>)>,
 }
 
 /// Refuse `atoms` and `atomFaces` except on a `text` or `textarea` with a
@@ -36,17 +39,6 @@ pub(super) fn check_field(tag: &str, attrs: &[Attr]) -> Result<(), LowerError> {
     Ok(())
 }
 
-fn style_err<T>(name: &str, attr: &Attr) -> Result<T, LowerError> {
-    err(
-        "lower-atom-style",
-        format!(
-            "`atom {name}` takes one form (`link=\"scheme:\"`, `link=\"relative\"` or `prefix=\"@\"`), an optional `role` (`button` or `link`), and `color` and `background-color`; `{}` is none of these: a pill's metrics are the platform's (LLP 1045.000 D3)",
-            attr.name
-        ),
-        attr.span,
-    )
-}
-
 /// A URL scheme with its colon, by RFC 3986 §3.1.
 fn scheme(text: &str) -> bool {
     let Some(name) = text.strip_suffix(':') else {
@@ -63,7 +55,7 @@ impl Lowerer<'_> {
             let name = &declaration.name;
             let mut row = Map::new();
             row.insert("name".into(), json!(name));
-            let mut paint = Vec::new();
+            let mut style = style::AtomStyle::default();
             let mut form = None;
             for attr in &declaration.attrs {
                 let text = match &attr.value {
@@ -126,23 +118,7 @@ impl Lowerer<'_> {
                             )
                         }
                     },
-                    "color" | "background-color" => {
-                        let Some(tags::AttrTarget::Styles(ids)) = tags::attr(&attr.name) else {
-                            return style_err(name, attr);
-                        };
-                        if text.is_none() {
-                            return err(
-                                "lower-atom-style",
-                                format!("`atom {name}`'s `{}` takes a literal colour", attr.name),
-                                attr.span,
-                            );
-                        }
-                        self.check_style(attr, ids, &Ty::String, &[], &Scope::default())?;
-                        for id in ids {
-                            paint.push(json!([*id as u16, text]));
-                        }
-                    }
-                    _ => return style_err(name, attr),
+                    _ => self.atom_style_row(name, attr, &mut style)?,
                 }
             }
             if form.is_none() {
@@ -152,10 +128,12 @@ impl Lowerer<'_> {
                     declaration.span,
                 );
             }
-            let declared = Declared {
-                row,
-                paint: Value::Array(paint),
-            };
+            style.finish(name, &mut row)?;
+            let mut paint = std::mem::take(&mut style.paint);
+            if !paint.iter().any(|(state, _)| state.is_empty()) {
+                paint.insert(0, ("", Vec::new()));
+            }
+            let declared = Declared { row, paint };
             if self.atoms.insert(name.clone(), declared).is_some() {
                 return err(
                     "lower-atom-duplicate",
@@ -241,7 +219,14 @@ impl Lowerer<'_> {
                 }
                 forms.push((form.to_string(), value, name.to_string()));
             }
-            paint.insert(name.to_string(), declared.paint.clone());
+            for (state, rows) in &declared.paint {
+                let key = if state.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{name}:{state}")
+                };
+                paint.insert(key, Value::Array(rows.clone()));
+            }
             rows.push(Value::Object(row));
         }
         for (prop, value) in [

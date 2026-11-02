@@ -1158,6 +1158,15 @@ component A
     button press=go
       text "a"
 ---
+== type-open-url-argument
+# `openURL` takes the URL, then optionally the id of the element that hears whether it opened.
+component A
+  action go
+    openURL("https://example.com", "opened", "again")
+  view
+    button press=go
+      text "a"
+---
 == type-permission-argument
 # `requestPermission` takes (id, path, mode), mode "read" or "readwrite" (LLP 1069.010.000 D7).
 component A
