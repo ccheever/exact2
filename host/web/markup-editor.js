@@ -5,7 +5,7 @@
 // exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
 // only when a Markdown textarea mounts.
 import { inertAncestor } from './navigation.js';
-import { atomBox } from './atoms.js';
+import { atomBox, atomLook, kindsOf } from './atoms.js';
 
 const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
 // beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
@@ -81,18 +81,18 @@ function describe(v, at, line, atoms = []) {
   // A line that ends with an atom keeps a break after it, where a caret can stand.
   return { cls: cls.join(' '), attrs, segs, empty: empty || segs.at(-1)?.[2] !== undefined };
 }
-/** A line's atoms from its `mde_view` record: where each starts in the line, and its face. */
-function lineAtoms(v, at, faces, styles) {
+/** A line's atoms from its `mde_view` record: where each starts in the line, its face, and its kind's look (`looks`). */
+function lineAtoms(v, at, faces, looks) {
   const count = v[at + 9], o = at + 10 + count * 3, n = v[o], out = [];
   for (let k = 0; k < n; k++) {
-    const [s, e, , style] = v.subarray(o + 1 + k * 4, o + 5 + k * 4), face = faces.shift() ?? {};
-    out.push({ ...face, at: s, len: e - s, style, css: styles[face.kind] ?? '', key: JSON.stringify([face, style, styles[face.kind] ?? '']) });
+    const [s, e, , style] = v.subarray(o + 1 + k * 4, o + 5 + k * 4), face = faces.shift() ?? {}, look = looks(face.kind);
+    out.push({ ...face, at: s, len: e - s, style, look, key: JSON.stringify([face, style, look]) });
   }
   return out;
 }
 /** An island: the atom's pill, in the formats around it, contributing no source. */
 function island(a) {
-  const box = atomBox(a, a.css, true);
+  const box = atomBox(a, a.look, true);
   box.dataset.atomAt = a.at; box.dataset.atomKey = a.key;
   if (a.style & 1) box.style.fontWeight = '700'; if (a.style & 2) box.style.fontStyle = 'italic'; if (a.style & 8) box.style.textDecoration = 'line-through';
   return box;
@@ -162,7 +162,7 @@ function installMarkupEditor(textarea, host) {
   const h = wasm.mde_new(), defaults = new Set(), ours = ['contenteditable', 'role', 'aria-multiline', 'aria-readonly', 'aria-disabled', 'aria-placeholder'];
   let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
-  let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomed = null;
+  let nativeHidden = null, direction = 'none', told = null, reported = '', moving = false, reread = false, atomStyles = {}, atomKinds = {}, atomed = null;
   // The app's `paragraphDirs` words; whether they still wait to be placed by
   // line number; each line's text and word as drawn; and the drawn words as
   // the editor last kept them for its undo steps (LLP 1045 D11).
@@ -179,6 +179,8 @@ function installMarkupEditor(textarea, host) {
   let mutations = [];
   const observer = new MutationObserver(batch => mutations.push(...batch));
   observer.observe(el, { subtree: true, childList: true, characterData: true });
+  /** A kind's look (atoms.js): its measured padding and border, then its paint by state. */
+  const look = kind => atomLook(el, atomKinds[kind], atomStyles[kind], atomStyles[`${kind}:hover`], atomStyles[`${kind}:checked`]);
   function render() {
     // Native replacement/composition can detach, merge or nest our lines.
     // A record is reusable only while its node occupies the recorded place.
@@ -190,7 +192,7 @@ function installMarkupEditor(textarea, host) {
     starts = [];
     for (let i = 0, at = 1; i < v[0]; i++) {
       const line = source.slice(v[at], v[at + 1]), segments = at + 10 + v[at + 9] * 3, end = segments + 1 + v[segments] * 4;
-      const atoms = v[segments] ? lineAtoms(v, at, faces, atomStyles) : [];
+      const atoms = v[segments] ? lineAtoms(v, at, faces, look) : [];
       next.push({ line, view: v.subarray(at + 2, end), atoms: atoms.map(a => a.key).join('\n') });
       found.push([at, line, atoms]); starts.push(v[at]); at = end;
     }
@@ -228,6 +230,7 @@ function installMarkupEditor(textarea, host) {
     if (atomed?.[0] === kinds && atomed[1] === faces && atomed[2] === styles) return 0;
     atomed = [kinds, faces, styles];
     try { atomStyles = JSON.parse(styles || '{}'); } catch { atomStyles = {}; }
+    atomKinds = kindsOf(el);
     put(kinds + faces);
     return wasm.mde_atoms(h, kinds.length, faces.length) | SOURCE;
   }
@@ -380,8 +383,15 @@ function installMarkupEditor(textarea, host) {
   }
   function emit() {
     if (destroyed || !host.live(el)) return;
+    checkAtoms();
     const next = text(wasm.mde_facts(h));
     if (next !== payload) { payload = next; host.select(el, payload); }
+  }
+  /** The island the selection is exactly (`:checked`, LLP 1045.000 D4), and no other, carries `data-atom-selected`. */
+  function checkAtoms() {
+    if (!el.querySelector('.exact-atom')) return;
+    const [s, e] = selection();
+    for (const i of islands()) i.box.toggleAttribute('data-atom-selected', s !== e && i.s === s && i.e === e);
   }
   /** The app's `input`: the edit's own type and data, the source and selection it left (`edit`: an InputEvent's init). */
   function notify(edit) {

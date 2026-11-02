@@ -82,6 +82,35 @@ private func inkMiddle(_ draw: (CGContext, CGRect) -> Void) throws -> Double {
     return Double(xs.reduce(0, +)) / Double(max(xs.count, 1))
 }
 
+
+/// The kernel's style bits for an atom's paint rows: `background-color`,
+/// `text-decoration-line` and the ring's `outline-width`, `outline-color`
+/// and `outline-offset`.
+private let fillRow = 47, underlineRow = 71, ringRow = 225, ringInkRow = 226, ringOffsetRow = 227
+
+/// The RGBA of the pixel at `x`, `y` (from the top) of a 40 by 20 picture `draw` paints.
+private func pixel(_ x: Int, _ y: Int, _ draw: (CGContext, CGRect) -> Void) throws -> [Int] {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 40, height: 20, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    draw(context, CGRect(x: 0, y: 0, width: 40, height: 20))
+    let data = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+    return (0..<4).map { Int(data[y * context.bytesPerRow + x * 4 + $0]) }
+}
+
+/// A 4 by 4 opaque red PNG as a `data:` URL.
+private func redPNG() throws -> String {
+    let srgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+    let context = try XCTUnwrap(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0, space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+    let data = NSMutableData()
+    let image = try XCTUnwrap(context.makeImage())
+    let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+    CGImageDestinationAddImage(destination, image, nil)
+    XCTAssertTrue(CGImageDestinationFinalize(destination))
+    return "data:image/png;base64," + (data as Data).base64EncodedString()
+}
+
 #if os(macOS)
 import AppKit
 
@@ -571,6 +600,101 @@ final class InlineAtomEditorMacTests: XCTestCase {
         XCTAssertFalse(drawnAtom(f) === after, "an accent colour change restyles the pills")
     }
 
+    /// The picture `pill` draws into a 40 by 20 bitmap, its pixel at `x`, `y`.
+    private func drawn(_ f: TextArea, _ x: Int, _ y: Int) throws -> [Int] {
+        let pill = try XCTUnwrap(attachments(f).first, "a pill")
+        let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+        let image = try XCTUnwrap(pill.image(for: CGRect(x: 0, y: 0, width: 40, height: 20), attributes: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil))
+        return try pixel(x, y) { context, rect in
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+            image.draw(in: rect)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
+    /// D4: a kind's inline padding and border are its pill's width: the
+    /// platform's padding (0.3em each side) gives way to its own, and a
+    /// border adds its width each side.
+    func testAKindsPaddingAndBorderAreItsPillsWidth() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        let width = { () throws -> CGFloat in
+            let pill = try XCTUnwrap(self.attachments(f).first, "a pill")
+            let location = try XCTUnwrap(f.textLayoutManager?.documentRange.location)
+            return pill.attachmentBounds(for: [.font: NSFont.systemFont(ofSize: 16)], location: location, textContainer: nil,
+                                         proposedLineFragment: CGRect(x: 0, y: 0, width: 1000, height: 20), position: .zero).width
+        }
+        let platform = try width()
+        node.applyProps(set: ["atoms": #"[{"name":"citation","link":"t3-citation:","padding":"0px","border":2}]"#], clear: [])
+        XCTAssertEqual(try width(), platform - 2 * 0.3 * 16 + 2 * 2, accuracy: 0.01, "no padding, a 2 px border each side")
+        node.applyProps(set: ["atoms": #"[{"name":"citation","link":"t3-citation:","padding":"0.5em"}]"#], clear: [])
+        XCTAssertEqual(try width(), platform + 2 * 0.2 * 16, accuracy: 0.01, "half the label's size each side")
+    }
+
+    /// D4: a kind's `:checked` ring draws while the selection is exactly
+    /// its atom, its fill over the platform's selected one; a range that
+    /// holds more draws the platform's selected look and no ring.
+    func testACheckedRingDrawsOnlyWhileTheSelectionIsExactlyTheAtom() throws {
+        let styles = ##"{"citation":[[\##(fillRow),"#ffffff"]],"citation:checked":[[\##(ringInkRow),"#ff0000"],[\##(ringRow),2],[\##(ringOffsetRow),-2],[\##(fillRow),"#ffffff"]]}"##
+        for (selection, ring) in [(NSRange(location: a, length: b - a), true), (NSRange(location: a - 1, length: b - a + 1), false)] {
+            let (node, f, window) = editor(selection: selection)
+            defer { window.close() }
+            node.applyProps(set: ["atomStyles": styles], clear: [])
+            let atom = try XCTUnwrap(drawnAtom(f))
+            XCTAssertEqual(atom.exact, ring)
+            XCTAssertTrue(atom.selected)
+            let edge = try drawn(f, 1, 10), inside = try drawn(f, 3, 10)
+            if ring {
+                XCTAssertTrue(edge[0] > 200 && edge[1] < 60 && edge[2] < 60, "the ring at the pill's edge: \(edge)")
+                XCTAssertTrue(inside.allSatisfy { $0 > 240 }, "inside it, its own white fill: \(inside)")
+            } else {
+                XCTAssertFalse(edge[0] > 200 && edge[1] < 60 && edge[2] < 60, "no ring: \(edge)")
+                XCTAssertFalse(inside.allSatisfy { $0 > 240 }, "the platform's selected fill: \(inside)")
+            }
+        }
+    }
+
+    /// D4: a kind's `:hover` paint draws on the pill under the pointer, and
+    /// stops when it leaves; the field follows the pointer only while a kind
+    /// has some.
+    func testAKindsHoverPaintDrawsUnderThePointer() throws {
+        let (node, f, window) = editor()
+        defer { window.close() }
+        drain()
+        XCTAssertNil(f.atomHover, "no `:hover` paint, nothing followed")
+        node.applyProps(set: ["atomStyles": ##"{"citation":[],"citation:hover":[[\##(underlineRow),"underline"],[\##(fillRow),"#00ff00"]]}"##], clear: [])
+        drain()
+        XCTAssertNotNil(f.atomHover, "followed")
+        XCTAssertFalse(try XCTUnwrap(drawnAtom(f)).hovered)
+        let frame = try XCTUnwrap(f.atomFrames().first?.frame)
+        f.hoverAtom(at: CGPoint(x: frame.midX, y: frame.midY))
+        var atom = try XCTUnwrap(drawnAtom(f))
+        XCTAssertTrue(atom.hovered && atom.underline)
+        XCTAssertEqual(atom.background, [0, 255, 0, 255])
+        f.hoverAtom(at: CGPoint(x: frame.maxX + 40, y: frame.midY))
+        atom = try XCTUnwrap(drawnAtom(f))
+        XCTAssertFalse(atom.hovered || atom.underline, "off the pill")
+    }
+
+    /// D2: a face's icon from an image source other than a symbol, a
+    /// `data:` PNG here, is drawn in its own colours once it is read: the
+    /// field draws the pill again when it arrives.
+    func testAnImageIconIsDrawnInItsOwnColoursWhenItArrives() throws {
+        AtomIcons.reset()
+        let png = try redPNG()
+        let face = ##"[{"source":"[Quote](t3-citation:1)","label":" ","icon":"\##(png)","title":"","color":"#000000","backgroundColor":"#ffffff"}]"##
+        let (_, f, window) = editor(faces: face)
+        defer { window.close() }
+        let red = { () throws -> Bool in
+            for x in 0..<40 { let p = try self.drawn(f, x, 10); if p[0] > 200 && p[1] < 60 && p[2] < 60 { return true } }
+            return false
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while try !red(), Date() < deadline { drain() }
+        XCTAssertTrue(try red(), "the picture's red, untinted by the black ink")
+    }
+
     func testTheTooltipIsAskedOfTheTextViewAndFollowsARewrap() throws {
         let (_, f, window) = editor("Ask about this long line of words before it " + cite + " now")
         defer { window.close() }
@@ -917,6 +1041,19 @@ final class InlineAtomReaderTests: XCTestCase {
         XCTAssertEqual(runs.map(\.text).joined(), "Ask \u{202F}\u{2066}A\u{00A0}quote\u{2069}\u{202F} now")
         // Without atoms the same source is its link text, as before.
         XCTAssertEqual(MarkupRuns.expand(source, base: base, color: nil).map(\.text).joined(), "Ask Quote now")
+    }
+
+    /// D4: a kind whose padding is zero draws its label with no padding
+    /// spaces, and its own radius and underline.
+    func testAReaderPillTakesItsKindsPaddingRadiusAndUnderline() throws {
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let styled = #"[{"name":"citation","link":"t3-citation:","padding":"0px"}]"#
+        let styles = ##"{"citation":[[49,"4px"],[\##(underlineRow),"underline"]]}"##
+        let atom = try XCTUnwrap(MarkupRuns.expand(source, base: base, color: nil, atoms: MarkdownAtoms(kinds: styled, faces: faces, styles: styles))
+            .first { $0.href.hasPrefix(MarkupRuns.atomScheme) })
+        XCTAssertEqual(atom.text, "\u{2066}A\u{00A0}quote\u{2069}")
+        XCTAssertEqual(atom.backgroundRadii.first, InlineRadius(px: 4))
+        XCTAssertTrue(atom.decoration.contains("underline"))
     }
 
     /// D8: a reader is read with each atom as its accessible name, its face's
