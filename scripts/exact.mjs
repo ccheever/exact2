@@ -618,11 +618,22 @@ function prebuildCompiler() {
 }
 
 export function contract(args, env = process.env) {
-  const cargo = compilerCargo('run', env), binary = COMPILER;
-  if (!existsSync(binary)) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
+  const cargo = compilerCargo('run', env), buildCargo = compilerCargo('build', env), binary = COMPILER;
+  // Once `exact new` (or an earlier command) has built the compiler, invoke the
+  // executable directly. `cargo run` still resolves the workspace and checks
+  // fingerprints on every vocab/build lookup, which makes a builder pay that
+  // startup cost repeatedly during one app bake.
+  const direct = existsSync(binary);
+  if (!direct) console.error('exact contract: building the Contract compiler once (about a minute on a cold checkout; `exact new` starts it in the background)…');
   // `build --json` is one JSON array on stdout and nothing on stderr: the compiler's diagnostics, then app.ts's.
   const json = args[0] === 'build' && args.includes('--json');
-  const result = spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
+  // Keep Cargo's cheap fingerprint check so editing exact2 itself cannot leave
+  // a stale compiler behind; unlike `cargo run`, this does not resolve and
+  // launch the package for every lookup.
+  const fresh = direct && spawnSync('cargo', buildCargo.args, {stdio: 'ignore', env: buildCargo.env}).status === 0;
+  const result = fresh
+    ? spawnSync(binary, args, {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26})
+    : spawnSync('cargo', [...cargo.args, '--', ...args], {stdio: ['inherit', json ? 'pipe' : 'inherit', 'inherit'], env: cargo.env, encoding: 'utf8', maxBuffer: 1 << 26});
   if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
   // A build of an app's `app.contract` refreshes the types its `app.ts` imports (LLP 1116.001 D4.5).
   const input = args[0] === 'build' ? args.slice(1).find((arg, i, rest) => !arg.startsWith('-') && rest[i - 1] !== '-o') : null;
