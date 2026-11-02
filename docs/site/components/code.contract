@@ -16,9 +16,9 @@ component Lines
   props
     lines: Line[]
   view
-    column align-items="flex-start"
+    view display="grid" grid-template-columns="minmax(100%, max-content)"
       for l in lines key=l.id
-        text font-family="var(--font-mono)" font-size="var(--text-sm)" line-height=1.7 white-space="pre" min-height="1.7em"
+        text font-family="var(--font-mono)" font-size="var(--text-sm)" line-height=1.7 white-space="pre" min-height="1.7em" margin="0 -16px" padding="0 16px" background-color=(l.mark == "add" ? "var(--color-background-success)" : l.mark == "del" ? "var(--color-background-danger)" : "transparent") testId=(l.mark == "" ? "" : `diff-${l.mark}`)
           for t in l.tokens key=t.id
             text t.text color=(t.color == "" ? "var(--color-text-default)" : t.color)
 
@@ -36,24 +36,26 @@ component CopyButton
 component CodeBlock
   props
     lang: string
+    title: string
     source: string
     lines: Line[]
   view
     column class=Frame
       row class=Bar
-        text (lang == "" ? "text" : lang) class=Label
+        text (title != "" ? title : lang == "" ? "text" : lang) class=Label testId="code-title"
         CopyButton(source=source)
       view class=Body
         Lines(lines=lines)
 
 component Terminal
   props
+    title: string
     source: string
     lines: Line[]
   view
     column class=Frame testId="terminal"
       row class=Bar
-        text "Terminal" class=Label
+        text (title != "" ? title : "Terminal") class=Label
         CopyButton(source=source)
       view class=Body
         Lines(lines=lines)

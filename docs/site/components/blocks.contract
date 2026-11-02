@@ -76,11 +76,11 @@ component Blocks
         else
           if block.kind == "code"
             view margin-top=16 margin-left=(block.depth * 24)
-              CodeBlock(lang=block.lang, source=block.text, lines=block.lines)
+              CodeBlock(lang=block.lang, title=block.title, source=block.text, lines=block.lines)
           else
             if block.kind == "terminal"
               view margin-top=16 margin-left=(block.depth * 24)
-                Terminal(source=block.text, lines=block.lines)
+                Terminal(title=block.title, source=block.text, lines=block.lines)
             else
               if block.kind == "collapsible"
                 button press=toggle(block.href) appearance="none" aria-expanded=opened.includes(block.href) class=Box margin-top=16 padding="12px 16px" display="flex" align-items="center" gap=10 text-align="start" width="100%" box-sizing="border-box" testId=`collapsible-${block.href}`
@@ -141,4 +141,28 @@ component Blocks
                                   button role="tab" press=pick(block.href, `${block.href}|${i}`) aria-selected=tabShown(`${block.href}|${i}`, opened) appearance="none" padding="8px 12px" margin-bottom=-1 border-bottom=(tabShown(`${block.href}|${i}`, opened) ? "2px solid var(--color-text-default)" : "2px solid transparent") testId=`tab-${block.href}-${i}`
                                     text label font-size="var(--text-sm)" font-weight=500 color=(tabShown(`${block.href}|${i}`, opened) ? "var(--color-text-default)" : "var(--color-text-secondary)")
                             else
-                              view margin-top=32 border-bottom="1px solid var(--color-border-secondary)"
+                              if block.kind == "image"
+                                column margin-top=16 margin-left=(block.depth * 24) gap=8 align-items="center" testId="image"
+                                  button commandfor=`zoom-${block.id}` command="show-modal" appearance="none" aria-label=`Zoom in: ${block.text}` padding=0 max-width="100%" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" overflow="hidden" cursor="zoom-in" testId="image-zoom"
+                                    image block.href alt=block.text display="block" width=(block.width > 0 ? `${block.width}px` : "100%") max-width="100%" aspect-ratio=(block.width > 0 ? `${block.width} / ${block.height}` : "auto")
+                                  if block.title != ""
+                                    text block.title font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)" text-align="center" testId="image-caption"
+                                  dialog id=`zoom-${block.id}` aria-label=block.text tabindex=-1 padding=0 max-width="calc(100vw - 32px)" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId="image-dialog"
+                                    column
+                                      image block.href alt=block.text display="block" max-width="100%" max-height="calc(100vh - 120px)" object-fit="contain"
+                                      row justify-content="space-between" align-items="center" gap=12 padding="8px 8px 8px 16px" border-top="1px solid var(--color-border-secondary)"
+                                        text (block.title != "" ? block.title : block.text) font-size="var(--text-sm)" color="var(--color-text-secondary)"
+                                        button commandfor=`zoom-${block.id}` command="close" appearance="none" padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="image-close"
+                                          text "Close" font-size="var(--text-sm)"
+                              else
+                                if block.kind == "cards"
+                                  view display="grid" grid-template-columns="repeat(auto-fill, minmax(min(100%, 14rem), 1fr))" gap=12 margin-top=16 margin-left=(block.depth * 24) testId="cards"
+                                    for c in block.links key=c.id
+                                      link href=c.href padding=16 border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" background-color="var(--color-background-default)" testId=`card-${c.title}`
+                                        column gap=6
+                                          image "symbol:document" aria-hidden=true width=20 height=20 color="var(--color-icon-default)"
+                                          text c.title margin-top=10 font-size="var(--text-sm)" font-weight=600 color="var(--color-text-default)"
+                                          if c.description != ""
+                                            text c.description font-size="var(--text-sm)" line-height=1.5 color="var(--color-text-secondary)"
+                                else
+                                  view margin-top=32 border-bottom="1px solid var(--color-border-secondary)"

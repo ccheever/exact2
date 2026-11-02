@@ -22,6 +22,7 @@ shape Tok
 
 shape Line
   id: string
+  mark: string
   tokens: Tok[]
 
 shape TreeRow
@@ -34,6 +35,12 @@ shape Link
   title: string
   href: string
 
+shape CardLink
+  id: string
+  title: string
+  href: string
+  description: string
+
 shape Block
   id: string
   kind: string
@@ -41,11 +48,15 @@ shape Block
   lang: string
   text: string
   href: string
+  title: string
+  width: number
+  height: number
   group: string
   runs: Run[]
   rows: Row[]
   lines: Line[]
   tree: TreeRow[]
+  links: CardLink[]
 
 shape TocItem
   id: string

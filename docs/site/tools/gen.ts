@@ -1,7 +1,7 @@
 import { marked, type Token, type Tokens } from 'marked';
 import { createHighlighter } from 'shiki';
 import { execSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { sections, type NavPage } from '../constants/navigation.ts';
 import { redirects } from '../constants/redirects.ts';
@@ -19,14 +19,16 @@ const SKIPPED_SECTIONS = new Set(['contents']);
 const ORIGIN = (process.env.SITE_ORIGIN ?? '').replace(/\/+$/, '');
 const MARKDOWN = join(SITE, 'assets/markdown');
 const EDIT = `https://github.com/ccheever/exact2/edit/main/docs`;
+const IMAGES = join(SITE, 'assets/images');
 
 type Run = { id: string; text: string; code: boolean; strong: boolean; em: boolean; href: string };
 type Cell = { id: string; runs: Run[] };
 type Row = { id: string; header: boolean; cells: Cell[] };
 type Tok = { id: string; text: string; color: string };
-type Line = { id: string; tokens: Tok[] };
+type Line = { id: string; mark: string; tokens: Tok[] };
 type TreeRow = { id: string; name: string; depth: number; folder: boolean };
-type Block = { id: string; kind: string; depth: number; lang: string; text: string; href: string; group: string; runs: Run[]; rows: Row[]; lines: Line[]; tree: TreeRow[] };
+type CardLink = { id: string; title: string; href: string; description: string };
+type Block = { id: string; kind: string; depth: number; lang: string; text: string; href: string; title: string; width: number; height: number; group: string; runs: Run[]; rows: Row[]; lines: Line[]; tree: TreeRow[]; links: CardLink[] };
 type Link = { title: string; href: string };
 type TocItem = { id: string; title: string; href: string };
 
@@ -42,6 +44,28 @@ const highlighter = await createHighlighter({
 });
 const LANG: Record<string, string> = { sh: 'shellscript', bash: 'shellscript', shell: 'shellscript', ts: 'ts', js: 'js', json: 'json', rust: 'rust', swift: 'swift', contract: 'contract', 'contract-test': 'contract', tamber: 'contract' };
 const TERMINAL = new Set(['sh', 'bash', 'shell', 'console']);
+
+function imageSize(file: string): { width: number; height: number } {
+  const b = readFileSync(file);
+  if (b.readUInt32BE(0) === 0x89504e47) return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') {
+    const chunk = b.toString('ascii', 12, 16);
+    if (chunk === 'VP8X') return { width: 1 + b.readUIntLE(24, 3), height: 1 + b.readUIntLE(27, 3) };
+    if (chunk === 'VP8L') { const bits = b.readUInt32LE(21); return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) }; }
+    return { width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+  }
+  if (b[0] === 0xff && b[1] === 0xd8) {
+    for (let i = 2; i < b.length - 9; ) {
+      const marker = b[i + 1], length = b.readUInt16BE(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { width: b.readUInt16BE(i + 7), height: b.readUInt16BE(i + 5) };
+      i += 2 + length;
+    }
+  }
+  const svg = b.toString('utf8');
+  const box = svg.match(/viewBox="[\d.-]+[\s,]+[\d.-]+[\s,]+([\d.]+)[\s,]+([\d.]+)"/);
+  if (box) return { width: Number(box[1]), height: Number(box[2]) };
+  throw new Error(`${relative(REPO, file)}: not a PNG, JPEG, WebP or SVG with a viewBox, so its size is unknown`);
+}
 
 function slugger() {
   const seen = new Map<string, number>();
@@ -136,7 +160,7 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
   let collapsibles = 0;
   let tabs: Block | null = null;
   let tabSets = 0;
-  const block = (b: Partial<Block> & { kind: string }) => out.push({ id: next(), depth: 0, lang: '', text: '', href: '', group, runs: [], rows: [], lines: [], tree: [], ...b });
+  const block = (b: Partial<Block> & { kind: string }) => out.push({ id: next(), depth: 0, lang: '', text: '', href: '', title: '', width: 0, height: 0, group, runs: [], rows: [], lines: [], tree: [], links: [], ...b });
   const tree = (text: string): TreeRow[] => {
     const rows: TreeRow[] = [];
     const seen = new Set<string>();
@@ -151,6 +175,24 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
     }
     return rows;
   };
+  const image = (t: Tokens.Image, depth: number) => {
+    if (/^[a-z]+:/i.test(t.href)) { block({ kind: 'image', depth, href: t.href, text: t.text, title: t.title ?? '' }); return; }
+    const file = resolve(DOCS, dirname(source), t.href);
+    if (!existsSync(file)) throw new Error(`${source}: image ${t.href} does not exist`);
+    const path = relative(REPO, file);
+    if (path.startsWith('..')) throw new Error(`${source}: image ${t.href} is outside the repository`);
+    mkdirSync(dirname(join(IMAGES, path)), { recursive: true });
+    copyFileSync(file, join(IMAGES, path));
+    block({ kind: 'image', depth, href: `/assets/images/${path}`, text: t.text, title: t.title ?? '', ...imageSize(file) });
+  };
+  const card = (item: Tokens.ListItem): CardLink => {
+    const first = item.tokens[0] as Tokens.Text | undefined;
+    const inline = first?.tokens ?? [];
+    const at = inline.findIndex(x => x.type === 'link');
+    if (at < 0) throw new Error(`${source}: a card is "[Title](link): description", not "${item.text}"`);
+    const link = inline[at] as Tokens.Link;
+    return { id: next(), title: plain(link.tokens), href: target(link.href, source), description: plain(inline.slice(at + 1)).replace(/^[\s:\u2013\u2014-]+/, '').trim() };
+  };
   const walk = (tokens: Token[], depth: number) => {
     for (const t of tokens) {
       switch (t.type) {
@@ -162,11 +204,22 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
           block({ kind: 'heading', depth: t.depth, href: id, runs: r });
           break;
         }
-        case 'paragraph': block({ kind: 'paragraph', depth, runs: runs(t.tokens, source, next) }); break;
+        case 'paragraph': {
+          const parts = (t.tokens ?? []).filter(x => !(x.type === 'text' && !x.raw.trim()));
+          if (parts.length === 1 && parts[0].type === 'image') { image(parts[0] as Tokens.Image, depth); break; }
+          block({ kind: 'paragraph', depth, runs: runs(t.tokens, source, next) });
+          break;
+        }
         case 'code': {
-          const lang = (t.lang ?? '').trim().split(/\s+/)[0];
+          const [lang = '', ...name] = (t.lang ?? '').trim().split(/\s+/);
+          const title = name.join(' ');
           if (lang === 'filetree') {
             block({ kind: 'filetree', depth, text: t.text, tree: tree(t.text) });
+            break;
+          }
+          if (lang === 'diff') {
+            const mark = (line: string) => (line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '');
+            block({ kind: 'code', depth, lang, title, text: t.text, lines: t.text.split('\n').map(line => ({ id: next(), mark: mark(line), tokens: [{ id: next(), text: line, color: '' }] })) });
             break;
           }
           const shiki = LANG[lang];
@@ -174,8 +227,8 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
             ? highlighter.codeToTokens(t.text, { lang: shiki, themes: THEMES, defaultColor: false }).tokens
             : t.text.split('\n').map(line => [{ content: line, htmlStyle: {} as Record<string, string> }]);
           const color = (style: Record<string, string> | undefined) => (style?.['--shiki-light'] && style?.['--shiki-dark'] ? `light-dark(${style['--shiki-light']}, ${style['--shiki-dark']})` : '');
-          const lines = raw.map(line => ({ id: next(), tokens: line.map(tok => ({ id: next(), text: tok.content, color: color(tok.htmlStyle as Record<string, string>) })) }));
-          block({ kind: TERMINAL.has(lang) ? 'terminal' : 'code', depth, lang, text: t.text, lines });
+          const lines = raw.map(line => ({ id: next(), mark: '', tokens: line.map(tok => ({ id: next(), text: tok.content, color: color(tok.htmlStyle as Record<string, string>) })) }));
+          block({ kind: TERMINAL.has(lang) ? 'terminal' : 'code', depth, lang, title, text: t.text, lines });
           break;
         }
         case 'hr': block({ kind: 'rule' }); break;
@@ -197,6 +250,10 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
           const list = t as Tokens.List;
           const as = marker;
           marker = '';
+          if (as === 'cards') {
+            block({ kind: 'cards', depth, links: list.items.map(item => card(item)) });
+            break;
+          }
           if (as === 'prerequisites') {
             group = `prerequisites-${collapsibles++}`;
             block({ kind: 'collapsible', lang: 'prerequisites', href: group, group: '', text: `${list.items.length} ${list.items.length === 1 ? 'requirement' : 'requirements'}` });
@@ -226,7 +283,7 @@ function render(page: SitePage): { blocks: Block[]; toc: TocItem[] } {
         }
         case 'html': {
           const raw = t.raw.trim();
-          const comment = raw.match(/^<!--\s*(steps|prerequisites)\s*-->$/);
+          const comment = raw.match(/^<!--\s*(steps|prerequisites|cards)\s*-->$/);
           if (comment) { marker = comment[1]; break; }
           if (/^<!--\s*tabs\s*-->$/.test(raw)) {
             block({ kind: 'tabs', href: `tabs-${tabSets++}`, group: '' });
@@ -294,6 +351,7 @@ const pages: SitePage[] = docs.flatMap(doc => {
 
 rmSync(OUT, { recursive: true, force: true });
 rmSync(MARKDOWN, { recursive: true, force: true });
+rmSync(IMAGES, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 mkdirSync(MARKDOWN, { recursive: true });
 const updated = new Map<string, string>();

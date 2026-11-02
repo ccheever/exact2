@@ -55,7 +55,7 @@ component Home
         text "Install the toolchain once, then make an app and start its dev loop." margin-top=6 font-size="var(--text-sm)" color="var(--color-text-secondary)"
         for b in page.blocks.filter(x => x.kind == "terminal") key=b.id
           view margin-top=16
-            Terminal(source=b.text, lines=b.lines)
+            Terminal(title=b.title, source=b.text, lines=b.lines)
       for g in nav.groups key=g.id
         column margin-top=48
           h2 class=SectionTitle

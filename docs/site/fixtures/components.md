@@ -65,3 +65,31 @@ hello/assets/
 
 > [!WARNING]
 > A warning: what breaks if the reader skips it.
+
+## Code title
+
+```json app.json
+{ "name": "Hello" }
+```
+
+## Diff
+
+```diff app.contract
+ component App
+-  view
+-    text "Hello"
++  state name = "Ada"
++  view
++    text `Hello, ${name}`
+```
+
+## Image
+
+![The Exact mark](../../../assets/brand/exact-mark.svg "A golden rectangle, split into a square and a smaller golden rectangle.")
+
+## Cards
+
+<!-- cards -->
+- [Start here](../../start-here.md): build an app with Exact, from the first command.
+- [Contract for humans](../../contract-for-humans.md): the language, one idea at a time.
+<!-- /cards -->

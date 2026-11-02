@@ -142,3 +142,24 @@ test "the sidebar hides and shows, and remembers"
   tap "sidebar-show"
   clock settle
   expect tree has "sidebar-shown"
+
+test "a code block shows its title, and a diff marks its lines"
+  size 1440x900
+  at "/_components"
+  expect text "code-title" == "app.json"
+  expect tree has "diff-add"
+  expect tree has "diff-del"
+
+test "an image shows its caption and opens larger, and closes"
+  size 1440x900
+  at "/_components"
+  expect tree has "image-caption"
+  tap "image-zoom"
+  tap "image-close"
+
+test "link cards open their page"
+  size 1440x900
+  at "/_components"
+  expect tree has "card-Contract for humans"
+  tap "card-Start here"
+  expect tree has "h-the-idea"
