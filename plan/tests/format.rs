@@ -729,6 +729,24 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
+#[test]
+fn a_count_is_bounded_by_max_count_and_the_bytes_left() {
+    use exact_plan::bytes::MAX_COUNT;
+    // A pool over 16 MiB, as a large app's code pool is, reads; a count over
+    // `MAX_COUNT` is refused even when the bytes are there.
+    let at = |n: usize| {
+        let mut bytes = (n as u32).to_le_bytes().to_vec();
+        bytes.resize(4 + MAX_COUNT + 1, 0);
+        Reader::new(&bytes).count()
+    };
+    assert_eq!(at((1 << 24) + 1908), Ok((1 << 24) + 1908));
+    assert_eq!(at(MAX_COUNT), Ok(MAX_COUNT));
+    assert_eq!(
+        at(MAX_COUNT + 1),
+        Err(PlanError::BadCount(MAX_COUNT as u32 + 1))
+    );
+}
+
 // @ref LLP 1038 D2/D3/D5 — new rows, header link, cache key, and typed roster.
 #[test]
 fn a_placeholder_is_another_row_of_the_same_type_without_its_own() {

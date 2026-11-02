@@ -7,8 +7,9 @@
 use crate::PlanError;
 
 /// Most rows, strings, or pool bytes one count may announce; a hostile count
-/// is refused before anything is allocated from it.
-pub const MAX_COUNT: usize = 1 << 24;
+/// is refused before anything is allocated from it. 64 Mi: a large app's code
+/// pool passes 16 MiB, and `count` also refuses any count over the bytes left.
+pub const MAX_COUNT: usize = 1 << 26;
 
 /// Most elements reserved up front from an announced count; a larger count
 /// grows the vector as elements actually decode, so a short payload cannot
