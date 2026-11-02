@@ -923,6 +923,12 @@ reading. Nothing that isn't HTML is added by it.
   matching T3 Code v0.1.6. Still out: an app's second window of its own
   views (a floating window holding a subtree), and media controls in
   Exact's window.
+  **Expanded (Daehyeon Mun, 2026-11-02, evening: "picture in picture
+  follows v0.1.6 when several windows open"; LLP 1042 §9.2):** a `"panel"`
+  per image, beside the one picture-in-picture window (AVKit's or Exact's
+  `"window"`), which moves to the next image where it stands, as
+  Chromium's does; the agent addresses each window by its image. The
+  default's one window at a time is AVKit's and stays.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP

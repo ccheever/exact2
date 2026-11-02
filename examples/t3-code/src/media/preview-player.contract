@@ -4,8 +4,10 @@
 // twenty items of the dialog, where Chromium's reads as the one video group. The group holds play or pause, the time,
 // mute, full screen, the overflow menu (Download, Playback speed, Picture in Picture) and the scrubber, labelled with
 // Blink's accessible names ("play", "video time scrubber", …), and shows them while the pointer is over the player or
-// it is paused. Full screen is HTML's `requestFullscreen`, which the macOS host does not present yet
-// (clone/issues/match1102-media-video-fullscreen.md).
+// it is paused. Full screen keeps to the window, as T3 Code's does: its window sets Electron's
+// `disableHtmlFullscreenWindowResize`, so the full-screen video fills the window's content, which keeps its size and
+// Space. The dialog holding the player keeps `full`: while it is set, the dialog lays the player over the whole window,
+// hides the rest, and its Escape leaves full screen instead of closing it.
 
 // m:ss, or h:mm:ss from an hour (MediaControlsImpl's FormatTime).
 fn clockText(seconds: number): string = seconds >= 3600 ? `${floor(seconds / 3600)}:${floor(seconds % 3600 / 60) < 10 ? "0" : ""}${floor(seconds % 3600 / 60)}:${floor(seconds % 60) < 10 ? "0" : ""}${floor(seconds % 60)}` : `${floor(seconds / 60)}:${floor(seconds % 60) < 10 ? "0" : ""}${floor(seconds % 60)}`
@@ -30,12 +32,15 @@ component PreviewPlayer
     broke: action
     // The overflow menu's Download: the file saved where the person chooses.
     download: action
+    // Full screen: the player over the whole window, its controls the full-screen set.
+    full: bool
+    // Asks the dialog to enter (true) or leave (false) full screen.
+    setFull: action
   state paused = false
   state muted = false
   state rate = 1
   state now = 0
   state duration = 0
-  state full = false
   state hovering = false
   state scrubbing = false
   state scrubWidth = 0
@@ -70,9 +75,7 @@ component PreviewPlayer
     fastSeek(playerId, now)
   action fullscreen
     menu = ""
-    requestFullscreen(playerId)
-  action fullscreenChanged(on: bool)
-    full = on
+    setFull(not full)
   action openMenu
     menu = menu == "" ? "main" : ""
     if menu == "main"
@@ -123,7 +126,7 @@ component PreviewPlayer
     else if key == "End"
       seek(duration)
       preventDefault()
-  // K plays or pauses, M mutes, F takes full screen (MediaControlsImpl's keyboard shortcuts).
+  // K plays or pauses, M mutes, F enters or leaves full screen (MediaControlsImpl's keyboard shortcuts).
   action playerKey(key: string)
     if key == "k"
       toggle()
@@ -135,8 +138,8 @@ component PreviewPlayer
       fullscreen()
       preventDefault()
   view
-    column role="group" aria-label=name position="relative" width=(width > 0 ? width : "auto") height=(height > 0 ? height : "auto") border-radius=radius overflow="hidden" background-color="#000000" hover=hover key=playerKey testId=testId
-      video src controls=false autoplay=true playsinline=true preload="metadata" muted=muted paused=paused playbackRate=rate allowsPictureInPicturePlayback=true id=playerId aria-hidden=true play=started pause=stopped ended=stopped timeupdate=timed durationchange=measured fullscreenchange=fullscreenChanged error=broke width=(width > 0 ? "100%" : "auto") height=(height > 0 ? "100%" : "auto") max-width=maxWidth max-height=maxHeight object-fit="contain" display="block" testId=`${testId}-video`
+    column role="group" aria-label=name position="relative" width=(full ? "100%" : width > 0 ? width : "auto") height=(full ? "100%" : height > 0 ? height : "auto") border-radius=(full ? 0 : radius) overflow="hidden" background-color="#000000" hover=hover key=playerKey testId=testId
+      video src controls=false autoplay=true playsinline=true preload="metadata" muted=muted paused=paused playbackRate=rate allowsPictureInPicturePlayback=true id=playerId aria-hidden=true play=started pause=stopped ended=stopped timeupdate=timed durationchange=measured error=broke width=(full or width > 0 ? "100%" : "auto") height=(full or height > 0 ? "100%" : "auto") max-width=(full ? "none" : maxWidth) max-height=(full ? "none" : maxHeight) object-fit="contain" display="block" testId=`${testId}-video`
       button press=picture tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" left=0 right=0 bottom=0 padding-top="2.75rem" opacity=(shown ? 1 : 0) transition="opacity 0.3s" background-image="linear-gradient(to top, #000000e6, #00000000)" pointer-events=(shown ? "auto" : "none") testId=`${testId}-controls`
         row align-items="center" height="2.25rem"

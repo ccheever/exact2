@@ -415,6 +415,34 @@ pub(super) fn align_and_position_item(
 
     let resolved_margin = Rect { left: x_margin.start, right: x_margin.end, top: y_margin.start, bottom: y_margin.end };
 
+    // EXACT PATCH 69: where the item is placed from, its place without its relative offset,
+    // for a caller that places what the item holds outside it.
+    let origin = if position == Position::Relative {
+        let unmoved = |area, alignment, size, margin, shim, direction| {
+            align_item_within_area(area, alignment, size, Position::Static, Line { start: None, end: None }, margin, shim, direction).0
+        };
+        Point {
+            x: unmoved(
+                Line { start: grid_area.left, end: grid_area.right },
+                justify_self.unwrap_or(alignment_styles.horizontal),
+                width,
+                margin.horizontal_components(),
+                0.0,
+                direction,
+            ),
+            y: unmoved(
+                Line { start: grid_area.top, end: grid_area.bottom },
+                align_self.unwrap_or(alignment_styles.vertical),
+                height,
+                margin.vertical_components(),
+                baseline_shim,
+                Direction::Ltr,
+            ),
+        }
+    } else {
+        Point { x, y }
+    };
+    tree.set_grid_origin(node, origin);
     tree.set_unrounded_layout(
         node,
         &Layout {

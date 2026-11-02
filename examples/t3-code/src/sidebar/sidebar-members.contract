@@ -1,6 +1,6 @@
 // The window's Back and Forward (sidebar-history.ts): the sidebar header's Go back and Go forward buttons and a mouse's
 // side buttons step what ⌘[ and ⌘] step, through the same targets the keyboard dispatch runs.
-use NavigationHistory from "./sidebar-shapes.contract"
+use NavigationHistory, historySteps from "./sidebar-shapes.contract"
 members T3Code
   resource navigationHistory = navigationHistory(data.revision, utilityPage, settingsOpen) as shape NavigationHistory
   // Each visit is mirrored onto the router, so the Mac's swipe, its mouse buttons and the agent's `back` step it
@@ -17,7 +17,7 @@ members T3Code
   // buttons, the agent's `back`): a step when it is where one of them goes, not under the palette or a dialog other than
   // Settings, as ⌘[ and ⌘]; else a link (/open, /notification), which opens its own tab and so leaves home's visits.
   action historyGo(direction: string)
-    let steps = not paletteOpen and (not modal or settingsOpen)
+    let steps = historySteps(paletteOpen, modal, settingsOpen)
     let way = not steps ? "" : (direction == "back" or direction == navigationHistory.backHref ? "back" : (direction == "forward" or direction == navigationHistory.forwardHref ? "forward" : ""))
     let kind = way == "back" ? navigationHistory.backKind : (way == "forward" ? navigationHistory.forwardKind : "")
     let target = way == "back" ? navigationHistory.backTarget : navigationHistory.forwardTarget

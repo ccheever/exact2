@@ -208,6 +208,16 @@ pub trait LayoutPartialTree: TraversePartialTree {
         let _ = (node_id, position);
     }
 
+    /// EXACT PATCH 69: where a grid container placed `node_id`'s box from, in the container's
+    /// border-box coordinates (as the child's `location`), each time it lays the child out:
+    /// an in-flow item's place in its area without its relative offset, an absolutely
+    /// positioned child's grid area's origin, whichever box contains it. Its `location` less
+    /// this is how far its offset or insets moved it. Nothing else reads it.
+    #[inline(always)]
+    fn set_grid_origin(&mut self, node_id: NodeId, origin: Point<f32>) {
+        let _ = (node_id, origin);
+    }
+
     /// EXACT PATCH 30: a multi-column container's `min-height` and `max-height` as its final
     /// layout resolved them, border box, `None` where it has none: its caller cuts its columns
     /// by them, and only the layout knows whether a percentage had a definite basis.

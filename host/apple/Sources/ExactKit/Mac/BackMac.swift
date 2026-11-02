@@ -18,6 +18,12 @@
 // router alone: Back while its selected stack has a visit beneath the top,
 // Forward while something is ahead, each delivered to `navigate`, as a
 // browser steps session history.
+//
+// The navigation root says which of the two ways it offers now
+// (`navigationHistory`, LLP 1115.000 D5.5), for an app whose own Back and
+// Forward go less far than its router's visits: a way it withholds is
+// offered by none of these, so AppKit tracks no swipe that would end on
+// nothing.
 #if os(macOS)
 import AppKit
 
@@ -52,12 +58,12 @@ extension NavigationHost {
     /// router's place beneath can, and a router op says so (the window's
     /// bar presents for it); `locationBeneath` is a call to the owner.
     var backFacts: [UInt32] {
-        guard let (root, route) = pushedRoute else { return [] }
+        guard let (root, route) = pushedRoute else { return [offers(back: true) ? 1 : 0] }
         let controls: [UInt32] = backControls(in: route, of: root).flatMap { control -> [UInt32] in
             [control.id, (control.disabled ? 1 : 0) | (control.handlers.contains("press") ? 2 : 0)]
         }
         let facts: [UInt32] = [route.id, root.handlers.contains("navigate") ? 1 : 0, presenter.alerts.modal == nil ? 0 : 1,
-                               presenter.dialogs.routeActive ? 1 : 0]
+                               presenter.dialogs.routeActive ? 1 : 0, offers(back: true) ? 1 : 0]
         return facts + controls
     }
 
@@ -120,10 +126,17 @@ extension NavigationHost {
                                     beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })
     }
 
-    /// Whether Back goes now: a way back, and nothing modal over the page
-    /// (a dialog in the top layer, a sheet on the window).
+    /// Whether the navigation root offers Back (`back: true`) or Forward
+    /// now: what its `navigationHistory` says, both when it says nothing.
+    func offers(back: Bool) -> Bool {
+        guard let words = root?.node.props["navigationHistory"] else { return true }
+        return words.split(separator: " ").contains(back ? "back" : "forward")
+    }
+
+    /// Whether Back goes now: a way back the root offers, and nothing modal
+    /// over the page (a dialog in the top layer, a sheet on the window).
     var canGoBack: Bool {
-        guard back != nil, presenter.alerts.modal == nil else { return false }
+        guard back != nil, offers(back: true), presenter.alerts.modal == nil else { return false }
         if let dialog = presenter.dialogs.active {
             return pushedRoute?.route === dialog && presenter.dialogs.routeActive && dialog.window?.attachedSheet == nil
         }
@@ -167,10 +180,11 @@ extension NavigationHost {
         return (root, location)
     }
 
-    /// Whether Forward goes now: somewhere ahead, and nothing modal over
-    /// the page (an alert, a dialog in the top layer, a sheet on the window).
+    /// Whether Forward goes now: somewhere ahead the root offers, and nothing
+    /// modal over the page (an alert, a dialog in the top layer, a sheet on
+    /// the window).
     var canGoForward: Bool {
-        presenter.alerts.modal == nil && presenter.dialogs.active == nil
+        offers(back: false) && presenter.alerts.modal == nil && presenter.dialogs.active == nil
             && presenter.viewport.window?.attachedSheet == nil && ahead != nil
     }
 
@@ -189,12 +203,13 @@ extension NavigationHost {
     /// its `closedby="none"` refuses. nil with neither on top; the way, and
     /// why the app refused it ("" when it did not).
     func agentBack() -> (way: String, refused: String)? {
+        let withheld = offers(back: true) ? "a dialog or a sheet is open over the page" : "the navigation root's navigationHistory does not offer back"
         if pushedRoute != nil {
-            if !canGoBack && back != nil { return ("route", "a dialog or a sheet is open over the page") }
+            if !canGoBack && back != nil { return ("route", withheld) }
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
         if let (_, route) = sheetRoute { return ("sheet", dismiss(route) ?? "") }
-        if routerRoot != nil, back != nil { return ("route", goBack() ? "" : "a dialog or a sheet is open over the page") }
+        if routerRoot != nil, back != nil { return ("route", goBack() ? "" : withheld) }
         // A split's detail has no Back (LLP 1115.002 D4). A person leaves
         // it by taking the selection off its row, and the pane's routes go
         // as their stack goes back: that is the way back from it.

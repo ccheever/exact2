@@ -60,7 +60,7 @@ shape BrowserFrames
   namers: BrowserFrameView[]
   command: BrowserFrameCommand
   pip: BrowserPip
-  desktopPip: BrowserDesktopPip
+  desktopPips: BrowserDesktopPip[]
 
 // A server tab's picture-in-picture window (server-browser-pip.ts `BrowserPipView`): its stream, the picture it floats
 // with until the stream's first, and the request that floats it.
@@ -71,8 +71,8 @@ shape BrowserPip
   seed: string
   request: number
 
-// A desktop tab's separate preview window (browser-desktop-pip.ts, Manager.ts openPictureInPicture): the tab's frame,
-// the window's title, and the request that opened it.
+// A desktop tab's separate preview window (browser-desktop-pip.ts, Manager.ts openPictureInPicture), one per tab: the
+// tab's frame, the window's title, and the request that opened it.
 shape BrowserDesktopPip
   show: bool
   runtimeId: string
@@ -80,12 +80,15 @@ shape BrowserDesktopPip
   title: string
   request: number
 
-// One capture of the window's tab (browser-desktop-pip.ts `captureDesktopPip`): the file, the window's request it is
-// for, and a count that moves on with every attempt, a failed one too.
+// One round of captures of the windows' tabs (browser-desktop-pip.ts `captureDesktopPips`): each window's latest
+// file, by the request that opened it, and a count that moves on with every round, a failed one too.
+shape BrowserPipShots
+  shots: BrowserPipShot[]
+  seq: number
+
 shape BrowserPipShot
   path: string
   request: number
-  seq: number
 
 shape BrowserPresetChoice
   id: string
