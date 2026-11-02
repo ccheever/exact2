@@ -656,6 +656,54 @@ fn a_relatively_moved_row_or_group_moves_its_cells() {
     );
 }
 
+/// A row that is a popover is in the top layer, absolutely positioned
+/// whatever its author's `position` (kernel/src/style/top_layer.rs): its
+/// `position: relative` moves neither it nor its cells, where an ordinary
+/// row's moves both (above).
+#[test]
+fn a_popover_rows_relative_position_moves_nothing() {
+    // 2 table, 3 tbody, 4 tr, 5 td, 6 box, 7 tr, 8 td, 9 box.
+    let table = || {
+        tag(
+            "table",
+            vec![tag(
+                "tbody",
+                vec![
+                    tag("tr", vec![cell(&[], 20.0, 10.0)]),
+                    tag("tr", vec![cell(&[], 20.0, 10.0)]),
+                ],
+            )],
+        )
+    };
+    let popover = |k: &mut Kernel, epoch: u64| {
+        let op = Op::SetProp {
+            id: 4,
+            prop: PropId::Popover,
+            value: "manual".into(),
+        };
+        k.apply(0, epoch, &[op]).unwrap();
+    };
+    let relative = (StyleId::PositionType, "relative");
+    let mut still = lay_out(table());
+    popover(&mut still, 2);
+    restyle(&mut still, 3, 4, &[relative]);
+    let mut moved = lay_out(table());
+    popover(&mut moved, 2);
+    restyle(
+        &mut moved,
+        3,
+        4,
+        &[relative, (StyleId::Left, "10"), (StyleId::Top, "5")],
+    );
+    for id in [4, 5, 6, 8] {
+        assert_eq!(
+            frame(&moved, id),
+            frame(&still, id),
+            "{id}: as if it had no insets"
+        );
+    }
+}
+
 /// A caption follows its table's padding as it changes: its margins and
 /// width are the table's padding box's.
 #[test]
