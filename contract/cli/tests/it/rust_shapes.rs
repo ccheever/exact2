@@ -73,3 +73,37 @@ fn rust_names_escape_keywords_and_refuse_colliding_fields() {
         "{error}"
     );
 }
+
+#[test]
+fn both_rust_printers_refuse_type_names_that_collide_in_one_scope() {
+    use exact_plan::{builder::PlanBuilder, TypesId};
+    let source = "shape A-B\n  x: number\nshape A_B\n  y: string\ncomponent App\n  state one = A-B(x=1)\n  state two = A_B(y=\"two\")\n  view\n    text \"x\"\n";
+    let plan = contract::compile(source).unwrap();
+    let check = |result: Result<String, String>| {
+        let error = result.unwrap_err();
+        assert!(error.contains("A-B") && error.contains("A_B"), "{error}");
+    };
+    check(contract::rust(&plan));
+    for separate in [false, true] {
+        let mut b = PlanBuilder::from_plan(plan.clone());
+        for (name, extension) in [
+            ("A-B", "one"),
+            ("A_B", if separate { "two" } else { "one" }),
+        ] {
+            let ty = TypesId(
+                plan.types
+                    .iter()
+                    .position(|t| plan.str(t.name) == name)
+                    .unwrap() as u32,
+            );
+            let source = b.source(name, &[], ty);
+            b.module(source, extension, name, false, false, "never", "", "{}");
+        }
+        let binding = contract::module_rust(&b.finish().unwrap());
+        if separate {
+            assert_eq!(binding.unwrap().matches("pub struct A_B {").count(), 2);
+        } else {
+            check(binding);
+        }
+    }
+}

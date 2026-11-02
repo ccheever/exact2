@@ -38,8 +38,8 @@ component App
 
 ## Resolution
 
-Both Rust printers escape type keywords and sanitize invalid type names. They reject fields whose names map to the same Rust identifier.
+Both Rust printers escape type keywords and sanitize invalid type names. They reject fields or distinct shape names that map to the same Rust identifier within a generated scope.
 
 ## Verification
 
-`rust_names_escape_keywords_and_refuse_colliding_fields` passed. The generated struct for `shape type` also compiled with `rustc --crate-type lib`, linked against the runner; ordinary shape generation remains covered by the existing tests.
+All three Rust shape regressions passed, including both printers refusing `A-B`/`A_B` collisions within one scope and allowing the mapped name in separate modules. The generated struct for `shape type` also compiled with `rustc --crate-type lib`, linked against the runner; ordinary shape generation remains covered by the existing tests.

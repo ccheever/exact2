@@ -101,10 +101,21 @@ fn reach(plan: &Plan, ty: TypesId, out: &mut BTreeMap<String, TypesId>) -> Resul
             reach(plan, row.elem.ok_or("a type with no element")?, out)
         }
         TypeKind::Record => {
-            if out.insert(record_name(plan.str(row.name)), ty).is_none() {
-                for f in fields(plan, ty) {
-                    reach(plan, f.ty, out)?;
-                }
+            let name = plan.str(row.name);
+            let rust = record_name(name);
+            if let Some(previous) = out.get(&rust) {
+                let previous = plan.str(plan.types[previous.0 as usize].name);
+                return if previous == name {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "shapes `{previous}` and `{name}` both become Rust `{rust}`"
+                    ))
+                };
+            }
+            out.insert(rust, ty);
+            for f in fields(plan, ty) {
+                reach(plan, f.ty, out)?;
             }
             Ok(())
         }
