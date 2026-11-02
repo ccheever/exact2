@@ -346,7 +346,7 @@ package final class TextArea: NSTextView {
                 style.alignment = owner.fieldAlignment
                 attributes[.paragraphStyle] = style
             }
-            (placeholder as NSString).draw(in: rect, withAttributes: attributes)
+            drawingAntialiased(owner?.drawsAntialiased == true) { (placeholder as NSString).draw(in: rect, withAttributes: attributes) }
         }
     }
 }
@@ -503,6 +503,7 @@ extension NodeView {
         f.textColor = fieldInk
         f.insertionPointColor = caretColor
         (f as? TextArea)?.placeholderColor = placeholderColor
+        f.drawAntialiased(drawsAntialiased)
         let native = isNativeTextControl && !fieldInCell
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
