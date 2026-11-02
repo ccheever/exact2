@@ -490,13 +490,18 @@ test('a native verb names its platform, and the generated workspace follows app.
     assert.match(readFileSync(resolve(first.workspace, 'android/build.rs'), 'utf8'), /exact_js_bake::build_android\(std::path::Path::new\("\.\.\/\.\.\/\.\."\)\)/);
     assert.match(readFileSync(resolve(first.workspace, 'android/src/lib.rs'), 'utf8'), /exact_linux::canvas_jni!\(super::AppData, hatches = crate::android::exact_hatches\(\)\);/);
     assert.ok(!existsSync(resolve(dir, 'Cargo.toml')) && !existsSync(resolve(dir, 'linux')), 'nothing Rust in the author\'s tree');
-    // resolveApp takes the generated workspace, with the target at the app, when nothing authored one.
-    const was = process.env.EXACT_APP_DIR;
+    // resolveApp takes the generated workspace, with the target at the app, when nothing authored one (and no
+    // CARGO_TARGET_DIR names another, as a run with its own target directory does).
+    const was = process.env.EXACT_APP_DIR, target = process.env.CARGO_TARGET_DIR;
     process.env.EXACT_APP_DIR = dir;
+    delete process.env.CARGO_TARGET_DIR;
     try {
       const app = resolveApp();
       assert.deepEqual([app.generated, app.workspace, app.target, app.crate('linux'), app.cargoPackage('linux')?.name], [true, realpathSync(first.workspace), resolve(realpathSync(dir), 'target'), 'field-log-linux', 'field-log-linux']);
-    } finally { if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was; }
+    } finally {
+      if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+      if (target !== undefined) process.env.CARGO_TARGET_DIR = target;
+    }
     // A platform dropped takes its crate with it; the last native one may go (deploy reads none as none, D1.5).
     assert.match(createApp(dir, { update: true, without: 'android' }), /without android \(removed host\.android\)/);
     assert.deepEqual(ensureShells(dir).crates, ['web', 'apple']);
