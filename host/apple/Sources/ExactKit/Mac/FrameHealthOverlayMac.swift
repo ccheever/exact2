@@ -311,8 +311,9 @@ final class FrameHealthCardViewMac: NSView {
         detailsScroll.documentView = detailsView
         addSubview(detailsScroll)
         wantsLayer = true
-        // The drawing fills the bounds; the layer clips it to the card's rounded outline
+        // The drawing fills the bounds; the layer clips it to the card's rounded outline, Apple's continuous curve
         layer?.cornerRadius = 12
+        layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
         layer?.borderWidth = 1
         setAccessibilityElement(true)
@@ -657,7 +658,8 @@ extension ExactView {
         overlay.setVisible(!health.hudVisible)
     }
     func validateFrameHealthItem(_ item: NSMenuItem) -> Bool {
-        item.title = session.frameHealth.hudVisible ? "Hide Frame Health" : "Show Frame Health"
+        item.title = session.frameHealth.unavailableExplanation == nil ? "Frame Health" : "Frame Health Disabled"
+        item.state = session.frameHealth.hudVisible ? .on : .off
         return session.frameHealth.macContainer != nil
     }
 }

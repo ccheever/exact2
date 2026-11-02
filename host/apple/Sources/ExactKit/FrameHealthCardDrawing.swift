@@ -312,6 +312,11 @@ enum FrameHealthCardDrawing {
         CGFloat(CTLineGetTypographicBounds(line(string, font), nil, nil, nil))
     }
 
+    /// `rect` with Apple's continuous corners of `radius`, the outline Exact's boxes draw for `-exact-continuous`
+    static func continuous(_ rect: CGRect, radius: CGFloat) -> CGPath {
+        CornerShape.continuous.outline(rect, Array(repeating: CGSize(width: radius, height: radius), count: 4))
+    }
+
     /// Draw `string` with its middle at `y`, starting or ending at `x`. Wider than `limit`, it shrinks
     /// to fit, as a label that adjusts its font size to its width does.
     static func text(_ ctx: CGContext, _ string: String, x: CGFloat, y: CGFloat, _ font: CTFont, _ color: CGColor, _ align: Align,

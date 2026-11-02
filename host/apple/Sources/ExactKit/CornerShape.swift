@@ -11,6 +11,10 @@ package struct CornerShape: Equatable {
     /// `-exact-continuous`.
     let k: [Float]
 
+    /// `-exact-continuous` at every corner
+    static let continuous = CornerShape(k: Array(repeating: .nan, count: 4))
+    private init(k: [Float]) { self.k = k }
+
     /// The row, or nil when every corner is `round` (no row is sent).
     init?(_ value: BatchValue?) {
         guard let corners = value?.array, corners.count == 4 else { return nil }

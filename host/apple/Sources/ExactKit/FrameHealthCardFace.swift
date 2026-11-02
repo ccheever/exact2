@@ -145,7 +145,7 @@ enum FrameHealthCardFace {
                 : state.hovered == control ? shown ? p.statusHover : p.iconHover : shown ? p.statusFill : nil
             guard let fill else { continue }
             ctx.setFillColor(fill)
-            ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil))
+            ctx.addPath(D.continuous(rect, radius: 8))
             ctx.fillPath()
         }
         Symbol.close.draw(ctx, in: layout.close.insetBy(dx: 6.6, dy: 6.6), color: p.secondary)
@@ -193,7 +193,7 @@ enum FrameHealthCardFace {
         // The segmented control: a track, and the chosen segment a chip of the card's ground
         let track = layout.track
         ctx.setFillColor(p.track)
-        ctx.addPath(CGPath(roundedRect: track, cornerWidth: 8, cornerHeight: 8, transform: nil))
+        ctx.addPath(D.continuous(track, radius: 8))
         ctx.fillPath()
         let (charts, table) = layout.segments
         for (rect, name, control, chosen) in [(charts, "Charts", Control.charts, !state.table), (table, "Table", .table, state.table)] {
@@ -201,7 +201,7 @@ enum FrameHealthCardFace {
             let fill = chosen ? p.chip : state.pressed == control ? p.statusPressed : state.hovered == control ? p.statusHover : nil
             if let fill {
                 ctx.setFillColor(fill)
-                ctx.addPath(CGPath(roundedRect: rect, cornerWidth: 6, cornerHeight: 6, transform: nil))
+                ctx.addPath(D.continuous(rect, radius: 6))
                 ctx.fillPath()
             }
             let w = D.width(name, body)

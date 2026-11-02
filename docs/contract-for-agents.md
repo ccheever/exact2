@@ -3243,12 +3243,13 @@ written, up to 16 KB; no file, no section. A deploy script that publishes the
 build under a revision sets `EXACT_DISTRIBUTION_REVISION` for the build to show
 it. Copy (iOS and macOS) takes all of it as text.
 
-On iOS, **Show Frame Health** opens a native card below sheets and alerts; the Mac's
-Develop menu has the same item. It starts hidden and takes the touches within its
-bounds: drag it from anywhere, even past the window's edges, and on release it springs
-to the window corner nearest where its momentum would carry it, past the safe area;
-accessibility actions move it to a corner. Close, at its top left, or **Hide Frame
-Health** dismisses it. Touches outside it reach the app. LLP 1079.000 §7.2 describes
+On iOS, the developer menu's **Frame Health** row opens a native card below sheets and
+alerts; the Mac's Develop menu has the same item. Row and item are checked while the
+card shows. The card starts hidden and takes the touches within its bounds: drag it
+from anywhere, even past the window's edges, and on release it springs to the window
+corner nearest where its momentum would carry it, past the safe area; accessibility
+actions move it to a corner. Close, at its top left, or the checked **Frame Health**
+dismisses it. Touches outside it reach the app. LLP 1079.000 §7.2 describes
 its rows: Live, Paused or Idle; the requested rate and any system limit; frame rate
 and missed frames for the last 0.5 s and 5 s; pacing; and charts of frame rate and
 frame time, or a table of work time, late frames, maximum frame time and pacing
@@ -3282,8 +3283,8 @@ Embedders opt in by passing a host view as `DevMenu.install`'s `frameHealthConta
 `app.json` may set `"frame_health": { "mode": "off" }` or `"core"`. Builds with
 development trust default to core counters; production bakes default to off pending
 device qualification. Showing the card does not override that policy: where collection
-is off, the developer menu's Frame Health row is dimmed, and a tap on it says so and
-how to turn collection on; on the Mac, choosing the item does. The core has fixed
+is off, the developer menu's row reads **Frame Health Disabled**, dimmed, and a tap on
+it says so and how to turn collection on; on the Mac, choosing the item does. The core has fixed
 storage for up to 16 collectors per UI thread and does no per-callback allocation;
 these bounds do not substitute for measuring whole-hook overhead on real devices.
 
@@ -3291,7 +3292,7 @@ these bounds do not substitute for measuring whole-hook overhead on real devices
 
 Run an Apple app on a connected phone with `bun host/apple/build.mjs --device --run`.
 For a production bake, opt into collection with `"frame_health": { "mode": "core" }`
-before building. Open the four-finger menu and choose **Show Frame Health**, reproduce
+before building. Open the four-finger menu and choose **Frame Health**, reproduce
 the hitch, then tap Share on the card and choose Agent Report; the share sheet takes
 the JSON text. Exact creates no report file or automatic upload. A person can send
 that text to an agent. The system share destination controls any storage it creates.
@@ -3487,7 +3488,7 @@ sample. The observer reports completion-deadline overruns. Its cadence is unknow
 passive updates can pause while a finger rests, so they contribute no FPS, interval
 histogram or maximum-gap population. This observer is not presentation feedback.
 
-On macOS, Develop offers Show/Hide Frame Health, and the card's Details and Share work
+On macOS, Develop offers Frame Health, and the card's Details and Share work
 as on iOS. Actions follow the responder chain to the eligible window; an embedder opts
 in by passing `frameHealthContainer` to `DevMenu.install`. The standalone adapter
 supplies its host slot. The card takes the clicks within its bounds and moves without
