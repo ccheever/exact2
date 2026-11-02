@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { contractFns } from '../support/contract-fn-fixture';
+import { contractFn, contractFns } from '../support/contract-fn-fixture';
 import { contractComponent } from '../support/contract-action-fixture';
 import { APP } from '../support/app-files';
 
@@ -38,5 +38,25 @@ describe('the history swipe arrow', () => {
     const state = { historySwipe: fns.historySwipeIdle() };
     window.call('historySwiped', state, { data: { sidebarOpen: true }, sidebarWidth: 256, viewport: { width: 1280, height: 840 }, historySwipeStep: fns.historySwipeStep }, [at('began', 0.125)]);
     expect(state.historySwipe).toMatchObject({ shown: true, left: 256, width: 1024, height: 840, progress: 0.5 });
+  });
+
+  test('the window root offers only the steps historyGo takes, so no swipe or arrow comes where none goes', async () => {
+    const steps = await contractFn('src/sidebar/sidebar-shapes.contract', 'historySteps', ['paletteOpen', 'modal', 'settingsOpen']);
+    const ways = await contractFn('src/sidebar/sidebar-shapes.contract', 'historyWays', ['h', 'steps']);
+    const history = (backKind: string, forwardKind: string) => ({ backKind, forwardKind });
+    expect(steps(false, false, false)).toBe(true);
+    expect(steps(true, false, false)).toBe(false); // the palette
+    expect(steps(false, true, false)).toBe(false); // a dialog
+    expect(steps(false, true, true)).toBe(true); // Settings
+    expect(ways(history('thread', 'thread'), true)).toBe('back forward');
+    // An end of the history: its first of 50 visits, or an archived thread beside it, has no step ('' kind).
+    expect(ways(history('', 'thread'), true)).toBe('forward');
+    expect(ways(history('back', ''), true)).toBe('back');
+    expect(ways(history('', ''), true)).toBe('none');
+    expect(ways(history('thread', 'thread'), false)).toBe('none');
+    const root = readFileSync(join(APP, 'src/shell/app-window.contract'), 'utf8').split('\n').find(line => line.trimStart().startsWith('main navigationKey="t3-code"'))!;
+    expect(root).toContain('navigationHistory=historyWays(navigationHistory, historySteps(paletteOpen, modal, settingsOpen))');
+    const go = readFileSync(join(APP, 'src/sidebar/sidebar-members.contract'), 'utf8');
+    expect(go).toContain('let steps = historySteps(paletteOpen, modal, settingsOpen)');
   });
 });

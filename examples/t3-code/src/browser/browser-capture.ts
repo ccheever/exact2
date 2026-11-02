@@ -24,7 +24,7 @@ import { parseScopedThreadKey, scopedThreadKey, type ScopedThreadRef } from '../
 import { activeRef } from '../terminal/terminal-drawer-view';
 import { serverStreamUrl, serverStreamFrame } from './server-browser-runtime';
 import { closeServerPictureInPicture, openServerPictureInPicture, serverPictureInPictureKey, serverPictureInPictureKeyOf } from './server-browser-pip';
-import { closeDesktopPictureInPicture, desktopPipRuntimeOf, openDesktopPictureInPicture } from './browser-desktop-pip';
+import { closeDesktopPictureInPicture, desktopPipOpen, openDesktopPictureInPicture } from './browser-desktop-pip';
 import { previewRuntimeTabId } from './browser-state';
 import { readWindowZoom } from './browser-viewport';
 import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
@@ -232,7 +232,7 @@ export function floatingTabOf(client: T3Client): string | null {
  *  separate window, an agent's recording holds it, or the agent drives it in its turn. */
 export function heldFrame(client: T3Client, runtimeId: string): { width: number; height: number } | null {
   const tab = report(client, runtimeId), recording = obj(tab.recording);
-  const held = desktopPipRuntimeOf(client) === runtimeId || recording.armed === true || recording.capturing === true || recording.recording === true
+  const held = desktopPipOpen(client, runtimeId) || recording.armed === true || recording.capturing === true || recording.recording === true
     || captureHost(client).recordings.readActiveBrowserRecordingTabIds().has(runtimeId)
     || agentDriving(client, runtimeId, (environmentId, threadId) => threadTurnRunning(client, environmentId, threadId));
   return held ? browserMiniSourceSize(client, runtimeId) : null;
@@ -267,7 +267,7 @@ export function browserCaptureView(client: T3Client, ref: ScopedThreadRef, tabId
     pickTip: failed ? 'Page didn\'t load. Pick is unavailable until the page renders' : pickActive ? 'Cancel annotation (Esc)' : 'Annotate elements, regions, and drawings',
     captureDisabled: !hasWebContents || failed, recording: recordingOf(client, ref, tabId, runtimeId),
     floating: floatingTabOf(client) === tabId, floatDisabled: !hasWebContents || failed,
-    separateWindow: desktopPipRuntimeOf(client) === runtimeId,
+    separateWindow: desktopPipOpen(client, runtimeId),
   };
 }
 /** Bumps when a ⌘Return annotation should send: the panel projects it (`shell.panel.annotationSend`) whatever it shows, so
@@ -425,10 +425,11 @@ export function toggleFloat(client: T3Client, state: PanelState, target: Capture
   client.diffOpen = false;
 }
 
-/** handleNativePictureInPicture: the separate preview window opens or closes (browser-desktop-pip.ts); a window that
- *  could not open is the toast its catch shows (browser-surface.ts `desktop-pip-failed`). */
+/** handleNativePictureInPicture: the tab's separate preview window opens or closes (browser-desktop-pip.ts), the other
+ *  tabs' staying as they are; a window that could not open is the toast its catch shows (browser-surface.ts
+ *  `desktop-pip-failed`). */
 function toggleSeparateWindow(client: T3Client, target: Pick<CaptureTarget, 'runtimeId'>): void {
-  if (desktopPipRuntimeOf(client) === target.runtimeId) closeDesktopPictureInPicture(client);
+  if (desktopPipOpen(client, target.runtimeId)) closeDesktopPictureInPicture(client, target.runtimeId);
   else openDesktopPictureInPicture(client, target.runtimeId);
 }
 
@@ -534,7 +535,7 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
     pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', pdfViewer: emptyViewerFrame(), url: session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || frameEntry(client, runtimeId) !== null, recording: recordingOf(client, ref, tabId, runtimeId),
-    separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : desktopPipRuntimeOf(client) === runtimeId, ...size,
+    separateWindow: session.server ? serverPictureInPictureKeyOf(client) === serverPictureInPictureKey(ref.threadId, tabId) : desktopPipOpen(client, runtimeId), ...size,
     windowZoom: readWindowZoom(client.presentation) };
 }
 

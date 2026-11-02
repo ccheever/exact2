@@ -125,8 +125,8 @@ component BrowserFrameLayer
     // A server tab's picture-in-picture window: the hidden image its stream paints (server-browser.contract).
     if frames.pip.show
       ServerBrowserPip(pip=frames.pip, local=local)
-    if frames.desktopPip.show
-      DesktopBrowserPip(pip=frames.desktopPip, local=local)
+    for p in frames.desktopPips key=p.request
+      DesktopBrowserPip(pip=p, local=local)
     for n in frames.namers key=n.frameId
       iframe id=n.frameId src=n.src partition=n.partition load=named(n.frameId) aria-hidden=true tabindex=-1 position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" border-width=0
     if panelShown and note != ""

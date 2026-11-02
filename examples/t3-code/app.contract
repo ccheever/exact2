@@ -196,7 +196,7 @@ component T3Code
     serverMiniFrame
     serverFrame
     serverPipFrame
-    desktopPipPicture
+    desktopPipPictures
     streamPainted
     streamControl
     streamMouse
