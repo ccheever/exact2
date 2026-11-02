@@ -1053,6 +1053,48 @@ fn compile_all(name: &str, source: &str) -> Vec<(String, u32, String)> {
         .collect()
 }
 
+#[test]
+fn focus_state_lint_keeps_an_independent_analyze_error() {
+    let source = r##"component App
+  mutation saved as shape string
+  action go
+    send saved = command("one")
+  view
+    button press=go background-color="#fcfcfc" border-width=1 border-style="solid" border-color="#e4e4e7"
+      :focus-visible
+        box-shadow="inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)"
+      text "Open"
+"##;
+    contract::compile(source).unwrap_or_else(|e| panic!("{e}"));
+    let broken = source.replace(
+        "    send saved = command(\"one\")",
+        "    send saved = command(\"one\")\n    send saved = command(\"two\")",
+    );
+    let errors = compile_all("focus-analyze", &broken);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].0, "analyze-send-twice", "{errors:?}");
+    let invalid = broken.replace(
+        "inset 0 0 0 2px light-dark(#1b4ed8b3, #346bf1b3)",
+        "invalid",
+    );
+    let errors = compile_all("focus-value", &invalid);
+    assert_eq!(
+        errors
+            .iter()
+            .map(|e| (e.0.as_str(), e.1))
+            .collect::<Vec<_>>(),
+        [("analyze-send-twice", 5), ("lower-attr-value", 9)],
+        "{errors:?}"
+    );
+    let error = contract::compile(&source.replace(":focus-visible", ":active")).unwrap_err();
+    assert_eq!(error.id, "lower-state-row", "{error}");
+    let native = source
+        .replace("button press=go background-color=\"#fcfcfc\" border-width=1 border-style=\"solid\" border-color=\"#e4e4e7\"", "input type=\"checkbox\" checked=true")
+        .replace("      text \"Open\"\n", "");
+    let error = contract::compile(&native).unwrap_err();
+    assert_eq!(error.id, "lower-state-target", "{error}");
+}
+
 const TODOS: &str = r#"shape Todo
   id: string
   title: string
