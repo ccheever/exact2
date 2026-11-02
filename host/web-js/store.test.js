@@ -23,3 +23,21 @@ test("keeping what is already kept is no write", () => {
   expect(Store.writes.at(-1)).toEqual(["token", null]);
   expect(Store.get("token")).toBeUndefined();
 });
+
+test("a shared-store lock reads another realm's committed value before writing", async () => {
+  const { exclusiveSecret } = await import('../web/storage-environment.js');
+  const saved = ['navigator', 'localStorage'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
+  const disk = new Map([['test.token', 'new']]);
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: k => disk.get(k) ?? null, setItem: (k, v) => disk.set(k, v), removeItem: k => disk.delete(k) } });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: { request: async (_name, work) => work() } } });
+  const store = { map: new Map([['token', 'stale']]), pending: new Map(), persist() {} };
+  try {
+    expect(await exclusiveSecret(store, 'test.', 'token', async () => store.map.get('token'))).toBe('new');
+    store.pending.set('token', {});
+    let called = false;
+    await expect(exclusiveSecret(store, 'test.', 'token', async () => { called = true; })).rejects.toThrow('persisted');
+    expect(called).toBe(false);
+  } finally {
+    for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
+  }
+});

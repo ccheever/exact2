@@ -769,3 +769,39 @@ test("a gallery page's registration says `page: 'gallery'`, listed on its build 
   // A label only: a pin goes to it as to any build.
   expect(channel.pin('c1', 'web-js-2', { scheme: 'dark' }).builds).toEqual(['web-js-2']);
 });
+
+test('replaced and evicted builds release their selections; a new registration starts without one', () => {
+  const maps = [], NativeMap = globalThis.Map;
+  let channel;
+  try {
+    globalThis.Map = class extends NativeMap { constructor(...args) { super(...args); maps.push(this); } };
+    channel = buildChannel();
+  } finally { globalThis.Map = NativeMap; }
+  const s = stream(channel);
+  const select = (nonce, id) => {
+    report(channel, { nonce, kind: 'register', id, host: 'web', capabilities: ['inspect'], planDigest: '1'.repeat(64) });
+    channel.inspect('tool', id, { on: true });
+    expect(report(channel, { nonce, kind: 'selected', selected: { planDigest: 'plan', site: 1, instance: [] } }).status).toBe(204);
+  };
+  select(s.nonce, 'first');
+  const picks = maps.find(m => m.get('first')?.instance === '[]');
+  expect(picks).toBeDefined();
+  for (let i = 0; i < 1000; i++) select(s.nonce, `replaced-${i}`);
+  expect(picks.size).toBe(1); expect(picks.has('first')).toBe(false);
+  for (let i = 0; i < 300; i++) { const next = stream(channel); select(next.nonce, `closed-${i}`); next.close(); }
+  expect(picks.size).toBe(256); expect(picks.has('closed-0')).toBe(false);
+  report(channel, { nonce: s.nonce, kind: 'register', id: 'replaced-999', host: 'web', capabilities: ['inspect'] });
+  expect(picks.has('replaced-999')).toBe(false);
+});
+
+test('polled outlines coalesce to the newest state, and oversized ordinary commands close the stream', () => {
+  const channel = buildChannel(), { nonce } = channel.openPolled(), read = poller(channel, nonce);
+  report(channel, { nonce, kind: 'register', id: 'outlines', host: 'web', capabilities: ['inspect'] }); read();
+  const sites = Array.from({ length: 2000 }, (_, i) => i);
+  for (let i = 0; i < 100; i++) channel.outline('tool', () => ({ sites, plan: `plan-${i}` }));
+  expect(read()).toEqual([{ kind: 'outline', sites, plan: 'plan-99' }]);
+  channel.outline('tool', () => ({ sites, plan: 'older' })); channel.outline('tool', null);
+  expect(read()).toEqual([{ kind: 'outline', clear: true }]);
+  channel.broadcast({ kind: 'custom-command', payload: 'x'.repeat(129 * 1024) });
+  expect(read()).toBe(null);
+});

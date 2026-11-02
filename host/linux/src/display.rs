@@ -395,7 +395,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         config.scale,
         input.len(),
         match (&vnc, config.vnc.as_deref()) {
-            (Some(_), Some("1")) => ", vnc on :5900".to_string(),
+            (Some(_), Some("1")) => ", vnc on 127.0.0.1:5900".to_string(),
             (Some(_), Some(a)) => format!(", vnc on {a}"),
             _ => String::new(),
         },

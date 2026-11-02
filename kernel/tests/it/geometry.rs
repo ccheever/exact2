@@ -298,3 +298,42 @@ fn activity_placement_reports_width_and_resolved_minimum_separately() {
     assert_eq!(box_[4], 1.0);
     assert_eq!(box_[5], 200.0);
 }
+
+#[test]
+fn reset_discards_unpublished_layout_before_trim() {
+    let mut k = Kernel::with_monospace();
+    let mut ops: Vec<_> = (1..=500)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        })
+        .collect();
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: (2..=500).collect(),
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    k.reset();
+    k.trim();
+    k.apply(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 501,
+                node_type: NodeType::View,
+            },
+            Op::AttachRoot { id: 501 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(501, Offer::definite(200.0, 100.0))
+        .unwrap();
+    assert_eq!(k.arena().slot_count(), 1);
+    let (frame, _) = k.laid_out_frame(key(&k, 501)).unwrap();
+    assert_eq!(
+        (frame.x, frame.y, frame.width, frame.height),
+        (0.0, 0.0, 200.0, 0.0)
+    );
+}

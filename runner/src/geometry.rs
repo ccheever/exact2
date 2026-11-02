@@ -533,7 +533,10 @@ fn client_rect(
     let mut slot = key.index;
     let mut at = frame;
     loop {
-        m = mul(own_transform(arena.style(slot), at), m);
+        m = mul(
+            intersection::placed_transform(kernel, scrolled, slot, at),
+            m,
+        );
         match shown_in(kernel, scrolled, slot, at) {
             Shown::Viewport(to) => {
                 m = mul(to, m);
@@ -1290,19 +1293,27 @@ impl Point<'_> {
                 return;
             }
         }
-        let m = mul(placed, own_transform(style, f));
+        let m = mul(
+            placed,
+            if native.is_some() {
+                own_transform(style, f)
+            } else {
+                intersection::placed_transform(self.kernel, self.scrolled, slot, f)
+            },
+        );
         let local = unmap(m, self.at);
         let (width, height) = (f64::from(f.width), f64::from(f.height));
         let inside = |b: [f64; 4]| {
             local.is_some_and(|(x, y)| b[0] <= x && x < b[2] && b[1] <= y && y < b[3])
         };
         let clips = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
+        let border = style.border_widths_in(arena.env());
         let clipped = clips
             && !inside([
-                f64::from(style.border_width_left),
-                f64::from(style.border_width_top),
-                width - f64::from(style.border_width_right),
-                height - f64::from(style.border_width_bottom),
+                f64::from(border[3]),
+                f64::from(border[0]),
+                width - f64::from(border[1]),
+                height - f64::from(border[2]),
             ]);
         if !clipped && native.is_none() {
             let mut children: Vec<(i64, usize, u32)> = arena

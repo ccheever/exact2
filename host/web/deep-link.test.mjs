@@ -3,7 +3,7 @@
 // on the dev server); a request that is no navigation (an asset's fetch)
 // still finds nothing, and a file that exists is still that file.
 import {afterAll, afterEach, beforeAll, describe, test, expect, spyOn} from 'bun:test';
-import {mkdirSync, mkdtempSync, rmSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, rmSync, readFileSync, renameSync, writeFileSync, symlinkSync} from 'node:fs';
 import {createServer} from 'node:net';
 import {createServer as httpServer} from 'node:http';
 import * as filesystem from '../../scripts/filesystem.mjs';
@@ -18,7 +18,7 @@ import {resolve} from 'node:path';
 import {acceptsHTML, appDocumentPath, DirectoryOrigin, webRootPath} from '../../scripts/origin.mjs';
 import {publishRoot} from '../../scripts/deploy.mjs';
 import {canonical, locationOf, matchPattern} from '../web-js/route-pattern.js';
-import {buildTreeFile, buildTreeFileAsync, planRouteTable, readWebRequest, serveBuildTree} from './serve.mjs';
+import {buildTreeFile, buildTreeFileAsync, planRouteTable, readWebRequest, readModuleFile, serveBuildTree} from './serve.mjs';
 
 test('a navigation to a dotted deep link is the document; a fetch of one is not', async () => {
   const dist = mkdtempSync(resolve(tmpdir(), 'exact-deep-link-'));
@@ -437,3 +437,18 @@ for (const failure of ['published plan', 'published pointer', 'local plan', 'tre
     }
   });
 }
+
+
+test('the live module route refuses absolute slices, empty segments, traversal and escaping symlinks', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-module-path-'));
+  try {
+    const module = resolve(dir, 'modules'); mkdirSync(module);
+    const entry = resolve(module, 'index.js'); writeFileSync(entry, 'export const ok = true;');
+    const outside = resolve(dir, 'secret.js'); writeFileSync(outside, 'private');
+    symlinkSync(outside, resolve(module, 'escape.js'));
+    symlinkSync(entry, resolve(module, 'inside.js'));
+    expect(readModuleFile(entry, '/modules/index.js').toString()).toBe('export const ok = true;');
+    expect(readModuleFile(entry, '/modules/inside.js').toString()).toBe('export const ok = true;');
+    for (const path of [`/modules/${outside}`, '/modules//index.js', '/modules/a//b.js', '/modules/../secret.js', '/modules/escape.js']) expect(readModuleFile(entry, path)).toBe(null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

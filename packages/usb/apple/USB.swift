@@ -256,7 +256,20 @@ public final class USBModule: ExactPackage {
             return ["error": "InvalidStateError", "message": "the interface is not claimed"]
         }
         let requestType = (incoming ? 0x80 : 0) | ((types[setup["requestType"] as? String ?? ""] ?? 0) << 5) | (recipients[setup["recipient"] as? String ?? ""] ?? 0)
-        let data = incoming ? NSMutableData(length: args["length"] as? Int ?? 0)! : NSMutableData(data: Data(base64Encoded: args["data"] as? String ?? "") ?? Data())
+        let data: NSMutableData
+        if incoming {
+            guard let length = args["length"] as? Int, (0...Int(UInt16.max)).contains(length),
+                  let buffer = NSMutableData(length: length) else {
+                return ["error": "TypeError", "message": "control transfer length must be an integer from 0 to 65535"]
+            }
+            data = buffer
+        } else {
+            guard let text = args["data"] as? String, text.utf8.count <= 87380,
+                  let bytes = Data(base64Encoded: text), bytes.count <= Int(UInt16.max) else {
+                return ["error": "TypeError", "message": "control transfer data must contain at most 65535 bytes"]
+            }
+            data = NSMutableData(data: bytes)
+        }
         var request = IOUSBDeviceRequest()
         request.bmRequestType = UInt8(requestType)
         request.bRequest = UInt8(setup["request"] as? Int ?? 0)

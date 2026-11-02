@@ -66,6 +66,7 @@ class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
         var authorizing = false
         var result: JSONObject? = null
         var option: String? = null
+        val details = JSONObject(args.optJSONObject("details")?.toString() ?: "{}")
     }
     private var sheet: Sheet? = null
 
@@ -232,7 +233,7 @@ class PaymentsModule(context: ExtensionContext) : ExactExtension(context) {
         val keyword = if (trigger == "SHIPPING_OPTION") "onshippingoptionchange" else "onshippingaddresschange"
         ask(s, keyword, shown) { u ->
             val update = JSONObject()
-            val details = JSONObject(s.args.optJSONObject("details")?.toString() ?: "{}")
+            val details = s.details
             if (u == null) return@ask complete(update.put("error", JSONObject().put("reason", "OTHER_ERROR").put("message", "unavailable").put("intent", "SHIPPING_ADDRESS")).toString())
             for (k in listOf("total", "displayItems", "shippingOptions")) if (u.has(k)) details.put(k, u.get(k))
             update.put("newTransactionInfo", transaction(details, null))

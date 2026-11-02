@@ -207,14 +207,22 @@ fn entropy_failed(api: &str, error: String) -> DataError {
     DataError::Unavailable(format!("{api}: OS randomness unavailable: {error}"))
 }
 
+fn sample_key(
+    mut fill: impl FnMut(&mut [u8]) -> Result<(), String>,
+) -> Result<SigningKey, DataError> {
+    loop {
+        let mut bytes = p256::FieldBytes::default();
+        fill(&mut bytes).map_err(|e| entropy_failed("generateKey", e))?;
+        if let Ok(key) = SigningKey::from_bytes(&bytes) {
+            return Ok(key);
+        }
+    }
+}
+
 /// `generateKey({name:"ECDSA", namedCurve:"P-256"}, extractable, …)`: a
 /// fresh pair from the OS's entropy, and a counted read (D2).
 pub fn generate_p256(store: &Store, extractable: bool) -> Result<EcKeyPair, DataError> {
-    let mut rng = Os(None);
-    let secret = SigningKey::random(&mut rng);
-    if let Some(e) = rng.0 {
-        return Err(entropy_failed("generateKey", e));
-    }
+    let secret = sample_key(platform::fill)?;
     store.observe_entropy();
     let public = *secret.verifying_key();
     Ok(EcKeyPair {
@@ -330,6 +338,31 @@ mod tests {
     use super::*;
 
     const GRANTS: &str = "secret.keep dpop\n";
+
+    #[test]
+    fn key_sampling_returns_entropy_failure_before_retrying() {
+        let mut draws = 0;
+        let result = sample_key(|_| {
+            draws += 1;
+            Err("unavailable".into())
+        });
+        assert!(
+            matches!(result, Err(DataError::Unavailable(message)) if message.contains("OS randomness unavailable"))
+        );
+        assert_eq!(draws, 1);
+        let mut draws = 0;
+        let key = sample_key(|bytes| {
+            draws += 1;
+            bytes.fill(0);
+            if draws == 2 {
+                bytes[31] = 1;
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(draws, 2);
+        assert_eq!(key.to_bytes()[31], 1);
+    }
 
     #[test]
     fn base64url_round_trips_every_length() {

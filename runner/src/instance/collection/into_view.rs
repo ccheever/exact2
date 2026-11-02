@@ -104,6 +104,45 @@ impl IntoViewStatus {
 }
 
 impl Collection {
+    fn contains_inner_target(
+        &mut self,
+        u: &Update<'_>,
+        frames: &[Frame],
+        row: &Value,
+        request: &IntoView,
+    ) -> Result<bool, InstanceError> {
+        if !self.nested {
+            return Ok(false);
+        }
+        let Ok(key) = self.resolve(row) else {
+            return Ok(false);
+        };
+        let position = self.index.position(&key).expect("resolved row");
+        // Resolve an unmounted row in a disposable tree before moving either list.
+        let mut ids = Ids::default();
+        let mut scratch = Update::new(Env { ..u.env }, u.sites, &mut ids);
+        scratch.discard = true;
+        let mut temporary;
+        let row = if let Some(mounted) = self.mounted.iter_mut().find(|m| m.position == position) {
+            &mut mounted.row
+        } else {
+            temporary = self.create_row(&mut scratch, position, frames)?;
+            &mut temporary
+        };
+        let mut inner_frames = frames.to_vec();
+        inner_frames.push(row.frame.clone());
+        let mut inner = Vec::new();
+        lists(
+            &mut row.roots,
+            (u.env.plan, u.sites),
+            &inner_frames,
+            &mut inner,
+        );
+        Ok(inner.into_iter().any(|(list, id, _)| {
+            id.as_deref() == Some(request.list.as_str()) && list.resolve(&request.key).is_ok()
+        }))
+    }
+
     /// The option that applies on this list's axis: `block` on a vertical
     /// one, `inline` on a row list.
     fn align_for(&self, request: &IntoView) -> Align {
@@ -615,12 +654,17 @@ impl Tree {
         };
         // An inner list: the outer list whose rows hold lists with this id,
         // and which holds the row.
-        let Some((outer, _, frames)) = found
-            .into_iter()
-            .find(|(c, _, _)| c.nested && c.resolve(row).is_ok())
-        else {
+        let mut selected = None;
+        for (outer, _, frames) in found {
+            if outer.contains_inner_target(u, &frames, row, request)? {
+                selected = Some((outer, frames));
+                break;
+            }
+        }
+        let Some((outer, frames)) = selected else {
             return Ok(IntoViewStatus::Refused(format!(
-                "no virtualized list holds a row keyed {}",
+                "no virtualized list holds {} in row {}",
+                request.list,
                 super::super::key_text(row).unwrap_or_default()
             )));
         };

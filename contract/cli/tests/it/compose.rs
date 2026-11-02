@@ -502,3 +502,45 @@ fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
     contract::compile(wrapped).unwrap();
     assert!(contract::compile(&wrapped.replace("some(\"b\")", "some(\"bad\")")).is_err());
 }
+
+#[test]
+fn enum_assignments_preserve_declared_membership() {
+    for (ty, initial, good, bad) in [
+        (
+            r#"enum<"on", "off">"#,
+            r#""on""#,
+            r#""off""#,
+            r#""sideways""#,
+        ),
+        (
+            r#"option<enum<"on", "off">>"#,
+            r#"some("on")"#,
+            r#"some("off")"#,
+            r#"some("sideways")"#,
+        ),
+        (
+            r#"enum<"on", "off">[]"#,
+            r#"["on"]"#,
+            r#"["off"]"#,
+            r#"["sideways"]"#,
+        ),
+    ] {
+        let source = format!("component App\n  state mode: {ty} = {initial}\n  action go\n    mode = {good}\n  view\n    text \"x\"\n");
+        let plan = contract::compile(&source).unwrap();
+        assert!(plan.types.iter().any(|t| plan.str(t.name) == "enum"));
+        assert_eq!(
+            contract::compile(&source.replace(&format!("mode = {good}"), &format!("mode = {bad}")))
+                .unwrap_err()
+                .id,
+            "type-assign"
+        );
+    }
+    let mutation = "component App\n  mutation session as shape enum<\"on\", \"off\">\n  action go\n    session = some(\"on\")\n  view\n    text \"x\"\n";
+    contract::compile(mutation).unwrap();
+    let invalid =
+        contract::compile(&mutation.replace("some(\"on\")", "some(\"sideways\")")).unwrap_err();
+    assert_eq!(invalid.id, "type-assign");
+    assert!(invalid.message.contains("sideways"));
+    let unknown = "component App\n  state mode: enum<\"on\", \"off\"> = \"on\"\n  state other = \"off\"\n  action go\n    mode = other\n  view\n    text mode\n";
+    assert_eq!(contract::compile(unknown).unwrap_err().id, "type-assign");
+}

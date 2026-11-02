@@ -1140,7 +1140,6 @@ export function guestMessageAuthorized(el, eventOrigin) {
   const state = iframeOrigins.get(el);
   return Boolean(state && !state.revoked && (state.opaque ? eventOrigin === "null" : eventOrigin === state.origin));
 }
-
 // @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is controlled as a text field is: the committed
 // `value` is written when it changes, and shown again after the options change or a refused `type`; after the action
 // that heard the person (`acted`) it keeps their choice, as the web build's does.
@@ -1224,7 +1223,6 @@ export function grantOrigins(memory) {
     } catch { return -1; }
   } };
 }
-
 // grant admission: begin — self-contained; the JS target's build (host/web-js/build.mjs) moves these lines into a module of
 // their own, so a page that admits nothing before a lazy chunk does not carry them; the wasm host keeps them here (boot.mjs).
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
@@ -1448,8 +1446,7 @@ export function coversPath(set, capability, path) {
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
 // grant admission: end
-// Text selections use source UTF-16 offsets; a Markdown <br> represents one newline.
-const selectedTexts = new Map();
+const selectedTexts = new Map(); // Text selections use source UTF-16 offsets; a Markdown <br> represents one newline.
 function textSource(e) { return e.nodeType === Node.TEXT_NODE ? e.data : e.nodeName === 'BR' ? "\n" : [...e.childNodes].map(textSource).join(''); }
 function textPosition(e, offset) {
   const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
@@ -1464,19 +1461,22 @@ function selectionRects(e, a, b) {
   const range = document.createRange(); range.setStart(...textPosition(e, a)); range.setEnd(...textPosition(e, b));
   return [...range.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
 }
+function selectionChanged() {
+  const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
+  for (const [e, h] of selectedTexts) {
+    if (!e.isConnected) { selectedTexts.delete(e); continue; }
+    const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : textSource(p.cloneContents()).length; };
+    let a = 0, b = 0;
+    if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
+    if (a === b) a = b = 0;
+    if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(textSource(e).slice(a, b), a, b, selectionRects(e, a, b)); }
+  }
+  if (!selectedTexts.size) document.removeEventListener("selectionchange", selectionChanged);
+}
 export function onSelection(e, report) {
-  if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
-    const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
-    for (const [e, h] of selectedTexts) {
-      if (!e.isConnected) { selectedTexts.delete(e); continue; }
-      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : textSource(p.cloneContents()).length; };
-      let a = 0, b = 0;
-      if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
-      if (a === b) a = b = 0;
-      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(textSource(e).slice(a, b), a, b, selectionRects(e, a, b)); }
-    }
-  });
-  selectedTexts.set(e, { report, a: 0, b: 0 });
+  const held = { report, a: 0, b: 0 }; selectedTexts.set(e, held);
+  document.addEventListener("selectionchange", selectionChanged);
+  return () => { if (selectedTexts.get(e) === held) selectedTexts.delete(e); if (!selectedTexts.size) document.removeEventListener("selectionchange", selectionChanged); };
 }
 // HTML's methods and source, shared by both web targets (LLP 1021 §4).
 export function popoverCommand(method, id, source, say) {

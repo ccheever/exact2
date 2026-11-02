@@ -485,17 +485,22 @@ impl Loop {
             }
             let id = self.next;
             self.next += 1;
-            match self.emit(Event::Connection(id)) {
-                Taken::Queued => {}
-                Taken::Full => continue,
-                Taken::Gone => return,
-            }
             let deadline = self.config.first_line.map(|d| Instant::now() + d);
             self.shared
                 .out
                 .lock()
                 .unwrap()
                 .insert(id, Outgoing::default());
+            match self.emit(Event::Connection(id)) {
+                Taken::Queued => {}
+                refused => {
+                    self.shared.out.lock().unwrap().remove(&id);
+                    if matches!(refused, Taken::Gone) {
+                        return;
+                    }
+                    continue;
+                }
+            }
             let input = Vec::new();
             self.conns.insert(
                 id,

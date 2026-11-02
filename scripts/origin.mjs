@@ -33,6 +33,36 @@ export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex'
  * invariants still fail closed. */
 export class OriginUnavailable extends Error {}
 
+/** A publisher never replays a signed write through a redirect. The timeout covers
+ * headers and the streamed body; every chunk is checked before retaining it. */
+async function publisherFetch(url, init = {}, cap = 64 << 10) {
+  let response;
+  try { response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(30_000) }); }
+  catch (error) { throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`); }
+  const reader = response.body?.getReader();
+  const chunks = [];
+  let length = 0;
+  try {
+    if (Number(response.headers.get('content-length')) > cap) throw new Error(`${url}: response exceeds ${cap} bytes`);
+    while (reader) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value.byteLength > cap - length) throw new Error(`${url}: response exceeds ${cap} bytes`);
+      length += value.byteLength;
+      chunks.push(value);
+    }
+    return { response, bytes: Buffer.concat(chunks, length) };
+  } finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); }
+}
+
+export function validateChannel(channel) {
+  if (typeof channel !== 'string' || !/^[A-Za-z0-9._-]+$/.test(channel)
+    || ['.', '..', 'blobs', 'root'].includes(channel.toLowerCase())) {
+    throw new Error(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
+  }
+  return channel;
+}
+
 /** The stream's directory on the origin, relative to its root (LLP 1030.000 D7). */
 export const streamPath = ({ channel, compatibilityId }) => `.exact/${channel}/${compatibilityId}`;
 
@@ -195,7 +225,9 @@ export class DirectoryOrigin {
 
   /** A complete sibling-temp rename, or an exclusive immutable link. */
   async put(rel, bytes, { immutable = false } = {}) {
-    return this.operation({ op: 'put', path: safeRelative(rel), bytes: Buffer.from(bytes).toString('base64'), immutable });
+    const parts = safeRelative(rel).toLowerCase().split('/');
+    if (parts.length === 4 && parts[0] === '.exact' && ['exact.json', '.lock'].includes(parts[3])) throw new Error('stream heads and locks require the held stream lock');
+    return this.operation({ op: 'put', path: rel, bytes: Buffer.from(bytes).toString('base64'), immutable });
   }
 
   /** The stream's current head: `{bytes, sha256, json}`, or null when the stream has none. A head that is not JSON is an error naming the path — a corrupt head is not a missing one. */
@@ -244,15 +276,10 @@ export class HttpsOrigin {
   /** The body at `rel`, or null on 404. Any other failure is an error naming the URL. */
   async get(rel) {
     const url = `${this.url}/${safeRelative(rel)}`;
-    let response;
-    try {
-      response = await fetch(url, { headers: { 'cache-control': 'no-cache' }, redirect: 'follow' });
-    } catch (error) {
-      throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`);
-    }
+    const { response, bytes } = await publisherFetch(url, { headers: { 'cache-control': 'no-cache' } }, /(?:^|\/)exact\.json$/i.test(rel) ? 64 << 10 : 64 << 20);
     if (response.status === 404) return null;
     if (!response.ok) throw new OriginUnavailable(`${url}: HTTP ${response.status}`);
-    return Buffer.from(await response.arrayBuffer());
+    return bytes;
   }
 
   /** An https origin cannot be listed: null, and the caller says so. */
@@ -297,11 +324,9 @@ export class AppDropOrigin extends HttpsOrigin {
 
   async list(rel) {
     const url = `${this.url}/${safeRelative(rel)}/`;
-    let response;
-    try { response = await fetch(url, { headers: { 'cache-control': 'no-cache' } }); }
-    catch (error) { throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`); }
+    const { response, bytes: received } = await publisherFetch(url, { headers: { 'cache-control': 'no-cache' } });
     if (!response.ok) throw new OriginUnavailable(`${url}: HTTP ${response.status}`);
-    return (await response.json()).names;
+    return JSON.parse(received.toString('utf8')).names;
   }
 
   async send(rel, bytes, headers = {}) {
@@ -310,17 +335,13 @@ export class AppDropOrigin extends HttpsOrigin {
     const body = Buffer.from(bytes);
     const digest = path.startsWith('.exact/blobs/') ? path.slice('.exact/blobs/'.length) : sha256(body);
     const message = Buffer.from(`appdrop-exact-put\n${this.keyId}\n${path}\n${digest}`);
-    let response;
-    try {
-      response = await fetch(`${this.url}/${path}`, { method: 'PUT', body, headers: {
-        'x-exact-public-key': this.signer.publicKey,
-        'x-exact-signature': this.signer.signBytes(message).toString('base64'),
-        ...headers,
-      } });
-    } catch (error) {
-      throw new OriginUnavailable(`${this.url}/${path}: ${error.cause?.code ?? error.message}`);
-    }
-    const reply = await response.json().catch(() => ({}));
+    const { response, bytes: received } = await publisherFetch(`${this.url}/${path}`, { method: 'PUT', body, headers: {
+      'x-exact-public-key': this.signer.publicKey,
+      'x-exact-signature': this.signer.signBytes(message).toString('base64'),
+      ...headers,
+    } });
+    let reply;
+    try { reply = JSON.parse(received.toString('utf8')); } catch { reply = {}; }
     if (response.status >= 500) throw new OriginUnavailable(`${this.url}/${path}: HTTP ${response.status}`);
     if (!response.ok) throw new Error(`${this.url}/${path}: ${reply.error ?? `HTTP ${response.status}`}`);
     return reply;
@@ -338,12 +359,10 @@ export class AppDropOrigin extends HttpsOrigin {
     const rel = `${streamPath(stream)}/exact.json`;
     if (previousDigest === null) return this.send(rel, bytes, { 'if-none-match': '*' });
     const url = `${this.url}/${rel}`;
-    let response;
-    try { response = await fetch(url, { headers: { 'cache-control': 'no-cache' } }); }
-    catch (error) { throw new OriginUnavailable(`${url}: ${error.cause?.code ?? error.message}`); }
+    const { response, bytes: received } = await publisherFetch(url, { headers: { 'cache-control': 'no-cache' } });
     if (!response.ok) throw new Error(`${url}: the head the publisher read is gone (HTTP ${response.status})`);
     const etag = response.headers.get('etag');
-    if (sha256(Buffer.from(await response.arrayBuffer())) !== previousDigest) throw new Error(`${url}: the head changed since it was read`);
+    if (sha256(received) !== previousDigest) throw new Error(`${url}: the head changed since it was read`);
     return this.send(rel, bytes, { 'if-match': etag });
   }
 }

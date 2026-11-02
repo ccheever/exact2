@@ -1,3 +1,4 @@
+import { validateChannel, sha256, blobPath } from './origin.mjs';
 import {expect, test} from 'bun:test';
 import * as fs from 'node:fs';
 import {tmpdir, homedir} from 'node:os';
@@ -23,8 +24,8 @@ function harness(classify=()=>({bundle:true}), runtime=4) {
     expect(env?.EXACT_UPDATE_TRUST,`${name} production trust`).toBe('production');
   };
   const bindings={
-    ...Object.fromEntries(['existsSync','readFileSync','writeFileSync','mkdtempSync','rmSync','watch'].map(name=>[name,fs[name]])),
-    resolve,relative,homedir,ROOT:fileURLToPath(new URL('..',import.meta.url)),
+    ...Object.fromEntries(['existsSync','readFileSync','writeFileSync','mkdtempSync','rmSync','watch','readdirSync'].map(name=>[name,fs[name]])),
+    validateChannel,resolve,relative,homedir,ROOT:fileURLToPath(new URL('..',import.meta.url)),
     process:{env:{EXACT_GAME_PROOF_PROFILE:'gpu-dev',EXACT_UPDATE_TRUST:'development'}},
     console:{log(){}},Refusal:Error,refuse(message){throw Error(message)},
     loadSigner:()=>({keyId:'test'}),resolveApp:()=>app,readBuilds:()=>[build],
@@ -93,4 +94,36 @@ test('push refuses a TypeScript module that needs a newer prelude than the cohor
     await expect(pusher({_:[root],origin:root,keys:root})).rejects.toThrow(/typescriptRuntime \(requires a prelude of runtime 5 or later; this cohort's is 4\).*It needs a new binary/);
     expect(calls).not.toContain('publish');
   } finally {fs.rmSync(root,{recursive:true,force:true})}
+});
+
+test('push refuses incomplete values and reserved channels before publishing', () => {
+  const source = fs.readFileSync(new URL('./push.mjs', import.meta.url), 'utf8');
+  const parse = new Function('refuse', 'USAGE', source.slice(source.indexOf('function parseArgs('), source.indexOf('\nconst seconds')) + ';return parseArgs;')((message) => { throw Error(message); }, 'usage');
+  for (const flag of ['--origin', '--channel', '--keys', '--seq-above']) {
+    expect(() => parse(['app', flag])).toThrow();
+    expect(() => parse(['app', flag, '--watch'])).toThrow();
+  }
+  for (const value of ['-1', 'NaN', '1.5', '9007199254740991']) expect(() => parse(['app', '--seq-above', value])).toThrow();
+  expect(() => parse(['app', 'extra'])).toThrow();
+  expect(parse(['app', '--origin', '/tmp/staging', '--seq-above', '7'])).toEqual({ _: ['app'], origin: '/tmp/staging', seqAbove: 7 });
+  for (const name of ['blobs', 'BLOBS', 'root', '.', '..', 'a/b']) expect(() => validateChannel(name)).toThrow();
+  expect(validateChannel('prod')).toBe('prod');
+});
+
+test('push inventories current app files and carries only head-owned artifacts', async () => {
+  const root = fs.mkdtempSync(resolve(tmpdir(), 'exact-push-assets-'));
+  try {
+    fs.mkdirSync(resolve(root, 'assets'));
+    fs.writeFileSync(resolve(root, 'assets/new.png'), 'new');
+    const shader = Buffer.from('shader');
+    const source = fs.readFileSync(new URL('./push.mjs', import.meta.url), 'utf8');
+    const fn = source.slice(source.indexOf('async function carriedAssets('), source.indexOf('\nfunction gitHead('));
+    const carried = new Function('existsSync', 'readdirSync', 'readFileSync', 'resolve', 'sha256', 'blobPath', 'refuse', fn + ';return carriedAssets;')(fs.existsSync, fs.readdirSync, fs.readFileSync, resolve, sha256, blobPath, (message) => { throw Error(message); });
+    const asked = [];
+    const assets = await carried({ get: async (path) => { asked.push(path); return shader; } }, { dir: root }, { assets: [
+      { name: 'assets/deleted.png', sha256: 'deleted' }, { name: 'shaders/x.wgsl', sha256: sha256(shader) },
+    ] });
+    expect(assets.map(a => a.name)).toEqual(['assets/new.png', 'shaders/x.wgsl']);
+    expect(asked).toEqual([blobPath(sha256(shader))]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

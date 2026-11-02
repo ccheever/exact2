@@ -8,7 +8,8 @@
 //! scroller's id, and one measurement per scroll offset (`x,y:` then each
 //! sticky box's border box in the scroller's border-box space at offset
 //! zero, `id=x,y,w,h`), joined by `|`. The offsets are the ones Chrome
-//! clamped the asked ones to.
+//! clamped the asked ones to. The oversized opposite-inset case was measured
+//! with Chromium 156 on 2026-11-02.
 use crate::browser_cases::{css_rows, lay_out_with, props, Rows};
 
 #[test]

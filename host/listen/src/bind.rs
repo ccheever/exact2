@@ -111,7 +111,7 @@ pub fn prepare(path: &Path) -> Result<(), Failure> {
                 ancestor.display()
             )));
         }
-        if meta.mode() & 0o002 != 0 && meta.mode() & 0o1000 == 0 {
+        if meta.mode() & 0o022 != 0 && meta.mode() & 0o1000 == 0 {
             return Err(Failure::Refused(format!(
                 "{} is writable by others and not sticky",
                 ancestor.display()
@@ -316,6 +316,22 @@ mod tests {
         let dir = base.join(format!("exact-listen-bind-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[test]
+    fn writable_ancestors_must_be_sticky() {
+        let d = dir("ancestor-permissions");
+        fs::create_dir_all(d.join("private")).unwrap();
+        for mode in [0o770, 0o777] {
+            fs::set_permissions(&d, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(prepare(&d.join("private/a.sock"))
+                .unwrap_err()
+                .message()
+                .contains("not sticky"));
+            fs::set_permissions(&d, fs::Permissions::from_mode(mode | 0o1000)).unwrap();
+            prepare(&d.join("private/a.sock")).unwrap();
+        }
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

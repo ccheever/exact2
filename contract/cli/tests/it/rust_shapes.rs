@@ -59,3 +59,17 @@ fn a_struct_per_shape_in_declaration_order() {
     assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
     assert!(to.contains("like_count: ContractValue::from_value(&fields[2])?,"));
 }
+
+#[test]
+fn rust_names_escape_keywords_and_refuse_colliding_fields() {
+    let source = "shape type\n  value: number\ncomponent App\n  state row = type(value=1)\n  view\n    text \"x\"\n";
+    let rust = contract::rust(&contract::compile(source).unwrap()).unwrap();
+    assert!(rust.contains("pub struct r#type {"));
+    assert!(rust.contains("impl ContractValue for r#type {"));
+    let source = "shape Row\n  a-b: number\n  a_b: number\ncomponent App\n  state row = Row(a-b=1, a_b=2)\n  view\n    text \"x\"\n";
+    let error = contract::rust(&contract::compile(source).unwrap()).unwrap_err();
+    assert!(
+        error.contains("a-b") && error.contains("a_b") && error.contains("Row"),
+        "{error}"
+    );
+}

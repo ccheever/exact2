@@ -55,11 +55,57 @@ pub fn apply_coverage(target: &mut [u8], coverage: &[u8], stride: usize) {
 /// as Chrome blurs, and the backdrop's edges mirror outward, as Chrome's
 /// backdrop filter reads past them, so nothing fades in from outside.
 pub fn backdrop_blur(pixels: &mut [u8], w: usize, h: usize, sigma: f32) {
-    if !(sigma.is_finite() && sigma > 0.0) || w == 0 || h == 0 || pixels.len() < w * h * 4 {
+    let Some(len) = w.checked_mul(h).and_then(|n| n.checked_mul(4)) else {
+        return;
+    };
+    if !(sigma.is_finite() && sigma > 0.0) || w == 0 || h == 0 || pixels.len() < len {
+        return;
+    }
+    // Keep the mirrored pad independent of the authored radius. At one pixel the
+    // mirrored field is constant, so further downsampling cannot change it.
+    if sigma > 12.0 {
+        if w == 1 && h == 1 {
+            return;
+        }
+        let (sw, sh) = (w.div_ceil(2), h.div_ceil(2));
+        let mut small = vec![0u8; sw * sh * 4];
+        for y in 0..sh {
+            for x in 0..sw {
+                let mut sum = [0u32; 4];
+                let mut count = 0;
+                for sy in 2 * y..(2 * y + 2).min(h) {
+                    for sx in 2 * x..(2 * x + 2).min(w) {
+                        for c in 0..4 {
+                            sum[c] += pixels[(sy * w + sx) * 4 + c] as u32;
+                        }
+                        count += 1;
+                    }
+                }
+                for c in 0..4 {
+                    small[(y * sw + x) * 4 + c] = (sum[c] / count) as u8;
+                }
+            }
+        }
+        backdrop_blur(&mut small, sw, sh, sigma / 2.0);
+        for y in 0..h {
+            for x in 0..w {
+                pixels[(y * w + x) * 4..][..4]
+                    .copy_from_slice(&small[((y / 2) * sw + x / 2) * 4..][..4]);
+            }
+        }
         return;
     }
     let pad = (3.0 * sigma).ceil() as usize + 2;
-    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    let (Some(pw), Some(ph)) = (w.checked_add(2 * pad), h.checked_add(2 * pad)) else {
+        return;
+    };
+    if pw
+        .checked_mul(ph)
+        .and_then(|n| n.checked_mul(4 * size_of::<f32>()))
+        .is_none_or(|n| n > isize::MAX as usize)
+    {
+        return;
+    }
     // A mirror index: …2 1 0 | 0 1 2 … n-1 | n-1 n-2…
     let mirror = |i: isize, n: usize| -> usize {
         let n = n as isize;
@@ -136,6 +182,24 @@ mod tests {
         assert!((250..=260).contains(&(at(w / 2 - 1) as u32 + at(w / 2) as u32)));
         assert!(at(w / 2 - 3) > 0 && at(w / 2 + 2) < 255);
         assert!(px.chunks_exact(4).all(|p| p[3] == 255));
+    }
+
+    #[test]
+    fn enormous_blurs_are_bounded_and_invalid_radii_leave_pixels_alone() {
+        let original = vec![180u8; 320 * 180 * 4];
+        for sigma in [10000.0, f32::MAX] {
+            let mut px = original.clone();
+            backdrop_blur(&mut px, 320, 180, sigma);
+            assert!(px.iter().all(|v| v.abs_diff(180) <= 1));
+        }
+        for sigma in [f32::NAN, f32::INFINITY, -1.0] {
+            let mut px = original.clone();
+            backdrop_blur(&mut px, 320, 180, sigma);
+            assert_eq!(px, original);
+        }
+        let mut px = [1, 2, 3, 4];
+        backdrop_blur(&mut px, usize::MAX, 2, 3.0);
+        assert_eq!(px, [1, 2, 3, 4]);
     }
 
     #[test]

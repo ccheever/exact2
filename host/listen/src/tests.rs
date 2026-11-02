@@ -219,3 +219,53 @@ fn a_live_socket_without_takeover_is_an_error() {
     bind::unpublish(&path, held.identity);
     std::fs::remove_dir_all(&d).unwrap();
 }
+
+#[test]
+#[ignore = "binds real unix sockets; `cargo test -- --ignored` runs it"]
+fn a_connection_can_be_answered_before_its_callback_returns() {
+    let d = dir("immediate-greeting");
+    let path = d.join("a.sock");
+    let (seen, events) = mpsc::channel();
+    let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+    let callback_gate = gate.clone();
+    let listener = Listener::open(
+        config(&path, false),
+        Box::new(move |event| {
+            match event {
+                Event::Listening => {
+                    seen.send(None).unwrap();
+                }
+                Event::Connection(id) => {
+                    seen.send(Some(id)).unwrap();
+                    let (lock, changed) = &*callback_gate;
+                    let guard = lock.lock().unwrap();
+                    let (guard, wait) = changed
+                        .wait_timeout_while(guard, Duration::from_secs(10), |open| !*open)
+                        .unwrap();
+                    assert!(*guard && !wait.timed_out());
+                }
+                _ => {}
+            }
+            Taken::Queued
+        }),
+    )
+    .unwrap();
+    assert_eq!(events.recv_timeout(Duration::from_secs(10)).unwrap(), None);
+    let client = UnixStream::connect(&path).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let id = events
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .unwrap();
+    let sent = listener.send(id, Some(b"welcome"), false);
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_one();
+    assert_eq!(sent, Ok(()));
+    let mut line = String::new();
+    BufReader::new(client).read_line(&mut line).unwrap();
+    assert_eq!(line, "welcome\n");
+    listener.close();
+    std::fs::remove_dir_all(&d).unwrap();
+}

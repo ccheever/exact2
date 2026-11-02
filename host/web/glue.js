@@ -562,7 +562,7 @@ function attach(el, id, handlers) {
     } else if (kind === "toggle") { on(kind, e => send(wasm.exact_dispatch(id, 50, writeIn(`${e.oldState},${e.newState}`), now()))); } else if (kind === "atompress") { on(kind, e => { const [k, source, href, start, end, ...held] = e.detail; send(wasm.exact_dispatch(id, 59, writeIn(`${start},${end},${["Shift+", "Control+", "Alt+", "Meta+"].filter((_, i) => held[i]).join("")}\n${k}\n${href}\n${source}`), now())); }); // a press on an inline atom (LLP 1045.000 D7), host kind 59
     } else if (kind === "beforeinput" || (kind === "selectionchange" && sourceField(el))) { controlEvent(el, kind, on, (k, text, e) => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, k, writeIn(text), now())); } finally { keyEvent = outer; } });
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, offsets, rectangle count and coordinates, then text
-      onSelection(el, (text, a, b, rects) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn([a, b, rects.length, ...rects.flatMap(r => r.slice(0, 4)), text].join(",")), now())); });
+      el.exactSelection = onSelection(el, (text, a, b, rects) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn([a, b, rects.length, ...rects.flatMap(r => r.slice(0, 4)), text].join(",")), now())); });
     } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds; a paste's files are minted `doc:` handles at once (57: their count, a line each, then the text; documents-glue.js `pasted`), the driver's standing in under the agent
       if (kind === "paste") documentsGlue(); atBody(kind, on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { const text = e.clipboardData?.getData("text/plain") ?? "", driver = agentMode ? globalThis.exact.agentPaste : null; globalThis.exact.agentPaste = null; const files = kind === "paste" && (e.clipboardData?.files?.length || driver) ? globalThis.exact.documents?.pasted(e.clipboardData, driver) ?? [] : []; send(wasm.exact_dispatch(id, files.length ? 57 : 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(files.length ? `${files.length}\n${files.join("\n")}\n${text}` : text), now())); } finally { keyEvent = outer; } })); // preventDefault() cancels the default (a field's own paste; #125)
     } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload", "dragenter", "dragleave"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
@@ -600,7 +600,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire before teardown blur. Keep removed descendants attached to their removed parent for the outgoing focusout; presence reads leaving boxes before any op (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); } }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -821,7 +821,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactResize?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement) && !sheetLeaves(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); dropSurface(op.id); break;
       }
       case "roots": {
@@ -1346,7 +1346,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) { el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
+  for (const el of views.values()) { el.exactSelection?.(); el.exactAppFrame?.dispose(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); el.exactResize?.(); el.exactIntersect?.(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = []; grantSet = null; unparsed = "";

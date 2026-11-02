@@ -26,6 +26,8 @@ public final class SerialModule: ExactPackage {
 
     private final class Connection {
         let id: String, path: String, fd: Int32, options: [String: Any], bound: Int
+        var output: DispatchSourceWrite?
+        var writes: [Write] = []
         var source: DispatchSourceRead?
         var suspended = false
         var pending = Data(), errors: [[String: Any]] = [], position = 0
@@ -33,6 +35,12 @@ public final class SerialModule: ExactPackage {
         init(id: String, path: String, fd: Int32, options: [String: Any], bound: Int) {
             self.id = id; self.path = path; self.fd = fd; self.options = options; self.bound = bound
         }
+    }
+
+    private final class Write {
+        let data: Data, reply: ([String: Any]) -> Void
+        var sent = 0
+        init(_ data: Data, _ reply: @escaping ([String: Any]) -> Void) { self.data = data; self.reply = reply }
     }
 
     public init(context: ExactPackageContext) {
@@ -148,7 +156,7 @@ public final class SerialModule: ExactPackage {
                 reply(c.map { ["open": $0.open && !$0.unplugged, "connected": !$0.unplugged, "options": $0.options] } ?? ["open": false, "connected": false])
             }
         case "serialInput": queue.async { reply(self.input(args)) }
-        case "write": queue.async { reply(self.write(args)) }
+        case "write": queue.async { self.write(args, reply) }
         case "setSignals": queue.async { reply(self.setSignals(args)) }
         case "getSignals": queue.async { reply(self.getSignals(args)) }
         case "close": queue.async { reply(self.close(args["connection"] as? String ?? "")) }
@@ -249,7 +257,7 @@ public final class SerialModule: ExactPackage {
     }
 
     private func stopReading(_ c: Connection, error: String?) {
-        if let error { c.errors.append(["at": c.position + c.pending.count, "code": error]) }
+        if let error { c.errors.append(["at": c.position + c.pending.count, "code": error]); endWrites(c, error: error) }
         c.done = true
         if let s = c.source {
             if c.suspended { s.resume(); c.suspended = false }
@@ -276,25 +284,46 @@ public final class SerialModule: ExactPackage {
         return ["data": bytes.base64EncodedString(), "errors": errors, "done": done, "position": c.position]
     }
 
-    private func write(_ args: [String: Any]) -> [String: Any] {
-        guard let c = connection(args), c.open else { return ["error": "InvalidStateError"] }
-        if c.unplugged { return ["error": "NetworkError"] }
-        guard let data = Data(base64Encoded: args["data"] as? String ?? "") else { return ["error": "TypeError"] }
-        var sent = 0
-        let ok = data.withUnsafeBytes { raw -> Bool in
-            while sent < raw.count {
-                let n = Darwin.write(c.fd, raw.baseAddress! + sent, raw.count - sent)
-                if n > 0 { sent += n; continue }
-                if n < 0 && (errno == EAGAIN || errno == EINTR) {
-                    var p = pollfd(fd: c.fd, events: Int16(POLLOUT), revents: 0)
-                    _ = poll(&p, 1, 1000)
-                    continue
-                }
-                return false
+    private func write(_ args: [String: Any], _ reply: @escaping ([String: Any]) -> Void) {
+        guard let c = connection(args), c.open else { return reply(["error": "InvalidStateError"]) }
+        if c.unplugged { return reply(["error": "NetworkError"]) }
+        guard let data = Data(base64Encoded: args["data"] as? String ?? "") else { return reply(["error": "TypeError"]) }
+        c.writes.append(Write(data, reply))
+        drainWrites(c)
+    }
+
+    /// A full device buffer yields the queue, so close and teardown can cancel pending output.
+    private func drainWrites(_ c: Connection) {
+        while c.open, let first = c.writes.first {
+            if first.sent == first.data.count {
+                c.writes.removeFirst()
+                first.reply([:])
+                continue
             }
-            return true
+            let n = first.data.withUnsafeBytes { raw in Darwin.write(c.fd, raw.baseAddress! + first.sent, raw.count - first.sent) }
+            if n > 0 { first.sent += n; continue }
+            if n < 0 && errno == EINTR { continue }
+            if n < 0 && errno == EAGAIN {
+                if c.output == nil {
+                    let source = DispatchSource.makeWriteSource(fileDescriptor: c.fd, queue: queue)
+                    source.setEventHandler { [weak self, weak c] in if let c { self?.drainWrites(c) } }
+                    c.output = source
+                    source.resume()
+                }
+                return
+            }
+            return endWrites(c, error: "NetworkError")
         }
-        return ok ? [:] : ["error": "NetworkError", "message": String(cString: strerror(errno))]
+        c.output?.cancel()
+        c.output = nil
+    }
+
+    private func endWrites(_ c: Connection, error: String) {
+        c.output?.cancel()
+        c.output = nil
+        let pending = c.writes
+        c.writes = []
+        for write in pending { write.reply(["error": error]) }
     }
 
     private func setSignals(_ args: [String: Any]) -> [String: Any] {
@@ -320,6 +349,7 @@ public final class SerialModule: ExactPackage {
     private func close(_ handle: String) -> [String: Any] {
         guard let c = connections[handle], c.open else { return ["error": "InvalidStateError"] }
         c.open = false
+        endWrites(c, error: "AbortError")
         stopReading(c, error: nil)
         Darwin.close(c.fd)
         context.changed("serial.serialConnection")

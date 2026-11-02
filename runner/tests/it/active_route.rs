@@ -256,3 +256,61 @@ fn the_head_follows_the_selected_tabs_top_screen() {
         assert_eq!(&r.document_tree().unwrap().head(), expected, "document");
     }
 }
+
+#[test]
+fn a_large_plan_tagged_agent_tree_preserves_sites_and_navigation_flags() {
+    use exact_kernel::{NodeType, PropId};
+    use exact_plan::{asm::Asm, builder::PlanBuilder, BindingKind, BindingsRow};
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let key = b.constant(&Value::str("active"));
+    let back = b.constant(&Value::str("back"));
+    let body = b.code(Asm::new());
+    b.action("back", &[], &[], body);
+    let bind = |id: PropId, expr| BindingsRow {
+        kind: BindingKind::Prop,
+        id: id as u16,
+        expr,
+        written: true,
+    };
+    let root = b.node(
+        NodeType::View as u8,
+        None,
+        None,
+        0,
+        &[
+            bind(PropId::NavigationKey, key),
+            bind(PropId::NavigationBack, back),
+        ],
+        &[],
+        None,
+    );
+    let active = b.node(
+        NodeType::View as u8,
+        Some(root),
+        None,
+        0,
+        &[bind(PropId::NavigationKey, key)],
+        &[],
+        None,
+    );
+    for i in 0..50_000 {
+        b.node(NodeType::View as u8, Some(active), None, i, &[], &[], None);
+    }
+    let plan = b.finish().unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let tree: serde_json::Value =
+        serde_json::from_str(&agent::handle(&r, r#"{"op":"tree","plan":true}"#)).unwrap();
+    let nodes = tree["nodes"].as_array().unwrap();
+    assert_eq!(nodes.len(), 50_002);
+    for node in nodes {
+        assert!(node["site"].is_number());
+        assert!(node["inactive"].is_null());
+    }
+}

@@ -187,3 +187,19 @@ check('the JS target journals a bad word as the runner does, and reads the state
     expect([state.held, state.by, state.words, state.lock.current, state.applied.asked]).toEqual([true, [1], ['current'], true, 'portrait-primary']);
   } finally { await close(); }
 });
+
+check('removal and conflict release pending locks, and stale callbacks cannot overwrite a newer same-type request', async () => {
+  const { evaluate, close } = await open('/');
+  try {
+    await evaluate(`window.pendingLocks=[]; o.lock=function(type) { this.native=type; return new Promise((ok,fail)=>pendingLocks.push({ok,fail})); }; o.unlock=function(){this.native=null;this.unlocked++}; apply();`);
+    expect(await evaluate('o.native')).toBe('portrait');
+    await evaluate(`say('root','none'); apply(); pendingLocks[0].ok(); ${tick}`);
+    expect(await evaluate('[o.native,o.unlocked,glue.state(root).held]')).toEqual([null,1,false]);
+    await evaluate(`say('root','portrait'); apply(); say('side','landscape'); apply(); pendingLocks[1].ok(); ${tick}`);
+    expect(await evaluate('[o.native,o.unlocked,glue.state(root).held]')).toEqual([null,2,false]);
+    await evaluate(`say('side','none'); apply(); say('root','none'); apply(); say('root','portrait'); apply(); pendingLocks[2].fail(new DOMException('old','AbortError')); ${tick}`);
+    expect(await evaluate('[o.native,o.unlocked,glue.state(root).applied.why]')).toEqual(['portrait',3,'asked']);
+    await evaluate(`pendingLocks[3].ok(); ${tick}`);
+    expect(await evaluate('glue.state(root).applied.held')).toBe(true);
+  } finally { await close(); }
+});

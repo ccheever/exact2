@@ -182,10 +182,10 @@ impl Cx<'_, '_> {
                     if let Some(mi) = self.names.mutations.get(target.as_str()).copied() {
                         let t = infer(expr, scope, shapes)?;
                         let mt = Ty::Option(Box::new(self.ct.mutations[mi].clone()));
-                        if !checks::can_unify(&mt, &t) {
+                        if !super::enums::accepts_expr(&mt, expr, &t, scope, shapes) {
                             return err(
                                 "type-assign",
-                                format!("`{target}` is `{mt}`, cannot assign `{t}`"),
+                                super::enums::assignment_error(target, &mt, expr, &t),
                                 *span,
                             );
                         }
@@ -198,6 +198,17 @@ impl Cx<'_, '_> {
                     );
                 };
                 let t = infer(expr, scope, shapes)?;
+                if super::enums::contains(&self.ct.slots[si]) {
+                    if !super::enums::accepts_expr(&self.ct.slots[si], expr, &t, scope, shapes) {
+                        return err(
+                            "type-assign",
+                            super::enums::assignment_error(target, &self.ct.slots[si], expr, &t),
+                            *span,
+                        );
+                    }
+                    self.written.push(si);
+                    return Ok(());
+                }
                 match self.ct.slots[si].unify(&t) {
                     Some(u) => {
                         self.ct.slots[si] = u;
@@ -206,7 +217,7 @@ impl Cx<'_, '_> {
                     None => {
                         return err(
                             "type-assign",
-                            format!("`{target}` is `{}`, cannot assign `{t}`", self.ct.slots[si]),
+                            super::enums::assignment_error(target, &self.ct.slots[si], expr, &t),
                             *span,
                         )
                     }

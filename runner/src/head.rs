@@ -60,18 +60,81 @@ const FIELDS: [PropId; 5] = [
 ];
 
 /// A node as the head's walk reads it: its type, props and children.
-pub(crate) type HeadNode<'a> = (NodeType, &'a PropList, Vec<ViewId>);
+pub(crate) type HeadNode<'a> = (NodeType, &'a PropList, Children<'a>);
+
+#[derive(Clone, Copy)]
+pub(crate) struct Children<'a> {
+    ids: &'a [u32],
+    arena: Option<&'a exact_kernel::arena::NodeArena>,
+}
+
+impl<'a> Children<'a> {
+    pub(crate) fn ids(ids: &'a [ViewId]) -> Self {
+        Self { ids, arena: None }
+    }
+    fn iter(&self) -> impl DoubleEndedIterator<Item = ViewId> + 'a {
+        let arena = self.arena;
+        self.ids
+            .iter()
+            .map(move |&id| arena.map_or(id, |a| a.local_id(id)))
+    }
+}
+
+fn kernel_node(kernel: &Kernel, id: ViewId) -> Option<HeadNode<'_>> {
+    let node = kernel.node(id)?;
+    let arena = kernel.arena();
+    let slot = arena.key_of(id)?.index;
+    Some((
+        node.node_type,
+        node.props,
+        Children {
+            ids: arena.children(slot),
+            arena: Some(arena),
+        },
+    ))
+}
+
+/// Navigation selection is computed once for a whole tree read, then inherited
+/// down each route. A sheet covers an inactive page without hiding it.
+pub(crate) fn activity(
+    kernel: &Kernel,
+    roots: &[ViewId],
+) -> std::collections::HashMap<ViewId, (bool, bool)> {
+    let node = |id| kernel_node(kernel, id);
+    let mut inactive = std::collections::HashSet::new();
+    let mut hidden = std::collections::HashSet::new();
+    let mut result = std::collections::HashMap::new();
+    let mut stack: Vec<_> = roots.iter().map(|&id| (id, false, false)).collect();
+    while let Some((id, was_inactive, was_hidden)) = stack.pop() {
+        let Some(at) = node(id) else { continue };
+        let flags = (
+            was_inactive || inactive.contains(&id),
+            was_hidden || hidden.contains(&id),
+        );
+        result.insert(id, flags);
+        if at.1.str(PropId::NavigationBack).is_some() {
+            let covered: std::collections::HashSet<_> =
+                under_a_sheet(kernel, &node, &at).into_iter().collect();
+            for route in unselected(&node, &at) {
+                if !beside_a_pane(kernel, &at, route) {
+                    inactive.insert(route);
+                    if !covered.contains(&route) {
+                        hidden.insert(route);
+                    }
+                }
+            }
+        }
+        stack.extend(at.2.iter().map(|child| (child, flags.0, flags.1)));
+    }
+    result
+}
 
 impl<D: DataSource> Runner<D> {
     /// The active head of the current tree: one walk from the roots, which
     /// skips the routes a navigation root has not selected.
     pub fn head(&self) -> Head {
         let kernel = self.kernel();
-        head_of(self.roots(), |id| {
-            kernel
-                .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
-        })
+        head_of(self.roots(), |id| kernel_node(kernel, id))
     }
 
     /// Whether `id` lies under a route its navigation root has not selected:
@@ -96,11 +159,7 @@ pub(crate) fn hidden_route(kernel: &Kernel, id: ViewId) -> bool {
 }
 
 fn inactive_with(kernel: &Kernel, id: ViewId, covered_shows: bool) -> bool {
-    let node = |id: ViewId| {
-        kernel
-            .node(id)
-            .map(|n| (n.node_type, n.props, n.children()))
-    };
+    let node = |id: ViewId| kernel_node(kernel, id);
     let mut path = vec![id];
     let mut parent = kernel.node(id).and_then(|node| node.parent);
     while let Some(at) = parent.and_then(|id| kernel.node(id)) {
@@ -138,21 +197,21 @@ fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
             .node(id)
             .and_then(|n| n.props.str(PropId::NavigationKey))
     };
-    let stack: Vec<ViewId> = kernel
+    let Some(parent) = kernel
         .node(route)
         .and_then(|n| n.parent)
         .and_then(|p| kernel.node(p))
-        .map(|p| p.children())
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|id| key_of(*id).is_some())
-        .collect();
-    stack.first() == Some(&route)
+    else {
+        return false;
+    };
+    let mut stack = parent
+        .child_nodes()
+        .filter(|n| n.props.str(PropId::NavigationKey).is_some());
+    stack.next().is_some_and(|n| n.id == route)
         && kernel.host_block(route).is_none()
         && stack
-            .iter()
-            .find(|id| key_of(**id) == Some(key))
-            .and_then(|selected| kernel.host_block(*selected))
+            .find(|n| key_of(n.id) == Some(key))
+            .and_then(|selected| kernel.host_block(selected.id))
             .is_some_and(|b| matches!((b.width, b.height), (BlockAxis::Is(_), BlockAxis::Is(_))))
 }
 
@@ -166,7 +225,7 @@ pub(crate) fn head_of<'a>(
     let mut best: [Option<(usize, &str)>; 5] = [None; 5];
     let mut status: Option<(usize, u16)> = None;
     let mut edited: Option<(usize, bool)> = None;
-    let mut off = Vec::new();
+    let mut off = std::collections::HashSet::new();
     let mut stack: Vec<(ViewId, usize)> = roots.into_iter().rev().map(|root| (root, 0)).collect();
     while let Some((id, depth)) = stack.pop() {
         if off.contains(&id) {
@@ -198,7 +257,7 @@ pub(crate) fn head_of<'a>(
         }
         off.extend(unselected(&node, &at));
         for child in at.2.iter().rev() {
-            stack.push((*child, depth + 1));
+            stack.push((child, depth + 1));
         }
     }
     let [title, description, image, canonical, robots] =
@@ -231,11 +290,8 @@ fn unselected<'a>(
         return Vec::new();
     };
     let key_of = |id: ViewId| node(id).and_then(|(_, p, _)| p.str(PropId::NavigationKey));
-    let routes = |ids: &[ViewId]| -> Vec<ViewId> {
-        ids.iter()
-            .copied()
-            .filter(|r| key_of(*r).is_some())
-            .collect()
+    let routes = |ids: &Children<'_>| -> Vec<ViewId> {
+        ids.iter().filter(|r| key_of(*r).is_some()).collect()
     };
     let panels = tab_panels(node, &at.2);
     let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
@@ -280,9 +336,8 @@ fn under_a_sheet<'a>(
     else {
         return Vec::new();
     };
-    let routes = |ids: &[ViewId]| -> Vec<ViewId> {
+    let routes = |ids: &Children<'_>| -> Vec<ViewId> {
         ids.iter()
-            .copied()
             .filter(|r| node(*r).is_some_and(|(_, p, _)| p.str(PropId::NavigationKey).is_some()))
             .collect()
     };
@@ -326,9 +381,10 @@ fn under_a_sheet<'a>(
 /// host's `tab_panels`). A tablist inside a route is that route's.
 pub(crate) fn tab_panels<'a>(
     node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
-    children: &[ViewId],
+    children: &Children<'_>,
 ) -> Vec<ViewId> {
-    let (mut lists, mut panels, mut stack) = (Vec::new(), Vec::new(), children.to_vec());
+    let (mut lists, mut panels, mut stack) =
+        (Vec::new(), Vec::new(), children.iter().collect::<Vec<_>>());
     stack.reverse();
     while let Some(id) = stack.pop() {
         let Some((_, props, kids)) = node(id) else {
@@ -337,7 +393,7 @@ pub(crate) fn tab_panels<'a>(
         let role = props.str(PropId::AccessibilityRole);
         match role {
             Some("tabpanel") => panels.push((id, props.str(PropId::Id))),
-            Some("tablist") => lists.push(kids.clone()),
+            Some("tablist") => lists.push(kids),
             _ => {}
         }
         if props.str(PropId::NavigationKey).is_none() && role != Some("tablist") {
@@ -348,7 +404,7 @@ pub(crate) fn tab_panels<'a>(
         .iter()
         .map(|tabs| -> Vec<ViewId> {
             tabs.iter()
-                .filter_map(|t| node(*t))
+                .filter_map(&node)
                 .filter(|(_, p, _)| p.str(PropId::AccessibilityRole) == Some("tab"))
                 .filter_map(|(_, p, _)| p.str(PropId::AccessibilityControls))
                 .filter_map(|name| {

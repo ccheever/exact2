@@ -13,7 +13,7 @@
 // evaluated before the recorder.
 import { browserPath2D } from './path2d.js';
 import { draw } from '__APP_TS__';
-import { Recorder, Path2D } from '__RECORDER__';
+import { Recorder, Path2D, parseColor } from '__RECORDER__';
 import { named } from './ts-data.js';
 globalThis.Path2D = browserPath2D;
 
@@ -21,6 +21,7 @@ const CAUSES = ['mount', 'args', 'size', 'frame', 'image', 'font', 'style'];
 const recorders = new Map(); // canvas lifetime -> { generation, rec }
 
 export const drawer = {
+  color: parseColor,
   draw(q) {
     let entry = recorders.get(q.canvas);
     if (!entry || entry.generation !== q.generation) recorders.set(q.canvas, entry = { generation: q.generation, rec: new Recorder() });

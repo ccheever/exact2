@@ -831,6 +831,15 @@ mod tests {
         let fetch = |origin: Origin| set.permits(&Operation::Fetch { origin });
         let socket = |origin: Origin| set.permits(&Operation::WebSocket { origin });
         assert!(fetch(Origin::new("http", "192.168.1.40", 80)));
+        assert!(fetch(Origin::new("http", "169.254.3.4", 80)));
+        for host in [
+            "169.254.169.254",
+            "[::ffff:169.254.169.254]",
+            "[::ffff:a9fe:a9fe]",
+        ] {
+            assert!(!fetch(Origin::new("http", host, 80)));
+            assert!(!socket(Origin::new("ws", host, 80)));
+        }
         assert!(fetch(Origin::new("https", "wled-a1b2c3.local", 8443)));
         assert!(socket(Origin::new("ws", "[fd00::5]", 81)));
         assert!(!fetch(Origin::new("http", "example.com", 80)));

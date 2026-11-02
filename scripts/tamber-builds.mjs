@@ -316,6 +316,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if (f.kind === 'hold') queue = queue.filter(q => q.f.kind !== 'hold');
         // And a navigation: only where the latest goes.
         if (f.kind === 'navigate') queue = queue.filter(q => q.f.kind !== 'navigate');
+        if (f.kind === 'outline') queue = queue.filter(q => q.f.kind !== 'outline');
         // Likewise inspect, each of its sorts: the latest on/off, select and copies, and one refresh.
         const sort = g => (g.refresh ? 'refresh' : g.select ? 'select' : 'on' in g ? 'mode' : 'copies');
         if (f.kind === 'inspect') queue = queue.filter(q => q.f.kind !== 'inspect' || sort(q.f) !== sort(f));
@@ -328,12 +329,15 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if (f.kind === 'inspect' && f.copies && ('on' in f || f.select || f.refresh)) { const { copies, ...rest } = f; queued({ kind: 'inspect', copies }); f = rest; }
         queued(f);
         queueMicrotask(() => waiting?.());
-        if (queue.length <= QUEUED && queue.reduce((sum, q) => sum + q.n, 0) <= QUEUE_BYTES) return;
+        const over = () => { const ordinary = queue.filter(q => !(q.f.kind === 'inspect' && q.f.copies)); return ordinary.length > QUEUED || ordinary.reduce((sum, q) => sum + q.n, 0) > QUEUE_BYTES; };
+        if (!over()) return;
         // Over its bound: the live-table frames pending are one notice of
         // the latest's design, and the build fetches the snapshot.
         const latest = queue.findLast(q => live(q.f));
         queue = queue.filter(q => !live(q.f));
         if (latest) { const f = notice(latest.f); queue.push({ f, n: Buffer.byteLength(JSON.stringify(f)) }); }
+        // A command that still cannot fit requires a fresh stream, never an unbounded backlog.
+        if (over()) { queue = []; log('tamber: polled command queue exceeded its limit; reconnect'); close(opened.nonce); }
       });
       if (!opened) return null;
       const s = streams.get(opened.nonce);
@@ -412,13 +416,13 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         for (const other of streams.values()) if (other !== s && other.build === r.id) other.build = null;
         // A stream is one build: another id registered on it replaces the
         // build it was, and that build's pin goes with it.
-        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); copiesSent.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
+        if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); picks.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); copiesSent.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
         s.build = r.id;
-        builds.delete(r.id); untell(r.id);
+        builds.delete(r.id); picks.delete(r.id); untell(r.id);
         copiesSent.delete(r.id);
         builds.set(r.id, { id: r.id, host: r.host, ...(r.page ? { page: r.page } : {}), capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
-        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); copiesSent.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
+        for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); picks.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); copiesSent.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
         // Its pin, or none, as the server holds it now (a reload is a new
         // document; a pin cleared while it was away is cleared there too).

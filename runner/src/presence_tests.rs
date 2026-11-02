@@ -400,6 +400,9 @@ impl Vault for UnavailableVault {
         self.memory.plain(name)
     }
     fn put_plain(&mut self, name: &str, value: Option<&[u8]>) -> Result<(), String> {
+        if value.is_none() {
+            self.check("delete_plain")?;
+        }
         self.memory.put_plain(name, value)
     }
     fn record(&self, name: &str) -> Result<Option<Vec<u8>>, String> {
@@ -514,6 +517,65 @@ fn deferred_reconciliation_still_forgets_removed_or_changed_policies_unread() {
         assert!(
             drive.pump(&mut backend).is_empty(),
             "removed names leave no retry"
+        );
+    }
+}
+
+#[test]
+fn protection_and_migration_wait_for_durable_plain_deletion() {
+    for kind in ["protect", "reconcile", "move", "cannot-lock"] {
+        let memory = MemoryVault::default();
+        memory.clone().put_plain("a", Some(b"token")).unwrap();
+        if kind == "reconcile" {
+            memory
+                .clone()
+                .add_locked("a", 1, &optional(), b"token")
+                .unwrap();
+        }
+        let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+        if kind != "protect" {
+            *failure.lock().unwrap() = Some("delete_plain");
+        }
+        let vault = UnavailableVault {
+            memory: memory.clone(),
+            failure: failure.clone(),
+        };
+        let policy = if kind == "move" || kind == "cannot-lock" {
+            mandatory()
+        } else {
+            optional()
+        };
+        let mut backend = Backend::new(Box::new(vault), vec![("a".into(), Some(policy))]);
+        let mut drive = Drive::new();
+        drive.can_lock = kind != "cannot-lock";
+        if kind == "protect" {
+            *failure.lock().unwrap() = Some("delete_plain");
+            backend.enqueue("a", Op::Protect, Some(1));
+        }
+        let events = drive.pump(&mut backend);
+        assert_eq!(done(&events, 1), None, "{kind}");
+        assert_eq!(backend.occupancy("a"), Some(Occupancy::Pending), "{kind}");
+        assert!(memory.plain("a").unwrap().is_some());
+        assert!(backend.retry_due_ms().is_some());
+        *failure.lock().unwrap() = None;
+        drive.now_ms = RETRY_MS;
+        let events = drive.pump(&mut backend);
+        if kind == "protect" {
+            assert_eq!(done(&events, 1), Some(Done::Ok));
+        }
+        assert_eq!(memory.plain("a").unwrap(), None, "{kind}");
+        assert_eq!(
+            backend.occupancy("a"),
+            Some(if kind == "cannot-lock" {
+                Occupancy::Absent
+            } else {
+                Occupancy::Locked
+            }),
+            "{kind}"
+        );
+        assert_eq!(
+            memory.memory().locked.len(),
+            usize::from(kind != "cannot-lock")
         );
     }
 }

@@ -259,7 +259,8 @@ struct HostState {
     /// of the OS (LLP 1069.005 D2b); this instance's, from its start.
     agent: Option<exact_data::crypto::AgentStream>,
     /// `CryptoKey`s by handle, never on the heap (LLP 1069.005 D1b).
-    keys: Vec<exact_data::crypto::EcKey>,
+    keys: HashMap<u64, exact_data::crypto::EcKey>,
+    next_key: u64,
     /// `authCallback()`: this native build's, from the grants (LLP 1069.006).
     auth_callback: Option<String>,
     /// The engine has app storage: the host configured directories.
@@ -730,6 +731,7 @@ impl Module {
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());
         }
+        self.host.keys.clear();
         self.storage = None;
         self.host.native = None;
         self.host.later = false;

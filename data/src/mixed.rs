@@ -205,7 +205,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         let mut sets = Vec::new();
         let mut set_of = [None, None];
         if workers.iter().any(|w| *w) {
-            if overlap || (workers[0] && workers[1]) {
+            if overlap {
                 sets.push(Set {
                     busy: false,
                     held: VecDeque::new(),

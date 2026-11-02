@@ -78,6 +78,17 @@ function staticRelative(name) {
   return name;
 }
 
+/** Read the live module only within its real directory, including through symlinks. */
+export function readModuleFile(entry, pathname) {
+  try {
+    if (!entry || !pathname.startsWith('/modules/')) return null;
+    const name = staticRelative(pathname.slice('/modules/'.length));
+    if (!/^[\w./-]+\.js$/.test(name)) return null;
+    const root = realpathSync(dirname(entry)), path = realpathSync(resolve(root, name));
+    return path.startsWith(root + sep) ? readFileSync(path) : null;
+  } catch { return null; }
+}
+
 // A live iframe can navigate long after its generation left the dev head.
 // Keep those ordinary files outside rebuilt dist, without guessing client
 // liveness. Quota exhaustion refuses publication instead of deleting readers.

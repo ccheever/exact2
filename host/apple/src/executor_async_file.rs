@@ -256,6 +256,7 @@ impl Machine {
                 charge: r.charge,
                 limit: r.limit,
                 forgotten: r.forgotten,
+                queued_deadline: None,
             },
         );
         Some(Box::new(move |m: &Arc<Machine>| m.timer.remove(run)))
@@ -364,6 +365,7 @@ mod tests {
                 charge,
                 limit,
                 forgotten: false,
+                queued_deadline: None,
             });
             state.bytes[lane] += charge;
             state.counts[lane] += 1;

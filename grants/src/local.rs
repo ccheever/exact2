@@ -16,7 +16,8 @@ pub const DEVELOPMENT: &str = "development";
 /// brackets), is on the local network: an RFC 1918, link-local IPv4,
 /// unique-local IPv6 or link-local IPv6 literal, an IPv4-mapped IPv6 address
 /// judged by the IPv4 address it carries, or a name ending in `.local`
-/// (RFC 6762 §3). With `loopback`, also 127.0.0.0/8, `[::1]` and `localhost`.
+/// (RFC 6762 §3). The cloud metadata address 169.254.169.254 is excluded.
+/// With `loopback`, also 127.0.0.0/8, `[::1]` and `localhost`.
 pub fn is_local_network(host: &str, loopback: bool) -> bool {
     let host = host.to_ascii_lowercase();
     if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
@@ -51,7 +52,8 @@ pub fn is_service_type(kind: &str) -> bool {
 }
 
 fn local_v4(address: Ipv4Addr, loopback: bool) -> bool {
-    address.is_private() || address.is_link_local() || loopback && address.is_loopback()
+    address != Ipv4Addr::new(169, 254, 169, 254)
+        && (address.is_private() || address.is_link_local() || loopback && address.is_loopback())
 }
 
 fn local_v6(address: Ipv6Addr, loopback: bool) -> bool {
@@ -112,6 +114,8 @@ mod tests {
             assert!(is_local_network(host, false), "{host}");
         }
         for host in [
+            "169.254.169.254",
+            "[::ffff:169.254.169.254]",
             "172.32.0.1",
             "8.8.8.8",
             "100.64.0.1",
@@ -142,5 +146,7 @@ mod tests {
             assert!(is_local_network(host, true), "{host}");
         }
         assert!(!is_local_network("8.8.8.8", true));
+        assert!(!is_local_network("169.254.169.254", true));
+        assert!(!is_local_network("[::ffff:a9fe:a9fe]", true));
     }
 }

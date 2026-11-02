@@ -576,12 +576,21 @@ impl Machine {
         abort: AbortController,
     ) {
         let Job {
-            request,
+            mut request,
             forced,
             work,
+            queued_deadline,
             ..
         } = job;
         let refuse = |outcome| self.answer(lane, run, outcome);
+        if let Some(deadline) = queued_deadline {
+            if !deadline.remaining(&mut request) {
+                return refuse(failed(
+                    FailureKind::Timeout,
+                    "the request timed out while queued",
+                ));
+            }
+        }
         // A source's narrower scope, refused before any work runs, as on
         // the workers.
         let scoped = scoped_bindings(&self.grants, request.grants.as_deref(), &self.host);

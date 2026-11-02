@@ -96,16 +96,17 @@ export async function update(io: DfuIo, image: Uint8Array, options: UpdateOption
 /** The update as steps: each yield is a wait the board asked for, or a block written (wait 0). */
 export async function* updating(io: DfuIo, image: Uint8Array, options: UpdateOptions): AsyncGenerator<DfuStep, void> {
   const size = options.transferSize;
-  if (!(size > 0)) throw new DfuError('the interface names no transfer size');
+  if (!Number.isSafeInteger(size) || size <= 0) throw new DfuError('the interface names no valid transfer size');
+  const dfuse = options.dfuse;
+  if (dfuse && (!Number.isSafeInteger(dfuse.pageSize) || dfuse.pageSize <= 0)) throw new DfuError('the interface names no valid sector size');
   // A board left in an error or mid-download by an earlier attempt starts again from idle (DFU 1.1 §6.1.5).
   const first = await getStatus(io);
   if (first.state === State.dfuERROR) await io.controlOut(CLRSTATUS, 0, new Uint8Array());
   else if (first.state !== State.dfuIDLE) await io.controlOut(ABORT, 0, new Uint8Array());
   let block = 0;
-  const dfuse = options.dfuse;
   if (dfuse) {
     // Erase each page the image covers, then point at its start; data blocks are numbered from 2 (AN3156 §6.1).
-      const at: Progress = { written: 0, total: image.length };
+    const at: Progress = { written: 0, total: image.length };
     for (let page = 0; page < image.length; page += dfuse.pageSize) yield* download(io, 0, command(0x41, dfuse.address + page), at);
     yield* download(io, 0, command(0x21, dfuse.address), at);
     block = 2;

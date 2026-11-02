@@ -127,6 +127,8 @@ export interface OAuthStore {
   get(name: string): string | null;
   set(name: string, value: string): void;
   forget(name: string): void;
+  /** Serialize work and refresh this name from shared storage before it starts. Browser stores coordinate all same-origin realms. */
+  exclusive?<T>(name: string, work: () => Promise<T>): Promise<T>;
 }
 
 export interface OAuthProvider {

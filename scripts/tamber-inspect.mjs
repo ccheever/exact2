@@ -39,22 +39,33 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
  * `port`, naming the `host` the child's gate answers. Only the child's map
  * path, no redirect; kept only when the bytes are the card's and the map's
  * own digest is the plan's. `{digest, bytes}`, or null. */
-export function pullMap(port, card, host) {
-  if (!card || !/^[0-9a-f]{64}$/.test(card.plan ?? '') || !/^[0-9a-f]{64}$/.test(card.sha256 ?? '') || !Number.isSafeInteger(card.bytes) || card.url !== `/__dev/map/${card.sha256}`) return Promise.resolve(null);
+export function pullMap(port, card, host, timeout = 5_000) {
+  if (!card || !/^[0-9a-f]{64}$/.test(card.plan ?? '') || !/^[0-9a-f]{64}$/.test(card.sha256 ?? '') || !Number.isSafeInteger(card.bytes) || card.bytes < 0 || card.url !== `/__dev/map/${card.sha256}`) return Promise.resolve(null);
   return new Promise((done) => {
+    const parts = [];
+    let settled = false, size = 0;
+    const finish = value => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); parts.length = 0;
+      if (!value) req.destroy();
+      done(value);
+    };
     const req = request({ host: '127.0.0.1', port, path: card.url, headers: { host } }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); done(null); return; }
-      const parts = [];
-      let size = 0;
-      res.on('data', (d) => { size += d.length; if (size > card.bytes) { req.destroy(); done(null); } else parts.push(d); });
+      res.on('error', () => finish(null));
+      res.on('aborted', () => finish(null));
+      res.on('close', () => { if (!res.complete) finish(null); });
+      if (res.statusCode !== 200) { finish(null); return; }
+      res.on('data', (d) => { if (settled) return; size += d.length; if (size > card.bytes) finish(null); else parts.push(d); });
       res.on('end', () => {
+        if (settled) return;
         const bytes = Buffer.concat(parts);
         try {
-          done(bytes.length === card.bytes && createHash('sha256').update(bytes).digest('hex') === card.sha256 && JSON.parse(bytes.toString('utf8')).digest === card.plan ? { digest: card.plan, bytes } : null);
-        } catch { done(null); }
+          finish(bytes.length === card.bytes && createHash('sha256').update(bytes).digest('hex') === card.sha256 && JSON.parse(bytes.toString('utf8')).digest === card.plan ? { digest: card.plan, bytes } : null);
+        } catch { finish(null); }
       });
     });
-    req.on('error', () => done(null));
+    const timer = setTimeout(() => finish(null), timeout);
+    req.on('error', () => finish(null));
     req.end();
   });
 }

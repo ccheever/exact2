@@ -68,7 +68,7 @@ mod values;
 mod views;
 mod wakes;
 pub use admit::CallOrigin;
-pub(super) use admit::OriginsSaved;
+pub(super) use admit::{Causes, OriginsSaved};
 use admit::{Origins, Route};
 pub use calls::CallHow;
 pub use declared::AppState;
@@ -1380,14 +1380,16 @@ impl<D: DataSource> Runner<D> {
         self.let_go_data_calls();
         self.prune_origins();
         self.sheets_let_go();
-        let gone: Vec<u64> = (self.extensions.held.iter())
+        let gone: Vec<(u64, u64)> = (self.extensions.held.iter())
             .filter(|h| h.reply.is_none() && !self.sheet_kept(h.token))
             .filter(|h| !self.pending.iter().any(|p| p.continuation == Some(h.token)))
-            .map(|h| h.hold)
+            .map(|h| (h.token, h.hold))
             .collect();
-        for hold in gone {
-            self.extensions.held.retain(|h| h.hold != hold);
-            self.retire_hold(hold);
+        for (token, hold) in gone {
+            self.extensions.held.retain(|h| h.token != token);
+            if !self.extensions.held.iter().any(|h| h.hold == hold) {
+                self.retire_hold(hold);
+            }
         }
     }
 

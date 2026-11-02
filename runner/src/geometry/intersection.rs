@@ -114,7 +114,10 @@ pub(crate) fn intersection(
                     transform = IDENTITY;
                 }
             }
-            transform = mul(placed_transform(kernel, scrolled, slot), transform);
+            transform = mul(
+                placed_transform(kernel, scrolled, slot, arena.frame(slot)),
+                transform,
+            );
             // A route's native scrollport wraps its authored CSS scroll root, so it lies above that root
             if !rooted || (element_root && !scrolled.is_scrollport(kernel, slot)) {
                 if let Some(bounds) = block_clip(kernel, scrolled, slot, f) {
@@ -189,9 +192,14 @@ fn top_clip(scrolled: &Scrolled, key: NodeKey, rect: Rect) -> Option<Rect> {
     }
 }
 
-fn placed_transform(kernel: &Kernel, scrolled: &Scrolled, slot: u32) -> Affine {
+pub(super) fn placed_transform(
+    kernel: &Kernel,
+    scrolled: &Scrolled,
+    slot: u32,
+    frame: Frame,
+) -> Affine {
     let arena = kernel.arena();
-    let own = own_transform(arena.style(slot), arena.frame(slot));
+    let own = own_transform(arena.style(slot), frame);
     let Some(constraint) = kernel.sticky_constraint(arena.key(slot)) else {
         return own;
     };

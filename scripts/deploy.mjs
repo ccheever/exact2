@@ -39,12 +39,6 @@ import { requireReleasePins } from '../game/inputs.mjs';
 // key and prints the public half to paste in; the private key never enters
 // the repository. `update/tests/it/publisher.rs` reads a head this script
 // produced and proves the client verifies it.
-//
-// Owed, not built: `--watch` (D5's continuous publisher: the same library,
-// a separate least-privileged process watching the deploy branch); an
-// object-store adapter (an https origin is read-only here); the binary
-// lanes (1030.000 §6). Dev imports the same artifact comparison; a
-// platform with no completed receipt is reported as unbuilt.
 import { spawnSync } from 'node:child_process';
 import { randomBytes, verify } from 'node:crypto';
 import { Refusal, refuse, canonicalBytes, canonicalJson, publicKeyFromRaw, loadSigner, keygen, validateRawIntegers } from './deploy-signing.mjs';
@@ -57,7 +51,7 @@ import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } 
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
-import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { blobPath, channelOrigin, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath, validateChannel } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { entryPlans, listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 import { BESIDE, STAGE } from '../host/web/beside.mjs';
@@ -134,7 +128,6 @@ export function sourcePathspec(repo, app, exactRoot) {
     .map((path) => unixPath(relative(repo, path))))];
   return ['.', ...excluded.flatMap((path) => [`:(exclude,top,literal)${path}`, `:(exclude,top,glob)${path}/**`])];
 }
-
 const SOURCE_MAX_BUFFER = 512 * 1024 * 1024;
 function gitResult(repo, args, what, options = {}) {
   const result = spawnSync('git', args, { cwd: repo, maxBuffer: SOURCE_MAX_BUFFER, ...options });
@@ -713,9 +706,17 @@ export function nativePlatforms(manifest) {
 /** Whether the manifest names a native platform, under `host` or `deploy`; one that names none ships the web root alone, with no stream and no envelope, and its deploy bakes nothing (LLP 1153 D1.5, D3.6). */
 export const namesNative = (manifest) => [manifest.host, manifest.deploy?.store, manifest.deploy?.binaries].some((table) => Object.keys(table ?? {}).some((p) => p !== 'web'));
 
-/** What the bundle changes against a head: `app.plan` and each asset by digest — new, changed, removed — with a `.wgsl` whose cohort is this one marked an asset (its interface digest is an input to the id, so an unchanged id is an unchanged interface). */
-function changesAgainst(bundle, head) {
+function sunsetFor(app, stream) {
+  const cards = app.manifest.deploy?.sunset;
+  const key = `${stream.channel}/${stream.compatibilityId}`;
+  return cards && Object.hasOwn(cards, key) ? cards[key] : cards?.[stream.compatibilityId] ?? null;
+}
+
+/** Plan and asset changes by digest, plus the stream's advisory card. */
+function changesAgainst(bundle, head, sunset = null) {
   const changes = [];
+  const card = (value) => value ? [value.message, value.store || null] : null;
+  if (JSON.stringify(card(sunset)) !== JSON.stringify(card(head?.sunset))) changes.push({ name: 'sunset', change: !sunset ? 'removed' : !head?.sunset ? 'new' : 'changed' });
   if (!head) {
     changes.push({ name: 'app.plan', change: 'new' });
     for (const a of bundle.assets) changes.push({ name: a.name, change: 'new' });
@@ -1021,7 +1022,7 @@ export async function classify({ app, opts, origin, channel, snapshot, release, 
     const check=classifyArtifacts(candidate,installed,signingKey);
     const inputs=installed?.compat.inputs ?? compat[platform]?.inputs;
     const selectedBundle=bundle.platforms?.[platform] ?? bundle;
-    const changes=admission?.usable?changesAgainst(selectedBundle,admission.head):head?[{name:'exact.json',change:'repair',note:admission.problem}]:changesAgainst(selectedBundle,null);
+    const changes=admission?.usable?changesAgainst(selectedBundle,admission.head,sunsetFor(app,stream)):head?[{name:'exact.json',change:'repair',note:admission.problem}]:changesAgainst(selectedBundle,null,sunsetFor(app,stream));
     let seq=admission?.seq;
     if(changes.length && (check.bundle || item.platform)) {
       try {seq=await nextSeq(origin,app,stream,admission,`the head at ${origin.describe()}/${streamPath(stream)}/exact.json`);}
@@ -1124,8 +1125,8 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       if (!checked.bundle || installed.compat.id !== stream.compatibilityId) refuse(`the locked cohort rejects the candidate: ${checked.missing.join('; ')}`);
     }
     const changes = admission?.usable
-      ? changesAgainst(bundle, admission.head)
-      : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
+      ? changesAgainst(bundle, admission.head, sunsetFor(app, stream))
+      : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null, sunsetFor(app, stream));
     if (admission?.usable && !changes.length && admission.seq > (opts.seqAbove ?? 0)) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
     // `seqAbove`: a stream moving to a new origin starts above every seq its clients accepted from the old one.
     const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`, opts.seqAbove ?? 0);
@@ -1136,7 +1137,7 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       if (!back || sha256(back) !== file.sha256) refuse(`the blob ${file.sha256} (${file.name}) read back from ${origin.describe()} is not what was written`);
     }
     log(`  ${row.platform} ${row.compatibilityId.slice(0, 8)}: ${files.length} blobs on the origin (${written} written, ${files.length - written} present), each read back and checked`);
-    const sunset = app.manifest.deploy?.sunset?.[`${stream.channel}/${stream.compatibilityId}`] ?? app.manifest.deploy?.sunset?.[stream.compatibilityId];
+    const sunset = sunsetFor(app, stream);
     const head = streamHead({ app, bundle, stream, seq, release, sunset });
     if (installed) head.cohort = installed;
     head.signature = signer.sign(head);
@@ -1309,7 +1310,7 @@ async function deployCaptured(opts, capsule) {
   const snapshot = capsule.snapshot;
   const release = capsule.release;
   const channel = opts.channel ?? channelOf(app.manifest);
-  if (channel === 'blobs' || !/^[A-Za-z0-9._-]+$/.test(channel)) refuse(`the channel ${JSON.stringify(channel)} cannot name a directory under .exact/`);
+  validateChannel(channel);
   const originSpec = opts.origin ?? channelOrigin(app.manifest, channel) ?? app.origin;
   if (!originSpec) refuse(`no origin for the channel ${channel}: pass --origin <dir|url> or name deploy.channels.${channel} in app.json`);
   const origin = openOrigin(originSpec);

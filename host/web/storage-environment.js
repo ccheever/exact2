@@ -109,3 +109,18 @@ export function keyStore(name, indexedDB) {
     get: handle => run('readonly', keys => keys.get(handle)).then(pair => pair ?? null),
   };
 }
+
+/** A kept session's read/modify/write spans every tab sharing its localStorage key. */
+export function exclusiveSecret(store, prefix, name, work) {
+  if (!globalThis.navigator?.locks) return Promise.reject(Object.assign(new Error('This browser cannot coordinate shared secret updates'), { name: 'NotSupportedError' }));
+  return navigator.locks.request(`${prefix}${name}`, async () => {
+    const flush = () => {
+      store.persist();
+      if (store.pending.has(name)) throw new Error('The shared secret could not be persisted');
+    };
+    flush();
+    const fresh = localStorage.getItem(prefix + name);
+    if (fresh == null) store.map.delete(name); else store.map.set(name, fresh);
+    try { return await work(); } finally { flush(); }
+  });
+}

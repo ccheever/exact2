@@ -4,6 +4,7 @@
 // (a let-go answer, the store asking readers again) is tested by the cases
 // in an app (`cases.template.contract`).
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { exclusiveSecret } from '../../../host/web/storage-environment.js';
 import { handle, PROFILES } from './fixture.ts';
 import { oauth, OAuthError, type OAuthAuthorization, type OAuthConfig, type OAuthEvent, type OAuthStore } from '../index.ts';
 
@@ -153,6 +154,51 @@ describe('one session, several callers', () => {
     }
     const got = await counts('auth0');
     expect([got.refresh, got.reuse ?? 0]).toEqual([1, 0]);
+  });
+
+  test('independent realms reload and rotate a shared session under the host lock', async () => {
+    const descriptors = ['navigator', 'localStorage'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+    const disk = new Map<string, string>(), locks = new Map<string, Promise<unknown>>();
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+      getItem: (k: string) => disk.get(k) ?? null, setItem: (k: string, v: string) => disk.set(k, v), removeItem: (k: string) => disk.delete(k),
+    } });
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { locks: {
+      request: (name: string, work: () => Promise<unknown>) => {
+        const run = (locks.get(name) ?? Promise.resolve()).then(work);
+        locks.set(name, run.catch(() => {}));
+        return run;
+      },
+    } } });
+    const realm = () => {
+      const map = new Map<string, string>(), pending = new Map<string, string | null>();
+      const store = { map, pending,
+        get: (k: string) => map.get(k) ?? null,
+        set: (k: string, v: string) => { map.set(k, v); pending.set(k, v); },
+        forget: (k: string) => { map.delete(k); pending.set(k, null); },
+        persist: () => { for (const [k, v] of pending) { if (v === null) disk.delete(k); else disk.set(k, v); } pending.clear(); },
+        exclusive: <T>(name: string, work: () => Promise<T>): Promise<T> => exclusiveSecret(store, '', name, work),
+      };
+      return store;
+    };
+    try {
+      const second = await import('../index.ts?independent-realm');
+      const a = oauth(configFor('auth0')), b = second.oauth(configFor('auth0')), one = realm(), two = realm();
+      await a.signIn(one);
+      two.map.set('auth0.session', disk.get('auth0.session')!);
+      await control({ action: 'expire-access', profile: 'auth0' });
+      await control({ action: 'hold-token', profile: 'auth0' });
+      const reads = Promise.all([a.fetch(one, `${origin}/p/auth0/api/me`), b.fetch(two, `${origin}/p/auth0/api/me`)]);
+      await control({ action: 'await', profile: 'auth0', held: 1 });
+      await control({ action: 'release-token' });
+      expect((await reads).map(r => r.status)).toEqual([200, 200]);
+      const got = await counts('auth0');
+      expect([got.refresh, got.reuse ?? 0]).toEqual([1, 0]);
+      expect(two.get('auth0.session')).toBe(disk.get('auth0.session'));
+    } finally {
+      for (const [key, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete (globalThis as any)[key];
+      }
+    }
   });
 
   // A sign-out whose revoke got no reply (natively, one superseded, whose

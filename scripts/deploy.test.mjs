@@ -1102,3 +1102,40 @@ test('a production web root serves every authenticated asset card, including act
     if (!await rejects(() => publishRoot({origin, row:{}, web}), error => error.message.includes('web envelope does not bind activities/card.schema.json'))) throw new Error('missing asset was published');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 }, 300000);
+
+test('adding editing and removing only a sunset publishes a new signed sequence', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const app = { id: 'com.exact.sunset', displayName: 'Sunset', manifest: { deploy: { signing: { key: 'test', keys: { test: publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64') } } } } };
+  const signer = { keyId: 'test', sign: head => ({ keyId: 'test', ed25519: cryptoSign(null, canonicalBytes(head), privateKey).toString('base64') }) };
+  const stream = { channel: 'prod', compatibilityId: 'a'.repeat(32) };
+  const bytes = Buffer.from('same plan');
+  const bundle = { plan: { bytes, sha256: sha256(bytes), formatVersion: 4, kernelSchema: '0'.repeat(16) }, assets: [] };
+  const initial = streamHead({ app, bundle, stream, seq: 7, release: 'first' });
+  initial.signature = signer.sign(initial);
+  const path = `.exact/prod/${stream.compatibilityId}/exact.json`;
+  const files = new Map([[path, Buffer.from(JSON.stringify(initial))]]);
+  let writes = 0;
+  const origin = {
+    describe: () => 'memory', get: async name => files.get(name) ?? null,
+    head: async () => { const bytes = files.get(path); return { bytes, sha256: sha256(bytes), json: JSON.parse(bytes) }; },
+    list: async prefix => [...files.keys()].filter(name => name.startsWith(`${prefix}/`)).map(name => name.slice(prefix.length + 1)).filter(name => !name.includes('/')),
+    withLock: async (_, fn) => fn(),
+    put: async (name, bytes) => { files.set(name, bytes); writes++; return 'written'; },
+    putHead: async (_, bytes, { previousDigest }) => { expect(sha256(files.get(path))).toBe(previousDigest); files.set(path, bytes); writes++; },
+  };
+  const row = { kind: 'stream', platform: 'linux', ...stream, action: 'bundle', changes: [] };
+  const compat = { id: stream.compatibilityId, inputs: {} };
+  let seq = 7;
+  for (const sunset of [{ message: 'Retiring' }, { message: 'Install the next binary', store: 'https://example.test' }, null]) {
+    app.manifest.deploy.sunset = { [`prod/${stream.compatibilityId}`]: sunset };
+    const published = await publishStream({ origin, row, bundle, compat, app, signer, release: `change-${seq}`, snapshot: { commit: '0'.repeat(40), dirty: false }, opts: {}, log() {} });
+    expect(published.seq).toBe(++seq);
+    const head = await origin.head();
+    expect(head.json.sunset ?? null).toEqual(sunset);
+    expect(inspectHead(head, app, stream).authenticated).toBe(true);
+    const before = writes;
+    const again = await publishStream({ origin, row, bundle, compat, app, signer, release: `same-${seq}`, snapshot: { commit: '0'.repeat(40), dirty: false }, opts: {}, log() {} });
+    expect(again.action).toBe('current');
+    expect(writes).toBe(before);
+  }
+});

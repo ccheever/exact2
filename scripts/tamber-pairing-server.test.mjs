@@ -5,9 +5,10 @@
 // and any other end (the canvas gateway's).
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { developmentGate } from './install-page.mjs';
 import { tamberServer } from './tamber-server.mjs';
 
@@ -21,6 +22,7 @@ beforeAll(async () => {
   const port = server.address().port;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
   tamber = tamberServer({
+    spawnServe: app => spawn(resolve(import.meta.dir, '../target/debug/contract'), ['tamber', 'serve', '--stdio', app], { stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' }),
     appDir: dir, log: line => logged.push(line), settle: 100, pairTtlMs: 3600_000, clock: () => now,
     scrub: { preview: async () => ({}), restore: () => { restores++; } },
   });
@@ -32,7 +34,7 @@ beforeAll(async () => {
   origin = `http://127.0.0.1:${port}`;
   local = (await (await fetch(`${origin}/__tamber/token`)).json()).token;
   await tamber.ready;
-}, 600_000); // a cold checkout builds the compiler first
+}, 60_000); // build contract before the suite (docs/testing.md)
 afterAll(async () => {
   await tamber?.close();
   server?.close();
@@ -429,3 +431,21 @@ test('navigate: write scope, a present client, one build that can, a location on
   await sub.ended;
   s.close(); t.close();
 });
+
+test('the tool proxy forwards a large local import while the upstream keeps paired and method limits', async () => {
+  const { forward } = await import('./tamber-server.mjs');
+  const proxy = createServer((req, res) => { void forward(req, res, new URL(req.url, 'http://x'), { local: true }, origin); });
+  await new Promise(ok => proxy.listen(0, '127.0.0.1', ok));
+  const via = `http://127.0.0.1:${proxy.address().port}/__tamber`;
+  const request = { method: 'import', kind: 'dtcg', client: 'large-via', name: 'tokens.json', source: JSON.stringify({ ink: { $type: 'color', $value: '#123456', $description: 'n'.repeat(2 << 20) } }) };
+  let p;
+  const through = async (body, token) => fetch(via, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(body) });
+  try {
+    const localResult = await through(request, local), imported = await localResult.json();
+    expect(localResult.status, JSON.stringify(imported).slice(0, 300)).toBe(200);
+    await post({ method: 'drop', client: request.client, proposal: imported.ok.proposal });
+    p = await paired('write', 'via-import');
+    const remoteResult = await through(request, p.token); expect(remoteResult.status).toBe(413); await remoteResult.text();
+    const wrongMethod = await through({ ...request, method: 'hello' }, local); expect(wrongMethod.status).toBe(413); await wrongMethod.text();
+  } finally { if (p) await post({ method: 'revoke', client: p.client }); proxy.closeAllConnections(); proxy.close(); }
+}, 60_000);

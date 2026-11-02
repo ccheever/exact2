@@ -381,8 +381,8 @@ export function webCompiler() {
   // fresh (dev.mjs), the same output, about ten times faster on a large app
   // (the Bluesky clone: 1.2 s, not 11.8).
   const fast = process.env.EXACT_WEB_COMPILER;
-  if (fast && existsSync(fast)) return { cmd: fast, pre: [], done() {} };
-  if (fresh(COMPILER, `${COMPILER}.d`)) return { cmd: COMPILER, pre: [], done() {} };
+  if (fast && freshCompiler(fast)) return { cmd: fast, pre: [], done() {} };
+  if (freshCompiler(COMPILER)) return { cmd: COMPILER, pre: [], done() {} };
   const at = compilerKept();
   const taken = at.find();
   if (taken) return { cmd: taken, pre: [], done() {} };
@@ -398,7 +398,7 @@ async function prebuild() {
   if (spawnSync('git', ['-C', root, 'status', '--porcelain'], { encoding: 'utf8' }).stdout) console.warn('web-js: this checkout has uncommitted changes; what they touch is built but not kept');
   const compiler = compilerKept();
   const compiling = (async () => {
-    const again = fresh(COMPILER, `${COMPILER}.d`) ? compiler.keepAgain() : null;
+    const again = freshCompiler(COMPILER) ? compiler.keepAgain() : null;
     if (again !== null) return held.set('exact-web-js', again);
     rmSync(COMPILER, { force: true });
     // Already kept from these sources (this checkout took it): nothing to do.

@@ -45,6 +45,10 @@ impl StickyConstraint {
             let (lo, hi) = (self.natural[i], self.natural[i + 2]);
             let mut d = 0.0;
             if let Some(inset) = end {
+                // The sticky view rectangle must contain the border box;
+                // CSS Positioned Layout 3 §3.4 reduces its end inset if needed.
+                let inset =
+                    inset.min(self.port[i + 2] - self.port[i] - start.unwrap_or(0.0) - (hi - lo));
                 let pull =
                     (self.port[i + 2] + scroll - inset - hi).max((self.limit[i] - lo).min(0.0));
                 if pull < 0.0 {
@@ -52,8 +56,8 @@ impl StickyConstraint {
                 }
             }
             if let Some(inset) = start {
-                let push =
-                    (self.port[i] + scroll + inset - lo).min((self.limit[i + 2] - hi).max(0.0));
+                let push = (self.port[i] + scroll + inset - lo - d)
+                    .min((self.limit[i + 2] - hi - d).max(0.0));
                 if push > 0.0 {
                     d += push;
                 }

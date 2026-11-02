@@ -330,19 +330,34 @@ fn first_launch(app_id: &str, service: &str, kv: &Kv) {
         return;
     };
     let marker = std::path::Path::new(&home).join("Library/Application Support/exact/installed");
-    if marker.exists() {
-        return;
+    if let Err(error) = first_launch_at(app_id, service, kv, &marker) {
+        eprintln!("exact: reinstall keychain cleanup will retry: {error}");
     }
-    let empty = |scope: &str| kv.keys(scope).is_ok_and(|k| k.is_empty());
-    if empty(RECORDS) && empty(crate::store::KEPT) {
+}
+
+fn first_launch_at(
+    app_id: &str,
+    service: &str,
+    kv: &Kv,
+    marker: &std::path::Path,
+) -> Result<(), String> {
+    if marker.exists() {
+        return Ok(());
+    }
+    let records = kv.keys(RECORDS).map_err(|e| format!("{e:?}"))?;
+    let kept = kv.keys(crate::store::KEPT).map_err(|e| format!("{e:?}"))?;
+    if records.is_empty() && kept.is_empty() {
         for service in [app_id, service] {
-            let _ = call(4, serde_json::json!({ "service": service }), &[]);
+            match call(4, serde_json::json!({ "service": service }), &[])? {
+                (0 | 1, _) => {}
+                _ => return Err("the keychain returned an unknown delete status".into()),
+            }
         }
     }
     if let Some(dir) = marker.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let _ = std::fs::write(&marker, b"");
+    std::fs::write(marker, b"").map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

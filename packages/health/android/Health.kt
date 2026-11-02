@@ -341,9 +341,8 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
                 return@admitted reply(page(all, after, limit, since, true))
             }
             val from = Instant.ofEpochMilli(maxOf(start, since ?: start).toLong())
-            call({ sessions(from, Instant.ofEpochMilli(end.toLong()), origins(args), g) }) { r ->
-                val all = r.getOrElse { return@call reply(failure(it)) }
-                reply(page(all.filter { it.optDouble("start") >= start }, after, limit, since, true))
+            call({ sessions(from, Instant.ofEpochMilli(end.toLong()), origins(args), g, after, limit, since) }) { r ->
+                reply(r.getOrElse { failure(it) })
             }
         }
     }
@@ -361,17 +360,36 @@ class HealthModule(context: ExtensionContext) : ExactExtension(context) {
             .associate { it.startTime.atZone(zone).toInstant().toEpochMilli() to value(it.result, metric) }
     }
 
-    /** Every exercise session from [from] to [to], page by page, in the interface's shape and order. */
-    private suspend fun sessions(from: Instant, to: Instant, origins: Set<DataOrigin>, grants: Set<String>): List<JSONObject> {
+    /** Read only the requested page and its boundary, then aggregate the workouts that will be returned. */
+    private suspend fun sessions(from: Instant, to: Instant, origins: Set<DataOrigin>, grants: Set<String>,
+                                 after: String?, limit: Int, since: Double?): JSONObject {
+        val cut = after?.indexOf(':') ?: -1
+        val at = if (cut > 0) after?.substring(0, cut)?.toLongOrNull() else null
+        val id = if (cut > 0) after?.substring(cut + 1) else null
+        val stale = { JSONObject().put("error", "InvalidStateError").put("message", "cursor-stale") }
+        if (after != null && (at == null || id.isNullOrEmpty() || at < from.toEpochMilli() || at >= to.toEpochMilli())) return stale()
+        val beginning = at?.let(Instant::ofEpochMilli) ?: from
         val out = mutableListOf<ExerciseSessionRecord>()
         var token: String? = null
+        var found = after == null
         do {
-            val response = client.readRecords(ReadRecordsRequest(ExerciseSessionRecord::class, TimeRangeFilter.between(from, to), origins,
-                ascendingOrder = true, pageSize = 1000, pageToken = token))
-            out += response.records
+            val response = client.readRecords(ReadRecordsRequest(ExerciseSessionRecord::class, TimeRangeFilter.between(beginning, to), origins,
+                ascendingOrder = true, pageSize = limit + 1, pageToken = token))
+            for (w in response.records) {
+                val start = w.startTime.toEpochMilli()
+                if (start == at && w.metadata.id == id) found = true
+                if (w.startTime >= from && (at == null || start > at || (start == at && w.metadata.id > id!!))) out += w
+            }
             token = response.pageToken
+            out.sortWith(compareBy<ExerciseSessionRecord> { it.startTime.toEpochMilli() }.thenBy { it.metadata.id })
+            // Finish the tie at the page boundary before choosing by id.
+            if (out.size > limit && (token == null || response.records.lastOrNull()?.startTime?.toEpochMilli() != out[limit - 1].startTime.toEpochMilli())) break
         } while (token != null)
-        return out.map { workout(it, grants) }.sortedWith(AgentHealth.ordered)
+        if (!found) return stale()
+        val shown = out.take(limit)
+        val next: Any = if (out.size > limit) shown.last().let { "${it.startTime.toEpochMilli()}:${it.metadata.id}" } else JSONObject.NULL
+        return JSONObject().put("workouts", JSONArray(shown.map { workout(it, grants) }))
+            .put("next", next).put("since", since ?: JSONObject.NULL).put("complete", true)
     }
 
     /** A session in the interface's shape. Its distance and energy are read only where their own types are granted. */

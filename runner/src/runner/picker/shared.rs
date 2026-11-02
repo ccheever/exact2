@@ -393,9 +393,10 @@ impl Claims {
                 .mime
                 .clone()
                 .unwrap_or_else(|| super::mime_for(&file.name).into());
-            let size = file
-                .size
-                .or_else(|| std::fs::metadata(&file.source).map(|m| m.len()).ok());
+            let size = std::fs::metadata(&file.source)
+                .map(|m| m.len())
+                .ok()
+                .or(file.size);
             let member = by_member
                 .iter()
                 .position(|(name, _, _)| match &file.member {
@@ -474,8 +475,7 @@ impl Claims {
 }
 
 impl Claimed {
-    /// Makes each copy (a rename when `moving` and the two are on one volume,
-    /// as the Apple inbox and the app's container are), and answers each
+    /// Makes each bounded copy (removing its source when `moving`), and answers each
     /// token's files as they now are: those that failed are dropped.
     /// `shared_dir` is the host's directory for `app:/tmp/shared/`.
     pub fn copy(
@@ -503,21 +503,29 @@ impl Claimed {
                 pending: 0,
             };
             let _ = std::fs::create_dir_all(shared_dir);
-            for (source, picked) in files.drain(..) {
+            for (source, mut picked) in files.drain(..) {
                 let local = shared_dir.join(picked.path.trim_start_matches(SHARED));
-                let done = match opened(&source) {
-                    Some(mut from) => std::fs::File::create(&local)
-                        .and_then(|mut to| std::io::copy(&mut from, &mut to))
-                        .is_ok(),
-                    None => {
-                        (moving && std::fs::rename(&source, &local).is_ok())
-                            || std::fs::copy(&source, &local).is_ok()
+                let copied = opened(&source)
+                    .map(Ok)
+                    .unwrap_or_else(|| std::fs::File::open(&source))
+                    .and_then(|from| {
+                        use std::io::Read;
+                        let mut limited = from.take(FILE_CAP + 1);
+                        let mut to = std::fs::File::create(&local)?;
+                        std::io::copy(&mut limited, &mut to)
+                    });
+                match copied {
+                    Ok(size) if size <= FILE_CAP => {
+                        picked.size = size as f64;
+                        if moving {
+                            let _ = std::fs::remove_file(&source);
+                        }
+                        answer.files.push(picked);
                     }
-                };
-                if done {
-                    answer.files.push(picked);
-                } else {
-                    answer.dropped += 1;
+                    _ => {
+                        let _ = std::fs::remove_file(&local);
+                        answer.dropped += 1;
+                    }
                 }
             }
             out.push((token.clone(), answer));
@@ -602,6 +610,40 @@ impl<D: DataSource> Runner<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn share_copy_measures_bytes_and_drops_a_source_that_grows_past_the_cap() {
+        let dir = std::env::temp_dir().join(format!("exact-share-copy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.txt");
+        std::fs::write(&source, b"hello").unwrap();
+        let target = ShareTarget::from_json(&serde_json::json!({"action":"/", "params":{"files":[{"name":"files","accept":"*/*"}]}})).unwrap();
+        let pending = || {
+            Pending::from_json(
+                &serde_json::json!({"files":[{"path":source,"name":"source.txt","size":1}]}),
+                None,
+            )
+            .unwrap()
+        };
+        let mut claims = Claims::new(5.0);
+        let mut small = claims.claim(&target, pending());
+        let copied = small.copy(&dir.join("small"), false);
+        assert_eq!(copied[0].1.files[0].size, 5.0);
+        let mut grown = claims.claim(&target, pending());
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_len(FILE_CAP + 1)
+            .unwrap();
+        let copied = grown.copy(&dir.join("large"), false);
+        assert!(copied[0].1.files.is_empty());
+        assert_eq!(copied[0].1.dropped, 1);
+        assert_eq!(std::fs::read_dir(dir.join("large")).unwrap().count(), 0);
+        assert!(source.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn tokens_are_the_seeds_and_never_repeat_in_a_launch() {

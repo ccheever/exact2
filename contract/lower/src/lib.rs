@@ -666,7 +666,7 @@ fn lower_body(
     // A mutation is a slot of `option<T>`, `none` at boot, plus its row.
     for (i, m) in root.mutations.iter().enumerate() {
         let t = l.ty_id(&root_types.mutations[i])?;
-        let ot = l.ty_id(&Ty::Option(Box::new(root_types.mutations[i].clone())))?;
+        let ot = l.b.option(t);
         let init = l.b.constant(&Value::Option(None));
         let slot = l.b.slot(&m.name, ot, init);
         let id = l.b.mutation(&m.name, slot, t);

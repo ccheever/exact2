@@ -89,7 +89,21 @@ struct State {
   // allocation then and what it held, all of it live.
   int64_t collected_at = 0;
   int64_t live = 0;
+  std::vector<std::pair<uint64_t, jsi::WeakObject>> keys{};
 };
+
+// Sweep on the executor's thread: GC finalizers may run on Hermes' collector.
+void release_keys(State *state) {
+  auto &keys = state->keys;
+  keys.erase(std::remove_if(keys.begin(), keys.end(), [state](auto &entry) {
+    if (!entry.second.lock(*state->rt).isUndefined()) return false;
+    char *out = nullptr;
+    auto handle = std::to_string(entry.first);
+    state->bytes(state->ctx, 10, handle.c_str(), nullptr, 0, &out);
+    std::free(out);
+    return true;
+  }), keys.end());
+}
 
 constexpr size_t kLogLines = 256;
 
@@ -97,6 +111,7 @@ constexpr size_t kLogLines = 256;
 void collect_garbage(State *state, const char *cause) {
   auto &instrumentation = state->rt->instrumentation();
   instrumentation.collectGarbage(cause);
+  release_keys(state);
   auto info = instrumentation.getHeapInfo(false);
   state->collected_at = info["hermes_totalAllocatedBytes"];
   state->live = info["hermes_allocatedBytes"];
@@ -122,7 +137,9 @@ void collect_if_due(State *state) {
   int64_t total = info["hermes_totalAllocatedBytes"];
   // Hermes' own collections within the call count too: one may have moved
   // an answer's value to the old generation.
-  state->gc_epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
+  auto epoch = info["hermes_numCollections"] + info["hermes_yg_numCollections"];
+  if (epoch != state->gc_epoch) release_keys(state);
+  state->gc_epoch = epoch;
   if (total - state->collected_at >= std::max(kCollectEvery, state->live / 2))
     collect_garbage(state, "between calls");
 }
@@ -233,6 +250,15 @@ void install_host(State *state) {
 // door cannot carry (LLP 1069.005 D1). The prelude takes it too.
 void install_bytes(State *state) {
   jsi::Runtime &rt = *state->rt;
+  rt.global().setProperty(rt, "__exact_key", jsi::Function::createFromHostFunction(
+      rt, jsi::PropNameID::forAscii(rt, "__exact_key"), 2,
+      [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args, size_t count) -> jsi::Value {
+        if (count != 2 || !args[0].isNumber() || !args[1].isObject())
+          throw jsi::JSError(rt, "a native key needs its handle and owner");
+        state->keys.emplace_back(static_cast<uint64_t>(args[0].getNumber()),
+                                 jsi::WeakObject(rt, args[1].getObject(rt)));
+        return jsi::Value::undefined();
+      }));
   rt.global().setProperty(
       rt, "__exact_bytes",
       jsi::Function::createFromHostFunction(

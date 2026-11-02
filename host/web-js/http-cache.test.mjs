@@ -117,3 +117,73 @@ test('the least recently given answer goes first past the bounds', async () => {
   expect(o.served()).toBe(3);
   expect((await o.get('http://api.test/2')).body).toBe('answer 4');
 });
+
+test('oversized chunked and underdeclared bodies stop cache collection without draining the caller', async () => {
+  for (const declared of [null, '8']) {
+    let pulls = 0;
+    const cache = cachingFetch(async () => new Response(new ReadableStream({
+      pull(c) { c.enqueue(new Uint8Array(256)); if (++pulls === 64) c.close(); },
+    }), { headers: { 'cache-control': 'max-age=60', ...(declared ? { 'content-length': declared } : {}) } }), { entryBytes: 1024 });
+    const response = await cache('https://cache.test/large');
+    await cache.stored();
+    expect(pulls).toBeLessThan(64);
+    // Only the cache branch was stopped: the render can still read the whole answer.
+    expect((await response.arrayBuffer()).byteLength).toBe(64 * 256);
+  }
+});
+
+test('concurrent pending entries share the cache byte budget and release it after rejection', async () => {
+  const controls = [], responses = [];
+  const cache = cachingFetch(async () => new Response(new ReadableStream({ start(c) { controls.push(c); } }),
+    { headers: { 'cache-control': 'max-age=60' } }), { entryBytes: 1024, bytes: 1024 });
+  responses.push(await cache('https://cache.test/a'), await cache('https://cache.test/b'));
+  controls[0].enqueue(new Uint8Array(768));
+  controls[1].enqueue(new Uint8Array(768));
+  controls[0].close(); controls[1].close();
+  await cache.stored();
+  // Neither oversized pending copy fits alongside its contiguous copy, so both go out again.
+  const again = await cache('https://cache.test/a');
+  expect(controls).toHaveLength(3);
+  controls[2].enqueue(new Uint8Array(128)); controls[2].close();
+  await cache.stored();
+  const kept = await cache('https://cache.test/a');
+  expect(controls).toHaveLength(3);
+  expect((await kept.arrayBuffer()).byteLength).toBe(128);
+  await Promise.all([...responses, again].map(r => r.arrayBuffer()));
+});
+
+test('compiled JS renders abort stalled response headers and bodies when their deadline ends', async () => {
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { createServer } = await import('node:http');
+  const { resolve, join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { renderer } = await import('./render.mjs');
+  const root = resolve(import.meta.dir, '../..'), dir = mkdtempSync(join(tmpdir(), 'exact-render-owner-'));
+  let body = false, began = 0, closed = 0, released;
+  const sockets = new Set(), api = createServer((req, res) => {
+    began++; res.on('close', () => { closed++; released?.(); });
+    if (body) { res.writeHead(200, { 'content-type': 'text/plain' }); res.write('partial'); }
+  });
+  api.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise(ok => api.listen(0, '127.0.0.1', ok));
+  const url = `http://127.0.0.1:${api.address().port}`;
+  try {
+    writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Render Owner', app: { id: 'test.render-owner', name: 'Render Owner' }, host: { web: {} } }));
+    writeFileSync(join(dir, 'app.contract'), 'routes nav\n  home "/" render=request\ncomponent App\n  resource text = text() as shape string else empty()\n  view\n    text text\n');
+    writeFileSync(join(dir, 'app.ts'), `export const appId='test.render-owner';export const grants=${JSON.stringify('net.fetch ' + url)};export async function answer(){return await(await fetch(${JSON.stringify(url)})).text()}`);
+    const build = Bun.spawn([process.execPath, 'host/web-js/build.mjs', 'render-owner', '--out', join(dir, 'dist'), '--render', 'js'], {
+      cwd: root, env: { ...process.env, EXACT_APP_DIR: dir }, stdout: 'pipe', stderr: 'pipe',
+    });
+    const [status, out, err] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ status, error: status ? out + err : '' }).toEqual({ status: 0, error: '' });
+    const render = renderer(join(dir, 'dist')); render.ahead = false;
+    for (body of [false, true]) for (let i = 0; i < 3; i++) {
+      let timer;
+      const ended = new Promise((ok, no) => { released = ok; timer = setTimeout(() => no(Error('render left its upstream open')), 2000); });
+      try { expect((await render('/', 100)).status).toBe(503); await ended; }
+      finally { clearTimeout(timer); released = null; }
+      expect(closed).toBe(began);
+    }
+    expect([began, closed]).toEqual([6, 6]);
+  } finally { for (const socket of sockets) socket.destroy(); api.close(); rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);

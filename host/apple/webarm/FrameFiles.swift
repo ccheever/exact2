@@ -153,10 +153,13 @@ extension AssetScheme {
                 return
             }
             defer { try? handle.close() }
-            let size = Int(end)
-            var from = 0, to = size - 1, status = 200
+            guard let size = Int(exactly: end) else {
+                _ = step { task.didFailWithError(CocoaError(.fileReadTooLarge)) }
+                return
+            }
+            var from = 0, to = size > 0 ? size - 1 : 0, status = 200
             if let range, let bytes = AssetScheme.bytes(range, count: size) { (from, to, status) = (bytes.0, bytes.1, 206) }
-            let length = max(0, to - from + 1), type = FrameFiles.shown(AssetScheme.type((file.parts.last.map { ($0 as NSString).pathExtension }) ?? ""))
+            let length = size > 0 ? to - from + 1 : 0, type = FrameFiles.shown(AssetScheme.type((file.parts.last.map { ($0 as NSString).pathExtension }) ?? ""))
             var headers = ["Content-Type": type, "Content-Length": String(length), "Accept-Ranges": "bytes", "Cache-Control": "no-store",
                            "X-Content-Type-Options": "nosniff"]
             if !type.hasPrefix("application/pdf") { headers["Content-Security-Policy"] = FrameFiles.sandbox }

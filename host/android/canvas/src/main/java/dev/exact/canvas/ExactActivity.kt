@@ -551,6 +551,12 @@ open class ExactActivity : Activity() {
         intent.data?.takeUnless { Shares.isShare(intent) }?.let { android.system.Os.setenv("EXACT_LAUNCH_URL", it.toString(), true) }
         // A share that starts the app is its launch location, claimed before the boot (LLP 1133.024 D5).
         Shares.request(this, intent)?.let { android.system.Os.setenv("EXACT_SHARE", it, true) }
+        // GPU modules (LLP 1009) come from this APK. Exported intents never select executable content.
+        android.system.Os.setenv("EXACT_NATIVE_LIBS", applicationInfo.nativeLibraryDir, true)
+        android.system.Os.setenv("EXACT_MOVE_TRACKS", "1", true)
+        val development = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
+            .metaData?.getBoolean("dev.exact.development", false) == true
+        if (!development) return
         // rows=0: no kept rows, every frame walks every row (exact2's EXACT_ROWS), to compare.
         if (intent.getStringExtra("rows") == "0") android.system.Os.setenv("EXACT_ROWS", "0", true)
         // imgvp=N: keep N viewports of decoded pictures (exact2's EXACT_IMAGE_VIEWPORTS; 12 by default).
@@ -563,12 +569,16 @@ open class ExactActivity : Activity() {
         intent.getStringExtra("lower")?.let { android.system.Os.setenv("EXACT_LOWER", it, true) }
         // malloc=system: Android's allocator for exact2's allocations, not mimalloc (read at the library's first allocation).
         intent.getStringExtra("malloc")?.let { android.system.Os.setenv("EXACT_MALLOC", it, true) }
-        // mi_<option>=v: mimalloc's MIMALLOC_<OPTION> (read at its first allocation), to tune it.
-        intent.extras?.keySet()?.filter { it.startsWith("mi_") }?.forEach { k ->
+        // Benchmark builds expose only these allocator tuning options.
+        listOf("mi_purge_delay", "mi_eager_commit", "mi_arena_eager_commit").forEach { k ->
             intent.getStringExtra(k)?.let { android.system.Os.setenv("MIMALLOC_" + k.removePrefix("mi_").uppercase(), it, true) }
         }
-        // x_<name>=v: exact2's EXACT_<NAME>, any of its switches, to compare.
-        intent.extras?.keySet()?.filter { it.startsWith("x_") }?.forEach { k ->
+        listOf("x_agent", "x_hatches", "x_agent_storage", "x_agent_storage_fresh", "x_plan", "x_dev_plan", "x_store",
+            "x_agent_epoch", "x_agent_seed", "x_agent_locale", "x_agent_format_locale", "x_agent_time_zone",
+            "x_agent_fail_fetch", "x_agent_process", "x_agent_home", "x_agent_login_env",
+            "x_agent_share", "x_agent_bind", "x_agent_pads", "x_agent_timing", "x_agent_presentation", "x_agent_chrome",
+            "x_rows", "x_moves", "x_idle_frames", "x_slots", "x_lower", "x_row_reuse",
+            "x_image_viewports", "x_defer_collections").forEach { k ->
             intent.getStringExtra(k)?.let { android.system.Os.setenv("EXACT_" + k.removePrefix("x_").uppercase(), it, true) }
         }
         // A move may carry layers' tracks ([applyMove]), so a row coming into view starts its animations without a
@@ -579,8 +589,6 @@ open class ExactActivity : Activity() {
         Shadows.enabled = intent.getStringExtra("shadowmask") != "0"
         Exact.detachWait = intent.getStringExtra("detachwait") == "1"
         intent.getStringExtra("imgvp")?.let { android.system.Os.setenv("EXACT_IMAGE_VIEWPORTS", it, true) }
-        // GPU modules (LLP 1009) load from the APK's extracted libraries, not beside the zygote's binary.
-        android.system.Os.setenv("EXACT_NATIVE_LIBS", applicationInfo.nativeLibraryDir, true)
         intent.getStringExtra("poly")?.let { Polylines.on = it != "0" }
         intent.getStringExtra("mesh")?.let { Polylines.mesh = it != "0" }
         intent.getStringExtra("icons")?.let { Icons.on = it != "0" }

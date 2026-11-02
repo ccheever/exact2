@@ -31,7 +31,7 @@ const seconds = v => { const n = Number(v); return Number.isFinite(n) && n >= 0 
 export function cachingFetch(outbound, { entries = 256, bytes = 64 << 20, entryBytes = 8 << 20, now = Date.now } = {}) {
   // URL → { status, statusText, headers, body, stored, initialAge, lifetime, stale, vary }; insertion order is recency.
   const cache = new Map(), refreshing = new Map(), storing = new Set();
-  let held = 0;
+  let held = 0, pending = 0;
   const drop = url => { const e = cache.get(url); if (e) { held -= e.body.byteLength; cache.delete(url); } };
   const age = e => e.initialAge + (now() - e.stored) / 1000;
   // A constructed Response has no URL; the answer keeps the one it was fetched from, as a browser's cache gives it.
@@ -64,13 +64,38 @@ export function cachingFetch(outbound, { entries = 256, bytes = 64 << 20, entryB
     const length = Number(response.headers.get('content-length'));
     if (length > entryBytes) return;
     fresh(response, (lifetime - initialAge) * 1000);
-    const stored = response.clone().arrayBuffer().then(body => {
-      if (body.byteLength > entryBytes) return;
-      drop(url);
-      cache.set(url, { status: response.status, statusText: response.statusText, headers: [...response.headers], body, stored: received, initialAge, lifetime, stale: seconds(cc.get('stale-while-revalidate')) ?? 0, vary });
-      held += body.byteLength;
-      for (const [old] of cache) { if (cache.size <= entries && held <= bytes) break; drop(old); }
-    }, () => {}).finally(() => storing.delete(stored));
+    if (storing.size >= entries) return;
+    const reader = response.clone().body?.getReader();
+    const stored = (async () => {
+      const chunks = [];
+      let size = 0, reserved = 0, complete = false;
+      const reserve = amount => {
+        for (const [old] of cache) { if (held + pending + amount <= bytes) break; drop(old); }
+        if (pending + amount > bytes) return false;
+        pending += amount; reserved += amount; return true;
+      };
+      try {
+        for (;;) {
+          const next = reader ? await reader.read() : { done: true };
+          if (next.done) { complete = true; break; }
+          if (size + next.value.byteLength > entryBytes || !reserve(next.value.byteLength)) return;
+          size += next.value.byteLength;
+          chunks.push(next.value.slice());
+        }
+        // The contiguous copy and the chunks coexist until this turn ends.
+        if (!reserve(size)) return;
+        const body = new Uint8Array(size);
+        let at = 0;
+        for (const chunk of chunks) { body.set(chunk, at); at += chunk.byteLength; }
+        chunks.length = 0;
+        pending -= reserved; reserved = 0;
+        drop(url);
+        cache.set(url, { status: response.status, statusText: response.statusText, headers: [...response.headers], body, stored: received, initialAge, lifetime, stale: seconds(cc.get('stale-while-revalidate')) ?? 0, vary });
+        held += body.byteLength;
+        for (const [old] of cache) { if (cache.size <= entries && held + pending <= bytes) break; drop(old); }
+      } catch { /* a failed response is never cached */ }
+      finally { pending -= reserved; if (!complete) reader?.cancel().catch(() => {}); reader?.releaseLock(); }
+    })().finally(() => storing.delete(stored));
     storing.add(stored);
   }
 

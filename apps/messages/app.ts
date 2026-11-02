@@ -7,6 +7,7 @@ let threads = fixtures(), models = MODELS.slice(), revision = 0, serial = 0;
 let loaded = false;
 let connected = false, notice = '', lastHealth = -100000;
 const find = (id: string) => threads.find(t => t.id === id);
+const turns = new WeakMap<Thread, object>();
 const change = (id = '', message = '') => ({ revision: ++revision, id, message });
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
 const path = 'app:/data/messages.json';
@@ -54,28 +55,34 @@ function snapshot(query: string, id: string) {
 }
 async function start(t: Thread, user: Message, storage: Storage) {
   if (!t.model) return;
+  const turn = {}; turns.set(t, turn);
   t.pending = true; t.error = ''; t.response = '';
   try {
     const data = await api('/turns', 'POST', { id: `${t.id}-${user.id}-${user.at}`, model: t.model,
       messages: t.messages.filter(m => m.body).slice(-60).map(m => ({ role: m.from === 'me' ? 'user' : 'assistant', content: m.body })) });
+    if (turns.get(t) !== turn || !t.pending) {
+      try { await api(`/turns/${data.id}`, 'DELETE'); } catch { /* the service bounds abandoned jobs */ }
+      return;
+    }
     t.job = data.id; connected = true;
-  } catch (e) { t.pending = false; t.error = errorText(e).includes('fetch') ? 'Start the Messages AI service on your Mac, then tap Try Again.' : errorText(e); }
+  } catch (e) { if (turns.get(t) !== turn) return; t.pending = false; t.error = errorText(e).includes('fetch') ? 'Start the Messages AI service on your Mac, then tap Try Again.' : errorText(e); }
   revision++; await persist(storage);
 }
 async function pulse(at: number, storage: Storage) {
   await load(storage);
   const jobs = threads.filter(t => t.pending && t.job);
   await Promise.all(jobs.map(async t => {
+    const turn = turns.get(t), id = t.job;
     try {
-      const job = await api(`/turns/${t.job}`);
-      if (!t.pending) return;
+      const job = await api(`/turns/${id}`);
+      if (!t.pending || turns.get(t) !== turn || t.job !== id) return;
       if (job.content) {
         let response = t.messages.find(m => m.id === t.response);
         if (!response) { response = add(t, t.name, '', at); t.response = response.id; }
         response.body = job.content;
       }
       if (job.done) { t.pending = false; t.job = ''; t.error = job.error; await persist(storage); }
-    } catch { t.pending = false; t.job = ''; t.error = 'Connection lost. Your message is saved. Tap Try Again.'; await persist(storage); }
+    } catch { if (turns.get(t) !== turn || t.job !== id) return; t.pending = false; t.job = ''; t.error = 'Connection lost. Your message is saved. Tap Try Again.'; await persist(storage); }
   }));
   if (at - lastHealth > 10000) {
     lastHealth = at;
@@ -100,9 +107,10 @@ async function command(op: string, id: string, value: string, at: number, storag
     const last = [...t.messages].reverse().find(m => m.from === 'me');
     if (last) { if (t.response) t.messages = t.messages.filter(m => m.id !== t.response); t.response = ''; last.at = at; await start(t, last, storage); }
   } else if (op === 'stop') {
-    t.pending = false;
-    if (t.job) try { await api(`/turns/${t.job}`, 'DELETE'); } catch {}
-    t.job = ''; t.error = ''; await persist(storage);
+    turns.delete(t); t.pending = false;
+    const job = t.job; t.job = ''; t.error = '';
+    if (job) try { await api(`/turns/${job}`, 'DELETE'); } catch {}
+    await persist(storage);
   } else if (op === 'draft') { t.draft = value; await persist(storage); }
   else if (op === 'read') { t.unread = false; await persist(storage); }
   else if (op === 'unread') { t.unread = !t.unread; await persist(storage); }

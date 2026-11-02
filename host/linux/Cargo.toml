@@ -90,6 +90,7 @@ jni-sys = "0.3"
 mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls", "v2"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+des = "0.8"
 # The font directories and generic families fontconfig's own files name,
 # read as files (no fontconfig library is linked).
 fontconfig-parser = "0.5"
@@ -112,6 +113,7 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32
 test-wait = []
 
 [dev-dependencies]
+des = "0.8"
 exact-js = { path = "../../js" }
 messages-stress-data = { path = "../../apps/messages-stress/data" }
 exact-update = { path = "../../update" }

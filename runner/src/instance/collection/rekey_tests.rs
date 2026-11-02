@@ -307,3 +307,25 @@ fn an_in_place_change_invalidates_only_the_changed_rows() {
     assert!(after.revision > before.revision);
     assert_eq!(h.tree.last_work.rows_keyed, 1);
 }
+
+#[test]
+fn many_equal_keys_receive_sequential_identities_without_mounting_every_row() {
+    let n = 8192;
+    let h = Harness::from_parts(
+        record_plan(),
+        vec![
+            Value::list((0..n).map(|_| record(1)).collect()),
+            Value::Number(0.),
+            Value::Number(0.),
+        ],
+    );
+    assert!(h.collection().mounted.len() <= 16);
+    assert_eq!(h.collection().dups.len(), n - 1);
+    assert_eq!(h.collection().index.key(0), Some("n:1"));
+    for i in 1..n {
+        assert_eq!(
+            h.collection().index.key(i),
+            Some(format!("d{i}:n:1").as_str())
+        );
+    }
+}

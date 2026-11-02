@@ -256,6 +256,8 @@
   var PlatformCryptoKey = global.CryptoKey;
   var keysDoor = global.__exact_keys; // the web realm's IndexedDB, for kept keys
   delete global.__exact_keys;
+  var ownNativeKey = global.__exact_key;
+  delete global.__exact_key;
   var nativeKeys = new WeakMap(); // natively: CryptoKey -> its handle
   function CryptoKey() { throw new TypeError("Illegal constructor"); }
   function fromDoor(e) {
@@ -294,6 +296,7 @@
       usages: { value: Object.freeze(usages.slice()), enumerable: true },
     });
     nativeKeys.set(key, handle);
+    ownNativeKey(handle, key);
     return Object.freeze(key);
   }
   function nativePair(json, extractable, usages) {

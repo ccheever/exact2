@@ -68,10 +68,26 @@ export default {
     const url = new URL(request.url);
     const receipt = /^\/diary\/([0-9a-f-]{36})$/.exec(url.pathname)?.[1];
     if (request.method === 'POST' && url.pathname === '/diary') {
-      const raw = await request.text();
-      if (raw.length > LIMIT) return json({ error: 'too large' }, 413);
+      if (Number(request.headers.get('content-length')) > LIMIT) { request.body?.cancel().catch(() => {}); return json({ error: 'too large' }, 413); }
+      const reader = request.body?.getReader(), chunks = [];
+      let size = 0;
+      try {
+        for (;;) {
+          const next = reader ? await reader.read() : { done: true };
+          if (next.done) break;
+          size += next.value.byteLength;
+          if (size > LIMIT) { reader.cancel().catch(() => {}); return json({ error: 'too large' }, 413); }
+          chunks.push(next.value);
+        }
+      } catch { return json({ error: 'incomplete body' }, 400); }
+      finally { reader?.releaseLock(); }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      const raw = new TextDecoder().decode(bytes);
       let body;
       try { body = JSON.parse(raw); } catch { return json({ error: 'not JSON' }, 400); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'expected an object' }, 400);
       const attached = attachments(body.attachments);
       if (!attached) return json({ error: 'attachments are README.md or AGENTS.md, each {name, text, workarounds}' }, 400);
       if (typeof body.text !== 'string' || !body.text.trim() && !attached.length) return json({ error: 'no text' }, 400);

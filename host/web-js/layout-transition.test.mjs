@@ -89,3 +89,84 @@ test('a bound layout transition slides while it holds a curve, jumps at none, an
     rmSync(dir, { recursive: true, force: true });
   }
 }, 120000);
+
+test('removed motion views leave the registry after their exit and keep identity when reattached', async () => {
+  const root = resolve(import.meta.dir, '../..');
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response('<body><div id="exact-root"></div>', { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes={};', { headers: { 'content-type': 'text/javascript' } });
+    const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [resolve(root, 'host/web-js'), resolve(root, 'host/web')];
+    const file = bases.map(base => resolve(base, path)).find(existsSync);
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser(); const page = await browser.newPage();
+    await page.goto(server.url.href);
+    const result = await page.evaluate(async () => {
+      globalThis.__exactRender = true;
+      const rt = await import('/rt.js');
+      const root = document.getElementById('exact-root');
+      for (let i = 0; i < 100; i++) {
+        const node = document.createElement('section'); root.append(node);
+        const scope = rt.scope(() => rt.mo(node, () => [null, null, null, 1, null]));
+        node.remove(); rt.end(scope);
+      }
+      await Promise.resolve(); await Promise.resolve();
+      const retired = rt.Views.size;
+      const node = document.createElement('section'); root.append(node);
+      const scope = rt.scope(() => rt.mo(node, () => [null, null, null, 1, null]));
+      const id = rt.viewId(node); rt.end(scope);
+      await Promise.resolve();
+      const exitKept = rt.Views.get(id) === node; // still connected while its exit plays
+      node.remove(); await Promise.resolve(); await Promise.resolve();
+      const exitGone = !rt.Views.has(id);
+      root.append(node);
+      const reattached = rt.viewId(node);
+      node.remove(); await Promise.resolve(); await Promise.resolve();
+      return { retired, exitKept, exitGone, same: id === reattached, remaining: rt.Views.size };
+    });
+    expect(result).toEqual({ retired: 0, exitKept: true, exitGone: true, same: true, remaining: 0 });
+  } finally { await browser?.close(); server.stop(true); }
+}, 30000);
+
+
+test('text selection scopes release removed nodes and the document listener has one owner', async () => {
+  const root = resolve(import.meta.dir, '../..');
+  const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname.slice(1);
+    if (!path) return new Response('<body><div id="exact-root"></div>', { headers: { 'content-type': 'text/html' } });
+    if (path === 'names.js') return new Response('export const sourceTypes={};', { headers: { 'content-type': 'text/javascript' } });
+    const bases = path.startsWith('web/') ? [resolve(root, 'host')] : [resolve(root, 'host/web-js'), resolve(root, 'host/web')];
+    const file = bases.map(base => resolve(base, path)).find(existsSync);
+    if (file === resolve(root, 'host/web/navigation.js')) return new Response(readFileSync(file, 'utf8') + '\nexport { selectedTexts };', { headers: { 'content-type': 'text/javascript' } });
+    return file ? new Response(Bun.file(file), { headers: { 'content-type': 'text/javascript' } }) : new Response('', { status: 404 });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser(); const page = await browser.newPage(); await page.goto(server.url.href);
+    const result = await page.evaluate(async () => {
+      globalThis.__exactRender = true;
+      const listeners = new Set(), add = document.addEventListener.bind(document), remove = document.removeEventListener.bind(document);
+      document.addEventListener = (name, fn, ...rest) => { if (name === 'selectionchange') listeners.add(fn); add(name, fn, ...rest); };
+      document.removeEventListener = (name, fn, ...rest) => { if (name === 'selectionchange') listeners.delete(fn); remove(name, fn, ...rest); };
+      const rt = await import('/rt.js'), nav = await import('/navigation.js');
+      const root = document.getElementById('exact-root');
+      for (let i = 0; i < 100; i++) {
+        const node = document.createElement('p'); node.textContent = 'row ' + i; root.append(node);
+        const scope = rt.scope(() => rt.onSelectionChange(node, 'selectionchange', () => {}, () => {}));
+        node.remove(); rt.end(scope);
+      }
+      const retired = nav.selectedTexts.size, idle = listeners.size;
+      const node = document.createElement('p'); node.textContent = 'hello'; root.append(node);
+      let heard = 0;
+      const old = nav.onSelection(node, () => { heard += 100; }), stop = nav.onSelection(node, () => heard++); old();
+      const range = document.createRange(); range.selectNodeContents(node); getSelection().removeAllRanges(); getSelection().addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+      const active = listeners.size; stop(); stop(); node.remove();
+      return { retired, idle, heard, active, remaining: nav.selectedTexts.size, listeners: listeners.size };
+    });
+    expect(result).toEqual({ retired: 0, idle: 0, heard: 1, active: 1, remaining: 0, listeners: 0 });
+  } finally { await browser?.close(); server.stop(true); }
+}, 30000);

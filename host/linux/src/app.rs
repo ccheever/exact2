@@ -24,7 +24,8 @@
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
-//!   pointer and keys as input (display mode; `1` is `0.0.0.0:5900`).
+//!   pointer and keys as input (display mode; `1` is `127.0.0.1:5900`).
+//!   Requires `EXACT_VNC_PASSWORD` (one to eight bytes).
 //! - `EXACT_FONTS=<dir>` — a directory of fonts to add to the system's.
 //! - `EXACT_FONT=<family>` — what `sans-serif` means (fontconfig's answer otherwise).
 //! - `EXACT_UPDATE_ORIGIN=<url>` — the update store checks this origin
@@ -238,9 +239,7 @@ impl Config {
     }
 
     fn from_env_lent(baked: &[u8], lent: Option<&'static [u8]>, compat: &str) -> Config {
-        // A production bake never enters agent mode (LLP 1069.007 D2, ruled):
-        // the agent's variables are dropped before anything reads them —
-        // this config, the zone and seed, storage, the update store.
+        // Drop development overrides before reading plans, storage or launch mode (LLP 1069.007 D2).
         prepare_environment(compat);
         let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
         let exact_plan = env("EXACT_PLAN");
@@ -783,18 +782,31 @@ fn run_composed_with<D: DataSource + Default>(
 /// Apply the baked development boundary before a carrier starts worker threads.
 pub fn prepare_environment(compat: &str) {
     if exact_runner::delivery::production(compat) {
-        ignore_agent_variables();
+        ignore_development_variables();
     }
 }
 
-/// Drop `EXACT_AGENT`, every `EXACT_AGENT_*` variable and `EXACT_HATCHES`
-/// (a development switch, LLP 1075.003.000.001 §2.6) from this process,
-/// saying so once on stderr when one was set: a production bake runs as a
-/// production launch whatever its environment says (LLP 1069.007 D2).
-fn ignore_agent_variables() {
+fn development_variable(name: &str) -> bool {
+    matches!(
+        name,
+        "EXACT_AGENT"
+            | "EXACT_HATCHES"
+            | "EXACT_PLAN"
+            | "EXACT_DEV_PLAN"
+            | "EXACT_VNC"
+            | "EXACT_VNC_PASSWORD"
+            | "EXACT_SMOKE"
+            | "EXACT_SHOT"
+            | "EXACT_DISPLAY"
+    ) || name.starts_with("EXACT_AGENT_")
+}
+
+/// A production bake takes executable content only from its bake or signed updates.
+/// @ref LLP 1069.007 D2; LLP 1075.003.000.001 §2.6
+fn ignore_development_variables() {
     let named: Vec<_> = std::env::vars_os()
         .filter_map(|(k, _)| k.to_str().map(str::to_owned))
-        .filter(|k| k == "EXACT_AGENT" || k == "EXACT_HATCHES" || k.starts_with("EXACT_AGENT_"))
+        .filter(|k| development_variable(k))
         .collect();
     if named.is_empty() {
         return;
@@ -990,6 +1002,44 @@ mod boot_hold_tests;
 #[cfg(test)]
 mod scale_tests {
     use super::{scale, window_mode, window_mode_from};
+
+    #[test]
+    fn production_ignores_unsigned_plans_and_development_servers() {
+        const CHILD: &str = "EXACT_PRODUCTION_ENV_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "app::scale_tests::production_ignores_unsigned_plans_and_development_servers",
+                ])
+                .env(CHILD, "1")
+                .env("EXACT_PLAN", "/must-not-open")
+                .env("EXACT_DEV_PLAN", "https://127.0.0.1/must-not-fetch")
+                .env("EXACT_VNC", "1")
+                .env("EXACT_AGENT", "1")
+                .env("EXACT_AGENT_SHARE", "untrusted")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        super::prepare_environment(r#"{"embedded":{"trust":"development"}}"#);
+        assert!(std::env::var_os("EXACT_PLAN").is_some());
+        super::prepare_environment(r#"{"embedded":{"trust":"production"}}"#);
+        for name in [
+            "EXACT_PLAN",
+            "EXACT_DEV_PLAN",
+            "EXACT_VNC",
+            "EXACT_AGENT",
+            "EXACT_AGENT_SHARE",
+        ] {
+            assert!(std::env::var_os(name).is_none(), "{name}");
+        }
+    }
 
     #[test]
     fn device_preparation_and_config_use_the_same_window_mode() {

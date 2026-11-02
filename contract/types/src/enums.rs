@@ -32,3 +32,23 @@ pub(super) fn accepts_expr(
         _ => checks::can_unify(want, have),
     }
 }
+
+/// An assignment diagnostic keeps the rejected literal visible through wrappers.
+pub(super) fn assignment_error(target: &str, want: &Ty, expr: &Expr, have: &Ty) -> String {
+    fn rejected<'a>(want: &Ty, expr: &'a Expr) -> Option<&'a str> {
+        match (want, expr) {
+            (Ty::Enum(values), Expr::Str(value, _)) if !values.contains(value) => Some(value),
+            (Ty::Option(inner), Expr::Some(value, _)) => rejected(inner, value),
+            (Ty::List(inner), Expr::List(values, _)) => {
+                values.iter().find_map(|v| rejected(inner, v))
+            }
+            (_, Expr::Ternary(_, a, b, _)) => rejected(want, a).or_else(|| rejected(want, b)),
+            _ => None,
+        }
+    }
+    let mut message = format!("`{target}` is `{want}`, cannot assign `{have}`");
+    if let Some(value) = rejected(want, expr) {
+        message.push_str(&format!("; {value:?} is not a declared member"));
+    }
+    message
+}

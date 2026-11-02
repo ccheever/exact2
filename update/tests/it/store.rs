@@ -994,9 +994,22 @@ fn a_head_naming_the_embedded_plan_and_assets_is_current_and_downloads_nothing()
         Ok(Check::Current { sunset: None })
     ));
     assert_eq!(origin.asked.len(), 1, "only the head is fetched");
+    let witnesses = entry_names(&temp);
+    assert_eq!(witnesses.len(), 1);
+    assert!(temp
+        .path()
+        .join("entries")
+        .join(&witnesses[0])
+        .join("exact.json")
+        .exists());
     assert!(
-        entry_names(&temp).is_empty(),
-        "entry zero is not in the store"
+        !temp
+            .path()
+            .join("entries")
+            .join(&witnesses[0])
+            .join("app.plan")
+            .exists(),
+        "Current stores a witness, not entry zero"
     );
     assert_eq!(store.status().stream, "embedded");
     assert_eq!(store.status().running_seq, EMBEDDED_SEQ);

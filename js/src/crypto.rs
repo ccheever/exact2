@@ -72,14 +72,16 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
         None => &scratch,
     };
     let key = |state: &HostState, text: &str| -> Result<EcKey, String> {
-        text.parse::<usize>()
+        text.parse::<u64>()
             .ok()
-            .and_then(|i| state.keys.get(i).cloned())
+            .and_then(|i| state.keys.get(&i).cloned())
             .ok_or_else(|| "InvalidAccessError: not a live CryptoKey".to_string())
     };
     let push = |state: &mut HostState, k: EcKey| {
-        state.keys.push(k);
-        state.keys.len() - 1
+        let handle = state.next_key;
+        state.next_key += 1;
+        state.keys.insert(handle, k);
+        handle
     };
     let pair = |state: &mut HostState, p: EcKeyPair| {
         let private = push(state, p.private);
@@ -139,7 +141,7 @@ fn ec(state: &mut HostState, op: u32, a: &str, data: &[u8]) -> Result<String, St
 /// under the agent only, which copies the bytes at `a`'s offset and length
 /// and drops them; 9 the
 /// binary message being mapped, written into the buffer, which the prelude
-/// made its size.
+/// made its size; 10 releases an unreachable key after the shim's weak-owner sweep.
 ///
 /// # Safety
 /// Called by the shim on the engine's thread with `ctx` the `HostState` the
@@ -180,6 +182,12 @@ pub(crate) unsafe extern "C" fn bytes_door(
     let reply = match op {
         1 => digest(&a, data),
         2..=7 => ec(state, op, &a, data),
+        10 => {
+            if let Ok(handle) = a.parse::<u64>() {
+                state.keys.remove(&handle);
+            }
+            Ok(String::new())
+        }
         8 if state.agent.is_none() => Err("decode: the gate's stub decode is the agent's".into()),
         8 => {
             let mut range = a.split(' ').map(str::parse::<usize>);
@@ -208,6 +216,45 @@ pub(crate) unsafe extern "C" fn bytes_door(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(exact_js_engine)]
+    #[test]
+    fn discarded_crypto_keys_are_reclaimed_after_collection() {
+        use exact_runner::{DataSource, Store};
+        let hbc = include_bytes!(concat!(env!("OUT_DIR"), "/ecdsa.hbc"));
+        let plan = contract::compile("component App\n  mutation result as shape string\n  action run\n    send result = churnKeys()\n  view\n    column\n").unwrap();
+        let mut module =
+            crate::Module::loaded(hbc.to_vec(), "test.ecdsa", "secret.keep dpop\n").unwrap();
+        module.set_budget_ms(f64::INFINITY);
+        module.bind(&plan);
+        let mut store = Store::new("secret.keep dpop", []);
+        for _ in 0..20 {
+            let answer = module.answer(&mut store, "churnKeys", &[]).unwrap();
+            let exact_runner::Answer::Now(value) = answer else {
+                panic!("synchronous crypto")
+            };
+            let reply: serde_json::Value = serde_json::from_str(value.as_str().unwrap()).unwrap();
+            let jwk = exact_data::crypto::Jwk::from_json(&reply["pub"].to_string()).unwrap();
+            let public = exact_data::crypto::EcKey::from_jwk(&jwk, true).unwrap();
+            let hex = reply["signature"].as_str().unwrap();
+            let signature: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            assert!(
+                public.verify(b"live", &signature),
+                "live keys survive collection"
+            );
+        }
+        assert_eq!(module.host.next_key, 1282);
+        assert!(
+            module.host.keys.len() < 128,
+            "{} keys survived collection",
+            module.host.keys.len()
+        );
+        module.unload();
+        assert!(module.host.keys.is_empty());
+    }
 
     #[test]
     fn digests_are_the_sha2_vectors() {

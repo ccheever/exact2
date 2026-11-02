@@ -10,7 +10,7 @@
 //! rows, the runner would refuse a Rust call of it, and so it has no binding
 //! either. Rust has no synchronous form (D14).
 
-use crate::rust::field_name;
+use crate::rust::{check_fields, field_name, type_name};
 use exact_plan::{ModulesRow, Plan, TypeKind, TypesId};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -72,13 +72,19 @@ pub fn module_rust(plan: &Plan) -> Result<String, String> {
 /// is `GetCurrentPositionOptions`; a shape's own name stays.
 fn record_name(name: &str) -> String {
     if !name.contains("__") {
-        return name.to_owned();
+        return type_name(name);
     }
-    let upper = |part: &str| part[..1].to_ascii_uppercase() + &part[1..];
-    name.split("__")
-        .filter(|p| !p.is_empty())
-        .map(upper)
-        .collect()
+    let upper = |part: &str| {
+        let mut chars = part.chars();
+        chars.next().unwrap().to_ascii_uppercase().to_string() + chars.as_str()
+    };
+    type_name(
+        &name
+            .split("__")
+            .filter(|p| !p.is_empty())
+            .map(upper)
+            .collect::<String>(),
+    )
 }
 
 fn params<'a>(plan: &'a Plan, row: &ModulesRow) -> impl Iterator<Item = TypesId> + 'a {
@@ -162,6 +168,7 @@ fn record(
     out: &mut String,
 ) -> Result<(), String> {
     let shape = plan.str(plan.types[ty.0 as usize].name);
+    check_fields(shape, fields(plan, ty).iter().map(|f| plan.str(f.name)))?;
     writeln!(out, "\n    /// `{shape}`.\n    #[derive(Debug, Clone, PartialEq, Default)]\n    pub struct {name} {{").unwrap();
     let mut checks = String::new();
     for f in fields(plan, ty) {
