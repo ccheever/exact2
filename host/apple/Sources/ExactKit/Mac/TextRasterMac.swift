@@ -9,7 +9,7 @@
 // while the row is still a screen away. Scrolling mounted text is compositing.
 //
 // `NodeView.draw` still paints text for everything this declines: a
-// selection, a capture, a canvas, a decorated text box, a clamp, a paragraph
+// selection, a capture, a decorated text box, a paragraph
 // taller than a screen, and one too small to repay a surface (unless HDR).
 #if os(macOS)
 import AppKit
@@ -198,11 +198,14 @@ extension NodeView {
         // it broke at (`LineGeometry.clamped`), as on iOS (873cec46e): a
         // clamped or ellipsized label no longer paints on the main thread.
         guard kind == "text", isParagraph, flowShapes.isEmpty, columnRecord == nil, !hasBoxPaint, !Capture.capturing, backgroundClip != "text",
-              bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
+              bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
               window != nil, readerParagraph == nil, let presenter else { return false }
+        // Canvas snapshots must share our surfaces, not AppKit's backing
+        // stores: borrowing those can blank the live label after scrolling.
+        guard !textIsSmall || canvasAbove != nil else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
         if presenter.session?.regions.owns(self) == true { return false }
-        return canvasAbove == nil && !paintsVisibleInlineRun
+        return !paintsVisibleInlineRun
     }
 
     /// Too few pixels to repay a surface. Such text draws whole rather than in
@@ -318,6 +321,7 @@ extension NodeView {
         textRasterPending = false
         CATransaction.commit()
         presenter?.boxFilters.changed(self)
+        repaintThrough()
     }
 
     func dropTextRaster() {

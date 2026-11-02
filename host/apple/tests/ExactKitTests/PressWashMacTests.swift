@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// The pressed look's wash (`PressLookMac.swift`) is masked by a picture of
 /// the node. AppKit's backing stores belong to the views that drew them: a
@@ -96,10 +97,20 @@ final class PressWashMacTests: XCTestCase {
     }
 
     func testRepeatedCanvasCapturesKeepTheLiveLabelAfterItMoves() throws {
+        ExactSurfaces.install()
         let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "canvas"],
+            ["op": "children", "id": 3, "ids": [1]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 240, "h": 80],
+        ]))
         window.orderFrontRegardless()
         settle()
         let button = try XCTUnwrap(p.views[1])
+        let text = try XCTUnwrap(p.views[2])
+        XCTAssertNotNil(text.canvasAbove)
+        XCTAssertNotNil(text.textRaster, "even small canvas labels need independently owned pixels for capture")
         let label = CGRect(x: 30, y: 30, width: 150, height: 20)
         guard let before = onScreen() else { throw XCTSkip("no window server picture") }
         let originalInk = ink(before, in: label)
