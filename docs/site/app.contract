@@ -133,7 +133,7 @@ component App
             height="clamp(0px, (960px - 100vw) * 1000, 57px)" padding="0 16px" border-bottom="1px solid var(--color-border-secondary)" background-color="var(--color-background-default)"
             link href="/" testId="home-bar"
               row align-items="center" gap=8
-                image "symbol:icon.exactmark" aria-hidden=true width=26 height=16 color="var(--color-text-default)"
+                image "symbol:icon.exactmark" aria-hidden=true width="1.625rem" height="1rem" color="var(--color-text-default)"
                 text "Exact Docs" font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
             button press=toggleMenu appearance="none" aria-expanded=menu aria-controls="site-menu" padding="6px 12px" border="1px solid var(--color-border-secondary)" border-radius="var(--radius-lg)" testId="menu"
               row gap=6 align-items="center"
@@ -144,7 +144,7 @@ component App
               row align-items="center" justify-content="space-between" padding="12px 12px 0 20px" min-width=234 box-sizing="border-box"
                 link href="/" testId="home"
                   row align-items="center" gap=8
-                    image "symbol:icon.exactmark" aria-hidden=true width=26 height=16 color="var(--color-text-default)"
+                    image "symbol:icon.exactmark" aria-hidden=true width="1.625rem" height="1rem" color="var(--color-text-default)"
                     text "Exact Docs" font-size="var(--text-base)" font-weight=600 color="var(--color-text-default)"
                 button press=toggleSidebar appearance="none" aria-label="Hide the sidebar" title="Hide the sidebar" padding=6 border-radius="var(--radius-lg)" testId="sidebar-hide"
                   image "symbol:icon.panelclose" aria-hidden=true font-size="var(--text-base)" color="var(--color-icon-default)"
