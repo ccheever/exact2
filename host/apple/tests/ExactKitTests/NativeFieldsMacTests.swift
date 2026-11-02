@@ -187,7 +187,56 @@ final class NativeFieldsMacTests: XCTestCase {
         XCTAssertFalse(field.isBezeled)
         XCTAssertFalse(field.drawsBackground)
         XCTAssertEqual(field.focusRingType, .exterior)
-        XCTAssertEqual(field.frame, node.contentBox())
+        XCTAssertEqual(field.frame, node.contentBox().insetBy(dx: -NodeView.editorPadding, dy: 0))
+    }
+    /// An input the author draws (`appearance: none`) centres its one line in
+    /// a content box taller than it, as CSS does; AppKit's cell top-aligns it.
+    func testAnAuthorDrawnInputCentresItsLine() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "authored-field-line")
+        defer { session.destroy() }
+        for type in ["text", "password"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 48)
+            node.applyProps(set: ["type": type, "placeholder": "Search keybindings"], clear: [])
+            node.applyStyle(["appearance": .string("none"), "font_size": .number(14), "padding_left": .number(12), "padding_top": .number(4)])
+            node.applyFieldContent(["rect": [12.0, 4.0, 228.0, 40.0]])
+            let field = try XCTUnwrap(node.field)
+            // Out by the field editor's padding, its text starts at the content box's edge.
+            XCTAssertEqual(field.frame, node.contentBox().insetBy(dx: -NodeView.editorPadding, dy: 0))
+            let plain = type == "password" ? NSSecureTextField() : NSTextField()
+            plain.isBezeled = false
+            plain.isBordered = false
+            plain.font = field.font
+            let topAligned = plain.cell!.drawingRect(forBounds: field.bounds)
+            for line in [field.cell!.drawingRect(forBounds: field.bounds), field.cell!.titleRect(forBounds: field.bounds)] {
+                XCTAssertEqual(line.midY, field.bounds.midY, accuracy: 0.5, "\(type): one line centred in the content box")
+                XCTAssertLessThan(line.height, field.bounds.height)
+                XCTAssertEqual(line.minX, topAligned.minX, "\(type): AppKit's horizontal placement kept")
+                XCTAssertEqual(line.width, topAligned.width)
+            }
+        }
+    }
+    /// A line box as tall as its input's box puts the glyphs half its
+    /// leading below its top, as CSS does; the cell draws its line at the
+    /// rect's top, so the rect starts there, native or author-drawn.
+    func testALineAsTallAsTheBoxKeepsItsHalfLeading() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "field-half-leading")
+        defer { session.destroy() }
+        for appearance in ["auto", "none"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 28)
+            node.applyProps(set: ["placeholder": "Search"], clear: [])
+            node.applyStyle(["appearance": .string(appearance), "font_size": .number(14), "line_height": .string("28px")])
+            node.applyFieldContent(["rect": [0.0, 0.0, 240.0, 28.0]])
+            let field = try XCTUnwrap(node.field)
+            let font = try XCTUnwrap(field.font) as CTFont
+            let glyphs = CTFontGetAscent(font).rounded() + CTFontGetDescent(font).rounded()
+            let line = field.cell!.titleRect(forBounds: field.bounds)
+            XCTAssertEqual(line.minY, (28 - glyphs) / 2, accuracy: 1, "\(appearance): the glyphs half the leading down")
+            XCTAssertEqual(line.maxY, 28, accuracy: 1, "\(appearance): the rect ends at the line box's bottom")
+        }
     }
     /// LLP 1115 D8: a native `input type="search"` is AppKit's search field
     /// (its magnifier and clear button, Escape clearing it), its text in the
@@ -534,6 +583,7 @@ final class NativeFieldsMacTests: XCTestCase {
             node.wantsLayer = true
             node.applyProps(set: ["value": "Field"], clear: [])
             node.applyStyle(style)
+            node.applyFieldContent(["rect": [2.0, 2.0, 236.0, 36.0]]) // inside the border, as layout publishes it
             XCTAssertEqual(node.bordersItself, authored, what)
             let field = try XCTUnwrap(node.field)
             let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)

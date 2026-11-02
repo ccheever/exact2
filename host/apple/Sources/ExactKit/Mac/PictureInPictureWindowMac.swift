@@ -9,10 +9,12 @@
 // - `"window"`: a browser's picture-in-picture window, as Chromium draws one on
 //   the Mac (`VideoOverlayWindowViews`): square and borderless, at the bottom
 //   right, its controls (the origin's title, minimize, back to tab, close and
-//   a live timeline) over a shade while the pointer moves over it.
+//   a live timeline) over a shade while the pointer moves over it. The
+//   process has one, as a browser has: another image's request moves it to
+//   that image, where it stands.
 // - `"panel"`: a panel with the platform's title bar, its title and close
 //   button, opening where a new window opens, as a page's floating preview
-//   window is (Electron's `type: "panel"`).
+//   window is (Electron's `type: "panel"`), one for each image that asks.
 #if os(macOS)
 import AppKit
 import ImageIO
@@ -30,10 +32,14 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
     let panel: NSPanel
     let titled: Bool
     private let content: ContentView
-    private let say: (String) -> Void
+    private var say: (String) -> Void
     private let asked: NSSize?
     private var aspect: NSSize?
     private var opened = false
+    /// No picture of the image it shows has been shown yet: the next is its enter.
+    private var awaiting = true
+    /// Moves on as the window follows another image, so a picture of the one before is dropped.
+    private var generation = 0
     private var ended = false
     private var decoding = false
     private var waiting: String?
@@ -77,6 +83,19 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         content.pressed = { [weak self] control in self?.press(control) }
     }
 
+    /// Open and not closed: another image's request can take it.
+    var isOpen: Bool { opened && !ended }
+
+    /// Another image floats in this window, as Chromium's shows the next video that asks: its
+    /// title, its pictures from the next, and its own enter and leave.
+    func follow(title: String, say: @escaping (String) -> Void) {
+        self.say = say
+        content.retitle(title)
+        generation += 1
+        waiting = nil
+        awaiting = true
+    }
+
     // MARK: Pictures
 
     /// The source's next picture: an absolute file path. The first opens the window.
@@ -84,19 +103,22 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         guard !ended else { return }
         if decoding { waiting = path; return }
         decoding = true
+        let generation = self.generation
         Self.decoder.async { [weak self] in
             let image = Self.decode(path)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.decoding = false
-                if let image, !self.ended { self.show(image) }
-                // As the video arm: a first picture that cannot be read fails the request, and one
-                // already gone fails it only when no picture opens the window within a second.
-                else if image == nil, !self.opened, self.waiting == nil {
-                    if FileManager.default.fileExists(atPath: path) { self.say("error the picture could not be read") }
-                    else {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                            if let self, !self.opened, !self.ended { self.say("error the picture could not be read") }
+                if generation == self.generation {
+                    if let image, !self.ended { self.show(image) }
+                    // As the video arm: a first picture that cannot be read fails the request, and one
+                    // already gone fails it only when no picture shows within a second.
+                    else if image == nil, self.awaiting, self.waiting == nil {
+                        if FileManager.default.fileExists(atPath: path) { self.say("error the picture could not be read") }
+                        else {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                                if let self, self.awaiting, self.generation == generation, !self.ended { self.say("error the picture could not be read") }
+                            }
                         }
                     }
                 }
@@ -114,6 +136,7 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         if changed { aspect = size; panel.contentAspectRatio = size }
         if !opened {
             opened = true
+            awaiting = false
             panel.setFrame(openingFrame(size), display: true)
             panel.minSize = minimumSize()
             if !titled { panel.maxSize = NSSize(width: Self.screen.width * 0.75, height: Self.screen.height * 0.75) }
@@ -122,12 +145,21 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
             panel.orderFrontRegardless()
             if !titled { NSAnimationContext.runAnimationGroup { $0.duration = 0.25; panel.animator().alphaValue = 1 } }
             say("enter")
-        } else if changed {
-            // A new aspect keeps the content's area and the window's top left.
-            let frame = panel.frame, content = panel.contentRect(forFrameRect: frame).size
-            var next = panel.frameRect(forContentRect: NSRect(origin: .zero, size: Self.fit(content, aspect: size)))
-            next.origin = NSPoint(x: frame.minX, y: frame.maxY - next.height)
-            panel.setFrame(next, display: true, animate: false)
+        } else {
+            if changed, titled {
+                // A new aspect keeps the content's area and the window's top left.
+                let frame = panel.frame, content = panel.contentRect(forFrameRect: frame).size
+                var next = panel.frameRect(forContentRect: NSRect(origin: .zero, size: Self.fit(content, aspect: size)))
+                next.origin = NSPoint(x: frame.minX, y: frame.maxY - next.height)
+                panel.setFrame(next, display: true, animate: false)
+            } else if changed {
+                // As Chromium's, for the next image's pictures as for its own: the window keeps its
+                // top left and width, takes the picture's aspect, and stays on the screen.
+                let frame = Self.chromiumFrame(Self.width(panel.frame.width, aspect: size, max: panel.maxSize), topLeft: NSPoint(x: panel.frame.minX, y: panel.frame.maxY), screen: Self.screen)
+                panel.minSize = NSSize(width: min(panel.minSize.width, frame.width), height: min(panel.minSize.height, frame.height))
+                panel.setFrame(frame, display: true, animate: false)
+            }
+            if awaiting { awaiting = false; say("enter") }
         }
     }
 
@@ -162,11 +194,9 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
             return fitted
         }
         if asked == nil, let last = Self.lastFrame, screen.intersects(last) {
-            let fitted = Self.fit(last.size, aspect: size)
-            return NSRect(x: last.minX, y: last.maxY - fitted.height, width: fitted.width, height: fitted.height)
+            return Self.chromiumFrame(Self.width(last.width, aspect: size, max: NSSize(width: screen.width * 0.75, height: screen.height * 0.75)), topLeft: NSPoint(x: last.minX, y: last.maxY), screen: screen)
         }
-        let content = asked.map { Self.fit($0, aspect: size) } ?? Self.chromiumSize(size, screen: screen.size)
-        return NSRect(x: screen.maxX - Self.inset - content.width, y: screen.minY + Self.inset, width: content.width, height: content.height)
+        return Self.chromiumFrame(asked.map { Self.fit($0, aspect: size) } ?? Self.chromiumSize(size, screen: screen.size), topLeft: nil, screen: screen)
     }
 
     /// Chromium's window is no smaller than it opened; the panel no smaller than half its asked size.
@@ -175,10 +205,29 @@ final class PictureInPictureWindow: NSObject, NSWindowDelegate {
         return panel.frame.size
     }
 
+    /// Where Chromium places its window of `size` (`VideoOverlayWindowViews::CalculateAndUpdateWindowBounds`):
+    /// at the bottom right of the visible frame, in from its edges by 2% of the room left beside
+    /// and below the window (17 points for 284 × 178 on a 1352 × 849 frame). A window already
+    /// placed keeps its top left, moved up and left only as far as that place.
+    static func chromiumFrame(_ size: NSSize, topLeft: NSPoint?, screen: NSRect) -> NSRect {
+        let roomX = screen.width - size.width, roomY = screen.height - size.height
+        let inset = (((roomX + roomY) / 2).rounded(.down) * 0.02).rounded(.down)
+        var x = screen.maxX - size.width - inset, top = screen.minY + size.height + inset
+        if let topLeft { x = min(topLeft.x, x); top = max(topLeft.y, top) }
+        return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+    }
+
+    /// A window `width` wide at the picture's aspect, within `max`.
+    static func width(_ width: CGFloat, aspect picture: NSSize, max: NSSize) -> NSSize {
+        let aspect = picture.width / Swift.max(picture.height, 1)
+        var size = NSSize(width: width.rounded(), height: (width / aspect).rounded())
+        if max.height > 0, size.height > max.height { size = NSSize(width: (max.height * aspect).rounded(), height: max.height.rounded()) }
+        return size
+    }
+
     /// Chromium's opening size on the Mac, as measured beside T3 Code v0.1.6 on a 1352-point screen:
     /// 21% of the screen's width (284 points there, for pictures of either orientation), the
     /// height at the picture's aspect, at most half the screen's height.
-    static let inset: CGFloat = 17
     static func chromiumSize(_ picture: NSSize, screen: NSSize) -> NSSize {
         let aspect = picture.width / max(picture.height, 1)
         var width = (screen.width * 0.21).rounded(), height = (width / aspect).rounded()
@@ -247,7 +296,7 @@ private final class Panel: NSPanel {
 /// The picture, and over it the controls of a borderless window while the pointer moves over it.
 private final class ContentView: NSView {
     let picture = CALayer()
-    let title: String
+    private(set) var title: String
     private let chrome: ControlsView?
     private var tracking: NSTrackingArea?
     private var still: DispatchWorkItem?
@@ -275,6 +324,8 @@ private final class ContentView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func retitle(_ title: String) { self.title = title; chrome?.retitle(title) }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -385,6 +436,8 @@ private final class ControlsView: NSView {
         scrubber.setAccessibilityParent(self)
         scrubber.setAccessibilityFrameInParentSpace(NSRect(x: 12, y: bar.midY - 13, width: max(0, bounds.width - 24), height: 26))
     }
+
+    func retitle(_ title: String) { label.stringValue = title }
 
     @objc private func press(_ sender: ControlButton) { pressed?(sender.control.rawValue) }
 

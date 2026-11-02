@@ -1,4 +1,5 @@
 import Network
+import PDFKit
 import WebKit
 import XCTest
 #if os(macOS)
@@ -313,6 +314,10 @@ final class IframeWindowsTests: XCTestCase {
 
     private func allText(_ view: NSView) -> [String] {
         ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap(allText)
+    }
+
+    private func buttonTitles(_ view: NSView) -> [String] {
+        ((view as? NSButton).map { [$0.title] } ?? []) + view.subviews.flatMap(buttonTitles)
     }
 
     private func fields(_ view: NSView) -> [NSTextField] {
@@ -647,6 +652,80 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(answer as? Bool, false)
     }
 
+    #if os(macOS)
+    /// A page's `window.print()` is the print panel, a sheet on the window,
+    /// and returns once the panel ends; one still up ends with its frame.
+    func testAPagesPrintIsThePrintPanel() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "print"], src: "\(baseURL)/opener")
+        loaded(seen, web, "/opener")
+        let window = try XCTUnwrap(web.window)
+        start(web, "window.printed = (print(), 'done')")
+        spin { window.attachedSheet != nil }
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        XCTAssertTrue(Set(sheet.contentView.map(buttonTitles) ?? []).isSuperset(of: ["Print", "Cancel"]), "the print panel")
+        window.endSheet(sheet, returnCode: .cancel)
+        spin { self.run(web, "window.printed") as? String == "done" }
+        XCTAssertEqual(run(web, "window.printed") as? String, "done", "print() returned after Cancel")
+
+        start(web, "print()")
+        spin { window.attachedSheet != nil }
+        XCTAssertNotNil(window.attachedSheet)
+        arm.destroy(handle)
+        spin { window.attachedSheet == nil }
+        XCTAssertNil(window.attachedSheet, "the print panel ended with its frame")
+    }
+
+    /// Under the agent a print is a `print` request; its answer is where the
+    /// job goes as a PDF. A frame showing a PDF prints the PDF's own pages,
+    /// not the page around it.
+    func testUnderTheAgentAPrintIsARequestForAPDF() throws {
+        let arm = try arm(), seen = Seen()
+        let (handle, web) = mount(arm, seen, configuration: ["partition": "agent-print", "agent": true], src: "\(baseURL)/opener")
+        defer { arm.destroy(handle) }
+        loaded(seen, web, "/opener")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("iframe-print-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let answer = { (fields: [String: Any]) in
+            guard let token = seen.asked.last?["token"] else { return XCTFail("no request") }
+            self.json(fields.merging(["token": token]) { a, _ in a }, arm.answer, handle)
+        }
+
+        start(web, "window.printed = (print(), 'done')")
+        spin { !seen.asked.isEmpty }
+        XCTAssertEqual(seen.asked.last?["capability"] as? String, "print")
+        let args = try XCTUnwrap(seen.asked.last?["args"] as? [String: Any])
+        XCTAssertEqual(args["origin"] as? String, "127.0.0.1:\(Self.server!.port)")
+        XCTAssertEqual(args["title"] as? String, "Opener")
+        XCTAssertNil(web.window?.attachedSheet, "no panel under the agent")
+        let page = folder.appendingPathComponent("page.pdf")
+        answer(["path": page.path])
+        spin { self.run(web, "window.printed") as? String == "done" }
+        XCTAssertEqual(PDFDocument(url: page)?.pageCount, 1)
+        XCTAssertTrue(PDFDocument(url: page)?.string?.contains("new tab") == true)
+
+        seen.asked = []
+        _ = run(web, """
+            const f = document.createElement('iframe'); f.id = 'doc'; f.src = '/two-pages.pdf';
+            f.onload = () => setTimeout(() => f.contentWindow.print(), 300); document.body.append(f); 0
+            """)
+        spin { !seen.asked.isEmpty }
+        let pdf = folder.appendingPathComponent("doc.pdf")
+        answer(["path": pdf.path])
+        spin { PDFDocument(url: pdf) != nil }
+        let printed = try XCTUnwrap(PDFDocument(url: pdf))
+        XCTAssertEqual(printed.pageCount, 2)
+        XCTAssertEqual((0..<printed.pageCount).compactMap { printed.page(at: $0)?.string }, ["Page one", "Page two"])
+
+        seen.asked = []
+        start(web, "window.cancelled = (print(), 'done')")
+        spin { !seen.asked.isEmpty }
+        answer(["cancel": true])
+        spin { self.run(web, "window.cancelled") as? String == "done" }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["doc.pdf", "page.pdf"], "Cancel printed nothing")
+    }
+    #endif
+
     /// A sandboxed frame opens another app's scheme only with a token that
     /// allows it (HTML's `allow-top-navigation-to-custom-protocols` note).
     func testASandboxWithoutTheTokensCannotAskForAnotherApp() throws {
@@ -757,6 +836,9 @@ final class WindowPages {
                 """)
             case "/popup": response = Self.page("Popup", "<script>opener && opener.postMessage('signed-in', '*')</script>")
             case "/b": response = Self.page("Page B", "B")
+            case "/two-pages.pdf":
+                let pdf = Self.twoPages
+                response = "HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: \(pdf.utf8.count)\r\nConnection: close\r\n\r\n\(pdf)"
             case "/reload-alert": response = Self.page("Reload alert", "<script>alert('again'); location.reload()</script>")
             case "/reload-scheme":
                 response = Self.page("Reload scheme", "<a id=mail href=\"mailto:a@b.test\">mail</a><script>setTimeout(() => { document.getElementById('mail').click(); setTimeout(() => location.reload(), 400) }, 200)</script>")
@@ -777,6 +859,27 @@ final class WindowPages {
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
         }
     }
+
+    /// A two-page PDF whose pages say "Page one" and "Page two".
+    private static let twoPages: String = {
+        let content = ["BT /F1 36 Tf 72 700 Td (Page one) Tj ET", "BT /F1 36 Tf 72 700 Td (Page two) Tj ET"]
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 7 0 R >> >> >>",
+            "<< /Length \(content[0].utf8.count) >>\nstream\n\(content[0])\nendstream",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 6 0 R /Resources << /Font << /F1 7 0 R >> >> >>",
+            "<< /Length \(content[1].utf8.count) >>\nstream\n\(content[1])\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]
+        var out = "%PDF-1.4\n", offsets: [Int] = []
+        for (i, object) in objects.enumerated() {
+            offsets.append(out.utf8.count)
+            out += "\(i + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let table = out.utf8.count
+        out += "xref\n0 \(objects.count + 1)\n0000000000 65535 f \n" + offsets.map { String(format: "%010d 00000 n \n", $0) }.joined()
+        return out + "trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(table)\n%%EOF\n"
+    }()
 
     private static func page(_ title: String, _ body: String) -> String {
         let html = "<!doctype html><meta charset=utf-8><title>\(title)</title><body>\(body)</body>"

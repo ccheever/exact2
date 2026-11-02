@@ -94,6 +94,8 @@ class FrameUI: NSObject, WKUIDelegate {
     /// A confirmation for another app's scheme is up: a second one is
     /// refused rather than stacked behind it.
     var prompting = false
+    /// A print panel is up: a second print is refused rather than stacked.
+    var printing = false
     var pages: [ObjectIdentifier: PageState] = [:]
     /// The sheets and panels up now, each with how it ends as Cancel when
     /// its frame or popup goes first.
