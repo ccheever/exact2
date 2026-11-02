@@ -1373,8 +1373,9 @@ a lane copy on its own bundle id and `HOME`, launched with `-AppleEnableSwipeNav
 on `feature/notes` with two commits; the v0.1.6 oracle paired with the same lane server and driven the same way).
 Presses, drags, wheel and phased scroll events, side buttons and keys came from the HID event source; each result was read
 back from the accessibility tree, the clipboard, the saved preferences or VoiceOver's caption panel. 9 rows, 56 checks:
-37 hold, 12 failed and are fixed, 1 failed and its fix is held back by a framework limit, 3 failed and are left, and 3
-are not reachable with these fixtures.
+37 hold, 12 failed and are fixed, 1 failed and its fix was held back by a framework limit, 3 failed and were left, and 3
+are not reachable with these fixtures. The four were taken up in a second session (below): three are fixed, one of
+them with a ring left that Exact draws, and the swipe's failure was the input tool's.
 
 Hold:
 
@@ -1434,20 +1435,38 @@ Failed, then fixed and checked again with real input (the rebuilt bundle, the sa
   first tabbable, and both chips say "dialog pop up" (`markdown.contract`). Checked again: VO-Space reads "Quoted assistant
   text: …, dialog, with 2 items, Go to source, button", and Escape returns to the chip (1 of 1).
 
-Failed, held back by the plan's size limit (exact2 `plan/src/bytes.rs` `MAX_COUNT`, 2^24): Return in the Browser's address
-bar goes to the page but leaves the field focused with its ring, where v0.1.6 leaves the field (AppKit selects a field's
-text again after its Return action, which undoes the blur). The fix takes the key in the field (`fieldKey`); with it the
-plan exceeds the limit by 1,908 (`invalid plan: BadCount(16779124)`), so it is not in this round.
+Taken up again with real input (2026-11-02, second session: the bundle of this round's fixes, a lane copy on its own
+bundle id and `HOME`, launched with `-AppleEnableSwipeNavigateWithScrolls YES`; `second` seeded with `--more-turns
+--pull-request --limits`; the v0.1.6 oracle paired with the same lane server and driven the same way; keys, presses and
+phased scroll events from the HID event source; this Mac's input source Korean 2-Set; each pin read back from the lane
+server's shell):
 
-Failed, not fixed:
-
-- ⇧⌘P in the sidebar's project filter and in the draft hero's project menu pins nothing, with the row highlighted by the
-  pointer or the arrows (0 of 3); the oracle unpins the highlighted project (1 of 1). The palette's ⇧⌘P works. The cause
-  is not yet known.
-- A two-finger swipe (the previous round's phased scroll events, over the conversation, the header and the sidebar) stepped
-  nothing (0 of 11, both bundles); the oracle stepped back (1 of 1). The previous round saw it step on `1d0af5b92d`.
-- Return pressed 0.15 to 0.3 s after the window became active, with `/bt` and its menu open, inserted a newline instead
-  of picking `/btw` (3 of 4); sooner or later it picked it (8 of 8).
+- Return in the Browser's address bar went to the page but left the field focused with its ring, where v0.1.6 leaves the
+  field (AppKit selects a field's text again after its Return action, which undoes the blur). The field now takes the
+  key (`fieldKey`), which exact2's plan count limit, raised to 2^26 (#1253), lets the plan hold. Checked: Return loads
+  the page and the field lets go: typed keys and ⌘A no longer reach it (7 of 7). Exact's focus ring stays drawn on the
+  field until the next press elsewhere, where Escape's blur removes it; v0.1.6 shows none
+  (`clone/issues/ri-fixes2-field-ring-after-return.md`).
+- ⇧⌘P in the sidebar's project filter and in the draft hero's project menu pinned nothing (0 of 3; 0 of 5 on this
+  session's bundles before the fix). Under Korean 2-Set the P key types ㅔ, and both compared the typed character with
+  the shortcut, where the palette and v0.1.6 read the physical key. Both now count a letter by its physical key, in the
+  search field as the reference's onKeyDown does (`menu-keys.contract` `pinChordPressed`). Checked: with the row
+  highlighted by the arrows or the pointer, ⇧⌘P pins it and again unpins it, in the filter and in the hero menu
+  (10 of 10). The oracle the same (4 of 4).
+- Return 0.15 to 0.3 s after the window became active, with `/bt` and its menu open, inserted a newline instead of
+  picking `/btw` (3 of 4; on this session's first bundle two Returns sent `/bt` and two did nothing, in 4). Returning to
+  the window resubscribes the shell and thread streams (`transportSignal("foreground")`), and the client counted itself
+  not ready until the server's completion markers came, 0.2 to 0.5 s: filmed every 0.1 s, the menu closed and Send
+  turned off for that long. Those streams did not fail, so they now stay live while they resume from their cursors
+  (`client.ts` `retryStreams`), as the reference keeps its snapshot through a foreground resubscription. Checked: Return
+  150, 175, 200, 225, 250, 275 and 300 ms after activation picks `/btw` (10 of 10), and filmed, the menu and Send stay
+  (1 of 1). The oracle picks it at 150, 200, 250 and 300 ms (4 of 4).
+- A two-finger swipe stepped nothing (0 of 11). The cause was the input tool. Its phased events (a small began event,
+  then 11 changed ones) are cancelled by AppKit's own swipe tracking in a bare AppKit window too (`trackSwipeEvent`
+  reports 0.025, then cancelled), since that tracking reads only the began event's delta from posted events. A began
+  event that carries the swipe completes there (0.3, ended) and steps the clone's history back and forward (4 of 4; the
+  previous bundle 1 of 1), while the 12-event shape steps nothing on either (0 of 2). v0.1.6 reads the wheel events
+  itself and steps with both (2 of 2). A trackpad's swipe was not checked.
 
 Not reachable with these fixtures: a terminal excerpt in a sent message (the fixture makes none; the app tests cover its
 details), the fallback model notice (the stand-in reports no usage limits), and the narrow-window Merge row (the stand-in's

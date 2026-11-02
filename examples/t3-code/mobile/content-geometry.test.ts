@@ -134,7 +134,7 @@ test('route geometry observer mounts only for an active route and cannot capture
 test('Home uses a ready route-local height and safe top for its transparent empty frame', () => {
   const home = contractComponent('mobile/home.contract', 'Home');
   const scope = { ...contractFns('mobile/home.contract', [], { first: (values: unknown[]) => values[0] }),
-    fullPageEmpty: true, liquidGlass: true,
+    fullPageEmpty: true, liquidGlass: true, items: [],
     windowHeight: 900, safeTop: 40, routeId: 'visit-1', listId: 'home-list', contentGeometry: metrics() };
   expect(home.attribute('height=(fullPageFrame ?', 'height', home.state(), scope)).toBe(600);
   expect(home.attribute('padding-top=(fullPageFrame ?', 'padding-top', home.state(), scope)).toBe(72);
