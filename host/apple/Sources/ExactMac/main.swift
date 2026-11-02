@@ -91,7 +91,7 @@ final class Adapter: ExactSessionDelegate {
             case "light": app.appearance = NSAppearance(named: .aqua)
             default: app.appearance = nil
             }
-        case "openURL": open(args.first as? String ?? "", from: session)
+        case "openURL": open(args.first as? String ?? "", from: session) { session.answerOpenURL(args, opened: $0) }
         // `window.close()` (studio diary R17): the window this session
         // shows, without asking its `beforeunload` again.
         case "close": windows.first { $0.session === session }?.close()
@@ -116,33 +116,37 @@ final class Adapter: ExactSessionDelegate {
     /// Services registered for it. Nothing else opens: a link comes out of a
     /// document this app did not write, and handing an arbitrary scheme to
     /// Launch Services is handing it whatever is registered for that scheme
-    /// (LLP 0382 — fail closed, loudly).
-    private func open(_ target: String, from session: ExactSession) {
-        guard !target.isEmpty else { return }
+    /// (LLP 0382 — fail closed, loudly). `answer` hears whether it opened,
+    /// or, where the agent's drive only journals the open, whether an app
+    /// is registered for it.
+    private func open(_ target: String, from session: ExactSession, answer: @escaping (Bool) -> Void) {
+        let registered = { (url: URL) in NSWorkspace.shared.urlForApplication(toOpen: url) != nil }
+        guard !target.isEmpty else { return answer(false) }
         // A link beside a document the person chose (LLP 1069.010 D1).
-        if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return answer(true) }
         // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
         // Privacy & Security's Location Services, the one permission a module
         // asks for today. Under the agent, journaled only.
         if target == "app-settings:" {
             let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
             session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
-            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
-            return
+            guard let url = URL(string: pane) else { return answer(false) }
+            return answer(agentMode ? registered(url) : NSWorkspace.shared.open(url))
         }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
         if let local, FileManager.default.fileExists(atPath: local) {
             ExactDocuments.deliver([local], to: session, keep: false)
-            return
+            return answer(true)
         }
-        if let url, session.openDeclaredScheme(url, open: { url, done in done(NSWorkspace.shared.open(url)) }) { return }
+        if let url, session.openDeclaredScheme(url, open: { url, done in done(NSWorkspace.shared.open(url)) },
+                                               registered: registered, answer: answer) { return }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
             FileHandle.standardError.write(Data("exact: refused to open \(target)\n".utf8))
-            return
+            return answer(false)
         }
-        NSWorkspace.shared.open(url)
+        answer(NSWorkspace.shared.open(url))
     }
 }
 let adapter = Adapter()

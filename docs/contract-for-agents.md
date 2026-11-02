@@ -3551,6 +3551,8 @@ the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
 
+### The driver's operations
+
 The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
 commands; `prefer` takes CSS's media feature names (`"prefer prefers-color-scheme dark"`,

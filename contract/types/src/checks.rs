@@ -9,6 +9,7 @@ use contract_syntax::{
 use std::collections::{BTreeMap, BTreeSet};
 
 mod midi;
+mod open_url;
 mod permission;
 mod sounds;
 
@@ -925,6 +926,9 @@ pub(super) fn check_command(
     }
     if name == "requestPermission" {
         return permission::args(args, scope, shapes, span);
+    }
+    if name == "openURL" {
+        return open_url::args(args, scope, shapes, span);
     }
     if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
         return picker_args(name, args, scope, shapes, span);

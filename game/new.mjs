@@ -4,11 +4,12 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells, prepareGame } from './app/shells.mjs';
-import { readDeviceStamp } from '../snapback4/web/device-build.mjs';
 import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scripts/app.mjs';
 import { PLATFORMS, authoredCrate, namePlatform, withoutPlatformKeys } from '../scripts/app-shells.mjs';
 import { APP_CRATES } from '../scripts/cargo-check.mjs';
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
+// Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
+const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
 
 /** Type names a game's generated type may not take: the engine's public items
  * (what `use exact_game::*` brings in), the template's own and those it imports. */
@@ -532,6 +533,7 @@ const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').re
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
 export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false, rebuild = false } = {}) {
+  if (!snapbackDevice) throw new Error('this checkout has no Snapback client (snapback4/), so it cannot wire an app to Snapback');
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
@@ -599,7 +601,7 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build && !online) {
     let compatible = false;
-    try { compatible = readDeviceStamp(resolve(dir,'assets/snapback4.wasm')).version === version; } catch { /* Missing or malformed: rebuild. */ }
+    try { compatible = snapbackDevice.readDeviceStamp(resolve(dir,'assets/snapback4.wasm')).version === version; } catch { /* Missing or malformed: rebuild. */ }
     if (rebuild || !compatible || port===null) buildSnapbackDevice(dir);
     said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }

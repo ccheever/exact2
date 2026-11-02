@@ -57,7 +57,8 @@ const { androidSdk } = await import('./agent-android.mjs');
 const { hermesAndroidBundle } = await import('./hermes-android.mjs');
 const { guardFlags, helpText } = await import('./help.mjs');
 const { backendOrigin } = await import('../js/bake/src/typescript.mjs');
-const { devicePreflight } = await import('../snapback4/web/device-build.mjs');
+// Snapback's client (snapback4/) is optional: a checkout without it builds every app that does not mount it.
+const snapbackDevice = existsSync(new URL('../snapback4/web/device-build.mjs', import.meta.url)) ? await import('../snapback4/web/device-build.mjs') : null;
 const { generate: gameVocabulary } = await import('../game/vocab.mjs');
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -1154,9 +1155,10 @@ function sections(text) {
 /** A query (its words singular, by one space) whose section ranking alone misses, because it is said in passing more
  *  densely elsewhere or its section says it in other words ("dark mode": light and dark), and its section's heading. */
 const TOPICS = {
-  log: 'Inspection and testing', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
+  log: 'The driver\'s operations', sheet: 'Recipe: a navigation stack', push: 'Recipe: a navigation stack',
   'tab bar': 'Recipe: tabs', 'back button': 'Recipe: a navigation stack', share: 'Host commands',
   'dark mode': 'Recipe: theme: colours, light and dark, icons',
+  'safe area': 'Declarations',
   font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
   deploy: 'Recipe: porting an app, a release build, splitting the work',
   accessibility: 'Native views: accessibility', strings: 'Recipe: app.json, assets and modules',
@@ -1329,7 +1331,7 @@ async function main(argv) {
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = backendOrigin(dir) ?? /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];
-    await devicePreflight(app, nextOrigin ? [nextOrigin] : []);
+    await snapbackDevice.devicePreflight(app, nextOrigin ? [nextOrigin] : []);
     return;
   }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }

@@ -18,15 +18,27 @@ extension ExactSession {
     /// Whether `url`'s scheme is one the app declares. A declared one is
     /// journaled and handed to `open`, unless the agent drives the app; an
     /// open the system could not perform (no app registered) is journaled too.
-    public func openDeclaredScheme(_ url: URL, open: (URL, @escaping (Bool) -> Void) -> Void) -> Bool {
+    /// `answer` hears whether it opened; under the agent, whether `registered`
+    /// finds an app for it (true where the host cannot ask).
+    public func openDeclaredScheme(_ url: URL, open: (URL, @escaping (Bool) -> Void) -> Void,
+                                   registered: (URL) -> Bool = { _ in true }, answer: @escaping (Bool) -> Void = { _ in }) -> Bool {
         guard let scheme = url.scheme?.lowercased(), ExactEnv.openURLSchemes.contains(scheme) else { return false }
         let shown = url.absoluteString.prefix(200)
         log("openURL \(scheme): \(shown)\(ExactEnv.agentMode ? " (journaled, not opened under the agent)" : "")")
-        if !ExactEnv.agentMode {
-            open(url) { [weak self] opened in
-                if !opened { self?.log("openURL \(scheme): not opened, no app registered for \(scheme): (\(shown))") }
-            }
+        let done = { [weak self] (opened: Bool) in
+            if !opened { self?.log("openURL \(scheme): not opened, no app registered for \(scheme): (\(shown))") }
+            answer(opened)
         }
+        if ExactEnv.agentMode { done(registered(url)) } else { open(url, done) }
         return true
+    }
+
+    /// `openURL(url, id)`: `change` at `id` hears `opened` or `failed`
+    /// (LLP 1133.000 §2). `args` are the command's; one with no `id` is not
+    /// answered.
+    public func answerOpenURL(_ args: [Any], opened: Bool) {
+        guard state != .destroyed, args.count > 1, let id = args[1] as? String else { return }
+        guard let view = (runtime.command(["command": "openURL", "id": id])["view"] as? NSNumber)?.uint32Value else { return }
+        apply(runtime.change(view, opened ? "opened" : "failed", now: now()))
     }
 }
