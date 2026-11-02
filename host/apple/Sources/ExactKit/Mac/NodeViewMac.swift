@@ -1386,9 +1386,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             textRasterOverflowLayer = nil
         } else if textRasterOverflowLayer != nil {
             dropTextRaster()
-            // cacheDisplay does not invalidate the live backing layer. Restore
-            // its pixels on the pump after the offscreen capture has finished.
-            if Capture.capturing { presenter?.requestTextPublication() }
+            // Offscreen drawing can retire live pixels without invalidating
+            // their backing layer, including outside an agent capture.
+            presenter?.requestTextPublication()
         }
         repaintThrough()
         if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
