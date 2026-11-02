@@ -130,6 +130,11 @@ describe('the filter\'s keys', () => {
   test('by its physical key where the layout types another character', () => {
     expect(press('g1', 'ㅔ', { metaKey: true, shiftKey: true, code: 'KeyP' })).toEqual([['preventDefault'], ['stopPropagation'], ['run', 'project-pin', '', 'g1']]);
     expect(press('g1', 'ㅔ', { metaKey: true, shiftKey: true, code: 'KeyO' })).toEqual([]);
+    // What Option types stays the typed character (surfaceShortcutKey): ⌥⇧P's ∏ is no ⌥⇧P binding.
+    const optionData = { sidebar: { scopePinChord: 'Alt+Shift+p', scopes: [{ key: 'g1', canPin: true }], scopeHighlight: '' } }, calls: unknown[][] = [];
+    menu.call('searchKey', { hovered: 'g1', keyed: '\n', pinOver: '' }, { ...menuKeys, data: optionData, run: (...args: unknown[]) => calls.push(args), local() {}, preventDefault() {}, stopPropagation() {} },
+      ['∏', { metaKey: false, ctrlKey: false, altKey: true, shiftKey: true, code: 'KeyP' }]);
+    expect(calls).toEqual([]);
   });
   test('and nothing else: another chord, the first row (All projects) highlighted, or one that cannot be pinned', () => {
     expect(press('g1', 'p', { metaKey: true })).toEqual([]);

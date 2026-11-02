@@ -22,10 +22,10 @@ fn kmTriggerKey(k: string): bool = kmArrow(k) or kmOpenKey(k)
 // Return that commits an input method's candidate is not one.
 fn kmReturn(k: string, e: KeyboardEvent): bool = k == "Enter" and not e.isComposing and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
 // isProjectPinShortcut: the key is `chord`, the thread pin shortcut as `aria-keyshortcuts` spells it (`Meta+Shift+p`).
-// A letter counts by its physical key where the layout types another character (Korean 2-Set's ㅔ on P), as the
-// palette's keys do and as Chromium reports a ⌘ chord's key.
-fn pinChordKey(k: string, code: string): string = k.length != 1 ? k : ((code.startsWith("Key") and code.length == 4 and not "abcdefghijklmnopqrstuvwxyz".includes(k.toLowerCase())) ? code.slice(3).toLowerCase() : k.toLowerCase())
-fn pinChordPressed(k: string, e: KeyboardEvent, chord: string): bool = chord != "" and not e.isComposing and [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), pinChordKey(k, e.code)].filter((part) => part != "").join("+").toLowerCase() == chord.toLowerCase()
+// A letter counts by its physical key where the layout types another character (Korean 2-Set's ㅔ on P), as
+// surfaceShortcutKey reads it; what Option types (∏ on ⌥⇧P) stays the typed character.
+fn pinChordKey(k: string, code: string, alt: bool): string = k.length != 1 ? k : ((not alt and code.startsWith("Key") and code.length == 4 and not "abcdefghijklmnopqrstuvwxyz".includes(k.toLowerCase())) ? code.slice(3).toLowerCase() : k.toLowerCase())
+fn pinChordPressed(k: string, e: KeyboardEvent, chord: string): bool = chord != "" and not e.isComposing and [(e.metaKey ? "Meta" : ""), (e.ctrlKey ? "Control" : ""), (e.altKey ? "Alt" : ""), (e.shiftKey ? "Shift" : ""), pinChordKey(k, e.code, e.altKey)].filter((part) => part != "").join("+").toLowerCase() == chord.toLowerCase()
 // One eligible endpoint, or an empty target when there are no rows. Never focus a wrapper
 // for public popover opening: AppKit needs the actual menu item before tracking begins.
 fn kmTriggerTarget(items: KmItem[], k: string): string = (k == "ArrowUp" ? items.slice(-1) : items.slice(0, 1)).map((item) => item.id).join("")
