@@ -4,7 +4,6 @@ build:
     - eas/checkout
     - eas/install_node_modules
     - eas/resolve_build_config
-    - eas/configure_ios_credentials
     - t3_archive:
         inputs:
           credentials: ${ eas.job.secrets.buildCredentials }
