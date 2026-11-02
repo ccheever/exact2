@@ -127,9 +127,10 @@ export function exclusiveSecret(store, prefix, name, work) {
     const fresh = localStorage.getItem(key);
     if (fresh == null) store.map.delete(name); else store.map.set(name, fresh);
     localStorage.setItem(marker, '1');
+    (store.leased ??= new Set()).add(name);
     let completed = false;
     try { const value = await work(); completed = true; return value; } finally {
-      store.persist();
+      try { store.persist(); } finally { store.leased.delete(name); }
       if (store.pending.has(name)) {
         discard(); store.map.delete(name);
         localStorage.removeItem(key);
@@ -139,4 +140,11 @@ export function exclusiveSecret(store, prefix, name, work) {
       localStorage.removeItem(marker);
     }
   });
+}
+
+
+/** Automatic retries must share the lease; a value check alone races another tab. */
+export async function retrySecretWrite(key, current, write, locks = globalThis.navigator?.locks) {
+  if (!locks) throw new Error('This browser cannot coordinate a secret write retry');
+  await locks.request(key, () => { if (current()) write(); });
 }

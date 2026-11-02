@@ -74,3 +74,37 @@ test('a lock asks the timers it is given for its own bound alone, one per wait, 
     expect(result.locks).toEqual({held: [], pending: []});
   } finally { await browser.close(); server.stop(true); }
 }, 60_000);
+
+test('a queued page retry cannot cross another tab’s protected secret update', async () => {
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path.endsWith('.js')) return new Response(readFileSync(resolve(import.meta.dirname, path.slice(1))), {headers: {'content-type': 'text/javascript'}});
+    return new Response('<!doctype html>');
+  }});
+  const browser = await suiteBrowser();
+  try {
+    const context = await browser.newContext();
+    const stale = await context.newPage(), fresh = await context.newPage();
+    await stale.goto(`http://127.0.0.1:${server.port}`); await fresh.goto(`http://127.0.0.1:${server.port}`);
+    await stale.evaluate(async () => {
+      const {pageStore} = await import('/navigation.js');
+      localStorage.setItem('exact.secret.token', 'old');
+      let fail = true;
+      const disk = {getItem: k => localStorage.getItem(k), removeItem: k => localStorage.removeItem(k),
+        setItem(k, v) { if (fail) throw new Error('temporarily unavailable'); localStorage.setItem(k, v); }};
+      globalThis.pending = pageStore(() => disk, () => {});
+      pending.set('token', 'obsolete'); await pending.flush(); fail = false;
+    });
+    await fresh.evaluate(() => new Promise(acquired => {
+      globalThis.holder = navigator.locks.request('exact.secret.token', () => new Promise(release => {
+        globalThis.releaseSecret = release; acquired();
+      }));
+    }));
+    await stale.evaluate(() => { globalThis.retry = pending.flush(); });
+    await fresh.evaluate(async () => {
+      while (!(await navigator.locks.query()).pending.some(lock => lock.name === 'exact.secret.token')) await new Promise(resolve => setTimeout(resolve, 0));
+      localStorage.setItem('exact.secret.token', 'rotated'); releaseSecret(); await holder;
+    });
+    expect(await stale.evaluate(async () => { await retry; return localStorage.getItem('exact.secret.token'); })).toBe('rotated');
+  } finally { await browser.close(); server.stop(true); }
+}, 60_000);

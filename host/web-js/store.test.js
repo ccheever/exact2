@@ -55,7 +55,7 @@ test("failed secret writes cannot overwrite a later realm's rotation", async () 
   Store.map = new Map([['token', 'old']]); Store.writes = []; Store.pending.clear();
   try {
     Store.writes.push(['token', 'ordinary-stale']); Store.persist();
-    disk.set('exact.secret.token', 'another-realm'); fail = false; Store.persist();
+    disk.set('exact.secret.token', 'another-realm'); fail = false; await Store.persist();
     expect(disk.get('exact.secret.token')).toBe('another-realm');
     await expect(exclusiveSecret(Store, 'exact.secret.', 'token', async () => { fail = true; Store.writes.push(['token', 'rotated-A']); })).rejects.toThrow('persisted');
     expect(Store.pending.size).toBe(0);
