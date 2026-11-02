@@ -46,7 +46,7 @@ function signingIdentity(teamId) {
     let identities;
     try { identities = run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]); }
     catch { continue; }
-    const lines = identities.split('\n').filter(line => /Apple Distribution/.test(line));
+    const lines = identities.split('\n').filter(line => /Distribution/.test(line));
     const line = lines.find(value => value.includes(`(${teamId})`)) ?? lines[0];
     const identity = line?.match(/\b[0-9A-F]{40}\b/i)?.[0];
     if (identity) {
@@ -54,7 +54,7 @@ function signingIdentity(teamId) {
       return { identity, keychain };
     }
   }
-  fail(`EAS prepared no Apple Distribution identity for team ${teamId}`);
+  fail(`EAS prepared no iOS distribution identity for team ${teamId}`);
 }
 
 exports.default = async function archive(ctx, { inputs, env }) {
