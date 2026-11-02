@@ -81,7 +81,8 @@ test('a newly generated game builds, reports empty pins and captures without edi
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
-}, 600000);
+// A cold build in the game's own target: 391 crates at CARGO_BUILD_JOBS=4 ran past 600 s (2026-11-02).
+}, 1500000);
 
 test('generated commands run from an external author directory with quoted paths', async () => {
   const directory=realpathSync(mkdtempSync(resolve(tmpdir(), "game commands' workspace-")));
