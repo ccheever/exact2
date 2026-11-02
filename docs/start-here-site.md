@@ -37,8 +37,8 @@ say why each line is so: keep its shape, replace its content. Read
 
 |`bun exact.mjs …`|What it does|
 |---|---|
-|`contract build app.contract --json --errors-only`|The compile check: `[]` and exit zero mean no errors. It rewrites `app.contract.d.ts`, the types `app.ts` imports, and type-checks `app.ts`.|
-|`web-build --out dist`, `serve dist`|The site, and a server that renders `render=request` pages per request and builds again on an edit (`npm run build`, `npm start`).|
+|`web-build --out dist`|Compiles and builds the site. A Contract error or an `app.ts` type error fails it, naming the line: it is the one check after an edit (`npm run build`).|
+|`serve dist`|Serves it, rendering `render=request` pages per request, and builds again on an edit (`npm start`).|
 |`test web`|Runs `app.test.contract` in Chrome.|
 
 Keep scratch files in `.exact/` and helper scripts in `tools/`: neither makes the build stale.

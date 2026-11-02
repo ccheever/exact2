@@ -909,6 +909,20 @@ reading. Nothing that isn't HTML is added by it.
   tab, which T3 Code floats from its JPEG stream. Still out: picture in
   picture for a `video` by command (AVKit's controls reach it, LLP 1042
   §3), a capability read for it, and iOS.
+  **Expanded (Daehyeon Mun, 2026-11-02: picture in picture as "an
+  author-requested floating window drawn by Exact", waiving the 2026-11-01
+  ruling that kept AVKit's panel for it; take waived, none offered; LLP 1042
+  §9.1):** `requestPictureInPicture(id, presentation="window" | "panel",
+  title=, width=, height=)`, a floating window Exact draws on macOS in place
+  of AVKit's: `"window"` a browser's picture-in-picture window as Chromium
+  draws it, `"panel"` a titled utility panel; Document Picture-in-Picture's
+  window on the web's JS target where the browser has it, else the default;
+  refused where the default is. The agent's tree, `tap … pictureinpicture`
+  and `screenshot … window pictureinpicture` reach it. The default stays
+  AVKit's. Consumer: the T3 Code clone's server and desktop Browser tabs,
+  matching T3 Code v0.1.6. Still out: an app's second window of its own
+  views (a floating window holding a subtree), and media controls in
+  Exact's window.
 - ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
   aggressively deferred. Can we change that and record the change? It's time to work
   on it"; take waived, none offered): a camera is an app native module in LLP

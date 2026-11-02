@@ -179,3 +179,10 @@ test('resize takes <w>x<h> and <w> <h>, and its refusal names both (LLP 1139.004
   expect(resizeArguments(['1280', '800'])).toEqual([1280, 800]);
   for (const words of [['1280'], ['1280', 'by', '800'], ['1280x'], []]) expect(() => resizeArguments(words)).toThrow('resize <w>x<h> or resize <w> <h>');
 });
+
+test('tap <image> pictureinpicture <control> names one control of Exact\'s picture-in-picture window (LLP 1042 §9.1)', () => {
+  expect(tapWords(['page', 'pictureinpicture', 'close'])).toEqual(['page', { pictureInPicture: 'close' }]);
+  expect(tapWords(['page', 'pictureinpicture', 'hover'])).toEqual(['page', { pictureInPicture: 'hover' }]);
+  expect(() => tapWords(['page', 'pictureinpicture'])).toThrow('pictureinpicture <control>');
+  expect(() => tapWords(['page', 'pictureinpicture', 'back', 'close'])).toThrow('pictureinpicture <control>');
+});

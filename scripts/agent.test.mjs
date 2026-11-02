@@ -146,6 +146,10 @@ test('accepted pointer, wheel, media and zero-time forms still reach the carrier
     await s.tap('a', media);
     assert.deepEqual(calls.at(-1), [1, 'mediasession', media]);
   }
+  // Exact's picture-in-picture window is the Mac's: the web carrier is given no input (LLP 1042 §9.1).
+  const before = calls.length, pip = await s.tap('a', { pictureInPicture: 'close' });
+  assert.equal(pip.delivery, 'unsupported');
+  assert.ok(!calls.slice(before).some(Array.isArray));
   for (const spec of ['', '+', '   ', null, false, new Number(0)]) {
     await s.clock(spec);
     assert.deepEqual(calls.at(-1), { op: 'clock', to: 0 });
