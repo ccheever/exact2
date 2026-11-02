@@ -95,38 +95,53 @@ final class PaneController: UIViewController {
     }
 }
 
-/// The root screen: a native header, then the two sessions stacked, each
-/// inside its own navigation controller.
+/// The root screen holds a native header and two independently navigable
+/// sessions. The column arrangement puts a native label before them, leaving
+/// session a in the middle.
 final class RootController: UIViewController {
-    let header = UILabel()
     var panes: [String: PaneController] = [:]
     var navs: [String: UINavigationController] = [:]
     var pushed: [String: NativeScreen] = [:]
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        let header = UILabel()
         header.text = "Native header (not Exact) — two sessions below"
         header.font = .preferredFont(forTextStyle: .footnote)
         header.textAlignment = .center
-        view.addSubview(header)
+        header.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        let columns = ExactEnv.environment["EXACT_HOST_COLUMNS"] == "3"
+        let paneStack = UIStackView()
+        paneStack.axis = columns ? .horizontal : .vertical
+        paneStack.distribution = .fillEqually
+        paneStack.spacing = UIStackView.spacingUseSystem
+        if columns {
+            let leadingColumn = UILabel()
+            leadingColumn.text = "Native Column"
+            leadingColumn.font = .preferredFont(forTextStyle: .headline)
+            leadingColumn.textAlignment = .center
+            leadingColumn.numberOfLines = 0
+            leadingColumn.backgroundColor = .secondarySystemBackground
+            paneStack.addArrangedSubview(leadingColumn)
+        }
+        let layout = UIStackView(arrangedSubviews: [header, paneStack])
+        layout.axis = .vertical
+        layout.spacing = UIStackView.spacingUseSystem
+        layout.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(layout)
+        let safe = view.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            layout.leadingAnchor.constraint(equalTo: safe.leadingAnchor), layout.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            layout.topAnchor.constraint(equalTo: safe.topAnchor), layout.bottomAnchor.constraint(equalTo: safe.bottomAnchor),
+        ])
         for (label, session) in sessions {
             let pane = PaneController(label: label, session: session)
             let navigation = UINavigationController(rootViewController: pane)
             addChild(navigation)
-            view.addSubview(navigation.view)
+            paneStack.addArrangedSubview(navigation.view)
             navigation.didMove(toParent: self)
             panes[label] = pane
             navs[label] = navigation
-        }
-    }
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        let safe = view.bounds.inset(by: view.safeAreaInsets)
-        header.frame = CGRect(x: safe.minX, y: safe.minY, width: safe.width, height: 24)
-        let top = safe.minY + 28
-        let each = (safe.maxY - top - 8) / 2
-        for (i, (label, _)) in sessions.enumerated() {
-            navs[label]?.view.frame = CGRect(x: safe.minX, y: top + CGFloat(i) * (each + 8), width: safe.width, height: each)
         }
     }
     var views: [String: ExactView] { panes.mapValues(\.exactView) }

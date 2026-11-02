@@ -201,12 +201,16 @@ impl Reads {
     /// Every comparison the plan makes, each as a media query, or `None`
     /// when some reading has none: a fact read whole, a fact no media
     /// feature carries (`gpuTier`, a fold's segments, a gamut, which a
-    /// wider one also matches), or an order on a keyword.
+    /// wider one also matches), or an order on a keyword. A fact the web
+    /// holds constant needs none: `accessibilityTextSize` is false in every
+    /// browser (`facts.js`), as in the render, so `exact:content`'s
+    /// `EmptyState`, which reads it, leaves a page free to wait.
     pub fn media(&self) -> Option<Vec<Media>> {
         let mut out = Vec::new();
         for (fact, read) in FIELDS.iter().zip(&self.facts) {
             match read {
                 None => {}
+                Some(_) if *fact == "accessibilityTextSize" => {}
                 Some(Read::Whole) => return None,
                 Some(Read::Compared(all)) => {
                     for (op, constant) in all {

@@ -61,6 +61,20 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
+/** Two animation frames in the page, or false when they have not come within `ms`. The deadline is the page's own, so a stalled requestAnimationFrame settles Runtime.evaluate instead of hanging it. */
+export const webFrame = (evaluate, ms = 250) => evaluate(`new Promise((resolve) => {
+  let second, settled = false;
+  const finish = (value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    cancelAnimationFrame(first);
+    if (second !== undefined) cancelAnimationFrame(second);
+    resolve(value);
+  };
+  const timer = setTimeout(() => finish(false), ${ms});
+  const first = requestAnimationFrame(() => { second = requestAnimationFrame(() => finish(true)); });
+})`);
 async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
   env = { ...process.env, ...env };
   // A launch location (`--url /share?text=hi`, LLP 1038 D5) is a path on the page this carrier serves.
@@ -253,7 +267,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
       // Another plan is a new document: its autofocus runs (LLP 1035.000 D9).
       await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b), true); })`);
     }
-    const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
+    const frame = () => webFrame(evaluate);
     // The one contact this carrier may hold (LLP 1035.003 D1).
     let contact = null;
     let dragged = null; // a file drag `tap … dragenter` holds over the page: its point and its DragData

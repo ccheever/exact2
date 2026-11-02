@@ -22,6 +22,11 @@ test('each painted host admits ink, carries it in native metadata and refuses gp
       }
       assert.equal(nativeManifestMetadata(read({ [platform]: {} }), platform).host.painter, undefined);
       assert.throws(() => read({ [platform]: { painter: 'gpu' } }), /painter/);
+      if (platform === 'windows') {
+        assert.equal(nativeManifestMetadata(read({ windows: { painter: 'cpu' } }), platform).host.painter, 'cpu');
+      } else {
+        assert.throws(() => read({ [platform]: { painter: 'cpu' } }), /painter/);
+      }
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -388,4 +393,64 @@ test('shortcuts reach manifest.json without the native bakes\' words, and a remo
       assert.throws(() => readManifest(dir, 'shelf'), /shortcuts\[0\]/);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('iOS browser opt-in requires a web-scheme pair and preserves ordinary apps', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-ios-browser-'));
+  const base = { name: 'Browser', app: { id: 'dev.exact.browser', name: 'Browser' } };
+  const pair = ['http', 'https'].map(protocol => ({ protocol, url: '/open?u=%s' }));
+  const save = (value) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify(value));
+  try {
+    for (const flag of [true, false]) {
+      save({ ...base, host: { ios: { webBrowser: flag } }, protocol_handlers: pair });
+      assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, flag);
+    }
+    save({ ...base, host: { ios: { webBrowser: true } } });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: declare http and https/);
+    save({ ...base, host: { ios: { webBrowser: 'true' } }, protocol_handlers: pair });
+    assert.throws(() => readManifest(dir, 'browser'), /host.ios.webBrowser: expected boolean, got string/);
+    save({ ...base, host: { ios: { webBrowser: false } } });
+    assert.equal(readManifest(dir, 'browser').host.ios.webBrowser, false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Windows Ink builds require fxc from PATH or the SDK; CPU builds do not', async () => {
+  const { prepareShaders } = await import('../host/windows/build.mjs');
+  const { mkdirSync } = await import('node:fs');
+  const { delimiter } = await import('node:path');
+  const dir = mkdtempSync(resolve(tmpdir(), 'windows-fxc-'));
+  const env = () => ({ PATH: '', 'ProgramFiles(x86)': dir, EXACT_PAINTER: 'cpu' });
+  try {
+    for (const painter of [undefined, 'ink']) {
+      assert.throws(() => prepareShaders({ host: { windows: { painter } } }, env()), /install the Windows SDK, or select host.windows.painter: "cpu"/);
+    }
+    assert.doesNotThrow(() => prepareShaders({ host: { windows: { painter: 'cpu' } } }, env()));
+    const game = { crate: 'world-logic', type: 'World' };
+    assert.doesNotThrow(() => prepareShaders({ game }, env()));
+    assert.doesNotThrow(() => prepareShaders({ game, host: { windows: { painter: 'cpu' } } }, env()));
+    assert.throws(() => prepareShaders({ game, host: { windows: { painter: 'ink' } } }, env()), /install the Windows SDK/);
+    const path = resolve(dir, 'tools'); mkdirSync(path); writeFileSync(resolve(path, 'fxc.exe'), '');
+    const onPath = { ...env(), PATH: path }; prepareShaders({}, onPath);
+    assert.equal(onPath.PATH, path);
+    for (const version of ['10.0.9.0', '10.0.10.0']) {
+      const sdk = resolve(dir, 'Windows Kits', '10', 'bin', version, 'x64');
+      mkdirSync(sdk, { recursive: true }); writeFileSync(resolve(sdk, 'fxc.exe'), '');
+    }
+    const sdk = env(); prepareShaders({}, sdk);
+    assert.equal(sdk.PATH.split(delimiter)[0], resolve(dir, 'Windows Kits', '10', 'bin', '10.0.10.0', 'x64'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('source identities match Cargo roots for Windows canonical drive and UNC paths', async () => {
+  const { sourcePath } = await import('./cargo-dep-info.mjs');
+  const { win32 } = await import('node:path');
+  for (const root of [String.raw`C:\app\packages`, String.raw`\\server\share\packages`]) {
+    const path = win32.join(root, 'dock', 'windows', 'lib.rs');
+    const canonical = win32.resolve(win32.toNamespacedPath(path));
+    assert.equal(sourcePath(canonical, 'win32'), path);
+    assert.equal(win32.relative(root, sourcePath(canonical, 'win32')), String.raw`dock\windows\lib.rs`);
+    assert.equal(sourcePath(path, 'win32'), path);
+    assert.equal(sourcePath(canonical, 'darwin'), canonical);
+  }
 });

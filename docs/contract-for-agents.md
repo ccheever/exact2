@@ -58,6 +58,13 @@ This guide is documentation, not an additional policy layer. Documents in
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
 
+Windows apps default to ink, or CPU when the manifest declares `game`;
+`host.windows.painter: "ink"` or `"cpu"` selects either, and `EXACT_PAINTER`
+overrides both. Headless drives explicitly use CPU unless
+overridden, so inspect the desktop capture too. See the
+[Windows painter choices](reference.md#windows-painter) for device selection
+and the other platforms' defaults.
+
 For the implementation, the relevant authorities are:
 
 | Question | Source |
@@ -2405,7 +2412,9 @@ installed app is registered.
 A Mac web browser declares `https` and `http` together, each with the same
 `url` and the same `distribution_only`: a web link, and an HTML file Finder
 opens in the app (as its `file:` URL), reach that template. The person makes
-the app the default browser in System Settings. iOS registers neither, and
+the app the default browser in System Settings. On iOS, `host.ios.webBrowser: true`
+registers the pair and signs the managed browser entitlement; Apple approval and
+a provisioning profile granting it are required. Without this opt-in iOS registers neither, and
 `host.<platform>.urlSchemes` refuses both
 ([reference](reference.md#run-an-app-from-a-terminal-on-macos), its table).
 

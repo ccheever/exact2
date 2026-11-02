@@ -40,6 +40,54 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         override var state: UIGestureRecognizer.State { get { .began } set {} }
     }
 
+    func testContextPopoverInteractionFollowsThePresentationOwner() throws {
+        let p = presenter(kind: "view")
+        defer { p.menus.reset(); window.isHidden = true }
+        let source = try XCTUnwrap(p.views[1]), popover = try XCTUnwrap(p.views[2])
+        let interactions = source.interactions.compactMap { $0 as? UIContextMenuInteraction }
+        XCTAssertEqual(interactions.count, ExactEnv.agentPaints ? 0 : 1,
+                       "UIKit owns the interaction unless the agent paints the popover")
+        if ExactEnv.agentPaints {
+            XCTAssertTrue(p.menus.agentContext(source))
+            XCTAssertTrue(p.menus.isOpen(popover), "the default agent path still opens its painted popover")
+        } else {
+            let interaction = try XCTUnwrap(interactions.first)
+            let configuration = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+            XCTAssertNotNil(p.menus.context.menu(try XCTUnwrap(p.menus.context.open)))
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+            XCTAssertNil(p.menus.context.open)
+        }
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["contextPopover"]]]))
+        XCTAssertTrue(source.interactions.compactMap { $0 as? UIContextMenuInteraction }.isEmpty)
+        XCTAssertNil(p.menus.context.open)
+    }
+
+    private final class ProjectedCell: UIView, GroupedMenuSurface {
+        var menuSource: NodeView?
+    }
+
+    func testProjectedContextMenuFollowsThePresentationOwnerAndRetiresOnReuse() throws {
+        let p = presenter(kind: "view")
+        defer { p.menus.reset(); window.isHidden = true }
+        let cell = ProjectedCell(frame: CGRect(x: 0, y: 200, width: 400, height: 60))
+        p.viewport.addSubview(cell)
+        cell.menuSource = try XCTUnwrap(p.views[1])
+        p.menus.context.syncProjected(cell)
+        let interactions = cell.interactions.compactMap { $0 as? UIContextMenuInteraction }
+        XCTAssertEqual(interactions.count, ExactEnv.agentPaints ? 0 : 1)
+        if !ExactEnv.agentPaints {
+            let interaction = try XCTUnwrap(interactions.first)
+            let configuration = try XCTUnwrap(p.menus.context.contextMenuInteraction(interaction, configurationForMenuAtLocation: .zero))
+            XCTAssertNotNil(p.menus.context.menu(try XCTUnwrap(p.menus.context.open)))
+            p.menus.context.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+            XCTAssertNil(p.menus.context.open)
+        }
+        cell.menuSource = nil
+        p.menus.context.syncProjected(cell)
+        XCTAssertTrue(cell.interactions.isEmpty, "reuse removes the menu and its UIKit companions")
+        XCTAssertNil(p.menus.context.open)
+    }
+
     func testDisabledOnAContainerDoesNotSuppressItsContextMenu() throws {
         let p = presenter(kind: "view")
         defer { p.menus.reset(); window.isHidden = true }
@@ -55,7 +103,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
         p.onClipboard = { id, kind, _ in if kind == 10 { heard.append(id) } }
         source.openContext(LongPress())
         XCTAssertEqual(heard, [1], "the recognized long press runs its context action")
-        if ExactEnv.agentMode {
+        if ExactEnv.agentPaints {
             p.menus.reset()
             XCTAssertTrue(p.menus.agentContext(source))
             XCTAssertTrue(p.menus.isOpen(pop))
@@ -141,7 +189,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testABatchWhileLiftedMovesTheRowsHomeAndItsSize() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let (interaction, configuration, controller) = try opened(p)
         let row = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[2])
@@ -159,7 +207,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testASourceThatStopsNamingThePopoverEndsTheMenuAndReturnsTheRow() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         _ = try opened(p)
         let row = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[2])
@@ -170,7 +218,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testAConfigurationThatNeverShowsIsNoMenuAndADroppedRowStaysOut() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let source = try XCTUnwrap(p.views[1])
         let interaction = try XCTUnwrap(source.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
@@ -191,7 +239,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     /// focus is set aside while the menu shows, dispatching neither `blur`
     /// nor `focus` (MenuFocusIOS).
     func testTheFocusIsSetAsideQuietlyWhileTheMenuShows() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let source = try XCTUnwrap(p.views[1])
         XCTAssertTrue(source.becomeFirstResponder())
@@ -207,7 +255,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testAPressThatClearsItsSourcesPopoverEndsTheMenuAndItsInteraction() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let (interaction, configuration, _) = try opened(p)
         let row = try XCTUnwrap(p.views[3]), pop = try XCTUnwrap(p.views[2]), source = try XCTUnwrap(p.views[1])
@@ -223,7 +271,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     /// A touch on a bar leaves a focused node blurred, as a touch on a page's
     /// chrome leaves an element on the web (`BarTouch`).
     func testABarsTouchBlursAFocusedNode() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let source = try XCTUnwrap(p.views[1])
         XCTAssertTrue(source.becomeFirstResponder())
@@ -245,7 +293,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testDisabledPopoverRefusesThePreviewPress() throws {
-        try XCTSkipIf(ExactEnv.agentMode, "the agent paints the popover")
+        try XCTSkipIf(ExactEnv.agentPaints, "the agent paints the popover")
         let p = presenter()
         defer { p.menus.reset(); window.isHidden = true }
         let (interaction, configuration, _) = try opened(p)
@@ -257,7 +305,7 @@ final class ContextMenuLifetimeIOSTests: XCTestCase {
     }
 
     func testAnInertPopoverRefusesTheCommit() throws {
-        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        if ExactEnv.agentPaints { throw XCTSkip("the agent paints the popover (D4)") }
         let p = presenter()
         let (interaction, configuration, _) = try opened(p)
         var pressed: [UInt32] = []

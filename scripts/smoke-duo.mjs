@@ -473,7 +473,7 @@ async function suite({ open: openSession, check: record }, reset) {
     return l;
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
-  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation') || leg('navigation-gestures') || leg('secondary-navigation');
+  const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web') || leg('navigation') || leg('navigation-gestures') || leg('secondary-navigation') || leg('host-navigation');
   const plans = {};
   const compile = (name, source) => {
     const plan = resolve(out, `${name}.plan`);
@@ -814,8 +814,8 @@ async function suite({ open: openSession, check: record }, reset) {
     } catch (e) { check(false, `authored-navigation: ${e.message}`); } finally { await authored.close(); }
   }
 
-  const editorClearance = async (s) => {
-    const layout = await s.layout(), route = box(layout, 'route-edit'), content = box(layout, 'edit-scroll');
+  const editorClearance = (layout) => {
+    const route = box(layout, 'route-edit'), content = box(layout, 'edit-scroll');
     return [content.x - route.x, route.x + route.w - content.x - content.w];
   };
   const swipeEditorBack = async (s, startX, cancel, during) => {
@@ -847,7 +847,7 @@ async function suite({ open: openSession, check: record }, reset) {
           if (softKeyboard) {
             check((await keyboard(s, true)).reached, `${tag}: the pushed editor raises the keyboard`);
           }
-          const clearance = () => editorClearance(s);
+          const clearance = async () => editorClearance(await s.layout());
           const sides = await clearance();
           const swipe = async (cancel) => {
             console.log(`  ${tag}: ${cancel ? 'cancel' : 'complete'} Back`);
@@ -929,7 +929,7 @@ async function suite({ open: openSession, check: record }, reset) {
         const start = await s.state(), editor = byTestId(await s.tree(), 'edit-draft').id;
         check(start.focus.editor === editor && start.focus.native != null, `${tag}: the secondary editor has native focus`);
         if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}: the secondary editor raises the keyboard`); }
-        const clearance = () => editorClearance(s);
+        const clearance = async () => editorClearance(await s.layout());
         const sides = await clearance();
         const swipe = async (cancel) => {
           await swipeEditorBack(s, startX, cancel, async () => {
@@ -972,46 +972,132 @@ async function suite({ open: openSession, check: record }, reset) {
     } catch (e) { check(false, `secondary-navigation: ${e.message}`); } finally { await s.close(); }
   }
 
-  // 4. The two-session sample host: both panes follow the pose.
+  // 4. The sample host: stacked panes follow each pose; middle and trailing columns have independent Back stacks.
   const hostBundle = appleArtifacts(resolveApp('caltrain'), { destination: 'ios-simulator', host: true }).bundle;
   if (leg('host-navigation') && plans['pushed-title'] && check(existsSync(hostBundle), 'build the host fixture before testing embedded Back: bun host/apple/build.mjs --ios --host')) {
-    const s = await open({ host: 'host-ios', session: 'a', plan: plans['pushed-title'] });
-    try {
-      const offset = async () => {
-        const id = byTestId(await s.tree(), 'long-scroll').id;
-        return (await s.layout('long-top')).node.scroll.find((port) => port.id === id)?.sy;
-      };
-      await eachPose(s, 'embedded-back', async (_, pose) => {
-        for (const chosen of ['a', 'b']) {
-          const tag = `${pose}-${chosen}`, before = {};
+    // The window rectangle the stacked panes fill fully open, which the columns divide
+    let usable;
+    for (const arrangement of ['stacked', 'columns']) {
+      const columns = arrangement === 'columns';
+      if (columns) { hinge(180); }
+      const s = await open({ host: 'host-ios', session: 'a', plan: plans['pushed-title'],
+        ...(columns ? { timing: 'platform', env: { EXACT_HOST_COLUMNS: '3' } } : {}) });
+      try {
+        const panes = {};
+        const offset = async () => box(await s.layout(), 'long-scroll')?.sy;
+        const backInEachSession = async (pose) => {
+          for (const chosen of ['a', 'b']) {
+            const tag = `${pose}-${chosen}`, before = {};
+            for (const label of ['a', 'b']) {
+              s.session = label;
+              await s.tap('home-open-long'); await settle(s);
+              await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
+              before[label] = { state: await s.state(), offset: await offset() };
+              check(before[label].offset > 0, `${tag}: session ${label} has a scroll position to preserve`);
+            }
+            const first = before.a.state.navigation.nativeBack, second = before.b.state.navigation.nativeBack;
+            check(typeof first === 'string' && typeof second === 'string' && first !== second,
+              `${tag}: both embedded stacks identify their own Back container`);
+            s.session = chosen;
+            if (columns) {
+              // The session keeps its column's size, and the editor's route its column, which a held swipe moves it across
+              const clearance = async (moving = false) => {
+                const layout = await s.layout(), route = (await s.layout('route-edit')).node.space.window, allocation = panes[chosen];
+                check(onGrid(layout.viewport.w, allocation.w) && onGrid(layout.viewport.h, allocation.h)
+                  && onGrid(route.w, allocation.w) && (moving || onGrid(route.x, allocation.x)),
+                `${tag}: editing and Back keep the column allocation (viewport ${layout.viewport.w}×${layout.viewport.h}, route at x ${route.x} ${route.w} wide, expected ${JSON.stringify(allocation)})`);
+                return editorClearance(layout);
+              };
+              await s.tap('long-open-edit'); await settle(s);
+              const buttonDraft = `Column Back ${tag}`;
+              await s.type('edit-draft', buttonDraft); await settle(s);
+              await clearance();
+              await s.back({ native: true }); await settle(s);
+              const popped = await s.state();
+              check(popped.navigation.url === '/long' && popped.slots.query === buttonDraft
+                && JSON.stringify(popped.navigation.stack) === JSON.stringify(before[chosen].state.navigation.stack)
+                && near(await offset(), before[chosen].offset, 0.5), `${tag}: native Back pops the editor within its own column and restores the destination`);
+              for (const [kind, startX] of [['content', 0.2], ['edge', 0.02]]) {
+                await s.tap('long-open-edit'); await settle(s);
+                const draft = `Column ${tag} ${kind}`;
+                await s.type('edit-draft', draft); await settle(s);
+                const start = await s.state(), sides = await clearance();
+                check(start.focus.editor === byTestId(await s.tree(), 'edit-draft').id && start.focus.native != null
+                  && start.navigation.nativeBack === before[chosen].state.navigation.nativeBack,
+                `${tag}-${kind}: the column editor has native focus and keeps its Back container`);
+                if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}-${kind}: the column editor raises the keyboard`); }
+                for (const cancel of [true, false]) {
+                  await swipeEditorBack(s, startX, cancel, async () => {
+                    const held = await s.state(), sidesNow = await clearance(true);
+                    check(held.navigation.transition.interactive && held.navigation.transition.phase === 'in-progress'
+                      && held.navigation.url === '/edit' && held.navigation.nativeBack === start.navigation.nativeBack,
+                    `${tag}-${kind}: UIKit holds Back in this column's stack`);
+                    check(sidesNow.every((side, i) => near(side, sides[i], 0.5)), `${tag}-${kind}: horizontal clearance holds during Back`);
+                  });
+                  const state = await s.state();
+                  check(state.slots.query === draft, `${tag}-${kind}: Back preserves the draft`);
+                  if (cancel) {
+                    check(state.navigation.url === '/edit' && state.navigation.transition.phase === 'cancelled'
+                      && JSON.stringify(state.navigation.stack) === JSON.stringify(start.navigation.stack)
+                      && state.focus.editor === start.focus.editor && state.focus.native === start.focus.native,
+                    `${tag}-${kind}: cancelling Back preserves the stack and native editor`);
+                    const sidesNow = await clearance();
+                    check(sidesNow.every((side, i) => near(side, sides[i], 0.5)), `${tag}-${kind}: horizontal clearance holds after cancellation`);
+                    if (softKeyboard) { check((await keyboard(s, true)).reached, `${tag}-${kind}: cancelling Back restores the keyboard`); }
+                  } else {
+                    check(state.navigation.url === '/long' && state.navigation.transition.phase === 'completed'
+                      && JSON.stringify(state.navigation.stack) === JSON.stringify(start.navigation.stack.slice(0, -1))
+                      && near(await offset(), before[chosen].offset, 0.5),
+                    `${tag}-${kind}: completing Back restores the destination and its scroll position`);
+                    if (softKeyboard) { check((await keyboard(s, false)).reached, `${tag}-${kind}: completing Back dismisses the keyboard`); }
+                  }
+                }
+              }
+            }
+            await s.back({ native: true }); await settle(s);
+            check((await s.state()).navigation.url === '/', `${tag}: UIKit's Back pops session ${chosen}`);
+            let refused = false;
+            try { await s.back({ native: true }); } catch (e) { refused = e.message.includes('native Back needs'); }
+            check(refused, `${tag}: the session at its root cannot tap the other session's Back`);
+            const other = chosen === 'a' ? 'b' : 'a';
+            s.session = other;
+            const remaining = await s.state();
+            check(remaining.navigation.url === '/long'
+              && JSON.stringify(remaining.navigation.stack) === JSON.stringify(before[other].state.navigation.stack)
+              && remaining.slots.query === before[other].state.slots.query
+              && near(await offset(), before[other].offset, 0.5), `${tag}: session ${other} keeps its route, stack, draft and scroll position`);
+            await s.back(); await settle(s);
+            s.session = chosen;
+            check((await s.state()).navigation.url === '/', `${tag}: session ${chosen} remains at its root`);
+          }
+        };
+        if (columns) {
+          where = 'column-back';
+          await reached(s, 180);
+          await orient('portrait', s);
+          await settle(s);
+          let screen;
           for (const label of ['a', 'b']) {
             s.session = label;
-            await s.tap('home-open-long'); await settle(s);
-            await s.tap('long-scroll', { wheel: [0, 100] }); await settle(s);
-            before[label] = { state: await s.state(), offset: await offset() };
-            check(before[label].offset > 0, `${tag}: session ${label} has a scroll position to preserve`);
+            const layout = await s.layout('app');
+            panes[label] = layout.node.space.window;
+            screen = layout.screen;
           }
-          const first = before.a.state.navigation.nativeBack, second = before.b.state.navigation.nativeBack;
-          check(typeof first === 'string' && typeof second === 'string' && first !== second,
-            `${tag}: both embedded stacks identify their own Back container`);
-          s.session = chosen;
-          await s.back({ native: true }); await settle(s);
-          check((await s.state()).navigation.url === '/', `${tag}: UIKit's Back pops session ${chosen}`);
-          let refused = false;
-          try { await s.back({ native: true }); } catch (e) { refused = e.message.includes('native Back needs'); }
-          check(refused, `${tag}: the session at its root cannot tap the other session's Back`);
-          const other = chosen === 'a' ? 'b' : 'a';
-          s.session = other;
-          const remaining = await s.state();
-          check(remaining.navigation.url === '/long'
-            && JSON.stringify(remaining.navigation.stack) === JSON.stringify(before[other].state.navigation.stack)
-            && near(await offset(), before[other].offset, 0.5), `${tag}: session ${other} keeps its route, stack and scroll position`);
-          await s.back(); await settle(s);
-          s.session = chosen;
-          check((await s.state()).navigation.url === '/', `${tag}: session ${chosen} remains at its root`);
+          const { a, b } = panes, middle = screen.w / 2;
+          console.log(`  column-back: a ${a.x},${a.y} ${a.w}×${a.h} · b ${b.x},${b.y} ${b.w}×${b.h} · stacked ${usable?.x},${usable?.y} ${usable?.w}×${usable?.h} · screen ${screen.w}×${screen.h}`);
+          // Three equal columns across the stacked panes' width: the native label, then a across the display's middle, then b to the end
+          check(usable && onGrid(a.w, b.w) && near(a.y, b.y) && near(a.h, b.h) && a.h > screen.h / 2 && onGrid(a.x - usable.x, b.x - a.x)
+            && a.x < middle && a.x + a.w > middle && onGrid(b.x + b.w, usable.x + usable.w),
+          `columns: the host lays out equal columns, a across the display's middle and b to the end of the stacked panes' width: ${JSON.stringify({ a, b, usable })}`);
+          await backInEachSession('column-back');
+        } else {
+          await eachPose(s, 'embedded-back', async (_, pose, deg) => {
+            if (deg === 180) { s.session = 'a'; usable = (await s.layout('app')).node.space.window; }
+            await backInEachSession(pose);
+          });
         }
-      });
-    } catch (e) { check(false, `embedded-back: ${e.message}`); } finally { await s.close(); }
+      } catch (e) { check(false, `${arrangement}-back: ${e.message}`); } finally { await s.close(); }
+    }
   }
   if (!leg('host')) { /* not asked for */ }
   else if (!existsSync(hostBundle)) console.log('duo host: unsupported — run bun host/apple/build.mjs --ios --host first');
@@ -1025,8 +1111,9 @@ async function suite({ open: openSession, check: record }, reset) {
         // The pose waited for session a; b's hinge update can trail a's
         let lb;
         try { s.session = 'b'; await reached(s, deg); lb = await s.layout(); } finally { s.session = 'a'; }
-        const fold = (x) => `${x.viewport.w}×${x.viewport.h} ${x.env['device-posture']} ${x.env['horizontal-viewport-segments']}×${x.env['vertical-viewport-segments']}`;
-        check(l.viewport.w > 0 && l.viewport.h > 0 && fold(l) === fold(lb), `${tag}: both sessions follow the pose (a ${fold(l)}, b ${fold(lb)})`);
+        const fold = (x) => `${x.env['device-posture']} ${x.env['horizontal-viewport-segments']}×${x.env['vertical-viewport-segments']}`;
+        check(l.viewport.w > 0 && l.viewport.h > 0 && onGrid(l.viewport.w, lb.viewport.w) && onGrid(l.viewport.h, lb.viewport.h)
+          && fold(l) === fold(lb), `${tag}: both sessions follow the pose (a ${l.viewport.w}×${l.viewport.h} ${fold(l)}, b ${lb.viewport.w}×${lb.viewport.h} ${fold(lb)})`);
       });
     } catch (e) { check(false, `host: ${e.message}`); } finally { await s?.close(); }
   }

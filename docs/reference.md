@@ -38,6 +38,25 @@ bundles, and the iOS device bundle where Xcode's iphoneos SDK is installed.
 `exact setup --check` runs Ibex's own offline resolver validation over that
 same set.
 
+### Windows painter
+
+An app with no `host.windows.painter` uses ink on a DirectX 11 composition
+swap chain, except an app declaring `game`, which keeps the CPU painter so
+its module presents directly. Explicit `"ink"` or `"cpu"` selects that painter;
+CPU keeps the `softbuffer` window. `EXACT_PAINTER` overrides either choice.
+`EXACT_INK_DEVICE=wgpu` selects ink's wgpu device (DirectX 12 with
+`WGPU_BACKEND=dx12`, as the measurements set); `warp` selects software
+DirectX 11. An Ink build requires the Windows SDK's `fxc`; without it,
+the build refuses and names the SDK and `"cpu"` remedies.
+`agent windows`, `test windows` and `verify windows` explicitly select CPU
+for their headless drives unless `EXACT_PAINTER` is set. Those screenshots
+do not qualify the window's composition path.
+A direct `EXACT_SMOKE=1` launch uses the app's painter choice.
+Linux and Android still opt into ink per platform; Android refuses it until
+its Vulkan presenter is implemented. Apple keeps the native host by default;
+`host.macos.presenter: "painted"` builds the ink carrier for development,
+with distribution refused until its accessibility gate passes (LLP 1149 D12).
+
 ### Windows TypeScript
 
 The former private `260318099.0.0` build is superseded. Native Windows
@@ -375,12 +394,13 @@ the app a web browser:
 | host | what the pair does |
 | --- | --- |
 | macOS | a second URL type, `Web site URL`, role `Viewer`, and a `Web page` document type (`public.html`, `public.xhtml`; `Viewer`, rank `Alternate`), without which macOS lists no browser. The person chooses the app in System Settings › Desktop & Dock › Default web browser; the app never asks to become the default. A link arrives at the template. An HTML file that Finder opens in the app arrives there too, as its `file:` URL (`/open?u=file%3A%2F%2F%2F…`), unless the app's own `file_handlers` accept it. The web-page type is not offered by the app's pickers and does not widen what `drop` accepts. |
-| iOS, tvOS | refused: the bundle registers neither, and the build says so. A default browser on iOS needs Apple's managed `com.apple.developer.web-browser` entitlement. |
+| iOS | With `host.ios.webBrowser: true`, registers the pair and signs Apple's managed `com.apple.developer.web-browser` entitlement. Apple must approve it for the app's ID; the selected provisioning profile must grant it. Without the opt-in, registers neither and says so. App Clips, widget extensions and the sample host never inherit the browser role. |
+| tvOS | Registers neither, regardless of the iOS opt-in. |
 | web | dropped from `manifest.json`: HTML's protocol handler safelist has neither. |
 | Linux, Windows, Android | not registered, as no protocol handler is there. |
 
 With `"distribution_only": true` on both entries, only an archive or a
-`--distribution` build is a browser. A local Mac build then registers neither
+`--distribution` build is a browser. A local Mac or opted-in iOS build then registers neither
 scheme, writes no `Web page` type, and does not join this Mac's browser list.
 
 A file chosen in the app's own picker (`showOpenFilePicker`,
@@ -692,7 +712,9 @@ Each platform selects independently; tvOS keeps its asset catalogs and does
 not inherit the iOS selection. There is no `.icon` discovery. The selected
 project must be inside the app and cannot coexist with a primary
 `AppIcon.appiconset`, or a set with the project's name, in that platform's
-catalogs; other sets stay alternate icons. Missing paths
+catalogs. On iOS, other `.appiconset` sets in the catalogs compile as alternate
+icons, also with a raster primary. Pass the set's basename, without the extension,
+to `UIApplication.setAlternateIconName`; `nil` restores the primary. Missing paths
 and paths that are not `.icon` directories fail by name. The project and its
 layers compile in the same `actool` pass as the app's catalogs; changing them
 requires a new native build. `icons` still supplies the web and the native
@@ -2251,8 +2273,10 @@ Hermes bytecode with the compiler from the verified install-once bundle:
 cargo run -q -p exact-js-bake -- path/to/app --out path/to/new-generation
 ```
 
-The app exports `appId`, `grants`, and an `Answer`-typed `answer`; `appId` and
-`grants` are constants the build reads from the source without running it (a
+The app exports `grants` and an `Answer`-typed `answer`, and may export `appId`,
+which must then be `app.json`'s `app.id` (the build supplies that id when it does
+not); `appId` and `grants` are constants the build reads from the source without
+running it (a
 string, a template or `+` of constants, an array of them `.join('\n')`, or a
 top-level `const` holding one). Numbers keep their type: `1 + 2` is `3`, while
 `'a' + 1 + 2` is `'a12'`. Conditional expressions are refused.

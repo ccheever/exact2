@@ -3,7 +3,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, resolve, toNamespacedPath } from 'node:path';
 import { HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots } from './app.mjs';
@@ -499,6 +499,9 @@ test('a device build with entries takes the app\'s and the extension\'s profiles
   // the one both sign (the extension's own App ID's group is no grant of it), or the team wildcard.
   assert.match(refusal([make('App', 'TEAM.com.exact.test', {groups:['group.com.exact.test'], aps:'production'}), extension]), /"App" covers it but none grants aps-environment/);
   assert.match(refusal([appOnly, extension], {required:['com.apple.developer.healthkit']}), /com.exact.test: "App" covers it but none grants com.apple.developer.healthkit\n  com.exact.test.widgets: provisioned/);
+  const browserRole = 'com.apple.developer.web-browser', browserProfile = { ...appOnly, entitlements: [...appOnly.entitlements, browserRole] };
+  assert.match(refusal([appOnly, extension], { required: [browserRole] }), /com.exact.test:.*com.apple.developer.web-browser\n  com.exact.test.widgets: provisioned/);
+  assert.equal(entryProfiles({ app, udid: 'PHONE', required: [browserRole], installed: [browserProfile, extension], named: null }).extension.name, extension.name);
   assert.equal(entryProfiles({app, udid:'PHONE', installed:[appOnly, make('Wildcard extension', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.*']})], named:null}).extension.name, 'Wildcard extension');
   const ownGroup = refusal([appOnly, make('Own group', 'TEAM.com.exact.test.widgets', {groups:['group.com.exact.test'], keychain:['TEAM.com.exact.test.widgets']})]);
   assert.match(ownGroup, /com.exact.test.widgets: "Own group" covers it but none grants the Keychain group TEAM.com.exact.test\n/);
@@ -787,14 +790,34 @@ test('Mac versioned runtime publication serves both bare products (LLP 1126.001 
 });
 
 
-test('Mac shared-core rebuild replaces an existing versioned XCFramework slice', async () => {
+test('shared-core cleanup removes both module layouts and preserves other products', async () => {
+  const { dropLeftoverCore } = await import('../host/apple/widgets.mjs');
+  const bin = mkdtempSync(resolve(tmpdir(), 'exact-core-leftovers-'));
+  const names = ['ExactCore.swiftmodule', 'ExactCore.swiftdoc', 'ExactCore.abi.json', 'ExactCore.swiftsourceinfo', 'ExactCore.o'];
+  try {
+    for (const directory of [bin, resolve(bin, 'Modules')]) {
+      mkdirSync(directory, { recursive: true });
+      for (const name of [...names, 'ExactKit.swiftmodule']) writeFileSync(resolve(directory, name), 'leftover');
+    }
+    dropLeftoverCore(bin);
+    for (const directory of [resolve(bin, 'Modules'), bin]) {
+      assert.ok(existsSync(directory));
+      assert.ok(existsSync(resolve(directory, 'ExactKit.swiftmodule')));
+      for (const name of names) assert.ok(!existsSync(resolve(directory, name)), `leftover ${resolve(directory, name)}`);
+    }
+  } finally { rmSync(bin, { recursive: true, force: true }); }
+});
+
+for (const [moduleDirectory, staleDirectory] of [['', null], ['Modules', null], ['', 'Modules'], ['Modules', '']]) test(`Mac shared-core rebuild publishes ${moduleDirectory || 'root'} modules and replaces its XCFramework slice${staleDirectory === null ? '' : ` with stale ${staleDirectory || 'root'} modules`}`, async () => {
   if (process.platform !== 'darwin') return;
   const { sharedWidgetCore } = await import('../host/apple/widgets.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-core-recopy-'));
   const run = (command, args) => { const r = spawnSync(command, args, { encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); return r; };
   try {
     const bin = resolve(dir, 'bin'), base = resolve(dir, 'core'); mkdirSync(bin);
-    const prepared = { base, args: [], platform: 'macos', framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
+    const triple = moduleTripleFor({ manifest: {} }, false);
+    const moduleTriple = JSON.parse(run('xcrun', ['swiftc', '-print-target-info', '-target', triple]).stdout).target.moduleTriple;
+    const prepared = { base, args: [], triple, platform: 'macos', framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
     const source = resolve(dir, 'core.c'), archive = resolve(dir, 'libfixture.a');
     const runApple = (command, args) => {
       if (command !== 'swift') return run(command, args);
@@ -803,17 +826,40 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       return { stdout: '' };
     };
     const slice = resolve(prepared.xcframework, `macos-${process.arch === 'arm64' ? 'arm64' : 'x86_64'}/ExactCore.framework`);
+    const writeModules = (directory, version) => {
+      for (const name of ['ExactCore', 'ExactSnapshot']) {
+        const module = resolve(bin, directory, `${name}.swiftmodule`, ...(directory ? [] : [`${moduleTriple}.swiftmodule`]));
+        mkdirSync(resolve(module, '..'), { recursive: true });
+        const swift = resolve(dir, `${name}.swift`);
+        writeFileSync(swift, `public enum Version${version} {}`);
+        run('xcrun', ['swiftc', '-emit-module', '-module-name', name, '-target', triple, '-emit-module-path', module, swift]);
+        writeFileSync(module.replace(/swiftmodule$/, 'abi.json'), JSON.stringify({ version }));
+        const time = new Date(2000 + version, 0, 1);
+        utimesSync(module, time, time);
+        // Changing a module file need not update its directory's mtime.
+        if (!directory) utimesSync(resolve(module, '..'), new Date(2030 - version, 0, 1), new Date(2030 - version, 0, 1));
+      }
+    };
+    if (staleDirectory !== null) writeModules(staleDirectory, 0);
     for (const version of [1, 2]) {
       writeFileSync(source, `int exact_value(void) { return ${version}; }`);
       writeFileSync(archive, `archive ${version}`);
-      for (const module of ['ExactCore', 'ExactSnapshot']) {
-        const path = resolve(bin, module + '.swiftmodule'); mkdirSync(path, { recursive: true });
-        writeFileSync(resolve(path, 'fixture'), `module ${version}`);
-      }
+      writeModules(moduleDirectory, version);
       sharedWidgetCore({ app: { id: 'com.exact.test', manifest: {} }, prepared, libDir: dir, crate: 'fixture', env: process.env, runApple });
       assert.equal(realpathSync(resolve(slice, 'ExactCore')), realpathSync(resolve(slice, 'Versions/A/ExactCore')));
       assert.equal(realpathSync(resolve(slice, 'Resources')), realpathSync(resolve(slice, 'Versions/A/Resources')));
-      assert.equal(readFileSync(resolve(slice, 'Modules/ExactCore.swiftmodule/fixture'), 'utf8'), `module ${version}`);
+      const consumer = resolve(dir, 'Use.swift');
+      writeFileSync(consumer, `import ExactCore\nlet _: ExactCore.Version${version}.Type = ExactCore.Version${version}.self\n`);
+      run('xcrun', ['swiftc', '-typecheck', '-target', triple, '-F', resolve(slice, '..'), consumer]);
+      writeFileSync(consumer, `import ExactSnapshot\nlet _: ExactSnapshot.Version${version}.Type = ExactSnapshot.Version${version}.self\n`);
+      run('xcrun', ['swiftc', '-typecheck', '-target', triple, '-I', resolve(slice, 'Modules'), consumer]);
+      for (const name of ['ExactCore', 'ExactSnapshot']) {
+        const original = resolve(bin, moduleDirectory, `${name}.swiftmodule`, ...(moduleDirectory ? [] : [`${moduleTriple}.swiftmodule`]));
+        for (const suffix of ['swiftmodule', 'swiftdoc', 'abi.json', 'swiftsourceinfo']) {
+          assert.deepEqual(readFileSync(resolve(slice, 'Modules', `${name}.swiftmodule`, `${moduleTriple}.${suffix}`)), readFileSync(original.replace(/swiftmodule$/, suffix)));
+          if (suffix === 'swiftmodule') assert.equal(statSync(resolve(prepared.framework, 'Modules', `${name}.swiftmodule`, `${moduleTriple}.${suffix}`)).mtimeMs, statSync(original).mtimeMs);
+        }
+      }
       assert.deepEqual(readFileSync(resolve(slice, 'ExactCore')), readFileSync(resolve(prepared.framework, 'ExactCore')));
       writeFileSync(resolve(dir, 'app.c'), `extern int exact_value(void); int main(void) { return exact_value() == ${version} ? 0 : 1; }`);
       const executable = resolve(dir, `Fixture${version}`), frameworks = resolve(slice, '..');
@@ -841,4 +887,46 @@ test('Mac shared-core rebuild replaces an existing versioned XCFramework slice',
       run(executable,[]);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60_000);
+
+
+test('only an opted-in iOS browser signs the managed role and registers the web pair', async () => {
+  const { browserEntitlements, webRefusal, BROWSER_ENTITLEMENT: key } = await import('../host/apple/documents.mjs');
+  const { allows, profile } = await import('../host/apple/devices.mjs');
+  const app = { id: 'dev.exact.browser', displayName: 'Browser', manifest: { host: { ios: { webBrowser: true } },
+    protocol_handlers: ['http', 'https', 'browser'].map(protocol => ({ protocol, url: '/open?u=%s' })) } };
+  for (const plist of [entitlements(app, null, true, null, { simulator: true }), entitlements(app, 'TEAM', false)]) {
+    assert.match(plist, /<key>com.apple.developer.web-browser<\/key><true\/>/);
+  }
+  const ios = infoPlist(app);
+  assert.match(ios, /Web site URL/);
+  assert.match(ios, /<string>http<\/string>/);
+  assert.match(ios, /<string>https<\/string>/);
+  assert.match(ios, /ExactProtocolHandlers/);
+  assert.equal(webRefusal(app, false, false), null);
+  for (const inherited of [{ widgetTV: true }, { widgetHost: true }, { widgetAppId: app.id }, { clipParent: app.id }]) {
+    assert.doesNotMatch(entitlements({ ...app, ...inherited }, 'TEAM', false), /com.apple.developer.web-browser/);
+  }
+  for (const options of [{ tv: true }, { clip: true }, { id: app.id + '.host' }]) {
+    assert.doesNotMatch(infoPlist(app, false, options), /<string>https?<\/string>|Web site URL/);
+  }
+  assert.match(webRefusal(app, false, true), /tvOS registers neither/);
+  const ordinary = { ...app, manifest: { ...app.manifest, host: { ios: { webBrowser: false } } } };
+  assert.doesNotMatch(entitlements(ordinary), /com.apple.developer.web-browser/);
+  assert.doesNotMatch(infoPlist(ordinary), /Web site URL/);
+  assert.match(infoPlist(ordinary), /<string>browser<\/string>/);
+  const packaged = { ...app, manifest: { ...app.manifest, protocol_handlers: app.manifest.protocol_handlers.map(h => ({ ...h, distribution_only: true })) } };
+  assert.deepEqual(browserEntitlements(packaged), []);
+  assert.doesNotMatch(entitlements(packaged), /com.apple.developer.web-browser/);
+  assert.doesNotMatch(infoPlist(packaged), /Web site URL/);
+  assert.match(entitlements(packaged, 'TEAM', false, null, { distributed: true }), /com.apple.developer.web-browser/);
+  assert.match(infoPlist(packaged, true, { distributed: true }), /Web site URL/);
+  assert.equal(webRefusal(packaged, true, false), null);
+  const make = (name, entitlements) => ({ name, entitlements, appId: 'TEAM.dev.exact.browser', platforms: ['iOS'],
+    dev: true, devices: ['PHONE'], expires: new Date(Date.now() + 86400000), team: 'TEAM', prefix: 'TEAM' });
+  const missing = make('Ordinary profile', []), approved = make('Approved profile', [key]);
+  assert.equal(allows(missing, browserEntitlements(app)), false);
+  assert.equal(profile('PHONE', app.id, browserEntitlements(app), { installed: [missing, approved], named: null }).name, approved.name);
+  assert.throws(() => profile('PHONE', app.id, browserEntitlements(app), { installed: [missing], named: null }), /browser-device-profile:.*Request Apple's managed default-browser approval/);
+  assert.throws(() => profile('PHONE', app.id, browserEntitlements(app), { installed: [], named: missing }), /EXACT_PROFILE.*does not allow/);
 });

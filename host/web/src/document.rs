@@ -372,11 +372,19 @@ fn write<S: Source>(
         touch: 0,
         select: None,
         scroll_document: false,
+        page: SortedSet::new(),
         css: std::collections::HashMap::new(),
         style: writing.style,
         sink: writing.sink,
         sent: 0,
     };
+    let mut live = Vec::new();
+    for root in roots {
+        walk.page_scrollers(*root, false, &mut Vec::new(), &mut live);
+    }
+    if let [path] = &live[..] {
+        walk.page = path.iter().copied().collect();
+    }
     for root in roots {
         walk.element(*root, None, 16., false)?;
     }
@@ -597,6 +605,9 @@ struct Walk<'r, 'w, S: Source> {
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
+    /// The page's scroller's ancestors while one element is it:
+    /// `data-exact-frame` (host/web-js/document.js `markDocument`).
+    page: SortedSet<ViewId>,
     /// A shared style's CSS, by the style's address: the nodes of a
     /// repeated template share one style, and its CSS is computed once.
     css: std::collections::HashMap<usize, String>,
@@ -838,6 +849,9 @@ impl<S: Source> Walk<'_, '_, S> {
         if offpage {
             attrs.push(("data-exact-offpage".into(), None));
         }
+        if self.page.contains(&id) {
+            attrs.push(("data-exact-frame".into(), None));
+        }
         if self.bars.contains(&id) {
             attrs.push(("data-exact-bar".into(), None));
         }
@@ -999,6 +1013,40 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         self.out.push('>');
         Ok(())
+    }
+
+    /// Each path from the roots to an element that is a page scroller on the
+    /// page, not in a hidden route, as the walk will find them: found
+    /// before any opening tag streams, marking the routes as it goes.
+    fn page_scrollers(
+        &mut self,
+        id: ViewId,
+        hidden: bool,
+        path: &mut Vec<ViewId>,
+        live: &mut Vec<Vec<ViewId>>,
+    ) {
+        let src = self.src;
+        let Some(node) = src.facts(id) else { return };
+        if node.node_type.is_metadata() {
+            return;
+        }
+        let hidden = hidden || self.routes.get(&id).is_some_and(|r| r.hidden);
+        if !hidden
+            && !matches!(
+                node.node_type,
+                exact_kernel::NodeType::SvgFe | exact_kernel::NodeType::SvgFilter
+            )
+            && node.props.bool(PropId::ScrollDocument) == Some(true)
+        {
+            live.push(path.clone());
+        }
+        let children = src.children(id);
+        self.route_children(&node, &children);
+        path.push(id);
+        for child in children.iter().copied() {
+            self.page_scrollers(child, hidden, path, live);
+        }
+        path.pop();
     }
 
     /// Mark the routes under a navigation root as `navigation.project` does;

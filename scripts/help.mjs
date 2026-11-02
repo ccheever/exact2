@@ -130,10 +130,10 @@ Ports    none. Runs to completion: exit 0 when it built. test web and agent web 
     internal: ['--loopback'],
     body: `Serves <dir> (default target/web-dist, web-build's) and prints its URL. For a request: the
 file at its path; else, for a browser's navigation to a path a route in routes.json matches,
-shell.html with 200, or for a render=request or cached route its page rendered under Bun;
-else 404.html with 404. A static host serves the directory so, with those routes' shell.
-Beside the app's sources, a navigation after a source changed builds the site again first
-(no restart); a build that fails is the answer, with its errors.
+shell.html with 200, or for a render=request or cached route its page rendered under Bun
+(curl's request too); else 404.html with 404. A static host serves the directory so, with
+those routes' shell. Beside the app's sources, a page asked for after a source changed
+builds the site again first (no restart); a build that fails is the answer, with its errors.
 Ports    one HTTP port, on 127.0.0.1 (--lan: every interface). Runs in the foreground until ^C.`,
     example: 'bun exact.mjs serve dist --port 3000',
   },
@@ -511,7 +511,7 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
     usage: 'bun <exact2>/scripts/exact.mjs new <path> [--name <name>] [--bundle-id <id>] [--with ios,mac,linux,android,windows] [--game [--assets]]',
     flags: [
       ['--name <name>', 'the name people see (app.json app.name); default: the path\'s last part, capitalised'],
-      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id, app.ts appId); default: com.example.<name>-<hex>'],
+      ['--bundle-id <id>', 'the reverse-DNS id (app.json app.id); default: com.example.<name>-<hex>'],
       ['--with <platforms>', 'name native platforms in app.json now (a native verb names its own the first time it runs)'],
       ['--online', 'use the server without a local device'],
       ['--snapback', 'write a guestbook wired to the Snapback backend above the app'],

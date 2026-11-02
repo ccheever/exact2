@@ -2732,7 +2732,6 @@ dependencies = [
  "hermes-lean-sys",
  "libc",
  "mio",
- "ring",
  "rustls",
  "rustls-native-certs",
  "serde_json",

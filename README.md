@@ -666,8 +666,12 @@ else here was admitted because a real app needed it.
 
 ### Not yet, or not at all
 
-- **Windows.** An initial native host runs Skirmish with the shared renderer and
-  optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
+- **Windows.** Apps default to ink on a DirectX 11 composition swap chain,
+  or CPU when the manifest declares `game`. `host.windows.painter: "ink"`
+  or `"cpu"` selects either painter, and `EXACT_PAINTER` overrides both.
+  Skirmish is a standalone game built with Exact's optional game engine;
+  the CPU default preserves its module-owned window presentation. See [LLP 1149 D12](llp/1149-the-renderer.rfc.md#d12--where-it-is-the-presenter-and-what-the-same-everywhere-promises).
+  [Windows Desk](apps/windows-desk/README.md) demonstrates
   native controls over Contract and the kernel with an app-local Win32 presenter;
   general Windows control parity and delivery remain unfinished.
 - **Android.** Admitted (2026-10-07) and early. An app builds for Android and runs

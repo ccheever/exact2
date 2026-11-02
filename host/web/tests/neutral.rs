@@ -60,6 +60,10 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
         text "Off"
       button disabled=true testId="off"
         text "Off"
+      select value="a" aria-label="Kind" height=40 testId="sized-select"
+        option "A" value="a"
+      select value="a" aria-label="Kind" testId="bare-select"
+        option "A" value="a"
 "##,
     )
     .unwrap()
@@ -150,6 +154,9 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
     assert!(
         created(&neutral, "bound").contains("\"data-exact-said\":\"padding-inline padding-block\"")
     );
+    // A select whose author wrote its height, which the sheet fills at the normal leading.
+    assert!(created(&neutral, "sized-select").contains("\"data-exact-said\":\"height\""));
+    assert!(!created(&neutral, "bare-select").contains("data-exact-said"));
     // LLP 1115.000 D16: a list whose rows are cells carries Contract's mark
     // on every boot, a list whose author opted out does not, and a row is
     // told which of its edges its author wrote (`none` is written too), so

@@ -8,7 +8,9 @@
 // `bun exact.mjs web-build --out dist` builds the site and `bun exact.mjs serve dist` serves it, with
 // `bun server.ts` running for its API, and builds it again when you edit: leave it running and reload.
 // `npm start` (package.json's `start`) serves the last `web-build` made without `--out` (recipes/website.md).
-// The header holds a `nav` and says `appearance="none"`, so every host draws it as written, not as a bar.
+// Each page is its `header` (the `banner` landmark), its `main` and its `footer` (`contentinfo`): the root
+// is a `view`, since a `main` around them would make them neither. The header holds a `nav` and says
+// `appearance="none"`, so every host draws it as written, not as a bar.
 // Each page's `scroll document` is the web page's own scroll: the browser's toolbar collapses, `#details`
 // and printing work, and each page keeps its place when the reader comes back to it.
 // The list is a `table` whose sortable columns say `aria-sort`, filtered by a `select` whose choice is the
@@ -44,8 +46,6 @@ fn arrow(on: bool, descending: bool): string = on ? (descending ? " ↓" : " ↑
 component App
   state sortKey = "au"
   state descending = false
-  // The `id` the focus is on in a planet's page, which a test reads: opened at `#details`, the web puts it there.
-  state focused = ""
   resource planets = loadPlanets() as shape Planet[] else empty()
   derive selected = match stack(nav).filter(e => e.name == "planet").at(-1) { case some(e) => e.params.id, case none => "" }
   // The API is asked only for a planet the list has.
@@ -74,11 +74,9 @@ component App
     nav = go(nav, url)
   action retry
     refresh details
-  action focusMoved(e: FocusEvent)
-    focused = e.target
 
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
+    view navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app" width="100%" height="100%"
       // What a link preview and a search engine read; a route's own `head` wins.
       head description="The planets of the Solar System, and what each is like."
       for e in stack(nav) key=e.id
@@ -87,7 +85,8 @@ component App
             display="flex" flex-direction="column"
             SiteHeader(current=e.name)
             scroll document id="planets-page" flex=1 min-height=0
-              column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
+              main display="flex" flex-direction="column" gap=16 padding=16 max-width="48rem" margin-left="auto"
+                margin-right="auto"
                 text "Planets" role="heading" aria-level=1
                 row gap=8 align-items="center"
                   text "Kind" id="kind-label"
@@ -121,10 +120,11 @@ component App
               SiteFooter()
         if e.name == "planet"
           column navigationKey=`${e.id}` navigationScroll="planet-page" position="absolute" inset=0
-            display="flex" flex-direction="column" focusin=focusMoved
+            display="flex" flex-direction="column"
             SiteHeader(current=e.name)
             scroll document id="planet-page" flex=1 min-height=0
-              column gap=16 padding=16 max-width="48rem" margin-left="auto" margin-right="auto"
+              main display="flex" flex-direction="column" gap=16 padding=16 max-width="48rem" margin-left="auto"
+                margin-right="auto"
                 if nameOf(planets, e.params.id) == ""
                   // An id no planet has (a stale link): the page says so, and its head says 404.
                   head title="Not Found" status=404
@@ -164,9 +164,10 @@ component App
             SiteHeader(current=e.name)
             scroll document id="missing-page" flex=1 min-height=0
               head title="Not Found"
-              EmptyState(symbol="symbol:alert", title="No Such Page", message="Its link may be out of date.")
-                link href="/" testId="notfound-home"
-                  text "All Planets"
+              main
+                EmptyState(symbol="symbol:alert", title="No Such Page", message="Its link may be out of date.")
+                  link href="/" testId="notfound-home"
+                    text "All Planets"
               SiteFooter()
 
 // The site's header on every page: its name, which goes home, and a `nav` of its sections, the one

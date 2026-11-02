@@ -890,7 +890,7 @@ final class MenuHost {
     @discardableResult
     func agentContext(_ node: NodeView, inline inlineID: UInt32? = nil) -> Bool {
         // Its own action may have unmounted or disabled it, or renamed its popover.
-        guard ExactEnv.agentMode, let presenter, eligible(node, contextMenu: true) else { return false }
+        guard ExactEnv.agentPaints, let presenter, eligible(node, contextMenu: true) else { return false }
         let props: [String: String]
         if let inlineID {
             guard presenter.textHost(inlineID) === node, !presenter.inlineInert(inlineID), let run = presenter.inlineText(inlineID) else { return false }

@@ -873,11 +873,14 @@ test('both document renderers infer an undeclared route\'s activation from its r
   const activation = page => [/data-activate="([a-z]+)"/.exec(page)?.[1], page.match(/<link rel="modulepreload"[^>]*>/g) ?? [], /data-wake="([^"]*)"/.exec(page)?.[1]?.replace(/&(quot|gt|lt|amp);/g, (_, e) => ({ quot: '"', gt: '>', lt: '<', amp: '&' })[e])];
   const low = '<link rel="modulepreload" href="./app.js" fetchpriority="low">';
   for (const how of ['js', 'rust']) {
-    await renderedPages(`routes nav
+    await renderedPages(`use EmptyState from "exact:content"
+
+routes nav
   home "/" render=build
   clock "/clock" render=build
   wide "/wide" render=build
   seen "/seen" render=build
+  empty "/empty" render=build
 
 shape Viewport
   width: number
@@ -909,6 +912,8 @@ component App
           text "Above"
         column intersect=saw
           text \`\${shown}\`
+      if top(nav).name == "empty"
+        EmptyState(symbol="symbol:alert", title="Nothing Here", message="Its link may be out of date.")
 `, async (_, html, dist) => {
       const wake = '[["(width >= 640px)",false]]';
       expect([how, activation(html(''))]).toEqual([how, ['interaction', [], wake]]);
@@ -916,6 +921,8 @@ component App
       expect([how, activation(html('wide'))]).toEqual([how, ['interaction', [], wake]]);
       // An intersect handler waits for its element to show, or for a scroll (LLP 1048.001 D4's `visible`).
       expect([how, activation(html('seen'))]).toEqual([how, ['interaction', [], wake]]);
+      // `EmptyState` reads `accessibilityTextSize`, which every browser holds false, as the render does.
+      expect([how, activation(html('empty'))]).toEqual([how, ['interaction', [], wake]]);
       // The capture script wakes the runtime where the comparison differs, and only there.
       const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
         const path = new URL(req.url).pathname;
@@ -999,6 +1006,49 @@ component Pages
   }, {}, {}, how);
 }, 240000);
 
+// LLP 1048.003 D4: a route's page under `scroll document` is at least the viewport tall and as tall as its content, so a
+// background on its frame reaches its end, before startup and after (a short page and a long one).
+test('both document renderers lay out a page scroller\'s frame the viewport tall or its content\'s, whichever is more', async () => {
+  for (const how of ['rust', 'js']) await renderedPages(`routes nav
+  home "/" render=build activate=idle
+    detail "/detail" render=build activate=idle
+
+component Pages
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0 display="flex" flex-direction="column" background-color="#fdd"
+          text "Header" height=40
+          scroll document flex=1 min-height=0 background-color="#dde" testId="page"
+            column height=(e.name == "home" ? 200 : 2000)
+`, async (_, html, dist) => {
+    const marks = path => html(path).match(/\sdata-exact-frame(?=[\s>=])/g)?.length ?? 0;
+    expect([how, marks(''), marks('detail')]).toEqual([how, 2, 2]);
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: req => {
+      const path = new URL(req.url).pathname;
+      return new Response(Bun.file(resolve(dist, path === '/' ? 'index.html' : path === '/detail' ? 'detail/index.html' : path.slice(1))));
+    } });
+    const browser = await suiteBrowser();
+    try {
+      for (const javaScriptEnabled of [false, true]) {
+        const page = await browser.newPage({ viewport: { width: 390, height: 600 }, javaScriptEnabled });
+        const boxes = () => page.evaluate(() => {
+          const s = document.querySelector('[data-testid="page"]');
+          return [s.parentElement.getBoundingClientRect().height, s.getBoundingClientRect().height, document.documentElement.scrollHeight];
+        });
+        for (const [path, want] of [['/', [600, 560, 600]], ['/detail', [2040, 2000, 2040]]]) {
+          await page.goto(new URL(path, server.url).href);
+          if (javaScriptEnabled) await page.waitForFunction(() => !!globalThis.exact?.ready, null, { timeout: 5000 });
+          expect([how, javaScriptEnabled, path, await boxes()]).toEqual([how, javaScriptEnabled, path, want]);
+        }
+        await page.close();
+      }
+    } finally { await browser.close(); server.stop(true); }
+  }, {}, {}, how);
+}, 240000);
+
 // LLP 1048.007 D4: a rendered page carries only the rules its document can match, and the runtime puts the whole sheet
 // back before its first render, so what it then shows is styled as on the shell.
 test('both document renderers give a page its own rules, and the runtime restores the whole sheet', async () => {
@@ -1061,6 +1111,33 @@ component Page
     expect([how, page.match(/<img [^>]*>/g)?.map(img => img.includes('fetchpriority="high"'))]).toEqual([how, [true, false, false]]);
     const preload = page.indexOf('<link rel="preload" as="image" href="https://example.com/hero.png">');
     expect([how, preload > 0 && preload < page.indexOf('<div id="exact-root"')]).toEqual([how, true]);
+  }, {}, {}, how);
+}, 180000);
+
+// A route the stack covers holds no hero: at a nested route, the image preloaded is the shown page's, though the covered
+// home's list of lazy rows comes first in the document.
+test('both document renderers preload the shown route\'s first image, not a covered one\'s', async () => {
+  for (const how of ['js', 'rust']) await renderedPages(`routes nav
+  home "/" render=build
+    detail "/detail" render=build
+
+component Pages
+  action follow(url: string)
+    nav = go(nav, url)
+  view
+    main navigationKey=\`\${top(nav).id}\` navigationBack="back" navigate=follow
+      for e in stack(nav) key=e.id
+        column navigationKey=\`\${e.id}\` position="absolute" inset=0
+          if e.name == "home"
+            for id in ["a", "b"] key=id
+              image \`https://example.com/\${id}.png\` width=96 alt=id
+          if e.name == "detail"
+            image "https://example.com/hero.png" width=200 alt="Hero"
+`, (_, html) => {
+    const page = html('detail'), hero = page.match(/<img [^>]*hero\.png[^>]*>/)?.[0] ?? '';
+    expect([how, page.match(/<link rel="preload" as="image"[^>]*>/g), hero.includes('fetchpriority="high"')])
+      .toEqual([how, ['<link rel="preload" as="image" href="https://example.com/hero.png">'], true]);
+    expect([how, html('').match(/<link rel="preload" as="image"[^>]*>/g)]).toEqual([how, null]);
   }, {}, {}, how);
 }, 180000);
 

@@ -270,6 +270,11 @@ test('web-build --out writes a site that serve.mjs serves by the hosting rule, r
     expect([file.headers['cache-control'], /^"[\w-]+"$/.test(file.headers.etag ?? '')]).toEqual(['no-cache', true]);
     expect(await get('/item/7')).toMatchObject({ status: 200, body: expect.not.stringContaining('The note, rendered.') });
     expect((await get('/no/such/route')).status).toBe(404);
+    // Asked as curl asks (any type, or no Accept), a page rendered per request is sent as to a browser; the client's
+    // route is no such page, and a request for another type gets the 404 page.
+    const asked = async (path, headers) => { const r = await fetch(`http://127.0.0.1:${serve.port}${path}`, { headers }); return [r.status, (await r.text()).includes(`>${path}<`)]; };
+    expect([await asked('/live', { accept: '*/*' }), await asked('/feed', {}), await asked('/item/7', { accept: '*/*' }), await asked('/live', { accept: 'application/json' })])
+      .toEqual([[200, true], [200, true], [404, false], [404, false]]);
     // A rendered page is its build's, as a document from a file is: its base names its generation, whose runtime its
     // reader loads from there, even once another build replaces it.
     const rendered = await get('/live'), id = generationIn(rendered.body), runtime = readFileSync(resolve(out, 'app.js'));

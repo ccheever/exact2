@@ -16,6 +16,17 @@ fn the_baked_painter_round_trips_per_host_without_changing_bundle_compatibility(
             compatibility_with_trust(&dir, platform, target, m, Some(""), "development").unwrap()
         };
         let default = build(&manifest);
+        assert_eq!(manifest.painter(host).unwrap(), None);
+        let mut cpu = manifest.clone();
+        cpu.json["host"] = serde_json::json!({host: {"painter": "cpu"}});
+        if host == "windows" {
+            let baked = build(&cpu);
+            let json: serde_json::Value = serde_json::from_str(&baked.to_json()).unwrap();
+            assert_eq!(json["painter"], "cpu");
+            assert_eq!(baked.id, default.id);
+        } else {
+            assert!(cpu.painter(host).is_err());
+        }
         let mut selected = manifest.clone();
         selected.json["host"] = serde_json::json!({ host: {"painter": "ink"} });
         let selected = build(&selected);
@@ -44,6 +55,30 @@ fn the_baked_painter_round_trips_per_host_without_changing_bundle_compatibility(
             default.to_json(),
             "another platform is unchanged"
         );
+        for painter in [None, Some("ink"), Some("cpu")] {
+            if painter == Some("cpu") && host != "windows" {
+                continue;
+            }
+            let mut app = manifest.clone();
+            if let Some(painter) = painter {
+                app.json["host"] = serde_json::json!({host: {"painter": painter}});
+            }
+            let ordinary = build(&app);
+            app.json["game"] = serde_json::json!({"crate": "world-logic", "type": "World"});
+            let game = build(&app);
+            assert!(game.game);
+            assert_eq!(game.painter, painter);
+            assert_eq!(game.id, ordinary.id, "game selection is outside the cohort");
+            let mut json: serde_json::Value = serde_json::from_str(&game.to_json()).unwrap();
+            assert_eq!(
+                json.as_object_mut().unwrap().remove("game"),
+                Some(true.into())
+            );
+            assert_eq!(
+                json,
+                serde_json::from_str::<serde_json::Value>(&ordinary.to_json()).unwrap()
+            );
+        }
     }
     std::fs::remove_dir_all(dir).unwrap();
 }

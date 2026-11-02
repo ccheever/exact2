@@ -4,7 +4,7 @@
 with the original's name and bundle id if it replaces the original on a device. A bundle id
 changed after the first build makes the next build cold and leaves the app installed under the
 old id, to delete by hand. Changing one later means app.json's `app.id`
-and app.ts's `appId` together. An app ships the platforms app.json names: a native verb names
+(and an `appId` app.ts exports, which must agree). An app ships the platforms app.json names: a native verb names
 its own on its first run, and `bun exact.mjs update --without <platform>` stops shipping one
 (LLP 1153 D1). A port that ran `linux` once hears each `symbol:sf/…` warn that Linux draws it
 blank until `update --without linux`; one that ran `mac` hears `tamber-unreachable` name a Mac

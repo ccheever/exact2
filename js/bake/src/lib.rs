@@ -1090,7 +1090,12 @@ fn bake_in(
     } else {
         r"app.grants.replace(/^([ \t]*net\.(?:fetch|websocket)[ \t]+local-network)[ \t]*$/gm, '$1 development')"
     };
-    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // The app's id is app.json's: `app.ts` need not name it, and one it names is what the
+    // receipt carries, which the build checks against the manifest (`bake/src/receipt.rs`).
+    let id = contract::Manifest::read(&app)
+        .map(|m| m.id)
+        .unwrap_or_default();
+    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = (app as unknown as {{ appId?: string }}).appId ?? {};\nexport const grants: string = {grants};\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 }, serde_json::to_string(&id).unwrap_or_default());
     // An overlay shows writes over what they change; `tools`, the handlers a package calls (LLP 1133.016 D9).
     if exports(&app_ts, "overlay") {
         entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");

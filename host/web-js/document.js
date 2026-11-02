@@ -107,9 +107,11 @@ export function markRoutes(root) {
  * a route opened anew starts at its top, one shown again where the reader left
  * it. Each one's place is kept as the page scrolls, since by the time a commit
  * switches them, moving the focus into the route shown may have scrolled the
- * page. */
+ * page. The page's scroller's ancestors in the root are `data-exact-frame`,
+ * which the shell's rule lays out in flow and as tall as their content (a
+ * `:has()` would cost a style recalculation at every change). */
 export const Docs = new Set();
-let Marked = false, Page = null, Listening = false;
+let Marked = false, Page = null, Listening = false, Path = [];
 const Scrolled = new WeakMap();
 const hidden = e => { for (let a = e; a; a = a.parentElement) if (a.style?.getPropertyValue("visibility") === "hidden") return true; return false; };
 export function markDocument() {
@@ -121,6 +123,11 @@ export function markDocument() {
   for (const e of live) e.removeAttribute("data-exact-offpage");
   Marked = live.length > 0;
   document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
+  const path = [];
+  for (let a = page?.parentElement; a && a.id !== "exact-root"; a = a.parentElement) path.push(a);
+  for (const a of Path) if (!path.includes(a)) a.removeAttribute("data-exact-frame");
+  for (const a of path) if (!a.hasAttribute("data-exact-frame")) a.setAttribute("data-exact-frame", "");
+  Path = path;
   // One that left the page (a popped route, or the rendered page's, adopted) hands nothing on.
   if (page && Page !== page) { if (scrolls && (Page?.isConnected || Scrolled.has(page))) scrollTo(...(Scrolled.get(page) ?? [0, 0])); Page = page; }
 }

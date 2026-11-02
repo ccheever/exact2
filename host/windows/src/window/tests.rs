@@ -71,7 +71,13 @@ fn an_early_image_or_window_redraw_survives_until_the_next_tick() {
 }
 #[test]
 fn only_direct_ink_devices_prepare_asynchronously() {
+    use exact_linux::presenter::PainterChoice;
     use exact_linux::presenter::PainterChoice::*;
+    assert!(direct_device(PainterChoice::from_baked("{}"), None));
+    assert!(!direct_device(
+        PainterChoice::from_baked(r#"{"painter":"cpu"}"#),
+        None
+    ));
     assert!(direct_device(Ink, None));
     assert!(!direct_device(Ink, Some("wgpu")));
     assert!(direct_device(Ink, Some("d3d11")));

@@ -27,7 +27,7 @@ test('the site pattern: tests at its API\'s port, a list built ahead, a planet r
     const said = tested.stdout + tested.stderr;
     expect(tested.status, said).toBe(0);
     expect(said).toContain(`test: bun server.ts at ${API}, without a database`);
-    expect(said).toContain('5 passed, 0 failed');
+    expect(said).toContain('6 passed, 0 failed');
 
     const dist = join(app, 'dist');
     const built = spawnSync(process.execPath, [build, app, '--out', dist], { env: { ...env, EXACT_APP_DIR: app }, encoding: 'utf8' });

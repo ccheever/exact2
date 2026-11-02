@@ -410,3 +410,55 @@ fn clean_atlas_page_visit_measurement() {
     );
     assert_eq!(d.upload_calls.len(), uploads);
 }
+
+// Environment choices become named arms; explicit benchmark arms keep their meaning.
+pub(super) fn desktop_arm<'a>(painter: Option<&'a str>, device: Option<&'a str>) -> &'a str {
+    match (painter, device) {
+        (None, _) => "default",
+        (Some("ink"), Some(device @ ("wgpu" | "warp"))) => device,
+        (Some(painter), _) => painter,
+    }
+}
+
+pub(super) fn desktop_launch<'a>(
+    arm: &'a str,
+    device: Option<&'a str>,
+) -> (Option<&'a str>, &'a str) {
+    match arm {
+        "default" => (None, device.unwrap_or("d3d11")),
+        "cpu" => (Some("cpu"), device.unwrap_or("d3d11")),
+        "wgpu" | "warp" => (Some("ink"), arm),
+        "richedit" => (Some("ink"), "d3d11"),
+        _ => (Some(arm), "d3d11"),
+    }
+}
+
+pub(super) fn default_frame_is_ink(log: &str) -> bool {
+    log.lines()
+        .find(|line| line.starts_with("exact-windows: frame 1 "))
+        .is_some_and(|line| line.split(", ").any(|part| part == "painter ink"))
+}
+
+#[test]
+fn desktop_arms_preserve_the_requested_device_and_default_painter() {
+    for device in [None, Some("d3d11"), Some("wgpu"), Some("warp")] {
+        let selected = device.unwrap_or("d3d11");
+        for painter in [None, Some("ink"), Some("cpu")] {
+            let arm = desktop_arm(painter, device);
+            assert_eq!(desktop_launch(arm, device), (painter, selected));
+        }
+        assert_eq!(desktop_launch("ink", device), (Some("ink"), "d3d11"));
+        assert_eq!(desktop_launch("wgpu", device), (Some("ink"), "wgpu"));
+        assert_eq!(desktop_launch("warp", device), (Some("ink"), "warp"));
+    }
+    assert!(default_frame_is_ink(
+        "exact-windows: frame 1 at 1 ms, 1024x720, scale 1, painter ink, caret false"
+    ));
+    assert!(!default_frame_is_ink(
+        "exact-windows: frame 1 at 1 ms, painter cpu\nexact-windows: frame 2 at 2 ms, painter ink"
+    ));
+    assert!(!default_frame_is_ink(
+        "exact-windows: frame 10 at 1 ms, painter ink"
+    ));
+    assert!(!default_frame_is_ink(""));
+}

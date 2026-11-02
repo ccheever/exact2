@@ -453,6 +453,28 @@ test('two copies of a new game derive byte-identical shell locks from the SDK lo
   } finally {rmSync(root,{recursive:true,force:true});}
 }, 120000);
 
+test('game and generated shell workspaces inherit every root vendor patch', async () => {
+  const {outsideWorkspaceProblems} = await import('../scripts/app.mjs');
+  assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-vendor-patches-')));
+  try {
+    const app = resolve(root, 'patched-game');
+    createGame(app);
+    assert.deepEqual(outsideWorkspaceProblems(resolve(app, '.shells')), []);
+  } finally {rmSync(root, {recursive:true, force:true});}
+});
+
+test('a Windows game shell links the shared presenter its baked entry uses', () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-windows-host-')));
+  try {
+    const app = resolve(root, 'windows-game');
+    createGame(app);
+    const manifest = Bun.TOML.parse(readFileSync(resolve(app, '.shells/windows/Cargo.toml'), 'utf8'));
+    assert.deepEqual(manifest.dependencies['exact-linux'], {workspace:true});
+    assert.deepEqual(manifest.dependencies['exact-windows'], {workspace:true});
+  } finally {rmSync(root, {recursive:true, force:true});}
+});
+
 test('the SDK lock decides every version; a game that adds packages captures its own lock', async () => {
   const {outsideSdkLock,sdkLock}=await import('./app/shells.mjs');
   const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
@@ -463,9 +485,6 @@ test('the SDK lock decides every version; a game that adds packages captures its
   const added=lock([['glam','0.33.7','aa'],['itoa','1.0.15','dd'],['libm','0.2.9','ee']]);
   assert.deepEqual(outsideSdkLock(added,sdk,members),['itoa 1.0.15 registry+https://github.com/rust-lang/crates.io-index','libm 0.2.9 registry+https://github.com/rust-lang/crates.io-index']);
   assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','changed']]),sdk,members),['glam 0.33.7 registry+https://github.com/rust-lang/crates.io-index'],'a checksum is part of the identity');
-  // The SDK must inherit every core patch, including host-only dependencies.
-  const {outsideWorkspaceProblems} = await import('../scripts/app.mjs');
-  assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
   const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
   const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
   assert.deepEqual(sdkCargo.profile['host-dev'], coreCargo.profile['host-dev']);

@@ -1,6 +1,6 @@
 // @ref LLP 1126 D2/D8 — one runtime framework, one generated widget bundle.
 import { resolve } from 'node:path';
-import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync } from 'node:fs';
+import { mkdirSync, readdirSync, existsSync, writeFileSync, readFileSync, copyFileSync, cpSync, rmSync, renameSync, statSync } from 'node:fs';
 import { createHash, X509Certificate } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { plistFile, wrapFramework, frameworkLayout, frameworkInstallName } from './assets.mjs';
@@ -152,10 +152,15 @@ const tree = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isD
 export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, swiftc, triple, device, platform = 'ios' }) {
   const scratch = resolve(swiftBuildRoot, 'core');
   const args = swiftArgs.map(a => a === swiftBuildRoot ? scratch : a);
-  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple, 'versioned-mac-framework']));
+  const key = createHash('sha256').update(JSON.stringify([app.id, args, swiftc, triple, 'versioned-framework-module-bundles']));
   for (const file of [resolve(pkg, 'Package.swift'), resolve(pkg, 'include/exact.h'), ...['ExactCore', 'ExactSnapshot', 'CExact'].flatMap(name => tree(resolve(pkg, 'Sources', name)))].sort()) key.update(file).update(readFileSync(file));
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
+}
+/** ExactCore's module and object an older build left in a products directory, in either SwiftPM layout
+ * (the flat one and `Modules/`), which the product build would otherwise take over the framework's. */
+export function dropLeftoverCore(bin) {
+  for (const directory of [bin, resolve(bin, 'Modules')]) for (const name of ['ExactCore.swiftmodule', 'ExactCore.swiftdoc', 'ExactCore.abi.json', 'ExactCore.swiftsourceinfo', 'ExactCore.o']) rmSync(resolve(directory, name), { recursive: true, force: true });
 }
 export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, linkedPlan = null, library = null }) {
   const { base, args, framework, xcframework, device, platform } = prepared;
@@ -189,7 +194,23 @@ export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, 
     copyFileSync(dylib, temporary);
     runApple('xcrun', ['install_name_tool', '-id', frameworkInstallName('ExactCore', platform === 'macos' ? 'MacOSX' : 'iPhoneOS'), temporary]);
     renameSync(temporary, layout.binary);
-    for (const name of ['ExactCore', 'ExactSnapshot']) cpSync(resolve(bin, `${name}.swiftmodule`), resolve(layout.modules, `${name}.swiftmodule`), { recursive: true, preserveTimestamps: true });
+    let moduleTriple;
+    for (const name of ['ExactCore', 'ExactSnapshot']) {
+      const moduleName = `${name}.swiftmodule`;
+      const modified = path => Math.max(...(statSync(path).isDirectory() ? tree(path).filter(file => file.endsWith('.swiftmodule')) : [path]).map(file => statSync(file).mtimeMs));
+      const source = [resolve(bin, moduleName), resolve(bin, 'Modules', moduleName)].filter(existsSync).sort((a, b) => modified(b) - modified(a))[0] ?? resolve(bin, moduleName);
+      const destination = resolve(layout.modules, moduleName);
+      rmSync(destination, { recursive: true, force: true });
+      if (statSync(source).isDirectory()) cpSync(source, destination, { recursive: true, preserveTimestamps: true });
+      else {
+        moduleTriple ??= JSON.parse(runApple('xcrun', ['swiftc', '-print-target-info', '-target', prepared.triple]).stdout).target.moduleTriple;
+        mkdirSync(destination, { recursive: true });
+        for (const suffix of ['swiftmodule', 'swiftdoc', 'abi.json', 'swiftsourceinfo']) {
+          const file = source.replace(/swiftmodule$/, suffix);
+          if (existsSync(file)) cpSync(file, resolve(destination, `${moduleTriple}.${suffix}`), { preserveTimestamps: true });
+        }
+      }
+    }
     writeFileSync(layout.info, plistFile({ CFBundleIdentifier: `${app.id}.runtime`, CFBundleName: 'ExactCore', CFBundleExecutable: 'ExactCore', CFBundlePackageType: 'FMWK', CFBundleVersion: '1', CFBundleShortVersionString: '0.1.0', CFBundleSupportedPlatforms: [platform === 'macos' ? 'MacOSX' : platform === 'watchos' ? 'WatchSimulator' : device ? 'iPhoneOS' : 'iPhoneSimulator'], ...(platform === 'macos' ? { LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0' } : { MinimumOSVersion: platform === 'watchos' ? '10.0' : app.manifest.host?.ios?.minimumOS ?? '17.0' }) }));
     if (!existsSync(resolve(xcframework, 'Info.plist'))) runApple('xcrun', ['xcodebuild', '-create-xcframework', '-allow-internal-distribution', '-framework', framework, '-output', xcframework]);
     else {
@@ -232,10 +253,11 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
     else if (expected) throw new Error(`host/apple: the bake wrote no ${tree} tree for the widget extension (${resolve(resources, tree)})`);
   }
   const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(contents, 'Info.plist')]).stdout);
+  const capabilities = appInfo.UIRequiredDeviceCapabilities ? { UIRequiredDeviceCapabilities: appInfo.UIRequiredDeviceCapabilities } : {};
   const versions = Object.fromEntries(['CFBundleVersion', 'CFBundleShortVersionString', mac ? 'LSMinimumSystemVersion' : 'MinimumOSVersion'].map(key => [key, appInfo[key]]));
   const runtimeInfo = resolve(contents, 'Frameworks/ExactCore.framework', mac ? 'Resources/Info.plist' : 'Info.plist');
   const runtime = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', runtimeInfo]).stdout);
-  writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions }));
+  writeFileSync(runtimeInfo, plistFile({ ...runtime, ...versions, ...capabilities }));
   const frameworks = resolve(contents, 'Frameworks'), reload = 'libexact_widget_reload.dylib';
   if (platform !== 'watchos') {
     copyFileSync(widgetReload({ directory, triple, sdk, device, platform, production, runApple }), resolve(frameworks, reload));
@@ -265,8 +287,8 @@ export function packageWidgets({ app, bundle, shared, directory, sdk, triple, de
   writeFileSync(source, `import SwiftUI\nimport WidgetKit\n${platform === 'ios' ? 'import UIKit\n' : mac ? 'import AppKit\n' : ''}${generated}\n@main struct ExactWidgets: WidgetBundle { var body: some Widget { ${names.map(n => `${n}()`).join('; ')}${alarmMember} } }\n`);
   const entitlementPath = resolve(directory, 'widget-entitlements.plist');
   writeFileSync(entitlementPath, entitlements);
-  writeFileSync(resolve(extensionContents, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, ...(!mac ? { UIDeviceFamily: appInfo.UIDeviceFamily } : {}),
-    CFBundleSupportedPlatforms: mac ? ['MacOSX'] : appInfo.CFBundleSupportedPlatforms, ...(appInfo.NSAppTransportSecurity ? { NSAppTransportSecurity: appInfo.NSAppTransportSecurity } : {}), ExactAppGroup: appInfo.ExactAppGroup ?? widgetGroup(app), ExactAppIdentifier: appInfo.ExactAppIdentifier ?? app.id, ExactWidgetTypeScript: platform !== 'watchos' && existsSync(resolve(app.dir, 'app.ts')), ...(appInfo.ExactKeychainAccessGroup ? { ExactKeychainAccessGroup: appInfo.ExactKeychainAccessGroup } : {}), ...(mac ? { ExactWidgetSecretsAvailable: !!appInfo.ExactKeychainAccessGroup, ExactWidgetRequiresSecrets: appInfo.ExactWidgetRequiresSecrets ?? [] } : {}), ExactWidgetGeneration: appInfo.ExactWidgetGeneration, ...(typeof app.origin === 'string' ? { ExactLinkBase: app.origin } : {}),
+  writeFileSync(resolve(extensionContents, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!', ...versions, ...(!mac ? { UIDeviceFamily: appInfo.UIDeviceFamily } : {}), ...capabilities,
+    CFBundleSupportedPlatforms: mac ? ['MacOSX'] : appInfo.CFBundleSupportedPlatforms, ...(appInfo.DTPlatformName ? { DTPlatformName: appInfo.DTPlatformName } : {}), ...(appInfo.NSAppTransportSecurity ? { NSAppTransportSecurity: appInfo.NSAppTransportSecurity } : {}), ExactAppGroup: appInfo.ExactAppGroup ?? widgetGroup(app), ExactAppIdentifier: appInfo.ExactAppIdentifier ?? app.id, ExactWidgetTypeScript: platform !== 'watchos' && existsSync(resolve(app.dir, 'app.ts')), ...(appInfo.ExactKeychainAccessGroup ? { ExactKeychainAccessGroup: appInfo.ExactKeychainAccessGroup } : {}), ...(mac ? { ExactWidgetSecretsAvailable: !!appInfo.ExactKeychainAccessGroup, ExactWidgetRequiresSecrets: appInfo.ExactWidgetRequiresSecrets ?? [] } : {}), ExactWidgetGeneration: appInfo.ExactWidgetGeneration, ...(typeof app.origin === 'string' ? { ExactLinkBase: app.origin } : {}),
     NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
   runApple('xcrun', ['--sdk', mac ? 'macosx' : platform === 'watchos' ? 'watchsimulator' : device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', ...appexArgs, ...keepMain, ...(!production ? ['-D', 'EXACT_INSPECT'] : []), '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'), '-I', resolve(root, 'host/apple/Sources/CExact'), '-I', resolve(shared.framework, 'Modules'), '-F', resolve(shared.framework, '..'), '-framework', 'ExactCore',
@@ -306,7 +328,9 @@ export function packageAlarmExtension({ app, bundle, directory, sdk, triple, dev
   writeFileSync(entitlementPath, entitlements);
   writeFileSync(resolve(extension, 'Info.plist'), plistFile({ CFBundleIdentifier: widgetId(app), CFBundleName: 'ExactWidgets', CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWidgets', CFBundlePackageType: 'XPC!',
     CFBundleVersion: appInfo.CFBundleVersion, CFBundleShortVersionString: appInfo.CFBundleShortVersionString, MinimumOSVersion: appInfo.MinimumOSVersion, UIDeviceFamily: appInfo.UIDeviceFamily,
-    CFBundleSupportedPlatforms: appInfo.CFBundleSupportedPlatforms, NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
+    CFBundleSupportedPlatforms: appInfo.CFBundleSupportedPlatforms, ...(appInfo.DTPlatformName ? { DTPlatformName: appInfo.DTPlatformName } : {}),
+    ...(appInfo.UIRequiredDeviceCapabilities ? { UIRequiredDeviceCapabilities: appInfo.UIRequiredDeviceCapabilities } : {}),
+    NSExtension: { NSExtensionPointIdentifier: 'com.apple.widgetkit-extension' } }));
   runApple('xcrun', ['--sdk', device ? 'iphoneos' : 'iphonesimulator', 'swiftc', '-parse-as-library', '-O', ...appexArgs, ...keepMain, '-target', triple, '-sdk', sdk,
     '-module-cache-path', resolve(directory, 'cache'), ...(!device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath] : []),
     ...alarmArgs(alarm), source, '-o', resolve(extension, 'ExactWidgets')]);

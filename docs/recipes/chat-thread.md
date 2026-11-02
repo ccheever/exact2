@@ -53,7 +53,6 @@ component Chat
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.chat';
 export const grants = '';
 
 const messages: Result<'loadThread'> = [];

@@ -9,8 +9,9 @@
 //! What it translates: each `--name: value` on `:root` is the token `name`,
 //! of the kind the evaluator infers; a redeclaration under
 //! `@media (prefers-color-scheme: dark)` makes the two a `light-dark()`, which
-//! is what that query means; `--a: var(--b)` is a reference to the token
-//! `b`. Each scheme's value is the declaration that wins it, as CSS's cascade
+//! is what that query means, and a colour without one is marked
+//! `scheme=fixed`, one colour in both schemes as CSS has it; `--a: var(--b)`
+//! is a reference to the token `b`. Each scheme's value is the declaration that wins it, as CSS's cascade
 //! picks one. Everything else is refused by name, and nothing is written for
 //! it: a scope the page switches (`.dark`, `[data-theme="dark"]`), which is
 //! an app axis the author declares; a value composed around a `var()`; a
@@ -28,11 +29,14 @@ const USAGE: &str = "usage: contract tamber import css <stylesheet> [--app <app 
 const END: &str = "// tamber:end";
 
 /// One token the stylesheet declares: its name, its value as the design
-/// writes it, and what was dropped from it.
+/// writes it, what was dropped from it, and whether it is marked
+/// `scheme=fixed`: a value of its own, not a reference, that no dark
+/// redeclaration changes, which is one colour in both schemes in CSS.
 struct Token {
     name: String,
     value: String,
     note: Option<&'static str>,
+    fixed: bool,
 }
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -142,8 +146,15 @@ pub fn run(args: &[String]) -> ExitCode {
             }
         };
         let (mut dropped, mut outside) = (vec![false; tokens.len()], Vec::new());
+        let mut unmarked = false;
         for refusal in said {
             match refusal.line.filter(|line| block.contains(line)) {
+                // Not a colour, or one that follows the scheme (a system
+                // colour): the token stands without the mark.
+                Some(line) if refusal.id == "tamber-scheme-fixed" && tokens[line - first].fixed => {
+                    tokens[line - first].fixed = false;
+                    unmarked = true;
+                }
                 Some(line) if !dropped[line - first] => {
                     dropped[line - first] = true;
                     let t = &tokens[line - first];
@@ -157,7 +168,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 None => outside.push(refusal.shown),
             }
         }
-        if !dropped.contains(&true) {
+        if !dropped.contains(&true) && !unmarked {
             break (text, kinds, outside);
         }
         let mut k = 0;
@@ -203,7 +214,16 @@ pub fn run(args: &[String]) -> ExitCode {
             .find(|(n, _)| *n == t.name)
             .map_or("", |(_, k)| k);
         let note = t.note.map_or(String::new(), |n| format!("  ({n})"));
-        println!("  {} = {}  {kind}{note}", t.name, t.value);
+        println!("  {} = {}{}  {kind}{note}", t.name, t.value, mark(t));
+    }
+    let fixed = tokens.iter().filter(|t| t.fixed).count();
+    if fixed > 0 {
+        println!(
+            "{fixed} colour{} no dark value in the stylesheet, so {} `scheme=fixed`: one colour in light and dark, as CSS draws {}. A `light-dark(light, dark)` pair follows the reader's scheme.",
+            if fixed == 1 { " has" } else { "s have" },
+            if fixed == 1 { "it is marked" } else { "each is marked" },
+            if fixed == 1 { "it" } else { "them" },
+        );
     }
     say_refused();
     if refused.is_empty() {
@@ -363,6 +383,8 @@ fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
             }
         };
         let dark = winner(var, true).filter(|d| d.rank != light.rank);
+        let own = !light.value.to_ascii_lowercase().contains("var(");
+        let mut fixed = own && !light_value.to_ascii_lowercase().contains("light-dark(");
         let value = match dark.map(|d| value(&d.value)) {
             None => light_value,
             Some(Err(why)) => {
@@ -371,6 +393,7 @@ fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
             }
             Some(Ok((dark, dropped))) => {
                 note = note.or(dropped);
+                fixed &= dark == light_value;
                 match dark == light_value {
                     true => light_value,
                     false => format!("light-dark({light_value}, {dark})"),
@@ -378,7 +401,12 @@ fn read(css: &str) -> (Vec<Token>, Vec<(String, String)>) {
             }
         };
         let name = name.to_string();
-        tokens.push(Token { name, value, note });
+        tokens.push(Token {
+            name,
+            value,
+            note,
+            fixed,
+        });
     }
     (tokens, refused)
 }
@@ -522,11 +550,20 @@ fn render(base: &str, at: Option<usize>, start: &str, tokens: &[Token]) -> (Stri
     block.extend(
         tokens
             .iter()
-            .map(|t| format!("{indent}{} = {}", t.name, t.value)),
+            .map(|t| format!("{indent}{} = {}{}", t.name, t.value, mark(t))),
     );
     block.push(format!("{indent}{END}"));
     lines.splice(at..at, block);
     (lines.join("\n") + "\n", at + 2)
+}
+
+/// A token's mark after its value, as the design writes it.
+fn mark(t: &Token) -> &'static str {
+    if t.fixed {
+        "  scheme=fixed"
+    } else {
+        ""
+    }
 }
 
 /// The indent of the `theme` block's entries, two spaces when it has none.

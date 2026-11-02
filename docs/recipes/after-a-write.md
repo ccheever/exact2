@@ -45,7 +45,6 @@ component TagList
 ```ts
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.tags';
 export const grants = '';
 
 const tags: Result<'loadTags'> = [];

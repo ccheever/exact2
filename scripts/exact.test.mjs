@@ -8,9 +8,10 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile } from '../host/apple/assets.mjs';
+import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile, wrapFramework } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
+import { packageWidgets, packageAlarmExtension } from '../host/apple/widgets.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -62,6 +63,90 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
 }));
 
 const tools = process.platform === 'darwin' && ['clang', 'codesign'].every((tool) => Bun.which(tool));
+
+test.skipIf(!tools)('widget packaging preserves parent platform and device capabilities in device and simulator extensions', () => inDir(dir => {
+  const library = resolve(dir, 'fixture.dylib');
+  writeFileSync(resolve(dir, 'fixture.c'), 'void fixture(void) {}');
+  const compiled = spawnSync('clang', ['-dynamiclib', resolve(dir, 'fixture.c'), '-o', library], { encoding: 'utf8' });
+  assert.equal(compiled.status, 0, compiled.stderr);
+  const readPlist = path => {
+    const result = spawnSync('plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  for (const device of [true, false]) {
+    const platform = device ? 'iphoneos' : 'iphonesimulator';
+    const bundle = resolve(dir, platform, 'Fixture.app'), directory = resolve(dir, platform, 'build');
+    const framework = resolve(bundle, 'Frameworks/ExactCore.framework');
+    mkdirSync(framework, { recursive: true });
+    const parent = { CFBundleVersion: '8', CFBundleShortVersionString: '1.0.0', MinimumOSVersion: '17.0',
+      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], DTPlatformName: platform, ExactWidgetGeneration: 'fixture',
+      ...(device ? { UIRequiredDeviceCapabilities: ['arm64'] } : {}) };
+    writeFileSync(resolve(bundle, 'Info.plist'), plistFile(parent));
+    writeFileSync(resolve(framework, 'Info.plist'), plistFile({ CFBundleIdentifier: 'dev.exact.fixture.runtime' }));
+    let signed = null;
+    packageWidgets({ app: { dir, id: 'dev.exact.fixture', displayName: 'Fixture', manifest: {} }, bundle,
+      shared: { framework, snapshotArchive: resolve(dir, 'snapshot.a') }, directory, sdk: 'fixture-sdk', triple: 'fixture-target',
+      device, production: true, entitlements: plistFile({}),
+      runApple(command, args) {
+        if (command === 'plutil') return { stdout: JSON.stringify(readPlist(args.at(-1))) };
+        assert.equal(command, 'xcrun');
+        assert.equal(args[2], 'swiftc');
+        cpSync(library, args[args.indexOf('-o') + 1]);
+        return { stdout: '' };
+      }, sign(extension) { signed = extension; } });
+    assert.equal(signed, resolve(bundle, 'PlugIns/ExactWidgets.appex'));
+    const info = readPlist(resolve(signed, 'Info.plist'));
+    assert.equal(info.DTPlatformName, platform);
+    assert.deepEqual(info.UIRequiredDeviceCapabilities, parent.UIRequiredDeviceCapabilities);
+    for (const name of ['ExactCore', 'ExactWidgetReload']) {
+      assert.deepEqual(readPlist(resolve(bundle, `Frameworks/${name}.framework/Info.plist`)).UIRequiredDeviceCapabilities, parent.UIRequiredDeviceCapabilities, name);
+    }
+    assert.deepEqual(info.CFBundleSupportedPlatforms, parent.CFBundleSupportedPlatforms);
+    assert.equal(info.CFBundleVersion, parent.CFBundleVersion);
+  }
+}));
+for (const device of [true, false]) {
+  const platform = device ? 'iphoneos' : 'iphonesimulator';
+  for (const [shape, metadata] of [
+    ['array', { DTPlatformName: platform, UIRequiredDeviceCapabilities: ['arm64', 'gps'] }],
+    ['dictionary', { DTPlatformName: platform, UIRequiredDeviceCapabilities: { arm64: true, gps: false } }],
+    ['empty array', { DTPlatformName: platform, UIRequiredDeviceCapabilities: [] }],
+    ['empty dictionary', { DTPlatformName: platform, UIRequiredDeviceCapabilities: {} }],
+    ['omitted capabilities', { DTPlatformName: platform }],
+    ['omitted platform', { UIRequiredDeviceCapabilities: { arm64: true, gps: false } }],
+    ['omitted keys', {}],
+  ]) test.skipIf(process.platform !== 'darwin')(`alarm-only ${platform} extension preserves ${shape} parent metadata`, () => inDir(dir => {
+    const bundle = resolve(dir, 'Fixture.app'), directory = resolve(dir, 'build');
+    mkdirSync(bundle);
+    mkdirSync(directory);
+    const parent = { CFBundleVersion: '8', CFBundleShortVersionString: '1.0.0', MinimumOSVersion: '17.0',
+      UIDeviceFamily: [1, 2], CFBundleSupportedPlatforms: [device ? 'iPhoneOS' : 'iPhoneSimulator'], ...metadata };
+    writeFileSync(resolve(bundle, 'Info.plist'), plistFile(parent));
+    const readPlist = path => {
+      const result = spawnSync('plutil', ['-convert', 'json', '-o', '-', path], { encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    let signed = null;
+    packageAlarmExtension({ app: { dir, id: 'dev.exact.fixture', displayName: 'Fixture', manifest: {} }, bundle,
+      directory, sdk: 'fixture-sdk', triple: 'fixture-target', device, entitlements: plistFile({}), alarm: 'ExactAlarms',
+      runApple(command, args) {
+        if (command === 'plutil') return { stdout: JSON.stringify(readPlist(args.at(-1))) };
+        assert.equal(command, 'xcrun');
+        return { stdout: '' };
+      }, sign(extension) { signed = extension; } });
+    assert.equal(signed, resolve(bundle, 'PlugIns/ExactWidgets.appex'));
+    const info = readPlist(resolve(signed, 'Info.plist'));
+    for (const key of ['DTPlatformName', 'UIRequiredDeviceCapabilities', 'CFBundleSupportedPlatforms',
+      'CFBundleVersion', 'CFBundleShortVersionString', 'MinimumOSVersion', 'UIDeviceFamily']) {
+      assert.equal(Object.hasOwn(info, key), Object.hasOwn(parent, key), key);
+      assert.deepEqual(info[key], parent[key], key);
+    }
+    assert.equal(existsSync(resolve(bundle, 'Frameworks')), false);
+  }));
+}
+
 test('release refuses code in content-addressed assets before signing changes its digest', () => inDir(dir => {
   const app = resolve(dir, 'Fixture.app'), helper = resolve(app, 'Contents/Resources/assets/helper');
   mkdirSync(dirname(helper), { recursive: true });
@@ -109,6 +194,59 @@ test.skipIf(!tools)('release preserves baked GPU signatures and rejects changed 
   const changed = readFileSync(gpu); changed[64] ^= 1;
   writeFileSync(gpu, changed);
   assert.throws(() => signingOrder(app, compat), /baked code.*digest/);
+}), 60000);
+
+test.skipIf(!tools)('signed GPU framework upgrades refresh metadata before archive capture', () => inDir(dir => {
+  const run = (command, args) => {
+    const result = spawnSync(command, args, { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+  const app = { id: 'test.gpu', manifest: {} }, name = 'ExactGpu';
+  const source = resolve(dir, 'gpu.c'), product = resolve(dir, 'gpu.dylib');
+  writeFileSync(source, 'int gpu_fixture(void){return 42;}\n');
+  run('xcrun', ['--sdk', 'iphoneos', 'clang', '-target', 'arm64-apple-ios17.0', '-dynamiclib', source, '-o', product]);
+  const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+  const sourceDigest = hash(product), options = { app, framework: name, platform: 'iPhoneOS' };
+  const frameworks = resolve(dir, 'signed/frameworks/gpu.dylib'), container = resolve(frameworks, `${name}.framework`);
+  mkdirSync(frameworks, { recursive: true });
+  cpSync(product, resolve(frameworks, 'gpu.dylib'));
+  wrapFramework(frameworks, 'gpu.dylib', name, app, options.platform);
+  const info = resolve(container, 'Info.plist'), record = `${container}.source`;
+  const oldInfo = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', info]));
+  delete oldInfo.UIRequiredDeviceCapabilities;
+  writeFileSync(info, plistFile(oldInfo));
+  run('codesign', ['--force', '--sign', '-', '--timestamp=none', container]);
+  run('codesign', ['--verify', '--strict', container]);
+  // The cache key from before the plist was the key: the metadata's inputs, not what was written.
+  const oldKey = JSON.stringify([sourceDigest, '-', false, name,
+    [app.id, '17.0', options.platform, process.env.EXACT_BUILD_NUMBER ?? '1', process.env.EXACT_VERSION ?? '0.1.0']]);
+  writeFileSync(record, oldKey);
+  const code = codeDigest(readFileSync(resolve(container, name)));
+  const signed = signedGpuProduct(product, options);
+  assert.equal(signed, resolve(container, name));
+  const updated = JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', info]));
+  assert.deepEqual(updated, { ...oldInfo, UIRequiredDeviceCapabilities: ['arm64'] });
+  assert.notEqual(readFileSync(record, 'utf8'), oldKey);
+  assert.equal(hash(product), sourceDigest, 'a packaging upgrade leaves Cargo output unchanged');
+  assert.equal(codeDigest(readFileSync(signed)), code, 'a packaging upgrade preserves the baked code digest');
+  run('codesign', ['--verify', '--strict', container]);
+  const digest = hash(signed), inode = statSync(signed).ino;
+  assert.equal(signedGpuProduct(product, options), signed);
+  assert.equal(statSync(signed).ino, inode, 'the upgraded warm cache reuses the signed file');
+  assert.equal(hash(signed), digest);
+  const capture = resolve(dir, 'capture'), captured = resolve(capture, `${name}.framework`, name);
+  cpSync(container, dirname(captured), { recursive: true });
+  rmSync(captured);
+  captureAppleProduct({ products: [{ path: signed, bytes: statSync(signed).size, sha256: digest }] }, signed, captured);
+  const packaged = resolve(dir, 'Payload/Fixture.app/Frameworks');
+  mkdirSync(packaged, { recursive: true });
+  copyAppleGpuProducts(capture, packaged, [{ framework: name }], true);
+  assertArchiveFrameworks(packaged);
+  const copied = resolve(packaged, `${name}.framework`);
+  assert.deepEqual(JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', resolve(copied, 'Info.plist')])), updated);
+  assert.equal(hash(resolve(copied, name)), digest, 'the archive keeps the captured signed bytes');
+  run('codesign', ['--verify', '--deep', '--strict', copied]);
 }), 60000);
 
 test('--archive --embed does not stop after embed staging; plain --embed builds no Swift', () => {
@@ -580,6 +718,33 @@ test.skipIf(process.platform !== 'darwin')('Icon Composer supplies the primary i
   assert.deepEqual(appleAssets(app, mac, { platform: 'macos', kept }), {});
   assert.ok(!existsSync(resolve(mac, 'Assets.car')));
   assert.deepEqual(appIcon(app, mac, 'macos'), { CFBundleIconFile: 'AppIcon' });
+}), 60000);
+
+test.skipIf(process.platform !== 'darwin')('iOS alternate icon sets compile beside raster and Composer primaries for both device families', () => inDir(dir => {
+  const { useXcode } = require('../host/apple/devices.mjs');
+  const { iosAssets } = require('../host/apple/assets.mjs');
+  useXcode();
+  const primary = resolve(dir, 'icon.png');
+  writeFileSync(primary, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+  const set = resolve(dir, 'modules/apple/Icons.xcassets/Nested/Alternate.appiconset');
+  mkdirSync(set, { recursive: true });
+  const sized = spawnSync('sips', ['-z', '1024', '1024', primary, '--out', resolve(set, 'icon.png')], { encoding: 'utf8' });
+  assert.equal(sized.status, 0, sized.stderr);
+  writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ info: { author: 'xcode', version: 1 }, images: [{ idiom: 'universal', platform: 'ios', size: '1024x1024', filename: 'icon.png' }] }));
+  const app = composerFixture(dir);
+  app.manifest.icons = [{ src: 'icon.png', sizes: '1024x1024' }];
+  for (const [composer, catalog, device, folder] of [[true, true, false, 'composer'], [false, true, false, 'raster'], [false, false, false, 'development'], [false, true, true, 'device']]) {
+    if (!composer) delete app.manifest.host.ios.icon;
+    const out = resolve(dir, folder); mkdirSync(out);
+    const keys = iosAssets(app, out, device, { catalog });
+    for (const family of ['CFBundleIcons', 'CFBundleIcons~ipad']) {
+      assert.equal(keys[family].CFBundlePrimaryIcon.CFBundleIconName, composer ? 'Primary' : 'AppIcon');
+      assert.deepEqual(keys[family].CFBundleAlternateIcons, { Alternate: { CFBundleIconName: 'Alternate' } });
+    }
+    const inspected = spawnSync('xcrun', ['assetutil', '--info', resolve(out, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(inspected.status, 0, inspected.stderr);
+    assert.ok(JSON.parse(inspected.stdout).some(asset => asset.Name === 'Alternate'), 'the declared alternate must exist in Assets.car');
+  }
 }), 60000);
 
 test('Apple asset catalogs select platform modules and invalidate native receipts on additions and deletions', () => inDir(dir => {

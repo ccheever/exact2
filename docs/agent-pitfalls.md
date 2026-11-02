@@ -74,6 +74,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   (`row align-items="center" gap=8`), which a grouped `list`'s rows already have.
   (Wave 2 of LLP 1115.000, a scratch page on the web, the Mac and iOS, 2026-10-11.)
 
+- **Padding on a checkbox or switch does not add space.** Cause: Chrome ignores
+  padding on a checkbox or switch with native appearance, and Exact matches it
+  under the default `appearance="auto"`. Fix: use `margin` or a padded wrapper
+  for spacing while keeping the native face. `appearance="none"` preserves
+  authored padding but opts out of that face. Reproduced in the kernel's
+  [form-control tests](../kernel/tests/it/browser_controls.rs), 2026-10-17.
+
 - **A label beside a `range` or a `progress value=` wraps onto two lines, and the
   control is wide.** Cause: both are `width: 100%` unless you say otherwise (LLP
   1115.000 D10.2), and in a `row` that is the control's flex basis: the row
@@ -1620,8 +1627,9 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   (`com.example.contacts-exact2`, a bake-off's every round): a native drive's
   `--storage s1`, a simulator's container and the installed app are that id's. The
   web keeps a development store by the app's folder too, so there it is the app's
-  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`)
-  and `app.ts`'s `appId`, as `exact new` writes them (`com.example.<name>-3f9a2c`).
+  own. Fix: give an older app an id of its own, in `app.json`'s `app.id` (and `id`),
+  as `exact new` writes them (`com.example.<name>-3f9a2c`), and in an `appId` its
+  `app.ts` exports.
   (LLP 1116.004 D8, bake-off round 6 contacts.)
 
 - **A save that fails in the background is lost to the person.** An answer that
@@ -1713,6 +1721,27 @@ price: answers arrive `Later`, outside the action's transaction (LLP 1027.002 D1
   its detail.** The agent shows authored chrome by default; pass `--chrome
   platform` to see the sidebar and the split as a person does (the screenshot
   then captures the content column only). (Harmony, 2026-10-21.)
+
+## Websites
+
+- **`pages=` on a `render=build` route renders no pages in an app without a Rust render
+  entry.** A route `product "/product/:id" render=build pages=productPages()` compiles, and
+  `web-build --out dist` writes `/`, `/about` and `404.html` with no word about the product
+  pages: the JS target lists only unparameterised build routes (`host/web-js/src/emit.rs`,
+  `build_pages`), and the `pages=` source is asked only by the Rust render entry
+  (`exact_render::pages`), which an app `exact new` made has none of. A static host then
+  serves the shell for every product page. Until the JS build asks the source (QUEUE), make
+  the route `render=request`, which `serve` renders per request with its data, as the site
+  pattern's planet page is. (A web store from `pattern site`, 2026-11-01.)
+
+- **A link to the same route with a new query pushes a second entry.** A filter written as
+  `link href=(path("shop") + "?cat=" + c)` on the shop page reached `follow`, whose
+  `go(nav, url)` pushed `/?cat=dry` as a second `shop` entry, so a derive reading
+  `first(stack(nav).filter(e => e.name == "shop"))` kept the first entry's empty query and
+  the filter did nothing. `agent web … state` shows the stack. Read the last entry
+  (`.at(-1)`), or `replace` when the top is that route and the URL is its own:
+  `nav = top(nav).name == "shop" and (url == "/" or url.slice(0, 2) == "/?") ? replace(nav, url) : go(nav, url)`,
+  so Back leaves the shop rather than stepping through each filter. (The same store, 2026-11-01.)
 
 ## Working on exact2 itself
 

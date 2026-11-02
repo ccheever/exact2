@@ -1,6 +1,5 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.starter';
 // The server's address, its one place: server.ts listens on it (a phone reaches the Mac by its LAN address or HTTPS).
 export const API = 'http://127.0.0.1:8787';
 export const grants = `net.fetch ${API}`;

@@ -2,9 +2,10 @@
 //! plan the name compiles to, for a colour, a length, a number, a type, a
 //! family, a box and a text shadow, a duration and an easing; a name the
 //! design lacks is refused naming the tokens the row could take, fallback or
-//! not, in a row or where a component's argument carries it to one; a
-//! fallback is warned once; a token of another kind is refused as its name
-//! is.
+//! not, in a row or where a component's argument carries it to one (a
+//! `fn`'s result and a `derive`'s value name a token as an argument does); a
+//! `var()` whose name data completes is the name it makes; a fallback is
+//! warned once; a token of another kind is refused as its name is.
 
 use std::path::PathBuf;
 
@@ -23,7 +24,7 @@ const DESIGN: &str = "tamber t\n\naxes\n  density = regular | compact\n\ntheme\n
 /// One view, its tokens spelled by `t`: as the token's name, or as `var()`.
 fn view(t: &dyn Fn(&str) -> String) -> String {
     format!(
-        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nstyle Card\n  background-color=\"{paper}\"\n\ncomponent App\n  view\n    column class=Card padding=\"{row}\" color=\"{ink}\" box-shadow=\"{shadow}\" transition=\"opacity {fast} {ease}\"\n      text \"a\" font=\"{body}\" opacity=\"{faded}\" border=\"1px solid {ink}\" text-shadow=\"{glow}\"\n      text \"b\" font-family=\"{face}\" animation=\"appear {fast}\"\n      Badge(tint=\"{ink}\")\n\ncomponent Badge\n  props\n    tint: string\n  view\n    text \"c\" color=tint\n",
+        "keyframes appear\n  from opacity=0\n  to opacity=1\n\nstyle Card\n  background-color=\"{paper}\"\n\nfn tint(on: bool): string = on ? \"{ink}\" : \"{paper}\"\n\ncomponent App\n  state on = true\n  derive shade = on ? \"{paper}\" : \"{ink}\"\n  view\n    column class=Card padding=\"{row}\" color=\"{ink}\" box-shadow=\"{shadow}\" transition=\"opacity {fast} {ease}\"\n      text \"a\" font=\"{body}\" opacity=\"{faded}\" border=\"1px solid {ink}\" text-shadow=\"{glow}\"\n      text \"b\" font-family=\"{face}\" animation=\"appear {fast}\"\n      Badge(tint=\"{ink}\")\n      text \"d\" color=tint(on) background-color=shade\n\ncomponent Badge\n  props\n    tint: string\n  view\n    text \"c\" color=tint\n",
         paper = t("paper"),
         row = t("space.row"),
         ink = t("ink"),
@@ -72,6 +73,25 @@ fn a_var_compiles_to_the_plan_its_name_does() {
     assert!(
         inline("brand") == inline("VAR( --brand )"),
         "the inline plans differ"
+    );
+}
+
+/// A `var()` whose name data completes, the whole of a template, is the name
+/// that template makes, which the runtime reads against the design: in a
+/// row, a `fn`'s result and a `derive`, as `type-${t}` is.
+#[test]
+fn a_var_whose_name_data_completes_is_that_name() {
+    const TYPES: &str = "tamber t\n\ntheme\n  type-fire = #c2410c  scheme=fixed\n  type-water = #2a5fc4  scheme=fixed\n";
+    let plan = |label: &str, tint: &str| {
+        let view = format!("fn tint(t: string): string = `{tint}`\n\ncomponent App\n  state t = \"fire\"\n  derive shade = `{tint}`\n  view\n    column\n      text \"a\" color=tint(t) background-color=shade\n      text \"b\" border-color=`{tint}`\n");
+        let dir = app(label, &[("app.tamber", TYPES), ("app.contract", &view)]);
+        contract::compile_path(&dir)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .encode()
+    };
+    assert!(
+        plan("completed-name", "type-${t}") == plan("completed-var", "var(--type-${t})"),
+        "the plans differ"
     );
 }
 

@@ -2656,6 +2656,10 @@ dependencies = [
 ]
 
 [[patch.unused]]
+name = "accesskit_windows"
+version = "0.35.2"
+
+[[patch.unused]]
 name = "fontique"
 version = "0.11.1"
 

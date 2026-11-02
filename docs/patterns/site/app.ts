@@ -1,6 +1,5 @@
 import type { Answer, Result, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.starter';
 // The API's origin, a setting (app.json's "env"): the environment's value, else .env.local's, else .env's (server.ts,
 // the stand-in). It is inlined into the module on every host, so it is public: never a secret.
 export const API = import.meta.env.API_BASE_URL;

@@ -529,7 +529,7 @@ fn lower_body(
             } else {
                 name
             };
-            match tags::attr(name) {
+            match tags::attr_valued(name, &a.value) {
                 Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
@@ -544,6 +544,7 @@ fn lower_body(
                     let hint = (name.is_empty() && !a.name.is_empty())
                         .then(|| "; the press's opacity is `opacity` in an `:active` part (LLP 1121 D8)".to_string())
                         .or_else(|| fields::placeholder_hint(&a.name))
+                        .or_else(|| lint::css_hint(&a.name))
                         .or_else(|| tags::renamed(&a.name).map(|n| format!("; `{}` is spelled `{n}` here", a.name)))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
@@ -1147,21 +1148,20 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        if a.name == "decorations" {
-            return self.bind_decorations(tag, a, scope, locals, bindings);
-        }
-        if a.name == "atoms" {
-            return self.bind_atoms(a, scope, locals, bindings);
-        }
-        if a.name == "atomFaces" {
-            return self.bind_atom_faces(a, scope, locals, bindings);
-        }
-        if a.name == "keep-mounted" {
-            return self.bind_keep_mounted(a, scope, locals, bindings);
+        match a.name.as_str() {
+            "decorations" => return self.bind_decorations(tag, a, scope, locals, bindings),
+            "atoms" => return self.bind_atoms(a, scope, locals, bindings),
+            "atomFaces" => return self.bind_atom_faces(a, scope, locals, bindings),
+            "keep-mounted" => return self.bind_keep_mounted(a, scope, locals, bindings),
+            _ => {}
         }
         let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
+        // A reset that writes no row (`tags::attr_valued`).
+        if matches!(target, tags::AttrTarget::Styles([])) {
+            return Ok(());
+        }
         crate::var_tokens::carried(a)?;
         // @ref LLP 1021 §5.3, LLP 1133.025 D11 item 4 — stable menu ids,
         // never localized titles.

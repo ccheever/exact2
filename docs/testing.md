@@ -202,6 +202,19 @@ the secondary editor's focus and draft, destination scroll restoration, and
 horizontal clearance during the gesture. The sheet's root refuses a native
 Back tap rather than targeting the stack behind it.
 
+`host-navigation` also opens the sample host fully open with `EXACT_HOST_COLUMNS=3`.
+A `UIStackView` places a native label in a leading column before the two sessions.
+The smoke checks that the three columns are equal across the width the stacked
+panes fill, with the middle pane across the display's middle and the trailing pane
+at its end. In each pane it then exercises native Back taps and completed and
+cancelled swipes from the leading edge and the content. It checks each stack's
+draft, focus, scroll restoration and horizontal clearance, that editing and
+interactive Back keep the session's size and the editor's route in its column,
+and that the other stack stays unchanged. The host uses UIKit's
+[custom containment](https://developer.apple.com/library/archive/featuredarticles/ViewControllerPGforiPhoneOS/ImplementingaContainerViewController.html)
+for this fixed arrangement; native Split View's adaptive column selection remains
+a separate coverage limit.
+
 The runtime refuses a host call made from a callback it waits on
 (`Owner.shared.callMain` inside `Owner.shared.sync`). To test a report made there,
 change the native state inside that pair, then wait for the runner to apply it

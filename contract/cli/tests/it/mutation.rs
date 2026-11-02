@@ -1243,3 +1243,66 @@ fn a_send_twice_is_found_through_a_tail_call_once() {
     let plan = contract::compile(&src("    send edited = saveCard(why)\n"));
     assert!(plan.is_ok(), "{plan:?}");
 }
+
+#[test]
+fn nested_guarded_send_helpers_keep_three_exclusive_call_paths() {
+    let helpers = r#"shape Decision
+  sendFragment: bool
+  sendLocal: bool
+fn decide(op: string): Decision = Decision(sendFragment=(op == "fragment"), sendLocal=(op == "refresh"))
+component App
+  mutation fragmentChanged as shape string
+  mutation localChanged as shape string
+  action applyChatSends(d: Decision)
+    if d.sendFragment
+      send fragmentChanged = command("fragment")
+  action applyLocalChange(d: Decision)
+    if d.sendLocal
+      send localChanged = command("local")
+  action applyChat(d: Decision)
+    applyChatSends(d)
+    applyLocalChange(d)
+"#;
+    let guards = r#"    if name == "refresh"
+      REFRESH
+    if name == "zoom-in" or name == "zoom-out"
+      ZOOM
+    if name == "reset-zoom"
+      RESET
+"#;
+    let direct = format!(
+        "{helpers}  action pageKey(name: string)\n{}  view\n    button press=pageKey(\"refresh\")\n      text \"key\"\n",
+        guards.replace("REFRESH", "applyChat(decide(\"refresh\"))")
+            .replace("ZOOM", "applyChat(decide(\"zoom\"))")
+            .replace("RESET", "applyChat(decide(\"reset\"))")
+    );
+    let nested = format!(
+        "{helpers}  view\n    Window(applyChatRoot=applyChat)\ncomponent Window\n  props\n    applyChatRoot: action\n  state count = 0\n  action actChatLocal(op: string)\n    let before = count\n    let value = before > 0 ? op : op\n    applyChatRoot(decide(value))\n  view\n    Browser(local=actChatLocal)\ncomponent Browser\n  props\n    local: action\n  action pageKey(name: string)\n{}  view\n    button press=pageKey(\"refresh\")\n      text \"key\"\n",
+        guards.replace("REFRESH", "local(\"refresh\")")
+            .replace("ZOOM", "local(\"zoom\")")
+            .replace("RESET", "local(\"reset\")")
+    );
+    for (case, src) in [("direct", &direct), ("action props", &nested)] {
+        contract::compile(src).unwrap_or_else(|e| panic!("{case}: {e}"));
+        let overlapping = src.replace("name == \"reset-zoom\"", "name == \"refresh\"");
+        let error = contract::compile(&overlapping).unwrap_err();
+        assert_eq!(error.id, "analyze-send-twice", "{case}: {error}");
+    }
+    for assignment in [
+        "      name = \"zoom-in\"",
+        "      if change\n        name = \"zoom-in\"",
+    ] {
+        let invalidated = direct
+            .replace(
+                "  action pageKey(name: string)",
+                "  state name = \"refresh\"\n  state change = true\n  action pageKey",
+            )
+            .replace("press=pageKey(\"refresh\")", "press=pageKey")
+            .replace(
+                "      applyChat(decide(\"refresh\"))",
+                &format!("      applyChat(decide(\"refresh\"))\n{assignment}"),
+            );
+        let error = contract::compile(&invalidated).unwrap_err();
+        assert_eq!(error.id, "analyze-send-twice", "{assignment}: {error}");
+    }
+}

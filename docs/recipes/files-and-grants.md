@@ -36,7 +36,6 @@ component Journal
 ```ts
 import type { Answer, Database, Sources, Storage } from './app.contract.d.ts';
 
-export const appId = 'com.example.journal';
 const DB = 'app:/data/journal.db';
 export const grants = `sqlite.open ${DB}`;
 

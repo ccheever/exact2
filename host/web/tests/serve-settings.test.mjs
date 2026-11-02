@@ -70,6 +70,13 @@ test('serve builds a changed setting again beside its sources, and refuses a cop
     const module = await (await fetch(`http://127.0.0.1:${port}/app.js`)).text();
     expect(module).toContain('http://b.example');
     expect(module).not.toContain('http://a.example');
+    // Another build with other settings replaces it while it serves (a test run's, for its own API): the next
+    // navigation builds it again with this server's.
+    const other = spawnSync(process.execPath, [build, app], { env: { ...env, API_BASE_URL: 'http://a.example' }, encoding: 'utf8' });
+    expect(other.status, other.stderr).toBe(0);
+    expect((await fetch(`http://127.0.0.1:${port}/`, { headers: { accept: 'text/html' } })).status).toBe(200);
+    expect(server.log()).toContain('the build has other settings than this server (API_BASE_URL): building it again');
+    expect(await (await fetch(`http://127.0.0.1:${port}/app.js`)).text()).toContain('http://b.example');
   } finally {
     await stop(server?.child);
     rmSync(root, { recursive: true, force: true });

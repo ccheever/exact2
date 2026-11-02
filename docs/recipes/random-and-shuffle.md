@@ -41,7 +41,6 @@ component Quiz
 ```ts
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.quiz';
 export const grants = '';
 const QUESTIONS = [ // the right answer first
   ['Largest planet?', 'Jupiter', 'Mars', 'Venus', 'Mercury'],

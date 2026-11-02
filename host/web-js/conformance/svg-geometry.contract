@@ -72,3 +72,6 @@ component App
         use testId="use" href="#shape" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : useExtent) height=(omitted ? none : useExtent)
         svg testId="nested" x=(omitted ? none : offset) y=(omitted ? none : offset) width=100 height=(omitted ? none : extent)
           rect width="100%" height="100%" fill="#14b8a6"
+      svg testId="bound-paint" width=80 height=40 fill=(thin == true ? "#ff0000" : "#0000ff")
+        rect testId="inherited-paint" width=40 height=40
+        rect testId="own-paint" x=40 width=40 height=40 fill=(thin ? "#00ff00" : "#ffff00") stroke="#123456" stroke-width=2

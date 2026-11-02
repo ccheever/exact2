@@ -211,7 +211,10 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         ),
         device.as_deref(),
     );
-    let preparing = if direct && !exact_ink::device::d3d11::startup_watchdog::after_layout() {
+    let preparing = if Config::windowed_from_env()
+        && direct
+        && !exact_ink::device::d3d11::startup_watchdog::after_layout()
+    {
         match exact_ink::device::d3d11::Startup::start(
             exact_ink::device::direct_d3d11(device.as_deref()).unwrap(),
         ) {
@@ -267,7 +270,6 @@ pub(super) fn run<D: DataSource + Default + 'static>(
         return 1;
     }
     if !config.windowed() {
-        drop(preparing);
         return app::run_config::<D>(&mut config, started);
     }
     boot_phase("config-ready");

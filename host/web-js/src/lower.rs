@@ -205,7 +205,7 @@ impl Em<'_> {
         }
         let svg =
             exact_kernel::NodeType::from_wire(self.plan.node(exact_plan::NodesId(i)).node_type)
-                .is_none_or(|t| t.is_svg_element());
+                .is_none_or(|t| t == exact_kernel::NodeType::Svg || t.is_svg_element());
         (svg || self.is_motion_node(i) || self.in_symbol(i)).then_some(Refusal::SidePath)
     }
 

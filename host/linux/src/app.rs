@@ -20,6 +20,7 @@
 //!   drawn at and what the kernel is told the display's scale is, so a
 //!   hairline is one of those pixels (LLP 1115.000 D10.3).
 //! - `EXACT_PAINTER=auto|gpu|ink|cpu` — overrides the app's baked painter choice.
+//!   Windows defaults to ink for apps, CPU for declared games; Linux uses auto (LLP 1149 D12).
 //! - `EXACT_CACHE=<dir>` — where the GPU's pipeline cache lives (`~/.cache/exact`).
 //! - `EXACT_DRM=<card>` — the KMS device (`/dev/dri/card0` otherwise).
 //! - `EXACT_VNC=1|<addr:port>` — serve the screen over VNC, the client's
@@ -145,7 +146,25 @@ pub struct Config {
     /// Painted Mac carrier only: use the decoded plan before fonts and layout,
     /// and request the first screen's pictures at layout.
     #[cfg(target_os = "macos")]
-    pub painted_boot: Option<Box<dyn Fn(&exact_plan::Plan)>>,
+    pub painted_boot: Option<PaintedBoot>,
+}
+
+/// What the painted Mac carrier does with the decoded plan (`painted_boot`).
+#[cfg(target_os = "macos")]
+pub type PaintedBoot = Box<dyn Fn(&exact_plan::Plan)>;
+
+fn window_mode(agent: bool, smoke: bool, shot: Option<&str>, display: Option<&str>) -> bool {
+    !agent && !smoke && shot.is_none() && display != Some("headless")
+}
+
+fn window_mode_from(env: impl Fn(&str) -> Option<String>) -> bool {
+    let shot = env("EXACT_SHOT").filter(|s| !s.is_empty());
+    window_mode(
+        env("EXACT_AGENT").as_deref() == Some("1"),
+        env("EXACT_SMOKE").as_deref() == Some("1"),
+        shot.as_deref(),
+        env("EXACT_DISPLAY").as_deref(),
+    )
 }
 
 impl Config {
@@ -192,10 +211,17 @@ impl Config {
 
     /// Whether the carrier should create a window after production-mode filtering.
     pub fn windowed(&self) -> bool {
-        !self.agent
-            && !self.smoke
-            && self.shot.is_none()
-            && std::env::var("EXACT_DISPLAY").as_deref() != Ok("headless")
+        window_mode(
+            self.agent,
+            self.smoke,
+            self.shot.as_deref(),
+            std::env::var("EXACT_DISPLAY").ok().as_deref(),
+        )
+    }
+
+    /// Decide before starting device workers; call after [`prepare_environment`].
+    pub fn windowed_from_env() -> bool {
+        window_mode_from(|key| std::env::var(key).ok())
     }
 
     /// Read the environment; `baked` is the plan compiled into the binary
@@ -963,7 +989,30 @@ mod boot_hold_tests;
 
 #[cfg(test)]
 mod scale_tests {
-    use super::scale;
+    use super::{scale, window_mode, window_mode_from};
+
+    #[test]
+    fn device_preparation_and_config_use_the_same_window_mode() {
+        for (key, value, expected) in [
+            ("", "", true),
+            ("EXACT_AGENT", "1", false),
+            ("EXACT_SMOKE", "1", false),
+            ("EXACT_SHOT", "out.png", false),
+            ("EXACT_DISPLAY", "headless", false),
+            ("EXACT_SHOT", "", true),
+            ("EXACT_AGENT", "0", true),
+            ("EXACT_SMOKE", "0", true),
+            ("EXACT_DISPLAY", "window", true),
+        ] {
+            assert_eq!(
+                window_mode_from(|k| (k == key).then(|| value.to_owned())),
+                expected,
+                "{key}={value}"
+            );
+        }
+        assert!(!window_mode(false, false, Some("out.png"), None));
+        assert!(window_mode(false, false, None, None));
+    }
 
     #[test]
     fn a_scale_no_frame_can_take_is_refused_for_one() {

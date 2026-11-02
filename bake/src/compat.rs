@@ -136,6 +136,8 @@ pub struct Compat {
     pub reach: serde_json::Value,
     /// The binary's painter choice, outside the compatibility hash (LLP 1030 D3a).
     pub painter: Option<&'static str>,
+    /// The manifest declares the game engine; outside the compatibility hash (LLP 1149 D12).
+    pub game: bool,
 }
 
 impl Compat {
@@ -167,6 +169,9 @@ impl Compat {
         if let Some(painter) = self.painter {
             s.push_str(",\"painter\":");
             canonical(&serde_json::json!(painter), &mut s);
+        }
+        if self.game {
+            s.push_str(",\"game\":true");
         }
         s.push_str("}\n");
         s
@@ -607,6 +612,10 @@ fn compatibility_with_trust(
         } else {
             platform
         })?,
+        game: manifest
+            .json
+            .get("game")
+            .is_some_and(serde_json::Value::is_object),
     })
 }
 

@@ -71,6 +71,7 @@ debug = true
 opt-level = 3
 
 [patch.crates-io]
+accesskit_windows = { path = "../vendor/accesskit-windows" }
 taffy = { path = "../vendor/taffy" }
 # The Linux host lays out text with Exact's patched Parley and fontique.
 parley = { path = "../vendor/parley" }

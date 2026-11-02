@@ -31,9 +31,18 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     } });
     browser = await suiteBrowser();
     const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
     await page.goto(server.url.href);
+    expect(errors).toEqual([]);
     const nested = page.getByTestId('nested');
     await nested.waitFor({ state: 'attached' });
+    const paint = () => page.evaluate(() => ['bound-paint', 'inherited-paint', 'own-paint'].map(id => {
+      const element = document.querySelector(`[data-testid="${id}"]`);
+      const style = getComputedStyle(element);
+      return [style.fill, style.stroke, style.strokeWidth];
+    }));
+    expect(await paint()).toEqual([['rgb(255, 0, 0)', 'none', '1px'], ['rgb(255, 0, 0)', 'none', '1px'], ['rgb(0, 255, 0)', 'rgb(18, 52, 86)', '2px']]);
     expect(await page.getByTestId('viewport-static').evaluate(e => [e.getBBox().width, e.getBBox().height])).toEqual([80, 60]);
     const hairline = page.getByTestId('hairline');
     const height = element => element.evaluate(e => e.getBoundingClientRect().height);
@@ -43,9 +52,12 @@ test('compiled SVG geometry bindings render, change, unset and preserve zero', a
     expect(await hairline.evaluate(e => e.style.height)).toBe('var(--exact-hairline, 1px)');
     await page.getByTestId('hairline-toggle').click();
     expect(await height(hairline)).toBe(10);
+    expect(await paint()).toEqual([['rgb(0, 0, 255)', 'none', '1px'], ['rgb(0, 0, 255)', 'none', '1px'], ['rgb(255, 255, 0)', 'rgb(18, 52, 86)', '2px']]);
     expect(await hairline.getAttribute('height')).toBe('10px');
     await page.getByTestId('hairline-toggle').click();
     expect(await height(hairline)).toBe(1);
+    expect((await paint()).map(value => value[0])).toEqual(['rgb(255, 0, 0)', 'rgb(255, 0, 0)', 'rgb(0, 255, 0)']);
+    expect(errors).toEqual([]);
     expect(await page.getByTestId('use').evaluate(e => {
       const box = e.getBoundingClientRect();
       return [e.getAttribute('width'), e.getAttribute('height'), box.width, box.height];

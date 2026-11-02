@@ -870,6 +870,8 @@ function* treeFile(dist, pathname, accept, miss) {
   }
   return null;
 }
+/** Whether a request may be for a page: a browser's navigation, or one taking any type at a path naming no file. */
+const asksPage = (req, pathname) => acceptsHTML(req.headers.accept) || (!!pathname && acceptsHTML(req.headers.accept, { wildcard: true }) && appDocumentPath(pathname));
 /** A JS-target build's file for a request, from the build the page booted (generations.mjs): a document names its
  * generation in its base, and a path under one, or any path for a drive's `pinned` one, is read from that build. A
  * generation kept no more is 410, which the page's glue answers by loading the page again. With `pages` (`serve`'s
@@ -887,7 +889,13 @@ export async function serveBuildTree(dist, req, res, { pinned = null, pages = nu
     sendStaticBody(req, res, answers.body, { 'content-type': answers.status === 200 ? 'application/json' : 'text/plain; charset=utf-8', 'cache-control': answers.status === 200 ? 'private, max-age=3600, immutable' : 'no-store' }, answers.status);
     return;
   }
-  const r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  let r = target ? await servedFile(dist, target.pathname, req.headers.accept, { pinned }) : { status: 404 };
+  // A request taking any type (curl's) is answered as a navigation where that is a page rendered for it, as any
+  // server rendering pages answers it; a route the client draws stays a browser's.
+  if (pages && target && asksPage(req, target.pathname) && !acceptsHTML(req.headers.accept)) {
+    const page = await servedFile(dist, target.pathname, 'text/html', { pinned });
+    if (page.route === '/shell.html' && ['request', 'cached'].includes(page.render)) r = page;
+  }
   if (r.status === 410) { res.writeHead(410, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`build generation ${r.id} is no longer kept here: load the page again\n`); return; }
   if (pages && [200, 404].includes(r.status) && r.route === '/shell.html' && ['request', 'cached'].includes(r.render) && ['GET', 'HEAD'].includes(req.method)) {
     let page = null;
@@ -1283,7 +1291,7 @@ async function main() {
   const pages = js ? sitePages(dist, await import('../web-js/render.mjs')) : null;
   const rebuild = rebuildOnChange(dist);
   const server = createServer(async (req, res) => {
-    if (rebuild && acceptsHTML(req.headers.accept)) {
+    if (rebuild && asksPage(req, webRequestURL(req.url)?.pathname)) {
       const failed = await rebuild();
       if (failed) { res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(`The app's build failed, so this is the last build's page no more:\n\n${failed.slice(-6000)}`); return; }
     }
@@ -1342,9 +1350,9 @@ function settleBuild(dist) {
 }
 
 /** For a build whose app's sources are beside it, as `settleBuild` builds a changed setting again: a function a
- * browser's navigation awaits, which builds the site again once a source changed since the build (newer than its
- * receipt), as a framework's dev server does, and answers the build's output when it failed (null when it built or
- * nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
+ * request for a page awaits (`asksPage`), which builds the site again once a source changed since the build (newer than its
+ * receipt), as a framework's dev server does, or once another build with other settings replaced it (a test run's,
+ * for its own API), and answers the build's output when it failed (null when it built or nothing changed). Null for a build without its sources (a site copied to a host), which is served as it is. */
 function rebuildOnChange(dist) {
   let marker;
   try { marker = JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')); } catch { return null; }
@@ -1369,9 +1377,11 @@ function rebuildOnChange(dist) {
     if (running) return running;
     if (Date.now() - checked < 300) return null;
     checked = Date.now();
-    if (newest(app) <= Math.max(since, receipt())) return null;
+    let settings = [];
+    try { settings = settingChanges(JSON.parse(readFileSync(resolve(dist, '.exact-build.json'), 'utf8')).env ?? {}, process.env, app); } catch { /* being replaced */ }
+    if (!settings.length && newest(app) <= Math.max(since, receipt())) return null;
     const started = Date.now();
-    console.log(`${app}: a source changed since the build: building it again`);
+    console.log(`${app}: ${settings.length ? `the build has other settings than this server (${settings.map((c) => c.name).join(', ')})` : 'a source changed since the build'}: building it again`);
     running = new Promise((done) => {
       const child = spawn(process.execPath, [fileURLToPath(new URL('./build.mjs', import.meta.url)), app, ...target, ...release],
         { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, EXACT_APP_DIR: app, ...(marker.release ? {} : { EXACT_WEB_DIST: dist }) } });

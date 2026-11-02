@@ -1,4 +1,4 @@
-import { compilerPaths, unitDepInfo, cargoBakeInputs } from './cargo-dep-info.mjs';
+import { compilerPaths, unitDepInfo, cargoBakeInputs, sourcePath } from './cargo-dep-info.mjs';
 export { compilerPaths, unitDepInfo } from './cargo-dep-info.mjs';
 import { LIBRARY_CACHE, directDependencies, prepareLibrary } from './package-libraries.mjs';
 import { ensureBun } from './bun.mjs';
@@ -87,7 +87,7 @@ function shaderPath(app,path) {
 export const ENGINE_PRELUDES = {
   'exact-game-render:frame': ['frame.wgsl'],
   'exact-game-render:material': ['frame.wgsl', 'transform.wgsl', 'custom_instance.wgsl'],
-  'exact-game-render:material_shadows': ['shadow_sample.wgsl', 'fade.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
+  'exact-game-render:material_shadows': ['caustics.wgsl', 'shadow_sample.wgsl', 'fade.wgsl', 'lights.wgsl', 'material_shadows.wgsl'],
 };
 /** One declared prelude entry's files: an engine set, or a path relative to app.json. */
 function preludePaths(app, path) {
@@ -696,6 +696,7 @@ function protocolHandlerProblems({ protocol_handlers = [], host }) {
   const pair = web.length && (new Set(web.map((h) => h.protocol.toLowerCase())).size !== 2 || web.some((h) => h.url !== web[0].url || !h.distribution_only !== !web[0].distribution_only));
   const claimed = ['ios', 'macos'].flatMap((platform) => (host?.[platform]?.urlSchemes ?? []).filter(isWebScheme).map((s) => `host.${platform}.urlSchemes: ${s} is the web's own scheme; declare http and https together in protocol_handlers`));
   return [...claimed, ...protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]),
+    ...(host?.ios?.webBrowser && web.length === 0 ? ['host.ios.webBrowser: declare http and https together in protocol_handlers'] : []),
     ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
 }
 /** The W3C keys of `app.json`, as the web builds write `manifest.json`
@@ -1046,7 +1047,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const generatedAt = rootsAt(generated), locatedAt = rootsAt(locations), installedAt = rootsAt(dependencies);
   const rootOf = (roots, path) => { for (let at = path; ; at = dirname(at)) { const root = roots.get(at); if (root || dirname(at) === at) return root; } };
   const nameOf = (path) => {
-    path = resolve(path);
+    path = sourcePath(resolve(path));
     const made = rootOf(generatedAt, path);
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = rootOf(locatedAt, path);
