@@ -224,7 +224,7 @@ export async function openPromptLink(client: T3Client, native: Native, storage: 
   const pairingUrl = readPairingAppLink(value);
   if (pairingUrl !== null) { askPairing(client, pairingUrl); return ''; }
   // A commit link of the open thread's repository opens as one clicked in the app does; one its workspace lacks, and no
-  // pull request names, continues as a web link. promptLinksReady holds it, as a pull request link, until the projects arrive.
+  // pull request names, continues as a web link. promptLinksReady holds it, as a source control link, until the projects arrive.
   if (!promptLinkAppPath(value) && isWebUrl(value)) {
     let lacked = false;
     if (await openCommitLink(client, native, value, NO_MODIFIERS, async () => { lacked = true; }) && !lacked) return '';
