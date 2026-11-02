@@ -478,10 +478,6 @@ The clone follows the reference wherever exact2 allows it. Where it cannot, the 
 exact2 issue. The open ones are records under main's `issues/` (the GitHub issues the clone
 filed were moved there or closed). The gaps someone using this app runs into:
 
-- Popovers flip near a window edge only as far as main's first slice goes
-  ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
-  #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
-  the record stays open for the rest of the placement work.
 - A data module's timer lives inside the answer that armed it (LLP 1027.000 D1), so the waits in the
   middle of a flow (View source's and Edit from here's polls, the Browser's paint and capture
   timeouts, the debounces) are the flow's own, on the app's clock. Natively a timer raced against a
@@ -774,11 +770,6 @@ above.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
-- A sent citation's details read their Go to source as a button, where v0.1.6's is a link to the current page, and its
-  chip does not say whether the details are open ("collapsed"). A press with the pointer focuses Go to source without a
-  focus ring, as AppKit draws a ring only for keyboard focus; v0.1.6 rings it.
-- A side chat this window starts focuses its Bring back, as v0.1.6's does, but shows no tooltip for it: AppKit shows a
-  tooltip on hover only, where v0.1.6's opens on a keyboard focus.
 - A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
   where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
   takes no outline from the app.
@@ -799,9 +790,6 @@ above.
   AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
   view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
   removed text, which VoiceOver does not read.
-- The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
-  after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
-  open, so several items can be turned on or off in one visit.
 - The Browser tab's ⋮ › Open DevTools is missing on this Mac's own tabs, the common case. The reference
   draws those tabs natively in Electron and offers the row there; the clone opens them as server tabs, the
   pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
@@ -817,12 +805,12 @@ above.
   press on the reference's window does. AVKit sets the panel's size, place and controls, and the panel belongs to
   the Picture in Picture process.
 - No development web view inspection on Android: the clone does not run on Android yet.
-- A composer reference's pill is the platform's token (LLP 1045.000 D4, §10 Q2): its kind's
-  colours, with the platform's padding and radius and no border; its glyph is the nearest SF
-  Symbol (a document for any file, not its file-type icon; no project favicon or image
-  thumbnail), as the Apple editor draws only `symbol:sf/` icons; and every context reference
-  (an image, file, thread, terminal excerpt or comment) takes one look, since a kind's paint is
-  per scheme.
+- Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
+  usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
+- A composer reference's pill has no fill, as v0.1.6's ContextChip has none, and each kind's face carries its own
+  ink (LLP 1045.000 Q11). Two things still differ: its glyph is the nearest SF Symbol (a document for any file, not
+  its file-type icon; no project favicon or image thumbnail), as the Apple editor draws only `symbol:sf/` icons; and
+  its padding and radius are the platform's, where v0.1.6's come from its Tailwind classes (LLP 1045.000 §10 Q2).
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
 - A composer chip's name does not underline while the pointer is over it, where the reference's
@@ -837,8 +825,6 @@ above.
 - A character typed right after a mention or a skill makes its source longer, and deleting the
   space after one makes it text again; the reference keeps the chip until its document is
   rebuilt (LLP 1045.000 §6).
-- Edit › Paste as Text chosen with the pointer is a Paste: no key comes before it to arm the
-  composer, where the reference's menu item arms it over IPC before pasting. Its ⇧⌘V is Paste as Text.
 - A folder dropped on the chat column or pasted into the composer is not mentioned in the prompt. The
   reference inserts its absolute path as an `@` mention (ChatComposer.tsx `addComposerFolders`); such a
   folder reaches the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the
