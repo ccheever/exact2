@@ -3,6 +3,7 @@ import { chipContexts, pullRequestRecords, selectedProvider, threadContextRecord
 import { skillChipLabels, skillDisplayName } from './composer-editor-menu';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceFileIcon } from '../shared/file-metadata';
+import { fileIconToken } from '../shared/timeline-files';
 import type { ComposerChip } from './composer-source-chips';
 import { UNREADABLE_THREAD_TIP, unreadableThreads } from './composer-thread-machines';
 import { projectGlyph, type ProjectGlyph } from '../sidebar/sidebar-glyph';
@@ -20,6 +21,9 @@ export type ComposerChipFace = {
   glyph: ProjectGlyph;
   /** The reference chip's `aria-label`, which names it where its drawn label carries the upload state (chipAccessibleName). */
   ariaLabel: string;
+  /** Its icon as an image source in the light and the dark scheme, '' for its glyph's nearest SF Symbol: a file's Pierre
+   *  icon in its tint, a folder's (PierreEntryIcon, FileChip), or its project's favicon for a thread (ProjectFavicon). */
+  image: string; imageDark: string;
   /** Its ink in both halves of the appearance (shared/chip-accents.ts): a document's accent for a PDF, Word file, sheet,
    *  slides or EPUB, the error ink when invalid; '' (the field's text) for an unresolved chip or a kind without one. */
   ink: string;
@@ -75,8 +79,15 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     // documentIconColorForFileName: a workspace mention by its path and an attached file (not a video) by its name.
     const document = chip.kind === 'mention' ? documentKind(chip.path) : chip.kind === 'context' && kind === 'file' ? documentKind(label) : '';
     const ink = shownKind === 'invalid' ? inks.invalid : !available ? '' : inks[document || shownKind] ?? '';
+    const threadGlyph = chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH;
+    // An attached file draws its type's icon by its name; an SVG (glyph "image") and a video keep their glyph.
+    // The settings sample reads no workspace: its paths take their icons by name.
+    const token = chip.kind === 'mention' && preview ? fileIconToken(chip.path) : fileToken
+      || (chip.kind === 'context' && kind === 'file' && !glyph && available ? fileIconToken(label) : '');
+    const [image, imageDark] = token ? ['light', 'dark'].map(scheme => `assets/file-icons/${token}-${scheme}.svg`)
+      : threadGlyph.kind === 'image' ? [threadGlyph.src, threadGlyph.src] : ['', ''];
     return { kind: shownKind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
-      imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH, ariaLabel, ink };
+      imageId, available, interactive, comment, tip, glyph: threadGlyph, ariaLabel, ink, image: image!, imageDark: imageDark! };
   });
 }
 

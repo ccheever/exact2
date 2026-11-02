@@ -766,9 +766,10 @@ above.
   AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
   palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
   thread, where ⌘[ and the sidebar arrows do nothing either.
-- A pressed chip in either composer draws as AppKit's selected token (the host's editor, `MarkupAtoms.swift`),
-  where v0.1.6 outlines the selected chip with a 2 px ring (`index.css` `.ProseMirror-selectednode`). An atom
-  takes no outline from the app.
+- A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
+  default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
+  it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
+  its 30% `Highlight` over the chip.
 - The legacy sidebar is removed, as in v0.1.5. In v0.1.5 a saved `legacySidebarEnabled` opens the boring
   sidebar, which is a Labs feature, and ⌘N there starts the thread in the current project. The clone
   has no boring sidebar, so the same setting opens the default sidebar, where ⌘N with several projects
@@ -796,17 +797,16 @@ above.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
-- A composer reference's pill has no fill, as v0.1.6's ContextChip has none, and each kind's face carries its own
-  ink (LLP 1045.000 Q11). Two things still differ: its glyph is the nearest SF Symbol (a document for any file, not
-  its file-type icon; no project favicon or image thumbnail), as the Apple editor draws only `symbol:sf/` icons; and
-  its padding and radius are the platform's, where v0.1.6's come from its Tailwind classes (LLP 1045.000 §10 Q2).
+- A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
+  thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
+  image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
+  The other chips, and a thread whose project icon is a monogram, an emoji or a Lucide glyph, show the nearest
+  SF Symbol to v0.1.6's Lucide glyph. The icon is as tall as the text's cap height, where v0.1.6's is 1em.
 - A citation's comment opens on ⌥-click of its pill, or by itself after Cite; the reference's
   chip has a pencil button inside it, and here a pill is one press target (LLP 1045.000 §6).
-- A composer chip's name does not underline while the pointer is over it, where the reference's
-  `ContextChipLabel` does (`hover:decoration-current`). The chips are atoms of the Markdown field,
-  and an `AtomFace` has no hover state: the macOS field draws the pill and takes its press itself
-  (`TextAreaMac.swift` `atomHit`), so the app hears no hover per atom. Kept as a known difference by
-  the user's ruling (2026-10-31). A chip in a sent message is a view of its own and underlines.
+- A composer chip's name underlines under the pointer only while the window is key, as AppKit tracks
+  hover; an unavailable reference underlines too, where v0.1.6's is a plain span that does not. An atom
+  kind's `:hover` is the kind's, not one chip's.
 - With Markdown formatting off a reference shows its source: the editor draws atoms only where
   it styles Markdown (LLP 1045.000 D3). (A literal answer has no chips, as in the reference.)
   Settings › Appearance's prompt sample styles Markdown so its chips draw, where the reference's

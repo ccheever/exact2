@@ -22,6 +22,7 @@
 /src/shared/icons.contract
 /src/shared/timeline-files.contract
 /src/shared/timeline-files-tables.ts
+/assets/file-icons/
 /src/shell/shell-icons.contract
 /src/shell/editor-icons.contract
 /src/shell/shell-morph.contract

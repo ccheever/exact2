@@ -93,6 +93,8 @@ component ComposerCard
     attachFiles: action
     // The upload resources' answers (composer-controls-members.contract), for the image tiles' percentages.
     composerUploads: ComposerUpload[]
+    // The app's resolved light or dark scheme, which picks a chip icon's file (composerAtomFace).
+    scheme: string
   props
     editor: ComposerEditorView
     data: Snapshot
@@ -120,7 +122,7 @@ component ComposerCard
     // Signed URLs for the queued edit's kept images.
     urls: AttachmentUrl[]
   // An image's chip follows its size with its upload's state, as its tile reads it (ImageContextChip).
-  derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads)))
+  derive faces = richComposer.chips.map((c) => composerAtomFace(c, uploadChipStatus(c.face.imageId, data.composer.uploads.images, composerUploads), scheme))
   derive sendable = data.canSend and data.composer.uploadBlock == "" and (text != "" or data.snapshotDrafts.length > 0 or data.composer.queueEditAttachments.length > 0)
   // The field's events go straight to the window's editing engine (composer-members.contract), which serves the
   // focused field: a handler names the engine's action, where a call would copy its body into each composer. The
