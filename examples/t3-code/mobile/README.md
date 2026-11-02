@@ -4,25 +4,30 @@ See [the clone handoff](../CLONE.md) for the current project state and next step
 
 The mobile app uses the shared T3 client with a separate Contract entry and app-local UIKit modules. It requires a running T3 server. The implementation is still in development; route and visual parity are incomplete.
 
-Use the Bun version pinned by the repository. Install the root dependencies, then the pinned browser/device viewer dependency:
+Builds require macOS with Xcode and an iOS Simulator, Rustup, and the Bun version pinned by the repository. From the repository root, install the toolchains and root dependencies, then the pinned browser/device viewer dependency:
 
 ```sh
+cd /path/to/exact2
+bun scripts/exact.mjs setup
 bun install --frozen-lockfile
-cd examples/t3-code/mobile/browser-mobile-renderer
-bun install --frozen-lockfile
+(cd examples/t3-code/mobile/browser-mobile-renderer && bun install --frozen-lockfile)
 ```
+
+`setup` may download the pinned Rust, Hermes and web tools the first time. Use the same Bun version for every command below.
 
 The iOS crate is a member of the app workspace at `examples/t3-code/Cargo.toml`. It is excluded from the framework root workspace, so Cargo commands for it use `--manifest-path examples/t3-code/Cargo.toml`.
 
-From the repository root, the native build command is:
+From the repository root, build and launch the iOS Simulator app with:
 
 ```sh
 EXACT_APP_DIR="$PWD/examples/t3-code/mobile" bun host/apple/build.mjs --ios t3-code-ios --run
 ```
 
+The command uses an already booted simulator, or chooses the newest iPhone Pro. Set `EXACT_SIM` (or pass `--sim <name-or-udid>`) to choose another simulator. To build for a connected iPhone instead, use `--device --run`; the phone must be paired, unlocked and have Developer Mode enabled.
+
 The app build bundles the pinned viewer sources with Rolldown before the Exact bake. It uses the viewer dependency installed above. If that dependency is missing, the build stops and names the install command. Generated assets under `assets/browser-mobile/` are ignored by Git.
 
-Generate the pinned app tables before data tests, strict TypeScript checks or a direct Contract build:
+The native build runs the generator automatically. Run it explicitly before data tests, strict TypeScript checks or a direct Contract build:
 
 ```sh
 bun examples/t3-code/tools/generate/generate.mjs
@@ -37,6 +42,8 @@ Run the cache transport fixture from `examples/t3-code/mobile` on macOS:
 swiftc -o /tmp/t3-cache-transport-tests modules/apple/T3MobileClientCache.swift modules/apple/T3MobileCacheTransport.swift tests/ClientCacheTransportTests.swift -lsqlite3
 /tmp/t3-cache-transport-tests
 ```
+
+After the app launches, connect it to a T3 server. Start `t3` (or the server's normal source-checkout command), create a pairing link in **Settings → Connections**, then paste that link into the app's welcome screen or **Add environment**. The server must be reachable from the Mac or device running the app.
 
 It uses the real SQLite store to check complete transfers, exact payload text, tickets, conditional deletion, expiry and restart. Its optional `--bridge <directory>` mode accepts one cache request per JSON line and returns one bridge reply per line.
 
