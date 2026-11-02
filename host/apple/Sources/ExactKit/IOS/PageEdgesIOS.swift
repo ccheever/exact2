@@ -173,6 +173,11 @@ extension Presenter {
 }
 
 extension NodeView {
+    /// Whether the box clips what it holds. A banded scroller does not: its
+    /// scroll view is drawn past the box and clips its own content, as a CSS
+    /// scroll container clips whatever its other axis's `overflow` says.
+    var clipsOwnBox: Bool { overflowClips && clipBox == nil && pageBand == .zero }
+
     /// Reach into `band` past the box: the scroll view's frame grows by it
     /// and its `contentInset` by `inset` (all of it unless said), so the content stays where it was, and
     /// the logical `scrollTop` (`scrollTopInset`) is kept across the change;
@@ -196,6 +201,7 @@ extension NodeView {
         let oldOwn = bandInset, top = sv.contentOffset.y + scrollTopInset(sv)
         more.pageBand = band; more.bandInset = own
         sv.frame = scrollFrame
+        if clipsToBounds != clipsOwnBox { clipsToBounds = clipsOwnBox }
         var inset = sv.contentInset, bars = sv.verticalScrollIndicatorInsets
         inset.top += own.top - oldOwn.top; inset.bottom += own.bottom - oldOwn.bottom
         bars.top += own.top - oldOwn.top; bars.bottom += own.bottom - oldOwn.bottom

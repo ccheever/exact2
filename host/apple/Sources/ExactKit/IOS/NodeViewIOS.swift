@@ -1339,7 +1339,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let clips = overflowClips
         // A paragraph paints its own text, which a box would not clip.
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
-        clipsToBounds = clips && clipBox == nil
+        clipsToBounds = clipsOwnBox
         // A scroll's children, back out, go where a material holds them.
         if materialView != nil, scroll == nil { rehomeMaterialChildren() }
         syncGlassGroup()
