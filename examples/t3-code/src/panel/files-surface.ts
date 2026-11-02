@@ -50,6 +50,7 @@ import { isWorkspaceImagePreviewPath, isWorkspaceVideoPreviewPath } from '../med
 import { openMarkdownMediaPreview } from '../timeline/timeline-attachments';
 import { fileLinkCopyPaths, fileLinkEditorTarget, resolveFileLinkHostPath, splitPosition } from '../timeline/workspace-file-lookup'; // the file a chat link means
 import { mediaFrameSource } from '../media/media-frame'; // a rendered page's frame source
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; loading: boolean; guides: { id: string; left: number }[] };
 /** A crumb: `navigable` moves the browser to its folder (FolderBreadcrumb), `descendant` is below the current one (kept
@@ -749,7 +750,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, searching: false, error: '', query: '', truncated: false, noMatches: false, emptySearch: false, loadingQuiet: false, rows: [], hasDirectories: false, allExpanded: false, treeMenu: [],
   explorer: true, showExplorer: true, explorerWidth: FILE_EXPLORER_WIDTH, subheader: false, explorerToggle: false, path: '', preview: '', previewError: '', errorPath: '', errorCwd: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true, rawText: false, openInBrowser: false,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
+  markdownSource: [], md: { codeFont: DEFAULT_CODE_FONT, codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [], mdUrls: [], codeCopied: '', codeCopyNonce: 0, editing: false, editorText: '', editPress: '', crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
   mermaidNote: '', editorRevision: 0, fileKey: '', attachment: emptyAttachment(), viewer: emptyViewerFrame(), fullFile: closedFullFile(),
 });
 

@@ -40,6 +40,7 @@ import { openExternal } from '../client/external-open';
 import { mermaidFile } from './mermaid-file'; // a Mermaid file's diagram
 import { FONT_REFUSED, fontPage, fontPageKept, forgetFontPage } from './font-preview'; // a font's specimen
 import { openCachedImage, openInlineDocumentImage } from '../timeline/timeline-attachments'; // the expanded image dialog
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
 type Content = { text: string; truncated: boolean };
@@ -133,7 +134,7 @@ async function mint(client: T3Client, native: Native, meta: AttachmentMeta, sour
   return url;
 }
 const message = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
-const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [] as MermaidDiagramView[], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
+const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: DEFAULT_CODE_FONT, codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] }, code: [], diagrams: [] as MermaidDiagramView[], mdUrls: [], codeCopied: '', codeCopyNonce: 0 });
 
 /**
  * AttachmentFilePreview's rendered Markdown: `<ChatMarkdown text cwd={undefined} />`, the chat renderer Files' rendered

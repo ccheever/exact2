@@ -61,6 +61,7 @@ import { autolinkPullRequestMarkdown, changeRequestRepositoryUrl } from './pages
 import { codeThreadContext, draftSelection, emptyCode, presentCode, prCodeLocal, readCode, threadCommand } from './pages-pr-code';
 import { prSelectionHandoff } from './pages-pr-handoffs';
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
+import { DEFAULT_CODE_FONT } from '../appearance/settings-appearance';
 
 /** `environmentId`: the server a background environment's row was listed on; absent for the focused one. */
 export type PrSelection = { projectId: string; host: string; repository: string; number: number; environmentId?: string };
@@ -119,7 +120,7 @@ export function emptyDetail() {
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
     projectId: '', host: '', hostName: 'GitHub', linkMenu: '', linkOpenLabel: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // Settings → Appearance code font, size and word wrap for the Markdown.
-    md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] } as MarkdownEnv, diffScheme: 'red-green',
+    md: { codeFont: DEFAULT_CODE_FONT, codeSize: 13, wrap: true, chips: [], threadGlyphs: [], runCommands: [], inks: [] } as MarkdownEnv, diffScheme: 'red-green',
     // The header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
     actions: emptyActions(),
     // Which hand-off is preparing, whether the pull request can be checked out, whose it is beside a thread.
