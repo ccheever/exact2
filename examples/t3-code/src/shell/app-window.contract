@@ -51,6 +51,7 @@ use StripPrTipCard from "../composer/strip-pr-badge.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
 use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
+use PrContextTip from "../pull-requests/pages-pr-links.contract"
 use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
 use PrCardView from "../details/pr-row.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
@@ -149,6 +150,7 @@ component T3Window
     scrollToEnd: action
     editor: ComposerEditorView
     chip: ChipPopover
+    chipMarkdown: TranscriptMarkdown
     chipFocusChanged: action
     // Settings or a page covers the composer's chip (app.contract chipCover closes it).
     chipCovered: bool
@@ -1115,7 +1117,7 @@ component T3Window
         LinkMenuPopover(menuId="chat-file-link-menu", rows=fileMenuRows, pick=fileLinkPick)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
         if chipShown and chip.kind != "citation"
-          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
+          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true), documents=chipMarkdown.documents, local=chatLocal)
         // Cite at the selection in an answer (diff-cite.contract), above the timeline's rows.
         if citeShows
           CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))
@@ -1129,7 +1131,9 @@ component T3Window
             if hoverTip.kind == "freshness"
               PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
             else if hoverTip.kind == "pr-preview"
-              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
+              PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text, fallback=hoverTip.lines)
+            else if hoverTip.kind == "pr-details"
+              PrContextTip(lines=hoverTip.lines, testId=hoverTip.testId)
             else if hoverTip.kind == "pr-badge"
               // Held to the larger room the layer can flip into, less its 4 pt offset.
               StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)

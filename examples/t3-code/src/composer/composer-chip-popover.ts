@@ -24,6 +24,10 @@ import { chipAct, composerImageStep, performChipAct, contextDetails, draftContex
 import { composerFileLocal } from './composer-chip-file';
 import { composerChipCurrent, composerChipFinishNoEdit, composerChipFinishView } from './composer-chip-bridge';
 import { composerChipStore, NO_CHIP_FINISH, type ComposerChipFinish } from './composer-chip-store';
+import { codeLines, type CodeLine, type MarkdownSource } from '../panel/files-surface';
+import { sourceGutter } from '../panel/files-crumbs-settle';
+import { markdownEnv, type MarkdownEnv } from '../timeline/message-chips';
+import { messageCodeBlocks } from '../highlight/timeline-highlight';
 
 export type ChipPopover = {
   finish: ComposerChipFinish;
@@ -68,9 +72,21 @@ export type ChipPopover = {
   aspect: number;
   /** An action press the window has not yet sent (closed, `open` false): "mention", "thread", "citation", "image"… */
   act: string;
+  /** A review comment's comment as ChatMarkdown (its one source, its fences' colours and the Markdown settings), and its
+   *  diff as ReadOnlySourcePreview's numbered lines ("review.diff", in the diff lexer's colours) and their gutter. */
+  markdownSource: MarkdownSource[];
+  code: CodeHighlight[];
+  md: MarkdownEnv;
+  diffLines: CodeLine[];
+  diffGutter: number;
+  /** A text it paints waits for its tokens (highlights.ts; the root's pump asks again). */
+  highlightPending: boolean;
 };
+type CodeHighlight = ReturnType<typeof messageCodeBlocks>[number];
+const NO_MARKDOWN_ENV: MarkdownEnv = { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [], threadGlyphs: [], inks: [] };
 export const NO_CHIP: ChipPopover = { finish: NO_CHIP_FINISH, seq: 0, open: false, surface: '', label: '', title: '', description: '', path: '', x: 0, y: 0, width: 0, height: 0,
-  kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '' };
+  kind: '', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '',
+  markdownSource: [], code: [], md: NO_MARKDOWN_ENV, diffLines: [], diffGutter: 0, highlightPending: false };
 export const NO_DESCRIPTION = 'No description is available for this skill.';
 
 /** The popover for a press the native editor reported; `skills` is what the chip's editor was given, `records` the draft's context records by id. */
@@ -117,8 +133,20 @@ export function chipPopoverView(client: T3Client): ChipPopover {
   // The composer's press is the thread's on screen; the sample's skills are none.
   const composer = str(press.surface) === 'composer';
   registerCitationDraft(client, press);
-  return chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation),
+  const popover = chipPopover(press, composer ? workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills') : [], citation => citedStart(client, citation),
     composer ? draftContextRecords(client) : {});
+  return popover.open && popover.kind === 'review-comment' ? reviewCommentRendered(client, popover) : popover;
+}
+
+/**
+ * ComposerReviewCommentDetails' two renderers: the comment through ChatMarkdown with no folder (cwd undefined: the
+ * attachment kind, renderFileMarkdown), and the diff through ReadOnlySourcePreview, named "review.diff" so the diff
+ * lexer colours it, wrapped as Settings › Word wrap says.
+ */
+export function reviewCommentRendered(client: T3Client, popover: ChipPopover): ChipPopover {
+  const key = `chip-review:${popover.seq}`, diffLines = popover.diff ? codeLines('review.diff', popover.diff, 'chip') : [];
+  return { ...popover, markdownSource: popover.description ? [{ id: key, kind: 'attachment', title: '', body: popover.description }] : [],
+    code: popover.description ? messageCodeBlocks(popover.description, 'chip', key) : [], md: markdownEnv(client), diffLines, diffGutter: sourceGutter(diffLines.length) };
 }
 
 /**

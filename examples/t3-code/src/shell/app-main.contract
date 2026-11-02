@@ -5,6 +5,7 @@ use Snapshot from "../shared/shapes.contract"
 use ComposerCard from "../composer/composer.contract"
 use ComposerEditorDock from "../composer/composer-editor.contract"
 use ComposerDrawerLayer from "../composer/composer-editor.contract"
+use ComposerGlass from "../composer/composer-editor.contract"
 use StashBadge from "../composer/composer-editor.contract"
 use ComposerEditorView from "../composer/composer-editor.contract"
 use ComposerDock from "../composer/composer-controls.contract"
@@ -335,6 +336,7 @@ component ChatColumn
           // find is open, as the reference's does.
           if data.transcriptAway and not threadFind.open
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift, summary=data.composer.endSummary)
+      ComposerGlass(editor=editor, dark=(scheme == "dark"))
       // The composer overlays the transcript (ChatView's data-chat-composer-overlay; composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.

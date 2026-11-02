@@ -43,6 +43,8 @@ shape CorePalette
   backdrop: string
   footer: string
   surface: string
+  // The composer card's fill over its glass (look.glass).
+  glass: string
 
 style SettingsGhost
   cursor="pointer"
