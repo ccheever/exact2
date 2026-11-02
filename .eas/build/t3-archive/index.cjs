@@ -63,6 +63,14 @@ function prepareRust(source) {
     stdio: 'inherit',
   });
   if (hermes.status !== 0) fail(`Pinned Hermes setup failed (${hermes.status ?? hermes.error?.message})`);
+  const viewer = join(source, 'examples/t3-code/mobile/browser-mobile-renderer');
+  const dependencies = spawnSync('bun', ['install', '--frozen-lockfile'], {
+    cwd: viewer,
+    env: process.env,
+    encoding: 'utf8',
+    stdio: 'inherit',
+  });
+  if (dependencies.status !== 0) fail(`Mobile viewer dependency setup failed (${dependencies.status ?? dependencies.error?.message})`);
 }
 
 function provisioningProfilePath(teamId, bundleIdentifier) {
