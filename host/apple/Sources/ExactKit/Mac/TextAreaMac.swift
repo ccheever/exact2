@@ -446,7 +446,12 @@ extension NodeView {
     /// different one is held while text is marked, the last one written,
     /// and applied when the composition ends (`applyHeldValue`,
     /// `FieldComposition.swift`). The write is not typing, so the app does
-    /// not hear it as `input`.
+    /// not hear it as `input`, and a person using VoiceOver hears none of it
+    /// in a focused textarea, as in a browser's (LLP 1045 D5): AppKit posts
+    /// a selection change for it, and VoiceOver, inferring an edit from
+    /// that or from any value change posted, reads the text that went or
+    /// spells what came as typing. An element that is not one posts
+    /// nothing, so the text view is none while the write lands.
     func writeValue(_ value: String, into f: NSTextView) {
         if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.hasMarkedText() { pendingValue = value; return }
@@ -459,12 +464,15 @@ extension NodeView {
         f.breakUndoCoalescing()
         f.undoManager?.removeAllActions()
         let selection = f.selectedRange()
+        let quiet = f is TextArea && f.window?.firstResponder === f && f.isAccessibilityElement()
+        if quiet { f.setAccessibilityElement(false) }
         if let storage = f.textStorage, storage.length > 0, edit.range.length < storage.length {
             storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))
         } else {
             f.string = value
         }
         f.setSelectedRange(carrySelection(selection, through: edit))
+        if quiet { f.setAccessibilityElement(true) }
         (f as? TextArea)?.markup?.bookmark = f.selectedRange()
         restyleMarkup()
     }
