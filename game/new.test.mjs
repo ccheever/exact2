@@ -632,7 +632,7 @@ test('a new game names its Rust type after the game, everywhere the template doe
     assert.equal(gameDefaults(app).game.type,'My2dGame');
     const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
     for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
-    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::My2dGame;\nuse my_2d_game_logic::\{Beacon, Options\};/);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::My2dGame;\nuse my_2d_game_logic::\{shop_rows, Beacon, Critter, Options, Shop, FEED_PRICE\};/);
     assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
   } finally {rmSync(parent,{recursive:true,force:true});}
 });
@@ -728,7 +728,7 @@ test('Beacons is the files its author writes and survives two shell bakes', asyn
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const app=resolve(import.meta.dir,'games/beacons');
   const tracked=spawnSync('git',['ls-files'],{cwd:app,encoding:'utf8'}).stdout.trim().split('\n').sort();
-  assert.deepEqual(tracked,['.gitignore','README.md','app.contract','logic/src/lib.rs','logic/tests/sim.rs','movement.json','pins.json','proof.mjs']);
+  assert.deepEqual(tracked,['.gitignore','README.md','app.contract','app.json','data/Cargo.toml','data/src/lib.rs','logic/src/lib.rs','logic/tests/sim.rs','movement.json','pins.json','proof.mjs','strings/en.json']);
   for(let i=0;i<2;i++) {
     const manifest=gameDefaults(app);gameShells(app,manifest.game,import.meta.dir);
     assert.equal(JSON.parse(readFileSync(resolve(app,'.shells/app.json'),'utf8')).app.id,'com.exact.beacons');
