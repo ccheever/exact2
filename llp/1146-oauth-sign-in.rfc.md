@@ -259,7 +259,11 @@ API, staged for the type checker), `index.contract` (`OAuthSession`,
   frame, so its requests remain its own answer's. Writes complete durably
   before releasing the lease; a failed fresh read or write fails the operation.
   Each POST runs to its end when that answer is let go once sent (D2), within
-  a 60 s deadline, retaining the lease through its reply and secret writes.
+  a 60 s deadline. Native and JS-target answers retain the lease through the
+  reply and secret writes. The wasm browser module path instead invalidates
+  an abandoned update's credential before another holder can read it; the
+  person signs in again. A durable marker likewise invalidates an uncertain
+  update after a page or process exits before completion.
 - **Sign-in.** `session()`, while signed out, prepares the next sign-in
   (discovery; `state`; a PKCE S256 verifier; `nonce` with `openid`), so
   `signIn()` calls `openAuthSession` before its first `await`. A preparation
