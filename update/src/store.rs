@@ -240,8 +240,8 @@ pub struct Staged {
 /// What a check found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Check {
-    /// The head is the bundle this client already selected. Nothing was
-    /// downloaded and nothing was written.
+    /// The payload is already selected. The signed head is retained as a
+    /// rollback witness without downloading the payload again.
     Current {
         /// The stream's retirement notice, when it has one (LLP 1030 D5).
         sunset: Option<Card>,
