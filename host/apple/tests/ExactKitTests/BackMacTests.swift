@@ -790,5 +790,62 @@ final class BackSessionMacTests: XCTestCase {
         XCTAssertNil(p.navigation.back)
         XCTAssertFalse(p.navigation.canGoBack)
     }
+
+    /// The navigation root's `historyswipe` hears AppKit's tracking while
+    /// the fingers are down, then `ended` before the step or `cancelled`,
+    /// and nothing of the settling after the lift.
+    func testTheRootHearsTheTrackedSwipeAndItsEnd() throws {
+        _ = NSApplication.shared
+        let source = """
+        routes nav
+          home "/"
+            visit "/v/:n"
+
+        component App
+          state seen = ""
+          action next
+            nav = push(nav, path("visit", 1))
+          action follow(location: string)
+            nav = go(nav, location)
+          action swiped(e: HistorySwipeEvent)
+            seen = `${seen}${e.phase} ${e.direction} ${e.amount};`
+          view
+            main navigationKey="app" navigationBack="" navigate=follow historyswipe=swiped width="100%" height="100%"
+              text `${top(nav).url}` testId="url"
+              text seen testId="seen"
+              button press=next testId="next"
+                text "Next"
+
+        """
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try plan(source), size: CGSize(width: 400, height: 300)).error)
+        let p = session.presenter
+        let text = { (id: String) in p.views.values.first { $0.props["testId"] == id }?.props["text"] ?? "" }
+        p.press(try XCTUnwrap(p.views.values.first { $0.props["testId"] == "next" }).id)
+        var steps: [(CGFloat, NSEvent.Phase, Bool)] = []
+        p.backSwipe.track = { _, _, _, handler in steps.forEach { handler($0.0, $0.1, $0.2) } }
+        func began(_ dx: Int32) throws -> NSEvent {
+            let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: dx, wheel3: 0))
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+            return try XCTUnwrap(NSEvent(cgEvent: cg))
+        }
+        // Lifted short of AppKit's distance: no step.
+        steps = [(0.125, .began, false), (0.125, .changed, false), (0.0625, .changed, false), (0.0625, .cancelled, false), (0, [], true)]
+        XCTAssertTrue(p.backSwipe.scroll(try began(14), enabled: true))
+        XCTAssertEqual(text("seen"), "began back 0.125;changed back 0.0625;cancelled back 0.0625;", "a repeated amount is told once")
+        XCTAssertEqual(text("url"), "/v/1")
+        // Lifted past it: `ended`, then the step, then nothing of the settling.
+        steps = [(0.25, .began, false), (0.5, .changed, false), (0.5, .ended, false), (0.75, [], false), (1, [], true)]
+        XCTAssertTrue(p.backSwipe.scroll(try began(14), enabled: true))
+        XCTAssertEqual(text("seen"), "began back 0.125;changed back 0.0625;cancelled back 0.0625;began back 0.25;changed back 0.5;ended back 0.5;")
+        XCTAssertEqual(text("url"), "/", "the swipe went back")
+        // Forward: AppKit's amount is negative that way; the event's is along it.
+        steps = [(-0.5, .began, false), (-0.5, .ended, false), (-1, [], true)]
+        XCTAssertTrue(p.backSwipe.scroll(try began(-14), enabled: true))
+        XCTAssertTrue(text("seen").hasSuffix("began forward 0.5;ended forward 0.5;"), text("seen"))
+        XCTAssertEqual(text("url"), "/v/1", "the swipe went forward")
+    }
 }
 #endif
