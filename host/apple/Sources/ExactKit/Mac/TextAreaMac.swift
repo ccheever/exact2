@@ -333,22 +333,22 @@ package final class TextArea: NSTextView {
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", in: self, or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ]
+            // Its lines are typed text's lines, by the line height typing takes.
+            let style = (typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             // A Markdown editor's placeholder sits at its first line's start
             // (LLP 1045 D11), as UIKit's and the web's do: string drawing aligns
             // natural text by the app's layout direction, not the paragraph's,
             // so the side is said.
             if let markup {
-                let style = NSMutableParagraphStyle(), direction = markup.direction(at: 0)
+                let direction = markup.direction(at: 0)
                 style.baseWritingDirection = direction
                 style.alignment = direction == .rightToLeft ? .right : .left
-                attributes[.paragraphStyle] = style
             } else if let owner {
                 // A plain field's at its start, by its own direction (LLP 1001 §1).
-                let style = NSMutableParagraphStyle()
                 style.baseWritingDirection = owner.fieldBaseDirection
                 style.alignment = owner.fieldAlignment
-                attributes[.paragraphStyle] = style
             }
+            attributes[.paragraphStyle] = style
             drawingAntialiased(owner?.drawsAntialiased == true) { (placeholder as NSString).draw(in: rect, withAttributes: attributes) }
         }
     }
@@ -527,11 +527,7 @@ extension NodeView {
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
         let paragraph = NSMutableParagraphStyle()
-        if let height = usedLineHeight {
-            paragraph.minimumLineHeight = height
-            paragraph.maximumLineHeight = height
-            if height == 0 { paragraph.lineHeightMultiple = .leastNormalMagnitude }
-        }
+        if let font = f.font { paragraph.setLineHeight(usedLineHeight, font: font) }
         if (f as? TextArea)?.markup == nil { paragraph.baseWritingDirection = fieldBaseDirection }
         // A native one's unsaid alignment is `start`; one of `appearance: none` aligns each paragraph to the
         // base's start (natural) unless the author says otherwise.

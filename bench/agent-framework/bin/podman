@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Podman's CLI over Colima's Docker (profile "bench"), for the benchmark harness. Colima
+# shares $HOME with uid 1000 mapped to the host user, so --userns=keep-id is dropped.
+export DOCKER_CONTEXT=colima-bench
+if [ "${1:-}" = --version ]; then echo "podman-shim over $(docker --version)"; exit 0; fi
+args=()
+for a in "$@"; do case "$a" in --userns=*) ;; *) args+=("$a") ;; esac; done
+exec docker "${args[@]}"

@@ -37,7 +37,7 @@ final class FieldCompositionIOSTests: XCTestCase {
                 if let editor = node.textArea {
                     let paragraph = try XCTUnwrap(editor.textStorage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
                     XCTAssertEqual(paragraph.alignment, expected)
-                    XCTAssertEqual(paragraph.minimumLineHeight, 24)
+                    XCTAssertEqual(paragraph.minimumLineHeight + paragraph.lineSpacing, 24, "lines 24 apart")
                     XCTAssertEqual((editor.typingAttributes[.paragraphStyle] as? NSParagraphStyle)?.alignment, expected)
                 }
             }

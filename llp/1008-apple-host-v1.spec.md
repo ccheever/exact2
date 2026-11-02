@@ -305,10 +305,25 @@ the same rows as `input`. Contract lowers it to `TextInput` with the existing
 HTML `readonly` lowers to the inverse of the existing `editable` prop,
 keeping the text selectable while refusing edits. The app gives this bounded
 editor its width and height; rich text is outside this control.
-UIKit textarea line spacing uses the authored `line-height` through paragraph
-minimum/maximum heights; clearing it restores TextKit's natural spacing. Storage
-and typing attributes update in place, preserving text and selection. TextKit's
-baseline within each box still differs from CoreText's centered CSS baseline.
+A textarea's lines (AppKit and UIKit, plain and Markdown) are the authored
+`line-height` apart with each baseline where CoreText's CSS line box puts it
+(2026-11-03, Daehyeon's ruling that the T3 Code composer's typed text not sit
+below the browser's). TextKit puts all of a forced line's leading above its
+glyphs, so the paragraph's minimum and maximum height end the line the font's
+descent (AppKit rounds it to a point, UIKit does not) below the CSS baseline,
+and the rest of the line height is TextKit's line spacing, which it sets
+between lines (`NSMutableParagraphStyle.setLineHeight`). The caret, marked text
+and the placeholder follow those lines; a line's selection runs from the line
+above's descent to its own. TextKit's content ends at the last line's descent,
+its lower half-leading short of the kernel's box: scrolled to its end, a
+textarea shows its last line that much nearer its bottom edge than a browser
+does. Two cases keep TextKit's placement. A `line-height` below the font's
+content area is forced as it is (TextKit 2 sets a negative spacing between
+some paragraphs and not others), its glyphs up to a point higher than CSS's.
+A line holding a run of a larger descent than the field's font (an emoji)
+sits higher by the difference, where CSS keeps the field font's baseline.
+Clearing `line-height` restores TextKit's natural spacing. Storage and typing
+attributes update in place, preserving text and selection.
 `field-sizing="content"` (2026-09-09, Messages) instead measures the current
 value/placeholder, constrained by CSS min/max dimensions. Fixed controls use a
 preferred size independent of value; explicit dimensions still win. The browser

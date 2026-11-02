@@ -1,0 +1,393 @@
+From 1884b584496f9c5730545bcc3b6d9716d4c56500 Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Fri, 30 Oct 2026 09:36:23 -0700
+Subject: [PATCH 1/6] Exact: images, framework, Docker via Colima
+
+---
+ bench/container/Containerfile.exact | 43 +++++++++++++++++++++++++++++
+ bench/container/setup-tooling.sh    |  5 ++++
+ bench/frameworks.mjs                |  2 ++
+ bench/run.mjs                       | 41 ++++++++++++++++++++++-----
+ 4 files changed, 84 insertions(+), 7 deletions(-)
+ create mode 100644 bench/container/Containerfile.exact
+
+diff --git a/bench/container/Containerfile.exact b/bench/container/Containerfile.exact
+new file mode 100644
+index 0000000..223c4d3
+--- /dev/null
++++ b/bench/container/Containerfile.exact
+@@ -0,0 +1,43 @@
++# pokedex-base plus Exact (exact2): its checkout at /opt/exact2, Bun, and the Rust
++# toolchains its web build uses. Exact is not on npm, so every container that builds an
++# Exact app (agent, final tests, measurement) starts from this image instead of
++# pokedex-base. The cache is warmed by building one throwaway app, as a person who had
++# already set Exact up would have it.
++# Build context: a directory containing exact2.tar (git archive of the exact2 commit).
++ARG BASE=pokedex-base
++FROM ${BASE}
++
++ARG BUN_VERSION=1.4.2
++ARG RUST_STABLE=1.97.0
++ARG WEB_TOOLCHAIN=nightly-2026-08-21
++ARG EXACT2_COMMIT
++ENV EXACT2_COMMIT=${EXACT2_COMMIT}
++
++USER root
++RUN apt-get update \
++ && apt-get install -y --no-install-recommends unzip pkg-config clang lld cmake \
++ && rm -rf /var/lib/apt/lists/* \
++ && install -d -o agent -g agent /opt/exact2
++
++USER agent
++ENV CARGO_HOME=/home/agent/.cargo RUSTUP_HOME=/home/agent/.rustup BUN_INSTALL=/home/agent/.bun
++ENV PATH=/home/agent/.bun/bin:/home/agent/.cargo/bin:$PATH
++RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_STABLE} \
++ && rustup target add wasm32-unknown-unknown \
++ && rustup toolchain install ${WEB_TOOLCHAIN} --profile minimal --component rust-src --component llvm-tools \
++ && cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"
++RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --version
++
++COPY --chown=agent:agent exact2.tar /tmp/exact2.tar
++RUN tar -xf /tmp/exact2.tar -C /opt/exact2 && rm /tmp/exact2.tar \
++ && cd /opt/exact2 && bun install --frozen-lockfile
++
++# Exact's driver and tests use Chrome; Playwright's Chromium is the one installed.
++RUN ln -s "$(find /home/agent/.cache/ms-playwright -path '*chrome-linux*/chrome' -type f | head -n 1)" /home/agent/.chrome
++ENV CHROME=/home/agent/.chrome
++
++RUN cd /opt/exact2 && bun host/web-js/module.mjs --prebuild
++RUN bun /opt/exact2/scripts/exact.mjs new /tmp/warm \
++ && cd /tmp/warm && bun exact.mjs web-build && bun exact.mjs test web \
++ && rm -rf /tmp/warm
++WORKDIR /home/agent/work
+diff --git a/bench/container/setup-tooling.sh b/bench/container/setup-tooling.sh
+index a381177..305e1d8 100755
+--- a/bench/container/setup-tooling.sh
++++ b/bench/container/setup-tooling.sh
+@@ -92,6 +92,11 @@ case "$FRAMEWORK" in
+     # up front because agents don't always use create-react-router. Docs ship in node_modules.
+     skill remix-run/react-router --skill react-router
+     ;;
++  exact)
++    # Exact's agent guidance ships in its checkout (CLAUDE.md, docs/start-here.md) and in the
++    # AGENTS.md that `exact new` writes; nothing to install. Record the commit baked in.
++    record "$(jq -nc --arg c "${EXACT2_COMMIT:-unknown}" '{kind: "checkout", name: "exact2", path: "/opt/exact2", commit: $c}')"
++    ;;
+   tanstack-start | solidstart | qwik | gracile | vanilla)
+     # No official agent tooling (TanStack removed its MCP server in favour of its CLI).
+     ;;
+diff --git a/bench/frameworks.mjs b/bench/frameworks.mjs
+index 1b67c35..d2cd8af 100644
+--- a/bench/frameworks.mjs
++++ b/bench/frameworks.mjs
+@@ -13,6 +13,8 @@ export const FRAMEWORKS = {
+   gracile: 'Gracile with Lit',
+   'hono-htmx': 'Hono and htmx',
+   vanilla: 'vanilla JavaScript or TypeScript with Vite, without a UI framework',
++  // Not on npm: the label says where it is installed (Containerfile.exact).
++  exact: 'Exact, the framework checked out at /opt/exact2 (its CLAUDE.md says how to start an app)',
+ };
+ 
+ // The only thing that differs between agents is the framework label.
+diff --git a/bench/run.mjs b/bench/run.mjs
+index cfd9089..5b2233e 100755
+--- a/bench/run.mjs
++++ b/bench/run.mjs
+@@ -51,6 +51,11 @@ import { readRunInfo, writeReport } from './report.mjs';
+ const BENCH = path.dirname(fileURLToPath(import.meta.url));
+ const ROOT = path.resolve(BENCH, '..');
+ const IMAGES = { base: 'pokedex-base', agent: 'pokedex-agent', measure: 'pokedex-measure' };
++// Exact is not on npm: its apps build and run in images that add its checkout and toolchains
++// (Containerfile.exact). EXACT2_DIR names the exact2 checkout, EXACT2_REF the commit to bake.
++const EXACT_IMAGES = { base: 'pokedex-base-exact', agent: 'pokedex-agent-exact', measure: 'pokedex-measure-exact' };
++const imagesFor = (framework) => (framework === 'exact' ? EXACT_IMAGES : IMAGES);
++const frameworkOf = (iterDir) => path.basename(iterDir).replace(/-\d+$/, '');
+ // Exact Node version for every container (npm comes bundled with it). The root .nvmrc links here.
+ const NODE_VERSION = fs.readFileSync(path.join(ROOT, 'template/.nvmrc'), 'utf8').trim();
+ 
+@@ -147,7 +152,7 @@ function credentialName() {
+ 
+ // --measure-only passes agent: false, so it doesn't rebuild the agent image or overwrite the
+ // record of the images the agents ran in.
+-function buildImages(runDir, { agent = true, key = agent ? 'images' : 'measureOnlyImages' } = {}) {
++function buildImages(runDir, { agent = true, key = agent ? 'images' : 'measureOnlyImages', exact = false } = {}) {
+   const ctx = path.join(runDir, '.build');
+   fs.rmSync(ctx, { recursive: true, force: true });
+   fs.mkdirSync(ctx, { recursive: true });
+@@ -165,8 +170,28 @@ function buildImages(runDir, { agent = true, key = agent ? 'images' : 'measureOn
+     ]);
+   }
+   build(IMAGES.measure, path.join(BENCH, 'container/Containerfile.measure'), BENCH, ['--build-arg', `BASE=${IMAGES.base}`]);
++  const built = agent ? Object.values(IMAGES) : [IMAGES.base, IMAGES.measure];
++  if (exact) {
++    const dir = process.env.EXACT2_DIR, ref = process.env.EXACT2_REF ?? 'HEAD';
++    if (!dir) throw new Error('EXACT2_DIR must name the exact2 checkout to benchmark Exact');
++    const commit = spawnSync('git', ['-C', dir, 'rev-parse', ref], { encoding: 'utf8' }).stdout.trim();
++    const exactCtx = path.join(ctx, 'exact');
++    fs.mkdirSync(exactCtx);
++    sh('git', ['-C', dir, 'archive', '-o', path.join(exactCtx, 'exact2.tar'), commit]);
++    build(EXACT_IMAGES.base, path.join(BENCH, 'container/Containerfile.exact'), exactCtx, [
++      '--build-arg', `BASE=${IMAGES.base}`, '--build-arg', `EXACT2_COMMIT=${commit}`,
++    ]);
++    if (agent) {
++      build(EXACT_IMAGES.agent, path.join(BENCH, 'container/Containerfile.agent'), path.join(BENCH, 'container'), [
++        '--build-arg', `BASE=${EXACT_IMAGES.base}`,
++        '--build-arg', `CLAUDE_CODE_VERSION=${config.claudeVersion}`,
++      ]);
++    }
++    build(EXACT_IMAGES.measure, path.join(BENCH, 'container/Containerfile.measure'), BENCH, ['--build-arg', `BASE=${EXACT_IMAGES.base}`]);
++    built.push(EXACT_IMAGES.base, ...(agent ? [EXACT_IMAGES.agent] : []), EXACT_IMAGES.measure);
++  }
+   fs.rmSync(ctx, { recursive: true, force: true });
+-  recordImages(runDir, key, agent ? Object.values(IMAGES) : [IMAGES.base, IMAGES.measure]);
++  recordImages(runDir, key, built);
+ }
+ 
+ // The harness commit, and whether the working tree had changes.
+@@ -200,7 +225,7 @@ async function runAgent(runId, iterDir, framework, credential) {
+     'run', '--rm', '--name', name, ...containerArgs, ...blockPokeapi,
+     '-v', `${out}:/out:Z`,
+     '-e', 'FRAMEWORK', '-e', 'PROMPT', '-e', 'MODEL', '-e', 'EFFORT', '-e', credential,
+-    IMAGES.agent,
++    imagesFor(framework).agent,
+   ];
+   const env = {
+     ...process.env,
+@@ -242,7 +267,7 @@ async function testApp(iterDir) {
+   log(`Tests start: ${path.basename(iterDir)}`);
+   const code = await runLogged(
+     'podman',
+-    ['run', '--rm', ...containerArgs, ...blockPokeapi, '-v', `${app}:/src:ro,Z`, IMAGES.base, 'bash', '-c', 'cp -r /src app && npm test'],
++    ['run', '--rm', ...containerArgs, ...blockPokeapi, '-v', `${app}:/src:ro,Z`, imagesFor(frameworkOf(iterDir)).base, 'bash', '-c', 'cp -r /src app && npm test'],
+     path.join(iterDir, 'agent/final-test.log'),
+   );
+   fs.appendFileSync(path.join(iterDir, 'agent/run-info.txt'), `final_test_exit=${code}\n`);
+@@ -286,7 +311,7 @@ async function measure(iterDir) {
+     [
+       'run', '--rm', ...containerArgs,
+       '-v', `${repo}:/repo:Z`, '-v', `${results}:/results:Z`,
+-      IMAGES.measure, '/repo/app', '/results', '--runs', String(config.lighthouseRuns),
++      imagesFor(frameworkOf(iterDir)).measure, '/repo/app', '/results', '--runs', String(config.lighthouseRuns),
+     ],
+     path.join(results, 'measure.log'),
+   );
+@@ -320,7 +345,8 @@ async function main() {
+ 
+   if (opts['measure-only']) {
+     const runDir = path.resolve(opts['measure-only']);
+-    if (!opts['skip-image-build']) buildImages(runDir, { agent: false });
++    const exact = fs.readdirSync(runDir).some((d) => /^exact-\d+$/.test(d));
++    if (!opts['skip-image-build']) buildImages(runDir, { agent: false, exact });
+     await measureAll(runDir);
+     writeReport(runDir);
+     log(`Report: ${path.join(runDir, 'report.md')}`);
+@@ -359,7 +385,8 @@ async function main() {
+   fs.writeFileSync(configFile, JSON.stringify(runConfig, null, 2));
+   log(`Run ${runId}: ${frameworks.join(', ')} x ${config.iterations} -> ${runDir}`);
+ 
+-  if (!opts['skip-image-build']) buildImages(runDir, appendTo ? { key: `${appendKey}-images` } : {});
++  const exact = frameworks.includes('exact');
++  if (!opts['skip-image-build']) buildImages(runDir, appendTo ? { key: `${appendKey}-images`, exact } : { exact });
+   await runAgents(runId, runDir, frameworks, credential);
+   if (!opts['no-measure']) await measureAll(runDir);
+   writeReport(runDir);
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 4907db928381c7ecdb7c53fe4dc677db1f1a9e11 Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Fri, 30 Oct 2026 09:42:19 -0700
+Subject: [PATCH 2/6] agent-browser on ARM64 drives Playwright's Chromium
+
+---
+ bench/container/Containerfile.agent | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/bench/container/Containerfile.agent b/bench/container/Containerfile.agent
+index 54a8e1e..21da46e 100644
+--- a/bench/container/Containerfile.agent
++++ b/bench/container/Containerfile.agent
+@@ -12,7 +12,10 @@ USER agent
+ # IS_SANDBOX lets Claude Code run with --dangerously-skip-permissions; the container is the sandbox.
+ ENV IS_SANDBOX=1 \
+     DISABLE_AUTOUPDATER=1
+-RUN agent-browser install
++# This fork runs on ARM64 Linux (Colima on a Mac), where Chrome for Testing has no build,
++# so agent-browser drives the Playwright Chromium the base image installed.
++RUN ln -s "$(find /home/agent/.cache/ms-playwright -path '*chrome-linux*/chrome' -type f | head -n 1)" /home/agent/.agent-browser-chrome
++ENV AGENT_BROWSER_EXECUTABLE_PATH=/home/agent/.agent-browser-chrome
+ 
+ COPY --chown=agent:agent run-agent.sh setup-tooling.sh mcp-probe.sh /home/agent/
+ ENTRYPOINT ["/home/agent/run-agent.sh"]
+-- 
+2.54.0 (Apple Git-157)
+
+
+From fd399ded68fddcbc0dfd5080596853ffeaac69e6 Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Fri, 30 Oct 2026 09:44:15 -0700
+Subject: [PATCH 3/6] Exact image: the private git dependency from the host's
+ Cargo cache
+
+---
+ bench/container/Containerfile.exact | 3 +++
+ bench/run.mjs                       | 2 ++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/bench/container/Containerfile.exact b/bench/container/Containerfile.exact
+index 223c4d3..9b93d7e 100644
+--- a/bench/container/Containerfile.exact
++++ b/bench/container/Containerfile.exact
+@@ -28,6 +28,9 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-to
+  && cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"
+ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --version
+ 
++# exact2's workspace locks a private git dependency (expo/snapback) that Cargo resolves for
++# every build; its locked commit is copied in from the host's Cargo cache as a shallow repo.
++COPY --chown=agent:agent cargo-git/ /home/agent/.cargo/git/
+ COPY --chown=agent:agent exact2.tar /tmp/exact2.tar
+ RUN tar -xf /tmp/exact2.tar -C /opt/exact2 && rm /tmp/exact2.tar \
+  && cd /opt/exact2 && bun install --frozen-lockfile
+diff --git a/bench/run.mjs b/bench/run.mjs
+index 5b2233e..53be40f 100755
+--- a/bench/run.mjs
++++ b/bench/run.mjs
+@@ -178,6 +178,8 @@ function buildImages(runDir, { agent = true, key = agent ? 'images' : 'measureOn
+     const exactCtx = path.join(ctx, 'exact');
+     fs.mkdirSync(exactCtx);
+     sh('git', ['-C', dir, 'archive', '-o', path.join(exactCtx, 'exact2.tar'), commit]);
++    // EXACT2_CARGO_GIT: a directory holding Cargo's git db for exact2's private dependency.
++    fs.cpSync(process.env.EXACT2_CARGO_GIT ?? path.join(os.homedir(), 'bench-afb/ctx-exact/cargo-git'), path.join(exactCtx, 'cargo-git'), { recursive: true });
+     build(EXACT_IMAGES.base, path.join(BENCH, 'container/Containerfile.exact'), exactCtx, [
+       '--build-arg', `BASE=${IMAGES.base}`, '--build-arg', `EXACT2_COMMIT=${commit}`,
+     ]);
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 5ab86ddc81264e74702516f52673b13b290bf420 Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Fri, 30 Oct 2026 10:03:11 -0700
+Subject: [PATCH 4/6] Credentials: the host login's access token, read per
+ agent
+
+---
+ bench/run.mjs | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/bench/run.mjs b/bench/run.mjs
+index 53be40f..aecf54c 100755
+--- a/bench/run.mjs
++++ b/bench/run.mjs
+@@ -144,10 +144,21 @@ function preflight() {
+ // ~/.claude/.credentials.json login: its refresh token is replaced whenever it's used, so a
+ // copy handed to one container stops working for the next.
+ function credentialName() {
++  if (process.env.CLAUDE_CREDENTIALS_FILE) return 'CLAUDE_CODE_OAUTH_TOKEN';
+   for (const name of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) if (process.env[name]) return name;
+   throw new Error('No Claude credentials: set ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`');
+ }
+ 
++// CLAUDE_CREDENTIALS_FILE: a Claude Code login (~/.claude/.credentials.json). Its access
++// token, read again before each agent, is all a container gets: the refresh token stays on
++// the host, whose own sessions keep the access token fresh.
++function subscriptionToken() {
++  const { accessToken, expiresAt } = JSON.parse(fs.readFileSync(process.env.CLAUDE_CREDENTIALS_FILE, 'utf8')).claudeAiOauth;
++  const minutes = (expiresAt - Date.now()) / 60_000;
++  if (minutes < 60) throw new Error(`the login's access token expires in ${Math.round(minutes)} min; open Claude Code on the host to refresh it`);
++  return accessToken;
++}
++
+ // ---------- Step 1: images ----------
+ 
+ // --measure-only passes agent: false, so it doesn't rebuild the agent image or overwrite the
+@@ -235,6 +246,7 @@ async function runAgent(runId, iterDir, framework, credential) {
+     PROMPT: prompt(FRAMEWORKS[framework]),
+     MODEL: config.model,
+     EFFORT: config.effort,
++    ...(process.env.CLAUDE_CREDENTIALS_FILE ? { CLAUDE_CODE_OAUTH_TOKEN: subscriptionToken() } : {}),
+   };
+   log(`Agent start: ${path.basename(iterDir)}`);
+   const code = await runLogged('podman', args, path.join(iterDir, 'container.log'), {
+-- 
+2.54.0 (Apple Git-157)
+
+
+From 0eeea93b8add2ed2b20bf7e6fa8678b5ce0b6ada Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Mon, 2 Nov 2026 11:56:36 -0800
+Subject: [PATCH 5/6] Exact image: exact2 has no git dependency, so no Cargo
+ cache is copied in
+
+---
+ bench/container/Containerfile.exact | 3 ---
+ bench/run.mjs                       | 2 --
+ 2 files changed, 5 deletions(-)
+
+diff --git a/bench/container/Containerfile.exact b/bench/container/Containerfile.exact
+index 9b93d7e..223c4d3 100644
+--- a/bench/container/Containerfile.exact
++++ b/bench/container/Containerfile.exact
+@@ -28,9 +28,6 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-to
+  && cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"
+ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" && bun --version
+ 
+-# exact2's workspace locks a private git dependency (expo/snapback) that Cargo resolves for
+-# every build; its locked commit is copied in from the host's Cargo cache as a shallow repo.
+-COPY --chown=agent:agent cargo-git/ /home/agent/.cargo/git/
+ COPY --chown=agent:agent exact2.tar /tmp/exact2.tar
+ RUN tar -xf /tmp/exact2.tar -C /opt/exact2 && rm /tmp/exact2.tar \
+  && cd /opt/exact2 && bun install --frozen-lockfile
+diff --git a/bench/run.mjs b/bench/run.mjs
+index aecf54c..94b6bc9 100755
+--- a/bench/run.mjs
++++ b/bench/run.mjs
+@@ -189,8 +189,6 @@ function buildImages(runDir, { agent = true, key = agent ? 'images' : 'measureOn
+     const exactCtx = path.join(ctx, 'exact');
+     fs.mkdirSync(exactCtx);
+     sh('git', ['-C', dir, 'archive', '-o', path.join(exactCtx, 'exact2.tar'), commit]);
+-    // EXACT2_CARGO_GIT: a directory holding Cargo's git db for exact2's private dependency.
+-    fs.cpSync(process.env.EXACT2_CARGO_GIT ?? path.join(os.homedir(), 'bench-afb/ctx-exact/cargo-git'), path.join(exactCtx, 'cargo-git'), { recursive: true });
+     build(EXACT_IMAGES.base, path.join(BENCH, 'container/Containerfile.exact'), exactCtx, [
+       '--build-arg', `BASE=${IMAGES.base}`, '--build-arg', `EXACT2_COMMIT=${commit}`,
+     ]);
+-- 
+2.54.0 (Apple Git-157)
+
+
+From abb2fdfe6dec860ab7d786fb6ca3c7cec801c06e Mon Sep 17 00:00:00 2001
+From: bench <bench@localhost>
+Date: Mon, 2 Nov 2026 11:58:01 -0800
+Subject: [PATCH 6/6] Lines of code count an Exact app's .contract files
+
+---
+ bench/measure.mjs | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/bench/measure.mjs b/bench/measure.mjs
+index 6d3aba5..9a7ac9e 100755
+--- a/bench/measure.mjs
++++ b/bench/measure.mjs
+@@ -102,7 +102,8 @@ async function runLighthouse() {
+ 
+ // Lines of code the agent wrote: non-blank lines in the source files the app tracks (comments
+ // included). Not counted: JSON, lockfiles, tests, generated files, and verbatim copies of the
+-// provided design files (every app copies design/tokens.css).
++// provided design files (every app copies design/tokens.css). An Exact app's pages are its
++// .contract files; its app.tamber is design/tokens.css converted (`tamber import css`).
+ function codeStats() {
+   const files = spawnSync('git', ['-c', 'safe.directory=*', 'ls-files', '--cached', '--others', '--exclude-standard', '.'], { cwd: appDir, encoding: 'utf8' })
+     .stdout.split('\n')
+@@ -111,7 +112,7 @@ function codeStats() {
+   const provided = new Set(fs.readdirSync(designDir).filter((f) => f.endsWith('.css')).map((f) => fs.readFileSync(path.join(designDir, f), 'utf8')));
+   let lines = 0;
+   for (const f of files) {
+-    if (!/\.([cm]?[jt]sx?|vue|svelte|astro|html|css|scss)$/.test(f) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(f)) continue;
++    if (!/\.([cm]?[jt]sx?|vue|svelte|astro|html|css|scss|contract)$/.test(f) || /\.(test|spec)\.([cm]?[jt]sx?|contract)$/.test(f)) continue;
+     const text = fs.readFileSync(path.join(appDir, f), 'utf8');
+     if (provided.has(text) || /automatically generated|auto-generated|@generated|do not edit/i.test(text.slice(0, 500))) continue;
+     lines += text.split('\n').filter((l) => l.trim()).length;
+-- 
+2.54.0 (Apple Git-157)
+
