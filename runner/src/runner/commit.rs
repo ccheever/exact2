@@ -1,6 +1,5 @@
-//! Commits: an action, a timer's action, a request's reply — each one
-//! transaction that settles, updates the tree and applies one batch, or
-//! refuses and leaves the kernel as it was.
+//! An action, timer or request reply commits one transaction: settle, update
+//! the tree and apply one batch, or refuse and leave the kernel as it was.
 
 use super::*;
 
@@ -11,10 +10,9 @@ fn too_long(value: &Value) -> bool {
         .is_some_and(|s| s.len() > crate::vm::MAX_STRING)
 }
 
-/// Everything a refused commit leaves as it was (§6 atomicity): state, the
-/// store, the request book-keeping, and the flags a settlement pass sets on
-/// its way — a deferred resource's staleness, store provenance, and the
-/// refreshes an action asked for.
+/// A refused commit restores state, store and request bookkeeping (§6 atomicity),
+/// including settlement flags: deferred resource staleness, store provenance,
+/// and refreshes requested by an action.
 pub(super) struct Checkpoint {
     store: crate::store::StoreCheckpoint,
     /// How many let-go requests with effects were collected before it.

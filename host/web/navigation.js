@@ -23,8 +23,7 @@ const tabsOf = nav => {
 };
 export const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-// @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — the shared list/outer-press rule;
-// WIDE is the web's presentation threshold, not a different navigation rule.
+// @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — WIDE changes presentation; the list/outer-press rule stays shared.
 const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
 let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
 const activationRequired = new WeakSet(), activated = new WeakSet();
