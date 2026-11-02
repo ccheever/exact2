@@ -625,6 +625,9 @@ component ComposerMenus
   // Select (BranchToolbarEnvModeSelector): a listbox 4pt below its trigger, as wide as its rows.
   // The non-Git strip's "Run on" is that Select at every width (SelectPopup side bottom, 4pt).
   derive wideWorkspace = picker and (branches.gitless or data.composer.stripRight - data.composer.stripLeft >= 36 * rem - 44)
+  // MenuRadioItem pulls its glyph in by 2pt (-mx-0.5) in the foreground; SelectItem keeps it in place, muted.
+  derive iconInset = wideWorkspace ? "0px" : "-0.125rem"
+  derive iconInk = wideWorkspace ? "light-dark(#71717b, #a1a1a1)" : "light-dark(#18181b, #f5f5f5)"
   // Above the trigger (the flip, and the strip menus): 4pt over the toolbar's measured
   // window position, else the bottom-docked layout's fixed offsets.
   // MenuPopup / SelectPopup default to side="bottom" and flip above only when the window has no
@@ -651,8 +654,8 @@ component ComposerMenus
     else
       chooseTrait(descriptor, value)
   // The implementation menu and the meter's details align to their trigger's end (align end).
-  // The split workspace Select opens at its trigger's start (measured as it opened), past the machine's.
-  derive x = (which == "workspace" and split and optionsAnchorX >= 0 ? optionsAnchorX : picker ? data.composer.stripLeft + 5 : which == "branch" ? max(5, data.composer.stripRight - 9 - width) : which == "implement" or which == "context" ? max(5, actionsEnd - width) : anchor + width <= viewport.width - 5 ? anchor : max(5, anchorEnd - width))
+  // A split strip's Selects open at their trigger's start (measured as it opened).
+  derive x = (picker and split and optionsAnchorX >= 0 ? optionsAnchorX : picker ? data.composer.stripLeft + 5 : which == "branch" ? max(5, data.composer.stripRight - 9 - width) : which == "implement" or which == "context" ? max(5, actionsEnd - width) : anchor + width <= viewport.width - 5 ? anchor : max(5, anchorEnd - width))
   action mark(index: number, focused: bool)
     focusIndex = focused ? index : (active == index ? -1 : active)
     focusSession = session
@@ -719,7 +722,7 @@ component ComposerMenus
     if not gone
       // A button, so Escape binds as its command (a box with a shortcut is not one).
       button position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Close options" aria-keyshortcuts="Escape" testId="dismiss-composer-options" title=""
-      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 * rem / 16 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.5rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
+      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 36 * rem / 16 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.5rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
         // The meter's details are ContextWindowMeter's PopoverPopup, a dialog with no name
         // of its own ("Context Window, and 4 more items, dialog" under VoiceOver). As a `menu` the column was no element, so
         // AppKit ordered its items with the composer by position and VoiceOver read "Message" between the note and the bar.
@@ -730,8 +733,8 @@ component ComposerMenus
               text "Run on" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717a, #a1a1a1)"
               for option in branches.envOptions key=option.id
                 button id=`run-on-${option.id}` press=command("environment-run-on", "", option.id, 0) hover=workspaceHover(`run-on-${option.id}`) role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=option.selected aria-selected=option.selected testId=`run-on-${option.id}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == `run-on-${option.id}` ? "light-dark(#f4f4f5, #ffffff0a)" : option.selected ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
-                  box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
-                    CnMachineIcon(kind=option.machine, size=12, color="light-dark(#18181b, #f5f5f5)")
+                  box display="flex" flex-shrink=0 margin-left=iconInset margin-right=iconInset
+                    CnMachineIcon(kind=option.machine, size=12, color=iconInk)
                   text option.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
               if branches.envAdd.length > 0
                 RunOnAddRow(branches=branches, select=wideWorkspace, current=(workspaceCurrent == "run-on-add"), hover=workspaceHover("run-on-add"), command=command)
@@ -740,17 +743,17 @@ component ComposerMenus
             if modeShown
               text "Workspace" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom=(wideWorkspace ? "0.375rem" : "0.25rem") color="light-dark(#71717a, #a1a1a1)"
               button press=command("cclocal:env-mode", "", "local", 0) disabled=branches.forceWorktree opacity=(branches.forceWorktree ? 0.64 : 1) hover=workspaceHover("workspace-local") id="workspace-local" role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=(branches.envMode == "local") aria-selected=(branches.envMode == "local") testId="workspace-local" class=Control justify-content="flex-start" width="100%" min-height=(wideWorkspace ? "1.8125rem" : "1.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == "workspace-local" ? "light-dark(#f4f4f5, #ffffff0a)" : branches.envMode == "local" ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
-                box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
-                  CcIcon(name=(branches.envIcon == "folder-git-1" ? "folder-git-1" : "folder"), size=12, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+                box display="flex" flex-shrink=0 margin-left=iconInset margin-right=iconInset
+                  CcIcon(name=(branches.envIcon == "folder-git-1" ? "folder-git-1" : "folder"), size=12, color=iconInk, weight=1.75)
                 text (branches.envIcon == "folder-git-1" ? "Current worktree" : "Current checkout") font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
               button press=command("cclocal:env-mode", "", "worktree", 0) hover=workspaceHover("workspace-worktree") id="workspace-worktree" role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=(branches.envMode == "worktree") aria-selected=(branches.envMode == "worktree") testId="workspace-worktree" class=Control justify-content="flex-start" width="100%" min-height=(wideWorkspace ? "1.8125rem" : "1.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == "workspace-worktree" ? "light-dark(#f4f4f5, #ffffff0a)" : branches.envMode == "worktree" ? "light-dark(#18181b14, #f5f5f514)" : "#00000000")
-                box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
-                  CcIcon(name="folder-git", size=12, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+                box display="flex" flex-shrink=0 margin-left=iconInset margin-right=iconInset
+                  CcIcon(name="folder-git", size=12, color=iconInk, weight=1.75)
                 text "New worktree" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
               if branches.previous
                 button press=command("cclocal:env-mode", "", "previous", 0) hover=workspaceHover("workspace-previous") id="workspace-previous" role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=false aria-selected=false testId="workspace-previous" class=Control justify-content="flex-start" align-items="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(workspaceCurrent == "workspace-previous" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-                  box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" margin-top="0.25rem"
-                    CcIcon(name="history", size=12, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+                  box display="flex" flex-shrink=0 margin-left=iconInset margin-right=iconInset margin-top="0.25rem"
+                    CcIcon(name="history", size=12, color=iconInk, weight=1.75)
                   column min-width=0 flex=1 align-items="flex-start"
                     text "Previous worktree" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
                     if branches.previousBranch != ""
@@ -926,8 +929,8 @@ component RunOnAddRow
     if select
       button id="run-on-add" press=command("shelllocal:add-machine-open", "", "", 0) hover=hover role="option" aria-selected=false testId="run-on-add" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.25rem" background-color=(current ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         row flex=1 min-width=0 gap="0.375rem" align-items="center" opacity=(current ? 1 : 0.55)
-          box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
-            CcIcon(name="plus", size=12, color="light-dark(#18181b, #f5f5f5)", weight=1.75)
+          box display="flex" flex-shrink=0
+            CcIcon(name="plus", size=12, color="light-dark(#71717b, #a1a1a1)", weight=1.75)
           text "Add to another machine" font-size="0.875rem" line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap" min-width=0
     else
       AddMachineSubmenu(rowId="run-on-add", targets=branches.envAdd, width=branches.envAddMenuWidth, choose=addTo)

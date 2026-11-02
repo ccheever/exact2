@@ -5,7 +5,6 @@
 // (ConfirmDialogHost) and the custom snooze dialog (CustomSnoozeDialog.tsx).
 use Snapshot from "../shared/shapes.contract"
 use pinChordPressed from "../shared/menu-keys.contract"
-use FieldPlaceholder from "../shared/field-placeholder.contract"
 use ProviderMark from "../shared/icons.contract"
 use SidebarIcon from "./sidebar-icons.contract"
 use SidebarProjectGlyph from "./sidebar-icons-kit.contract"
@@ -187,8 +186,10 @@ component SidebarScopeMenu
             SidebarIcon(name="search", size=16, color="light-dark(#71717b8c, #a1a1a18c)")
           // ComboboxSearchInput keeps an input's intrinsic width (185pt), so the popup is content-sized past its anchor.
           DialogOpenFocus(target="scope-search")
-          // A normal line: the field centres it in its 26pt box (a line as tall as the box would sit at its top).
-          input id="scope-search" value=data.sidebar.scopeQuery input=queryInput key=searchKey submit=submitScope autofocus=true placeholder="Search projects..." class=FieldPlaceholder aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="normal" color="light-dark(#18181b, #f3f3f3)" autocorrect="off" outline="none" data-editable="yes"
+          // The placeholder is the page's text, as the ref pickers' is: AppKit draws a field's own about 4pt high here.
+          if data.sidebar.scopeQuery == ""
+            text "Search projects..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717b, #a1a1a1)" aria-hidden=true pointer-events="none"
+          input id="scope-search" value=data.sidebar.scopeQuery input=queryInput key=searchKey submit=submitScope autofocus=true aria-label="Search projects" role="combobox" testId="scope-search" flex=1 width=0 min-width="11.5625rem" height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="normal" color="light-dark(#18181b, #f3f3f3)" autocorrect="off" outline="none" data-editable="yes"
       if data.sidebar.scopes.length == 0
         text "No matching projects." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #a1a1a1)"
       scroll flex-shrink=1 min-height=0 max-height="20rem"
