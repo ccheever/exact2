@@ -1,6 +1,6 @@
 # OAuth refresh serialization does not span browser tabs or module realms
 
-**Status:** Open
+**Status:** Closed
 **Severity:** P2
 **Systems:** packages/oauth, web, session storage
 **Author:** Codex
@@ -25,7 +25,12 @@ No duplicate found in the available exact2/exact issue corpora, including closed
 
 **Browser verification.** The actual OAuth package passed independent iframe/iframe, iframe/worker and worker/worker regressions, plus overlapping calls within one iframe or worker. Lifetime regressions cover cancellation, grant refusal and failed persistence. A real Chromium probe shared one rotating session across three tabs: wasm iframe, wasm worker and the JS-target store helper. One refresh occurred and all three read the fresh token under the same Web Lock.
 
-**Remaining native work.** Native sessions can share the same persisted secret: Apple endowment uses Keychain service = app id and account = secret name, without a session prefix. Each runtime still has its own OAuth module and runner snapshot. Native shared exclusion, strict fresh reads and acknowledged persistence are being implemented; this ticket remains open until that path is verified.
+**Native resolution.** Sessions sharing a credential backend and secret name share an OS lease and durable generation fence. A holder reads the backend afresh, acknowledges protected writes before release, and prevents older ordinary retries from overwriting them. Main and worker modules retain sent refresh replies through their completion, including ordered worker groups, with the original request authority. Lock waiters and worker delivery stay off the host's ordered request lane. Abandoned or uncertain effects invalidate the credential before another holder can reuse it.
 
 
 **Persistence and cancellation follow-up.** Failed browser writes no longer survive a protected update, and ordinary retries are discarded when the durable value has changed. Protected browser module writes cross the runner as acknowledged writes, so its page queue cannot replay them. An interrupted update leaves a durable marker; the next holder invalidates the uncertain credential. On the wasm module path, abandoning a sent refresh therefore requires sign-in again instead of replaying its token. The JS target retains its in-flight callback. Focused browser store and module regressions passed, including abandonment and a successor opening after an interrupted update; all 85 OAuth package tests passed again.
+
+
+**Native verification.** The native JS lane passed 268 tests, including real OAuth code across main and worker modules, ordered groups, retained replies, failed persistence, cancellation and two read-only resources settling on absent secrets. Data and data-host suites passed 142 tests; retained-reply and Store checks passed 19. Host coordinator regressions passed, including stale retries and shared backend scope. Source budgets, formatting and the quick semantics comparison passed in the implementation lanes; the final integrated gate results are recorded with the delivered commit.
+
+**Platform limit.** Production Windows uses coordinated private memory secrets. Named Windows agent scratch stores refuse protected file writes because acknowledged directory durability is not implemented there. Windows-specific tests were added but were not executed on this Mac. An abandoned wasm browser module refresh likewise requires sign-in again, as described above.
