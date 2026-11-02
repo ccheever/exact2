@@ -770,6 +770,12 @@ above.
   (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
   a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
   sooner, which the arrow cannot know, so it may look unarmed as the step goes.
+  The window root offers only the steps ⌘[ and ⌘] take (`navigationHistory`), so no swipe is tracked and no arrow
+  drawn under the palette or a dialog other than Settings, past the history's 50 visits, or onto an archived thread.
+  v0.1.6's swipe differs in two of these, measured on the oracle: it ignores a swipe only with the pointer over the
+  palette or dialog (beside it, over the backdrop, it steps the page under the open palette), and it steps onto an
+  archived thread's route, which opens a new-thread draft. The clone's Back and Forward skip both
+  (`sidebar-members.contract` `historyGo`, `keyboard-dispatch.ts` `liveEntry`), and its swipe follows them.
 - A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
   default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
   it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
