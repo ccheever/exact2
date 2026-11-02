@@ -157,6 +157,11 @@ export function prepareWidgetCore({ app, directory, swiftBuildRoot, swiftArgs, s
   const base = resolve(directory, key.digest('hex').slice(0, 20));
   return { base, scratch, args, triple, device, platform, framework: resolve(base, 'ExactCore.framework'), xcframework: resolve(base, 'ExactCore.xcframework') };
 }
+/** ExactCore's module and object an older build left in a products directory, in either SwiftPM layout
+ * (the flat one and `Modules/`), which the product build would otherwise take over the framework's. */
+export function dropLeftoverCore(bin) {
+  for (const directory of [bin, resolve(bin, 'Modules')]) for (const name of ['ExactCore.swiftmodule', 'ExactCore.swiftdoc', 'ExactCore.abi.json', 'ExactCore.swiftsourceinfo', 'ExactCore.o']) rmSync(resolve(directory, name), { recursive: true, force: true });
+}
 export function sharedWidgetCore({ app, prepared, libDir, crate, env, runApple, linkedPlan = null, library = null }) {
   const { base, args, framework, xcframework, device, platform } = prepared;
   mkdirSync(base, { recursive: true });

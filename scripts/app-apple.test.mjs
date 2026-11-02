@@ -791,7 +791,7 @@ test('Mac versioned runtime publication serves both bare products (LLP 1126.001 
 
 
 test('shared-core cleanup removes both module layouts and preserves other products', async () => {
-  const { dropLeftoverCore } = await import('../host/apple/build.mjs');
+  const { dropLeftoverCore } = await import('../host/apple/widgets.mjs');
   const bin = mkdtempSync(resolve(tmpdir(), 'exact-core-leftovers-'));
   const names = ['ExactCore.swiftmodule', 'ExactCore.swiftdoc', 'ExactCore.abi.json', 'ExactCore.swiftsourceinfo', 'ExactCore.o'];
   try {
