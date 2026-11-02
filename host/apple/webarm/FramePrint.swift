@@ -109,10 +109,10 @@ final class FramePrint: NSObject {
     }
 
     @objc func didRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
-        if let contextInfo { Unmanaged<FramePrint>.fromOpaque(contextInfo).release() }
         if let shown { ui?.ended(shown) }
         ended()
         done()
+        if let contextInfo { Unmanaged<FramePrint>.fromOpaque(contextInfo).release() }
     }
 }
 
