@@ -126,6 +126,7 @@ export async function openStdio({ host, plan, world, size, app, env: extra = {},
           const session = state.session;
           return nativeKey({id, opts: portable ? {...opts, ownedRelease:false} : opts, ask: req => ask(req, session)});
         }
+        if (kind === 'pictureinpicture') { const r = await ask({ op: 'tap', id, pictureInPicture: opts.pictureInPicture }); if (r.error) throw new Error(r.error); return r; }
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
         // A contact that went down with `mouse` (a drag's) holds the left button through its phases (review A1).

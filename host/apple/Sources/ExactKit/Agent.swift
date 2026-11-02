@@ -281,7 +281,12 @@ public final class Agent {
         }
         switch op {
         case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req)) // LLP 1080.002
-        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(presenter.elements.regions.decorate(session.natives.decorate(session.webviews.tree(line))))))
+        case "tree":
+            var tree = decorateTree(presenter.elements.regions.decorate(session.natives.decorate(session.webviews.tree(line))))
+            #if os(macOS)
+            tree = decoratePictureInPicture(tree) // LLP 1042 §9.1
+            #endif
+            Agent.reply(session.canvases.decorate(req, tree))
         case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
@@ -328,6 +333,13 @@ public final class Agent {
                 #endif
             } else if let action = req["mediaSession"] as? String {
                 r = mediaSessionTap(req, action: action) // LLP 1098 D10, never a press
+            } else if let control = req["pictureInPicture"] as? String {
+                // Exact's picture-in-picture window's controls (LLP 1042 §9.1).
+                #if os(macOS)
+                r = pictureInPictureTap(req, control: control)
+                #else
+                r = ["error": "unsupported: Exact's picture-in-picture window is the Mac's"]
+                #endif
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)
             } else { r = settling(session.canvases.releaseContact(req) ?? tap(req)) }

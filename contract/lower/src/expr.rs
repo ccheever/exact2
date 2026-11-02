@@ -48,6 +48,15 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
         return vec![positional.next(), positional.next(), named("clip")];
     }
+    // @ref LLP 1042 §9.1 — the image, then Exact's window and how it opens:
+    // `(id, presentation, title, width, height)`, `none` for an absent one.
+    // A plain request stays `(id)`.
+    if name == "requestPictureInPicture" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        let id = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
+        return std::iter::once(id)
+            .chain(["presentation", "title", "width", "height"].map(named))
+            .collect();
+    }
     if matches!(name, "showPopover" | "togglePopover") {
         return vec![args.first(), named("source")];
     }

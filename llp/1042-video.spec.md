@@ -1,7 +1,7 @@
 # LLP 1042: Video — browser semantics, native playback
 
 **Type:** Spec
-**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31)
+**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31); §9.1 built (2026-11-02)
 **Systems:** Kernel replaced elements; Contract media attributes/events; web video; Apple AVKit; keyboard viewport; Video Player app
 **Author:** Codex for Charlie Cheever
 **Implementer:** Codex, 2026-09-18
@@ -520,6 +520,70 @@ at the video's size. A new aspect resizes the panel, whose layout fits the
 video again. A stream deletes a picture once it names the next, sometimes
 before the arm reads it: a first picture whose file is gone fails the
 request only when no picture opens the window within a second.
+
+### 9.1 Exact's own window, as the author asks (Daehyeon Mun, 2026-11-02)
+
+The macOS panel of §9 is AVKit's: it sets the panel's size, place and
+controls, and the panel belongs to the Picture in Picture process. T3 Code
+v0.1.6 floats a server tab in Chromium's window instead (284 × 178 for a
+16:10 stream at the bottom right, its controls over the picture on hover),
+and a desktop tab in Electron's titled panel. The user's ruling of
+2026-11-02 waives the 2026-11-01 ruling that kept AVKit's panel: an author
+may ask for a floating window Exact draws. The unsaid presentation stays
+AVKit's, the Mac's own (LLP 1115: Safari, TV and QuickTime use it); what the
+author writes wins.
+
+```contract
+requestPictureInPicture("page", presentation="window", title="t3code://app")
+requestPictureInPicture("page", presentation="panel", title="Preview · Docs", width=480, height=320)
+```
+
+The options are named arguments, as `scrollIntoView`'s
+`ScrollIntoViewOptions` are, since Contract has no object literal; the
+statement stays HTML's `requestPictureInPicture()` with an options
+dictionary, the one the user's ruling names (`{ presentation: "window" }`).
+`presentation` is a literal: `"window"` or `"panel"`. `title`, `width` and
+`height` go with it: the window's title (the app's name where none is given)
+and its size in points before it takes the picture's aspect, keeping that
+area, as Document Picture-in-Picture's `requestWindow({ width, height })`
+names a size. A plain request lowers as `(id)`; one with options as
+`(id, presentation, title, width, height)`, `none` for an absent one. The
+events, the one floating image, `exitPictureInPicture()` and the refusals are
+§9's.
+
+Both kinds are non-activating panels at the floating level, joining every
+Space and standing over full-screen apps, locked to the picture's aspect and
+resizable, showing each picture the image names as AVKit's panel does
+(ImageIO, the longest side at most 1920 pixels). Neither brings the app
+forward: a press on the picture, a control or the close leaves the app where
+it is, as T3 Code v0.1.6's windows were measured (a press on Chromium's
+picture, and its minimize, back to tab and close, activated nothing).
+
+| Kind | What it is, measured beside v0.1.6 on a 1352 × 849-point visible frame |
+| --- | --- |
+| `"window"` | Chromium's video window (`VideoOverlayWindowViews`): square, a dark one-pixel outline, the window's shadow. Opens 17 points from the visible frame's right and bottom edges, 21% of its width wide (284 points) at the picture's aspect, at most half its height, fading in over 0.25 s; no smaller than it opened, at most three quarters of the screen; the next one opens where the last closed. While the pointer moves over it (hidden 2.5 s after it rests, or as it leaves, fading over 0.2 s): a shade over the whole picture (86% black at the top and bottom, 76% between), the app's icon (16 points at 12, 9) and `title` (13-point system font at 36, 8), three 24-point buttons 5 points from the top and 4 from the right — Minimize, Back to tab and Close, each with a round 10% white highlight under the pointer — and the live timeline, full, 2 points thick, 20 points in from each side and 45 above the bottom. Each button closes the window and the image hears `leavepictureinpicture`. VoiceOver reads the window as "Picture in Picture", the picture as an image named by `title`, the buttons by those labels and the timeline as the slider "Time scrubber", its value the time since the window opened |
+| `"panel"` | Electron's `type: "panel"`: the platform's title bar with `title`, its close button (minimize and zoom shown, disabled). Opens centred in the visible frame at `width` × `height` (480 × 320 where none is given, the window's size with its title bar), then its content takes the picture's aspect at the same area, keeping the top left; no smaller than half that size. Its close is `leavepictureinpicture` |
+
+On the web's JS target either kind is Document Picture-in-Picture's window
+where the browser has it (`documentPictureInPicture.requestWindow`), holding
+an `img` that loads each picture the image loads, its document titled
+`title`, at `width` × `height` fitted to the picture's aspect; its
+`pagehide` is the leave. A browser without it floats §9's way. iOS and tvOS
+refuse it with the event (a floating window over other apps is the Mac's);
+the hosts that refuse §9's request refuse this one.
+
+The agent reaches the window, which is outside the app's: the floating
+image's row in `tree` carries `pictureInPicture` (`presentation`, `title`,
+`frame` on screen from the top left, `controls`, `controlsShown`);
+`tap <image> pictureinpicture minimize|back|close` runs a control's action
+and `… pictureinpicture hover` shows the controls as a pointer moving over
+the window does (`delivery: "activation"`); `screenshot <png> window
+pictureinpicture` is the window server's picture of it. A host other than
+macOS answers the tap `unsupported`.
+
+Still out: a second window holding the app's own views (a floating window
+for a subtree), and media controls in Exact's window: the timeline shows,
+and neither kind plays or pauses, as AVKit's live source does not.
 
 Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
 [AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),

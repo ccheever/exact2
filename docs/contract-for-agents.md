@@ -2123,7 +2123,12 @@ image's `pictureinpictureerror(message)`, on every host that cannot float it
 too, so handle it where a press asked: a toast, the control unpressed. The
 image may be a hidden 1-point one that a stream of its own paints; removing it
 closes the window. macOS and the web's JS target float it
-([LLP 1042 §9](../llp/1042-video.spec.md)).
+([LLP 1042 §9](../llp/1042-video.spec.md)). Leave the window to the platform
+unless the app must look like another: `presentation="window"` asks for a
+browser's picture-in-picture window as Chromium draws it on the Mac, and
+`presentation="panel"` for a floating panel with a title bar, each with
+`title=`, `width=` and `height=` (LLP 1042 §9.1); the web shows either in
+Document Picture-in-Picture's window where the browser has one.
 
 To be the system's Now Playing app (the media keys, the lock screen, Control
 Center, a headset's buttons, the browser's media hub), give the player the Media

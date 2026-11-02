@@ -3,6 +3,8 @@
 // `exitPictureInPicture()` or the window's own close; a failure is the image's
 // `pictureinpictureerror`. AVKit stays in the video arm
 // (`host/apple/videoarm/PictureInPicture.swift`); this side follows the node.
+// `presentation="window"` or `"panel"` (LLP 1042 §9.1) floats it in Exact's own window on
+// macOS instead (`Mac/PictureInPictureWindowMac.swift`), which needs no arm.
 import Foundation
 
 private typealias FloatCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
@@ -18,8 +20,35 @@ final class PictureInPictureHost {
     private var handle: UnsafeMutableRawPointer?
     private var source: String?
     private var entered = false
+    let options: Options
+    #if os(macOS)
+    /// Exact's window, where the request asked for it: the arm's handle stays nil.
+    private(set) var window: PictureInPictureWindow?
+    #endif
 
-    private init(_ node: NodeView) { self.node = node }
+    /// The request's options (LLP 1042 §9.1): `presentation="window"` and how that window opens.
+    struct Options: Equatable {
+        /// `"window"` or `"panel"`, Exact's window; nil, the platform's.
+        var presentation: String?
+        var title: String?
+        var width: Double?
+        var height: Double?
+        var window: Bool { presentation != nil }
+        init(_ args: [Any]) {
+            presentation = args.count > 1 ? (args[1] as? String).flatMap { ["window", "panel"].contains($0) ? $0 : nil } : nil
+            title = args.count > 2 ? args[2] as? String : nil
+            width = args.count > 3 ? (args[3] as? NSNumber)?.doubleValue : nil
+            height = args.count > 4 ? (args[4] as? NSNumber)?.doubleValue : nil
+        }
+    }
+
+    private init(_ node: NodeView, _ options: Options) { self.node = node; self.options = options }
+
+    /// The image floating now, and its host: the agent reads and presses its window.
+    static var floating: (node: NodeView, host: PictureInPictureHost)? {
+        guard let current, let node = current.node, current.entered else { return nil }
+        return (node, current)
+    }
 
     /// The arm's three exports, from the video arm's library.
     private static let exports: (create: Create, frame: Frame, destroy: Destroy)? = {
@@ -29,11 +58,22 @@ final class PictureInPictureHost {
         return (unsafeBitCast(create, to: Create.self), unsafeBitCast(frame, to: Frame.self), unsafeBitCast(destroy, to: Destroy.self))
     }()
 
-    static func request(_ node: NodeView) {
-        if let current, current.node === node { current.sendSource(); return }
+    static func request(_ node: NodeView, _ options: Options) {
+        if let current, current.node === node, current.options == options { current.sendSource(); return }
         current?.end(heard: true)
+        if options.window {
+            #if os(macOS)
+            let host = PictureInPictureHost(node, options)
+            host.window = PictureInPictureWindow(panel: options.presentation == "panel", title: options.title ?? ExactEnv.appName, width: options.width, height: options.height) { [weak host] text in host?.heard(text) }
+            current = host
+            host.sendSource()
+            #else
+            refuse(node, "a floating window is the Mac's: this platform floats no window over other apps")
+            #endif
+            return
+        }
         guard let exports else { return refuse(node, "the video module is not in this build") }
-        let host = PictureInPictureHost(node)
+        let host = PictureInPictureHost(node, options)
         let callback: FloatCallback = { context, bytes, count in
             guard let context, let bytes else { return }
             let text = String(decoding: UnsafeBufferPointer(start: bytes, count: count), as: UTF8.self)
@@ -67,7 +107,13 @@ final class PictureInPictureHost {
     static func gone(_ node: NodeView) { if let current, current.node === node { current.end(heard: false) } }
 
     private func sendSource() {
-        guard let node, let handle, let exports = Self.exports, let src = node.imageSource, src != source else { return }
+        guard let node, let src = node.imageSource, src != source else { return }
+        #if os(macOS)
+        let window = self.window
+        #else
+        let window: AnyObject? = nil
+        #endif
+        guard window != nil || handle != nil else { return }
         source = src
         // A file the image names, as it resolves one: the app's own (`app:/`) or a bundled asset.
         let url = src.hasPrefix("app:/") ? AppFiles.url(src) : URL(string: src)?.scheme == nil ? node.presenter?.session?.app.resolveAsset(src) : nil
@@ -77,6 +123,10 @@ final class PictureInPictureHost {
             else { end(heard: false); Self.refuse(node, "\(src) is not a file the window can read") }
             return
         }
+        #if os(macOS)
+        if let window { return window.frame(path) }
+        #endif
+        guard let handle, let exports = Self.exports else { return }
         Array(path.utf8).withUnsafeBufferPointer { exports.frame(handle, $0.baseAddress, $0.count) }
     }
 
@@ -91,6 +141,10 @@ final class PictureInPictureHost {
         if Self.current === self { Self.current = nil }
         if let handle { Self.exports?.destroy(handle) }
         handle = nil
+        #if os(macOS)
+        window?.close()
+        window = nil
+        #endif
         if heard, entered, let node { Self.dispatch(node, "leavepictureinpicture") }
         entered = false
     }
@@ -102,12 +156,13 @@ final class PictureInPictureHost {
 }
 
 extension Presenter {
-    /// `requestPictureInPicture(id)` on the `image` with that HTML `id`.
+    /// `requestPictureInPicture(id)` on the `image` with that HTML `id`; its
+    /// options follow it as `(presentation, title, width, height)`.
     func pictureInPicture(_ args: [Any]) {
         let id = args.first as? String ?? ""
         let node = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == id })
         guard let node else { session?.log("requestPictureInPicture \"\(id)\" refused: no live node with that id"); return }
         guard node.kind == "image" else { return PictureInPictureHost.refuse(node, "not an image") }
-        PictureInPictureHost.request(node)
+        PictureInPictureHost.request(node, .init(args))
     }
 }
