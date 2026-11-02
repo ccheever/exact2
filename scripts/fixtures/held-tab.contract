@@ -9,7 +9,7 @@
 // after the second (NavigationTabsIOSTests). Detail in Plain, from Titled,
 // selects Plain and pushes onto its held stack in one update. Rail adds a
 // narrow header while a sheet presents, so the deferred sync projects it
-// without moving the tab container or leaving provisional scroll range.
+// without moving the tab container or the page.
 routes nav
   tab plain "/"
     detail "/detail"

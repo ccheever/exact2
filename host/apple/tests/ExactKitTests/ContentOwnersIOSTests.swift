@@ -360,6 +360,10 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertEqual(p.viewport.frame, view.bounds, "the sheet leaves the document's fit alone")
     }
 
+    /// LLP 1123 D1: a narrow header whose actions overflow until UIKit lifts
+    /// them into its bar leaves UIKit's container where it was, and no scroll
+    /// view holds the container while the header is projected: inside one,
+    /// UIKit places the bar's items elsewhere (DocumentMountIOS.swift).
     func testALiftedNarrowHeaderKeepsNativeNavigationInItsViewport() throws {
         guard let scene = hostedWindowScene() else { throw missing("scene", "native header projection needs a scene's viewport allocation") }
         ExactGroupedLists.install() // navigation-bars' `rows` route is a grouped list
@@ -368,10 +372,12 @@ final class ContentOwnersIOSTests: XCTestCase {
         until("Rows is shown") { p.navigation.activeRoute?.node.props["testId"] == "route-rows" && !p.navigation.inTransition }
         let owner = try XCTUnwrap(p.navigation.primaryOwner?.view), window = try XCTUnwrap(window)
         let allocation = owner.convert(owner.bounds, to: window)
+        let scrolled = { sequence(first: owner, next: { $0.superview }).contains { $0 is UIScrollView } }
         let covers = p.onCovers
-        var allocations: [CGRect] = []
+        var allocations: [CGRect] = [], held = false
         p.onCovers = { changes in
             allocations.append(owner.convert(owner.bounds, to: window))
+            held = held || scrolled()
             covers?(changes)
         }
         defer { p.onCovers = covers }
@@ -384,11 +390,10 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertFalse(allocations.isEmpty, "projection changes the header's cover")
         XCTAssertTrue(allocations.allSatisfy { $0 == allocation }, "header overflow never resizes or moves UIKit's container")
         XCTAssertEqual(owner.convert(owner.bounds, to: window), allocation)
-        XCTAssertTrue(p.root.isDescendant(of: p.viewport), "the document retains one scrolling parent")
+        XCTAssertFalse(held || scrolled(), "no scroll view holds UIKit's container")
+        XCTAssertTrue(p.documentFixed && !p.viewport.isScrollEnabled, "the document stays in its mount")
+        XCTAssertEqual(p.viewport.contentOffset, .zero, "the lifted header leaves the page where it was")
         let route = try XCTUnwrap(p.navigation.activeRoute)
-        let content = try XCTUnwrap(route.contentViewport)
-        XCTAssertLessThanOrEqual(content.contentSize.width, content.bounds.width + 0.5, "the lifted header leaves no horizontal range")
-        XCTAssertEqual(content.contentOffset, .zero)
         XCTAssertEqual(route.navigationItem.rightBarButtonItems?.count, 2)
         let share = try XCTUnwrap(route.navigationItem.rightBarButtonItems?.first { $0.accessibilityIdentifier == "rail-share" })
         let target = try XCTUnwrap(share.target as? NSObject)

@@ -306,9 +306,9 @@ final class HeldStackIOSTests: XCTestCase {
         XCTAssertTrue(nav.viewControllers.first === root)
         XCTAssertEqual(root.navigationItem.rightBarButtonItems?.count, 2)
         XCTAssertEqual(tabs.view.convert(tabs.view.bounds, to: p.viewport), allocation)
-        XCTAssertTrue(p.root.isDescendant(of: p.viewport))
-        let content = try XCTUnwrap(root.contentViewport)
-        XCTAssertLessThanOrEqual(content.contentSize.width, content.bounds.width + 0.5, "the deferred header leaves no horizontal range")
+        XCTAssertFalse(sequence(first: tabs.view, next: { $0.superview }).contains { $0 is UIScrollView }, "no scroll view holds the tab container")
+        XCTAssertTrue(p.documentFixed && !p.viewport.isScrollEnabled, "the document stays in its mount")
+        XCTAssertEqual(p.viewport.contentOffset, .zero, "the deferred header leaves the page where it was")
         XCTAssertEqual(navigation.presentedNavigations.count, 1, "the sheet stays up")
     }
 
