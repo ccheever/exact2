@@ -58,6 +58,11 @@ describe('iOS sidebar runtime palette', () => {
   });
 });
 
+test('history controls use a translucent border role', () => {
+  expect(mobileThreadColors('light').historyBorder).toBe('rgba(228, 228, 231, 0.6)');
+  expect(mobileThreadColors('dark').historyBorder).toBe('rgba(25, 25, 25, 0.6)');
+});
+
 describe('iOS HTML render theme', () => {
   test('keeps raw default text and status colors apart from adjusted UI text and fills', () => {
     const light = mobileHtmlRenderTheme('light');
