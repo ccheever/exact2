@@ -366,8 +366,12 @@ test('authored paging gates inactive views, rejects stale observations and isola
   root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-03', firstVisibleOffset: 42 }]);
   expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
   anchorScope.threadData.historyRevision = 1;
+  root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-04', firstVisibleOffset: 8 }]);
+  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-03', historyAnchorOffset: 42, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 0 });
   root.call('didThreadHistoryChanged', anchorState, anchorScope, []);
   expect(anchorCalls).toEqual([['thread-feed', 'turn-03', { offset: 42, behavior: 'instant' }]]);
+  root.call('threadHistoryScroll', anchorState, anchorScope, [0, 12, { firstVisibleKey: 'turn-04', firstVisibleOffset: 8 }]);
+  expect(anchorState).toMatchObject({ historyAnchorKey: 'turn-04', historyAnchorOffset: 8, historyAnchorRoute: '7', historyAnchorEnvironment: 'env', historyAnchorThread: 'thread', historyAnchorRevision: 1 });
   anchorScope.threadData.threadId = 'other-thread';
   anchorScope.threadData.historyRevision = 2;
   root.call('didThreadHistoryChanged', anchorState, anchorScope, []);

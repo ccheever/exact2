@@ -11,12 +11,13 @@ members App
     if top(nav).name.startsWith("thread")
       match e.firstVisibleKey
         case some(key)
-          historyAnchorKey = key
-          historyAnchorOffset = e.firstVisibleOffset
-          historyAnchorRoute = `${top(nav).id}`
-          historyAnchorEnvironment = threadData.environmentId
-          historyAnchorThread = threadData.threadId
-          historyAnchorRevision = threadData.historyRevision
+          if not (historyAnchorKey != "" and historyAnchorRoute == `${top(nav).id}` and historyAnchorEnvironment == threadData.environmentId and historyAnchorThread == threadData.threadId and threadData.historyRevision > historyAnchorRevision)
+            historyAnchorKey = key
+            historyAnchorOffset = e.firstVisibleOffset
+            historyAnchorRoute = `${top(nav).id}`
+            historyAnchorEnvironment = threadData.environmentId
+            historyAnchorThread = threadData.threadId
+            historyAnchorRevision = threadData.historyRevision
         case none
           historyAnchorKey = ""
   action didThreadHistoryChanged
