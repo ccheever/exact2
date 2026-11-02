@@ -2825,6 +2825,43 @@ serve every row of a list. A node inside an open popover opens its menu over
 that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
 
+#### Swipe to reply
+
+`swiperight` moves its node with the finger: it follows up to 64 points, then a fifth of
+the finger's travel, and the action runs if the node is at or past 64 points when the
+finger lifts. A finger reaches it only with `touch-action="pan-y"`, which leaves vertical
+drags to the list. A `transition` on `translate` springs the node back after the lift;
+without one it jumps back. The node's first child with `swipeIndicator=true`, such as a
+reply arrow, goes from its own `opacity` and `scale` to 1 as the swipe reaches 64 points.
+The iOS host plays a selection haptic as the swipe crosses 64 points, so the action plays
+none. `apps/messages`' bubble is a whole example.
+
+```contract
+component Thread
+  state replyTo = ""
+  action reply(id: string)
+    replyTo = id
+  view
+    column align-items="flex-start" padding=12 gap=8
+      box position="relative" swiperight=reply("1") touch-action="pan-y"
+        transition="translate -exact-spring(300, 30, 1)" testId="bubble-1"
+        image "symbol:reply" swipeIndicator=true position="absolute" left=-32 top=8 opacity=0 scale=0.5
+          transition="opacity -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" aria-hidden=true
+        text "Lunch tomorrow?" padding="8px 12px" border-radius=18 background-color="-exact-fill"
+      if replyTo != ""
+        text "Replying to “Lunch tomorrow?”" testId="reply-bar"
+```
+
+```contract-test
+test "a swipe right answers the message"
+  tap "bubble-1" drag 100 0 from 10 10
+  clock settle
+  expect tree has "reply-bar"
+```
+
+A test's drag is a real touch on an iOS simulator: start it where 100 points stay on the
+screen, and `clock settle` after it, so the spring back has ended when the screen is read.
+
 #### A confirmation
 
 "Remove book?" with a message, Cancel and a destructive Remove (React Native's
