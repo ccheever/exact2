@@ -1444,9 +1444,10 @@ server's shell):
 - Return in the Browser's address bar went to the page but left the field focused with its ring, where v0.1.6 leaves the
   field (AppKit selects a field's text again after its Return action, which undoes the blur). The field now takes the
   key (`fieldKey`), which exact2's plan count limit, raised to 2^26 (#1253), lets the plan hold. Checked: Return loads
-  the page and the field lets go: typed keys and ⌘A no longer reach it (7 of 7). Exact's focus ring stays drawn on the
-  field until the next press elsewhere, where Escape's blur removes it; v0.1.6 shows none
-  (`clone/issues/ri-fixes2-field-ring-after-return.md`).
+  the page and the field lets go: typed keys and ⌘A no longer reach it (7 of 7). Exact's focus ring stayed drawn on the
+  field until the next press elsewhere, where v0.1.6 shows none: the blur handler's new value restyled the field while
+  AppKit still had its editor attached (exact2 #1257). Checked again on a bundle with that fix: Return loads the page
+  and leaves no ring, and Escape restores the address with none (5 of 5 and 1 of 1).
 - ⇧⌘P in the sidebar's project filter and in the draft hero's project menu pinned nothing (0 of 3; 0 of 5 on this
   session's bundles before the fix). Under Korean 2-Set the P key types ㅔ, and both compared the typed character with
   the shortcut, where the palette and v0.1.6 read the physical key. Both now count a letter by its physical key, in the
