@@ -275,3 +275,30 @@ fn a_length_token_in_grid_tracks_is_its_value() {
         "{varies}"
     );
 }
+
+/// A length token inside `calc()`, `min()`, `max()` or `clamp()` is read
+/// where the row is drawn, as a `var()` there is: a `rem` token, and one
+/// that varies by app mode, compile.
+#[test]
+fn a_length_token_in_a_math_function_compiles() {
+    for (i, margin) in [
+        "calc(var(--space.row) * -1)",
+        "calc(space.row * -1)",
+        "max(var(--card.min), 50%)",
+        "clamp(4px, calc(100% - 2 * var(--card.min)), 40rem)",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = app(
+            &format!("math-{i}"),
+            &[
+                ("app.tamber", DESIGN),
+                ("app.contract", &format!("component App\n  view\n    column margin-top=\"{margin}\"\n      text \"a\"\n")),
+            ],
+        );
+        if let Err(e) = contract::compile_path(&path) {
+            panic!("{margin}: {e}");
+        }
+    }
+}

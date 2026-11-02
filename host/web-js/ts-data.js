@@ -13,6 +13,8 @@ import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, drive, inflight, journal, Origin, painted, R, Resources } from './rt.js';
 import { Shaped } from './shape.js';
 import { ledger, requestKey } from './uploads.js';
+// The app's id is app.json's, which the build writes here; app.ts need not export one.
+const appId = source.appId;
 // Work an answer awaits that is no held fetch, counted on its answer (ts-fetch.js `answering.ordinary`, LLP 1016.000 D9).
 const ordinary = start => (answering.ordinary ?? (f => f()))(start);
 // What an answer's timers run on (ts-fetch.js `arm`).
@@ -247,7 +249,7 @@ function storageOf(grants) {
   const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
-    const k = source.appId ? storageKey(source.appId) : null;
+    const k = appId ? storageKey(appId) : null;
     if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
@@ -265,7 +267,7 @@ function storageOf(grants) {
   // store reaches it too, as a Rust source's storage request does.
   let docs;
   // What the app keeps across launches is read back first (LLP 1069.010.000 D4).
-  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.keeping(source.appId, grants)).then(() => globalThis.exact.documents.files(grants));
+  const documents = () => docs ??= ((globalThis.exact ??= {}), import(new URL('./documents-glue.js', import.meta.url).href)).then(() => globalThis.exact.documents.keeping(appId, grants)).then(() => globalThis.exact.documents.files(grants));
   // In the storage queue, as every storage call is (an overlay refuses it).
   const keptDocuments = (what, f) => ordinary(() => queued(what, () => documents().then(() => f(globalThis.exact.documents))).catch(refused));
   let listWatched = false;
@@ -358,8 +360,8 @@ function storageOf(grants) {
 // first use so a module that never streams carries none of it.
 const opener = (stream, conv, name) => (deliver, controller) => { controller.streamName = name; return import('./ts-stream.js').then(m => m.open(stream, conv, tsGrantSet, deliver, controller)); };
 export function install(data, mixed = false, modules = null) {
-  data.appId = source.appId;
-  bodyFiles.appId = source.appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
+  data.appId = appId;
+  bodyFiles.appId = appId ?? null; // `exactBodyFrom`'s store (ts-fetch.js)
   data.grants = setAppGrantSet(tsGrantSet);
   const storage = storageOf(tsGrantSet);
   // The module's storage, as the runner's `state.background` (LLP 1097 D8).
@@ -390,7 +392,7 @@ export function install(data, mixed = false, modules = null) {
     },
   });
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
-    keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
+    keyStore(typeof location === 'object' && appId ? storageKey(appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
   // A module's `kept(source, args, value)` is given the answers its page was
   // rendered with, once, before it is first asked: they are its own answers,

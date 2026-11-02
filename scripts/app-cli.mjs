@@ -220,7 +220,9 @@ if (verb === 'contract') {
     process.env.EXACT_BACKEND_ORIGIN = value;
     rest.splice(backendFlag, 2);
   }
-  const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some((a) => a === '--url' || a === '--web-dist');
+  // `--url` with a page served elsewhere drives that page; `--url /path` opens this app's build at a path, so it builds too.
+  const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web'
+    && !rest.some((a, i) => (a === '--url' && !rest[i + 1]?.startsWith('/')) || a === '--web-dist');
   // Xcode's builds are a Mac's: on Windows, the verbs that need one say what Windows has instead.
   if (process.platform === 'win32' && (['ios', 'mac'].includes(verb) || ['test', 'agent', 'verify'].includes(verb) && ['ios', 'macos', 'mac'].includes(host))) {
     console.error(`${verb}${verb === 'ios' || verb === 'mac' ? '' : ` ${host}`} needs a Mac (Xcode); on Windows: bun exact.mjs windows --run opens the app, test windows and verify windows check it`);

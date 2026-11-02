@@ -4585,6 +4585,11 @@ negative on mac). A shadow token's lengths may be any of these
 every column the same way (a blur negative on mac is refused); a literal
 `box-shadow` row's lengths stay px, so name a shadow token there. A base name
 times a length, and `rem`, `em` or `%` beside one, are refused.
+A row's own value may be a `calc()`, `min()`, `max()` or `clamp()` over length
+tokens (`margin-top="calc(var(--space-2) * -1)"`, or `calc(space-2 * -1)`):
+each token is read where the row is drawn, so a `rem` token stays `rem` and
+one that varies by mode follows it. A value computed from state or data
+names a token only whole.
 A package that is `"private": true` and ships a design is a library (LLP
 1139): each component its entry declares or re-exports is held to its rules.
 Its spacing, corner and colour rows (a shorthand's each side; `border`'s

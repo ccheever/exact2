@@ -10,7 +10,7 @@
 // sub-point offsets do not count.
 import { MalformedOperation } from './agent-keys.mjs';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, relative, resolve } from 'node:path';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { crop, decodePng, encodePng, shrink } from './png.mjs';
 import { scaledLines } from './agent-inspect.mjs';
 
@@ -515,12 +515,22 @@ function captureNotes(shot) {
 export async function compareOp(s, referencePath, take) {
   let ref;
   try { ref = decodePng(readFileSync(referencePath)); } catch (e) { throw new MalformedOperation(`compare ${referencePath}: ${e.code === 'ENOENT' ? 'no such file' : e.message}`); }
-  const shot = await take();
-  const w = Math.round(shot.w), h = Math.round(shot.h);
-  referenceScale(ref, w, h);
-  const png = decodePng(readFileSync(shot.screenshot));
-  if (png.width < w || png.height < h) throw new Error(`compare: the capture is ${png.width}×${png.height} px for ${w}×${h} pt; take it at a pixel a point or more`);
-  const layout = await s.layout(undefined, undefined, s.host === 'web' ? { picture: true } : {}), tree = await s.tree();
+  let shot = await take();
+  const w = Math.round(shot.w);
+  // A web page's reference as wide as the viewport and taller, a design's capture of the whole page: the viewport
+  // takes the reference's height for the capture and the nodes read beside it, and its own back after.
+  const tall = s.host === 'web' && !shot.window ? Math.round(ref.height * w / ref.width) : 0, back = Math.round(shot.h);
+  if (tall > back + 1) { await s.resize(w, tall); shot = await take(); }
+  const h = Math.round(shot.h);
+  let layout, tree, png;
+  try {
+    referenceScale(ref, w, h);
+    png = decodePng(readFileSync(shot.screenshot));
+    if (png.width < w || png.height < h) throw new Error(`compare: the capture is ${png.width}×${png.height} px for ${w}×${h} pt; take it at a pixel a point or more`);
+    layout = await s.layout(undefined, undefined, s.host === 'web' ? { picture: true } : {}); tree = await s.tree();
+  } finally {
+    if (h !== back) await s.resize(w, back);
+  }
   const notes = captureNotes(shot);
   // A window capture (iOS) holds the viewport where the window has it, read from a node's own spaces; a viewport drawn
   // smaller than its points (`--size`) has no such offset.
@@ -552,12 +562,15 @@ export async function compareOp(s, referencePath, take) {
   return { ...shot, compare: { ...kept, reference: referencePath }, diff, side, ...(close ? { close } : {}), text };
 }
 
-/** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/` or `reference/` folder in
- *  the app or here) is told of `compare`, which says where the screen differs in text, so neither picture is viewed. */
+/** A drive that takes a plain `screenshot` while the app keeps reference pictures (a `ref/`, `reference/`, `design/` or
+ *  `screenshots/` folder, or a design's `screenshots/`, in the app, here or beside the app) is told of `compare`, which
+ *  says where the screen differs in text, so neither picture is viewed. */
 export function referenceNote(ops, appDir, say = console.error) {
   const shots = ops.map((line) => line.trim().split(/\s+/)).filter(([op, png, ...rest]) => op === 'screenshot' && png && !rest.includes('compare') && rest[0] !== 'over' && rest[1] !== 'save');
   if (!shots.length) return;
-  const dirs = [appDir, process.cwd()].filter(Boolean).flatMap((base) => ['ref', 'reference', 'references'].map((name) => resolve(base, name)));
+  const names = ['ref', 'reference', 'references', 'design', 'designs', 'screenshots'];
+  const dirs = [appDir, process.cwd(), appDir && dirname(appDir)].filter(Boolean)
+    .flatMap((base) => names.flatMap((name) => [resolve(base, name), resolve(base, name, 'screenshots')]));
   // A file of that name, or a folder that cannot be read, gives no note rather than ending the drive.
   const pngsIn = (d) => { try { return readdirSync(d).filter((f) => f.endsWith('.png')); } catch { return []; } };
   const dir = dirs.find((d) => pngsIn(d).length);

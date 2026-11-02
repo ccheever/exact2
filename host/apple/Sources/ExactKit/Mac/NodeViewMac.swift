@@ -1016,7 +1016,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if let v = props["value"] {
                 // While the field is being edited its field editor holds the
                 // caret; write there so the caret survives, as in a text view.
-                if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v; toldText = nil }
+                if let editor = editingEditor { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v; toldText = nil; pendingValue = nil }
             }
             applyPlaceholder(f)
             f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6

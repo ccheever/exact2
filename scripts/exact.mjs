@@ -1126,7 +1126,7 @@ export function pattern(args, say = console.log) {
 }
 
 /** The guides `docs` reads, in the order a tie is settled: what a builder looks a section up in. */
-const GUIDES = ['docs/start-here.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
+const GUIDES = ['docs/start-here.md', 'docs/start-here-site.md', 'docs/contract-for-agents.md', 'docs/contract-grammar.md', 'docs/agent-pitfalls.md', 'docs/game-pitfalls.md', 'docs/reference.md'];
 const SECTION_LINES = 120;
 
 /** Whether a line opens or closes a code fence (CommonMark: an opening fence's info string has no backtick). */

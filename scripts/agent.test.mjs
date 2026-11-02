@@ -878,7 +878,33 @@ test('a plain screenshot in an app that keeps reference pictures names compare; 
     assert.match(note(['screenshot .exact/other.png']), /compare \S*ref\/<name>\.png"/);
     assert.equal(note(['screenshot .exact/home.png compare ref/home.png']), '');
     assert.equal(note(['screenshot .exact/a.apng over 600 every 50']), '');
+    // A design's screenshots beside the app.
+    rmSync(resolve(app, 'ref'), { recursive: true });
+    const site = resolve(app, 'site'), shots = resolve(app, 'design', 'screenshots');
+    mkdirSync(site); mkdirSync(shots, { recursive: true }); writeFileSync(resolve(shots, 'home-desktop.png'), '');
+    const said = []; referenceNote(['screenshot .exact/home.png'], site, (l) => said.push(l));
+    assert.match(said.join('\n'), /design\/screenshots\/ holds 1 reference picture/);
   } finally { rmSync(app, { recursive: true, force: true }); }
+});
+
+test('compare on the web takes a reference of the whole page at its height, and gives the viewport back', async () => {
+  const { compareOp } = await import('./agent-compare.mjs');
+  const { encodePng } = await import('./png.mjs');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-tall-'));
+  const png = (w, h) => encodePng({ width: w, height: h, data: new Uint8Array(w * h * 4).fill(255) });
+  try {
+    writeFileSync(resolve(dir, 'ref.png'), png(40, 100));
+    let at = [40, 30];
+    const sizes = [];
+    const s = { host: 'web', resize: async (w, h) => { sizes.push([w, h]); at = [w, h]; return {}; },
+      layout: async () => ({ nodes: [] }), tree: async () => ({}) };
+    const take = async () => { const path = resolve(dir, 'shot.png'); writeFileSync(path, png(...at)); return { screenshot: path, w: at[0], h: at[1] }; };
+    const r = await compareOp(s, resolve(dir, 'ref.png'), take);
+    assert.deepEqual(sizes, [[40, 100], [40, 30]]);
+    assert.match(r.text, /100\.0% matches \(40×100 px\)/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('logs after reload include the new document host diagnostics', async () => {
