@@ -16,7 +16,8 @@ import type { PdfViewState } from "./pdf/pdf-viewer";
 
 export type Config = {
   readonly type: "config";
-  /** pdf, text (LargeTextViewer), office, binary or output (a notebook's HTML output). */
+  /** pdf, browser-pdf (a server Browser tab's PDF, as Chromium shows it), text (LargeTextViewer), office, binary or
+   *  output (a notebook's HTML output). */
   readonly view: string;
   /** A viewer's identity: another one mounts a new viewer, as the reference's keys do. */
   readonly key: string;
@@ -106,6 +107,10 @@ async function mount(config: Config, src: string, retry: () => void, pdfView: Pd
     pdfView.id = id;
     pdfView.view = initialView;
     return new PdfViewer(src, config.name, initialView, (view) => { if (pdfView.id === id) pdfView.view = view; });
+  }
+  if (config.view === "browser-pdf") {
+    const { BrowserPdfViewer } = await import("./pdf/browser-pdf-viewer");
+    return new BrowserPdfViewer(src, config.name, () => (document.documentElement.dataset.scheme === "light" ? "light" : "dark"));
   }
   if (config.view === "text") {
     const { LargeTextViewer } = await import("./text/large-text-viewer");
