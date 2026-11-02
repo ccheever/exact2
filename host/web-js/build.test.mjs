@@ -51,7 +51,6 @@ test.each([false, true])('optional hook warnings are confined to authored import
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Warnings', app: { id: 'test.warnings', name: 'Warnings' } }));
     writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "Warnings"\n');
     writeFileSync(resolve(dir, 'app.ts'), `${authored ? "import { value } from './ts-data.js';" : "const value = 'ok';"}
-export const appId = 'test.warnings';
 export const grants = '';
 export const answer = () => value as never;
 `);
@@ -64,6 +63,8 @@ export const answer = () => value as never;
     });
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(readFileSync(resolve(out, '.gen/server.js'), 'utf8')).toContain('__start');
+    // app.ts names no appId: the glue's is app.json's.
+    expect(readFileSync(resolve(out, '.gen/ts-data.js'), 'utf8')).toContain('const appId = "test.warnings";');
     const stderr = result.stderr.replace(/\x1b\[[0-9;]*m/g, '');
     if (authored) {
       for (const name of ['kept', 'overlay', 'other']) {

@@ -525,6 +525,7 @@ writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, '
 // `@exact/sign-in` does for one granted `auth.apple` or `auth.google` (LLP 1133.014 D8).
 const auth = /^\s*auth\.(session|apple|google)\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(pageAppTs))
+  .replace('const appId = source.appId;', `const appId = ${JSON.stringify((await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id)};`)
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
 writeFileSync(resolve(gen, 'grant-admission.js'), grantSection); // the section navigation.js re-exports (above)
