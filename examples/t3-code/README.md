@@ -500,8 +500,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
   focused, where the reference's menu item undoes the field's text (its ⌘Z is thread.undo then too).
 - Check for Updates… shows in every build. In a build with an update store its press would do nothing (the
   module has no hook into the host's check); no build has one while `deploy.store` is `"0"`.
-- An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
-  reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
   main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
   through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
@@ -690,8 +688,9 @@ Differences that belong to the app:
   `persist:` partition per environment and Incognito an in-memory one, and cookies cannot be imported from other
   browsers (LLP 1020.002 D4). A profile's cookies from the module's old stores move into its partition once, and the
   page reloads for them; its local storage, IndexedDB and cache stay behind, since WebKit reads none of them out of a
-  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, so WebKit throttles its
-  timers; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
+  store, so a site that keeps its sign-in there asks again once. A hidden tab is not displayed, and its timers are not
+  held to WebKit's one a second for a hidden page (`apple.inactiveSchedulingPolicy="none"`), though it draws no
+  animation frames; one that is recorded or shown in its separate window stays laid out, transparent, and keeps drawing. With
   the page focused, ⌘R reloads it and the zoom chords zoom it (the page is asked `document.hasFocus()`, since a frame
   reports no focus) and ⌘L puts the focus in the address bar, selecting the address; ⇧⌘R reloads the window, as the
   reference's menu does. A page's dialog while

@@ -77,7 +77,7 @@ export async function pullRequestLinkPick(client: T3Client, native: Native, valu
       const reply = await bridgeReply(native, { op: 'copyText', text: url });
       if (!reply.ok) throw new Error(reply.error?.message);
     } else {
-      if (!openExternal(url)) throw new Error('not opened');
+      if (!(await openExternal(url))) throw new Error('not opened');
     }
   } catch (error) {
     if (letGo(error)) throw error;

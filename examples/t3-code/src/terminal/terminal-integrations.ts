@@ -160,7 +160,7 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
   }
   try {
     if (target === 'system') {
-      if (!openExternal(str(message.text))) throw new ClientError('Unable to open link');
+      if (!(await openExternal(str(message.text)))) throw new ClientError('Unable to open link.');
     } else {
       const cwd = str(message.cwd) || str(thread?.worktreePath) || str(project?.workspaceRoot);
       const editor = favoriteEditor(options.environment?.config ?? client.config, lastEditor(client));
@@ -184,5 +184,5 @@ function terminalLinkFailed(client: T3Client, message: Obj, threadId: string, te
 /** The terminal's system-browser open (ElectronShell.openExternal, external-open.ts), its failure a terminal system message. */
 async function openTerminalLinkExternally(client: T3Client, native: Native, message: Obj, threadId: string): Promise<void> {
   void native;
-  if (!openExternal(str(message.text))) terminalLinkFailed(client, message, threadId, 'Unable to open link');
+  if (!(await openExternal(str(message.text)))) terminalLinkFailed(client, message, threadId, 'Unable to open link.');
 }
