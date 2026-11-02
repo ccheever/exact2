@@ -30,6 +30,11 @@ impl DataSource for Slow {
         Ok(Answer::Now(Value::Number(0.0)))
     }
 
+    fn module_landed(&mut self, store: &mut Store, _: u64, _: Outcome) -> Result<(), DataError> {
+        store.set_durable("document", "kept")?;
+        Ok(())
+    }
+
     fn forgotten(&mut self, store: &Store, _: &[InFlight<'_>]) {
         self.retired
             .lock()
@@ -525,6 +530,9 @@ fn coalesced_retirements_let_go_what_retiring_each_in_order_does() {
                     parked.push((*ids, (target, source, args.concat())));
                 }
                 Job::Resume { .. } => {}
+                Job::Keep { .. } | Job::KeptReply { .. } => {
+                    unreachable!("this fixture queues only ordinary turns")
+                }
             }
         }
     }
@@ -624,4 +632,54 @@ fn a_long_poll_on_a_worker_s_own_work_is_refused_before_it_runs() {
         "{refused:?}"
     );
     assert!(!*ran.lock().unwrap(), "its work never ran");
+}
+
+#[test]
+fn a_kept_reply_waits_off_the_host_while_its_owner_has_unrelated_work() {
+    let (started, running) = channel();
+    let (release, proceed) = channel();
+    let mut placed = Placed::new(
+        Slow {
+            started,
+            release: proceed,
+            retired: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut store = Store::new("secret.keep document", []);
+    let Answer::Later(request) = placed.answer(&mut store, "slow", &[]).unwrap() else {
+        panic!("owner turn")
+    };
+    let slow = send(placed.dispatch(request.continuation.unwrap(), &store));
+    running.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (wake, woke) = channel();
+    placed.abort_wake(Arc::new(move || {
+        let _ = wake.send(());
+    }));
+    placed.kept.insert(17, Some(9));
+    // Only this thread can release the unrelated owner turn. Delivery must
+    // return without waiting for it, and nothing enters ordered admission.
+    let request = placed
+        .module_delivery(&mut store, 17, Dispatch::again_outcome())
+        .unwrap()
+        .unwrap();
+    let token = request.continuation.unwrap();
+    assert!(matches!(placed.dispatch(token, &store), Dispatch::Held));
+    assert!(placed.release(&store).is_empty());
+    release.send(()).unwrap();
+    slow.recv_timeout(Duration::from_secs(5)).unwrap();
+    woke.recv_timeout(Duration::from_secs(5)).unwrap();
+    let ready = placed.release(&store);
+    assert_eq!(ready.len(), 1);
+    let (released, Dispatch::Run(Work::Now(reply))) = ready.into_iter().next().unwrap() else {
+        panic!("completed envelope")
+    };
+    assert_eq!(released, token);
+    assert!(placed
+        .module_delivery(&mut store, 17, reply())
+        .unwrap()
+        .is_none());
+    assert_eq!(store.get("document"), Some("kept"));
+    assert!(store.take_writes()[0].durable);
 }

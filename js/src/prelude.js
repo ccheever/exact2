@@ -735,17 +735,24 @@
   var presence = binary.presence(host, function (name) { return store.get(name); }, function (api) { if (overlaying) throw inOverlay(api); });
   var store = {
     get: function (name) { if (overlaying) throw inOverlay("store.get()"); var v = presence.door(2, String(name), ""); return v === undefined ? null : v; },
-    set: function (name, value) { if (overlaying) throw inOverlay("store.set()"); var e = presence.door(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
-    forget: function (name) { if (overlaying) throw inOverlay("store.forget()"); var e = host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
+    set: function (name, value) { if (overlaying) throw inOverlay("store.set()"); var e = secretWrite(name, String(value)) ? undefined : presence.door(3, String(name), String(value)); if (e !== undefined) throw new Error(e); },
+    forget: function (name) { if (overlaying) throw inOverlay("store.forget()"); var e = secretWrite(name, null) ? undefined : host(4, String(name), ""); if (e !== undefined) throw new Error(e); },
     has: presence.has, locked: presence.locked, unlock: presence.unlock, protect: presence.protect, unprotect: presence.unprotect,
     keepKey: function (name, pair) { return keepKey(name, pair); }, key: function (name) { return keptKey(name); },
   };
 
-  if (browserSecrets) store.exclusive = function (name, work) {
+  function secretWrite(name, value) {
+    var task = currentCall && currentCall.secrets && currentCall.secrets[0];
+    if (browserSecrets || !task || !task.held || task.name !== String(name)) return false;
+    host(26, String(currentCall.id), JSON.stringify({ name: String(name), value: value })); return true;
+  }
+  store.exclusive = function (name, work) {
     if (overlaying) return Promise.reject(inOverlay("store.exclusive()"));
     var call = currentCall;
     if (!call || call.replied || call.letGo) return Promise.reject(new Error("store.exclusive() called outside an answer"));
+    if (!browserSecrets && call.secrets && call.secrets.length) return Promise.reject(new Error("nested secret leases are unsupported"));
     return new Promise(function (resolve, reject) {
+      if (!browserSecrets) host(24, String(call.id), String(name));
       (call.secrets || (call.secrets = [])).push({ name: String(name), work: work, resolve: resolve, reject: reject });
     });
   };
@@ -753,7 +760,7 @@
     var call = calls.get(Number(id)), task = call && call.secrets && call.secrets[0];
     if (!task || call.letGo) throw new Error("the secret's answer was let go");
     currentCall = call; task.held = true;
-    var finish = function (ok, value) { call.secrets.shift(); (ok ? task.resolve : task.reject)(value); };
+    var finish = function (ok, value) { if (!browserSecrets) { try { host(25, String(call.id), ok ? "commit" : ""); } catch (e) { ok = false; value = e; } } call.secrets.shift(); (ok ? task.resolve : task.reject)(value); };
     if (error) { finish(false, new Error(error)); return; }
     try { Promise.resolve(task.work()).then(function (v) { finish(true, v); }, function (e) { finish(false, e); }); }
     catch (e) { finish(false, e); }
@@ -1301,7 +1308,7 @@
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return ""; call.letGo = true; // a fetch, yield or timer it makes from here is refused
-    (call.secrets || []).forEach(function (task) { if (!task.held) task.reject(new DOMException("the answer was let go", "AbortError")); });
+    var secretRejected = 0; (call.secrets || []).forEach(function (task) { if (!task.held) { secretRejected++; task.reject(new DOMException("the answer was let go", "AbortError")); } });
     var moved = work.forgot(call); // its steps waiting for its own turn run in the let-go chain, with no store (LLP 1146 D2)
     // A released resource's socket handle is stale from now on (D7).
     if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }
@@ -1316,7 +1323,7 @@
     dropped.forEach(function (p) {
       p.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this reply; the request may already have been sent" }));
     });
-    var rejected = dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) + moved ? " rejected" : "";
+    var rejected = secretRejected + dropped.length + endYields(call, new DOMException("the answer was let go", "AbortError")) + moved ? " rejected" : "";
     timers.drop(call);
     if (call.storage > 0 && !call.lost) return "storage" + rejected;
     call.replied = true;

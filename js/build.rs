@@ -30,6 +30,7 @@ fn main() {
         "src/process.js",
         "src/intl.js",
         "tests/fixtures/harden-probe.js",
+        "../packages/oauth/index.ts",
     ] {
         println!("cargo:rerun-if-changed={source}");
     }

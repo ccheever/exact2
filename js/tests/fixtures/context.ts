@@ -1,3 +1,4 @@
+import { oauth } from "../../../packages/oauth/index.ts";
 // Answers that await a promise another answer made, then fetch their own
 // rows (LLP 1133.002 D14): each fetch after the await must be its own
 // answer's, through `Promise.all` and an imported helper too. The test's
@@ -27,7 +28,11 @@ async function work(name: string): Promise<{ text: string }> {
   return { text: [loaded, one, two, nested].join(" ") };
 }
 
-function answer(source: string, args: unknown[]): unknown {
+const auth = oauth({ key: "token", clientId: "native-test", scopes: [], apis: [API],
+  endpoints: { authorization: `${API}/authorize`, token: `${API}/token` } });
+function answer(source: string, args: unknown[], store: any): unknown {
+  if (source === "secret" && String(args[0]).startsWith("read-")) return store.exclusive("token", () => ({ text: store.get("token") ?? "empty" }));
+  if (source === "secret") return auth.fetch(store, `${API}/data`).then(r => r.text()).then(text => ({ text }), e => ({ text: `failed:${e.message}` }));
   if (source === "work" && typeof args[0] === "string") return work(args[0]);
   throw { kind: "UnknownSource", message: source };
 }
@@ -35,6 +40,6 @@ function answer(source: string, args: unknown[]): unknown {
 (globalThis as any).exact = {
   abi: 1,
   appId: "test.context",
-  grants: "net.fetch https://context.test\n",
+  grants: "net.fetch https://context.test\nsecret.keep token\n",
   answer,
 };

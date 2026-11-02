@@ -68,6 +68,8 @@ mod paired;
 #[cfg(all(test, exact_js_engine))]
 mod phase_cost_tests;
 mod pure;
+mod reply;
+mod secrets;
 mod socket;
 mod source;
 mod storage;
@@ -224,6 +226,7 @@ fn over_budget(source: &str, why: &str) -> DataError {
 /// engine's lifetime; the shim holds a pointer to it.
 #[derive(Default)]
 struct HostState {
+    secrets: secrets::Shared,
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
     /// The fetch tickets the app aborted after their requests were handed
@@ -275,6 +278,7 @@ struct HostState {
     baking: bool,
     /// A replacement candidate must answer successfully before it can be installed.
     validating: bool,
+    readonly_secrets: bool,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
@@ -492,6 +496,7 @@ impl Module {
         let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
+        let secrets = template.host.secrets.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants).with_agent_seed(agent_seed);
             // Before `activate`, which loads: a worker's answers wait for
@@ -500,6 +505,7 @@ impl Module {
             // The template's interrupt reaches the instance on its owner, and
             // its native handle finds the instance's long-call handler.
             module.watch = watch;
+            module.host.secrets = secrets;
             module.native_slot = native_slot;
             if let Some(factory) = native_factory {
                 module = module.with_native(factory);
@@ -617,6 +623,7 @@ impl Module {
     }
 
     fn load_engine_with_prelude(&mut self, prelude: &'static [u8]) -> Result<Watched, String> {
+        self.host.readonly_secrets = self.snapshot;
         let io = exact_runner::io_grants(&self.grants);
         // Stage 1 permits file reads, not file/SQLite writes or document handles.
         // Identity still checks the full baked grants; only endowment narrows.
@@ -732,6 +739,7 @@ impl Module {
             self.logs.extend(engine.take_log());
         }
         self.host.keys.clear();
+        self.host.secrets.clear();
         self.storage = None;
         self.host.native = None;
         self.host.later = false;
@@ -811,119 +819,6 @@ impl Module {
             .ok()?
             .parse()
             .ok()
-    }
-
-    /// Decode once, retaining metadata for async dispatch and the typed answer
-    /// for settlement. Captured replies retain their JSON restoration path.
-    fn decode_reply(
-        sig: &Sig,
-        engine: &mut Engine,
-        source: &str,
-        text: &str,
-    ) -> Result<exact_js_value::Reply, DataError> {
-        // Captured large strings still use path restoration into JSON. Ordinary
-        // answers decode directly to Value, without a second full value tree.
-        let captured = engine.has_reply_strings();
-        let decoded = if captured {
-            serde_json::from_str(text)
-                .map(|fields| exact_js_value::Reply {
-                    fields,
-                    value: Ok(Value::Unit),
-                })
-                .map_err(|e| e.to_string())
-        } else {
-            exact_js_value::reply_reusing(text, &sig.result, &sig.rows).map_err(|e| e.to_string())
-        };
-        decoded.map_err(|e| {
-            engine.clear_reply();
-            DataError::Unavailable(format!(
-                "`{source}` answered something other than JSON: {e}"
-            ))
-        })
-    }
-
-    fn step(
-        sig: &Sig,
-        engine: &mut Engine,
-        source: &str,
-        decoded: exact_js_value::Reply,
-        baking: bool,
-    ) -> Step {
-        let exact_js_value::Reply {
-            fields: mut reply,
-            mut value,
-        } = decoded;
-        if engine.has_reply_strings() {
-            if let Err(error) = engine.restore_reply(&mut reply) {
-                return Step::Done(Err(DataError::Failed(
-                    FailureCode::Shape,
-                    format!("`{source}` answered outside its shape: {error}"),
-                    String::new(),
-                )));
-            }
-            value = from_json(reply.get("value").unwrap_or(&Json::Null), &sig.result);
-        }
-        let num = |k: &str| reply.get(k).and_then(Json::as_u64);
-        match num("tag") {
-            Some(0) => Step::Done(value.map_err(|e| {
-                let why = format!("`{source}` answered outside its shape: {e}");
-                DataError::Failed(FailureCode::Shape, why, String::new())
-            })),
-            Some(1) => match (num("call"), num("ticket")) {
-                (Some(call), Some(0)) if reply.get("yielded") == Some(&Json::Bool(true)) => {
-                    Step::Pending {
-                        call,
-                        ticket: YIELDED,
-                        due: None,
-                    }
-                }
-                (Some(call), Some(0)) if reply.get("waiting") == Some(&Json::Bool(true)) => {
-                    Step::Pending {
-                        call,
-                        ticket: WAITING,
-                        due: num("timer"),
-                    }
-                }
-                (Some(call), Some(0)) if num("timer").is_some() => Step::Pending {
-                    call,
-                    ticket: TIMER,
-                    due: num("timer"),
-                },
-                (Some(call), Some(ticket)) => Step::Pending {
-                    call,
-                    ticket,
-                    due: None,
-                },
-                _ => Step::Done(Err(DataError::Unavailable(format!(
-                    "`{source}` is pending on no ticket"
-                )))),
-            },
-            Some(2) => {
-                let message = reply
-                    .get("message")
-                    .and_then(Json::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                Step::Done(Err(match reply.get("kind").and_then(Json::as_str) {
-                    Some("UnknownSource") => DataError::UnknownSource(message),
-                    Some("BadArguments") => DataError::BadArguments(message),
-                    Some("Unavailable")
-                        if baking && reply.get("code").and_then(Json::as_str) == Some("bake") =>
-                    {
-                        DataError::DeferredAtBake(message)
-                    }
-                    // What it let through, by class (LLP 1109 D3; prelude.js `failureCode`).
-                    _ => FailureCode::seam_error(
-                        reply.get("failure").and_then(Json::as_str),
-                        message,
-                        reply.get("reason").and_then(Json::as_str),
-                    ),
-                }))
-            }
-            _ => Step::Done(Err(DataError::Unavailable(format!(
-                "`{source}` answered with no tag (ABI {ABI} expects 0, 1, 2, or 3)"
-            )))),
-        }
     }
 
     fn take_request(&mut self, ticket: u64) -> Option<Request> {
@@ -1032,6 +927,7 @@ impl Module {
         );
         if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
+            self.prune_secret_calls();
         }
         // What the turn sent as an answer goes whatever it answers (the
         // amendment of 2026-10-18); a mutation's staged socket operations
@@ -1079,7 +975,7 @@ impl Module {
                 e => e,
             }),
             Ok(Step::Pending { call, ticket, due }) => {
-                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET) {
                     timer_due(Request::continuation(call), ticket, due)
                 } else {
                     let Some(mut request) = self.take_request(ticket) else {
@@ -1107,7 +1003,7 @@ impl Module {
                 // that, so an answer waiting on the discarded call is asked
                 // again (files F18). Delivering first parks it at the new
                 // progress, and nothing asks it again.
-                self.park(key, call, ticket, &request);
+                self.park(key, call, ticket, &request)?;
                 self.forget_calls(replaced);
                 Ok(Answer::Later(request))
             }
@@ -1292,6 +1188,11 @@ impl Module {
                 engine
                     .call("__exact_yielded", [&call.to_string(), "", ""])
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            } else if ticket == secrets::TICKET {
+                let error = self.host.secrets.ready(call, store.as_deref_mut());
+                engine
+                    .call("__exact_secret_ready", [&call.to_string(), &error, ""])
+                    .map_err(DataError::Unavailable)?;
             } else if ticket == 0 {
                 if matches!(outcome, Outcome::Failed { .. }) {
                     engine
@@ -1338,8 +1239,12 @@ impl Module {
             source,
             &mut self.logs,
         );
+        if result.is_err() || over.is_some() || matches!(&result, Ok(Step::Done(_))) {
+            self.host.secrets.retire(call);
+        }
         if result.is_err() || over.is_some() {
             self.engine.as_mut().expect("checked above").clear_reply();
+            self.forget_calls(vec![call]);
         }
         if result.is_err() && self.watch.take() {
             self.finish_let_go();
@@ -1356,7 +1261,7 @@ impl Module {
             Err(e) => Err(e),
             Ok(Step::Done(r)) => r.map(Answer::Now),
             Ok(Step::Pending { call, ticket, due }) => {
-                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER) {
+                let request = if matches!(ticket, 0 | WAITING | YIELDED | TIMER | secrets::TICKET) {
                     timer_due(Request::continuation(call), ticket, due)
                 } else {
                     let Some(mut request) = self.take_request(ticket) else {
@@ -1368,7 +1273,7 @@ impl Module {
                     request.fetch = Some(ticket);
                     request
                 };
-                self.park(key, call, ticket, &request);
+                self.park(key, call, ticket, &request)?;
                 Ok(Answer::Later(request))
             }
         };
@@ -1382,7 +1287,22 @@ impl Module {
 
     /// Park a call on the request it waits for. A stream's call is not
     /// resumed by its reply: each message is mapped (`__exact_message`).
-    fn park(&mut self, key: Key, call: u64, ticket: u64, request: &Request) {
+    fn park(
+        &mut self,
+        key: Key,
+        call: u64,
+        ticket: u64,
+        request: &Request,
+    ) -> Result<(), DataError> {
+        if request.has_effects() {
+            if let Err(error) = self.host.secrets.begin_effect(call) {
+                self.forget_calls(vec![call]);
+                return Err(DataError::Unavailable(error));
+            }
+        }
+        self.host
+            .secrets
+            .sent(call, request.has_effects().then_some(ticket));
         let parked = Parked {
             call,
             ticket,
@@ -1396,6 +1316,7 @@ impl Module {
         } else {
             self.parked.push((key, parked));
         }
+        Ok(())
     }
 
     /// One message of the stream answer `key` began, or its end: the

@@ -367,6 +367,32 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_durable_secret_write_crosses_without_becoming_a_retryable_write() {
+        let mut local = Store::new("secret.keep token", []);
+        local.set_durable("token", "rotated").unwrap();
+        let outcome = encode(Ok(Answer::Now(Value::Unit)), &mut local, vec![]);
+        let mut live = Store::new("secret.keep token", [("token".into(), b"old".to_vec())]);
+        apply(outcome, &mut live, &mut vec![]).unwrap();
+        let writes = live.take_writes();
+        assert_eq!(writes.len(), 1);
+        assert!(writes[0].durable);
+        assert_eq!(writes[0].value.as_deref(), Some(b"rotated".as_slice()));
+        local.forget_durable("token").unwrap();
+        let outcome = encode(Ok(Answer::Now(Value::Unit)), &mut local, vec![]);
+        apply(outcome, &mut live, &mut vec![]).unwrap();
+        assert!(live.take_writes()[0].durable);
+        assert_eq!(live.get("token"), None);
+        let copied = live.copied_bytes();
+        local.forget_durable("token").unwrap();
+        let outcome = encode(Ok(Answer::Now(Value::Unit)), &mut local, vec![]);
+        apply(outcome, &mut live, &mut vec![]).unwrap();
+        assert_eq!(live.copied_bytes(), copied);
+        let writes = live.take_writes();
+        assert_eq!(writes.len(), 1);
+        assert!(writes[0].durable && writes[0].value.is_none());
+    }
+
     /// A turn over its budget keeps its class across the envelope, so a
     /// worker's or a mixed member's is asked again as an in-process one is;
     /// a kind an older peer doesn't know reads as `Unavailable`.

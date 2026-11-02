@@ -371,6 +371,13 @@ pub trait DataSource {
         None
     }
 
+    /// A continuation the host must dispatch even when this source has a
+    /// worker owner. Waiting for it on that owner would block its holder.
+    fn host_continuation(&self, token: u64) -> bool {
+        let _ = token;
+        false
+    }
+
     /// Where this source's module instance runs (LLP 1027.002 D1). A
     /// composer orders every child that shares a `secret.keep` name with a
     /// worker child (D3); a host refuses a placement it cannot run.
@@ -405,6 +412,24 @@ pub trait DataSource {
     /// 1027.002 D3, the cleanup of rolled-back calls).
     fn discard(&mut self, token: u64) {
         let _ = token;
+    }
+
+    /// An effectful fetch whose reply must finish a protected secret update,
+    /// including when its worker-placed answer is superseded.
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        let _ = fetch;
+        false
+    }
+
+    /// Deliver a kept effect's reply, optionally yielding a local continuation
+    /// while its owner finishes. The next outcome returns under the same token.
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<crate::Request>, DataError> {
+        self.module_landed(store, token, outcome).map(|()| None)
     }
 
     /// Work the module started that no answer waits for (LLP 1097 D5): the

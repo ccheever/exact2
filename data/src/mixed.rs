@@ -107,6 +107,10 @@ pub struct Mixed<J, R> {
     sets: Vec<Set>,
     set_of: [Option<usize>; 2],
     recorded: BTreeMap<u64, (usize, Recorded)>,
+    deliveries: BTreeMap<u64, (u64, Outcome)>,
+    delivery_waiters: HashSet<u64>,
+    delivery_phases: BTreeMap<u64, bool>,
+    delivery_routes: BTreeMap<u64, u64>,
     stages: HashMap<Key, VecDeque<Stage>>,
     logs: Vec<String>,
     /// The sources whose overlay a worker owns, said once each.
@@ -238,6 +242,10 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             sets,
             set_of,
             recorded: BTreeMap::new(),
+            deliveries: BTreeMap::new(),
+            delivery_waiters: HashSet::new(),
+            delivery_phases: BTreeMap::new(),
+            delivery_routes: BTreeMap::new(),
             stages: HashMap::new(),
             logs: Vec::new(),
             told_overlay: BTreeSet::new(),
@@ -405,6 +413,41 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         };
         let outcome = envelope::encode(result, &mut local, Vec::new());
         Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+
+    fn start_delivery(&mut self, token: u64, store: &Store) -> Dispatch {
+        let set = self.set_of[0].expect("an ordered delivery");
+        if self.sets[set].busy {
+            self.delivery_waiters.insert(token);
+            return Dispatch::Held;
+        }
+        let Some((kept, outcome)) = self.deliveries.remove(&token) else {
+            return Dispatch::Missing;
+        };
+        self.delivery_waiters.remove(&token);
+        self.sets[set].busy = true;
+        let grants = self.javascript.grants();
+        let mut local = Store::new(grants, envelope::snapshot(store, grants));
+        let result = self
+            .javascript
+            .module_delivery(&mut local, kept, outcome)
+            .map(|request| request.map_or(Answer::Now(Value::Unit), Answer::Later));
+        let outcome = envelope::encode(result, &mut local, vec![]);
+        Dispatch::Run(Work::Now(Box::new(move || outcome)))
+    }
+
+    fn route_delivery(&mut self, request: Option<Request>) -> Result<Option<Request>, DataError> {
+        let Some(mut request) = request else {
+            return Ok(None);
+        };
+        let child = request
+            .continuation
+            .ok_or_else(|| unavailable("a module delivery must yield a continuation"))?;
+        let token = self.token()?;
+        self.delivery_routes.insert(token, child);
+        request.continuation = Some(token);
+        request.grants = Some(self.javascript.grants().into());
+        Ok(Some(request))
     }
 
     fn child_answer(
@@ -683,7 +726,27 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.parse_with(Some(target), store, source, args, outcome)
     }
 
+    fn host_continuation(&self, token: u64) -> bool {
+        self.continuations.get(&token).is_some_and(|(rust, child)| {
+            if *rust {
+                self.rust.host_continuation(*child)
+            } else {
+                self.javascript.host_continuation(*child)
+            }
+        })
+    }
+
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        if self.deliveries.contains_key(&token) {
+            return self.start_delivery(token, store);
+        }
+        if let Some(child) = self.delivery_routes.get(&token).copied() {
+            let dispatch = self.javascript.dispatch(child, store);
+            if !matches!(dispatch, Dispatch::Held) {
+                self.delivery_routes.remove(&token);
+            }
+            return dispatch;
+        }
         // Background work is the JavaScript child's (LLP 1097 D5).
         if token == exact_runner::BACKGROUND {
             return self.javascript.dispatch(token, store);
@@ -712,6 +775,17 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
         let mut released = Vec::new();
+        let deliveries: Vec<_> = self
+            .deliveries
+            .keys()
+            .filter(|token| self.delivery_waiters.contains(token))
+            .copied()
+            .collect();
+        for token in deliveries {
+            if self.set_of[0].is_some_and(|set| !self.sets[set].busy) {
+                released.push((token, self.start_delivery(token, store)));
+            }
+        }
         for set in 0..self.sets.len() {
             if self.sets[set].busy {
                 continue;
@@ -729,6 +803,18 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                 self.javascript.release(store)
             };
             for (child, dispatch) in inner {
+                if !rust {
+                    if let Some(outer) = self
+                        .delivery_routes
+                        .iter()
+                        .find(|(_, c)| **c == child)
+                        .map(|(t, _)| *t)
+                    {
+                        self.delivery_routes.remove(&outer);
+                        released.push((outer, dispatch));
+                        continue;
+                    }
+                }
                 let outer = self
                     .continuations
                     .iter()
@@ -978,9 +1064,9 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     }
 
     // Each let-go request goes to the child that asked it, and each child
-    // hears, as after every `forgotten`, even with none of its own. A
-    // JavaScript child in an ordered set keeps none: its replies take their
-    // turns in the set (LLP 1027.002 D3), which a module turn would bypass.
+    // hears, as after every `forgotten`, even with none of its own.
+    // JavaScript kept replies reserve a turn in their ordered set through
+    // module_delivery, just as a live answer does (LLP 1027.002 D3).
     fn keep_sent(
         &mut self,
         store: &Store,
@@ -989,9 +1075,8 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     ) -> Vec<Option<u64>> {
         let mut kept = vec![None; let_go.len()];
         for rust in [false, true] {
-            let ordered = !rust && self.set_of[0].is_some();
             let mine: Vec<usize> = (0..let_go.len())
-                .filter(|&i| !ordered && self.owner(let_go[i].source).ok() == Some(rust))
+                .filter(|&i| self.owner(let_go[i].source).ok() == Some(rust))
                 .collect();
             let view: Vec<InFlight<'_>> = mine
                 .iter()
@@ -1004,7 +1089,8 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                 self.rust.keep_sent(store, &view, refused)
             } else {
                 // Its calls take their turns in the set, outside any commit.
-                self.javascript.keep_sent(store, &view, refused && !ordered)
+                self.javascript
+                    .keep_sent(store, &view, refused && self.set_of[0].is_none())
             };
             // Only the JavaScript child's tokens reach `module_landed`.
             for (&i, token) in mine.iter().zip(tokens) {
@@ -1012,6 +1098,52 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
             }
         }
         kept
+    }
+
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        let grants = self.javascript.grants().to_string();
+        let Some(set) = self.set_of[0] else {
+            let request = store.with_grants(&grants, |store| {
+                self.javascript.module_delivery(store, token, outcome)
+            })?;
+            return self.route_delivery(request);
+        };
+        let result = match self.delivery_phases.remove(&token) {
+            None => {
+                let next = self.token()?;
+                self.deliveries.insert(next, (token, outcome));
+                self.delivery_phases.insert(token, false);
+                return Ok(Some(Request::continuation(next)));
+            }
+            Some(false) => {
+                let mut logs = Vec::new();
+                let answer =
+                    store.with_grants(&grants, |store| envelope::apply(outcome, store, &mut logs));
+                self.logs.extend(logs);
+                answer.map(|answer| match answer {
+                    Answer::Now(_) => None,
+                    Answer::Later(request) => Some(request),
+                })
+            }
+            Some(true) => store.with_grants(&grants, |store| {
+                self.javascript.module_delivery(store, token, outcome)
+            }),
+        };
+        match result {
+            Ok(Some(request)) => {
+                self.delivery_phases.insert(token, true);
+                self.route_delivery(Some(request))
+            }
+            other => {
+                self.sets[set].busy = false;
+                other
+            }
+        }
     }
 
     // A kept request is the JavaScript child's (LLP 1146 D2): its module

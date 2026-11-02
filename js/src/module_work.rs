@@ -51,12 +51,15 @@ impl Module {
 
     /// Calls let go now: one whose awaited fetch has effects is set aside for
     /// `keep_sent_now`, and the others' calls are returned, to forget now. A
-    /// worker's instance sets none aside: no module turn reaches it, so each
-    /// is cancelled as before.
+    /// worker keeps a protected secret's sent effect too: its proxy delivers
+    /// the retained reply on the owner before releasing the lease.
     pub(crate) fn set_aside(&mut self, gone: Vec<(Key, Parked)>) -> Vec<u64> {
         let mut forget = Vec::new();
         for (key, parked) in gone {
-            if key.0.is_some() && self.main_thread && parked.effects {
+            if key.0.is_some()
+                && (self.main_thread || self.host.secrets.holds(parked.call))
+                && parked.effects
+            {
                 self.work.calls.push((key, parked));
             } else {
                 forget.push(parked.call);
@@ -151,7 +154,13 @@ impl Module {
         // What landed may settle an answer waiting on another's work.
         self.progress += 1;
         self.refresh_background();
-        ran.map(|_| ())
-            .map_err(|e| DataError::Unavailable(format!("module work threw: {e}")))
+        let unfinished = self.host.secrets.retire_fetch(token);
+        ran.map_err(|e| DataError::Unavailable(format!("module work threw: {e}")))?;
+        if unfinished {
+            return Err(DataError::Unavailable(
+                "a protected kept reply cannot await further host work".into(),
+            ));
+        }
+        Ok(())
     }
 }

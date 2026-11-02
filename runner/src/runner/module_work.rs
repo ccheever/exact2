@@ -9,7 +9,7 @@
 //! and persisted.
 use super::modules::{CallOrigin, Causes};
 use super::{CommitReceipt, DataSource, InFlight, PendingReq, Runner, RunnerError, Target};
-use crate::request::Outcome;
+use crate::request::{Outcome, RequestOut};
 use crate::store::StoreCheckpoint;
 use std::collections::BTreeMap;
 
@@ -216,8 +216,29 @@ impl<D: DataSource> Runner<D> {
             |r| {
                 let (revision, writes) = (r.store.revision(), r.store.writes().len());
                 r.log(format!("{NAME} {ticket}: {}", outcome.summary()));
-                if let Err(e) = r.data.module_landed(&mut r.store, token, outcome) {
-                    r.log(format!("{NAME} failed: {e}"));
+                match r.data.module_delivery(&mut r.store, token, outcome) {
+                    Ok(Some(mut request))
+                        if request.continuation.is_some()
+                            && request.storage.is_none()
+                            && request.surface.is_none()
+                            && request.url.is_empty() =>
+                    {
+                        let next = r.next_ticket;
+                        r.next_ticket += 1;
+                        request.reach = r.reach_of(authority.origin);
+                        r.module_work.tickets.insert(next, (token, authority));
+                        r.requests.push(RequestOut {
+                            ticket: next,
+                            target: NAME.into(),
+                            request,
+                            forced: false,
+                        });
+                    }
+                    Ok(Some(_)) => r.log(format!(
+                        "{NAME} failed: delivery must yield a local continuation"
+                    )),
+                    Ok(None) => {}
+                    Err(e) => r.log(format!("{NAME} failed: {e}")),
                 }
                 r.take_data_logs();
                 // Its writes are in the store before the commit's checkpoint, which journals only those after

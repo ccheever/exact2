@@ -249,6 +249,10 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
         self.source.canvases_retired(retired)
     }
+    fn host_continuation(&self, token: u64) -> bool {
+        self.source.host_continuation(token)
+    }
+
     fn configure_secrets(
         &mut self,
         secrets: std::sync::Arc<dyn exact_runner::SharedSecrets>,
@@ -401,6 +405,10 @@ impl<D: DataSource> DataSource for Storage<D> {
     // Work that outlives its answer (LLP 1146 D2): its tokens are the
     // source's own, which the runner keeps beside its tickets, so nothing is
     // remapped.
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        self.source.keeps_sent(fetch)
+    }
+
     fn keep_sent(
         &mut self,
         store: &Store,
@@ -408,6 +416,15 @@ impl<D: DataSource> DataSource for Storage<D> {
         refused: bool,
     ) -> Vec<Option<u64>> {
         self.source.keep_sent(store, let_go, refused)
+    }
+
+    fn module_delivery(
+        &mut self,
+        store: &mut Store,
+        token: u64,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.source.module_delivery(store, token, outcome)
     }
 
     fn module_landed(

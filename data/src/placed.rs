@@ -48,6 +48,17 @@ enum Job {
     /// What is still in flight, after a commit that let requests go: the
     /// instance drops the calls it parked for the rest, in turn order.
     Forgotten(Arc<Mutex<Option<Retirement>>>),
+    Keep {
+        calls: Vec<Flight>,
+        snapshot: Vec<(String, Vec<u8>)>,
+        refused: bool,
+    },
+    KeptReply {
+        token: u64,
+        outcome: Outcome,
+        snapshot: Vec<(String, Vec<u8>)>,
+        reply: Reply,
+    },
 }
 
 /// A call still in flight as the owner hears it: its target, source and
@@ -227,6 +238,11 @@ pub struct Placed<D> {
     canvas_surfaces: Vec<(String, usize)>,
     owner: Option<Arc<Mutex<OwnerQueue>>>,
     recorded: BTreeMap<u64, Recorded>,
+    hosted: HashMap<u64, u64>,
+    sent: HashMap<Key, u64>,
+    kept: HashMap<u64, Option<u64>>,
+    deliveries: HashMap<u64, Arc<Mutex<Option<Outcome>>>>,
+    delivery_waiters: HashSet<u64>,
     stages: HashMap<Key, VecDeque<Stage>>,
     next: u64,
     validation: bool,
@@ -278,6 +294,11 @@ impl<D: DataSource + 'static> Placed<D> {
             spawn,
             owner: None,
             recorded: BTreeMap::new(),
+            hosted: HashMap::new(),
+            sent: HashMap::new(),
+            kept: HashMap::new(),
+            deliveries: HashMap::new(),
+            delivery_waiters: HashSet::new(),
             stages: HashMap::new(),
             next: 0,
             validation: false,
@@ -362,7 +383,26 @@ impl<D: DataSource + 'static> Placed<D> {
         }
         match stage {
             Some(Stage::Turn) => {
-                let answer = envelope::apply(outcome, store, &mut self.logs);
+                let mut answer = envelope::apply(outcome, store, &mut self.logs);
+                if let Ok(Answer::Later(request)) = &mut answer {
+                    if let Some(fetch) = request.fetch.filter(|fetch| {
+                        request.has_effects()
+                            && self.inner.as_ref().is_some_and(|s| s.keeps_sent(*fetch))
+                    }) {
+                        self.sent.insert(k.clone(), fetch);
+                    }
+                    if let Some(child) = request.continuation {
+                        if self
+                            .inner
+                            .as_ref()
+                            .is_some_and(|s| s.host_continuation(child))
+                        {
+                            let token = self.token()?;
+                            self.hosted.insert(token, child);
+                            request.continuation = Some(token);
+                        }
+                    }
+                }
                 // A wait for the answer's own timer: its next turn, recorded
                 // now, under a token the runner keeps back until it is due.
                 if let Ok(Answer::Later(Request {
@@ -386,15 +426,18 @@ impl<D: DataSource + 'static> Placed<D> {
                 }
                 answer
             }
-            Some(Stage::Yielded) => self.record(
-                k,
-                Recorded::Resume {
-                    target,
-                    source: source.to_string(),
-                    args: args.to_vec(),
-                    outcome,
-                },
-            ),
+            Some(Stage::Yielded) => {
+                self.sent.remove(&k);
+                self.record(
+                    k,
+                    Recorded::Resume {
+                        target,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome,
+                    },
+                )
+            }
             None => Err(unavailable(format!(
                 "`{source}`: a reply for an answer not in flight"
             ))),
@@ -415,6 +458,54 @@ impl<D: DataSource + 'static> Placed<D> {
                 let mut source = obtain();
                 for job in rx {
                     let (target, name, args, outcome, snapshot, clock, reply) = match job {
+                        Job::Keep {
+                            calls,
+                            snapshot,
+                            refused,
+                        } => {
+                            if let Ok(source) = &mut source {
+                                let decoded: Vec<_> = calls
+                                    .iter()
+                                    .filter_map(|(target, name, args)| {
+                                        Some((*target, name.as_str(), decode_args(args).ok()?))
+                                    })
+                                    .collect();
+                                let view: Vec<_> = decoded
+                                    .iter()
+                                    .map(|(target, name, args)| InFlight {
+                                        target: *target,
+                                        source: name,
+                                        args,
+                                        continuation: None,
+                                    })
+                                    .collect();
+                                source.keep_sent(&Store::new(&grants, snapshot), &view, refused);
+                            }
+                            continue;
+                        }
+                        Job::KeptReply {
+                            token,
+                            outcome,
+                            snapshot,
+                            reply,
+                        } => {
+                            let mut local = Store::new(&grants, snapshot);
+                            let result = match &mut source {
+                                Ok(source) => source
+                                    .module_landed(&mut local, token, outcome)
+                                    .map(|()| Answer::Now(Value::Unit)),
+                                Err(error) => Err(error.clone()),
+                            };
+                            if source.as_mut().is_ok_and(|s| s.take_storage_changed()) {
+                                storage_changed.store(true, std::sync::atomic::Ordering::Release);
+                            }
+                            let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
+                            if let Ok(source) = source.as_mut() {
+                                publish_aborts(source.take_aborted(), &aborted, &abort_wake);
+                            }
+                            reply.send(envelope::encode(result, &mut local, logs));
+                            continue;
+                        }
                         Job::Forgotten(slot) => {
                             let retirement = slot.lock().unwrap().take();
                             if let (Ok(source), Some((in_flight, snapshot))) =
@@ -527,7 +618,9 @@ fn turn<D: DataSource>(
             // A wait for the answer's own timer is the runner's to keep
             // until due (LLP 1027.000 D1): it yields, as a fetch does.
             Ok(Answer::Later(request))
-                if request.continuation.is_some() && request.due_ms.is_none() =>
+                if request.continuation.is_some()
+                    && request.due_ms.is_none()
+                    && !source.host_continuation(request.continuation.expect("checked")) =>
             {
                 let token = request.continuation.expect("checked");
                 let Some(work) = source.continuation(token) else {
@@ -820,6 +913,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
     fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.recorded.retain(|token, _| tokens.contains(token));
+        self.hosted.retain(|token, _| tokens.contains(token));
         let live: HashMap<Key, Option<u64>> = in_flight
             .iter()
             .map(|f| (key(Some(f.target), f.source, f.args), f.continuation))
@@ -860,7 +954,36 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
+    fn host_continuation(&self, token: u64) -> bool {
+        self.hosted.contains_key(&token)
+            || (self.owner.is_none()
+                && self
+                    .inner
+                    .as_ref()
+                    .is_some_and(|s| s.host_continuation(token)))
+    }
+
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        if let Some(slot) = self.deliveries.get(&token) {
+            let outcome = slot.lock().unwrap().take();
+            let Some(outcome) = outcome else {
+                self.delivery_waiters.insert(token);
+                return Dispatch::Held;
+            };
+            self.delivery_waiters.remove(&token);
+            self.deliveries.remove(&token);
+            return Dispatch::Run(Work::Now(Box::new(move || outcome)));
+        }
+        if let Some(child) = self.hosted.get(&token).copied() {
+            let dispatch = self
+                .inner
+                .as_mut()
+                .map_or(Dispatch::Missing, |s| s.dispatch(child, store));
+            if !matches!(dispatch, Dispatch::Held) {
+                self.hosted.remove(&token);
+            }
+            return dispatch;
+        }
         let Some(recorded) = self.recorded.remove(&token) else {
             return match self.inner.as_mut() {
                 Some(inner) if self.owner.is_none() => inner.dispatch(token, store),
@@ -926,13 +1049,49 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
     }
 
     fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
-        match self.inner.as_mut() {
-            Some(inner) if self.owner.is_none() => inner.release(store),
-            _ => Vec::new(),
+        let ready: Vec<_> = self
+            .deliveries
+            .iter()
+            .filter_map(|(token, slot)| {
+                (self.delivery_waiters.contains(token) && slot.lock().unwrap().is_some())
+                    .then_some(*token)
+            })
+            .collect();
+        let mut out: Vec<_> = ready
+            .into_iter()
+            .map(|token| (token, self.dispatch(token, store)))
+            .collect();
+        let Some(inner) = self.inner.as_mut() else {
+            return out;
+        };
+        let released = inner.release(store);
+        if self.owner.is_none() {
+            out.extend(released);
+            return out;
         }
+        out.extend(released.into_iter().filter_map(|(child, dispatch)| {
+            let token = self
+                .hosted
+                .iter()
+                .find(|(_, c)| **c == child)
+                .map(|(t, _)| *t)?;
+            self.hosted.remove(&token);
+            Some((token, dispatch))
+        }));
+        out
     }
 
     fn discard(&mut self, token: u64) {
+        if self.deliveries.remove(&token).is_some() {
+            self.delivery_waiters.remove(&token);
+            return;
+        }
+        if let Some(child) = self.hosted.remove(&token) {
+            if let Some(inner) = self.inner.as_mut() {
+                inner.discard(child);
+            }
+            return;
+        }
         match self.recorded.remove(&token) {
             Some(recorded) => {
                 let k = recorded_key(&recorded);
@@ -982,30 +1141,80 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
-    /// Work that outlives its answer is the inline module's alone (LLP 1146
-    /// D2): a worker's let-go requests are cancelled, as before.
+    fn keeps_sent(&self, fetch: u64) -> bool {
+        self.inner.as_ref().is_some_and(|s| s.keeps_sent(fetch))
+    }
+
     fn keep_sent(
         &mut self,
         store: &Store,
         let_go: &[InFlight<'_>],
         refused: bool,
     ) -> Vec<Option<u64>> {
-        match self.inner.as_mut() {
-            Some(inner) if self.owner.is_none() => inner.keep_sent(store, let_go, refused),
-            _ => vec![None; let_go.len()],
-        }
+        let Some(owner) = self.owner.clone() else {
+            return self.inner.as_mut().map_or_else(
+                || vec![None; let_go.len()],
+                |s| s.keep_sent(store, let_go, refused),
+            );
+        };
+        let kept = let_go
+            .iter()
+            .map(|f| {
+                let child = self.sent.remove(&key(Some(f.target), f.source, f.args))?;
+                let token = self.token().ok()?;
+                self.kept.insert(token, Some(child));
+                Some(token)
+            })
+            .collect();
+        let calls = let_go
+            .iter()
+            .map(|f| (f.target, f.source.to_owned(), encode_args(f.args)))
+            .collect();
+        let unsent = owner.lock().unwrap().turn(Job::Keep {
+            calls,
+            snapshot: envelope::snapshot(store, &self.grants),
+            refused,
+        });
+        drop(unsent);
+        kept
     }
 
-    fn module_landed(
+    fn module_delivery(
         &mut self,
         store: &mut Store,
         token: u64,
         outcome: Outcome,
-    ) -> Result<(), DataError> {
-        match self.inner.as_mut() {
-            Some(inner) if self.owner.is_none() => inner.module_landed(store, token, outcome),
-            _ => Ok(()),
-        }
+    ) -> Result<Option<Request>, DataError> {
+        let Some(owner) = self.owner.clone() else {
+            return self.here()?.module_delivery(store, token, outcome);
+        };
+        let child = self
+            .kept
+            .remove(&token)
+            .ok_or_else(|| unavailable("unknown kept worker reply"))?;
+        let Some(child) = child else {
+            envelope::apply(outcome, store, &mut self.logs)?;
+            return Ok(None);
+        };
+        let continuation = self.token()?;
+        let slot = Arc::new(Mutex::new(None));
+        self.deliveries.insert(continuation, slot.clone());
+        self.kept.insert(token, None);
+        let wake = self.abort_wake.clone();
+        let reply = Reply::new(move |outcome| {
+            *slot.lock().unwrap() = Some(outcome);
+            if let Some(wake) = wake.lock().unwrap().clone() {
+                wake();
+            }
+        });
+        let unsent = owner.lock().unwrap().turn(Job::KeptReply {
+            token: child,
+            outcome,
+            snapshot: envelope::snapshot(store, &self.grants),
+            reply,
+        });
+        drop(unsent);
+        Ok(Some(Request::continuation(continuation)))
     }
 
     fn background_state(&self) -> Option<exact_runner::BackgroundState> {
