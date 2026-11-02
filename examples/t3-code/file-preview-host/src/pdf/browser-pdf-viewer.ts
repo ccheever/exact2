@@ -541,21 +541,22 @@ export class BrowserPdfViewer {
     const pdf = this.pdf;
     if (!pdf || this.printing) return;
     this.printing = true;
+    // The host reads the job's name from the page's title, which reaches it some time after it changes.
+    const title = document.title;
+    document.title = this.name;
+    const done = () => { document.title = title; this.printing = false; };
     void pdf.getData().then((data) => {
       const url = URL.createObjectURL(new Blob([new Uint8Array(data)], { type: "application/pdf" }));
       const frame = h("iframe", { class: "print-frame", src: url, tabindex: -1, "aria-hidden": "true" });
       frame.addEventListener("load", () => setTimeout(() => {
-        const title = document.title;
-        document.title = this.name;
         try { frame.contentWindow?.print(); } finally {
-          document.title = title;
           frame.remove();
           URL.revokeObjectURL(url);
-          this.printing = false;
+          done();
         }
       }, PRINT_SETTLE_MS), { once: true });
       document.body.append(frame);
-    }, () => { this.printing = false; });
+    }, done);
   }
 
   private showProperties() {

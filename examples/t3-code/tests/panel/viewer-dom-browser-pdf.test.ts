@@ -185,13 +185,14 @@ describe('BrowserPdfViewer', () => {
     documents.pages = [{ width: 612, height: 792 }];
     const { viewer, $ } = mount();
     await until(() => $('#pagelength').textContent === '1', 'the document');
+    const title = document.title;
     $<HTMLButtonElement>('#print').click();
+    expect(document.title).toBe('guide.pdf');
     await until(() => document.querySelector('iframe.print-frame') !== null, 'the print frame');
     const frame = document.querySelector<HTMLIFrameElement>('iframe.print-frame')!;
     expect([frame.getAttribute('aria-hidden'), frame.src.startsWith('blob:')]).toEqual(['true', true]);
     const printed: string[] = [];
     Object.defineProperty(frame, 'contentWindow', { configurable: true, get: () => ({ print: () => printed.push(document.title) }) });
-    const title = document.title;
     $<HTMLButtonElement>('#print').click();
     expect(document.querySelectorAll('iframe.print-frame').length).toBe(1);
     frame.dispatchEvent(new DomEvent('load'));
