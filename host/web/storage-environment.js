@@ -116,7 +116,7 @@ export function exclusiveSecret(store, prefix, name, work) {
   return navigator.locks.request(`${prefix}${name}`, async () => {
     const flush = () => {
       store.persist();
-      if (store.pending.has(name)) throw new Error('The shared secret could not be persisted');
+      if (store.pending.has(name)) { localStorage.removeItem(prefix + name); throw new Error('The shared secret could not be persisted'); }
     };
     flush();
     const fresh = localStorage.getItem(prefix + name);

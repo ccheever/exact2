@@ -16,6 +16,7 @@
   // request the app aborted.
   var host = global.__exact_host;
   delete global.__exact_host;
+  var browserSecrets = global.__exact_browser_secrets; delete global.__exact_browser_secrets;
   // The seam's bytes (binary.js): base64, UTF-8 lengths, a stream message's data.
   var binary = global.__exact_binary;
   delete global.__exact_binary;
@@ -740,6 +741,24 @@
     keepKey: function (name, pair) { return keepKey(name, pair); }, key: function (name) { return keptKey(name); },
   };
 
+  if (browserSecrets) store.exclusive = function (name, work) {
+    if (overlaying) return Promise.reject(inOverlay("store.exclusive()"));
+    var call = currentCall;
+    if (!call || call.replied || call.letGo) return Promise.reject(new Error("store.exclusive() called outside an answer"));
+    return new Promise(function (resolve, reject) {
+      (call.secrets || (call.secrets = [])).push({ name: String(name), work: work, resolve: resolve, reject: reject });
+    });
+  };
+  global.__exact_secret_ready = function (id, error) {
+    var call = calls.get(Number(id)), task = call && call.secrets && call.secrets[0];
+    if (!task || call.letGo) throw new Error("the secret's answer was let go");
+    currentCall = call; task.held = true;
+    var finish = function (ok, value) { call.secrets.shift(); (ok ? task.resolve : task.reject)(value); };
+    if (error) { finish(false, new Error(error)); return; }
+    try { Promise.resolve(task.work()).then(function (v) { finish(true, v); }, function (e) { finish(false, e); }); }
+    catch (e) { finish(false, e); }
+  };
+
   // Storage is a capability argument, never an ambient global. Native hosts
   // install Ibex2's objects during trusted initialization; bake and the browser
   // retain this explicit refusal surface until a provider is installed.
@@ -1069,6 +1088,8 @@
     return text;
   }
   function settle(call, final) {
+    var secret = call.secrets && call.secrets[0];
+    if (secret && !secret.held) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, secret: secret.name });
     // A fetch its continuation tried after it staged socket operations
     // (refused at the fetch) refuses the mutation too, before any frame.
     if (call.socketConflict && call.status === "done") {
@@ -1280,6 +1301,7 @@
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return ""; call.letGo = true; // a fetch, yield or timer it makes from here is refused
+    (call.secrets || []).forEach(function (task) { if (!task.held) task.reject(new DOMException("the answer was let go", "AbortError")); });
     var moved = work.forgot(call); // its steps waiting for its own turn run in the let-go chain, with no store (LLP 1146 D2)
     // A released resource's socket handle is stale from now on (D7).
     if (call.socket) { call.socket.state = 3; if (call.socket.close) call.socket.close(); }

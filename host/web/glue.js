@@ -713,8 +713,7 @@ function apply(batch) {
       case "abort": { const c = byTicket.get(op.ticket); byTicket.delete(op.ticket); forgettable.delete(c); c?.abort(); break; } // the app aborted it: cancelled whatever its method, as a browser's fetch is
       case "continue": {
         const requestIncarnation = incarnation;
-        const p = Promise.resolve().then(() => moduleLoader.run(op.token))
-          .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", encoder.encode(JSON.stringify(result))))
+        const p = Promise.resolve().then(() => moduleLoader.run(op.token, result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", encoder.encode(JSON.stringify(result)))))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", encoder.encode(String(error))));
         track(p, op.ticket);
         break;

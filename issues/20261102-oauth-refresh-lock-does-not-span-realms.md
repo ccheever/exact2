@@ -1,6 +1,6 @@
 # OAuth refresh serialization does not span browser tabs or module realms
 
-**Status:** Closed
+**Status:** Open
 **Severity:** P2
 **Systems:** packages/oauth, web, session storage
 **Author:** Codex
@@ -19,3 +19,10 @@ No duplicate found in the available exact2/exact issue corpora, including closed
 **Resolution.** Expose optional store-owned exclusion to OAuth. Browser secret stores use a Web Lock for the shared localStorage key, reload inside that lock, and persist before releasing it. Code exchange, refresh and sign-out use the same exclusion; persistence failures fail closed.
 
 **Verification after the fix.** All 85 OAuth Bun tests passed, including independently loaded OAuth modules with separate cached store instances and a rotating refresh token. Store tests passed fresh reload and failed persistence cases. A real Chromium two-tab probe performed one refresh and both tabs received the fresh token.
+
+
+**Browser follow-up.** The wasm target now exposes store-owned exclusion in the shared prelude. The page acquires the same Web Lock for iframe and worker realms, refreshes the call’s store snapshot under it, and persists protected writes before delivering the result to the runner and releasing ownership. A waiter leaves the realm’s turn queue so the holder’s HTTP continuation can proceed. Forgetting a queued call, retiring a holder and disposing a realm release their ownership. A failed persistence removes the stale token instead of leaving it available for reuse.
+
+**Browser verification.** The actual OAuth package passed independent iframe/iframe, iframe/worker and worker/worker regressions, plus overlapping calls within one iframe or worker. Lifetime regressions cover cancellation, grant refusal and failed persistence. A real Chromium probe shared one rotating session across three tabs: wasm iframe, wasm worker and the JS-target store helper. One refresh occurred and all three read the fresh token under the same Web Lock.
+
+**Remaining native work.** Native sessions can share the same persisted secret: Apple endowment uses Keychain service = app id and account = secret name, without a session prefix. Each runtime still has its own OAuth module and runner snapshot. Native shared exclusion, strict fresh reads and acknowledged persistence are being implemented; this ticket remains open until that path is verified.

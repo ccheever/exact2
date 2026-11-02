@@ -37,6 +37,7 @@ test("a shared-store lock reads another realm's committed value before writing",
     let called = false;
     await expect(exclusiveSecret(store, 'test.', 'token', async () => { called = true; })).rejects.toThrow('persisted');
     expect(called).toBe(false);
+    expect(disk.has('test.token')).toBe(false);
   } finally {
     for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key]; }
   }

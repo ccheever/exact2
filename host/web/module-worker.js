@@ -109,6 +109,7 @@ function init(message) {
   // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
   self.__exact_keys = keyStore(message.storage, self.indexedDB);
   evaluate(message.binary);
+  self.__exact_browser_secrets = true;
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
@@ -125,7 +126,8 @@ function begin(request) {
   context.owner = parked.owner;
   context.requests = parked.requests;
   // A wait for its own timer: the runner's clock reached it (prelude.js `__exact_timer`).
-  if (parked.timer) self.__exact_timer(String(parked.call), String(context.clock ?? ''), 'due');
+  if (request.op === 'secret') self.__exact_secret_ready(String(parked.call), request.secretError ?? '');
+  else if (parked.timer) self.__exact_timer(String(parked.call), String(context.clock ?? ''), 'due');
   else self.__exact_fulfill(String(parked.ticket), JSON.stringify(request.outcome));
   return {tag:3, call:parked.call};
 }
@@ -133,7 +135,8 @@ function begin(request) {
 function finish(answer, request) {
   const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
   if (answer.tag === 1) requestMaps.delete(answer.ticket);
-  if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call, ticket:0, timer:true, requests:context.requests, owner:context.owner});
+  if (answer.tag === 1 && answer.secret !== undefined) pending.set(key(request), {call:answer.call,secret:true,requests:context.requests,owner:context.owner});
+  else if (answer.tag === 1 && answer.timer !== undefined) pending.set(key(request), {call:answer.call, ticket:0, timer:true, requests:context.requests, owner:context.owner});
   else if (answer.tag === 1) {
     result.request = context.requests.get(answer.ticket);
     if (!result.request) throw new Error('module awaits a fetch it never made');
@@ -192,7 +195,7 @@ async function proceed(answer, request, done) {
       answer = JSON.parse(self.__exact_settle(String(answer.call)));
       continue;
     }
-    if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting && answer.timer === undefined) {
+    if (answer.tag === 1 && answer.ticket === 0 && answer.secret === undefined && !answer.waiting && answer.timer === undefined) {
       await storage.deliver(context.owner);
       deliveries++;
       await checkpoint();
