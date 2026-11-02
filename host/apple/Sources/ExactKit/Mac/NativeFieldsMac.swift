@@ -91,6 +91,7 @@ extension NodeView {
         }
         if let editor = field.currentEditor() as? NSTextView { styleFieldEditor(editor) }
         applyPlaceholder(field)
+        field.needsDisplay = true // its cell reads `-webkit-font-smoothing` as it draws
         layoutField()
     }
     /// The field's own alignment and base direction, set once no editor has
@@ -140,6 +141,7 @@ extension NodeView {
     }
     func styleFieldEditor(_ editor: NSTextView) {
         editor.insertionPointColor = caretColor
+        editor.drawAntialiased(drawsAntialiased)
         if isNativeTextControl, !editor.hasMarkedText() {
             let attributes = fieldTextAttributes
             editor.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: editor.string.utf16.count))
@@ -218,6 +220,9 @@ final class SearchFieldCell: NSSearchFieldCell {
     }
     override func searchTextRect(forBounds rect: NSRect) -> NSRect {
         (controlView?.superview as? NodeView)?.nativeEditorRect(in: rect) ?? super.searchTextRect(forBounds: rect)
+    }
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        drawingAntialiased(node?.drawsAntialiased == true) { super.drawInterior(withFrame: cellFrame, in: controlView) }
     }
     private var node: NodeView? { (controlView as? NSTextField)?.delegate as? NodeView }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
