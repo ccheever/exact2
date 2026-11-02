@@ -49,6 +49,20 @@ function prepareRust(source) {
     stdio: 'inherit',
   });
   if (installed.status !== 0) fail(`Pinned Rust toolchain setup failed (${installed.status ?? installed.error?.message})`);
+  const hermes = spawnSync('cargo', [
+    'run',
+    '--manifest-path',
+    join(source, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml'),
+    '--',
+    '--target',
+    'aarch64-apple-ios',
+  ], {
+    cwd: source,
+    env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '0' },
+    encoding: 'utf8',
+    stdio: 'inherit',
+  });
+  if (hermes.status !== 0) fail(`Pinned Hermes setup failed (${hermes.status ?? hermes.error?.message})`);
 }
 
 function provisioningProfilePath(teamId, bundleIdentifier) {
