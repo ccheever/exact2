@@ -1648,6 +1648,7 @@ host.
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove`, `contextmenu` (UI Events makes it one: where the secondary click or long press was; a keyboard's menu key targets the focus) |
 | Zero or one `WheelEvent` (the action takes it or leaves it) | `wheel` |
+| Zero or one `HistorySwipeEvent` (the action takes it or leaves it) | `historyswipe`, on the navigation root |
 | Zero or one `DragEvent` (the action takes it or leaves it) | `drop`, `dragenter`, `dragleave` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
@@ -1803,7 +1804,19 @@ The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
 also carry `navigationKey` (the navigation root; its `navigationBack`, naming the
-Back control, is optional). Transform geometry/release
+Back control, is optional). `historyswipe` belongs there too: on macOS it
+hears the two-finger swipe back or forward as AppKit tracks it, so an app can
+draw its own sign of the swipe (an arrow at the window's edge) while the step
+stays the platform's ([LLP 1115.000](../llp/1115.000-no-tells-on-every-host.rfc.md)
+D5.5). Its `HistorySwipeEvent` has `phase` (`"began"`, `"changed"`, then
+`"ended"` just before the step or `"cancelled"` when the lift goes nowhere),
+`direction` (`"back"` or `"forward"`, the way the swipe set out), `amount`,
+AppKit's `gestureAmount` along that way (0 at rest, 1 a whole page; a slow lift
+steps from about 0.25 on macOS 27, a quick one from less), and `clientX` and
+`clientY`, where the pointer was as the swipe began. The swipe follows
+System Settings › Trackpad › Swipe between pages, so with it off nothing comes.
+The web's browser draws its own arrow and tells the page nothing, so the web,
+iOS, Linux and Windows send none. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
