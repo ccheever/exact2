@@ -1452,15 +1452,16 @@ server's shell):
   the shortcut, where the palette and v0.1.6 read the physical key. Both now count a letter by its physical key, in the
   search field as the reference's onKeyDown does (`menu-keys.contract` `pinChordPressed`). Checked: with the row
   highlighted by the arrows or the pointer, ⇧⌘P pins it and again unpins it, in the filter and in the hero menu
-  (10 of 10). The oracle the same (4 of 4).
+  (14 of 14). The oracle the same (4 of 4).
 - Return 0.15 to 0.3 s after the window became active, with `/bt` and its menu open, inserted a newline instead of
   picking `/btw` (3 of 4; on this session's first bundle two Returns sent `/bt` and two did nothing, in 4). Returning to
   the window resubscribes the shell and thread streams (`transportSignal("foreground")`), and the client counted itself
   not ready until the server's completion markers came, 0.2 to 0.5 s: filmed every 0.1 s, the menu closed and Send
   turned off for that long. Those streams did not fail, so they now stay live while they resume from their cursors
-  (`client.ts` `retryStreams`), as the reference keeps its snapshot through a foreground resubscription. Checked: Return
-  150, 175, 200, 225, 250, 275 and 300 ms after activation picks `/btw` (10 of 10), and filmed, the menu and Send stay
-  (1 of 1). The oracle picks it at 150, 200, 250 and 300 ms (4 of 4).
+  (`client.ts` `retryStreams`), as the reference keeps its snapshot through a foreground resubscription; a slow resume
+  still reads "Syncing messages...". Checked: Return 150, 175, 200, 225, 250, 275 and 300 ms after activation picks
+  `/btw` (14 of 14), and filmed, the menu and Send stay (1 of 1). The oracle picks it at 150, 200, 250 and 300 ms
+  (4 of 4).
 - A two-finger swipe stepped nothing (0 of 11). The cause was the input tool. Its phased events (a small began event,
   then 11 changed ones) are cancelled by AppKit's own swipe tracking in a bare AppKit window too (`trackSwipeEvent`
   reports 0.025, then cancelled), since that tracking reads only the began event's delta from posted events. A began
