@@ -73,7 +73,7 @@ function prepareRust(source) {
   if (dependencies.status !== 0) fail(`Mobile viewer dependency setup failed (${dependencies.status ?? dependencies.error?.message})`);
   const cargoFetch = spawnSync('cargo', ['fetch', '--locked'], {
     cwd: source,
-    env: { ...process.env, CARGO_NET_OFFLINE: '0' },
+    env: { ...process.env, CARGO_NET_OFFLINE: 'false' },
     encoding: 'utf8',
     stdio: 'inherit',
   });
