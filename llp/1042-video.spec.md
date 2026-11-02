@@ -599,8 +599,7 @@ two Browser tabs of each kind floated in turn:
 | Two server tabs' windows | One window. The second tab's request shows its stream in the window already open, which keeps its place and width and takes the new stream's aspect (moved to 300, 200 at 284 × 178, it showed the portrait stream at 300, 200, 284 × 377); the first tab's control resets. Closed and opened again, it opens where it closed, at its width. Near the bottom of the screen it moves up to stay on it (1051, 683 became 1051, 486) | `serverPictureInPicture.ts` closes the one open before (`closeServerPictureInPicture()`); Chromium keeps one video picture-in-picture window, reused for the next video, and places it by `VideoOverlayWindowViews::CalculateAndUpdateWindowBounds` |
 | One of each | Both: the panels and the window float together, and closing either leaves the others | Two mechanisms: Electron windows, and Chromium's window |
 
-None of these windows brings the app forward or takes another app's place
-(§9.1). So, on macOS:
+None of these windows brings the app forward (§9.1). So, on macOS:
 
 - **One picture-in-picture window.** AVKit's panel (§9, unsaid) and Exact's
   `"window"` are the process's one picture-in-picture window, as a
@@ -612,11 +611,11 @@ None of these windows brings the app forward or takes another app's place
   aspect changes, the next image's or its own, it keeps its top left and
   width and takes the new aspect, then moves up and left as far as
   Chromium's opening place where it would leave the screen (the titled panel
-  keeps its area, as §9.1 says). Its opening
-  place is Chromium's too: the bottom right, in from the visible frame's
-  edges by 2% of the room left beside and below it, which is the 17 points
-  of §9.1 for 284 × 178 and 15 for 284 × 377. Closed and asked for again, it
-  opens at the top left and width it closed with.
+  keeps its area, as §9.1 says). Its opening place is Chromium's too: the
+  bottom right, in from the visible frame's edges by 2% of the room left
+  beside and below it, which is the 17 points of §9.1 for 284 × 178 and 15
+  for 284 × 377. Closed and asked for again, it opens at the top left and
+  width it closed with.
 - **A panel per image.** Each `"panel"` request opens a window of its own,
   centred as §9.1 says, beside the picture-in-picture window and the other
   panels; a request for an image already floating in a panel with the same
@@ -632,12 +631,13 @@ window, `tap <image> pictureinpicture …` presses that image's, and
 `screenshot <png> window pictureinpicture <image>` pictures the one the
 image floats in (the image may go unsaid while one window floats).
 
-On the web's JS target the browser keeps one picture-in-picture window and
-one Document Picture-in-Picture window per document, so a request there
-closes the one before of either kind; `exitPictureInPicture()` leaves a
-panel there too. iOS, tvOS and the other hosts refuse as §9.1 says.
+On the web's JS target a request still closes the window before, of either
+kind: a page has one picture-in-picture element and one Document
+Picture-in-Picture window. `exitPictureInPicture()` leaves a panel there
+too. iOS, tvOS and the other hosts refuse as §9.1 says.
 
 Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
+[Document Picture-in-Picture](https://wicg.github.io/document-picture-in-picture/),
 [AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),
 [AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer),
 [HTMLCanvasElement.captureStream()](https://w3c.github.io/mediacapture-fromelement/).
