@@ -494,9 +494,6 @@ filed were moved there or closed). The gaps someone using this app runs into:
   prompt links, whose switch to another machine's Scratch project polls (`fragmentChanged`, queued).
   Time is still an argument, and work outside an answer (the transport's tick, the sidebar's
   graces) is Contract tasks.
-- Text a platform view draws keeps AppKit's font smoothing (LLP 1019 D12): with Font smoothing on,
-  the composer's and the fields' typed text is a shade heavier than the reference's, which draws
-  all of its text `antialiased`.
 - View's zoom scales the root font size, so every `rem` and inherited text size, but not `px` lengths or
   the module's native views, where Electron's page zoom scales the whole page.
 - A completed ⌘Q hold leaves the window as it is until the keys go quiet: the reference leaves full
@@ -788,13 +785,6 @@ above.
   button (VO-F3 "close, button", then VO-Right "minimize, button"; 3 of 3), though it has just read the
   new thread's prompt: Chromium drops the pressed link. The clone's stays on the prompt it read, which
   has the keyboard focus, as VoiceOver's cursor does in an AppKit window.
-- When a thread switch replaces a draft in the focused prompt, VoiceOver reads the old draft as it
-  leaves ("see Turn with file edits now", about 0.6 s after VO-Space on a composer thread chip, cutting
-  off "Message, edit text", or after ⌘⇧[; 3 of 3 each); the reference's reads none of it. Exact's
-  textarea writes the new draft into the same text view (`TextAreaMac.swift` `writeValue`), for which
-  AppKit posts only `AXSelectedTextChanged`, and VoiceOver speaks the text removed from an AppKit text
-  view however it is replaced; Chromium reports the change as an `AXValueChanged` edit naming the
-  removed text, which VoiceOver does not read.
 - The Show in thread details menu, on the thread details card and in Settings › Appearance, closes
   after a choice, as a Mac menu does. The reference's is a Base UI menu whose checkbox items keep it
   open, so several items can be turned on or off in one visit.
@@ -1527,6 +1517,19 @@ Not reachable with a hub: the combined skipped-records warning (neither app has 
 the ChatGPT card's connected accounts (it lists authenticated providers whose own limits carry an external usage link,
 ChatGPT subscription sharing, which a hub account never is; the app tests cover it), and the fallback model notice
 (below).
+
+**Checked with real input and VoiceOver (2026-11-02, the text lane)** (the bundle of this branch with exact2
+#1273 and #1274 merged in, and the before bundle of `8de4044fb6`, each a lane copy on its own bundle id and `HOME`,
+paired with `second` seeded with `--turns`; keys from the HID event source, VoiceOver read from its caption panel;
+the oracle on its own home and port):
+
+- A thread switch in the focused prompt is silent. With drafts in "Turn with file edits" and "Background thread
+  (completed turn)", ⌘⇧] and ⌘⇧[ with the prompt focused: before, VoiceOver spelled or read part of a draft at 6 of 6
+  switches ("h r e a d", "thread" going forward, "Bravo" going back); now at 0 of 12. exact2 #1274 makes the app's
+  write into a focused textarea post nothing VoiceOver reads from (LLP 1045 D5). The drafts stay with their threads.
+- With Font smoothing on, the prompt's typed text draws `antialiased`, as the reference's does: a draft's ink is 14%
+  lighter than before (4078.6 to 3502.0 at 2×), now drawn as the reference draws its own (exact2 #1273, LLP 1019 D12's
+  Fields).
 
 **Fixed, not checked with real input or VoiceOver:**
 
