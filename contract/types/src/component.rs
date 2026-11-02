@@ -688,6 +688,7 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "nexttrack"
             | "stop"
             | "navigate"
+            | "historyswipe"
             | "currententrychange"
             | "navigatesuccess"
             | "navigateerror"

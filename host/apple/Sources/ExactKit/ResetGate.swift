@@ -99,6 +99,7 @@ enum ResetGate {
         "contextmenu(_:now:)": "a context menu asked of the old tree",
         "dblclick(_:now:)": "a double click on the old tree",
         "swiperight(_:now:)": "a swipe on the old tree",
+        "historySwipe(_:phase:direction:amount:client:now:)": "a history swipe's progress told to the old tree's root",
         "scrollend(_:now:)": "an old scroller's end",
         "refresh(_:now:)": "a pull to refresh on the old tree's list",
         "intoView(_:key:block:inline:)": "the agent's scroll into an old list",
