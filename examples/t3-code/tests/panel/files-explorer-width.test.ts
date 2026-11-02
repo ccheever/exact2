@@ -35,6 +35,11 @@ describe('Files explorer width', () => {
     expect(sent).toEqual([['surface-files-explorer-width', '', '160']]);
   });
 
+  test('before its row is measured it has the saved width, as FileExplorerPane\'s maxWidth starts at 560', () => {
+    const scope = { max: Math.max, min: Math.min, files: { path: 'src/a.ts', preview: 'code', explorerWidth: 320 }, local() {} };
+    expect(surface.derives(surface.state(scope), scope).explorerWidth).toBe(320);
+  });
+
   test('a wide row caps it at 560, and a narrow one keeps 160', () => {
     const wide = mounted(256, 2000);
     wide.scope.files.explorerWidth = 256;

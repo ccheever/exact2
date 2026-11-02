@@ -35,7 +35,7 @@ describe('EnvironmentProviderSettings routing', () => {
   it('routes refresh and provider update commands to the selected environment', async () => {
     const fake = new Fake();
     await runProviderOp(fake, fake, 'provider-refresh', '', '{}');
-    expect(fake.called('server.refreshProviders')).toEqual([{ refreshModels: true }]);
+    expect(fake.called('server.refreshProviders')).toEqual([{ refreshModels: true, reloadSecrets: true }]);
     const card = withUpkeep(fake, providerPage(fake, 'codex', 0)).editors[0]!.update;
     expect(card.action).toBe('Update now'); // onRunUpdate is offered
     await providerUpkeepOp(fake, fake, 'upkeep:update', 'codex', '', '');

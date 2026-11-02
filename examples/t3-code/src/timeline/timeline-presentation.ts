@@ -11,6 +11,7 @@ import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link'
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
 import { openThreadLinkTarget, relabelThreadLinks } from './thread-links';
 import { isThreadScope } from '../client/scope-root';
+import { answerExternalOpen } from '../client/external-open';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
@@ -128,6 +129,7 @@ export function headerRenameDir(client: T3Client, title: string): string {
  */
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op === 'save-complete') { completeSave(client, Number(id)); return ''; }
+  if (op === 'external-open-answer') { answerExternalOpen(Number(id), value); return ''; } // `openURL`'s answer (external-open.ts)
   if (op.startsWith('inline-doc-')) { await inlineDocumentEvent(client, id, op.slice(11), value, native, storage, image => openInlineDocumentImage(client, image.src, image.name, `inline-frame-${id}`)); return ''; }
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim(), '', 'preserve'); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // the right panel's surfaces (window chatLocal)

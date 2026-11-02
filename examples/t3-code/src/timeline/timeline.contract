@@ -726,7 +726,7 @@ component RevertDialog
   derive dialogTargets = ["revert-cancel", "revert-keep"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="revert-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="revert-description" aria-label="Edit from here?" testId="revert-dialog" id="revert-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("revert-dialog") key=dialogFallback("revert-dialog", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-describedby="revert-description" aria-label="Edit from here?" testId="revert-dialog" id="revert-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("revert-dialog") key=dialogFallback("revert-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="revert-guard-start", targets=dialogTargets, popup="revert-dialog")
         DialogOpenFocus(target="revert-cancel")

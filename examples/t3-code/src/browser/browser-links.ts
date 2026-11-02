@@ -129,7 +129,7 @@ export async function openFileInPreview(client: T3Client, native: Native, ref: S
 
 /** ElectronShell.openExternal (external-open.ts; an agent run journals the URL). */
 export async function openInSystemBrowser(url: string): Promise<void> {
-  if (!openExternal(url)) throw new ClientError('Link opening is unavailable.');
+  if (!(await openExternal(url))) throw new ClientError('Unable to open link.');
 }
 
 /** useOpenLink: the setting decides; a failed in-app open falls back to the system browser rather than dropping the click.

@@ -107,6 +107,8 @@ export class T3Client {
   origin = DEFAULT_ORIGIN;
   connection = 'disconnected';
   statusMessage = 'Connect to your T3 Code server.';
+  /** The failed attempt the focused connection's retry waits after, 0 while none waits (transport-session.ts status). */
+  backoffAttempt = 0;
   error = '';
   shell: Shell = initialShell();
   thread: ThreadState | null = null;
@@ -367,6 +369,7 @@ export class T3Client {
     this.origin = str(value.origin) || this.origin;
     this.connection = str(value.state, 'disconnected');
     this.statusMessage = str(value.message);
+    this.backoffAttempt = Number(value.backoffAttempt) || 0;
     // A ref list scrolled toward its end asks its source again for the next page (ref-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
     // A Browser tab's page as its hatch reports it (T3BrowserPage.swift: its size, separate window and recording).

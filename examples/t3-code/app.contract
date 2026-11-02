@@ -63,7 +63,7 @@ routes promptLinks
 
 component T3Code
   resource promptLinkPage = promptLinkView(data.revision) as shape PromptLinkView
-  resource promptLinksReady = promptLinksReady(data.revision, transportSeen) as shape bool
+  resource promptLinksReady = promptLinksReady(data.revision, transportSeen, searchParam(top(promptLinks), "u")) as shape bool // the incoming link: only some wait for the projects
   task incomingPromptLink when top(promptLinks).name == "incoming" and promptLinksReady and not welcome.show and not commandPending
     after(1, promptLinkReceived)
   action promptLinkReceived
@@ -148,6 +148,8 @@ component T3Code
     pickerAnnounce
     modelPickTaken
     workspaceEntered // F6's workspace areas (src/shell/shell-members.contract)
+    confirmationFocused // the confirmation that holds the focus (src/shell/shell-members.contract)
+    confirmationClosed
     workspaceMove
     triageCopied // the triage hero's "Copied" (src/shell/shell-members.contract)
     triageCopy
@@ -715,7 +717,7 @@ component T3Code
   state licenseExpanded = ""
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
-  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp != "" ? confirmOp : (data.composer.resetConfirm != "" or data.revertPending != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm ? "alertdialog" : ""), shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp != "" ? confirmOp : (data.composer.resetConfirm != "" or data.revertPending != "" or data.serverUpdate.confirmTitle != "" or data.updateEverything.confirm or confirmationFocus != "" ? "alertdialog" : ""), shell.panel.kind, prTab == "code", undoClaimed, shell.panel.open and shell.panel.kind == "file", shell.panel.files.editorShow and shell.panel.files.editorUnavailable == "" and shell.panel.files.editorId != "" ? shell.panel.files.absolutePath : "") as shape KeyDispatch[]
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and (settingsRoute == "browser" or settingsRoute == "devices"), settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape IntegrationsPage
   state removalAt = ""

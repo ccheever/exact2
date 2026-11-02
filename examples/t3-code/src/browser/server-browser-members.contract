@@ -85,18 +85,21 @@ members T3Code
   action streamUpload(id: string, chooser: string, files: Picked[])
     send serverBrowserUploaded = serverBrowserUpload(id, chooser, files)
   // ElectronShell.openExternal (external-open.ts): a link the data module accepted opens once per serial; app.json's
-  // open_url.schemes lets openURL hand the remote editors' deep links to the system. The data module outlives View ›
-  // Reload, which boots this plan again: the serial standing at the first answer is this boot's baseline, so the last
-  // link does not open again.
+  // open_url.schemes lets openURL hand the remote editors' deep links to the system, and whether it opened comes back
+  // through the window's `external-open-answer` (app-window.contract). The data module outlives View › Reload, which
+  // boots this plan again: the serial standing at the first answer is this boot's baseline, so the last link does not
+  // open again, and an open still waiting on it hears `opened`, as it would have. That first word also tells the data
+  // module that a plan answers, so later opens wait for theirs.
   state externalOpenFrom = -1
   task externalOpenBaseline when externalOpenFrom < 0 and data.revision > 0
     after(1, externalOpenBaselineTaken)
   action externalOpenBaselineTaken
     externalOpenFrom = data.externalOpen.serial
+    chatLocal("external-open-answer", `${data.externalOpen.serial}`, "opened")
   task externalOpen when externalOpenFrom >= 0 and data.externalOpen.serial > externalOpenFrom key=data.externalOpen.serial
     after(1, openExternalUrl)
   action openExternalUrl
-    openURL(data.externalOpen.url)
+    openURL(data.externalOpen.url, "external-open-answer")
   task streamClipboard when serverFrame.clipboardSequence > 0 key=`${serverFrame.runtimeId}:${serverFrame.clipboardSequence}`
     after(1, streamCopyClipboard)
   action streamCopyClipboard

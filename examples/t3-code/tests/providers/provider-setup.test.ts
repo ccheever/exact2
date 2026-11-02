@@ -11,7 +11,7 @@ import { providerPage, providerSetupStreams, providerWizard, runProviderOp, type
 import { providerSetupEvent, providerSetupOp, setupOf, watchProviderSetup } from '../../src/providers/provider-setup';
 import { redactedPlaceholder } from '../../src/shared/redacted-text';
 import { appPath } from '../support/app-files';
-import { externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
+import { answerExternalOpen, awaitExternalOpenAnswersForTests, externalOpenRequest, externalOpensForTests, resetExternalOpensForTests } from '../../src/client/external-open';
 
 const instanceId = 'antigravity_work';
 const provider = (extra: Obj = {}): Obj => ({ instanceId, driver: 'antigravity', installed: true, enabled: true, version: 'test-version', status: 'error',
@@ -238,6 +238,20 @@ describe('provider setup in the clone', () => {
     expect(fake.log).toEqual(['rpc:provider.auth.respond']);
     expect(fake.account().error).toBe('Consent expired.');
     expect(externalOpensForTests()).toEqual(['https://cursor.com/login?state=x']);
+  });
+
+  // ProviderAuthenticationSection openBrowser: an open the system cannot perform leaves its message on the row.
+  test('a sign-in page that does not open says so on the Account row', async () => {
+    const interaction = { type: 'browser', id: 'i', url: 'https://cursor.com/login?state=y', requiresConsent: false };
+    const fake = await rendered(authState({ interaction, authorizationUrl: null }));
+    awaitExternalOpenAnswersForTests(true);
+    try {
+      const pressed = fake.press('setup:auth-open', fake.account().draftId);
+      await Promise.resolve();
+      answerExternalOpen(externalOpenRequest().serial, 'failed');
+      await pressed;
+      expect(fake.account().error).toBe('Could not open the sign-in page. Copy the link and open it in your browser.');
+    } finally { awaitExternalOpenAnswersForTests(false); }
   });
 
   test('copy link copies first, then records consent; no consent without requiresConsent', async () => {

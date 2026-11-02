@@ -101,6 +101,9 @@ component NetworkDialogs
 
 // "Enable network access?" / "Disable network access?" (AlertDialog, default confirm).
 component NetworkAccessDialog
+  inject
+    confirmationEntered: action // the window's chords wait while the focus is in a confirmation (app-window.contract)
+    confirmationClosed: action
   props
     enabling: bool
     busy: bool
@@ -124,7 +127,7 @@ component NetworkAccessDialog
       focus("network-access-cancel")
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="network-access-overlay"
-      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="network-access-description" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="network-access-description" aria-modal=true aria-label=(enabling ? "Enable network access?" : "Disable network access?") testId="network-access-dialog" id="network-access-dialog" data-confirmation="open" focusin=confirmationEntered("network-access-dialog") focusout=confirmationClosed("network-access-dialog")
         DialogOpenFocus(target="network-access-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text (enabling ? "Enable network access?" : "Disable network access?") font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2 testId="network-access-title"
@@ -135,6 +138,9 @@ component NetworkAccessDialog
 
 // "Disable Tailscale HTTPS?" (AlertDialog, destructive confirm).
 component TailscaleDisableDialog
+  inject
+    confirmationEntered: action // the window's chords wait while the focus is in a confirmation (app-window.contract)
+    confirmationClosed: action
   props
     busy: bool
     still: bool
@@ -157,7 +163,7 @@ component TailscaleDisableDialog
       focus("tailscale-disable-cancel")
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="tailscale-disable-overlay"
-      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="tailscale-disable-description" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog"
+      column class=NdPopup max-width="32rem" animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="alertdialog" aria-describedby="tailscale-disable-description" aria-modal=true aria-label="Disable Tailscale HTTPS?" testId="tailscale-disable-dialog" id="tailscale-disable-dialog" data-confirmation="open" focusin=confirmationEntered("tailscale-disable-dialog") focusout=confirmationClosed("tailscale-disable-dialog")
         DialogOpenFocus(target="tailscale-disable-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Disable Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" role="heading" aria-level=2

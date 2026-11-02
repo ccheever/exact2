@@ -150,7 +150,7 @@ component BrowserProfileDialogs
   view
     if view.removalOpen
       column class=BpOverlay testId="browser-profile-remove-overlay"
-        column class=BpPopup role="alertdialog" aria-describedby="browser-profile-remove-description" aria-modal=dialogSeated.includes("browser-profile-remove-dialog") aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
+        column class=BpPopup role="alertdialog" aria-describedby="browser-profile-remove-description" aria-modal=dialogSeated.includes("browser-profile-remove-dialog") aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" data-confirmation="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
           // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
           FocusGuard(guardId="browser-profile-remove-guard-start", targets=dialogTargets, popup="browser-profile-remove-dialog")
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"

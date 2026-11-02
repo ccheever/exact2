@@ -158,7 +158,7 @@ async function authTerminalMessage(client: T3Client, native: Native, args: unkno
   if (await terminalFrameMessage(AUTH_TERMINALS, authFrameId(String(args[1] || '')), event, { mint: () => mintTerminalSocket(client, native, environmentId) })) return true;
   if (event.type !== 'link') return false;
   const text = str(event.text);
-  if (!/^https?:\/\//i.test(text) || openExternal(text)) return true;
+  if (!/^https?:\/\//i.test(text) || await openExternal(text)) return true;
   args[3] = JSON.stringify({ ...event, type: 'link-error' });
   return false;
 }
