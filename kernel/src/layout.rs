@@ -364,6 +364,11 @@ impl LayoutTree {
         self.taffy.multicol_bounds(node)
     }
 
+    /// The origin of the grid area `node` was last placed in, in its grid's coordinates (patch 69).
+    pub(crate) fn grid_area(&self, node: NodeId) -> Option<taffy::geometry::Point<f32>> {
+        self.taffy.grid_area(node)
+    }
+
     /// An empty tree.
     pub fn new() -> Self {
         // Frames are CSS pixel geometry, not a host's raster grid. Rounding

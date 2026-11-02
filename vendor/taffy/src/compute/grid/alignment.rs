@@ -415,6 +415,8 @@ pub(super) fn align_and_position_item(
 
     let resolved_margin = Rect { left: x_margin.start, right: x_margin.end, top: y_margin.start, bottom: y_margin.end };
 
+    // EXACT PATCH 69: the area, for a caller that places what the item holds outside it.
+    tree.set_grid_area(node, Point { x: grid_area.left, y: grid_area.top });
     tree.set_unrounded_layout(
         node,
         &Layout {

@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67 and 68 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68 and 69 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -2179,3 +2179,28 @@ two widths decides. Frames are unchanged.
 and a preview) measure 82 texts, 3,266 before; the 330 rows' first layout
 measures 13,530, 48,840 before; every moved row keeps its size. Every
 `browser_*` Chrome case and the layout-equality comparisons pass unchanged.
+
+## Patch 69: a grid item's area origin, for its caller — Exact's
+
+A table's row or row group keeps no engine children: its cells are the
+table grid's items beside it, and the kernel places them from the grid's
+origin, moved as the row is moved (`kernel/src/layout/table.rs`,
+`displacement`). How far the engine moved the row from its grid area — a
+relative offset as Taffy resolves it (percentages, `calc()`, `right` over
+`left` right to left), or an absolutely positioned row's insets, whichever
+box contains it — is its location less that area's origin, which only the
+grid algorithm knows. `LayoutPartialTree::set_grid_area` (default: nothing)
+receives the origin each time a grid places a child: an in-flow item's area
+in `grid::alignment::align_and_position_item`, an absolutely positioned
+child's in `compute_grid_layout`'s out-of-flow pass, in the grid's border-box
+coordinates, as `location` is. `TaffyTree` keeps it (`grid_area(node)`,
+`None` for a node no grid placed), and a replay (patch 29) writes it as the
+recorded layout did (`Event::Area`). No algorithm reads it; frames are
+unchanged.
+
+**Held by** `kernel/tests/it/table.rs`:
+`the_grid_reports_each_items_area_and_places_it_as_before` (the areas, and
+an in-flow and an absolute item placed where they were before the patch),
+`a_popover_row_before_a_viewport_keeps_its_cells_on_it` and
+`a_relative_rows_cells_take_the_engines_offset`. Every `browser_*` Chrome
+case and the layout-equality comparisons pass unchanged.

@@ -235,7 +235,7 @@ pub(super) fn publish(
         // the grid's origin, moved with the row or group as it is moved
         // relatively. A table that is another box holds its grid.
         let (fx, fy) = if tree.tables.flat(slot) {
-            let (dx, dy) = super::table::relative(arena, slot);
+            let (dx, dy) = super::table::displacement(arena, tree, slot);
             (ox + dx, oy + dy)
         } else if let Some(grid) = tree.tables.anon(slot) {
             let l = tree.layout(grid);
