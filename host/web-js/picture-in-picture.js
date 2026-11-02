@@ -13,7 +13,8 @@
 // and it opens at `width` by `height` at the picture's aspect. A browser
 // without it floats the default way.
 
-// One floating element per document, as the Picture-in-Picture API keeps.
+// One floating element per document: the browser keeps one picture-in-picture window, and
+// one Document Picture-in-Picture window, so a request closes the one before, of either kind.
 let active = null;
 
 // A failed request is the element's `pictureinpictureerror`, whose detail is the reason: HTML's
@@ -95,6 +96,7 @@ function floatWindow(img, options, refuse) {
   let entered = false;
   current = {
     img,
+    panel: options.presentation === "panel",
     stop(heard) {
       if (active !== current) return;
       active = null;
@@ -128,8 +130,9 @@ function floatWindow(img, options, refuse) {
 }
 
 /** `exitPictureInPicture()`: the floating image leaves the window and hears it, as HTML's
- *  document.exitPictureInPicture() ends the document's one picture-in-picture element. */
+ *  document.exitPictureInPicture() ends the document's one picture-in-picture element. A panel
+ *  is a window of its own, as on macOS, and stays. */
 export function exit(say) {
-  if (!active) return say("exitPictureInPicture ignored: no image is in picture in picture");
+  if (!active || active.panel) return say("exitPictureInPicture ignored: no image is in the picture-in-picture window");
   active.stop(true);
 }
