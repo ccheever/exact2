@@ -264,7 +264,7 @@ function copies(read, files) {
 
 export async function generate() {
   const { files, read } = await bundle();
-  const style = ['viewer.css', join('pdf', 'pdf-viewer.css')].map(name => readFileSync(join(host, 'src', name), 'utf8')).join('\n');
+  const style = ['viewer.css', join('pdf', 'pdf-viewer.css'), join('pdf', 'browser-pdf-viewer.css')].map(name => readFileSync(join(host, 'src', name), 'utf8')).join('\n');
   return [...files, ...copies(read, files), { file: join(out, 'index.html'), text: page() }, { file: join(out, 'viewer.css'), text: style }];
 }
 
