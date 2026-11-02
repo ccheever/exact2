@@ -31,6 +31,26 @@ its time counts too.
 
 ## Whose failure it is, and what has run
 
+- **`bun scripts/affected.mjs`** lists the suites a branch's changes can affect
+  (the working tree included) and how to run each. `--run` runs the selected
+  Cargo and Bun suites, and `--why <suite>` shows the changed file that
+  selected a suite and how the suite reaches it. A suite's inputs come from
+  its sources: Cargo's dependencies, imports, and the paths, packages, apps
+  and platforms its tests name. The async lane makes the same selection on
+  each commit, keeps a failure until a run covers it again, and runs every
+  step in full at least daily.
+  For a test to be selected when what it reads changes, name what it reads: a
+  path (from the root or from the test's own directory), `--app <name>` or
+  `resolveApp('<name>')`, `-p <package>`, or the platform in the call that
+  drives it (`spawnSync('bun', [agent, 'ios', …])`, `open({ host: 'web' })`).
+  Shared code (`scripts/`, a library) that names an app by name, or another
+  platform's host, is taken to build or drive what its caller asks for, so a
+  test that relies on it reading a particular app must name that app itself.
+  `--audit <suite>` runs a suite with every unit outside its inputs unreadable
+  (`sandbox-exec`), to find a read the selection misses. It sees what the suite
+  reads as it runs, not what an earlier build read: a file a Rust crate
+  includes (`include_str!`, `#[path]`) or a build script's input shows only
+  when the audit builds that crate again.
 - **`bun scripts/known.mjs -- <command>`** runs `cargo test …`, `bun test …` or
   `bun host/apple/build.mjs --test …` and, when it fails, sorts each failing
   test against the async lane's record of origin/main (LLP 1146 D1): **known**
