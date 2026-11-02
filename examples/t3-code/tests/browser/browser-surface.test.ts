@@ -18,6 +18,7 @@ import {
   reconcileBrowserSurfaces, syncNativeSessions, alternatePreviewRuntime, type NativeTab, type Rpc,
 } from '../../src/browser/browser-surface';
 import { toasts } from '../../src/shell/toast';
+import { contractComponent } from '../support/contract-action-fixture';
 import { adoptFrameEvent, frameCommandDone, frameCommandView, frameIdOf, frames, partitionOf } from '../../src/browser/browser-frames';
 import { PreviewStateStore, previewRuntimeTabId, type PreviewSessionSnapshot } from '../../src/browser/browser-state';
 import { BrowserSettingsReadError, resolveBrowserDefaults } from '../../src/browser/browser-profiles';
@@ -576,6 +577,23 @@ describe('Browser errors under frozen intrinsics', () => {
       expect(new BrowserRecordingError('RecordingFailed', 'x').name).toBe('RecordingFailed');
       expect(new TerminalLinkPreviewOpenError(threadRef, 'http://localhost:1', null).name).toBe('TerminalLinkPreviewOpenError');
     } finally { Object.defineProperty(Error.prototype, 'name', original); }
+  });
+});
+
+// PreviewChromeRow submit: Enter goes to the address and leaves the field. The field takes the key itself, so AppKit's
+// re-selection after a text field's Return action cannot hold the focus there.
+describe('the address bar\'s Enter', () => {
+  const chrome = contractComponent('browser-surface.contract', 'BrowserChrome');
+  const enter = (draft: string, e: object = {}) => {
+    const calls: unknown[][] = [], state: Record<string, unknown> = { ...chrome.state(), draft, touched: true, focused: true };
+    chrome.call('fieldKey', state, { view: { tabId: 'tab-1', url: '' }, local: (...args: unknown[]) => calls.push(['local', ...args]), blur: () => calls.push(['blur']),
+      preventDefault: () => calls.push(['preventDefault']), focus() {}, selectText() {} }, ['Enter', { isComposing: false, ...e }]);
+    return calls;
+  };
+  it('navigates and blurs; a blank draft only keeps the key; a composing Return is the input method\'s', () => {
+    expect(enter('mailto:alice@example.com')).toEqual([['preventDefault'], ['local', 'surface-browser-navigate', 'tab-1', 'mailto:alice@example.com'], ['blur']]);
+    expect(enter('  ')).toEqual([['preventDefault']]);
+    expect(enter('example.com', { isComposing: true })).toEqual([]);
   });
 });
 

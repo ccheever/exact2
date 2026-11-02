@@ -122,7 +122,12 @@ component BrowserChrome
       local("surface-browser-navigate", view.tabId, draft)
       touched = false
       blur()
-  action fieldKey(k: string)
+  // Return goes there and leaves the field (PreviewChromeRow submit). The field takes the key itself: AppKit selects a
+  // text field's text again once its Return action returns, which would undo the blur.
+  action fieldKey(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.isComposing
+      preventDefault()
+      go()
     if k == "Escape"
       preventDefault()
       draft = view.url
