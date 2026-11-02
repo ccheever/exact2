@@ -80,10 +80,138 @@ pub(super) fn store_snapshot(app_id: &str, carried: bool) -> Vec<(String, Vec<u8
     out
 }
 
+pub(super) fn secret_namespace(roots: &StoreRoots) -> Option<exact_data::secrets::Namespace> {
+    roots
+        .as_ref()
+        .ok()?
+        .as_ref()?
+        .1
+        .as_ref()
+        .map(|root| exact_data::secrets::Namespace::disk(root.join("secret-leases")))
+}
+
+pub(super) fn write_stamps(
+    roots: &StoreRoots,
+    writes: &[exact_runner::StoreWrite],
+) -> Vec<Option<exact_data::secrets::Stamp>> {
+    let namespace = secret_namespace(roots);
+    writes
+        .iter()
+        .map(|write| {
+            if write.durable
+                || write.name.starts_with(exact_runner::Store::KEPT)
+                || write.name.starts_with(exact_runner::Store::STATE)
+            {
+                return None;
+            }
+            namespace
+                .as_ref()
+                .map(|namespace| namespace.stamp(&write.name))
+        })
+        .collect()
+}
+
+struct SecretFiles(ibex2::secrets::FileStore, PathBuf);
+impl exact_data::secrets::Backend for SecretFiles {
+    fn read(&self, name: &str) -> Result<Option<String>, String> {
+        ibex2::secrets::SecretStore::get(&self.0, name).map_err(|error| error.to_string())
+    }
+    fn write(&self, name: &str, value: Option<&str>) -> Result<(), String> {
+        match value {
+            Some(value) => ibex2::secrets::SecretStore::set(&self.0, name, value),
+            None => ibex2::secrets::SecretStore::forget(&self.0, name),
+        }
+        .map_err(|error| error.to_string())?;
+        exact_data::secrets::sync_directory_chain(&self.1)
+    }
+}
+
+pub(super) fn shared_secrets(app: &str) -> Option<std::sync::Arc<dyn exact_runner::SharedSecrets>> {
+    let roots = store_roots(app);
+    let namespace = secret_namespace(&roots)?;
+    let root = roots.ok()??.1?;
+    Some(std::sync::Arc::new(exact_data::secrets::Coordinator::new(
+        namespace,
+        std::sync::Arc::new(SecretFiles(
+            ibex2::secrets::FileStore::new(root.join("secrets")),
+            root.join("secrets"),
+        )),
+    )))
+}
+
+struct SecretMemory(ibex2::secrets::MemoryStore);
+impl exact_data::secrets::Backend for SecretMemory {
+    fn read(&self, name: &str) -> Result<Option<String>, String> {
+        ibex2::secrets::SecretStore::get(&self.0, name).map_err(|error| error.to_string())
+    }
+    fn write(&self, name: &str, value: Option<&str>) -> Result<(), String> {
+        match value {
+            Some(value) => ibex2::secrets::SecretStore::set(&self.0, name, value),
+            None => ibex2::secrets::SecretStore::forget(&self.0, name),
+        }
+        .map_err(|error| error.to_string())
+    }
+}
+
+pub(super) struct SecretSession {
+    pub shared: std::sync::Arc<dyn exact_runner::SharedSecrets>,
+    memory: Option<(exact_data::secrets::Namespace, std::sync::Arc<SecretMemory>)>,
+}
+impl SecretSession {
+    pub fn new(app: &str) -> Result<Self, String> {
+        store_roots(app)?;
+        if let Some(shared) = shared_secrets(app) {
+            return Ok(Self {
+                shared,
+                memory: None,
+            });
+        }
+        let namespace = exact_data::secrets::Namespace::memory();
+        let backend = std::sync::Arc::new(SecretMemory(ibex2::secrets::MemoryStore::new()));
+        Ok(Self {
+            shared: std::sync::Arc::new(exact_data::secrets::Coordinator::new(
+                namespace.clone(),
+                backend.clone(),
+            )),
+            memory: Some((namespace, backend)),
+        })
+    }
+    pub fn seed(&self, snapshot: Vec<(String, Vec<u8>)>) {
+        use exact_data::secrets::Backend;
+        if let Some((_, backend)) = &self.memory {
+            for (name, value) in snapshot {
+                if ibex2::secrets::is_valid_name(&name) {
+                    let _ = backend.write(&name, Some(&String::from_utf8_lossy(&value)));
+                }
+            }
+        }
+    }
+    pub fn remember(&self, writes: &[exact_runner::StoreWrite]) -> Vec<String> {
+        use exact_data::secrets::Backend;
+        let Some((namespace, backend)) = &self.memory else {
+            return Vec::new();
+        };
+        writes
+            .iter()
+            .filter(|write| !write.durable && ibex2::secrets::is_valid_name(&write.name))
+            .filter_map(|write| {
+                let stamp = namespace.stamp(&write.name);
+                let value = write.value.as_deref().map(String::from_utf8_lossy);
+                namespace
+                    .write(&write.name, &stamp, || {
+                        backend.write(&write.name, value.as_deref())
+                    })
+                    .err()
+            })
+            .collect()
+    }
+}
+
 #[derive(Default)]
 pub(super) struct StoreWrites(std::collections::BTreeMap<String, PendingWrite>);
 
 struct PendingWrite {
+    stamp: Option<exact_data::secrets::Stamp>,
     value: Option<Vec<u8>>,
     warned: bool,
 }
@@ -118,7 +246,9 @@ impl StoreWrites {
         app_id: &str,
         writes: &[exact_runner::StoreWrite],
     ) -> Vec<String> {
-        self.flush_to(&store_roots(app_id), writes)
+        let roots = store_roots(app_id);
+        let stamps = write_stamps(&roots, writes);
+        self.flush_to(&roots, writes, &stamps)
     }
 
     /// [`StoreWrites::flush`] to `roots`, resolved when the writes were
@@ -127,11 +257,17 @@ impl StoreWrites {
         &mut self,
         roots: &StoreRoots,
         writes: &[exact_runner::StoreWrite],
+        stamps: &[Option<exact_data::secrets::Stamp>],
     ) -> Vec<String> {
-        for write in writes {
+        for (write, stamp) in writes.iter().zip(stamps) {
+            if write.durable {
+                self.0.remove(&write.name);
+                continue;
+            }
             self.0.insert(
                 write.name.clone(),
                 PendingWrite {
+                    stamp: stamp.clone(),
                     value: write.value.clone(),
                     warned: false,
                 },
@@ -153,6 +289,7 @@ impl StoreWrites {
             )),
             Err(error) => Err(error.clone()),
         };
+        let namespace = secret_namespace(roots);
         let mut errors = Vec::new();
         self.0.retain(|name, pending| {
             let result = stores
@@ -170,17 +307,33 @@ impl StoreWrites {
                             Some(value) => ibex2::kv::KvStore::set(kv, scope, key, value),
                             None => ibex2::kv::KvStore::delete(kv, scope, key),
                         },
-                        None => match secrets {
-                            Some(secrets) => match &pending.value {
-                                Some(value) => ibex2::secrets::SecretStore::set(
-                                    secrets,
+                        None => {
+                            let write = || {
+                                match secrets {
+                                    Some(secrets) => match &pending.value {
+                                        Some(value) => ibex2::secrets::SecretStore::set(
+                                            secrets,
+                                            name,
+                                            &String::from_utf8_lossy(value),
+                                        ),
+                                        None => ibex2::secrets::SecretStore::forget(secrets, name),
+                                    },
+                                    None => Ok(()),
+                                }
+                                .map_err(|error| error.to_string())
+                            };
+                            return match (&namespace, &pending.stamp) {
+                                (Some(namespace), Some(stamp)) => {
+                                    namespace.write(name, stamp, write)
+                                }
+                                (Some(namespace), None) => namespace.write(
                                     name,
-                                    &String::from_utf8_lossy(value),
+                                    &exact_data::secrets::Stamp::unresolved(),
+                                    write,
                                 ),
-                                None => ibex2::secrets::SecretStore::forget(secrets, name),
-                            },
-                            None => Ok(()),
-                        },
+                                _ => write(),
+                            };
+                        }
                     }
                     .map_err(|e| e.to_string())
                 });

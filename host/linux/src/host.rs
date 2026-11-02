@@ -90,6 +90,7 @@ impl PlanBytes<'_> {
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    secret_session: system::SecretSession,
     doc_watch: Option<crate::doc_watch::DocWatch>,
     font_sync: Option<(crate::text::Shared, usize)>,
     engine: Engine,
@@ -216,7 +217,7 @@ impl<D: DataSource> Host<D> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_decoded(
         plan: Plan,
-        data: D,
+        mut data: D,
         measurer: Box<dyn TextMeasurer>,
         width: f32,
         height: f32,
@@ -266,6 +267,15 @@ impl<D: DataSource> Host<D> {
             .for_each(|p| store_snapshot.extend(p.snapshot.clone()));
         #[cfg(target_os = "macos")]
         let boot_trace = exact_ink::device::apple::Trace::new(c"boot runner through first commit");
+        let secret_session =
+            system::SecretSession::new(data.app_id()).map_err(HostError::Layout)?;
+        secret_session.seed(
+            carried
+                .map(|carried| carried.store.clone())
+                .unwrap_or_else(|| store_snapshot.clone()),
+        );
+        data.configure_secrets(secret_session.shared.clone())
+            .map_err(|error| HostError::Layout(format!("shared secrets: {error:?}")))?;
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -292,6 +302,7 @@ impl<D: DataSource> Host<D> {
         }
         let mut host = Host {
             runner,
+            secret_session,
             doc_watch: None,
             font_sync: font_sync.map(|text| (text, 0)),
             engine: Engine::new(),
@@ -1345,11 +1356,14 @@ impl<D: DataSource> Host<D> {
             self.discover_height_handles();
             self.discover_transform_handles();
         }
-        // A nameless drive keeps secrets in the runner only (LLP 1018). A
+        // A nameless drive keeps secrets in a session-local backend (LLP 1018). A
         // named `--storage` drive writes them into that scratch tree, so a
         // reload reads them back (platformer R10). The log is taken either way.
         // Written by the store's own thread (`store_writer.rs`), so no frame waits on a file's sync.
         let writes = self.runner.take_store_writes();
+        for line in self.secret_session.remember(&writes) {
+            self.runner.log(line);
+        }
         let app_id = self.runner.data().app_id().to_string();
         for line in store_writer::submit(&app_id, writes) {
             self.runner.log(line);

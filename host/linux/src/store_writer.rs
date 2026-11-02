@@ -30,6 +30,7 @@ struct Commit {
     app: String,
     roots: StoreRoots,
     writes: Vec<exact_runner::StoreWrite>,
+    stamps: Vec<Option<exact_data::secrets::Stamp>>,
 }
 
 #[derive(Default)]
@@ -91,7 +92,7 @@ fn write_all(writer: &'static Writer) {
         #[cfg(test)]
         tests::step();
         let store = stores.entry(commit.app.clone()).or_default();
-        let warnings = store.flush_to(&commit.roots, &commit.writes);
+        let warnings = store.flush_to(&commit.roots, &commit.writes, &commit.stamps);
         let pending = store.pending();
         #[cfg(test)]
         tests::finished();
@@ -138,10 +139,12 @@ fn queue_commit(
         }
     }
     queue.roots.insert(app.to_string(), roots.clone());
+    let stamps = super::system::write_stamps(&roots, &writes);
     queue.commits.push_back(Commit {
         app: app.to_string(),
         roots,
         writes,
+        stamps,
     });
     true
 }
