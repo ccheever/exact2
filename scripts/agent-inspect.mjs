@@ -234,6 +234,8 @@ const TABLE_ELEMENTS = /^(table|caption|thead|tbody|tfoot|tr|th|td|dl|dt|dd)$/;
  * authored frames times the factor, which no style asked for and none should undo. */
 export const scaledLines = (layout) => (layout?.scaled ?? []).map((p) =>
   `route ${p.route || '?'} is a ${p.presentation} the platform draws at ${p.scale} of its laid-out size: its boxes are the authored frames × ${p.scale}, not the app's doing`);
+/** The floating image's window on its `tree` row (LLP 1042 §9.1): its kind, title, frame on screen and controls. */
+export const pictureInPictureNote = (w) => w ? ` pictureInPicture{${w.presentation} ${JSON.stringify(w.title)} ${w.open ? 'open' : 'closed'} at ${(w.frame ?? []).join(',')} controls ${(w.controls ?? []).join(',')}${w.controlsShown ? ' shown' : ''}}` : '';
 export function render(op, r, how = {}) {
   if (op === 'ax' || (op === 'tree' && r.ax)) return renderAx(r); // LLP 1080.002 D9
   const q = JSON.stringify;
@@ -248,7 +250,7 @@ export function render(op, r, how = {}) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${TABLE_ELEMENTS.test(p.semanticTag ?? '') ? ` <${p.semanticTag}>` : ''}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.hidden ? " [hidden]" : n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.status != null ? ` status ${q(n.status)}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}${n.partition != null ? ` partition=${q(n.partition)}` : ''}${n.navigation ? ` at=${q(n.navigation.url)} title=${q(n.navigation.title)}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${TABLE_ELEMENTS.test(p.semanticTag ?? '') ? ` <${p.semanticTag}>` : ''}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.hidden ? " [hidden]" : n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.status != null ? ` status ${q(n.status)}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}${n.partition != null ? ` partition=${q(n.partition)}` : ''}${n.navigation ? ` at=${q(n.navigation.url)} title=${q(n.navigation.title)}` : ''}${pictureInPictureNote(n.pictureInPicture)}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');

@@ -392,3 +392,9 @@ test('a stop freezes the track and the driver reads a multi-page tail to the end
   expect(requests.map(r => [r.track, r.cursor])).toEqual([['read', undefined], ['read', '3'], ['read', '5'], ['stop', '7'], ['read', '9'], ['read', '11']]);
   expect(renderPerf(out)).toContain('12 rows');
 });
+
+test("tree shows Exact's picture-in-picture window on the floating image's row (LLP 1042 §9.1)", () => {
+  const window = { presentation: 'window', title: 't3code://app', open: true, frame: [1051, 683, 284, 178], controls: ['minimize', 'back', 'close'], controlsShown: true };
+  const text = render('tree', { epoch: 1, incarnation: 1, clock: 0, nodes: [{ id: 7, depth: 0, type: 'Image', props: { testId: 'pip' }, pictureInPicture: window }] });
+  expect(text.split('\n')[1]).toBe('Image#7 [pip] pictureInPicture{window "t3code://app" open at 1051,683,284,178 controls minimize,back,close shown}');
+});

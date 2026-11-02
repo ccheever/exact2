@@ -106,3 +106,60 @@ test("an element that is not an image is refused", async () => {
   float({ localName: 'div' }, 'box', line => said.push(line));
   expect(said).toEqual(['requestPictureInPicture "missing" refused: no live node with that id', 'requestPictureInPicture "box" refused: not an image']);
 });
+
+// `presentation: "window"` (LLP 1042 §9.1): Document Picture-in-Picture's window
+// holds an <img> showing each picture the image loads, titled as asked; its close
+// is the image's `leavepictureinpicture`. A browser without it floats the default way.
+test("the window presentation floats the image in a document picture-in-picture window", async () => {
+  const server = Bun.serve({ port: 0, fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/picture-in-picture.js') return new Response(Bun.file(new URL('./picture-in-picture.js', import.meta.url)));
+    return new Response(`<button id="float">Float</button><img id="page"><output id="log"></output>
+      <script type="module">
+        import { float, exit } from '/picture-in-picture.js';
+        const picture = color => { const c = Object.assign(document.createElement('canvas'), { width: 300, height: 400 }); const g = c.getContext('2d'); g.fillStyle = color; g.fillRect(0, 0, 300, 400); return c.toDataURL(); };
+        const img = document.querySelector('#page'), log = document.querySelector('#log');
+        img.src = picture('red');
+        for (const kind of ['enterpictureinpicture', 'leavepictureinpicture']) img.addEventListener(kind, () => { log.textContent += kind + ';'; });
+        window.next = () => { img.src = picture('blue'); };
+        window.exitPip = () => exit(line => { log.textContent += line + ';'; });
+        document.querySelector('#float').onclick = () => float(img, 'page', line => { log.textContent += line + ';'; }, { presentation: 'window', title: 'Preview', width: 480, height: 320 });
+      </script>`, { headers: { 'content-type': 'text/html' } });
+  } });
+  let browser;
+  try {
+    browser = await suiteBrowser();
+    const page = await browser.newPage();
+    await page.goto(server.url.href);
+    await page.waitForFunction(() => document.querySelector('#page').naturalWidth === 300);
+    const documentWindow = await page.evaluate(() => typeof globalThis.documentPictureInPicture?.requestWindow === 'function');
+    await page.locator('#float').click();
+    await page.waitForFunction(() => document.querySelector('#log').textContent !== '');
+    const log = await page.locator('#log').textContent();
+    if (!documentWindow || log.includes('refused')) {
+      // The default way: a canvas stream's video, or the browser's refusal.
+      expect(await page.evaluate(() => document.querySelector('#log').textContent)).toMatch(/^(enterpictureinpicture;|requestPictureInPicture "page" refused: )/);
+      return;
+    }
+    expect(log).toBe('enterpictureinpicture;');
+    const shown = () => page.evaluate(() => { const w = documentPictureInPicture.window; return { title: w?.document.title, src: w?.document.querySelector('img')?.src === document.querySelector('#page').src }; });
+    expect(await shown()).toEqual({ title: 'Preview', src: true });
+    await page.evaluate(() => window.next());
+    await page.waitForFunction(() => documentPictureInPicture.window?.document.querySelector('img')?.src === document.querySelector('#page').src);
+    // The window's own close is a leave; exitPictureInPicture() with none open says so.
+    await page.evaluate(() => documentPictureInPicture.window.close());
+    await page.waitForFunction(() => document.querySelector('#log').textContent.endsWith('leavepictureinpicture;'));
+    await page.evaluate(() => window.exitPip());
+    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in picture in picture;');
+  } finally {
+    await browser?.close();
+    server.stop(true);
+  }
+}, 30000);
+
+test("the window opens at the asked area in the picture's aspect", async () => {
+  const { windowSize } = await import('./picture-in-picture.js');
+  expect(windowSize({}, [0, 0])).toEqual([480, 320]);
+  expect(windowSize({ width: 480, height: 320 }, [300, 400])).toEqual([339, 453]);
+  expect(windowSize({ width: 400, height: 400 }, [1600, 900])).toEqual([533, 300]);
+});
