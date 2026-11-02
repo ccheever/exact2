@@ -17,3 +17,4 @@ The latest upstream layout uses Chats, PRs, Usage and Settings tabs, with New ch
 - Focused Home, native configuration and layout tests pass.
 - iOS simulator build installs and launches on the fresh `t3-native-tabs duo` (iOS 27.2, iPhone19.4).
 - Captured `/tmp/t3-mobile-parity/t3-native-tabs-duo-final.png`. UIKit reports the four system rail buttons at x=396 with 44x58 frames at y=410, 460, 510 and 560; New chat and Search remain native navigation-bar actions above the rail.
+- Standard iPhone Home now uses the same `UITabBarController` owner, so UIKit centers and sizes its horizontal bar without app-authored offsets. Fresh evidence is `/tmp/t3-mobile-parity/t3-standard-native-tabs.png` (402x874); native tab selection drives PRs to Archived threads.
