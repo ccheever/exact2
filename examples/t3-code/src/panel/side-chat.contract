@@ -17,6 +17,7 @@ use RequestBanner from "../composer/requests.contract"
 
 component SideChatBody
   inject
+    dialogOpener: action
     // Where the window's one SideChatLayer draws the chat view (side-chat-members.contract sideChatPlace).
     sideChatPlace: action
     sidePaneFocus: action
@@ -37,6 +38,7 @@ component SideChatBody
     sideChatPlace(slot.x, slot.y, slot.width, slot.height)
   action remove
     if view.confirmDelete
+      dialogOpener("side-chat-delete")
       confirm("ui:confirm:side-chat-delete", view.threadId, "shell:surface-side-chat-delete", view.deleteTitle, view.deleteBody, true)
     else
       command("shell:surface-side-chat-delete", view.threadId, "", 0)

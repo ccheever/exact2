@@ -162,16 +162,21 @@ component PrCardView
 // The action at the second line's end (part "meta", tone primary or destructive, h-5): Resolve and Fix (with the
 // hand-off arrow), Ready, Merge.
 component PrActionButton
+  inject
+    dialogOpener: action
   props
     row: DetailsPrRow
     hovered: bool
     hover: action
     act: action
     local: action
+  action askMerge
+    dialogOpener(`details-pr-merge-${row.actionTarget}`)
+    local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method)
   view
     // Merge asks first (the AlertDialog); the others act on the press.
     if row.action == "merge"
-      button id=`details-pr-merge-${row.actionTarget}` press=local("surface-linked-pr-merge-ask", row.actionTarget, row.extra.method) hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=prActionFill(row.extra.destructive, hovered) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
+      button id=`details-pr-merge-${row.actionTarget}` press=askMerge hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=prActionFill(row.extra.destructive, hovered) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 data-focus-stop=(row.actionDisabled ? "" : "enabled")
         PrActionLabel(row=row)
     else
       button press=act(`shell:surface-linked-pr-${row.action}`, row.actionTarget, "") hover=hover disabled=row.actionDisabled testId=`details-pr-action-${row.key}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" border-width=0 border-radius="0.375rem" opacity=(row.actionDisabled ? 0.64 : 1) background-color=prActionFill(row.extra.destructive, hovered) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0

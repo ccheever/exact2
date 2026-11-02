@@ -422,6 +422,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     'palette.contract view.testId': ['"palette-input"', 'ui/command.tsx: CommandInput autoFocus (the link-PR dialog\'s field is its first stop too)'],
     'settings-b-actions.contract "project-action-dialog"': ['"action-name"', 'projectScriptEditor.tsx: the Name input autoFocus'],
     'timeline-attachments.contract "image-preview"': ['"image-preview-close"', 'chat/ExpandedImageDialog.tsx: initialFocus={closeButtonRef}'],
+    'composer-chip-file.contract "chip-file-preview"': ['opening', 'files/AttachmentFilePreview.tsx: the wrap and copy buttons mount once the text has loaded, after the focus moved, so a text opens on Save file'],
     'pages-welcome.contract "welcome-dialog"': ['(step == "connect" and pairOpen ? "welcome-pairing-link" : (step == "connect" and view.ready and not busy ? "welcome-continue" : (step != "connect" and not view.importing ? "welcome-step-1" : (step == "import" ? "welcome-skip-import" : (view.computers.length > 0 ? "welcome-computer-0" : "welcome-add-computer")))))',
       'onboarding/WelcomeWizard.tsx: initialFocus onboarding-pairing-url, else Continue (autoFocus) while it is enabled, else the first stop'],
   };
@@ -471,6 +472,15 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
       if (dialog.key in AUTOFOCUSED) expect(target).toBe(AUTOFOCUSED[dialog.key]!);
     });
   }
+
+  test('opening the welcome screen\'s Add a computer moves the focus to the pairing link (PairingForm\'s autoFocus)', () => {
+    const lines = source('pages-welcome.contract').split('\n');
+    const at = lines.findIndex(line => line.trim() === 'if pairOpen');
+    expect(block(lines, at).map(line => line.trim())).toContain('DialogOpenFocus(target="welcome-pairing-link")');
+  });
+  test('the file preview opens on Save file unless the reference has mounted an earlier header action by then', () => {
+    expect(source('composer-chip-file.contract')).toContain('derive opening = att.canRender ? "chip-file-preview-render" : (att.showWrap and att.preview == "viewer") ? "chip-file-preview-wrap" : att.canSave ? "chip-file-preview-save" : "chip-file-preview-remove"');
+  });
 
   test('Add provider opens on its Provider step, Model prices on Apply to, New task on Runs on (the reference over CDP)', () => {
     const line = (file: string, needle: string) => source(file).split('\n').find(text => text.includes(needle))!.trim();

@@ -286,6 +286,8 @@ component CoreSections
                     CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, codePreview=codePreview, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 component CoreRowView
+  inject
+    dialogOpener: action
   props
     reduced: bool
     row: CoreRow
@@ -321,6 +323,9 @@ component CoreRowView
         let target = kmTriggerTarget(traitsItems, k)
         if target != ""
           focus(target)
+  action configure(id: string, target: string)
+    dialogOpener(`setting-${id}-configure`)
+    change(id, target, "advanced")
   view
     column hover=rowHover width="100%" padding-top="0.75rem" padding-bottom=(row.info.startsWith("preview-") or row.kind == "textarea" ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap="0.75rem" box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(menu.startsWith(`${section}/${row.id}`) ? 50 : 1) id=row.id tabindex=-1 testId=`setting-row-${row.id}` data-paint="border" data-pick="border"
       row width="100%" gap="2rem" align-items="center"
@@ -363,7 +368,7 @@ component CoreRowView
             if row.kind == "select"
               CoreSelect(stop="enabled page", rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               if row.value2 == "configure"
-                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
+                button press=configure(row.id, row.target) disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure` title="" id=`setting-${row.id}-configure` data-paint="input canvas" data-pick="canvas" data-focus-stop=(busy or row.inert ? "" : "enabled page")
                   CorePaintIcon(ownId=`paint-icon-CoreRowView-6-${row.id}`, paint="text", name="settings", size=16, color=pal.text)
             if row.kind == "items-menu"
               ThreadDetailsItemsMenu(rowId=row.id, label=row.label, items=row.options, resetDisabled=(not row.resettable), pal=pal, disabled=(busy or row.inert), choose=change(row.id))

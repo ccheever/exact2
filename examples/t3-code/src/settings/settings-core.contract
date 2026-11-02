@@ -409,6 +409,8 @@ component SettingsNav
 // The settings route's header (96fc7b9551 _chat.settings.tsx): h-12 with border-b, ps-5 pe-2, the breadcrumb,
 // then Restore device defaults on General only and AppRouteModalClose ("Close (Esc)").
 component SettingsTopBar
+  inject
+    dialogOpener: action
   props
     route: string
     crumb: string
@@ -419,6 +421,9 @@ component SettingsTopBar
     escapeFree: bool
     restore: action
     close: action
+  action restoring
+    dialogOpener("settings-restore-defaults")
+    restore()
   view
     row height="3rem" min-height="3rem" flex-shrink=0 align-items="center" gap="0.75rem" padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" width="100%" border-bottom-width=1 border-bottom-style="solid" border-color=pal.border testId="settings-header"
       row role="navigation" aria-label="Settings breadcrumb" gap="0.75rem" align-items="center" min-width=0
@@ -429,7 +434,7 @@ component SettingsTopBar
       row margin-left="auto" flex-shrink=0 align-items="center" gap="0.25rem"
         if route == "general"
           // Ghost xs: px 7, the icon's -mx-0.5 inside mx-1, gap 1; disabled:opacity-64 dims icon and label.
-          button id="settings-restore-defaults" press=restore class=SettingsGhost height="1.5rem" min-height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" gap="0.125rem" border-radius="0.5rem" disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults" data-focus-stop=(busy or not restorable ? "" : "enabled")
+          button id="settings-restore-defaults" press=restoring class=SettingsGhost height="1.5rem" min-height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" gap="0.125rem" border-radius="0.5rem" disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults" data-focus-stop=(busy or not restorable ? "" : "enabled")
             svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
               path d=coreIconPath("rotate-ccw") stroke=pal.muted stroke-width=1.75 stroke-linecap="round" stroke-linejoin="round"
             text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text id=`paint-SettingsTopBar-4-${route}` data-paint="text" data-pick="text"

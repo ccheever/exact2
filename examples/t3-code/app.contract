@@ -163,6 +163,7 @@ component T3Code
     promptPreviewSnapshotOwner
     promptPreviewSerial
     composerChipPress
+    composerFileLoaded // the composer file preview whose text has "loaded" (src/composer/composer-members.contract)
     composerFieldInputSerial
     modelOpenTo // the composer's model picker: its shortcuts, its trigger's edges, its Permissions menu and its picks
     modelMeasure

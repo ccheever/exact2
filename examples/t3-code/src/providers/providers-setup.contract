@@ -190,6 +190,10 @@ component ProviderAccountRow
   derive off = account.disabled or busy
   derive methodLabel = account.methods.filter((m) => m.id == methodId).map((m) => m.name).join("")
   derive methodValue = (methodLabel == "" ? "" : methodId)
+  // The sign-out confirm gives the focus back here: as providers.contract's `uiFrom`.
+  action signOut
+    focus(`${idPrefix}provider-sign-out-${account.instanceId}`)
+    askSignOut()
   view
     SetupRowFrame(divided=divided, tight=account.details, testId=`${idPrefix}provider-account-${account.instanceId}`)
       row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
@@ -230,7 +234,7 @@ component ProviderAccountRow
           if account.showStart
             SetupButton(stop=stop, label=account.startLabel, disabled=(account.startDisabled or busy), full=false, testId=`${idPrefix}provider-sign-in-${account.instanceId}`, press=op("setup:auth-start", account.instanceId, account.token, methodValue, true))
           if account.showSignOut
-            button press=askSignOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}` data-focus-stop=((account.signOutDisabled or busy) ? "" : stop)
+            button press=signOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}` data-focus-stop=((account.signOutDisabled or busy) ? "" : stop)
               text "Sign out" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#18181b, #f5f5f5)"
       if account.details
         column width="100%"

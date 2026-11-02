@@ -137,7 +137,7 @@ describe('the window tracks held modifiers from its key events', () => {
     const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [] };
     const scope: Env = { shortcuts: [], modifierKey: (...args: unknown[]) => calls.push(args), modifierEditableFocus: () => calls.push(['field']), chipFocusChanged: () => {}, stopPropagation: () => {}, interacted: () => {},
       querySelectorAll: (selector: string) => selector.includes('editable') ? ['palette-input'] : [], frame: () => ({ unavailable: true, width: 0, height: 0 }),
-      dialogLineage: () => [], dialogReturn: (...args: unknown[]) => args, dialogFrame: (owner: string, returns: unknown) => ({ owner, returns }) };
+      dialogLineage: () => [], dialogReturn: (...args: unknown[]) => args, dialogBack: (...args: unknown[]) => args.slice(0, 4), dialogFrame: (owner: string, returns: unknown) => ({ owner, returns }) };
     window.call('dialogEntered', state, scope, ['palette', { target: 'palette-input' }]);
     expect(state.focusEditable).toBe(true);
     window.call('modifierDown', state, scope, ['Shift', { key: 'Shift', shiftKey: true }]);

@@ -180,10 +180,11 @@ describe('the pane (SideChatPane)', () => {
   test('Delete asks first while Confirm thread deletion is on', () => {
     const body = contractComponent('side-chat.contract', 'SideChatBody'), local = body.state(), calls: unknown[][] = [];
     const view = { threadId: 'side', canSend: true, confirmDelete: true, deleteTitle: 'Delete side chat "S"?', deleteBody: 'Body', bringBackDisabled: false };
-    const scope = { view, command: (...args: unknown[]) => calls.push(['command', ...args]), confirm: (...args: unknown[]) => calls.push(['confirm', ...args]) };
+    const scope = { view, command: (...args: unknown[]) => calls.push(['command', ...args]), confirm: (...args: unknown[]) => calls.push(['confirm', ...args]), dialogOpener: (...args: unknown[]) => calls.push(['opener', ...args]) };
     body.call('remove', local, scope, []);
     body.call('bringBack', local, scope, []);
     expect(calls).toEqual([
+      ['opener', 'side-chat-delete'],
       ['confirm', 'ui:confirm:side-chat-delete', 'side', 'shell:surface-side-chat-delete', 'Delete side chat "S"?', 'Body', true],
       ['command', 'shell:surface-side-chat-bring-back', 'side', '', 0],
     ]);

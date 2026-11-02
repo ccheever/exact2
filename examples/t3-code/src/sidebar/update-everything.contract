@@ -7,6 +7,7 @@ use UpdateDialogView from "./sidebar-shapes.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 component UpdateEverything
   inject
+    dialogOpener: action
     rem: number
   props
     v: UpdateEverythingView
@@ -14,6 +15,9 @@ component UpdateEverything
   state hovered = false
   action hover(on: bool)
     hovered = on
+  action review
+    dialogOpener("update-everything")
+    run("ue:open", "", "")
   view
     column margin-left="auto" flex=(v.running ? "1" : "none") min-width=0 position="relative"
       if v.running
@@ -41,7 +45,7 @@ component UpdateEverything
               button press=run("ue:dismiss", "", "") testId="update-everything-dismiss" margin-left="auto" border-width=0 background-color="#00000000" cursor="pointer"
                 text "Dismiss" font-size="0.75rem" color="light-dark(#71717b, #a3a3a3)"
       else
-        button press=run("ue:open", "", "") hover=hover title=v.summary aria-label=v.summary testId="update-everything" width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
+        button id="update-everything" press=review hover=hover title=v.summary aria-label=v.summary testId="update-everything" width="2rem" height="2rem" padding=0 border-radius="9999px" border-width=0 background-color=(hovered ? "light-dark(#fcfcfc, #f1f3f714)" : "light-dark(#f4f4f5, #0a0a0a)") display="flex" flex-direction="row" align-items="center" justify-content="center" cursor="pointer"
           CircleArrowUp()
 
 // Lucide CircleArrowUp at size-4 in the sidebar foreground.

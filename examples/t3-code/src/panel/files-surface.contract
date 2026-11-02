@@ -473,7 +473,7 @@ component FilePreview
           FilesAudio(url=files.url, label=files.path, failed=local("surface-files-audio-error", files.url))
     // FilePreviewPanel's AttachmentFilePreview under "File": a document, or a file read as binary.
     if files.preview == "attachment"
-      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="")
+      AttachmentBody(att=files.attachment, documents=documents, scheme=scheme, sheet=sheet, local=attLocal, actionIds="", loading=false)
     // WorkspaceLargeTextPreview: the full file's URL was not signed.
     if files.preview == "full-error"
       FileSurfaceFailure(message=files.previewError, canRetry=true, retry=local("surface-files-full-retry", files.absolutePath, ""), testId="file-full-failed")

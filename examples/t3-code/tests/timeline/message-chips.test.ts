@@ -242,7 +242,7 @@ describe('the chips and rows a context reference draws', () => {
   test('an attachment chip without a target is no button, an image chip included (FileChip disabled)', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const body = contractComponent('markdown.contract', 'AttachmentChipBody');
-    const button = (kind: string, target: string) => body.drawn('button press=local(', body.state(), { chip: { kind, target }, run: { id: '0' } });
+    const button = (kind: string, target: string) => body.drawn('button press=opened(', body.state(), { chip: { kind, target }, run: { id: '0' } });
     expect([button('image', 'att'), button('image', ''), button('file', ''), button('video', 'v')]).toEqual([true, false, false, true]);
   });
   // PopoverPopup's initialFocus: opening a citation's or a terminal excerpt's details moves the focus to the popup's

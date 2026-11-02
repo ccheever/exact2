@@ -80,7 +80,7 @@ component SurfacePanel
         if shell.panel.kind == "pull-request"
           PrSurfaceBody(pr=shell.panel.pr, detail=prDetail, documents=prDocuments, scheme=scheme, tab=prTab, setTab=prSetTab, reload=prReload, act=prAct, copy=prCopy, local=local, still=still, compact=(width < 480), width=width)
         if shell.panel.kind == "attachment"
-          AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="")
+          AttachmentBody(att=shell.panel.attachment, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, actionIds="", loading=false)
       else
         // RightPanelTabs draws "Add panel surface" whenever the panel is open (`props.open !== false`), so the
         // launcher's bar has it at the left, where the first tab would be.

@@ -1033,6 +1033,7 @@ component BranchNameMenu
 // The last action's outer corner follows the banner's curve (2xl less the 1 spacing inset).
 component NoticeRow
   inject
+    dialogOpener: action
     rem: number
     // The window's width, for the actions' minimum (sm).
     inlineDocumentViewportWidth: number
@@ -1049,6 +1050,9 @@ component NoticeRow
     over = value ? name : (over == name ? "" : over)
   derive last = (notice.dismiss != "" ? "dismiss" : notice.action2 != "" ? "action2" : "action")
   derive lowerCorner = (not attached and notice.lines.length == 0 and notice.usage.length == 0 ? "0.75rem" : "0.5rem")
+  action act
+    dialogOpener(`notice-action-${notice.id}`)
+    command(notice.action, notice.actionId, notice.actionValue, 0)
   view
     column animation=(still ? "none" : "ccFadeIn 150ms ease-out") margin-left=(attached ? "1.375rem" : "0px") margin-right=(attached ? "1.375rem" : "0px") margin-bottom=(attached ? "-1.0625rem" : "0px") padding-left="0.1875rem" padding-right="0.1875rem" padding-top="0.3125rem" padding-bottom=(attached ? "1.375rem" : "0.3125rem") box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1rem") border-top-right-radius=(stacked ? "0px" : "1rem") border-bottom-left-radius=(attached ? "0px" : "1rem") border-bottom-right-radius=(attached ? "0px" : "1rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=(attached ? 0 : 1) border-color=(notice.variant == "warning" ? "light-dark(#fe9a0047, #fe9a0047)" : notice.variant == "error" ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#00000014, #ffffff0d)") background-color=(notice.variant == "warning" ? "light-dark(#fef6eacc, #231b0fcc)" : notice.variant == "error" ? "light-dark(#feededcc, #231415cc)" : "light-dark(#ffffffcc, #121212cc)") box-shadow="0 1px 2px #0000000d" role=(notice.variant == "error" or notice.variant == "warning" ? "alert" : "") testId=`notice-${notice.id}` hatch="t3-anchor" data-anchor=`nb:${notice.id}`
       row width="100%" column-gap="0.25rem" align-items="center" flex-wrap="wrap" testId=`notice-row-${notice.id}`
@@ -1105,7 +1109,7 @@ component NoticeRow
           row margin-left="auto" gap="0.25rem" align-items="center" justify-content="flex-end" flex-shrink=0 min-width=(inlineDocumentViewportWidth < 640 ? "3.5rem" : "3rem") testId=`notice-actions-${notice.id}`
             if notice.action != ""
               Tip(label=(notice.actionReason != "" ? notice.actionReason : notice.actionTip), side="top", align="center", offset=28)
-                button press=command(notice.action, notice.actionId, notice.actionValue, 0) hover=hover("action") disabled=(busy or notice.actionReason != "") testId=`notice-action-${notice.id}` aria-label=notice.actionLabel height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-top-right-radius=(last == "action" ? "0.75rem" : "0.5rem") border-bottom-right-radius=(last == "action" ? lowerCorner : "0.5rem") border-width=0 background-color=(over == "action" and not busy and notice.actionReason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy or notice.actionReason != "" ? 0.64 : 1) id=`notice-action-${notice.id}`
+                button press=act hover=hover("action") disabled=(busy or notice.actionReason != "") testId=`notice-action-${notice.id}` aria-label=notice.actionLabel height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-top-right-radius=(last == "action" ? "0.75rem" : "0.5rem") border-bottom-right-radius=(last == "action" ? lowerCorner : "0.5rem") border-width=0 background-color=(over == "action" and not busy and notice.actionReason == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy or notice.actionReason != "" ? 0.64 : 1) id=`notice-action-${notice.id}`
                   text notice.actionLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
             if notice.action2 != ""
               Tip(label=notice.action2Tip, side="top", align="center", offset=28)

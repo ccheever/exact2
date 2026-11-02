@@ -7,6 +7,16 @@ use Change from "../shared/shapes.contract"
 use composerChord, composerChordIn from "./composer-keys.contract"
 use heldModifiers from "../shared/press-modifiers.contract"
 members T3Code
+  // The composer file preview whose text has "loaded" (composer-chip-file.contract): the reference reads the file after
+  // its dialog opened, so its wrap and copy buttons mount after the focus moved and VoiceOver named the dialog; here the
+  // text is read before the dialog opens, and the two wait as long.
+  state composerFileLoaded = ""
+  task composerFileLoading when shell.composerFile.open and composerFileLoaded != shell.composerFile.file.id key=shell.composerFile.file.id
+    after(150, composerFileLoad)
+  task composerFileClosed when not shell.composerFile.open and composerFileLoaded != ""
+    after(1, composerFileLoad)
+  action composerFileLoad
+    composerFileLoaded = shell.composerFile.open ? shell.composerFile.file.id : ""
   state modelsOpen = false
   state browseProvider = ""
   state modelQuery = ""

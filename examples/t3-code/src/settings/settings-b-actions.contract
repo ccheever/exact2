@@ -45,6 +45,7 @@ component ProjectActionDialog
 
 component ProjectActionEditor
   inject
+    dialogOpener: action
     dialogEntered: action
     dialogFallback: action
   props
@@ -94,6 +95,8 @@ component ProjectActionEditor
   action flipAuto
     autoOpen = previewUrl != "" ? not autoOpen : autoOpen
   action askDelete(on: bool)
+    if on
+      dialogOpener("action-delete")
     confirming = on
   derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&settle=${settle ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&initial=${encodeURIComponent(item.keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
   derive dialogTargets = [(busy ? "action-cancel" : "action-choose-icon"), "action-close"]

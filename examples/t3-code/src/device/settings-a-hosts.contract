@@ -106,6 +106,8 @@ component AndroidGlyph
 // Button size sm variant outline. `stop` is its focus word when enabled: "enabled page" on the Devices page, whose last
 // control the route modal's guard wraps to, "enabled" in the host dialog.
 component HostButton
+  inject
+    dialogOpener: action
   props
     label: string
     disabled: bool
@@ -113,8 +115,11 @@ component HostButton
     buttonId: string
     plus: bool
     stop: string
+  action pressed
+    dialogOpener(buttonId)
+    press()
   view
-    button id=buttonId press=press disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow=(disabled ? "none" : "0 1px 2px #0000000d") opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : stop)
+    button id=buttonId press=pressed disabled=disabled testId=buttonId display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" flex-shrink=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff1c)" background-color="light-dark(#ffffff, #ffffff09)" box-shadow=(disabled ? "none" : "0 1px 2px #0000000d") opacity=(disabled ? 0.64 : 1) data-focus-stop=(disabled ? "" : stop)
       if plus
         LucidePlus(size=14, color="light-dark(#71717b, #a1a1a1)")
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"

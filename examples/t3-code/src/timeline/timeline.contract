@@ -209,6 +209,8 @@ component UserRow
 
 // The time and the actions under a sent message (and with `wrap`, floated beside it, wrapping into its room).
 component UserActions
+  inject
+    dialogOpener: action
   props
     message: Message
     command: action
@@ -217,6 +219,9 @@ component UserActions
     part: string
     hoverPart: action
     wrap: bool
+  action editFrom
+    dialogOpener(`edit-from-${message.id}`)
+    local("revert", message.id, message.revert.toString())
   view
     row justify-content="flex-end" align-items="center" column-gap="0.5rem" row-gap="0.125rem" flex-wrap=(wrap ? "wrap" : "nowrap") flex-shrink=(wrap ? 1 : 0)
       if message.attribution == "automation" and message.detail != ""
@@ -228,7 +233,7 @@ component UserActions
       row gap="0.125rem" align-items="center" flex-wrap=(wrap ? "wrap" : "nowrap") justify-content="flex-end"
         if message.revert >= 0
           RowTip(label="Edit from here", side="top", align="center", offset=28, shown=(part == "edit"), hover=hoverPart(message.hoverKey, "edit"))
-            button id=`edit-from-${message.id}` press=local("revert", message.id, message.revert.toString()) testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+            button id=`edit-from-${message.id}` press=editFrom testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
               TimelineIcon(name="pencil", size=12, color="light-dark(#71717b, #a1a1a1)")
         // Copy takes the words, or a wordless media message's references; a message with neither has none.
         if message.copyable

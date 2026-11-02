@@ -791,6 +791,8 @@ component UsageChartView
 // Each row is a button over the whole row (the reference's after:inset-0
 // overlay); focus or hover shows as the row's bg-muted/50 fill.
 component ModelTable
+  inject
+    dialogOpener: action
   props
     page: UsageView
     scheme: string
@@ -799,6 +801,9 @@ component ModelTable
   state hovered = ""
   action hover(rowKey: string, over: bool)
     hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
+  action openModel(key: string)
+    dialogOpener(`usage-model-${key}`)
+    op("usage-model-open", "", key)
   view
     box width="100%" display="grid" grid-template-columns=(sm ? "auto minmax(0, 1fr) auto auto auto" : "auto minmax(0, 1fr) auto auto") role="table" testId="usage-model-table"
       box grid-row=1 grid-column="1 / -1" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)"
@@ -828,7 +833,7 @@ component ModelTable
         if sm
           text model.share grid-row=model.row grid-column=4 align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" opacity=usageDim(model.loading) transition=usageFade(model.loading)
         text model.tokens grid-row=model.row grid-column=(sm ? 5 : 4) align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #a1a1a1)" opacity=usageDim(model.loading) transition=usageFade(model.loading)
-        button id=`usage-model-${model.key}` press=op("usage-model-open", "", model.key) data-focus-stop="enabled page" hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
+        button id=`usage-model-${model.key}` press=openModel(model.key) data-focus-stop="enabled page" hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
 
 // Breakdown → Day / Hour (UsagePage, 805ff51e58): a table whose columns are never narrower than their
 // figures (whitespace-nowrap), the period column 40% when there is room; a narrow page scrolls it

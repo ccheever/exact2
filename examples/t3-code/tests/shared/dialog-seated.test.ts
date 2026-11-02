@@ -19,11 +19,12 @@ describe('a modal dialog is modal once the focus is in it', () => {
       frame: (id: string) => ({ unavailable: !live.has(id), width: live.has(id) ? 400 : 0, height: live.has(id) ? 300 : 0 }),
       dialogFrame: (owner: string, returns: unknown[]) => ({ owner, returns }),
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
+      dialogBack: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),
       dialogLineage: (frames: { owner: string; returns: unknown[] }[], owner: string) => frames.find(item => item.owner === owner)?.returns ?? [],
       focus() {}, stopPropagation() {}, chipFocusChanged() {},
     };
     expect(await source('app-window.contract')).toContain('\n  state dialogSeated: string[] = []\n');
-    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
+    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogPressId: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     window.call('windowFocused', state, scope, [{ target: 'composer' }]);
     // Mounted (DialogFinalFocus's dialogOpened) with the focus still outside: not yet modal.
     window.call('dialogOpened', state, scope, ['rename-dialog']);

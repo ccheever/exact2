@@ -278,6 +278,8 @@ component WelcomeConnect
         WelcomeDisclosure(icon="link", label="Add a computer", detail="", open=pairOpen, disabled=busy, press=togglePair, elementId="welcome-add-computer", testId="welcome-add-computer")
         if pairOpen
           column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.75rem"
+            // PairingForm's link field autofocuses as the panel mounts, so opening the panel moves the focus there.
+            DialogOpenFocus(target="welcome-pairing-link")
             column width="100%" gap="0.5rem"
               text "Pairing link" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #a1a1a1)"
               input id="welcome-pairing-link" value=link input=editLink submit=pair placeholder="https://your-server:5230/pair#token=…" class=FieldPlaceholder aria-label="Pairing link" autocorrect="off" spellcheck="false" disabled=busy testId="welcome-pairing-link" width="100%" height="2.25rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" line-height="1.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(error != "" ? "light-dark(#e40014, #ff6467)" : "light-dark(#d4d4d8, #ffffff1c)") background-color="light-dark(#ffffff, #ffffff09)" font-size="0.875rem" color="light-dark(#18181b, #f5f5f5)" data-focus-stop=(busy ? "" : "enabled") data-editable="yes"

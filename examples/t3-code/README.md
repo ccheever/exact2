@@ -555,8 +555,14 @@ These it does not use, because on macOS they do not do what the reference does:
   A modal `dialog` is an AppKit sheet and an `alertdialog` is an `NSAlert`, not the reference's
   in-page popup; with Keyboard Navigation off its Tab stops only at fields; and a dialog opened
   by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
-  (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
-  still leaves the focus nowhere (Base UI gives it back).
+  (`dialog-trap.contract` says why). A click on a Mac button and an accessibility press focus
+  nothing, where Chromium focuses the pressed button and Base UI gives the focus back to it, so
+  each opener names itself as it is pressed (`dialogOpener`, `app-window.contract`) and the
+  dialog it opens gives the focus back there. Not covered: a dialog no press opens (the welcome
+  wizard, the pairing and page-permission confirms, the SSH prompt, the ChatGPT plan notice)
+  returns the focus held as it opened, as Base UI does; an opener in a menu returns it to the
+  menu's trigger; and Usage's pooled reset-credit confirm returns it nowhere, as its opener is in
+  a hover popover that has closed.
 - The menu bar's app items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
   Main's #947 (LLP 1021 §5.3.1) gave app-wide items, `-exact-menu="about"` and `"none"`, the Edit, Help, Go
   and Develop removals, View's zoom and a root `key` handler that holds ⌘Q, and the clone adopts them. Two
@@ -1201,7 +1207,7 @@ Hold:
   rename field (1 of 1).
 - F6 from the composer goes to the right panel, the terminal, the sidebar, the conversation and back
   (1 of 1). From the terminal, F6 reaches the sidebar and ⇧F6 the right panel (1 of 1). The panel
-  takes the focus itself, where the oracle focuses its Diff scope menu (a known difference, #1187).
+  focuses its Diff scope menu, as the oracle does (agent drive, 2026-11-02; the panel itself before).
 - The approval row: More lists Cancel and Always allow this session, Approve underlines on hover, and
   pressing Approve lets the turn complete with notes/approved.md (1 of 1). Decline was not pressed:
   the fixture seeds one approval.
@@ -1293,7 +1299,8 @@ Hold:
   segment ("ST: 20% left, resets in 38m, 13% of the window left, dialog pop up collapsed, button"; with "2 reset credits
   banked" where it has them), for Codex and Claude (1 of 1). The oracle speaks the same strings, as one group per
   window.
-- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused, and doc.pdf the PDF
+- VO-Space on composer chips: sample.py opens its file preview with Disable word wrap focused (Save file since
+  2026-11-02, below), and doc.pdf the PDF
   preview reading "1 / 1 pages" (1 of 1 each). VO-Right from Message reads the three chips in text order, and Escape
   gives the prompt back with the chip selected. In the oracle the chips are reached by interacting with Message
   (VO-Right from it goes to Attach files); doc.pdf and sample.py were not opened there (below).
@@ -1354,6 +1361,18 @@ attached). It holds:
   picker "Interface font family Search fonts..., dialog, with 2 items, Search fonts, expanded, combo box" (3 of 3;
   before, the field, then "Interface font family, dialog"). The 2026-10-31 "no control focused" was not seen (0 of 11
   opens by VO-Space).
+- Matched on 2026-11-02 (a lane copy of that day's bundle, the same PNG and sample.py pasted as chips; VoiceOver read
+  from its caption panel). The image preview reads "Expanded image preview, dialog, with 3 items, Close image preview,
+  button" (2 of 2: VO-Space and an accessibility press): its children are now the oracle's, an sr-only title, Close,
+  and one group holding the picture, its zoom and its name, with the backdrop's second Close out of the tree. The
+  sample.py preview reads "sample.py, dialog, with 8 items, Save file, button" (2 of 2), as the oracle does: it has
+  the oracle's sr-only title, opens on Save file, and mounts its wrap and copy buttons a moment later, as the oracle
+  mounts them once the text has loaded (10 children then, as in the oracle). Closing either by Escape gives the focus
+  back to the control that opened it, the image's Preview button (2 of 2) or the prompt for the file chip, an atom of
+  the field. A dialog opened by a real click also gives it back to its opener: Settings › Appearance › Add theme,
+  Escape, the focus on Add theme (1 of 1; the agent drive: on the Settings dialog before). The welcome screen's Add a
+  computer moves the focus to the Pairing link field, as the oracle's does (agent drive and the oracle, 1 of 1 each;
+  Continue kept it before).
 
 Not reachable with these fixtures:
 
