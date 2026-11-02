@@ -1342,14 +1342,17 @@ extension Capture {
 
     /// `view` drawn by `cacheDisplay` as the window shows it: as a capture
     /// (`capturing`), box fills an inset shadow paints hidden, siblings in
-    /// their z order, animations at what they present.
+    /// their z order, animations at what they present, and a backdrop box's
+    /// shadow drawn by a view under it (`standShadows`). Undoing the reorder
+    /// moves the boxes' layers, so the shadows' stands find their places again.
     static func draw(_ view: NSView, to rep: NSBitmapImageRep) {
         let shown = showAnimations(in: view.layer)
-        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view)
+        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view), stands = standShadows(in: view)
         capturing = true
         view.cacheDisplay(in: view.bounds, to: rep)
         capturing = false
-        ordered(); restore(fills); shown()
+        stands(); ordered(); restore(fills); shown()
+        ShadowStand.followAll()
     }
 
     /// `cacheDisplay` draws subviews in array order; the window server
