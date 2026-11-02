@@ -58,7 +58,7 @@ import { openLinkFromUi } from '../browser/browser-links';
 import { chatExternalLinkPick } from './external-link-menu';
 import { withFileLinkMenus } from './file-link-menu';
 import { assistantCanFork, inspectorExtras, NO_INSPECTOR_EXTRAS } from './timeline-work-rows';
-import { completeSave } from '../media/save-file';
+import { completeSave, saveDownload, saveName } from '../media/save-file';
 import { inlineDocumentKey, inlineDocumentView, inlineDocumentEvent } from './inline-documents';
 import { keptThread } from '../client/keep-alive';
 import { foldedMessageSummary, plainContextReferences, userMessagePresentation } from './user-message';
@@ -162,6 +162,10 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
   if (op === 'image-open' && isSentSvg(client, id)) return surfaceLocal(client, native, 'linked-attachment', id, value); // SvgFileChip's onOpen
   if (op === 'chip-preview-failed') { noteChipPreviewFailed(client, id, value); return ''; } // a chip's thumbnail at `value` reported an error
+  if (op === 'video-download') { // the expanded video's Download (preview-player.contract): id = its URL, value = its name
+    try { await saveDownload(client, id, saveName(value, 'video')); } catch { throw new ClientError('The file could not be loaded. Try again.'); }
+    return '';
+  }
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);

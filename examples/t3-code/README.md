@@ -270,7 +270,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   `attachment-media*`, `media-frame.*`: PDFs in the viewer page's PDF.js (`file-preview-host/`), a draft past 16 MiB
   given to it as a copy in app:/cache (LLP 1020.001 D7), HTML in a sandboxed `iframe` that loads its token directory
   and external hosts as the reference's frame does, or as source coloured by the reference's html lexer
-  (`highlights.ts`), audio and video in the platform's players, "Unable to
+  (`highlights.ts`), audio and video in the platform's players (an expanded video preview has Chromium's
+  controls over it, `preview-player.contract`), "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
   opens its simulator with `device.open`, then the workspace shows the hub's H.264 screen
@@ -508,8 +509,9 @@ filed were moved there or closed). The gaps someone using this app runs into:
 - An external open the system cannot perform is not reported: Contract's `openURL` returns nothing, so the
   reference's "Unable to open link" and "Could not open the sign-in page" toasts do not appear.
 - A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
-  main keeps the limit), so the composer is opaque where the reference's glass shows the
-  transcript through it, and so is the Usage page's segment popover.
+  main keeps the limit), so the Usage page's segment popover is opaque where the reference's glass shows the page
+  through it. The composer's glass is a layer of its own in the chat column, placed at the card's box as last measured
+  (`composer-editor.contract` ComposerGlass), so it moves with the card once the card's new size is measured.
 - The Usage page draws a segment's popover in its scroll area, so the area clips it: a popover that v0.1.6 opens above
   its segment over the page's header (a weekly window's, near the top) opens below it here, and one at the area's edge
   is shifted inside the area, not the window.
@@ -705,11 +707,12 @@ Differences that belong to the app:
   (clone/issues/browser-preload-without-taking-the-frame.md); the console, network log and audible state are read
   from the page every few seconds
   rather than pushed. The tab's icon is the page's first declared icon, loaded by URL, where the module redrew it.
-- A server Browser tab's PDF is the viewer page's PDF.js reading its signed URL (`server-pdf-viewer.ts`), where the
-  reference embeds the URL in Chromium's viewer, which would run an HTML answer as a page. Its toolbar is T3 Code's
-  PdfViewer (pages, previous and next, zoom, Fit width, full screen, Find in PDF), not Chromium's (thumbnails and
-  outline, a page field, rotate, two-page view, download, print, properties, and the browser's own ⌘F), and it stays
-  in the floating player, where Chromium's hides at that size. A PDF from another origin loads only when its server
+- A server Browser tab's PDF is Chromium's PDF viewer drawn by the viewer page over PDF.js, which reads its signed
+  URL (`server-pdf-viewer.ts`, `file-preview-host/src/pdf/browser-pdf-viewer.ts`), where the reference embeds the URL
+  in Chromium's own viewer: an embed would run an HTML answer as a page. Three things differ. Print is hidden, as
+  Chromium hides it where printing is off: no page in Exact can print (clone/issues/match1102-media-pdf-print.md).
+  Chromium's drawing tools (Draw, Undo, Redo) are not there. Present fills the tab, not the screen. Neither viewer
+  has a find bar (Electron draws none). A PDF from another origin loads only when its server
   lets the page fetch it (CORS), as the T3 server does. A rendered HTML preview is a sandboxed `iframe` (LLP 1020.002):
   a right-click shows WebKit's menu, not the desktop shell's, and a `window.open` with features opens the platform's
   popup window, where the reference opens every new window in the default browser (a `target="_blank"` link or ⌘-click
@@ -732,8 +735,6 @@ Differences that belong to the app:
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
 - An image inside a link's text has no tooltip and no keyboard menu key.
-- In the composer, a review comment's popover shows its comment and diff as plain text (the
-  reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
 - Appearance has no Environment identification row. The clone is the stable app only, and it does
   not draw the Nightly or Dev artwork. At v0.1.5 the stable app's default also shows no art, but the
   row lets a user opt into Nightly or Dev artwork ("Show Dev or Nightly artwork in the sidebar
@@ -803,7 +804,9 @@ above.
   pinned server's headless browser drawn from its frames, which have no web view to inspect. Only a tab of a
   paired environment, or of a server without a browser, is a web view in the clone and has the row. The web
   build has no row, as the reference offers it only through the desktop bridge. What the row opens is Safari's
-  Web Inspector, not Chrome DevTools.
+  Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
+  Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
+  (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
 - A server tab's picture-in-picture window on macOS is the system's panel, not Chromium's window. It opens at
   216 × 299 points at the top right; the reference's opens at 284 × 377 at the bottom right. Its controls are close,
   return to app and pause, where the reference's are minimize, back to tab and close under a title with the app's

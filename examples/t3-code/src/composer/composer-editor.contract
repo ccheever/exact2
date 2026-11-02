@@ -52,6 +52,10 @@ shape ComposerDrawer
   cardHeight: number
   // The expanded stack's height, kept while the composer rests (composerStackHold).
   hold: number
+  // The card's box in the chat column, from its left and its foot, once both are measured (ComposerGlass).
+  glass: bool
+  glassLeft: number
+  glassBottom: number
 shape ComposerEditorView
   owner: string
   menu: ComposerMenu
@@ -292,6 +296,18 @@ component ComposerEditorDock
         else
           if editor.stash.menuOpen and editor.drawer.cardWidth > 2.75 * rem
             StashMenu(stash=editor.stash, layered=false, op=op)
+
+// ComposerSurface's glass (its ::before: backdrop-blur 12px and saturate 1.14, 16px and 1.08 in dark mode, under the
+// card's fill at the glass opacity). A macOS backdrop samples only its parent's subtree (LLP 1053.000 §3), so the blur is
+// this layer in the chat column, a later sibling of the transcript and an earlier one of the overlay that holds the card,
+// at the card's measured box; the card paints its translucent fill over it.
+component ComposerGlass
+  props
+    editor: ComposerEditorView
+    dark: bool
+  view
+    if editor.drawer.glass
+      box position="absolute" left=editor.drawer.glassLeft bottom=editor.drawer.glassBottom width=editor.drawer.cardWidth height=editor.drawer.cardHeight border-radius="1rem" overflow="hidden" backdrop-filter=(dark ? "blur(16px) saturate(1.08)" : "blur(12px) saturate(1.14)") pointer-events="none" aria-hidden=true testId="composer-glass"
 
 // ComposerCommandMenuLayer: the open drawer over the chat column, 22pt inside
 // the card's edges, its last 17pt (the seam) under the card. Nothing in the
