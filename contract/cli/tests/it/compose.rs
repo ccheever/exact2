@@ -544,3 +544,57 @@ fn enum_assignments_preserve_declared_membership() {
     let unknown = "component App\n  state mode: enum<\"on\", \"off\"> = \"on\"\n  state other = \"off\"\n  action go\n    mode = other\n  view\n    text mode\n";
     assert_eq!(contract::compile(unknown).unwrap_err().id, "type-assign");
 }
+
+#[test]
+fn enum_match_assignments_check_each_arms_scope() {
+    let source = |declarations: &str, value: &str| {
+        format!(
+            "component App\n  state mode: enum<\"on\", \"off\"> = \"on\"\n{declarations}\n  action go\n    mode = {value}\n  view\n    text mode\n"
+        )
+    };
+    for (declarations, value) in [
+        (
+            "  state opt = some(true)",
+            r#"match opt { case some(x) => "on", case none => "off" }"#,
+        ),
+        (
+            r#"  state opt: option<enum<"on", "off">> = some("on")"#,
+            r#"match opt { case some(x) => x, case none => "off" }"#,
+        ),
+        (
+            "  state x: enum<\"on\", \"off\"> = \"off\"\n  state opt = some(true)",
+            r#"match opt { case some(x) => x ? "on" : "off", case none => x }"#,
+        ),
+        (
+            "  state opt = some(true)",
+            r#"match opt { case some(x) => match some(x) { case some(y) => y ? "on" : "off", case none => "off" }, case none => "off" }"#,
+        ),
+    ] {
+        let plan = contract::compile(&source(declarations, value)).unwrap();
+        let slot = plan
+            .slots
+            .iter()
+            .find(|s| plan.str(s.name) == "mode")
+            .unwrap();
+        assert_eq!(plan.str(plan.types[slot.ty.0 as usize].name), "enum");
+    }
+    for value in [
+        r#"match opt { case some(x) => "sideways", case none => "off" }"#,
+        r#"match opt { case some(x) => "on", case none => "sideways" }"#,
+    ] {
+        let error = contract::compile(&source("  state opt = some(true)", value)).unwrap_err();
+        assert_eq!(error.id, "type-assign");
+        assert!(error.message.contains("sideways"));
+    }
+    for declarations in [
+        "  state x: enum<\"on\", \"off\"> = \"off\"\n  state opt = some(\"sideways\")",
+        "  state x = \"sideways\"\n  state opt: option<enum<\"on\", \"off\">> = some(\"on\")",
+    ] {
+        let error = contract::compile(&source(
+            declarations,
+            "match opt { case some(x) => x, case none => x }",
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "type-assign");
+    }
+}
