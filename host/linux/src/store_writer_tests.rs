@@ -86,6 +86,7 @@ fn in_child(name: &str) -> bool {
 
 fn write(name: &str, value: Option<&str>) -> exact_runner::StoreWrite {
     exact_runner::StoreWrite {
+        durable: false,
         name: name.into(),
         value: value.map(|v| v.as_bytes().to_vec()),
     }

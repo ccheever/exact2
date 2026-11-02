@@ -942,6 +942,14 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.rust.activate_for_validation()
     }
 
+    fn configure_secrets(
+        &mut self,
+        secrets: std::sync::Arc<dyn exact_runner::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        self.javascript.configure_secrets(secrets.clone())?;
+        self.rust.configure_secrets(secrets)
+    }
+
     fn configure_storage(
         &mut self,
         data: std::path::PathBuf,

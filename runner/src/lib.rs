@@ -85,6 +85,7 @@ pub mod share;
 pub mod sound;
 pub mod stdlib;
 pub mod store;
+pub mod secrets;
 pub mod stream_timing;
 pub mod strings;
 pub mod surface_record;
@@ -145,6 +146,7 @@ pub mod tamber {
     };
 }
 pub use store::{Store, StoreChange, StoreError, StoreWrite};
+pub use secrets::{SecretLease, SecretWait, SharedSecrets};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

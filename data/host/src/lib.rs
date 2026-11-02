@@ -249,6 +249,13 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
         self.source.canvases_retired(retired)
     }
+    fn configure_secrets(
+        &mut self,
+        secrets: std::sync::Arc<dyn exact_runner::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        self.source.configure_secrets(secrets)
+    }
+
     fn configure_storage(
         &mut self,
         data: PathBuf,

@@ -148,6 +148,9 @@ pub struct StoreWrite {
     pub name: String,
     /// The value to keep, or `None` to forget: a secret's or a state's text, a kept answer's canonical bytes.
     pub value: Option<Vec<u8>>,
+    /// Already persisted through an exclusive lease. Hosts update their
+    /// snapshots and discard older retries without writing it again.
+    pub durable: bool,
 }
 
 /// Why the store refused.
@@ -415,6 +418,7 @@ impl Store {
         self.remember(name);
         self.values.insert(name.to_string(), value.clone());
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: Some(value),
         });
@@ -426,6 +430,7 @@ impl Store {
         self.remember(name);
         if self.values.remove(name).is_some() {
             self.writes.push(StoreWrite {
+                durable: false,
                 name: name.to_string(),
                 value: None,
             });
@@ -498,6 +503,7 @@ impl Store {
         self.written_plain(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: Some(value.into()),
         });
@@ -515,9 +521,30 @@ impl Store {
         self.absent(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: None,
         });
+        Ok(())
+    }
+
+    /// Update a snapshot with a value already persisted under an exclusive lease.
+    pub fn set_durable(&mut self, name: &str, value: &str) -> Result<(), StoreError> {
+        let first = self.writes.len();
+        self.set(name, value)?;
+        for write in &mut self.writes[first..] {
+            write.durable = true;
+        }
+        Ok(())
+    }
+
+    /// Update a snapshot after an exclusive lease removed its persisted value.
+    pub fn forget_durable(&mut self, name: &str) -> Result<(), StoreError> {
+        let first = self.writes.len();
+        self.forget(name)?;
+        for write in &mut self.writes[first..] {
+            write.durable = true;
+        }
         Ok(())
     }
 

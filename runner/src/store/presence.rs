@@ -165,6 +165,7 @@ impl Store {
         }
         self.revision += 1;
         self.writes.push(StoreWrite {
+            durable: false,
             name: name.to_string(),
             value: Some(value.into()),
         });
@@ -354,6 +355,7 @@ mod tests {
         assert_eq!(
             store.writes(),
             [StoreWrite {
+                durable: false,
                 name: "key".into(),
                 value: Some(b"secret-1".to_vec())
             }]

@@ -161,6 +161,7 @@ fn a_fresh_drive_empties_its_tree_before_the_boot_reads_and_never_after() {
     // A commit between the boot and the activation keeps a secret.
     Platform::of(bindings.as_ref().unwrap())
         .write(&exact_runner::StoreWrite {
+            durable: false,
             name: "fresh.best".into(),
             value: Some("22050".into()),
         })

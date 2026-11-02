@@ -883,6 +883,7 @@ mod tests {
             endow_in(host, "secret.keep app.token").unwrap()
         };
         let write = |name: &str, value: Option<&str>| StoreWrite {
+            durable: false,
             name: name.into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };
@@ -892,6 +893,7 @@ mod tests {
         let bytes = vec![5, 0, 0, 0, 0, 0xff, 0x80];
         first
             .write(&StoreWrite {
+                durable: false,
                 name: "exact.kept.crewState".into(),
                 value: Some(bytes.clone()),
             })
@@ -918,6 +920,7 @@ mod tests {
         assert_eq!(Prefs::of("com.example.tip"), Prefs::Kv);
         let platform = Platform::of(&launch()).with_prefs(Prefs::Kv);
         let tip = StoreWrite {
+            durable: false,
             name: "exact.state.tipPercent".into(),
             value: Some("22".into()),
         };
@@ -936,6 +939,7 @@ mod tests {
             .with_kv_store(Box::new(ibex2::kv::UnavailableStore));
         let platform = Platform::of(&endow_in(host, "").unwrap());
         let kept = StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: Some("v".into()),
         };
@@ -996,6 +1000,7 @@ mod tests {
             .unwrap(),
         );
         let write = |value: &str| StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: Some(value.as_bytes().to_vec()),
         };
@@ -1088,6 +1093,7 @@ mod tests {
         }
         let opens = Opens(gated.clone());
         let keep = |value: Option<&str>| StoreWrite {
+            durable: false,
             name: "exact.kept.feed".into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };
@@ -1096,6 +1102,7 @@ mod tests {
             platform.write(&keep(value)).unwrap();
         }
         let other = StoreWrite {
+            durable: false,
             name: "exact.kept.other".into(),
             value: Some("o".into()),
         };
@@ -1162,6 +1169,7 @@ mod tests {
         // Account B's answer is kept while the disk is shut.
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: "exact.kept.question".into(),
                 value: Some("account B".into()),
             })
@@ -1233,6 +1241,7 @@ mod tests {
         let grants = "secret.keep platformer.best";
         let launch = || endow_for(grants, app).unwrap();
         let write = |name: &str, value: Option<&str>| StoreWrite {
+            durable: false,
             name: name.into(),
             value: value.map(|v| v.as_bytes().to_vec()),
         };

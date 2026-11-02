@@ -211,6 +211,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
         .collect();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: Some(b"Before first pixel".to_vec()),
         })
@@ -232,12 +233,14 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     let pure_asks = asks.lock().unwrap().iter().filter(|s| *s == "pure").count();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: Some(b"Palo Alto".to_vec()),
         })
         .unwrap();
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "exact.state.starred".into(),
             value: Some(b"true".to_vec()),
         })
@@ -272,6 +275,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     }
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "favourite".into(),
             value: None,
         })
@@ -285,6 +289,7 @@ fn peer_store_refresh_reasks_readers_and_restores_persisted_slots_in_every_sessi
     }
     platform
         .write(&StoreWrite {
+            durable: false,
             name: "exact.state.starred".into(),
             value: None,
         })
@@ -642,6 +647,7 @@ fn deferred_peer_refresh_asks_once_and_a_refusal_can_retry_after_activation() {
         }
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: "favourite".into(),
                 value: Some(b"peer".to_vec()),
             })
@@ -740,6 +746,7 @@ fn refused_data_ready_survives_an_unrelated_change_and_store_refusals_are_journa
     let put = |name: &str, value: &[u8]| {
         platform
             .write(&StoreWrite {
+                durable: false,
                 name: name.into(),
                 value: Some(value.to_vec()),
             })

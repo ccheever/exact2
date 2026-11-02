@@ -354,6 +354,15 @@ pub trait DataSource {
         Ok(())
     }
 
+    /// The host's shared, durable secret namespace. Configure before activation.
+    fn configure_secrets(
+        &mut self,
+        secrets: std::sync::Arc<dyn crate::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        let _ = secrets;
+        Ok(())
+    }
+
     /// Take native work for an executor-local continuation exactly once. The
     /// closure owns its inputs and runs on the host worker, never the renderer.
     /// Missing or consumed tokens are refused by that executor.

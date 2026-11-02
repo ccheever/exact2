@@ -690,6 +690,13 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
+    fn configure_secrets(
+        &mut self,
+        secrets: std::sync::Arc<dyn exact_runner::SharedSecrets>,
+    ) -> Result<(), DataError> {
+        self.here()?.configure_secrets(secrets)
+    }
+
     fn configure_storage(
         &mut self,
         data: std::path::PathBuf,
