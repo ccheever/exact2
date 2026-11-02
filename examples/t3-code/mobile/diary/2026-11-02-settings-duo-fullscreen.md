@@ -6,7 +6,7 @@ An unfolded Duo window showed Settings constrained to the workspace pane while H
 
 ## Lean in
 
-The route presentation and route content width now agree. Split Settings presents as a fullscreen route and its route root uses the viewport width. The underlying workspace geometry remains unchanged.
+The route presentation and route content width now agree. Split Settings presents as a fullscreen route and its route root uses the viewport width. The underlying workspace geometry remains unchanged. Fullscreen routes also opt out of the split workspace's `max-width: 100%` cap, so a native fullscreen controller cannot retain the old two-thirds layout from its logical workspace parent.
 
 ## Needed
 
@@ -15,4 +15,4 @@ A post-change Duo drive should confirm that Settings fills the unfolded window a
 ## Checkpoints
 
 - `bun test examples/t3-code/mobile/new-task.test.ts examples/t3-code/mobile/mobile-workspace.test.ts`
-- `bun scripts/exact.mjs contract build examples/t3-code/mobile/app.contract --json`
+- `bun scripts/exact.mjs contract build examples/t3-code/mobile/app.contract --json --errors-only`

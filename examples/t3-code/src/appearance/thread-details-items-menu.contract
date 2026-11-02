@@ -40,11 +40,10 @@ component ThreadDetailsItemsMenu
   view
     box position="relative" flex-shrink=0
       button popovertarget=menuId key=triggerKey disabled=disabled aria-label=`Thread details: ${label}` aria-haspopup="menu" id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled page")
-        // Button outline sm, w-40 justify-between: Settings' select face (settings-rows.contract SelectFace).
-        row justify-content="space-between" align-items="center" gap="0.5rem" width="10rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(disabled ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(disabled ? 0.64 : 1) id=`paint-ThreadDetailsItemsMenu-face-${rowId}` data-paint="input canvas" data-pick="canvas"
+        // Button outline sm, w-40 justify-between: px 9 and the 16pt chevron's -mx-0.5, in --contrast-muted-foreground.
+        row justify-content="space-between" align-items="center" gap="0.5rem" width="10rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(disabled ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(disabled ? 0.64 : 1) id=`paint-ThreadDetailsItemsMenu-face-${rowId}` data-paint="input canvas" data-pick="canvas"
           text label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-ThreadDetailsItemsMenu-label-${rowId}` data-paint="text" data-pick="text"
-          box opacity=0.7 flex-shrink=0
-            CorePaintIcon(ownId=`paint-icon-ThreadDetailsItemsMenu-chevron-${rowId}`, paint="text", name="chevron-down", size=14, color=pal.text)
+          CorePaintIcon(ownId=`paint-icon-ThreadDetailsItemsMenu-chevron-${rowId}`, paint="mutedForeground", name="chevron-down", size=16, color=pal.muted)
       column id=menuId popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" role="menu" aria-label="Show in thread details" padding="0.25rem" box-sizing="border-box" min-width="13rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" testId=menuId data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
         // MenuGroupLabel: px-2 py-1.5, text-xs font-medium, muted. The popover's label names the menu for VoiceOver.
         text "Show in thread details" aria-hidden=true padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=pal.muted

@@ -5,8 +5,10 @@ import { T3Client } from '../../src/client/client';
 import { navigationHistory } from '../../src/sidebar/sidebar-history';
 import { brandMarkWidth } from '../../src/sidebar/sidebar-min-width';
 import { contractComponent } from '../support/contract-action-fixture';
+import { contractFn } from '../support/contract-fn-fixture';
 
 const at = '2026-11-01T00:00:00.000Z';
+const historySteps = await contractFn('src/sidebar/sidebar-shapes.contract', 'historySteps', ['paletteOpen', 'modal', 'settingsOpen']);
 function client(): T3Client {
   const c = new T3Client();
   c.shell = { projects: [{ id: 'p1', title: 'notes', workspaceRoot: '/notes' }], threads: ['a', 'b'].map(id => ({ id, projectId: 'p1', title: id, createdAt: at, updatedAt: at, archivedAt: null })), sequence: 1 };
@@ -77,7 +79,7 @@ describe('a step runs what ⌘[ and ⌘] run for its target', () => {
     const record = (name: string) => (...args: unknown[]) => { calls.push([name, ...args]); };
     const navigationHistory = { backKind: kind, backTarget: target, backExtra: extra, forwardKind: kind, forwardTarget: target, forwardExtra: extra, backHref: '', forwardHref: '', ...hrefs };
     const state = { promptLinks: { tab: 'home', stack: ['/', '/visit/1', '/visit/2'] } as Router };
-    members.call('historyGo', state, { ...router, ...shut, navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun'), ...scope }, [direction]);
+    members.call('historyGo', state, { ...router, ...shut, historySteps, navigationHistory, selectThread: record('selectThread'), closeModal: record('closeModal'), paletteRun: record('paletteRun'), ...scope }, [direction]);
     return { calls, router: state.promptLinks };
   };
   test('each kind', () => {
