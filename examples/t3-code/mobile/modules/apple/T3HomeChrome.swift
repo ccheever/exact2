@@ -142,7 +142,6 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private var compose: UIButton?
     private var dismiss: UIButton?
     private var compactTabBar: UITabBar?
-    private var compactTabSurface: UIVisualEffectView?
     private var compactCompose: UIButton?
     private var compactTabDelegate: T3CompactTabDelegate?
     private var glassLeading: NSLayoutConstraint?
@@ -385,15 +384,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         bar.accessibilityIdentifier = "workspace-tab-bar"
         bar.itemPositioning = .fill
         bar.tintColor = .label
-        bar.backgroundImage = UIImage()
-        bar.shadowImage = UIImage()
-        let surface = UIVisualEffectView(effect: UIGlassEffect(style: .regular))
-        surface.translatesAutoresizingMaskIntoConstraints = false
-        surface.clipsToBounds = true
-        surface.layer.cornerRadius = 32
-        root.addSubview(surface)
         root.addSubview(bar)
-        compactTabSurface = surface
         let definitions: [(String, String, String)] = [
             ("threads", "Chats", "text.bubble"),
             ("pullRequests", "PRs", "arrow.triangle.branch"),
@@ -421,17 +412,12 @@ private final class T3HomeChromeView: ExactNativeInstance {
         root.addSubview(compose)
         compactTabBar = bar; compactCompose = compose; compactTabDelegate = tabDelegate
         NSLayoutConstraint.activate([
-            surface.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
-            surface.trailingAnchor.constraint(equalTo: compose.leadingAnchor, constant: -16),
-            surface.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
-            // Match the Expo rail's full touch target: the compact host reserves
-            // a tall bottom surface, including the breathing room around the
-            // 28pt tab glyphs and the home-indicator safe area.
-            surface.heightAnchor.constraint(equalToConstant: 88),
-            bar.leadingAnchor.constraint(equalTo: surface.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: surface.trailingAnchor),
-            bar.bottomAnchor.constraint(equalTo: surface.bottomAnchor),
-            bar.heightAnchor.constraint(equalTo: surface.heightAnchor),
+            // The UIKit tab bar is the single glass surface. Adding a second
+            // effect view behind it produces a tab bar inside another tab bar.
+            bar.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+            bar.trailingAnchor.constraint(equalTo: compose.leadingAnchor, constant: -16),
+            bar.bottomAnchor.constraint(equalTo: root.safeAreaLayoutGuide.bottomAnchor, constant: -4),
+            bar.heightAnchor.constraint(equalToConstant: 88),
             compose.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
             compose.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
             compose.widthAnchor.constraint(equalToConstant: 88),
@@ -527,7 +513,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         }
         previousSearchPlacement = nil; previousSearchToolbarIntegration = nil
         searchController = nil; field?.delegate = nil; field?.resignFirstResponder(); field = nil
-        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabSurface?.removeFromSuperview(); compactTabSurface = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
+        bar?.removeFromSuperview(); bar = nil; compactTabBar?.removeFromSuperview(); compactTabBar = nil; compactTabDelegate = nil; compactCompose?.removeFromSuperview(); compactCompose = nil
         filter = nil; compose = nil; dismiss = nil
         width = nil; keyboardBottom = nil; restingBottom = nil; glassLeading = nil; glassTrailing = nil; glassCenter = nil
         settingQuery = false
