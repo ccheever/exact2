@@ -20,6 +20,37 @@ const plistValue = (profile, key) => {
   finally { rmSync(decoded, { force: true }); }
 };
 
+function commandAvailable(command, args = ['--version']) {
+  const result = spawnSync(command, args, { encoding: 'utf8', stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function prepareRust(source) {
+  const cargoHome = process.env.CARGO_HOME || join(process.env.HOME || homedir(), '.cargo');
+  const cargoBin = join(cargoHome, 'bin');
+  process.env.PATH = [cargoBin, process.env.PATH || ''].filter(Boolean).join(':');
+  if (!commandAvailable('rustup')) {
+    const installer = spawnSync('sh', ['-c', 'curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal'], {
+      cwd: source,
+      env: process.env,
+      encoding: 'utf8',
+      stdio: 'inherit',
+    });
+    if (installer.status !== 0) fail(`Rust toolchain installer failed (${installer.status ?? installer.error?.message})`);
+  }
+  process.env.PATH = [cargoBin, process.env.PATH || ''].filter(Boolean).join(':');
+  if (!commandAvailable('cargo')) fail('EAS builder has no Cargo after Rust setup');
+  const toolchain = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(join(source, 'rust-toolchain.toml'), 'utf8'))?.[1];
+  if (!toolchain) fail('Exact checkout has no pinned Rust toolchain');
+  const installed = spawnSync('rustup', ['toolchain', 'install', toolchain, '--profile', 'minimal', '--target', 'aarch64-apple-ios'], {
+    cwd: source,
+    env: process.env,
+    encoding: 'utf8',
+    stdio: 'inherit',
+  });
+  if (installed.status !== 0) fail(`Pinned Rust toolchain setup failed (${installed.status ?? installed.error?.message})`);
+}
+
 function provisioningProfilePath(teamId, bundleIdentifier) {
   const directory = join(process.env.HOME ?? homedir(), 'Library/MobileDevice/Provisioning Profiles');
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -64,6 +95,7 @@ exports.default = async function archive(ctx, { inputs, env }) {
   if (!/^[1-9]\d*$/.test(buildNumber ?? '')) fail('EAS must allocate a positive remote build number');
 
   const source = resolve(ctx.workingDirectory);
+  prepareRust(source);
   const output = resolve(source, '.exact/t3-production');
   mkdirSync(output, { recursive: true });
   const ipa = join(output, 'T3Code.ipa');
