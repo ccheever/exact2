@@ -19,7 +19,7 @@ component SentVideoTile
     local: action
   // UserVideoAttachment passes its signed attachment as actionsSource (Save video; no Copy image).
   view
-    MediaActions(source=`attachment:${id}`, tip=name, local=local, elementId="", testId=`attachment-video-actions-${id}`)
+    MediaActions(source=`attachment:${id}`, tip=name, local=local, elementId="", testId=`attachment-video-actions-${id}`, full=false)
       SentVideoFace(id=id, name=name, url=url, messageId=messageId, local=local)
 
 component SentVideoFace
@@ -59,6 +59,9 @@ component ExpandedVideo
     broke: action
     // Its Download (the timeline's `video-download`).
     download: action
+    // Full screen (preview-player.contract): the box covers the dialog, which covers the window.
+    full: bool
+    setFull: action
   view
-    box box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow="0 25px 50px -12px #00000040" background-color="#000000"
-      PreviewPlayer(src=url, name=name, width=0, height=0, maxWidth=maxWidth - 2, maxHeight=maxHeight - 2, radius="0.4375rem", playerId="image-preview-media", testId="image-preview-video", broke=broke, download=download)
+    box position=(full ? "absolute" : "relative") left=0 top=0 width=(full ? "100%" : "auto") height=(full ? "100%" : "auto") box-sizing="border-box" overflow="hidden" border-radius=(full ? 0 : "0.5rem") border-width=(full ? 0 : 1) border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" box-shadow=(full ? "none" : "0 25px 50px -12px #00000040") background-color="#000000"
+      PreviewPlayer(src=url, name=name, width=0, height=0, maxWidth=maxWidth - 2, maxHeight=maxHeight - 2, radius="0.4375rem", playerId="image-preview-media", testId="image-preview-video", broke=broke, download=download, full=full, setFull=setFull)

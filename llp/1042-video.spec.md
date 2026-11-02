@@ -1,7 +1,7 @@
 # LLP 1042: Video — browser semantics, native playback
 
 **Type:** Spec
-**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31); §9.1 built (2026-11-02)
+**Status:** Draft; §7 A and B accepted and built, C declined (Charlie, 2026-09-28); §9 built (2026-10-31); §9.1 and §9.2 built (2026-11-02); §3 "Full screen" on macOS built (2026-11-02)
 **Systems:** Kernel replaced elements; Contract media attributes/events; web video; Apple AVKit; keyboard viewport; Video Player app
 **Author:** Codex for Charlie Cheever
 **Implementer:** Codex, 2026-09-18
@@ -190,9 +190,26 @@ player while it shows, and the full-screen controller lets go of it before
 the inline view takes it back (AVKit pauses a player a closed controller
 still holds). The full-screen picture keeps the element's `object-fit`, as a
 full-screen element's does on the web (the Fullscreen UA sheet's `contain` is
-an author-overridable default): `cover` fills the screen, cropped. macOS does
-not present it yet and says so in the log. The web calls the element's
-`requestFullscreen()`.
+an author-overridable default): `cover` fills the screen, cropped. On macOS
+the arm opens a window of its own over the leaf, holding an AVPlayerView on
+the same AVPlayer with AVKit's floating controls, and takes it into full
+screen in its own Space, as Safari and QuickTime Player present a video
+(the user's ruling of 2026-11-02 that it be built). The zoom starts from the
+leaf's frame. Escape, the window's green button, Control-Command-F and
+Command-W leave it; the window then closes and `fullscreenchange` reports
+`false`. The inline view keeps the player throughout, so it shows the current
+frame when the window zooms back to it. AVKit's own full screen button is
+hidden in that window: it would open AVKit's private full-screen presentation
+from inside this one. `state.media` reports `fullscreen` and, while the
+window is open, `fullscreenWindow` (its window number, title, frame on
+screen, and whether it is full screen yet). VoiceOver reads the window by its
+title: the video's `aria-label`, `title` or `mediaTitle`, else its window's
+title. The web calls the element's `requestFullscreen()`.
+
+An embedder can keep a page's full screen inside its window instead: T3 Code
+2359643cff sets Electron's `disableHtmlFullscreenWindowResize`, so its video
+fills the app's window, which keeps its size and Space. Exact has no such
+option; an app that wants it lays the player out over its window itself.
 
 ### Events and observations
 
@@ -461,7 +478,8 @@ activates the browser; on macOS the panel is the system's, so a press
 elsewhere on it does not. An image that leaves the document
 closes the window, with no event, as no node is left to hear it. One image
 floats at a time, as one element per document does: a request for another
-moves the window to it, and the first hears `leavepictureinpicture`. Neither
+moves the window to it, and the first hears `leavepictureinpicture` (§9.2:
+the panels of §9.1 are windows of their own, one per image). Neither
 event carries a payload; the plan's EventKind table gains both, and the
 runner admits them as media events with an empty payload.
 
@@ -482,7 +500,7 @@ Two rulings (Daehyeon Mun, 2026-10-31):
   takes no id: one image floats at a time, so there is only one window to
   close, and a bare command is how Exact names the app's own (`close()`,
   `blur()`). With no image floating it does nothing and says so in the
-  journal.
+  journal. (§9.2: a panel is not that window, and stays.)
 
 HTML has `requestPictureInPicture()` only on `video`. On an `image` it is
 this extension, which stands for the canvas and hidden video a page builds;
@@ -585,7 +603,58 @@ Still out: a second window holding the app's own views (a floating window
 for a subtree), and media controls in Exact's window: the timeline shows,
 and neither kind plays or pauses, as AVKit's live source does not.
 
+### 9.2 Several windows, as T3 Code v0.1.6 opens them (Daehyeon Mun, 2026-11-02)
+
+The user's ruling of 2026-11-02 (evening): picture in picture follows T3
+Code v0.1.6 when several windows open. Measured on the oracle (v0.1.6,
+`2359643cff`, a 1352 × 878-point screen, positions from the top left), with
+two Browser tabs of each kind floated in turn:
+
+| Opened | What v0.1.6 shows | Why |
+| --- | --- | --- |
+| Two desktop tabs' separate windows | Two panels, "Preview · Page a" and "Preview · Page b", both at 436, 279, 316 × 470: each new window centred, the second exactly over the first. Closing one from its tab's menu leaves the other open, and each tab's menu item reads "Close separate preview window" while its own is open | `Manager.ts` keeps a `BrowserWindow` per tab (`pictureInPictureSessionsRef`, keyed by tab), and Electron centres a window given no position |
+| Two server tabs' windows | One window. The second tab's request shows its stream in the window already open, which keeps its place and width and takes the new stream's aspect (moved to 300, 200 at 284 × 178, it showed the portrait stream at 300, 200, 284 × 377); the first tab's control resets. Closed and opened again, it opens where it closed, at its width. Near the bottom of the screen it moves up to stay on it (1051, 683 became 1051, 486) | `serverPictureInPicture.ts` closes the one open before (`closeServerPictureInPicture()`); Chromium keeps one video picture-in-picture window, reused for the next video, and places it by `VideoOverlayWindowViews::CalculateAndUpdateWindowBounds` |
+| One of each | Both: the panels and the window float together, and closing either leaves the others | Two mechanisms: Electron windows, and Chromium's window |
+
+None of these windows brings the app forward (§9.1). So, on macOS:
+
+- **One picture-in-picture window.** AVKit's panel (§9, unsaid) and Exact's
+  `"window"` are the process's one picture-in-picture window, as a
+  document's one element: a request for another image moves it there and the
+  first hears `leavepictureinpicture`. AVKit's panel is the platform's and
+  keeps its own rule. Exact's `"window"` stays open and shows the next
+  image's pictures where it stands, as Chromium's does, and the next image
+  hears `enterpictureinpicture` at its first picture. Whenever its picture's
+  aspect changes, the next image's or its own, it keeps its top left and
+  width and takes the new aspect, then moves up and left as far as
+  Chromium's opening place where it would leave the screen (the titled panel
+  keeps its area, as §9.1 says). Its opening place is Chromium's too: the
+  bottom right, in from the visible frame's edges by 2% of the room left
+  beside and below it, which is the 17 points of §9.1 for 284 × 178 and 15
+  for 284 × 377. Closed and asked for again, it opens at the top left and
+  width it closed with.
+- **A panel per image.** Each `"panel"` request opens a window of its own,
+  centred as §9.1 says, beside the picture-in-picture window and the other
+  panels; a request for an image already floating in a panel with the same
+  options leaves it as it is. Closing one, by its close button or its image
+  leaving the document, closes only that one. `exitPictureInPicture()`
+  closes the picture-in-picture window and no panel, as HTML's
+  `document.exitPictureInPicture()` closes no other window of the page.
+- **One window per image.** An image asked to float in a kind other than the
+  one it floats in leaves that window first and hears it.
+
+The agent addresses each: every floating image's row in `tree` carries its
+window, `tap <image> pictureinpicture …` presses that image's, and
+`screenshot <png> window pictureinpicture <image>` pictures the one the
+image floats in (the image may go unsaid while one window floats).
+
+On the web's JS target a request still closes the window before, of either
+kind: a page has one picture-in-picture element and one Document
+Picture-in-Picture window. `exitPictureInPicture()` leaves a panel there
+too. iOS, tvOS and the other hosts refuse as §9.1 says.
+
 Sources: [W3C Picture-in-Picture](https://w3c.github.io/picture-in-picture/),
+[Document Picture-in-Picture](https://wicg.github.io/document-picture-in-picture/),
 [AVPictureInPictureController.ContentSource](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class),
 [AVSampleBufferDisplayLayer](https://developer.apple.com/documentation/avfoundation/avsamplebufferdisplaylayer),
 [HTMLCanvasElement.captureStream()](https://w3c.github.io/mediacapture-fromelement/).

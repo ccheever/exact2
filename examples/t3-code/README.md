@@ -328,7 +328,9 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   it into Chromium's picture-in-picture window as Exact draws it (`requestPictureInPicture(…, presentation="window")`,
   LLP 1042 §9.1; `server-browser-pip.ts`): a stream of its own paints a hidden image that it floats, as the reference
   floats its canvas stream. A desktop tab's separate preview window is Exact's floating panel
-  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second.
+  (`presentation="panel"`, `browser-desktop-pip.ts`) over the frame's captures, about 12 a second. As in the
+  reference, each desktop tab keeps its own window beside the others and beside the server tabs' one window, which
+  moves to the next server tab that pops out (LLP 1042 §9.2).
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
   the user grants them).
@@ -769,9 +771,12 @@ above.
   (`historyswipe`) and draws v0.1.6's edge arrow from it (`history-swipe.contract`), but the distances are AppKit's:
   a lift at rest steps from about 250 points of travel, where v0.1.6 steps from 120 px, and a quick flick steps
   sooner, which the arrow cannot know, so it may look unarmed as the step goes.
-  AppKit tracks a swipe wherever the router has a visit beneath or ahead, so a swipe can end on no step: under the
-  palette or a dialog other than Settings (v0.1.6 ignores those), past the history's 50 visits, or onto an archived
-  thread, where ⌘[ and the sidebar arrows do nothing either.
+  The window root offers only the steps ⌘[ and ⌘] take (`navigationHistory`), so no swipe is tracked and no arrow
+  drawn under the palette or a dialog other than Settings, past the history's 50 visits, or onto an archived thread.
+  v0.1.6's swipe differs in two of these, measured on the oracle: it ignores a swipe only with the pointer over the
+  palette or dialog (beside it, over the backdrop, it steps the page under the open palette), and it steps onto an
+  archived thread's route, which opens a new-thread draft. The clone's Back and Forward skip both
+  (`sidebar-members.contract` `historyGo`, `keyboard-dispatch.ts` `liveEntry`), and its swipe follows them.
 - A pressed chip in either composer takes v0.1.6's 2 px ring (`index.css` `.ProseMirror-selectednode`) in the
   default theme's focus colour: an atom kind's paint is a literal, so a custom theme's focus colour does not reach
   it. A selection that holds a chip and more text draws the chip as AppKit's selected token, where v0.1.6 lays
@@ -794,12 +799,20 @@ above.
   Web Inspector, not Chrome DevTools. The pinned server offers no way in either: it launches its Chromium through
   Playwright over a pipe (`--remote-debugging-pipe`) with fixed flags and reads no setting that adds a debugging port
   (reference `apps/server/src/preview/ServerBrowserContexts.ts:88-104`).
-- One Browser window floats at a time: opening a desktop tab's separate preview window closes another tab's, or the
-  server tab's picture in picture, where the reference keeps a window per tab beside Chromium's. Exact floats one
-  image per process, as a document floats one picture-in-picture element (LLP 1042 §9).
 - No development web view inspection on Android: the clone does not run on Android yet.
 - Settings › About has no Legal › Privacy policy row. v0.1.6's reads "How we handle your data, including the anonymous
   usage data T3 Code collects"; the clone collects no usage data (telemetry is out of scope), so that row would be false.
+- Settings › Devices keeps its earlier layout (Device hub, Agent device access, Device hosts with Add host). v0.1.6's
+  page has Use devices and Agents can use devices with the hub's and agent-device's versions inline, then a Device
+  sources section (Local simulators, Add source for SSH, EAS and Simlock hosts, `DeviceSourcesSettings.tsx`); porting
+  it is its own task.
+- Settings › Appearance's prompt sample stays one line high, clipping "shipping." and the labels' descenders, where
+  v0.1.6's wraps to two lines: the field's `field-sizing: content` measures one line although its chips make the text
+  wrap. In two of four drives its file chips also drew no icon, an empty gap after each label
+  (`clone/issues/match1102b-sweep-settings-atom-icons.md`).
+- Monospace labels in Settings (Keybindings' When clauses, versions) run about 2% wider than v0.1.6's in the same
+  face and size (SF Mono, 11 to 14 pt): "!terminalFocus" at 11 pt is 92.7 pt in v0.1.6 and about 94.5 pt here. The
+  cause, likely the system font's size-specific tracking, is not traced.
 - A composer reference's icon is v0.1.6's for a file (its Pierre type icon in the scheme's tint), a folder and a
   thread whose project has a favicon. An image chip shows a photo glyph, not the image's thumbnail: the staged
   image is drawn by the snapshot module's tile (`T3SnapShot.swift`), not from a file an image source can name.
