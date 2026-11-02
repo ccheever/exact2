@@ -1,0 +1,49 @@
+{
+  "game": "garden",
+  "host": "web",
+  "viewport": [
+    1280,
+    720
+  ],
+  "scale": 8,
+  "step": 4,
+  "frames": {
+    "classic-start": {
+      "bytes": 8099,
+      "sha256": "f2a82e406a2f4574f7e546fcd703926afaa1c6873d36b0abaac62c5d6184e6d8"
+    },
+    "classic-grown": {
+      "bytes": 10741,
+      "sha256": "6df1c9c7399dbe2dc661c4a02639242df3dcf535b24a0d427ad7563bbbfb822e"
+    },
+    "golden-start": {
+      "bytes": 17486,
+      "sha256": "9d57c42ea2e2cc9c71eba8b7ce8bd007f3bd72944b2061874bec8076636694e5"
+    },
+    "golden-grown": {
+      "bytes": 19548,
+      "sha256": "5de74356a1fd03cf2083f603f4fb76c30bcd6350d92f06eee6799ab127869579"
+    },
+    "storybook-start": {
+      "bytes": 15030,
+      "sha256": "b082013aad086a9019c841ec8ff191107ff3aebf4aec0975700fb6546409a15d"
+    },
+    "storybook-grown": {
+      "bytes": 16868,
+      "sha256": "e1eab23e2ed77a63eaa4e48b993928ae4e2cc42ee595f2f9aabd6865b3e658fa"
+    },
+    "pass-start": {
+      "bytes": 18039,
+      "sha256": "9853da0327a5b0ba48b03532947a72ea041ec45baf57e9393b18a72647e87a24"
+    },
+    "pass-grown": {
+      "bytes": 19123,
+      "sha256": "7f41595f079cb5963014f910a8e00fadfe9e13f84ff9a29bbf7aabcd20409dbe"
+    }
+  },
+  "bytes": 124934,
+  "reason": "HUD sentences now written in app.contract from published values (market and care panels' wording and layout); golden/storybook models baked from TypeScript, which places meadow tufts by instance",
+  "inputs": "513bda91f81df9c753b5272cc758d0760acfc39302e75e0b8bca6318f0b56550",
+  "at": "f65322720379beceecbbae3b5dd3d144a6563e44",
+  "generated": "bun game/prove.mjs garden --looks --retake --reason 'HUD sentences now written in app.contract from published values (market and care panels'\\'' wording and layout); golden/storybook models baked from TypeScript, which places meadow tufts by instance'"
+}

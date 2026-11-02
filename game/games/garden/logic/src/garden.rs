@@ -2,7 +2,7 @@
 //! fruit. Growth is event-driven: a tick touches only what is due, so an hour
 //! of growth (or an afternoon away) costs the events in it, not ticks × plants.
 
-use crate::crops::{self, crop};
+use crate::crops::{self, balance, Balance};
 use exact_game::*;
 
 /// Metres between tile centres.
@@ -143,6 +143,11 @@ pub struct Plant {
     pub kind: u8,
     pub tile: [u16; 2],
     pub planted: u64,
+    /// Effective growth span; watering preserves progress and shortens what remains.
+    pub grow_ms: u64,
+    pub watered: bool,
+    /// Passed to the first fruit batch, then cleared for ordinary regrowth.
+    pub fed: bool,
     pub stage: u8,
     /// The fruit in each slot. `World::children` scans every entity, so the
     /// plant keeps its own list.
@@ -158,6 +163,8 @@ pub struct Fruit {
     pub set_at: u64,
     pub ripe_at: u64,
     pub ripe: bool,
+    pub watered: bool,
+    pub fed: bool,
     pub weight: f32,
     pub muts: u8,
 }
@@ -177,6 +184,12 @@ pub fn tile_center(tile: [u16; 2]) -> Vec3 {
     Vec3::new(tile[0] as f32 * TILE, 0.0, -(tile[1] as f32) * TILE)
 }
 
+/// Leave the centre of the interaction tile clear for the player. Use the
+/// same anchor for the stem and its world-space fruit, including regrowth.
+pub(crate) fn plant_center(tile: [u16; 2]) -> Vec3 {
+    tile_center(tile) + Vec3::new(0.65, 0.0, -0.35)
+}
+
 /// A material from an sRGB-ish authored colour (materials are linear).
 pub fn paint(c: [f32; 3]) -> Material {
     Material::rgb(c[0] * c[0], c[1] * c[1], c[2] * c[2])
@@ -186,27 +199,32 @@ fn plant_scale(stage: u8) -> f32 {
     0.25 + 0.75 * stage as f32 / 4.0
 }
 
-fn plant_pose(kind: u8, tile: [u16; 2], scale: f32) -> Transform {
-    let h = crop(kind).height;
+fn plant_pose(b: &Balance, kind: u8, tile: [u16; 2], scale: f32) -> Transform {
+    let h = b.crop(kind).height;
     let mut t = Transform::at(0.0, h * scale / 2.0, 0.0).with_scale(scale);
-    t.position += tile_center(tile);
+    t.position += plant_center(tile);
     t
 }
 
 /// Spawns a plant on a tile at garden time `at` and schedules its first stage.
 pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
-    let c = crop(kind);
+    let b = balance(w);
+    let c = b.crop(kind);
+    let p = Plant {
+        kind,
+        tile,
+        planted: at,
+        grow_ms: c.grow_s as u64 * 1000,
+        watered: false,
+        fed: false,
+        stage: 0,
+        fruits: vec![None; c.slots as usize],
+    };
     let e = w.spawn((
-        plant_pose(kind, tile, plant_scale(0)),
-        Mesh::cylinder(0.35, c.height),
-        paint(c.leaf),
-        Plant {
-            kind,
-            tile,
-            planted: at,
-            stage: 0,
-            fruits: vec![None; c.slots as usize],
-        },
+        plant_pose(&b, kind, tile, plant_scale(0)),
+        Mesh::asset(format!("plant-{kind}.model")),
+        Material::default(),
+        p,
     ));
     let step = c.grow_s as u64 * 1000 / 4;
     w.resource_mut::<Schedule>().push(at + step, Due::Grow(e));
@@ -214,8 +232,7 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     e
 }
 
-fn fruit_offset(kind: u8, slot: u8) -> Vec3 {
-    let c = crop(kind);
+fn fruit_offset(c: &crops::Crop, slot: u8) -> Vec3 {
     if c.slots == 1 {
         return Vec3::new(0.0, c.height / 2.0 + c.fruit_size * 0.6, 0.0);
     }
@@ -230,27 +247,32 @@ fn fruit_offset(kind: u8, slot: u8) -> Vec3 {
 /// Fruit is placed in world space, not parented to its plant: a mature plant
 /// never moves. After the hierarchy and render fixes a still parented garden
 /// draws as cheaply, but an hour's seek at 21,100 plants still costs more
-/// parented: 3.0 s against 0.57 s on web, 0.43 s against 0.20 s on Linux.
+/// parented: 3.0 s against 0.57 s on web, 0.43 s against 0.20 s on Linux (diary).
 pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity {
-    let c = crop(kind);
+    let b = balance(w);
+    let c = b.crop(kind);
     let ripe_at = at + c.fruit_s as u64 * 1000;
     let base = w.require::<Plant>(plant).tile;
+    let fed = w.require::<Plant>(plant).fed;
+    let fruit = Fruit {
+        kind,
+        plant: Some(plant),
+        slot,
+        set_at: at,
+        ripe_at,
+        ripe: false,
+        watered: false,
+        fed,
+        weight: c.weight,
+        muts: 0,
+    };
     let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
-    pose.position += tile_center(base) + fruit_offset(kind, slot);
+    pose.position += plant_center(base) + fruit_offset(c, slot);
     let e = w.spawn((
         pose,
-        Mesh::sphere(c.fruit_size),
+        Mesh::asset(format!("fruit-{kind}.model")),
         paint([0.55, 0.75, 0.35]),
-        Fruit {
-            kind,
-            plant: Some(plant),
-            slot,
-            set_at: at,
-            ripe_at,
-            ripe: false,
-            weight: c.weight,
-            muts: 0,
-        },
+        fruit,
     ));
     w.require_mut::<Plant>(plant).fruits[slot as usize] = Some(e);
     w.resource_mut::<Census>().fruit += 1;
@@ -265,42 +287,47 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
 /// Rolls a ripening fruit's size and mutations against the weather now.
 fn ripen(w: &mut World, e: Entity) {
     let sky = w.resource::<Weather>().sky;
+    let b = balance(w);
+    let r = &b.ripening;
     let (kind, muts, weight) = {
         let mut rng = w.rng();
         let kind = w.require::<Fruit>(e).kind;
         let mut muts = 0;
         let roll = rng.next_f32();
-        if roll < 0.001 {
+        if roll < r.rainbow_below {
             muts |= crops::RAINBOW;
-        } else if roll < 0.011 {
+        } else if roll < r.gold_below {
             muts |= crops::GOLD;
         }
         match sky {
             Sky::Clear => {}
             Sky::Rain => {
-                if rng.chance(0.5) {
+                if rng.chance(r.rain_wet) {
                     muts |= crops::WET;
                 }
             }
             Sky::Snow => {
-                if rng.chance(0.4) {
+                if rng.chance(r.snow_chilled) {
                     muts |= crops::CHILLED;
-                } else if rng.chance(0.1) {
+                } else if rng.chance(r.snow_frozen) {
                     muts |= crops::FROZEN;
                 }
             }
             Sky::Storm => {
-                if rng.chance(0.5) {
+                if rng.chance(r.storm_wet) {
                     muts |= crops::WET;
                 }
-                if rng.chance(0.03) {
+                if rng.chance(r.storm_shocked) {
                     muts |= crops::SHOCKED;
                 }
             }
         }
-        let mut weight = crop(kind).weight * rng.range(0.8..1.4);
-        if rng.chance(0.02) {
-            weight *= 3.0;
+        let mut weight = b.crop(kind).weight * rng.range(r.weight[0]..r.weight[1]);
+        if rng.chance(r.giant) {
+            weight *= r.giant_weight;
+        }
+        if w.require::<Fruit>(e).fed {
+            weight *= r.fed_weight;
         }
         (kind, muts, weight)
     };
@@ -310,11 +337,15 @@ fn ripen(w: &mut World, e: Entity) {
         fruit.muts = muts;
         fruit.weight = weight;
     }
-    let size = (weight / crop(kind).weight).sqrt();
+    let size = (weight / b.crop(kind).weight).sqrt();
     w.require_mut::<Transform>(e).scale = Vec3::splat(size);
-    let color = crops::fruit_color(kind, muts);
-    *w.require_mut::<Material>(e) = if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
-        paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
+    // The classic look's colour; the art pass draws its own (pass::present).
+    let color = b.fruit_color(kind, muts);
+    // Rainbow and Shocked glow; Gold glows faintly, since the looks that
+    // draw it as metal (golden, storybook, the art pass) need its shine to read.
+    let glow = b.fruit_glow(muts);
+    *w.require_mut::<Material>(e) = if glow > 0. {
+        paint(color).emissive(color[0] * glow, color[1] * glow, color[2] * glow)
     } else {
         paint(color)
     };
@@ -352,7 +383,9 @@ pub fn run_due(w: &mut World, until: u64) -> Ran {
             Due::Nothing => {}
             Due::Grow(e) => grow(w, e, entry.at),
             Due::Ripen(e) => {
-                if w.get::<Fruit>(e).is_some_and(|f| !f.ripe) {
+                if w.get::<Fruit>(e)
+                    .is_some_and(|f| !f.ripe && f.ripe_at == entry.at)
+                {
                     ripen(w, e);
                     ran.ripened += 1;
                 }
@@ -372,35 +405,124 @@ pub fn run_due(w: &mut World, until: u64) -> Ran {
 }
 
 fn grow(w: &mut World, e: Entity, at: u64) {
-    let Some((kind, tile, stage)) = w.get::<Plant>(e).map(|p| (p.kind, p.tile, p.stage + 1)) else {
+    // Watering leaves the old event in the heap. Only the current deadline may
+    // advance a stage; an obsolete event cannot bear a second set of fruit.
+    let Some((kind, tile, stage, planted, span)) = w
+        .get::<Plant>(e)
+        .filter(|p| p.stage < 4 && at == p.planted + p.grow_ms * (p.stage as u64 + 1) / 4)
+        .map(|p| (p.kind, p.tile, p.stage + 1, p.planted, p.grow_ms))
+    else {
         return;
     };
     w.require_mut::<Plant>(e).stage = stage;
-    *w.require_mut::<Transform>(e) = plant_pose(kind, tile, plant_scale(stage));
-    let c = crop(kind);
+    let b = balance(w);
+    // Classic scales one model; the art pass draws one per stage (pass::present).
+    *w.require_mut::<Transform>(e) = plant_pose(&b, kind, tile, plant_scale(stage));
+    let c = b.crop(kind);
     if stage < 4 {
         w.resource_mut::<Schedule>()
-            .push(at + c.grow_s as u64 * 1000 / 4, Due::Grow(e));
+            .push(planted + span * (stage as u64 + 1) / 4, Due::Grow(e));
     } else {
         for slot in 0..c.slots {
             bear(w, e, kind, slot, at);
+        }
+        w.require_mut::<Plant>(e).fed = false;
+    }
+}
+
+/// Feeding visits this plot's bounded fruit slots, never the whole garden.
+/// It changes the weight at ripening without drawing another random number.
+pub fn needs_feed(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        if p.stage < 4 {
+            !p.fed
+        } else {
+            p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| !f.ripe && !f.fed))
+        }
+    })
+}
+
+pub fn is_fed(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        p.fed
+            || p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| f.fed))
+    })
+}
+
+pub fn feed(w: &World, plant: Entity) {
+    let mut p = w.require_mut::<Plant>(plant);
+    if p.stage < 4 {
+        p.fed = true;
+    } else {
+        for &e in p.fruits.iter().flatten() {
+            if let Some(mut f) = w.get_mut::<Fruit>(e).filter(|f| !f.ripe) {
+                f.fed = true;
+            }
+        }
+    }
+}
+
+/// One dose per growing plant, or per new unripe fruit. The effective start
+/// moves forward by a quarter of elapsed time, preserving visual progress;
+/// the deadline moves nearer by a quarter of the remaining time. No world scan.
+pub fn needs_water(w: &World, plant: Entity) -> bool {
+    w.get::<Plant>(plant).is_some_and(|p| {
+        if p.stage < 4 {
+            !p.watered
+        } else {
+            p.fruits
+                .iter()
+                .flatten()
+                .any(|&e| w.get::<Fruit>(e).is_some_and(|f| !f.ripe && !f.watered))
+        }
+    })
+}
+
+pub fn water(w: &World, plant: Entity, now: u64) {
+    let mut p = w.require_mut::<Plant>(plant);
+    if p.stage < 4 && !p.watered {
+        p.watered = true;
+        p.planted += now.saturating_sub(p.planted) / 4;
+        p.grow_ms = p.grow_ms * 3 / 4;
+        w.resource_mut::<Schedule>().push(
+            p.planted + p.grow_ms * (p.stage as u64 + 1) / 4,
+            Due::Grow(plant),
+        );
+    } else if p.stage == 4 {
+        for &e in p.fruits.iter().flatten() {
+            let Some(mut f) = w.get_mut::<Fruit>(e).filter(|f| !f.ripe && !f.watered) else {
+                continue;
+            };
+            let span = (f.ripe_at - f.set_at) * 3 / 4;
+            f.set_at += now.saturating_sub(f.set_at) / 4;
+            f.ripe_at = f.set_at + span;
+            f.watered = true;
+            w.resource_mut::<Schedule>().push(f.ripe_at, Due::Ripen(e));
         }
     }
 }
 
 pub fn change_weather(w: &mut World, at: u64) {
+    let b = balance(w);
+    let s = &b.weather;
     let (sky, len) = if w.resource::<Weather>().sky == Sky::Clear {
         let roll = w.rand(0.0f32..1.0);
-        let sky = if roll < 0.6 {
+        let sky = if roll < s.rain_below {
             Sky::Rain
-        } else if roll < 0.85 {
+        } else if roll < s.snow_below {
             Sky::Snow
         } else {
             Sky::Storm
         };
-        (sky, w.rand(60u64..121))
+        (sky, w.rand(s.stormy_s[0]..s.stormy_s[1] + 1))
     } else {
-        (Sky::Clear, w.rand(180u64..421))
+        (Sky::Clear, w.rand(s.clear_s[0]..s.clear_s[1] + 1))
     };
     let until = at + len * 1000;
     {
@@ -422,18 +544,11 @@ pub struct Item {
     pub kind: u8,
     pub weight: f32,
     pub muts: u8,
+    pub fed: bool,
 }
 impl Item {
-    pub fn value(&self) -> u64 {
-        crops::fruit_value(self.kind, self.weight, self.muts)
-    }
-    pub fn label(&self) -> String {
-        let m = crops::mutation_names(self.muts);
-        if m.is_empty() {
-            crop(self.kind).name.to_string()
-        } else {
-            format!("{m} {}", crop(self.kind).name)
-        }
+    pub fn value(&self, b: &Balance) -> u64 {
+        b.fruit_value(self.kind, self.weight, self.muts)
     }
 }
 
@@ -443,8 +558,8 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
     let f = w
         .get::<Fruit>(fruit)
         .filter(|f| f.ripe)
-        .map(|f| (f.kind, f.weight, f.muts, f.plant, f.slot))?;
-    let (kind, weight, muts, plant, slot) = f;
+        .map(|f| (f.kind, f.weight, f.muts, f.plant, f.slot, f.fed))?;
+    let (kind, weight, muts, plant, slot, fed) = f;
     w.despawn(fruit);
     if let Some(mut p) = plant.and_then(|p| w.get_mut::<Plant>(p)) {
         p.fruits[slot as usize] = None;
@@ -458,7 +573,7 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
         }
     }
     if let Some(plant) = plant {
-        if crop(kind).regrows {
+        if balance(w).crop(kind).regrows() {
             bear(w, plant, kind, slot, at);
         } else {
             remove_plant(w, plant);
@@ -469,6 +584,7 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
         kind,
         weight,
         muts,
+        fed,
     })
 }
 
@@ -502,10 +618,12 @@ pub fn fruits_of(w: &World, plant: Entity) -> Vec<(Entity, bool, u64)> {
 /// Smooth growth, the way a naive clone animates it: every tick, every
 /// growing plant and unripe fruit gets a new scale. O(entities) per tick.
 pub fn animate(w: &World, now: u64) {
+    let b = balance(w);
+    // The art pass grows its grounded stage models from the same clock (pass::present).
     for (_, (t, p)) in w.query::<(&mut Transform, &Plant)>().iter() {
         if p.stage < 4 {
-            let c = crop(p.kind);
-            let f = ((now - p.planted.min(now)) as f32 / (c.grow_s as f32 * 1000.0)).min(1.0);
+            let c = b.crop(p.kind);
+            let f = ((now - p.planted.min(now)) as f32 / p.grow_ms.max(1) as f32).min(1.0);
             let s = 0.25 + 0.75 * f;
             t.scale = Vec3::splat(s);
             t.position.y = c.height * s / 2.0;
@@ -522,7 +640,8 @@ pub fn animate(w: &World, now: u64) {
 
 /// When the first weather arrives: three to seven clear minutes.
 pub fn change_after(w: &World) -> u64 {
-    let at = w.rand(180u64..421) * 1000;
+    let clear = balance(w).weather.clear_s;
+    let at = w.rand(clear[0]..clear[1] + 1) * 1000;
     w.resource_mut::<Weather>().until = at;
     at
 }

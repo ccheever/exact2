@@ -1,4 +1,4 @@
-//! Scale measurements. Ignored by default; run in release:
+//! The measurements in the diary. Ignored by default; run in release:
 //! `cargo test --release --manifest-path game/games/garden/.shells/Cargo.toml
 //!  -p garden-logic --test scale -- --ignored --nocapture --test-threads 1`
 use exact_game::{Clock, Sim};
@@ -7,19 +7,41 @@ use garden_logic::garden::{Census, Schedule};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
+/// A garden whose declared balance has arrived from
+/// the game's source, as a host delivers it before setup.
+fn garden(options: Options) -> Sim<Garden> {
+    let mut sim = Sim::<Garden>::new(options).unwrap();
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for name in ["garden.level.json"] {
+        let bytes = std::fs::read(dir.join(name)).unwrap();
+        sim.asset(name, Some(&bytes)).unwrap();
+    }
+    sim
+}
+
 fn new(smooth: bool) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
+    look(smooth, "")
+}
+
+fn look(smooth: bool, art: &str) -> Sim<Garden> {
+    garden(Options {
         seed: 1,
         smooth,
+        art: art.into(),
         ..Options::default()
     })
-    .unwrap()
+}
+
+fn tick(game: &mut Sim<Garden>) {
+    // 33.333 ms rounds below the first 30 Hz tick on the microsecond clock.
+    // Cross that boundary, and prove the timed command actually executed.
+    assert_eq!(game.run(1000.0 / 30.0 + 0.001), 1);
 }
 
 fn send(game: &mut Sim<Garden>, cmd: &str) -> f64 {
     game.post(cmd);
     let t = Instant::now();
-    game.run(1000.0 / 30.0);
+    tick(game);
     t.elapsed().as_secs_f64() * 1000.0
 }
 
@@ -50,7 +72,7 @@ fn frames(game: &mut Sim<Garden>, frames: u32) -> (f64, f64) {
 /// One seekable single-tick run: a tick plus the agent's rest observation.
 fn observed_tick(game: &mut Sim<Garden>) -> f64 {
     let t = Instant::now();
-    game.run(1000.0 / 30.0);
+    tick(game);
     t.elapsed().as_secs_f64() * 1000.0
 }
 
@@ -63,6 +85,30 @@ fn sizes() -> Vec<u32> {
         .ok()
         .map(|s| s.split(',').map(|n| n.parse().unwrap()).collect())
         .unwrap_or(vec![100, 500, 2_000, 10_000, 50_000])
+}
+
+#[test]
+#[ignore]
+fn empty_plot_guidance_at_maximum_size() {
+    let mut game = new(false);
+    let max = garden_logic::crops::balance(game.world()).farm.max_size;
+    garden_logic::farm::resize(game.world_mut(), max);
+    game.tap("KeyE");
+    send(&mut game, "buy carrot");
+    // One real plant and 65,535 empty tiles: the lookup examines the entire
+    // bounded tile table, without charging a forest of meshes to the hint.
+    let t = Instant::now();
+    let mut hint = Default::default();
+    for _ in 0..1_000 {
+        hint = std::hint::black_box(garden_logic::farm::planting_guidance(game.world()));
+    }
+    let lookup = ms(t) / 1_000.0;
+    assert_eq!(hint.what, "empty");
+    game.world_mut().resource_mut::<Farm>().held = None;
+    let idle = frames(&mut game, 600);
+    game.world_mut().resource_mut::<Farm>().held = Some(0);
+    let guided = frames(&mut game, 600);
+    println!("65,536 tiles: lookup {lookup:.4} ms; live frame mean/max without hint {:.4}/{:.4} ms, with hint {:.4}/{:.4} ms", idle.0, idle.1, guided.0, guided.1);
 }
 
 #[test]
@@ -114,6 +160,78 @@ fn entity_ramp() {
     }
 }
 
+/// What each look costs a live frame (its presents included) in a grown
+/// garden: the classic look draws the simulation's own models; the others
+/// write presentation per plant and fruit.
+#[test]
+#[ignore]
+fn looks_at_scale() {
+    println!("| plants | entities | look | frame ms mean / max (live) |");
+    for n in sizes() {
+        for art in ["", "pass", "golden", "storybook"] {
+            let mut game = look(false, art);
+            send(&mut game, &format!("fill {n}"));
+            // Most plants mature, fruit on the vine, some ripening.
+            game.run(150_000.0);
+            let entities = game.world().len();
+            frames(&mut game, 120);
+            let live = frames(&mut game, 600);
+            let name = if art.is_empty() { "classic" } else { art };
+            println!(
+                "| {n} | {entities} | {name} | {:.3} / {:.2} |",
+                live.0, live.1
+            );
+        }
+    }
+}
+
+/// What a look costs to start in (an empty garden), and to switch to live
+/// from classic the first time and again in a restored garden bearing every
+/// crop's fruit: the best of nine fresh games each, which a loaded machine
+/// disturbs least. A look's baked models are streamed while it is chosen,
+/// so a game pays for the looks it shows.
+#[test]
+#[ignore]
+fn setup_per_look() {
+    use exact_game::Args;
+    let best = |v: Vec<f64>| v.into_iter().fold(f64::INFINITY, f64::min);
+    let bind = |game: &mut Sim<Garden>, art: &str| {
+        let options = Options {
+            seed: 1,
+            art: art.into(),
+            ..Options::default()
+        };
+        let t = Instant::now();
+        game.bind(&options.values(), None).unwrap();
+        ms(t)
+    };
+    let mut grown = look(false, "");
+    send(&mut grown, "fill 100");
+    grown.run(1_800_000.0);
+    let grown = grown.save().unwrap();
+    println!("| look | setup ms | first switch, grown ms | switch again, grown ms |");
+    for art in ["", "pass", "golden", "storybook"] {
+        let (mut setup, mut first, mut again) = (vec![], vec![], vec![]);
+        for _ in 0..9 {
+            let t = Instant::now();
+            drop(std::hint::black_box(look(false, art)));
+            setup.push(ms(t));
+            let mut game = look(false, "");
+            game.restore(&grown).unwrap();
+            first.push(bind(&mut game, art));
+            bind(&mut game, "");
+            again.push(bind(&mut game, art));
+        }
+        let name = if art.is_empty() { "classic" } else { art };
+        println!(
+            "| {name} | {:.1} | {:.1} | {:.1} |",
+            best(setup),
+            best(first),
+            best(again)
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn economy_at_scale() {
@@ -154,12 +272,12 @@ fn backpack_republish() {
         let bag = game.world().resource::<Farm>().bag.len();
         game.tap("KeyE");
         let t = Instant::now();
-        game.run(1000.0 / 30.0);
+        tick(&mut game);
         let one = ms(t);
         let idle = frames(&mut game, 120);
         let observed = observed_tick(&mut game);
         game.world_mut().resource_mut::<Farm>().bag_dirty = true;
-        game.run(1000.0 / 30.0);
+        tick(&mut game);
         let record = game.take_published().map_or(0, |r| r.len());
         println!(
             "| {bag} | {one:.2} | {:.3} | {observed:.2} | {record} |",

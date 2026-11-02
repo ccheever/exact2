@@ -11,4 +11,5 @@ workspace = "../.shells"
 exact-game.workspace = true
 
 [dev-dependencies]
+exact-game-bake.workspace = true
 exact-game-render.workspace = true

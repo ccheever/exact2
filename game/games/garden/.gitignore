@@ -1,8 +1,14 @@
 /target/
 /dist/
-# The build swap's siblings: the kept builds by generation, their leases, the reaped list, lock and stages.
+# The web build keeps prior generations and temporary stages beside dist.
 /dist.*
-/dist.previous/
 /artifacts/
 /.shells/
 /app.contract.d.ts
+# What the bake writes into assets/ (models, textures, sounds); the fonts
+# beside them are authored.
+/assets/**/*.model
+/assets/**/*.tex
+/assets/**/*.sound
+/.baked-assets.json
+/assets/garden.level.json

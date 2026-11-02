@@ -2,23 +2,53 @@
 //! the renderer's own counters. Ignored by default; run in release:
 //! `cargo test --release --manifest-path game/games/garden/.shells/Cargo.toml
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
+//! `GARDEN_ART` picks the look (`golden`, `storybook`, `pass`); every model the
+//! game asks for is delivered from the bake's `assets/`, the art pass's
+//! streamed ones included, as a host would.
 use exact_game::{Args, Value};
 use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
-use exact_game_render::WorldSurface;
+use exact_game_render::{ModelExecutor, WorldSurface};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
-fn bind(surface: &mut WorldSurface<Garden>) {
+// Match the game's model-capable GPU module (`game.assets` in app.json).
+type GardenSurface = WorldSurface<Garden, ModelExecutor, true>;
+
+fn bind(surface: &mut GardenSurface) {
     let o = Options {
         seed: 1,
         smooth: std::env::var("GARDEN_SMOOTH").is_ok(),
+        art: std::env::var("GARDEN_ART").unwrap_or_default(),
         ..Options::default()
     };
     let values: Vec<Value> = o.values();
     surface.bind(&values, None).unwrap();
 }
 
-fn post(surface: &mut WorldSurface<Garden>, frame: &Frame, text: &str) {
+/// Hand the surface every model and texture it asks for, from the baked
+/// `assets/` beside this crate, and prepare them on the device.
+fn deliver(surface: &mut GardenSurface, gpu: &exact_game_render::exact_gpu::Gpu) {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    loop {
+        let requests = surface.assets().requests;
+        if requests.is_empty() {
+            break;
+        }
+        for name in requests {
+            match std::fs::read(dir.join(&name)) {
+                Ok(bytes) => surface.asset(&name, Ok(&bytes)),
+                Err(e) => panic!("{name}: {e} (bake the garden first)"),
+            }
+        }
+    }
+    surface.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_game_render::exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+}
+
+fn post(surface: &mut GardenSurface, frame: &Frame, text: &str) {
     surface.input(&InputEvent::Message {
         text: text.into(),
         at_ms: frame.now_ms,
@@ -51,10 +81,11 @@ fn frames_at_scale() {
         .ok()
         .map(|s| s.split(',').map(|n| n.parse().unwrap()).collect())
         .unwrap_or(vec![100, 500, 2_000, 10_000, 20_000, 50_000]);
-    println!("| plants | entities | wall ms/frame mean / p95 / max | feed ms | encode ms | draws | instances | triangles | gpu passes |");
+    println!("| plants | entities | wall ms/frame mean / p95 / max | tick ms | feed ms | encode ms | draws | instances | triangles | culled |");
     for n in sizes {
-        let mut surface = WorldSurface::<Garden>::default();
+        let mut surface = GardenSurface::default();
         bind(&mut surface);
+        surface.device_ready(gpu.device.features());
         let mut frame = Frame {
             width: 1280.,
             height: 720.,
@@ -66,8 +97,9 @@ fn frames_at_scale() {
             shader_generation: 0,
             headroom: 1.0,
         };
-        let step = |surface: &mut WorldSurface<Garden>, frame: &mut Frame, ms: f64| {
+        let step = |surface: &mut GardenSurface, frame: &mut Frame, ms: f64| {
             frame.now_ms += ms;
+            deliver(surface, &gpu);
             fixture::render(&gpu, surface, frame).unwrap();
         };
         step(&mut surface, &mut frame, 0.);
@@ -92,12 +124,14 @@ fn frames_at_scale() {
         let state = surface.agent(r#"{"op":"state"}"#).unwrap();
         let mean = wall.iter().sum::<f64>() / wall.len() as f64;
         wall.sort_by(f64::total_cmp);
+        let tick = field(&state, "tickMs");
         let feed = field(&state, "feedMs");
         let encode = field(&state, "encodeMs");
         println!(
-            "| {n} | {entities} | {mean:.1} / {:.1} / {:.1} | {} | {} | {} | {} | {} | {} |",
+            "| {n} | {entities} | {mean:.1} / {:.1} / {:.1} | {} | {} | {} | {} | {} | {} | {} |",
             wall[wall.len() * 95 / 100],
             wall[wall.len() - 1],
+            field(tick, "mean"),
             field(feed, "mean"),
             field(encode, "mean"),
             field(&state, "draws"),

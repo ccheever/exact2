@@ -1,0 +1,68 @@
+{
+  "crops": [
+    {"id": "carrot", "name": "Carrot", "rarity": "Common", "price": 10, "grow_s": 20, "fruit_s": 0, "slots": 1, "value": 18, "weight": 0.25, "appear": 1.0, "max_stock": 25, "height": 0.4, "leaf": [0.3, 0.7, 0.25], "fruit": [0.95, 0.5, 0.1], "fruit_size": 0.22},
+    {"id": "strawberry", "name": "Strawberry", "rarity": "Common", "price": 50, "grow_s": 40, "fruit_s": 30, "slots": 4, "value": 14, "weight": 0.25, "appear": 0.9, "max_stock": 12, "height": 0.5, "leaf": [0.25, 0.6, 0.25], "fruit": [0.9, 0.12, 0.15], "fruit_size": 0.14},
+    {"id": "blueberry", "name": "Blueberry", "rarity": "Uncommon", "price": 400, "grow_s": 60, "fruit_s": 40, "slots": 5, "value": 40, "weight": 0.18, "appear": 0.7, "max_stock": 8, "height": 0.6, "leaf": [0.2, 0.5, 0.3], "fruit": [0.25, 0.3, 0.85], "fruit_size": 0.12},
+    {"id": "tomato", "name": "Tomato", "rarity": "Rare", "price": 800, "grow_s": 90, "fruit_s": 60, "slots": 4, "value": 60, "weight": 0.45, "appear": 0.5, "max_stock": 6, "height": 0.9, "leaf": [0.25, 0.55, 0.2], "fruit": [0.85, 0.15, 0.1], "fruit_size": 0.2},
+    {"id": "corn", "name": "Corn", "rarity": "Rare", "price": 1300, "grow_s": 120, "fruit_s": 80, "slots": 3, "value": 75, "weight": 0.6, "appear": 0.4, "max_stock": 5, "height": 1.4, "leaf": [0.45, 0.65, 0.2], "fruit": [0.95, 0.85, 0.25], "fruit_size": 0.18},
+    {"id": "watermelon", "name": "Watermelon", "rarity": "Rare", "price": 2500, "grow_s": 180, "fruit_s": 0, "slots": 1, "value": 2700, "weight": 7.0, "appear": 0.3, "max_stock": 4, "height": 0.5, "leaf": [0.2, 0.5, 0.2], "fruit": [0.2, 0.6, 0.25], "fruit_size": 0.55},
+    {"id": "pumpkin", "name": "Pumpkin", "rarity": "Legendary", "price": 3000, "grow_s": 240, "fruit_s": 0, "slots": 1, "value": 3400, "weight": 6.0, "appear": 0.25, "max_stock": 3, "height": 0.5, "leaf": [0.3, 0.5, 0.2], "fruit": [0.95, 0.55, 0.1], "fruit_size": 0.5},
+    {"id": "apple", "name": "Apple", "rarity": "Legendary", "price": 3250, "grow_s": 300, "fruit_s": 90, "slots": 6, "value": 270, "weight": 2.8, "appear": 0.2, "max_stock": 3, "height": 2.4, "leaf": [0.2, 0.45, 0.2], "fruit": [0.8, 0.1, 0.12], "fruit_size": 0.2},
+    {"id": "bamboo", "name": "Bamboo", "rarity": "Legendary", "price": 4000, "grow_s": 200, "fruit_s": 0, "slots": 1, "value": 4000, "weight": 3.8, "appear": 0.2, "max_stock": 5, "height": 2.8, "leaf": [0.45, 0.75, 0.3], "fruit": [0.5, 0.8, 0.35], "fruit_size": 0.25},
+    {"id": "coconut", "name": "Coconut", "rarity": "Mythical", "price": 6000, "grow_s": 420, "fruit_s": 120, "slots": 3, "value": 400, "weight": 14.0, "appear": 0.12, "max_stock": 2, "height": 3.2, "leaf": [0.25, 0.5, 0.2], "fruit": [0.45, 0.3, 0.15], "fruit_size": 0.28},
+    {"id": "cactus", "name": "Cactus", "rarity": "Mythical", "price": 15000, "grow_s": 360, "fruit_s": 150, "slots": 3, "value": 3400, "weight": 7.0, "appear": 0.1, "max_stock": 2, "height": 1.8, "leaf": [0.3, 0.6, 0.35], "fruit": [0.9, 0.4, 0.6], "fruit_size": 0.2},
+    {"id": "dragon", "name": "Dragon Fruit", "rarity": "Mythical", "price": 50000, "grow_s": 600, "fruit_s": 180, "slots": 4, "value": 4750, "weight": 11.0, "appear": 0.06, "max_stock": 2, "height": 1.6, "leaf": [0.35, 0.6, 0.3], "fruit": [0.95, 0.2, 0.55], "fruit_size": 0.24},
+    {"id": "mango", "name": "Mango", "rarity": "Mythical", "price": 100000, "grow_s": 720, "fruit_s": 200, "slots": 4, "value": 6300, "weight": 14.0, "appear": 0.04, "max_stock": 1, "height": 2.6, "leaf": [0.2, 0.5, 0.2], "fruit": [1.0, 0.65, 0.15], "fruit_size": 0.24},
+    {"id": "grape", "name": "Grape", "rarity": "Divine", "price": 850000, "grow_s": 900, "fruit_s": 240, "slots": 6, "value": 7850, "weight": 3.0, "appear": 0.01, "max_stock": 1, "height": 1.4, "leaf": [0.25, 0.45, 0.25], "fruit": [0.45, 0.15, 0.55], "fruit_size": 0.16}
+  ],
+  "mutations": [
+    {"name": "Gold", "multiplier": 20.0, "color": [1.0, 0.8, 0.15], "glow": 0.2},
+    {"name": "Rainbow", "multiplier": 50.0, "color": [0.85, 0.35, 0.95], "glow": 0.5},
+    {"name": "Wet", "multiplier": 2.0},
+    {"name": "Chilled", "multiplier": 2.0},
+    {"name": "Shocked", "multiplier": 100.0, "color": [0.95, 0.95, 0.4], "glow": 0.5},
+    {"name": "Frozen", "multiplier": 10.0, "color": [0.75, 0.9, 1.0]}
+  ],
+  "ripening": {
+    "rainbow_below": 0.001,
+    "gold_below": 0.011,
+    "rain_wet": 0.5,
+    "snow_chilled": 0.4,
+    "snow_frozen": 0.1,
+    "storm_wet": 0.5,
+    "storm_shocked": 0.03,
+    "weight": [0.8, 1.4],
+    "giant": 0.02,
+    "giant_weight": 3.0,
+    "fed_weight": 1.25
+  },
+  "weather": {
+    "rain_below": 0.6,
+    "snow_below": 0.85,
+    "stormy_s": [60, 120],
+    "clear_s": [180, 420]
+  },
+  "orders": [
+    {"crop": "carrot", "count": 1, "bonus": 30},
+    {"crop": "strawberry", "count": 4, "bonus": 400},
+    {"crop": "blueberry", "count": 5, "bonus": 600},
+    {"crop": "tomato", "count": 4, "bonus": 1300},
+    {"crop": "corn", "count": 3, "bonus": 2400}
+  ],
+  "farm": {
+    "start_size": 6,
+    "max_size": 256,
+    "start_sheckles": 20,
+    "water": 3,
+    "food": 3,
+    "expand_cost": 25,
+    "restock_s": 300
+  },
+  "camera": {
+    "offset": [0.0, 9.0, 11.0],
+    "lag": 0.15,
+    "overview": [0.9, 0.75],
+    "overview_lag": 0.3,
+    "overview_min": 12.0
+  }
+}

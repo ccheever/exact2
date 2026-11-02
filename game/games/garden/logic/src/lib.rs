@@ -1,10 +1,14 @@
-//! Plant Life, a greybox garden game: buy seeds, plant them, let them grow (in real
+//! Grow a Garden: buy seeds, plant them, let them grow (in real
 //! time, and while you are away), harvest mutated fruit, sell, expand.
 
+mod art;
 pub mod crops;
 pub mod farm;
+mod feedback;
 pub mod garden;
 pub mod hud;
+mod looks;
+mod pass;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -29,6 +33,11 @@ pub struct Options {
     /// instead of only at stage events. The O(entities) path, for measuring.
     #[live]
     pub smooth: bool,
+    /// The look: "" (classic), "golden", "storybook" or "pass" (the art
+    /// pass's baked models). Live: every look's world is set up at once and
+    /// updated at tick boundaries, so switching keeps the garden.
+    #[live]
+    pub art: String,
 }
 
 /// Status is republished at most this often unless something happened.
@@ -38,8 +47,10 @@ const STATUS_MS: u64 = 1000;
 #[derive(Default, Resource)]
 pub struct Shown {
     pub second: u64,
-    pub prompt: String,
+    pub prompt: hud::Prompt,
+    pub tile: Option<[u16; 2]>,
     pub events: u64,
+    pub at_barrel: bool,
 }
 
 pub struct Garden;
@@ -48,12 +59,28 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
+    /// Stream the baked models without blocking the initial world.
+    const STREAMED: &'static [&'static str] = pass::MODELS;
+    const LEVEL: Option<asset::Level> = Some(asset::Level::of::<crops::Balance>(crops::BALANCE));
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
             .stick("move", Stick::wasd().or_arrows())
             .button("act", &["KeyE"])
+            .button("water", &["KeyQ"])
+            .button("refill", &["KeyR"])
+            .button("feed", &["KeyF"])
             .button("jump", &["Space"])
+    }
+    fn validate(args: &Options) -> Result<(), String> {
+        if args.art.is_empty() || args.art == "pass" || looks::style(&args.art).is_some() {
+            Ok(())
+        } else {
+            Err(format!(
+                "art `{}`: expected \"\", \"golden\", \"storybook\" or \"pass\"",
+                args.art
+            ))
+        }
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         // Plants and fruit first appear mid-game; a fresh process restoring a
@@ -62,27 +89,26 @@ impl Game for Garden {
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
-        w.insert_resource(Environment {
-            background: Some(Color([0.55, 0.75, 0.9])),
-            fog: Some(Fog {
-                color: Some(Color([0.55, 0.75, 0.9])),
-                ..Fog::new(0.004, 0.02)
-            }),
-            ..Environment::default()
+        w.insert_resource(crops::BalanceResource {
+            value: crops::SharedBalance(std::sync::Arc::new(
+                w.level(crops::BALANCE).expect("garden balance"),
+            )),
         });
+        // Every look draws its own sky, occlusion and sun (`present`).
         w.insert_resource(Schedule::default());
         w.insert_resource(GardenClock::default());
         w.insert_resource(Weather::default());
         w.insert_resource(Census::default());
         w.insert_resource(Shop::default());
-        w.insert_resource(Farm::new());
+        w.insert_resource(Farm::new(&crops::balance(w)));
         w.insert_resource(Shown::default());
+        // Every look dresses the ground with its soil (`present`).
         w.spawn_named(
             "ground",
             (
                 Transform::default(),
                 Mesh::plane(1.0, 1.0),
-                Material::grid([0.2, 0.11, 0.05], garden::TILE),
+                Material::default(),
             ),
         );
         let player = w.spawn_named(
@@ -109,14 +135,37 @@ impl Game for Garden {
                 DirectionalLight::default(),
             ),
         );
+        farm::create_plot_outline(w);
+        w.spawn_named(
+            "water-barrel",
+            (
+                Transform::at(farm::BARREL.x, 0.5, farm::BARREL.z),
+                Mesh::cylinder(0.65, 1.0),
+                garden::paint([0.2, 0.35, 0.65]),
+            ),
+        );
+        w.spawn_named(
+            "barrel-water",
+            (
+                Transform::at(farm::BARREL.x, 1.01, farm::BARREL.z),
+                Mesh::cylinder(0.53, 0.04),
+                garden::paint([0.2, 0.7, 1.0]),
+            ),
+        );
+        art::setup(w);
+        feedback::setup(w);
         farm::lay_ground(w);
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
-        hud::publish(w, String::new(), true);
+        hud::publish(w, true);
+        art::update(w, args);
     }
     fn paused(args: &Options) -> bool {
         args.paused
+    }
+    fn present(p: &mut Present, args: &Options) {
+        art::present(p, args);
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         farm::observe_epoch(w, args.epoch);
@@ -132,7 +181,8 @@ impl Game for Garden {
             farm::command(w, cmd);
             acted = true;
         }
-        w.character("player")
+        let contact = w
+            .character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let (tile, prompt) = farm::prompt(w);
         if input.pressed("act") {
@@ -141,25 +191,49 @@ impl Game for Garden {
                 acted = true;
             }
         }
+        for (action, f) in [
+            (
+                "water",
+                farm::water_here as fn(&World) -> Result<hud::Note, hud::Note>,
+            ),
+            ("refill", farm::refill),
+            ("feed", farm::feed_here),
+        ] {
+            if input.pressed(action) {
+                let message = f(w).unwrap_or_else(|why| why);
+                w.resource_mut::<Farm>().last = message;
+                acted = true;
+            }
+        }
+        pass::step(w);
+        feedback::step(w, contact);
+        audio::step(w);
         let now = garden::now_ms(w);
         let processed = w.resource::<Schedule>().processed;
+        let at_barrel = farm::at_barrel(w);
         let changed = {
             let shown = w.resource::<Shown>();
             acted
                 || shown.second != now / STATUS_MS
                 || shown.prompt != prompt
+                || shown.tile != tile
                 || shown.events != processed
+                || shown.at_barrel != at_barrel
         };
         if changed {
             let prompt = if acted { farm::prompt(w).1 } else { prompt };
+            farm::show_plot(w, tile);
             {
                 let mut shown = w.resource_mut::<Shown>();
                 shown.second = now / STATUS_MS;
-                shown.prompt = prompt.clone();
+                shown.prompt = prompt;
+                shown.tile = tile;
                 shown.events = processed;
+                shown.at_barrel = at_barrel;
             }
-            hud::publish(w, prompt, false);
+            hud::publish(w, false);
         }
+        art::update(w, args);
     }
 }
 

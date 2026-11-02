@@ -1,27 +1,22 @@
 {
   "ticks": {
-    "0": "0x29b11e0dee0c4fd5",
-    "5136": "0xbc5d77669a63bf80"
+    "0": "0x0be8317ba6f50466",
+    "5136": "0xbd48043dcd31acfe"
   },
   "saves": {
-    "continuation": "ec3723152eaccdf0c8501fafcd94049b3462c6061916b313b010e51c2c23c793"
+    "continuation": "07fa22c232ba0ba440e5f2bfdd06659123787d97af82705ab02bd85fbf574e34",
+    "market": "18d0da17e97b186d8554c90e24be9e8f9460bf1405d91720bc276f44fa3b8e0d",
+    "recovery": "5aa652d7087e64bc27a886c22bab1de40eff9919fa1e9f398667dd00de998d04",
+    "watering": "7d568f2ab462911de4eabdc16aff2910f8899e6806e811b135e7f8e78cacdb2a",
+    "compost": "143931bc89f19b61094a75fbb709e229d791c1487500e6abfeb462fbebd08810"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "modes": [
-    "0",
-    "1",
-    "fresh-game"
-  ],
-  "profiles": [
-    "gpu-dev"
-  ],
-  "inputs": "ddc6eb9e945a635d59c3a896e4cd206cef57a2876e959a78f552b9d91ff813ca",
-  "sourceInputs": "2488427d7b7e9b802d5448aa87929a768febfb865109ee333d237ba4c9c2214c",
+  "inputs": "513bda91f81df9c753b5272cc758d0760acfc39302e75e0b8bca6318f0b56550",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "inputs:2488427d7b7e9b802d5448aa87929a768febfb865109ee333d237ba4c9c2214c",
-  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+  "at": "a507f57b58d14557d3fb3ca2dc67df418b628ac6",
+  "reason": "Today's engine rounds and main's merge, plus levels: Game::LEVELS with checked and shown data reloading in place (LLP 1046.009 reconciled with the garden's data files); garden's balance is saved simulation data and its looks presentation data; tennis's rule state as a Contract program"
 }

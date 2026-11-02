@@ -1,9 +1,11 @@
-# Plant Life (greybox)
+# Plant Life
 
-A garden game: plant seeds, let them grow in real time, harvest, sell and
-expand. It is built to find where the engine breaks at scale.
+Plant seeds, tend crops, harvest fruit, and sell it to expand your garden.
+The detailed Art pass is the default; the Garden panel also offers Golden
+hour, Storybook, and Classic.
 
 ```sh
+EXACT_APP_DIR="$PWD/game/games/garden" bun host/apple/build.mjs --run  # macOS
 bun game/dev.mjs garden          # play in the browser
 bun game/prove.mjs garden        # verify on the GPU-less Linux host
 bun game/games/garden/proof.mjs linux --scale   # the measurements (add --huge for 21,100 plants)
@@ -12,8 +14,52 @@ bun game/app/shells.mjs ./game/games/garden --test
 
 ## Playing
 
+The field sits in a meadow beside an orchard, with a straw-hatted gardener,
+leafy crops and shaped fruit. Generated models are shared across plants; the
+five scenery entities stay constant as the garden expands. `game.assets` in
+`app.json` selects the existing model-capable renderer for these models.
+The gardener turns and walks with swinging arms and legs. Successful planting
+and feeding kick up dirt; watering raises a can and drops blue water; harvesting
+sends the picked fruit into the satchel with a short chime. These gestures,
+particles and sounds use the saved game clock and preserve crop timing and prices.
+`game.audio` selects the optional sound output.
+
+The Garden panel's **Look** row changes the scenery without restarting your
+crops or inventory. **Art pass**, the default, has a model for every crop and
+growth stage, shaped fruit, a picket fence with lanterns, a seed stall and
+keeper, a ten-minute day/night cycle, and rain and snow. **Golden hour** and
+**Storybook** offer distinct palettes, gardeners, flowers, grass and hills.
+**Classic** keeps the simpler garden models.
+
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
+The outline marks that tile: cyan when empty, amber while growing or regrowing,
+blue after watering, green when fruit is ready. Crops stand to one side of the tile's centre so you
+can see them beside your character. Outside the plots, the prompt gives a
+direction, WASD key and approximate distance back to the nearest plot. It
+updates as you walk and follows the garden when you expand it.
+With a seed in hand on an occupied plot, a separate hint points to the nearest
+empty plot. A full garden says so and suggests expansion when it is available.
+Growth and harvest prompts stay visible, and the direction disappears once
+you reach an empty tile or run out of seeds.
+
+**Q** waters the current plot, cutting its remaining growth or fruit wait by
+25%. The can holds three doses. A growing plant takes one dose; when it matures,
+its fruit can take another. Each new regrowth can be watered once. Ripe fruit,
+empty plots and repeated watering spend nothing. The care panel shows what is
+ready and points toward the blue barrel just west of the first plot. Stand near
+it and press **R** to refill for free. Both actions also have HUD buttons.
+Watering is optional; crops still grow while you explore or are away.
+
+**Compost** a chosen backpack fruit to trade it for one dose of plant food,
+instead of its sale value. The pouch holds three doses; a full pouch leaves
+the fruit untouched. Stand on a growing plot and press **F**, or its **Feed**
+button, to make the upcoming fruit weigh 25% more. Feeding a seedling carries
+through to its first fruit; feeding a mature plant affects its current unripe
+fruit. It stacks with watering and weather mutations, but repeated feeding of
+the same growth spends nothing. New regrowth needs another dose. A purple plot
+outline and the care panel mark feeding; harvested fruit is labeled **Fed**.
+The saved pouch and crop keep their feeding state while you are away.
 
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).
@@ -30,8 +76,27 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
 (×2) or Frozen (×10), a Thunderstorm Wet and Shocked (×100). Value is
 `base × (weight/base weight)² × variant × (1 + Σ(environment − 1))`.
 
+Five market orders guide the early garden through carrots, strawberries,
+blueberries, tomatoes and corn. Harvest the requested quantity into your
+backpack and press **Deliver order**. Each delivery pays the fruit's full
+weight/mutation value plus a one-time bonus; unrelated fruit stays in the bag.
+The market shows the next step and offers **Hold requested seed** when you own
+the right seed but hold another. The plot readout names your current tile and
+crop; move to an empty tile when a fruiting plant still occupies the old one.
+Each new request and restock supplies at least one requested seed at its normal
+price. Completed orders survive saves. The shop shows first-harvest and regrowth
+times.
+
 ## How it is built
 
+- **Balance and art.** `garden.level.json` is the typed balance loaded
+  before setup; changing it requires restarting the game. The look palettes
+  and lighting in `assets/looks.level.json` are compiled into the game.
+  `art.mjs`, `looks.mjs`, and `kit.mjs` generate the committed glTF models;
+  ordinary builds bake them for the renderer. Regenerate with
+  `bun game/games/garden/art.mjs` after editing the generators.
+- **Look changes** keep gameplay state. Model and lighting components are
+  saved with the world, so different looks can have different save hashes.
 - **Garden time** is world time plus every span the garden spent away
   (`GardenClock`). Everything that will happen — a plant's next stage, a fruit
   ripening, the restock, the weather — is an entry in one saved min-heap
@@ -43,21 +108,36 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
   `exactTime().epochAtZero` as the live `epoch` argument; a world restored in a
   later session whose epoch is ahead of where its own clock says it is grows by
   the difference. The proof restores the same save an hour later (`--epoch`).
-- **Commands** (buy, sell, harvest, expand, fill, away) are messages:
-  Contract's `postMessage("world", "buy carrot")`, read once each, in order,
+- **Commands** (buy, sell, deliver, harvest, expand, fill, away) are messages:
+  Contract's `postMessage("buy carrot", "world")`, read once each, in order,
   from `input.messages()`.
 - **The HUD** is three published records — status, shop, backpack — each
-  republished only when it changes (status at most once a garden second).
-  The backpack is published 200 rows a page: a 164,000-fruit backpack would be
-  a 13.6 MB field rebuilt on every harvest.
+  republished only when it changes (status timers once a garden second;
+    actions, events and crossing a plot boundary publish immediately).
+  They hold values, never sentences: counts, crop names and ids, seconds, a
+  direction and distance, and what the last action did (`Note`'s `what`, such
+  as `planted` or `can_empty`). `app.contract` words them (`noteText`,
+  `promptText`, `hintText`, `compact`, `clock`…), so the HUD's wording changes
+  with no Rust rebuild. The backpack is published 200 rows a page: a
+  164,000-fruit backpack would be a 13.6 MB field rebuilt on every harvest.
+  The panels sit below the top bar however it wraps, the market beside them,
+  and on a phone's width they span it and the care panel steps aside.
+- **Watering** shifts the effective start and deadline together, preserving
+  smooth-growth progress. It queues an earlier event; the old deadline is ignored
+  when it comes due. Only this plant and its bounded fruit slots are visited.
+  The can, growth clocks and queue are all saved, including during offline growth.
 
 | File | |
 |---|---|
 | `logic/src/lib.rs` | arguments, setup, the tick |
+| `logic/src/art.rs`, `feedback.rs` | classic models, every look's setup and `present` dispatch, saved gestures, action particles and sounds |
+| `logic/src/looks.rs`, `pass.rs` | the golden and storybook looks, and the art pass: their props, sky and drawn models |
+| `art.mjs`, `looks.mjs`, `kit.mjs` | every look's baked models, written to `art/`; the glTF writer and mesh shapes they share |
 | `logic/src/garden.rs` | the clock, the schedule, plants, fruit, weather |
 | `logic/src/farm.rs` | tiles, purse, backpack, commands, offline catch-up |
-| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the catalogue and values, publication |
+| `logic/src/shop.rs`, `crops.rs`, `hud.rs` | stock, the balance's types and values, the HUD's records |
+| `garden.level.json`, `assets/looks.level.json` | the balance; every look's lighting, palette and camera |
 | `logic/tests/sim.rs` | the hostless game tests |
 | `logic/tests/scale.rs` | ignored measurements (`--ignored --nocapture`, release) |
-| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |
-| `proof.mjs` | the real-host proof, and `--scale` |
+| `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls, and every word the HUD shows |
+| `proof.mjs` | the real-host proof, `--scale`, and `--looks` captures |
