@@ -53,6 +53,29 @@ use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use FieldOpenSelect from "../shared/dialog-trap.contract"
 
+// RightPanelResizeHandle: the panel's left edge drags its width. Its 1pt line lies on the panel's border and takes
+// the border's colour on hover (so hovering changes nothing to see) and the primary at 60% while it is dragged. The
+// rail sits inside the panel and above its body: an overflowing child is not hit-testable natively.
+component PanelResizeRail
+  props
+    label: string
+    resize: action
+    finish: action
+    testId: string
+  state over = false
+  state dragging = false
+  action hover(on: bool)
+    over = on
+  action dragged(dx: number, dy: number)
+    dragging = true
+    resize(dx, dy)
+  action released(vx: number, vy: number)
+    dragging = false
+    finish(vx, vy)
+  view
+    box position="absolute" top=0 bottom=0 left=0 width="0.375rem" z-index=28 cursor="col-resize" touch-action="none" pan=dragged panrelease=released hover=hover role="separator" aria-orientation="vertical" aria-label=label testId=testId
+      box position="absolute" top=0 bottom=0 left=0 width=1 pointer-events="none" background-color=(dragging ? "light-dark(#1b4ed899, #346bf199)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000")
+
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
 // the right panel toggle). With no tabs it is the launcher's bar.
@@ -402,7 +425,7 @@ component SurfaceBody
     if panel.kind == "device"
       DeviceSurfaceBody(device=panel.device, scheme=scheme, local=local, command=command)
     if panel.kind == "browser"
-      BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
+      BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused, sheet=sheet)
     if panel.kind == "side-chat"
       SideChatBody(view=panel.sideChat, local=local, command=command, confirm=confirm, still=still)
 
