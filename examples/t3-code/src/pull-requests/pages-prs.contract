@@ -764,7 +764,7 @@ component PrFilterSub
 
 // MenuSearchInput (ui/menu.tsx): px-2 pt-1.5 pb-1 around ComboboxSearchInput's field, a hairline under it that takes the
 // ring colour while the field has the focus (the field itself draws no focus ring), and the search glyph, or the spinner
-// while the host is asked. The field is one line tall, centred by the row: a taller macOS field draws its text at the top.
+// while the host is asked. The field is one line tall, centred by the row.
 component PrMenuSearch
   inject
     still: bool

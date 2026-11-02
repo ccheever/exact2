@@ -167,7 +167,7 @@ final class IframeWindowsTests: XCTestCase {
         click(web, "plain", modifiers: .command)
         spin { !seen.records.isEmpty }
         XCTAssertEqual(seen.records.first?.record["disposition"] as? String, "background-tab", "\(seen.records)")
-        pause(0.5)
+        spin(until: { false }, 0.5)
         XCTAssertEqual(web.url?.path, "/opener")
         #endif
 
@@ -205,13 +205,13 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(popup.window?.contentLayoutRect.size, CGSize(width: 320, height: 240))
         // Its opener's partition, none of its opener's scripts.
         XCTAssertTrue(popup.configuration.websiteDataStore === web.configuration.websiteDataStore)
-        XCTAssertTrue(popup.configuration.userContentController.userScripts.isEmpty)
+        XCTAssertEqual(popup.configuration.userContentController.userScripts.filter { !$0.source.contains("exact-print-") }.count, 0, "only its own print scripts")
         XCTAssertFalse(popup.configuration.userContentController === web.configuration.userContentController)
         // Its own popups are refused: one level.
         XCTAssertEqual(run(popup, "window.open('/b', 'x', 'width=100,height=100') === null") as? Bool, true)
         // The app's `exact-app` origin is refused in it.
         _ = run(popup, "location.href = 'exact-app://app/assets/index.html'; 0")
-        pause(0.5)
+        spin(until: { false }, 0.5)
         XCTAssertEqual(popup.url?.path, "/popup")
         // `window.close()` closes it.
         _ = run(popup, "window.close(); 0")
@@ -227,7 +227,7 @@ final class IframeWindowsTests: XCTestCase {
         loaded(seen, web, "/opener")
         _ = run(web, "document.getElementById('blank').click(); 0")
         XCTAssertEqual(run(web, "window.open('/popup', 'signin', 'width=320,height=240') === null") as? Bool, true)
-        pause(0.5)
+        spin(until: { false }, 0.5)
         XCTAssertEqual(events(seen), [])
         XCTAssertEqual(web.url?.path, "/opener")
         #if os(macOS)
@@ -654,19 +654,23 @@ final class IframeWindowsTests: XCTestCase {
 
     #if os(macOS)
     /// A page's `window.print()` is the print panel, a sheet on the window,
-    /// and returns once the panel ends; one still up ends with its frame.
+    /// through public API only; `afterprint` fires once the panel ends, and
+    /// one still up ends with its frame.
     func testAPagesPrintIsThePrintPanel() throws {
         let arm = try arm(), seen = Seen()
+        let ui: AnyClass = try XCTUnwrap(NSClassFromString("ExactWebArm.FrameUI"))
+        XCTAssertFalse(ui.instancesRespond(to: NSSelectorFromString("_webView:printFrame:pdfFirstPageSize:completionHandler:")), "WebKit's private print delegate")
         let (handle, web) = mount(arm, seen, configuration: ["partition": "print"], src: "\(baseURL)/opener")
         loaded(seen, web, "/opener")
         let window = try XCTUnwrap(web.window)
-        start(web, "window.printed = (print(), 'done')")
+        start(web, "window.printed = []; addEventListener('beforeprint', () => printed.push('before')); addEventListener('afterprint', () => printed.push('after')); print()")
         spin { window.attachedSheet != nil }
         let sheet = try XCTUnwrap(window.attachedSheet)
         XCTAssertTrue(Set(sheet.contentView.map(buttonTitles) ?? []).isSuperset(of: ["Print", "Cancel"]), "the print panel")
+        XCTAssertEqual(run(web, "printed.join()") as? String, "before")
         window.endSheet(sheet, returnCode: .cancel)
-        spin { self.run(web, "window.printed") as? String == "done" }
-        XCTAssertEqual(run(web, "window.printed") as? String, "done", "print() returned after Cancel")
+        spin { self.run(web, "printed.join()") as? String == "before,after" }
+        XCTAssertEqual(run(web, "printed.join()") as? String, "before,after", "afterprint fired after Cancel")
 
         start(web, "print()")
         spin { window.attachedSheet != nil }
@@ -691,7 +695,7 @@ final class IframeWindowsTests: XCTestCase {
             self.json(fields.merging(["token": token]) { a, _ in a }, arm.answer, handle)
         }
 
-        start(web, "window.printed = (print(), 'done')")
+        start(web, "addEventListener('afterprint', () => window.printed = 'done', { once: true }); print()")
         spin { !seen.asked.isEmpty }
         XCTAssertEqual(seen.asked.last?["capability"] as? String, "print")
         let args = try XCTUnwrap(seen.asked.last?["args"] as? [String: Any])
@@ -707,7 +711,7 @@ final class IframeWindowsTests: XCTestCase {
         seen.asked = []
         _ = run(web, """
             const f = document.createElement('iframe'); f.id = 'doc'; f.src = '/two-pages.pdf';
-            f.onload = () => setTimeout(() => f.contentWindow.print(), 300); document.body.append(f); 0
+            f.onload = () => f.contentWindow.print(); document.body.append(f); 0
             """)
         spin { !seen.asked.isEmpty }
         let pdf = folder.appendingPathComponent("doc.pdf")
@@ -717,12 +721,34 @@ final class IframeWindowsTests: XCTestCase {
         XCTAssertEqual(printed.pageCount, 2)
         XCTAssertEqual((0..<printed.pageCount).compactMap { printed.page(at: $0)?.string }, ["Page one", "Page two"])
 
+        // A viewer that prints a PDF from a hidden frame and removes the frame as soon as `print()` returns.
         seen.asked = []
-        start(web, "window.cancelled = (print(), 'done')")
+        _ = run(web, """
+            fetch('/two-pages.pdf').then(r => r.blob()).then(b => { const u = URL.createObjectURL(b), f = document.createElement('iframe'); f.src = u;
+              f.onload = () => { try { f.contentWindow.print() } finally { f.remove(); URL.revokeObjectURL(u) } }; document.body.append(f) }); 0
+            """)
+        spin { !seen.asked.isEmpty }
+        let blob = folder.appendingPathComponent("blob.pdf")
+        answer(["path": blob.path])
+        spin { PDFDocument(url: blob) != nil }
+        XCTAssertEqual(PDFDocument(url: blob)?.pageCount, 2, "the removed frame's PDF")
+
+        // A frame below the main one that is not a PDF has no public print operation.
+        seen.asked = []
+        _ = run(web, """
+            const c = document.createElement('iframe'); c.id = 'child'; c.src = '/b';
+            c.onload = () => { c.contentWindow.print(); window.childPrinted = 'called' }; document.body.append(c); 0
+            """)
+        spin { self.run(web, "window.childPrinted") as? String == "called" }
+        spin(until: { false }, 0.5)
+        XCTAssertTrue(seen.asked.isEmpty, "a page in a frame below the main one prints nothing")
+
+        seen.asked = []
+        start(web, "print()")
         spin { !seen.asked.isEmpty }
         answer(["cancel": true])
-        spin { self.run(web, "window.cancelled") as? String == "done" }
-        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["doc.pdf", "page.pdf"], "Cancel printed nothing")
+        spin(until: { false }, 0.5)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path).sorted(), ["blob.pdf", "doc.pdf", "page.pdf"], "Cancel printed nothing")
     }
     #endif
 

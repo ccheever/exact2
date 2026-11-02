@@ -215,6 +215,9 @@ extension NodeView {
         if cssVisibilityHidden {
             shadowCaster?.removeFromSuperlayer(); shadowCaster = nil
             insetCaster?.removeFromSuperlayer(); insetCaster = nil
+            #if os(macOS)
+            removeShadowStand()
+            #endif
             return
         }
         #if os(iOS) || os(tvOS)
@@ -232,9 +235,15 @@ extension NodeView {
         }
         let shape = CornerShape(style["corner_shape"])
         let outer = all.filter { !$0.inset }
-        if let host, !outer.isEmpty {
+        #if os(iOS) || os(tvOS)
+        let outerHost = outer.isEmpty ? nil : host
+        #else
+        // A backdrop's layer masks: they cast beside it (`BackdropShadowMac.swift`).
+        let outerHost = outer.isEmpty ? nil : outerShadowHost()
+        #endif
+        if let outerHost {
             let caster = shadowCaster ?? ShadowCaster()
-            if caster.superlayer !== host { host.insertSublayer(caster, at: 0) }
+            if caster.superlayer !== outerHost { outerHost.insertSublayer(caster, at: 0) }
             shadowCaster = caster
             caster.cast(box: bounds, outline: outline, shadows: outer.map { spec in
                 guard spec.spread != 0 else { return (outline, spec) }
@@ -245,6 +254,9 @@ extension NodeView {
             })
         } else {
             shadowCaster?.removeFromSuperlayer(); shadowCaster = nil
+            #if os(macOS)
+            removeShadowStand()
+            #endif
         }
         let inner = all.filter(\.inset)
         guard let host, !inner.isEmpty else { insetCaster?.removeFromSuperlayer(); insetCaster = nil; return }
