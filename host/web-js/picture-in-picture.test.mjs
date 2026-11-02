@@ -52,7 +52,7 @@ test("an image floats in picture in picture and hears it enter and leave", async
     await page.evaluate(() => window.exitPip());
     await page.waitForFunction(() => document.pictureInPictureElement === null);
     await page.evaluate(() => window.exitPip());
-    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in picture in picture;');
+    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in the picture-in-picture window;');
     await page.evaluate(() => { document.querySelector('#log').textContent = ''; });
     // Floated again, then the image leaves the document: the window closes, and no one hears it.
     await page.locator('#float').click();
@@ -150,7 +150,7 @@ test("the window presentation floats the image in a document picture-in-picture 
     await page.evaluate(() => documentPictureInPicture.window.close());
     await page.waitForFunction(() => document.querySelector('#log').textContent.endsWith('leavepictureinpicture;'));
     await page.evaluate(() => window.exitPip());
-    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in picture in picture;');
+    expect(await page.locator('#log').textContent()).toBe('enterpictureinpicture;leavepictureinpicture;exitPictureInPicture ignored: no image is in the picture-in-picture window;');
   } finally {
     await browser?.close();
     server.stop(true);
